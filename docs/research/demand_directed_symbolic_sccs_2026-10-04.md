@@ -824,7 +824,8 @@ Three different interventions must not be conflated:
   weighted transport plus native coefficient addition on one fixed complete
   parent boundary, retaining every pole, zero-sector and pinch condition.
   Cancellation across unrelated parents is forbidden. No such cancellation is
-  inferred from the global deduplication counter, and this diagnostic has not run.
+  inferred from the global deduplication counter. The completed fixed-parent
+  diagnostic below tests this distinction directly.
 
 The previously negative H55 symbolic-route cut in
 [the frame study, §2](shared_rule_policy_and_rank_frames_2026-10-04.md) remains
@@ -864,6 +865,61 @@ The immutable raw receipts are in the same acceptance directory's
 `runtime-summary-v4.json` (`3f5681e3…ce1437`) retains phase timings,
 resource measurements, actual finite work and raw exit codes for both the
 H55 and260 controls. Independent runtime/input/guard audits pass.
+
+### Completed one-parent weighted-route cancellation
+
+The generic research adapter `rule_optimizer_routed_cancellation` admitted the
+entire unchanged67-owner/8246-route/two-overlay combined485 selection, then
+observed only the frozen owner31 node2975 singleton. This is a state reached
+in the previously exposed H1 stress-panel **symbolic fallback**, not demonstrated
+production ancestry or a measured hotspot inside the declined finite kernel.
+Native matching selected batch0/rule210. Every original inspection counter
+matched the archived record:330 complete RHS terms,235 strict pinches,95
+same-support terms, no conditional coefficients, problems or optional refusals.
+
+Existing native weighted transports and exact coefficient addition produced:
+
+| Quantity | Count |
+| --- | ---: |
+| Native route calls / materialized route terms |259 /402|
+| Final routed endpoint occurrences |473|
+| Distinct exact keys before cross-route coefficient addition |372|
+| Nonzero keys after addition |346|
+| Keys eliminated by exact cancellation |26|
+
+The101 duplicate additions and26 vanished keys are different quantities.
+Each vanished key receives two contributions from two distinct terms of this
+**same** parent. Thus6.99% of the distinct immediate routed boundary genuinely
+vanishes in the native rational coefficient field, with no numerical dimension
+specialization. All original source poles/conditions remain inherited even when
+a denominator disappears from a final sum. Native coefficient state/atoms,
+source ordinals, route witnesses and the complete weighted ledger are retained.
+No descendant Apply rule was evaluated, no identity was exported, and neither
+a parametric recurrence nor a closure-suppression certificate was produced.
+
+Fourteen canceled keys have numerator rank1 and twelve rank0;15 belong to
+owner16,10 to owner29 and one to owner27. Twenty-five have eight positive
+denominators and one has seven, with total positive powers17–20. Their terminal,
+closure and exclusive downstream-cost status was **not** inspected. The346
+survivors include91 rank1 keys and255 rank0 keys. This gives a concrete
+coefficient-cancellation witness, not a claim that these26 cones are removable
+from a shared campaign or that the128M structural reservation would shrink.
+
+The guarded run took97.470 seconds inclusive:89.352 seconds preparation,
+0.024 seconds original observation and0.140 seconds weighted routing, with
+5.124GB sampled peak process-tree RSS. All groups drained; independent source,
+ten focused tests, runtime and ledger audits passed. The first test compile's
+two cfg-test-only constructor errors were preserved and corrected to public
+`try_new`; no engine library changed. The inherited build-plan `prior_failure`
+sentence refers to an older adapter and is not the actual failure description.
+
+Evidence is under `profiles/routed-cancellation-owner31-v1/`: `plan.json`,
+`execution-result.json`, `native/original/`, `native/ledger.json` and
+`endpoint-census.json`. The census keeps all source-term→routed-key incidence
+and exact R/A/D geometry; its Python code does not interpret coefficient text.
+The next scientific gate is a reusable checked composite identity or a
+parametric source-level improvement, followed by matched shared-workload tests.
+This result alone is not a deployment recommendation.
 
 ## Conditional geometry lead: exact support as an integer-flow relation
 

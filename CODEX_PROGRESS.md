@@ -22,20 +22,179 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Expensive shared-owner regeneration | `lower_rule_evaluation`, root, independent auditor | Generation and full inventories complete: baseline483/83 versus candidate491/82 rules/residual records; about4% less generation time/bytes, no new residual keys. Existing repair overlay stays intact; same-owner preference/overlay composition remains unsupported, no replacement traversal or campaign gain claimed. |
 | Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4/H55 diagnostics complete. Integrated H55 singleton pair coldPASS: traversal34.147→13.427s, whole246.516→207.747s. Different retained representations; actual candidate356,202 operational states, not merely one saved recipe. One pair, not fullcampaign acceleration. |
 | Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e/eeaa7806. V5 default-off4L full58-query/cold control passes with identical26,025-domain graph. Both corrected H1 arms refuse128M projected-endpoint allowance after about253s; neither completes or cold-verifies. No production activation. |
-| Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Original four-root pairs show25.93%/25.82% fewer domains. Combined485 adds20.10%/20.32% marginal reduction over484 in two completed cold-passed pairs;83 terminals unchanged. Hard H1 remains incomplete in both arms. Original260-region treatment-heldout validation is proposed, not run. No production installation. |
-| Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Strict locality pusheddeca49ea. New generic no-raising selector passes117 tests. Native no-raising proof gives10 tails versus7; adding original-zero-index preservation recovers the known7-tail identity. No new performance gain; charts/axes/windows remain supplied. |
-| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery literature; `finite_region_audit` independent audit | One-parent diagnostic implemented/audited;10 tests pass. Complete330-term parent yields372 canonical keys,26 cancel exactly. Investigate expensive surviving/cancelled classes before a new source-window nomination. No campaign pruning or speedup claim. |
+| Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Delivered local gains, but broader completed260-integral validation gives only0.129% less work; both arms coldPASS. Hard H1 remains incomplete in both arms. No production installation or global speedup claim. |
+| Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Pushed306e8182:117 selector tests. Actual291-source baseline now proves a313-tail identity on all4 native cells; matched strict six-zero-axis preservation misses after291 rows. This is a discriminating finite-bank negative, not generic numerator-free impossibility. No export or work gain. |
+| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Pushed306e8182 diagnostic;26 exact routed cancellations still leave91 numerator-bearing keys. New generic two-stage boundary correction is active: keep a full-source-proved leading recurrence, add only pinched-source identities, and use the existing weighted Symbolica projector. No new CAS or production change. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
 
+### A discriminating control and a genuinely different correction — October4, 13:23 UTC
+
+[M] Corrected291-source control passes full original-source replay, retained
+conditions, root containment and strict descent on all four cells of the
+two-ray chart. It gives266 contributions and313 tails, exactly the same full
+product as the earlier budget-refused candidate. Inclusive2.639s, clean exit.
+The matched test adds only preservation of the six initially zero directions:
+same969-column universe and291 sources, forbidden columns447→616. It finds
+no target after visiting every source (1.968s, clean exit). Independent final
+audit passes both. This is a genuine limitation of that finite source bank
+under that exact preservation objective, not a theorem that all rank-zero
+reductions are impossible. Evidence under
+`profiles/owner31-incumbent-support-proof-cap-v2/` and
+`profiles/owner31-incumbent-rank-zero-v1/` in the TMP research root.
+
+[E] Root authorizes a small research-only two-stage correction seam. Retain
+the typed, full-original-source313-tail proposal; do not replace it by the
+different330-tail saved rule modulo zero sectors. Add ordinary IBPs seeded
+with a selected unit propagator pinched to zero. Its derivative coefficient
+vanishes, so these rows cannot restore that propagator or alter the leading
+same-support recurrence. Existing `Span::weighted`, Symbolica projection,
+composition and exact source checker suffice: only the retained proposal has
+the target, so normalization fixes its coefficient to one. No affine solver,
+synthetic integral, reconstruction kernel or omitted boundary is needed.
+
+Implementation is delegated to `lower_rule_evaluation`, actual313-boundary
+geometry and input preparation to `lower_sector_discovery`, and independent
+mathematical/code audit to `finite_region_audit`. The smallest test retains
+the entire source image, forbids new numerator columns, and attempts removal
+of a complete preregistered reachable pinch class. It must first pass a
+zero-correction control and same-support equality checks. Local cancellation
+alone remains insufficient for a campaign recommendation; full-context work
+measurement and held-out validation still follow any successful proof.
+
+### Source geometry rejects an ineffective correction bank — October4, 13:18 UTC
+
+[M] Independent inspection proves that none of the82 nominated fixed-pinch,
+rank-one columns can be changed by the earlier150-row correction bank.
+Each requires lowering two distinct fixed coordinates: an active denominator
+and an inactive numerator direction. Every ordinary row changes at most one
+fixed coordinate negatively, while all six chosen translations touch only the
+two free coordinates. All82 are absent even from the larger1,225-column
+structural superset. No linear combination over rational functions can repair
+that absence. The eight-child recurrence block likewise leaves50 of93
+rank-one columns uncovered. Both shortcuts are parked before implementation.
+Evidence: `profiles/owner31-affine150-support-obstruction-v1.json` under the
+TMP research root; SHA256 starts2698301f. The evaluator and independent auditor
+agree. These are finite-bank obstructions, not impossibility results for IBPs.
+
+[M] The recovered291-source baseline finds a target with266 original
+contributions and313 provisional tails, but proof stops at the inherited
+25-contribution allowance. The same configuration field bounds both original
+generator inventory and translated proof contributions. Root authorizes an
+input-only correction25→291; no source, ordering, chart, guard or algebraic
+check changes. Keep the first refusal as evidence, and do not interpret it as
+a mathematical failure. Discovery runs the corrected control; evaluation
+investigates whether pinched-source blocks can alter the unwanted boundary
+without changing the leading recurrence. Auditor reviews both independently.
+
+[M] Production is observed read-only at13:17UTC:208.08M discovered,
+162.97M local completions,11.59M pending, checkpoint26 resumable. Recorded
+13/67 root closure is3.90h stale. Hour-window pending growth is−0.174 per
+local completion; this is not a recursive-closure rate or completion estimate.
+No second campaign or production switch is warranted by the current evidence.
+
+### Recover the actual circuit before another source search — October4, 13:08 UTC
+
+[M] The existing selected-rule replay binary authenticates owner31/rule210
+in9.781s inclusive (native9.010s; replay proper0.358s), with no code change
+or new owner generation. It recovers291 unique original RowId/offset contributions
+across25 ordinary RowIds and37 offsets. Only71 pairs occur in the preceding
+150-row bank;220 do not. The raw pivot's−eD2 recentering is already incorporated
+in those canonical offsets.621 retained condition entries, three exceptional
+branches, one application box and5566 authenticated zero sectors remain bound.
+This is a guarded circuit replay modulo native zero identities, not an
+unrestricted full-image membership certificate or a newly improved rule.
+Independent input/receipt/count audit passes. Evidence:
+`TMP/rule-optimizer-20261003/profiles/owner31-rule210-circuit-replay-v1/`;
+report`b1617c31…3019d`, execution`94cc868f…d39a46`. All owned processes drain.
+
+[E] Discovery prepares an input-only291-pair baseline control; no Cartesian
+25×37 completion, random recenter or larger-depth sweep. The native full-source
+projector must independently determine its target and chart proof; the replay's
+zero-sector quotient is not silently assumed. The recovered offsets also allow
+an elementary bound: every initially active coordinate remains nonnegative
+through every ordinary shift on the whole chart. Thus strict preservation of
+the six initially zero axes would suffice for a subsequent rank-zero objective
+in this specific bank. This is source-geometry reasoning, not a found rule.
+
+[E] Evaluation's same-rule block screen rules out a simplistic cure: across
+all eight children preserving the thirteen fixed axes,50 of the93 original
+rank-one keys are absent from every translated child RHS. Such a block cannot
+cancel every numerator term in original coordinates. Its common nominal case
+also excludes the frozen witness; no applicability or routed-cancellation
+claim follows. No block-composition engine is implemented from this negative.
+
+[E] Root's newer literature review motivates a different, affine correction:
+keep the authenticated target and same-support recurrence, then use additional
+source combinations with zero same-support image to simplify the pinch terms.
+The zero-correction control must replay the incumbent in the combined
+representation; the correction bank itself need not contain it. This separates
+improvement of the lower-sector coupling from rediscovery of the target.
+The geometry papers propose related unused freedom, not an established
+five-loop performance result. The bounded design and MERLIN limitations are
+recorded in§5 of `docs/research/structural_recurrence_alternatives_2026-10-04.md`,
+reviewed independently. Evaluation prepares a minimal Symbolica-backed design;
+no new CAS, implementation or production campaign is yet justified by it.
+
+### Broader validation rejects immediate promotion — October4, 12:55 UTC
+
+[M] The combined485-bank comparison on the complete original260-integral
+physical region finishes in394.003s including both independent cold checks.
+Both arms enumerate/exhaust all260 inputs, retain66 terminals and12,457 zeros,
+and pass All/Off full-root reinspection with no debt or frontiers. Operational
+states fall69,772→69,682 (0.1289916%), physical states69,512→69,422,
+applications33,640→33,561 and transports23,349→23,338. This fails the20%
+work target. It does not invalidate earlier four-root gains, but shows they
+do not generalize strongly even to this broader physical region. Both hard-H1
+failures remain in the comparison record; no global or campaign gain follows.
+
+[M] Whole-arm times191.103→192.264s and traversal2.615→2.596s are diagnostic
+only: unrelated AMFlow workers were active on two of the comparison CPUs.
+Root retained the matched unchanged affinity and interpreted only completed
+work counts, not speed. All four owned process groups drained. Independent
+audit verifies all158 input pins, commands, live/cold counts and report
+arithmetic. Evidence:
+`TMP/rule-optimizer-20261003/candidates/banana-260-combined-finite-pair-v1/`;
+plan`7c80abac…b3f1`, summary`4e32ef96…ad452e`.
+
+[M] A separate metadata-only inspection shows the scalar330-tail rule210
+has two genuinely free axes D1≥2,D2≥3; the other13 coordinates are fixed.
+Its307 retained source seeds do not by themselves recover the raw winning
+pivot's recentering or an original-source certificate. The first proposed
+150-row bank used all25 ordinary sources at six guard-informed offsets,
+preserving the six zero-index directions. It misses after all150 rows.
+The one-field ablation removing that preservation constraint ALSO misses:
+same486-column universe, forbidden set254→216. Both processes finish cleanly
+in2.263/1.661s. Thus this bank is already insufficient for the base target;
+the result does not diagnose numerator preservation as the obstacle. No
+automatic bank growth, rule export or retry is authorized by these negatives.
+Both receipts are independently audited. Evidence under
+`TMP/rule-optimizer-20261003/profiles/owner31-{rule210-inspection,rank-zero-nomination,rank-zero-ablation}-v1/`.
+
+[E] Next work is conceptual and narrowly discriminating: discovery checks
+whether the incumbent's true translated-source support can be recovered;
+evaluation examines a guarded composite recurrence with a genuinely different
+weighted boundary. Earlier two-step/block-substitution negatives must not be
+rebranded as new. The observed26 exact cancellations leave346 nonzero keys,
+including91 rank-one descendants from a rank-zero parent. This is a structural
+lead, not measured exclusive campaign cost or a closure shortcut yet.
+
+[M] The research implementation milestone306e8182 is pushed to main. Root's
+read-only production observation at12:54UTC remains running:206.25M discovered,
+161.08M local completions,11.78M pending, zero frontiers and checkpoint26
+resumable. Pending growth over one hour is−0.133 per local completion.
+The13/67 roots and26.24M recursively closed domains are a stale3.52-hour
+snapshot, not current closure progress. No lifecycle action or restart
+recommendation is made; a changed rule bank would normally need fresh traversal.
+
 ### Complete weighted routing removes26 descendant keys — October4, 12:28 UTC
 
 [M] The research-only routed-cancellation adapter passes10 focused optimized
 tests and independent implementation/native audit. Full-context native run
-finishes cleanly in97.470s, with about5.12GiB sampled peak RSS. Preparation
+finishes cleanly in97.470s, with5.124GB sampled peak RSS. Preparation
 takes89.352s, original source observation0.024s and weighted routing0.140s.
 Actual selection is owner31/batch0/rule210; all330 source successors and235
 strict pinches match the original stress witness. No descendant IBP is applied.

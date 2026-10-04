@@ -1,11 +1,13 @@
 # Conceptual rule search: constrain the complete boundary, not the target order
 
-Date: 2026-10-04. Primary-literature and local API review; no new owner31
-algebra run, rule export, campaign, or performance claim. The small research
+Date: 2026-10-04. Primary-literature/API review and explicitly bounded native
+source probes; no rule export, campaign, or performance claim. The small research
 projector extension described below is separately authorized; its117 focused
 tests pass. Both native strict-mode controls reproduce the prior results.
 The fixed banana no-raising discriminator proves a valid but locally larger
 boundary, not an owner31 result or a campaign improvement.
+The subsequent single150-row owner31 rank-zero nomination exhausted its fixed
+source window without a target; that window is parked, with no automatic growth.
 
 ## Recommendation and the actual witness
 
@@ -50,13 +52,16 @@ Evidence is `profiles/routed-cancellation-owner31-v1/native/` and
 `endpoint-census.json` under the same TMP research root. No exclusive cone or
 downstream cost is established by these counts.
 
-The saved rule's generic chart, root and ordering still require normal
-targeted inspection; the singleton event does not reveal them or authenticate
-an original source recentering. Prepared-only options and command are in
-`profiles/owner31-rule210-inspection-v1/`. This note does not guess a source
-window or authorize a search. Owner31 is now a research nomination and cannot
-simultaneously be advertised as untouched validation data for a rule fitted
-to it.
+The subsequent native saved-rule inspection confirms plain
+`rustred.spired-uncut-sector-order.v1`, no custom coordinate priority, parent
+root bits `111011111101011`, and a coordinate case with only D1,D2 free.
+The other13 indices are fixed exactly as above; the three exclusions have
+native displays D1−1,D2−1,D2−2. The report retains all330 RHS terms and307
+saved seed records, but does not authenticate original source recentering.
+It completed in1.404s, cleanly drained, with independent receipt review PASS;
+see `profiles/owner31-rule210-inspection-v1/`. Owner31 is now a research
+nomination and cannot simultaneously be advertised as untouched validation
+data for a rule fitted to it.
 
 ## Three distinct constraints
 
@@ -519,10 +524,196 @@ in the opposite direction do not. At node2975 the dotted slots are
 D1,D2,D5,D9, but later active slots D10,D12,D14,D15 all have power1.
 Consequently every usable `n_j−1` pivot leaves at least one nonzero higher
 transfer. Choosing the last active slot D15 instead makes that pivot zero.
-This conclusion is conditional on the plain saved ordering and must be
-reconciled with the forthcoming native selected event; no reordered owner is
-assumed. The old D2/D10 example already has the same obstruction. Do not
+The subsequent native rule210 inspection confirms precisely that plain saved
+ordering; no reordered owner is assumed. The old D2/D10 example already has
+the same obstruction. Do not
 repeat an Euler solve or advertise nine scalar tails as a valid replacement
 for330 before native descent. A different full source combination might
 cancel the offending transfers, but its existence and benefit are separate
 questions.
+
+### Completed single owner31 rank-zero nomination: finite-window miss
+
+One separately reviewed request kept both genuine free rays D1≥2,D2≥3 and
+all13 saved fixed coordinates. It used every one of the25 ordinary sources
+at each of six offsets: `0,−e0,−e1,−e0−e1,−2e1,−e0−2e1`, in increasing L1
+depth with lexicographic ties. This guard-informed150-row rectangle was
+declared before solving, not recovered from the307 saved seeds or claimed
+minimal/exhaustive. No source weights were supplied.
+
+The only locality condition preserved the six originally zero indices
+`[2,3,5,7,10,12]`; active dot transfers and scalar pinches remained allowed.
+Ordinary shifts `0,e_j,e_j−e_k` plus this rectangle can lower D1 by at most2,
+D2 by at most3, and another initially positive index by at most1. Thus none
+can become negative anywhere on the whole chart. This establishes the
+proposed rank-zero endpoint criterion without clipping or sampling; native
+root/cofinal restrictions and full source/guard/descent proof remained gates.
+
+The sole exact run returns `NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F` after all
+150 rows. Native full post-fixed universe size is486; cofinal F216 and
+zero-index F224 have union254, with38 new columns added by locality. No
+target was nominated, so no source identity/chart certificate or artifact was
+produced. This is not a first-candidate proof refusal, resource censor, or
+claim that scalar relations cannot exist outside this finite window.
+
+Inclusive time was2.263s, native report time1.198s; the process drained cleanly
+with no export or retry. Evidence:
+`TMP/rule-optimizer-20261003/profiles/owner31-rank-zero-nomination-v1/`
+(plan `c209edda5e679ab310c3b165085810630a22fa8493a8e826489f3ff2e0d3228e`,
+request `8a4b28252fffc3a35d8f401e714bf6acc694ca942cf13cbe7ca27218189ed383`).
+Independent final receipt review passed. Forbidden-set counts above are native
+diagnostics; the miss report does not export a full F array, so no separate
+reconstructed-F certificate is claimed. Park this window; no additional
+translation, changed order, weakened criterion or follow-up campaign is
+implied by the miss.
+
+One essential, separately authorized interpretation control then removed
+**only** `forbid_endpoint_changes_on_axes`, preserving the same150 sources,
+two-ray chart, saved order, all limits and original-source proof settings.
+The full universe remains486 and native F falls from254 to216. It again
+visits all150 rows and returns `NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F`.
+Thus failure is already present in the base bank with its unchanged order
+constraints; this pair does **not** show that the rank-zero objective is the
+obstruction. No target was discovered in either arm, so neither reached a
+whole-chart proof refusal or success.
+
+The ablation completed in1.661s inclusive (native1.108s), cleanly drained,
+without export, refinement or retry. Evidence:
+`profiles/owner31-rank-zero-ablation-v1/` under the same TMP research root,
+plan `437fc97cfcc8c820349bb7f80878831fa637a0532002606aacbb379a47eefedb`,
+execution `0417e8ce0d74f021db43bb84c97413b1685ae3e07c5247f2d481d5b16ef088d4`.
+Independent final receipt review passed. No arbitrary source expansion
+follows: first determine whether existing typed replay can expose a justified
+original-source window for the incumbent, with its precise zero-sector and
+guard authority. A307 saved-seed count alone does not supply that window.
+
+### Exact incumbent circuit recovery: support, not a new search
+
+The existing public `with_replayed_candidate_rule_circuits` service supplies
+an exact selected-rule replay, unlike the count-only inspector or
+`source_support`'s explicitly unauthenticated Cartesian nomination. Its
+[`ReplayedSourceCircuit`](../../crates/rustred-core/src/foundry/artifact/source_port/rule_replay/circuit.rs)
+retains original ordinary RowIds, canonical offsets and typed weights, the
+declared case/exclusions, application boxes, pre-cancellation conditions,
+raw pivot and recovered recenter. Canonical offsets already include that
+recenter: it must never be applied twice. The native implementation rebuilds
+the saved/preconditioned basis and, if necessary, solves the existing
+original-source membership problem; it independently checks the combined
+full-original residual modulo authenticated zero sectors. This is not a
+new source-window search or a literal unquotiented identity claim.
+
+One authorized run of the already-built
+[`replay_saved_rule_circuits`](../../crates/rustred-app/examples/replay_saved_rule_circuits.rs)
+example selected only owner31 rule210. It returned
+`REPLAYED_DECLARED_DOMAIN_MODULO_AUTHENTICATED_ZEROS` in9.781s inclusive
+(native9.010s, selected replay0.358s), cleanly drained. The recovered circuit
+has291 distinct `(ordinary RowId, canonical offset)` pairs, using all25 row
+IDs at37 distinct offsets, not307 original rows. Its raw recenter is
+`−e_D2`; the raw symbolic pivot had D2 offset+1. The one exact application
+box is precisely the prior D1≥2,D2≥3 chart with all13 saved fixed coordinates.
+The replay retains330 RHS terms, all3 exclusion branches and621 nonzero
+condition entries, with5,566 authenticated zero sectors owned by the audit.
+Condition entries are not distinct new poles; their count includes retained
+source-weight/RHS denominators. The three inspected exclusion polynomials
+remain `n0−1`, `n1−1`, `n1−2`.
+
+An exact metadata join finds only71 of these291 pairs inside the failed150-row
+window;220 are outside. This supplies a concrete, incumbent-derived footprint
+instead of a guessed common translation or a307×25 bank. It does not prove
+that all291 contributions are necessary, that this representation is minimal,
+or that a smaller representation could not exist. No new projector run was
+performed.
+
+The distinction needed for the next discriminator remains: the saved replay
+can have a nonzero **full-original** residual whose terms are certified zero
+on its guarded chart. Consequently its291-pair support is not automatically
+an incumbent-containing control for the projector's literal full-image/F
+contract. The existing driver serializes every source pair but only coefficient
+complexity/condition counts; actual weights and guard polynomials remain typed
+inside the callback. Any subsequent correction/composition must consume those
+native objects, preserve the zero evidence and raw conditions, and re-enter
+the appropriate full-source authority. No coefficient display parsing or
+unproved deletion of zero-sector columns is justified.
+
+Evidence: `TMP/rule-optimizer-20261003/profiles/owner31-rule210-circuit-replay-v1/`,
+plan `5e566a6c4ca5f97e6096af951cd5aac2b920c956fdd85637d5c41072727b1d61`,
+raw report `b1617c31717c90db0fba655470249c4194909dc5fb1717ee4d4f81fb8ba3019d`.
+The unchanged native guard used69/70,16GiB with150GB host reserve and
+270/285/300s deadlines. No export, installation, closure or performance claim;
+independent final receipt review passed. Other users' host builds may contend
+with these probes; elapsed times are feasibility/accounting observations, not
+controlled performance comparisons.
+
+### Recovered291-pair full-original control: target hit, proof-budget refusal
+
+The next separately authorized baseline used exactly those291 canonical pairs
+in retained order, without weights, locality/rank-zero constraints or a
+Cartesian expansion. Saved chart/order, mandatory root/cofinal restrictions
+and all other native settings stayed fixed; the source-window allowance alone
+was changed from150 to291. The native projector visited291 rows and found a
+target combination with266 original contributions and313 RHS terms. Its
+complete universe has969 columns and mandatory F447; full-original product
+replay succeeded. Thus this recovered footprint does reach a target under
+the current full-image/F conditions, unlike the earlier150-row bank.
+
+Whole-chart proof did **not** complete. It refused with
+`original source rows budget exceeded: requested 266, limit 25` before final
+guard/descent certification. The inherited `max_complete_source_rows=25`
+caps both the25-row original-generator inventory and the number of original
+translated contributions admitted by rule proof
+([mapping](../../tools/research/rule_optimizer/symbolic_projector.rs#L171)).
+This is a configuration/resource refusal, not a target miss, a mathematical
+obstruction, a guard failure or evidence against the zero-sector quotient.
+No candidate/export/closure or whole-work improvement is established by the
+provisional313-tail count. No automatic cap change or counterpart run followed.
+
+The run completed in2.120s inclusive, cleanly drained. Evidence:
+`TMP/rule-optimizer-20261003/profiles/owner31-incumbent-support-v1/`,
+request `3a2ef195f5fca3c163bb06ae7fe9e84e5c2dbbcbe91af3e271f33f1f3dab983c`,
+raw report `ee305142e349df238ef25135d77e6aa01b0833c43b31fd5b02b6885960f6c494`.
+The whole-chart geometry check remains useful for any separately approved
+rank-zero counterpart: for each of the nine initially positive axes,
+physical chart minimum + minimum recovered source offset −1 equals0. Native
+ordinary shifts are only0, e_j or e_j−e_k. Therefore these axes cannot cross
+negative anywhere in the chart, and strict preservation of the six original
+zero axes would suffice for R0—without itself proving feasibility or descent.
+
+### Matched291-pair discriminator: proof-positive baseline, zero-preserving miss
+
+A separately authorized input correction changed only
+`max_complete_source_rows:25→291`, matching the already frozen291-pair bank.
+It did not add sources, alter any other allowance, weaken authority or erase
+the prior refusal. The same266-contribution/313-tail full product and F447
+then passed `EXACT_ORIGINAL_SOURCE_CHART_PROVED` on four native cells tiling
+D1=2/D1≥3 × D2=3/D2≥4, with all coefficient guards retained. This is a new
+full-original identity from the recovered support, not a claim that its
+coefficients or313 tails equal the saved330-tail rule210.
+
+The subsequently authorized counterpart added **only**
+`forbid_endpoint_changes_on_axes:[2,3,5,7,10,12]`. Same291 pairs and order,
+chart, corrected proof allowance, other limits and zero refinements. U remains
+969; F increases from447 to616. It exhausts all291 rows and returns
+`NO_TARGET_IN_FROZEN_SPAN_WITH_CURRENT_F`, not a first-target proof refusal or
+resource censor. The169 additional forbidden columns are enough to eliminate
+the target in this finite source space. Unlike the150-row pair, this is now
+a discriminating positive-control/constraint-negative result.
+
+The conclusion is specifically absence of a **strict original-zero-preserving**
+target under the fixed bank/order/F—not absence of every rank-zero identity:
+strict zero preservation also forbids positive activation of those coordinates.
+It says nothing about other source spaces, weaker pinch-only objectives, or
+whole-campaign cost. Neither the baseline tail reduction nor this miss ranks
+a production candidate. No export, order change, adaptive refinement or
+further source growth followed.
+
+Corrected baseline evidence is
+`profiles/owner31-incumbent-support-proof-cap-v2/` (under the same TMP root),
+request `e1d739c5f1675b2c4ea578df94c51d0bf1afb3465a86b807d5886db68c26c654`,
+raw report `ca3033604c556843409c594222c0ec0f18fea0b89f40689a9e728720e411d66d`;
+inclusive time2.639s. Counterpart evidence is
+`profiles/owner31-incumbent-rank-zero-v1/`,
+request `e0dab916db62b0e157629f57073202846bdad76384d84079de9189a6b7ad2643`,
+raw report `ceac5575ffa8aded9141e380dbde9c2af30ca4238e69cd2b2da2a01b0608bda8`;
+inclusive time1.968s. Both native groups drained cleanly. Timings remain
+contended-host feasibility accounting, not speed comparisons. Independent
+final paired receipt review is pending.

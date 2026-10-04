@@ -869,6 +869,50 @@ join. No production update follows. The two charts cover
 neither `a=b=1` nor mixed numerators and do not establish full five-loop
 closure or a20% end-to-end campaign-time improvement.
 
+### Completed 260-seed treatment check: negligible work reduction
+
+The next frozen comparison used the original required region
+`phys-d9-a10-r1-111000100111001`, not a newly selected easy tuple. It was
+previously exposed in the finite-envelope engine control, but held out from
+the banana treatment comparisons. Both arms used the same V5 executable,
+finite replay enabled, all260 seeds, and unchanged finite/source limits.
+The full67-owner/8,246-route/two-overlay pool differed only by original483
+versus checked combined485 owner0 and its officially replayed repair overlay.
+The H1 failures above remain separate negative evidence.
+
+Both arms completed with exact260-seed enumeration and exhaustion, no missing
+owners/rules or pending work, and independent cold All/Off replay of all roots.
+Live and cold finite work matched exactly apart from timing. All four guarded
+process groups drained; the pair took394.003 seconds inclusive.
+
+| Finite-work quantity | Original483 | Combined485 |
+| --- | ---: | ---: |
+| Operational states |69,772|69,682|
+| Physical keys |69,512|69,422|
+| Rule applications |33,640|33,561|
+| Transport calls |23,349|23,338|
+| Reserved transport endpoint bounds |465,886|465,875|
+| Reached declared terminals / zeros |66 /12,457|66 /12,457|
+
+The90-state reduction is **0.129%**, far below the preregistered20% work
+target. The larger four-root improvement therefore does not transfer in
+magnitude to this region. These counters describe completed native work;
+reserved transport endpoints are still structural bounds, not emitted terms.
+No per-rule activation or exclusive descendant-cone cost is inferred.
+
+Traversal was2.615→2.596 seconds and whole-arm time191.103→192.264 seconds.
+Foreign jobs were already using CPUs32–33 when the frozen32–47 pair started;
+root retained the running experiment as a work-count comparison. These wall
+times are diagnostic and **do not support a speed claim**. Preparation, cold,
+waited-child CPU and sampled tree RSS remain in the raw summary. No retry,
+cap adjustment, production installation or second full campaign followed.
+
+Evidence: `candidates/banana-260-combined-finite-pair-v1/`, frozen plan
+`7c80abac…137b3f1`, execution receipt `9c1df2c1…6b2430b`, and summary
+`4e32ef96…cad452e`. This is completed regional validation with a negative
+substantive-benefit result, not validation of all required regions or an
+identical final coefficient basis.
+
 ## Source nomination after the raw25 locality miss
 
 The separately bounded raw25 probe supplied all25 ordinary rows, no weights,

@@ -368,6 +368,135 @@ variable/chart, or Baikov methods generally. Such alternatives would be
 new proposals requiring their own complete source and descent proof, not
 consequences of this negative.
 
+## 5. Improve the lower-sector boundary without replacing the leading recurrence
+
+October4 follow-up, after the complete260-integral check: the combined banana
+rules save only0.129% of operational states on that region. Their larger local
+gains do not justify deploying another full campaign. The next nomination
+should change the expensive descendant mechanism, not replay a successful
+small example with more workers.
+
+### What the newer geometry literature contributes
+
+Bree et al. order differential forms using localisation, residues and pole
+structure. Their detailed paper explicitly identifies unused freedom between
+forms equivalent under maximal-cut ordering but differing in lower-sector
+couplings. Optimising those couplings is proposed, not demonstrated there.
+The method also needs a map between differential forms and integral classes;
+supersectors and symmetries complicate that map. It is not an arbitrary integer
+weight vector to insert into the existing RustRed comparator.
+[Detailed algorithm, §§3.2.3,4.1,6](https://arxiv.org/html/2511.15381v1).
+
+The later overview illustrates how basis selection avoids spurious denominator
+growth and organises elimination in smaller geometric pieces. That is relevant
+to coefficient swell, but supplies no five-loop vacuum timing or bound on our
+domain worklist. Implementing a new cohomology representation merely to change
+the comparator would be a substantial project, not a justified near-term
+optimization.
+[Overview, §2](https://arxiv.org/html/2602.10651v1).
+
+### A smaller native inference: an affine boundary-correction problem
+
+Let a source-replayed incumbent be
+
+```text
+R0: I(n) + S(n) + B(n) = 0,
+```
+
+where S contains its same-support descendants and B its strict pinches.
+Instead of asking a small new source bank to reduce I(n) independently, seek
+ordinary-source weights w such that the complete image L=w A has **zero
+same-support coefficients**, while B+L loses a nominated expensive class.
+Then I(n)+S(n)+(B+L)(n)=0 has the same leading recurrence and a changed
+lower-sector boundary. All terms of L outside the permitted root or above the
+saved order must vanish as well. These are simultaneous exact linear
+conditions over the existing Symbolica coefficient field, not a new CAS.
+
+This is our finite-window inference, not the full geometric algorithm or a
+novel mathematical identity. Laporta's subsystem-relation example already
+motivates reduction of weighted combinations. The practical distinction from
+the previous first-target search is that the known target circuit is retained
+as an affine offset; the added bank need only improve its boundary. A bank
+that misses I(n) can still contain useful lower-sector relations. Conversely,
+relabeling a generic forbidden-column solve is not an improvement: the actual
+incumbent, conserved same-support coefficients and complete changed tails
+must be inspected.
+
+**Prospective smallest test.** Use the observed scalar owner31/rule210 on its
+actual two-free-index chart. It has93 nonzero rank-one raw descendants at the
+fixed witness,82 of them pinches; the full routed boundary has91 rank-one
+survivors. These are different accounting boundaries, not interchangeable
+counts. Recover the native incumbent source circuit first. Freeze one source
+window and its exact domain; require a **zero-correction control of the combined
+representation** to reproduce the incumbent including authenticated zero-sector
+equivalences and guards. The correction bank alone need not contain the
+incumbent. Then nominate one complete rank-increasing pinch class, using typed
+whole-chart/sign-cell geometry rather than extrapolating the82 singleton
+pinches, while preserving every same-support coefficient. This does not
+promise elimination of the11 same-support numerator terms or rank-zero closure.
+
+For selected pinch columns P and prohibited columns F, the simultaneous
+conditions are `w A_same=0`, `w A_F=0`, `w A_P=-B_P`. The present JSON
+projector solves a homogeneous single-target problem; this affine use needs
+a small explicitly reviewed adapter or an existing native linear-system
+interface. It is not supplied by changing its forbidden-column list alone.
+
+A miss confines the conclusion to that bank and objective. Success still needs
+all coefficient poles, exceptional faces, source replay and strict descent;
+follow it with complete weighted routing and a completed shared-work control.
+No raw tail, auxiliary supersector or maximal-cut remainder is discarded.
+No construction or run is authorized merely by this design section.
+
+### October4 discriminator and the narrower implementation now authorized
+
+The original150-row bank cannot touch any of the82 fixed-pinch numerator
+columns: all its translations involve the two free axes, whereas those
+columns require two distinct negative fixed-axis shifts. The recovered291
+source pairs do reach a full-original-source target; after correcting a
+proof allowance, the native checker proves a313-tail rule on four cells.
+A matched preservation test on the six original zero axes then misses in
+that same bank. These results motivate a different source space, not a
+larger arbitrary shell or a reinterpretation of a failed solver run.
+
+The implementation nomination now uses the typed313-tail full-source proposal
+as R0, not the different330-tail saved rule modulo authenticated zero sectors.
+At a fixed unit power, seed ordinary IBPs after pinching that denominator to
+zero. Every derivative term that could restore it has that zero power as its
+coefficient; hence all surviving terms stay in the pinched sector. These
+identities cannot change R0's leading or same-support coefficients.
+
+This permits a smaller adapter than a general affine solver. Use the existing
+weighted source span with rows `[R0, pinched ordinary identities]`. Only R0
+contains the target, so homogeneous target normalization forces its weight to
+one. The existing Symbolica projector can impose the unwanted-boundary zeros,
+after which native source composition and chart proof remain mandatory.
+No new integral column, custom elimination, coefficient-display parsing or
+zero-sector shortcut is needed. A zero-correction control must reproduce R0;
+the actual313-term boundary determines the nominated class, not the old330
+term census. The first test also forbids newly introduced numerator columns.
+
+The geometric literature provides motivation, not this algorithm or a timing
+prediction. In the related unequal-mass three-loop banana example, basis-dependent
+projection changes tadpole couplings while preserving the top-sector content;
+that concerns differential equations at nonzero external momentum. It does
+not license dropping our pinched terms. Our correction instead adds identities
+whose complete original-family image is retained.
+[Explicit example, §3.5](https://arxiv.org/html/2507.23594v1#S3.SS5).
+
+### Why mass differentiation is not an immediate escape
+
+MERLIN generates higher propagator powers by covariant differentiation of a
+precomputed mass-dependent master connection. Singular equal-mass limits use
+series expansions, and can expose additional relations. However, the initial
+connections still require reductions; its supplied vacuum examples stop at
+three loops and its stated method does not yet cover general ISP numerators.
+[Covariant differentiation, §§2,4,5](https://arxiv.org/html/2604.09810v1).
+This was already listed in the earlier literature survey. For our newly
+observed scalar-to-numerator branching it does not provide the missing generic
+five-loop connection for free. Defer a new mass-space backend; reconsider if
+a compact applicable connection can actually be constructed and checked more
+cheaply than the current rules.
+
 ## Decision discipline
 
 The source-order generation control measured about4% less solve time in one
