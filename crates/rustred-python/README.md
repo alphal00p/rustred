@@ -19,6 +19,11 @@ import rustred
 `rustred._rustred` is a private native extension detail. Top-level
 `import _rustred` is intentionally unsupported.
 
+Embedded hosts may instead link the Rust adapter with `default-features = false`
+and call `register_rustred_module` on a host-owned submodule. They supply the
+host's Python ABI and Symbolica features; they must not import a second RustRed
+extension/DSO. The standalone wheel retains its Python 3.11 ABI and defaults.
+
 The initial operations are:
 
 - `rustred.derive(...)`
@@ -105,6 +110,58 @@ rustred campaign reduce --artifact family.rr --powers 2,2,1
 ```
 
 ## Save formulas before independent certification
+
+### In-process streamed generation and lazy exploration
+
+The synchronous API remains available. `start_family_candidates` accepts its
+same steering keywords and returns immediately with a process-bound session:
+
+```python
+session = rustred.start_family_candidates(source, n_cores=1, event_capacity=256)
+while not session.done:
+    update = session.poll_events(max_events=128, timeout=0.1)
+    print(update["snapshot"]["counts"])  # use this snapshot in a live UI
+result = session.result()  # raises on unfinished, cancelled or failed work
+artifact = result.artifact()
+print(artifact.metadata())
+sectors = artifact.sectors(start=0, limit=50)
+rules = artifact.rules(sector=0, start=0, limit=50)
+selected = artifact.rule(sector=0, ordinal=0)
+# Decode/render only when a user explicitly selects a coefficient:
+detail = artifact.coefficient(selected["rhs"][0]["coefficient_id"])
+```
+
+`snapshot()` never consumes events. `poll_events()` reports dropped intermediate
+events explicitly; aggregate counts and final state survive a slow consumer.
+Receipt sequences order callbacks, not concurrent algebra. There is one native
+coordinator and one bounded pending job slot; further submissions fail busy.
+`cancel()` and dropping the consumer request cooperative cancellation before
+another sector or final assembly. An in-flight native preparation/CAS/sector is
+not preempted; `done` becomes true only after workers drain. `wait(timeout=None)`
+releases the GIL and checks Python signals periodically. Completed checkpoint
+sectors survive cancellation, but a cancelled session has no completed result.
+Session/view operations inherited across `fork()` reject before touching locks;
+use a fresh process. No workers own Python callbacks.
+
+`candidate_generation_request(source, **options).start()` exposes the same
+validated request separately. Embedded HEPKit uses `start_from_native_family`
+with its existing native family, not a TOML round trip or graph rematching.
+
+Candidate generation, including sessions and HEPKit's `IBPFamily.start_generation`,
+currently supports denominator arities 1–16. This application/artifact scope is
+separate from the generic bridge's configurable runtime registry: adding bridge
+arities does not widen candidate generation.
+
+`CandidateArtifact.open(bytes)` and `open_file(path)` parse trusted generated
+structure without importing coefficient polynomials. Sector/rule/terminal pages
+are bounded (at most 1,000 entries); selected rule details retain native shapes,
+guards and payload-local coefficient IDs. Only `coefficient()` imports the native
+state and decodes/caches the selected polynomial. Its bounded streaming native
+printer is display-only, not a canonical algebra encoding; the output budget is
+not a hard bound on native polynomial-to-Atom conversion. Candidate completion,
+metadata, saved terminals and progress do not certify closure or master minimality.
+
+### Synchronous candidate bundles
 
 `family_candidates` prepares and solves an explicitly supplied family but skips
 the subsequent source replay and global closure proof. Its immutable result is

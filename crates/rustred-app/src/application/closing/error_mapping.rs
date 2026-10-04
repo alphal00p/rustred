@@ -63,7 +63,9 @@ fn trusted_artifact_encoding_error_kind(error: &ArtifactError) -> AppErrorKind {
     match artifact_validation_error_kind(error) {
         AppErrorKind::Schema => AppErrorKind::Schema,
         AppErrorKind::Limit | AppErrorKind::OutputLimit => AppErrorKind::OutputLimit,
-        AppErrorKind::Execution | AppErrorKind::License => AppErrorKind::Execution,
+        AppErrorKind::Execution | AppErrorKind::Cancelled | AppErrorKind::License => {
+            AppErrorKind::Execution
+        }
         AppErrorKind::InternalInvariant => AppErrorKind::InternalInvariant,
         AppErrorKind::Input
         | AppErrorKind::Lowering

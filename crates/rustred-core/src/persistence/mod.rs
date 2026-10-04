@@ -10,6 +10,7 @@ mod compare;
 mod envelope;
 mod error;
 mod family;
+mod lazy;
 mod limits;
 mod native;
 pub(crate) mod terminal_normalization;
@@ -26,4 +27,5 @@ pub use envelope::{
 };
 pub use error::BinaryIoError;
 pub use family::NativeFamilyRecord;
+pub use lazy::LazyDecodedCoefficientTable;
 pub use limits::BinaryIoLimits;

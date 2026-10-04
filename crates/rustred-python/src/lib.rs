@@ -1,4 +1,6 @@
 mod candidates;
+mod streaming;
+pub use streaming::{PyCandidateGenerationSession, start_from_native_family};
 mod coordinator;
 
 use std::str::FromStr;
@@ -829,7 +831,7 @@ fn python_exception_kind(kind: AppErrorKind) -> PythonExceptionKind {
         AppErrorKind::Limit => PythonExceptionKind::Limit,
         AppErrorKind::Lowering => PythonExceptionKind::Lowering,
         AppErrorKind::Derivation => PythonExceptionKind::Derivation,
-        AppErrorKind::Execution => PythonExceptionKind::Execution,
+        AppErrorKind::Execution | AppErrorKind::Cancelled => PythonExceptionKind::Execution,
         AppErrorKind::License => PythonExceptionKind::License,
         AppErrorKind::Serialization => PythonExceptionKind::Serialization,
         AppErrorKind::OutputLimit => PythonExceptionKind::OutputLimit,
@@ -860,6 +862,9 @@ fn map_app_error(error: AppError) -> PyErr {
 
 fn map_coordinator_error(error: CoordinatorError) -> PyErr {
     match error {
+        CoordinatorError::Busy => RustRedExecutionError::new_err(
+            "RustRed coordinator is busy; wait for the active session to drain",
+        ),
         CoordinatorError::Poisoned => RustRedCoordinatorPoisonedError::new_err(
             "the RustRed Python coordinator is permanently poisoned after an internal panic",
         ),
@@ -878,9 +883,16 @@ fn map_coordinator_error(error: CoordinatorError) -> PyErr {
 
 #[pymodule(gil_used = true)]
 fn _rustred(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    register_rustred_module(module)
+}
+
+/// Register in a host-owned extension (for example hep.rustred), sharing its
+/// linked Symbolica state. Does not import a second Python extension/DSO.
+pub fn register_rustred_module(module: &Bound<'_, PyModule>) -> PyResult<()> {
     // Starting this thread during module initialization establishes it before
     // any binding can call the core or initialize Symbolica.
     process_coordinator().map_err(RustRedInternalError::new_err)?;
+    streaming::register(module)?;
 
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     module.add("RustRedError", module.py().get_type::<RustRedError>())?;

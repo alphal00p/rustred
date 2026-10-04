@@ -33,14 +33,96 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Weighted plateau cut | `lower_rule_evaluation` implementation; `lower_sector_discovery` input cohorts; `finite_region_audit` independent review; root integration | Delivered/audited then parked:21 tests; depth2 and depth4 complete original4L90/5L29 controls. Depth4 shared support unchanged at4L and only1.66% lower at5L. Research observer remains opt-in, not production-enabled. |
 | PR2 integration / frozen release | `lower_rule_evaluation` isolated integration; `finite_region_audit` independent review; root final verifier | Merge3d0b08fb pushed; optimized CLI/probe,32 focused tests and FeynKit check pass. Final whole4L58/cold5L260 controls PASS with exact archived work counts. Foreign root edits preserved. |
 | Separate banana485 campaign | `lower_sector_discovery` staging; independent auditor and root | Inputs, optimized executable and steering frozen; no launch. Retain entire currentnew37 context plus two complementary exact owner0 rules and rebound repair. Local gains20–26%; broader260-point control only0.129%. No promised full5L speedup. |
-| AMFlow runtime arity | `finite_region_audit` isolated implementation; `lower_rule_evaluation` independent review and release gate; root integration/coordination | Commit33fd03ec pushed to main: default1–16 configurable registry, shared dispatcher, checked generic APIs and capability getter. All21 optimized native tests pass including exact generic17 beyond registry; FeynKit Rust check passes. AMFlow own adapter still needs migration. Post-push message retry failed (tool unavailable); user received relay text and handoff. |
-| Native sessions / lazy views | `lower_sector_discovery` implementation; root and `lower_rule_evaluation` independent review | Combined feature-gated FeynKit Rust check PASS; two integration errors corrected. Focused runtime gates compiling. Native-host Python and end-to-end tests remain pending. |
-| HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Four genuine DOT→HEPKit input fixtures preserve denominator order via explicit edge IDs. Four native input-parity plus13 UI lifecycle/presentation tests pass; actual new-session generation/visual-live tests pending host build. |
+| AMFlow runtime arity | `finite_region_audit` isolated implementation; `lower_rule_evaluation` independent review and release gate; root integration/coordination | Commit33fd03ec pushed to main: default1–16 configurable registry, shared dispatcher, checked generic APIs and capability getter. All21 optimized native tests pass including exact generic17 beyond registry; FeynKit Rust check passes. Read-only observation confirms AMFlow's own adapter now uses the dispatcher; downstream build/physics validation unverified. Direct notification still fails (app tool unavailable); pushed handoff and user relay supplied. |
+| Native sessions / lazy views | `lower_sector_discovery` implementation; root and `lower_rule_evaluation` independent review | Combined feature-gated FeynKit and default Python Rust checks PASS. Seven optimized app, three public core integration, eight Python coordinator/GIL and ten actual standalone Python tests PASS; independent final receipt/source review approved the native milestone for push. New community host and end-to-end tests remain pending. |
+| HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Four genuine DOT→HEPKit input fixtures preserve denominator order via explicit edge IDs. Four native old-host input-parity plus16 UI lifecycle/presentation tests pass; actual new-session generation/visual-live tests pending host build. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Standalone extension runtime passes — October4 23:11 UTC
+
+[M] The freshly linked optimized standalone extension passes all10 selected
+Python tests with no skips/failures: four new session/lazy/fork/input cases and
+six existing synchronous certification, option/signature, concurrent-call,
+exception-pickle and post-fork regressions. The actual imported package and
+DSO are pinned in `TMP/hepkit-python-runtime-gates-20261004/loaded-files.json`;
+there is no old-host import substitution. Extension link23.522s; test body0.207s
+and guard0.642s. All owned processes drained and both resource locks released.
+This validates standalone `import rustred`, not the still-pending embedded
+community host or four-loop browser run. Source ownership excludes collaborator
+rustdocs/tests, reference material and campaign outputs; only the two owned
+FeynKit module-registration insertions will be staged from the shared lib.rs.
+
+### Python coordinator and GIL gates pass — October4 23:10 UTC
+
+[M] All seven coordinator tests and the deterministic GIL-heartbeat test pass
+in the optimized Python unit binary (zero failures/ignored tests; intentional
+name filtering). They cover serialized concurrent work, bounded asynchronous
+submission, permanent panic poisoning, queued work behind a panic, pre-lock
+fork rejection and releasing Python while native wait/poll requires another
+Python thread to make progress. Compile864.382s, run guards3.596s and2.352s;
+all owned processes drained and source pins are unchanged. Evidence:
+`TMP/hepkit-session-primitives-gates-20261004-v2/`. The actual standalone
+extension/import gate has now started at
+`TMP/hepkit-python-runtime-gates-20261004/`; its planned10 tests are not yet
+counted as passing. Independent API/stub and prepared-host-build review found
+no major source-level mismatch. Embedded-only exception pickling is unverified
+and must not be implemented by importing a second Symbolica extension.
+
+[M] The user received the exact frozen five-loop first-launch command again.
+It remains separate from this API build and requires no compilation. Root did
+not launch or change either production campaign.
+
+### App/core session gates pass; Python gate active — October4 23:00 UTC
+
+[M] Seven optimized app tests pass: four session/lazy-view cases, two session
+lifecycle cases and one bounded native-printer case. Three public core
+integration tests also pass: exact lazy decode/cache/invalid-ID behavior,
+pre-start cancellation, and draining the current case while skipping subsequent
+work. Both sets have zero ignored tests and clean process drain. Independent
+review confirmed receipt/source pins and the equivalent public test-fixture
+constructor correction. Evidence: `TMP/hepkit-session-native-gates-20261004-v3/`
+and `TMP/hepkit-session-primitives-gates-20261004-v2/`. Core compilation took
+127.157s; test guard2.323s. These are focused gates, not a claim about the full
+core test suite.
+
+[M] Default-feature `rustred-python` typechecking also passes (72.586s).
+Optimized coordinator/GIL tests and an actual standalone extension import/test
+gate are next. The community host cannot yet be pinned to this implementation:
+the native session milestone is deliberately uncommitted until runtime gates
+complete. No production process was changed.
+
+[M] A fresh attempt to notify AMFlow+DiffExp still returns the app's explicit
+"tool no longer available" error; there is no successful delivery claim.
+The pushed arity handoff and observed downstream source adoption remain valid.
+
+### Native runtime and notebook gates in progress — October4 22:35 UTC
+
+[M] Release-only milestone `ad51f206` is pushed to main. GitHub confirms PR2
+is merged at `3d0b08fb`. An independent final audit confirms all finite5L
+live/cold/reference work fields match after removing timings, all91 input pins
+remain bound, and the frozen nine-module launcher has not started a campaign.
+
+[M] The no-CLI app test target exposed existing CLI-only test imports. Two
+module declarations are now correctly CLI-gated; a shared temporary-directory
+fixture was extracted unchanged so finite-replay tests remain enabled without
+CLI. Independent review confirmed byte-identical fixture behavior and unchanged
+assertions. The first two failed compile receipts are retained; the third
+optimized test link is running, not yet a runtime pass. The existing guard's
+Nix shell uses its default temporary directory; subsequent guards must set
+owned workspace TMPDIR/TMP/TEMP both outside and inside the Nix environment.
+
+[M] Community dependency fetching completed in the workspace Cargo cache with
+an unchanged lockfile. Offline metadata shows one Symbolica3.0.1 kernel and
+one PyO3 package, but still the **old** RustRed revision until the native API
+milestone is pushed and pinned. This is preparation, not new-host acceptance.
+Notebook tests now total20 (16 lifecycle/presentation and four genuine old-host
+DOT tests). Independent browser-harness review fixed uncertain Start-click
+handling, post-browsing lazy-decode measurement and old-extension shadowing.
+The single real four-loop notebook run still awaits the optimized new host.
 
 ### Final campaign controls pass; second campaign frozen — October4 22:20 UTC
 

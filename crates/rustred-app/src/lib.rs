@@ -1,5 +1,11 @@
 mod application;
+pub use application::{
+    CandidateArtifact, CandidateArtifactPage, CandidateGenerationEvents, CandidateGenerationJob,
+    CandidateGenerationSession, CandidateGenerationSnapshot, CandidateGenerationState,
+};
 pub use application::{EntryPowerBudget, FiniteEntryDomain, entry_domain_plan};
+/// Native family entry for embedded hosts; no source-text round trip.
+pub use rustred::family::IntegralFamily as NativeIntegralFamily;
 #[cfg(feature = "cli")]
 mod cli;
 #[cfg(test)]

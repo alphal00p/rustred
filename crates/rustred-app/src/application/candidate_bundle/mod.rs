@@ -20,7 +20,10 @@ pub(super) mod preparation;
 mod priority;
 mod save;
 mod selection;
+mod session;
 mod strategy;
+mod view;
+pub use view::{CandidateArtifact, CandidateArtifactPage};
 
 pub use order::{
     CandidateCoordinateGroups, CandidateDegreeRow, CandidateIntegralOrder, CandidateOrderDirection,
@@ -60,6 +63,10 @@ pub use priority::{
     encode_checked_priority_owner_with_policy,
 };
 pub use save::encode_generated_candidate_sector;
+pub use session::{
+    CandidateGenerationEvents, CandidateGenerationJob, CandidateGenerationSession,
+    CandidateGenerationSnapshot, CandidateGenerationState,
+};
 
 /// Test support: split a generated multi-sector bundle into the single-sector
 /// owner bundles the shared-owner loader accepts, as (mask text, bytes, family

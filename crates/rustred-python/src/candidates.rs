@@ -1,7 +1,7 @@
 //! Python steering of separate candidate generation and exact certification.
 
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, PyDict};
 use rustred_app::{
     CandidateCertificationRequest, CandidateCheckpointOptions, FamilyCandidatesRequest,
     FiniteCasePolicy, MAX_CANDIDATE_BUNDLE_BYTES,
@@ -25,6 +25,9 @@ pub struct PyCandidateBundleResult {
 
 #[pymethods]
 impl PyCandidateBundleResult {
+    fn artifact(&self, py: Python<'_>) -> PyResult<crate::streaming::PyCandidateArtifact> {
+        crate::streaming::PyCandidateArtifact::from_bytes(py, self.bundle.bind(py).as_bytes())
+    }
     #[getter]
     fn schema(&self) -> &'static str {
         self.schema
@@ -45,6 +48,47 @@ impl PyCandidateBundleResult {
             "CandidateBundleResult(schema={:?}, status={:?})",
             self.schema, self.status
         )
+    }
+}
+
+impl PyCandidateBundleResult {
+    pub(crate) fn from_native(py: Python<'_>, result: &rustred_app::CandidateBundleResult) -> Self {
+        Self {
+            schema: result.schema(),
+            status: result.status(),
+            report: result.to_toml().to_owned(),
+            bundle: PyBytes::new(py, result.bundle()).unbind(),
+        }
+    }
+}
+
+/// Validated native steering, shared by synchronous, asynchronous and embedded
+/// family entry points. No generation or family parsing happens in the binder.
+#[pyclass(
+    frozen,
+    skip_from_py_object,
+    module = "rustred",
+    name = "CandidateGenerationRequest"
+)]
+#[derive(Clone)]
+pub struct PyCandidateGenerationRequest {
+    pub(crate) request: FamilyCandidatesRequest,
+}
+
+#[pymethods]
+impl PyCandidateGenerationRequest {
+    #[pyo3(signature=(*,event_capacity=PythonInteger(256)))]
+    fn start(
+        &self,
+        event_capacity: PythonInteger,
+    ) -> PyResult<crate::PyCandidateGenerationSession> {
+        crate::streaming::start_request(
+            self.request.clone(),
+            nonnegative_usize("event_capacity", event_capacity.0)?,
+        )
+    }
+    fn __repr__(&self) -> &'static str {
+        "CandidateGenerationRequest(validated_steering=True, closure_claim=False)"
     }
 }
 
@@ -99,8 +143,7 @@ impl PyCandidateBundleResult {
     signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2), max_numerator_rank=None, finite_case_policy="search", finite_max_visited_points=None, finite_max_retained_terminals=None, case_max_work_items=None, case_max_terms_per_conjunction=None, case_max_normalizations=None, case_max_factorizations=None, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None, checkpoint_dir=None, resume=false, checkpoint_max_bytes=None, discovery_strategy=None, integral_order=None, selected_sectors=None),
     text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2, max_numerator_rank=None, finite_case_policy='search', finite_max_visited_points=None, finite_max_retained_terminals=None, case_max_work_items=None, case_max_terms_per_conjunction=None, case_max_normalizations=None, case_max_factorizations=None, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None, checkpoint_dir=None, resume=False, checkpoint_max_bytes=None, discovery_strategy=None, integral_order=None, selected_sectors=None)"
 )]
-fn family_candidates(
-    py: Python<'_>,
+fn candidate_generation_request(
     source: &str,
     input_format: &str,
     n_cores: PythonInteger,
@@ -126,7 +169,7 @@ fn family_candidates(
     discovery_strategy: Option<&str>,
     integral_order: Option<&str>,
     selected_sectors: Option<Vec<String>>,
-) -> PyResult<PyCandidateBundleResult> {
+) -> PyResult<PyCandidateGenerationRequest> {
     let finite_case_policy: FiniteCasePolicy = finite_case_policy
         .parse()
         .map_err(RustRedInputError::new_err)?;
@@ -274,16 +317,38 @@ fn family_candidates(
         "nonpositive_indices",
         nonpositive_indices.unwrap_or_default(),
     )?;
+    Ok(PyCandidateGenerationRequest { request })
+}
+
+pub(crate) fn request_from_options(
+    py: Python<'_>,
+    source: &str,
+    options: Option<&Bound<'_, PyDict>>,
+) -> PyResult<FamilyCandidatesRequest> {
+    // The generated PyO3 signature binder is the single definition of all
+    // steering defaults and strict integer conversion for every front door.
+    let bound = wrap_pyfunction!(candidate_generation_request, py)?.call((source,), options)?;
+    Ok(bound
+        .extract::<PyRef<'_, PyCandidateGenerationRequest>>()?
+        .request
+        .clone())
+}
+
+/// Synchronous generation; all existing keyword options are unchanged.
+#[pyfunction]
+#[pyo3(signature=(source, **options),
+    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2, max_numerator_rank=None, finite_case_policy='search', finite_max_visited_points=None, finite_max_retained_terminals=None, case_max_work_items=None, case_max_terms_per_conjunction=None, case_max_normalizations=None, case_max_factorizations=None, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None, checkpoint_dir=None, resume=False, checkpoint_max_bytes=None, discovery_strategy=None, integral_order=None, selected_sectors=None)")]
+fn family_candidates(
+    py: Python<'_>,
+    source: &str,
+    options: Option<&Bound<'_, PyDict>>,
+) -> PyResult<PyCandidateBundleResult> {
+    let request = request_from_options(py, source, options)?;
     let result = py
         .detach(move || execute(move || rustred_app::family_candidates(request)))
         .map_err(map_coordinator_error)?
         .map_err(map_app_error)?;
-    Ok(PyCandidateBundleResult {
-        schema: result.schema(),
-        status: result.status(),
-        report: result.to_toml().to_owned(),
-        bundle: PyBytes::new(py, result.bundle()).unbind(),
-    })
+    Ok(PyCandidateBundleResult::from_native(py, &result))
 }
 
 /// Independently replay saved candidates and prove coverage before publication.
@@ -399,6 +464,8 @@ fn inspect_candidate_program(
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyCandidateBundleResult>()?;
+    module.add_class::<PyCandidateGenerationRequest>()?;
+    module.add_function(wrap_pyfunction!(candidate_generation_request, module)?)?;
     module.add_function(wrap_pyfunction!(family_candidates, module)?)?;
     module.add_function(wrap_pyfunction!(certify_candidates, module)?)?;
     module.add_function(wrap_pyfunction!(inspect_candidate_program, module)?)?;

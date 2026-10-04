@@ -10,8 +10,8 @@ static COORDINATOR: OnceLock<Result<Coordinator, String>> = OnceLock::new();
 
 /// The one process-wide entrance to RustRed/Symbolica from Python.
 ///
-/// A zero-capacity channel applies backpressure before a caller can enqueue a
-/// second potentially large request. The receiver is owned by exactly one
+/// A one-slot channel bounds pending work while allowing nonblocking session
+/// submission without a receiver-rendezvous race. The receiver is owned by one
 /// stable OS thread, so all top-level application calls enter Symbolica from
 /// that thread even when many Python threads call concurrently.
 pub(crate) struct Coordinator {
@@ -22,6 +22,7 @@ pub(crate) struct Coordinator {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CoordinatorError {
+    Busy,
     Poisoned,
     Forked { creator_pid: u32, current_pid: u32 },
     Panicked(String),
@@ -29,8 +30,42 @@ pub(crate) enum CoordinatorError {
 }
 
 impl Coordinator {
+    /// Bounded asynchronous entry. Never waits for an occupied coordinator and
+    /// never allocates a helper thread or an unbounded queue of native jobs.
+    pub(crate) fn submit<F>(&self, operation: F) -> Result<(), CoordinatorError>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let current_pid = std::process::id();
+        if current_pid != self.creator_pid {
+            return Err(CoordinatorError::Forked {
+                creator_pid: self.creator_pid,
+                current_pid,
+            });
+        }
+        if self.poisoned.load(Ordering::Acquire) {
+            return Err(CoordinatorError::Poisoned);
+        }
+        let poisoned = self.poisoned.clone();
+        let task: Task = Box::new(move || {
+            if poisoned.load(Ordering::Acquire) {
+                return;
+            }
+            if catch_unwind(AssertUnwindSafe(operation)).is_err() {
+                // The generation job's drop guard publishes failure after
+                // native unwinding/drain. Future CAS calls remain poisoned.
+                poisoned.store(true, Ordering::Release);
+            }
+        });
+        self.tasks.try_send(task).map_err(|e| match e {
+            mpsc::TrySendError::Full(_) => CoordinatorError::Busy,
+            mpsc::TrySendError::Disconnected(_) => {
+                CoordinatorError::Unavailable("coordinator stopped".into())
+            }
+        })
+    }
     fn start() -> Result<Self, String> {
-        let (tasks, receiver) = mpsc::sync_channel::<Task>(0);
+        let (tasks, receiver) = mpsc::sync_channel::<Task>(1);
         let poisoned = Arc::new(AtomicBool::new(false));
         std::thread::Builder::new()
             .name("rustred-python-coordinator".to_owned())
@@ -76,7 +111,7 @@ impl Coordinator {
                 }
                 Err(payload) => {
                     // Publish poison before waking the current caller. Any
-                    // request already waiting at the rendezvous channel will
+                    // request already waiting at the bounded channel will
                     // observe it before executing application work.
                     poisoned.store(true, Ordering::Release);
                     let _ = response.send(Err(CoordinatorError::Panicked(panic_message(
@@ -148,6 +183,31 @@ mod tests {
             .map(|caller| caller.join().expect("caller thread"))
             .collect();
         assert_eq!(worker_threads.len(), 1);
+    }
+
+    #[test]
+    fn asynchronous_submission_is_bounded_and_serial() {
+        let coordinator = Coordinator::start().unwrap();
+        let (started, ready) = mpsc::sync_channel(1);
+        let (release, blocked) = mpsc::sync_channel(1);
+        coordinator
+            .submit(move || {
+                started.send(()).unwrap();
+                blocked.recv().unwrap();
+            })
+            .unwrap();
+        ready.recv().unwrap();
+        let (completed, done) = mpsc::sync_channel(1);
+        coordinator
+            .submit(move || {
+                completed.send(()).unwrap();
+            })
+            .unwrap();
+        assert_eq!(coordinator.submit(|| {}), Err(CoordinatorError::Busy));
+        assert!(done.try_recv().is_err());
+        release.send(()).unwrap();
+        done.recv().unwrap();
+        assert_eq!(coordinator.execute(|| 7), Ok(7));
     }
 
     #[test]

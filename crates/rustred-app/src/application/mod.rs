@@ -13,6 +13,7 @@ mod error;
 pub use entry_domain::{EntryPowerBudget, FiniteEntryDomain, entry_domain_plan};
 mod family_close;
 mod family_solve;
+pub(crate) mod generation_progress;
 mod input;
 mod lowering;
 pub(crate) mod memory;
@@ -52,12 +53,14 @@ pub use routed_campaign::{
 };
 
 pub use candidate_bundle::{
-    CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleInspection,
-    CandidateBundleLimits, CandidateBundleResult, CandidateCaseInspection,
-    CandidateCertificationRequest, CandidateCertificationResult, CandidateCheckpointOptions,
-    CandidateCoefficientInspection, CandidateCoordinateGroups, CandidateDegreeRow,
-    CandidateDiscoveryStrategy, CandidateDomainOverlayLoadLimits, CandidateExactBackend,
-    CandidateFixedAxisInspection, CandidateIntegralInspection, CandidateIntegralOrder,
+    CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateArtifact,
+    CandidateArtifactPage, CandidateBundleInspection, CandidateBundleLimits, CandidateBundleResult,
+    CandidateCaseInspection, CandidateCertificationRequest, CandidateCertificationResult,
+    CandidateCheckpointOptions, CandidateCoefficientInspection, CandidateCoordinateGroups,
+    CandidateDegreeRow, CandidateDiscoveryStrategy, CandidateDomainOverlayLoadLimits,
+    CandidateExactBackend, CandidateFixedAxisInspection, CandidateGenerationEvents,
+    CandidateGenerationJob, CandidateGenerationSession, CandidateGenerationSnapshot,
+    CandidateGenerationState, CandidateIntegralInspection, CandidateIntegralOrder,
     CandidateOrderDirection, CandidateOwnerBundle, CandidateOwnerLoadLimits,
     CandidateProgramInspection, CandidateProgramInspectionOptions, CandidateRowFeature,
     CandidateRowPriority, CandidateRuleInspection, CandidateRulePortfolio,

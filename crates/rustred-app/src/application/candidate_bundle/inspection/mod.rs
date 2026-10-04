@@ -215,14 +215,14 @@ fn selection<T: Ord + Clone>(
     Ok(Some(wanted))
 }
 
-fn integral_view(key: &IntegralRecord) -> CandidateIntegralInspection {
+pub(super) fn integral_view(key: &IntegralRecord) -> CandidateIntegralInspection {
     CandidateIntegralInspection {
         symbolic: key.symbolic.clone(),
         values: key.values.clone(),
     }
 }
 
-fn rule_view(ordinal: usize, rule: &RuleRecord) -> CandidateRuleInspection {
+pub(super) fn rule_view(ordinal: usize, rule: &RuleRecord) -> CandidateRuleInspection {
     CandidateRuleInspection {
         dispatch_policy: None,
         ordinal,

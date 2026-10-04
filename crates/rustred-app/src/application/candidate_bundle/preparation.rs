@@ -2,7 +2,7 @@
 //! generation, and later certification. Publication admission stays with the
 //! certified callers, not this topology-generic preparation service.
 
-use std::sync::Arc;
+use std::{borrow::Borrow, sync::Arc};
 
 use rustred::family::IntegralFamily;
 use rustred::sector::{Mask, zero};
@@ -70,8 +70,8 @@ pub(super) fn validate_permutation(
     Ok(())
 }
 
-pub(in crate::application) struct Prepared<const N: usize> {
-    pub family: IntegralFamily,
+pub(in crate::application) struct Prepared<const N: usize, F = IntegralFamily> {
+    pub family: F,
     pub root: [bool; N],
     pub permutation: Option<[usize; N]>,
     pub zeros: Arc<[[bool; N]]>,
@@ -84,12 +84,30 @@ pub(in crate::application) fn prepare<const N: usize>(
     root: &[bool],
     permutation: Option<&[usize]>,
 ) -> Result<Prepared<N>, AppError> {
+    prepare_inner(family, root, permutation)
+}
+
+/// Preserve the host's exact family allocation. The owned preparation entry
+/// remains unchanged for existing loaders which must return an owned family.
+pub(super) fn prepare_shared<const N: usize>(
+    family: Arc<IntegralFamily>,
+    root: &[bool],
+    permutation: Option<&[usize]>,
+) -> Result<Prepared<N, Arc<IntegralFamily>>, AppError> {
+    prepare_inner(family, root, permutation)
+}
+
+fn prepare_inner<const N: usize, F: Borrow<IntegralFamily>>(
+    family: F,
+    root: &[bool],
+    permutation: Option<&[usize]>,
+) -> Result<Prepared<N, F>, AppError> {
     let root: [bool; N] = root
         .try_into()
         .map_err(|_| AppError::input("candidate root has wrong arity"))?;
     validate_permutation(N, permutation)?;
     let permutation = permutation.map(|p| p.try_into().expect("validated permutation"));
-    let analyzer = zero::Analyzer::try_unrestricted(&family)
+    let analyzer = zero::Analyzer::try_unrestricted(family.borrow())
         .map_err(|error| AppError::execution(error.to_string()))?;
     let mut zeros = Vec::new();
     let mut sectors = Vec::new();
@@ -119,8 +137,8 @@ pub(in crate::application) fn prepare<const N: usize>(
     }
     drop(analyzer);
     sectors.sort_unstable();
-    let sources =
-        SourceSystem::from_family(&family).map_err(|e| AppError::execution(e.to_string()))?;
+    let sources = SourceSystem::from_family(family.borrow())
+        .map_err(|e| AppError::execution(e.to_string()))?;
     Ok(Prepared {
         family,
         root,

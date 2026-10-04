@@ -19,7 +19,7 @@ fn solve<const N: usize>(
         SectorConfig {
             zero_sectors: prepared.zeros.clone(),
             permutation: prepared.permutation,
-            symbolic_exact_backend: request.exact_backend.solver_backend(),
+            symbolic_exact_backend: request.exact_backend.solver_backend().unwrap(),
             numerical_exact_backend: request.exact_backend.numerical_backend(),
             ..Default::default()
         },

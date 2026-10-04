@@ -4,6 +4,7 @@
 use rustred::identity::ParametricIbpGenerator;
 use rustred::persistence::CoefficientTableBuilder;
 use serde::Serialize;
+use std::borrow::Borrow;
 
 use super::super::{checkpoint::CheckpointStore, codec, model::*, preparation::Prepared};
 use crate::application::AppError;
@@ -17,9 +18,9 @@ pub(super) struct Report {
     pub assembly_us: u128,
 }
 
-pub(super) fn assemble<const N: usize>(
+pub(super) fn assemble<const N: usize, F: Borrow<rustred::family::IntegralFamily>>(
     store: &CheckpointStore,
-    prepared: &Prepared<N>,
+    prepared: &Prepared<N, F>,
     limits: CandidateBundleLimits,
     coefficients: &mut CoefficientTableBuilder,
 ) -> Result<Vec<SectorRecord>, AppError> {
@@ -29,7 +30,8 @@ pub(super) fn assemble<const N: usize>(
             "checkpoint assembly has missing sectors",
         ));
     }
-    let context = ParametricIbpGenerator::try_new(&prepared.family)
+    let native_family = prepared.family.borrow();
+    let context = ParametricIbpGenerator::try_new(native_family)
         .map_err(|e| AppError::execution(e.to_string()))?
         .context()
         .clone();
@@ -53,8 +55,7 @@ pub(super) fn assemble<const N: usize>(
                 limits.binary_limits(),
             )
             .map_err(codec::binary_error)?;
-        if family.fingerprint() != prepared.family.fingerprint() || family.denominator_count() != N
-        {
+        if family.fingerprint() != native_family.fingerprint() || family.denominator_count() != N {
             return Err(AppError::input(
                 "checkpoint native family differs from the prepared family",
             ));

@@ -975,6 +975,7 @@ version = "0.28.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91fd8e38a3b50ed1167fb981cd6fd60147e091784c427b8f7183a7ee32c31c12"
 dependencies = [
+ "inventory",
  "libc",
  "num-complex",
  "once_cell",
@@ -1332,6 +1333,7 @@ version = "0.1.0"
 dependencies = [
  "pyo3",
  "rustred",
+ "rustred-python",
  "symbolica",
 ]
 
@@ -1345,6 +1347,8 @@ version = "0.1.0"
 dependencies = [
  "pyo3",
  "rustred-app",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

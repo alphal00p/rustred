@@ -82,6 +82,7 @@ impl From<OwnerFeedbackPolicy> for PolicyRecord {
             S::DenseFractionFree { max_matrix_entries } => {
                 BackendRecord::DenseFractionFree { max_matrix_entries }
             }
+            #[cfg(feature = "reconstruction")]
             S::SemiNumerical {
                 max_degree,
                 max_probes,
@@ -93,6 +94,7 @@ impl From<OwnerFeedbackPolicy> for PolicyRecord {
                 max_attempts,
                 max_primes,
             },
+            #[cfg(feature = "reconstruction")]
             S::SemiNumericalSourceWeights {
                 max_degree,
                 max_probes,
@@ -129,7 +131,7 @@ impl From<OwnerFeedbackPolicy> for PolicyRecord {
 }
 
 impl PolicyRecord {
-    pub(super) fn native(&self) -> OwnerFeedbackPolicy {
+    pub(super) fn native(&self) -> Result<OwnerFeedbackPolicy, crate::AppError> {
         use SymbolicExactBackend as S;
         let symbolic_exact_backend = match self.symbolic_backend {
             BackendRecord::Sparse => S::Sparse,
@@ -139,6 +141,7 @@ impl PolicyRecord {
             BackendRecord::DenseFractionFree { max_matrix_entries } => {
                 S::DenseFractionFree { max_matrix_entries }
             }
+            #[cfg(feature = "reconstruction")]
             BackendRecord::SemiNumerical {
                 max_degree,
                 max_probes,
@@ -150,6 +153,7 @@ impl PolicyRecord {
                 max_attempts,
                 max_primes,
             },
+            #[cfg(feature = "reconstruction")]
             BackendRecord::SemiNumericalSourceWeights {
                 max_degree,
                 max_probes,
@@ -167,8 +171,15 @@ impl PolicyRecord {
                 max_cached_values,
                 max_weight_slots,
             },
+            #[cfg(not(feature = "reconstruction"))]
+            BackendRecord::SemiNumerical { .. }
+            | BackendRecord::SemiNumericalSourceWeights { .. } => {
+                return Err(crate::AppError::input(
+                    "saved overlay backend requires the reconstruction feature",
+                ));
+            }
         };
-        OwnerFeedbackPolicy {
+        Ok(OwnerFeedbackPolicy {
             numerical_depth: self.numerical_depth,
             symbolic: SearchOptions {
                 max_depth: self.symbolic_max_depth,
@@ -186,7 +197,7 @@ impl PolicyRecord {
                 CoefficientOrderRecord::Reverse => CoefficientVariableOrder::Reverse,
                 CoefficientOrderRecord::IndicesFirst => CoefficientVariableOrder::IndicesFirst,
             },
-        }
+        })
     }
 }
 

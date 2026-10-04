@@ -6,6 +6,9 @@ from .ordering import integral_order
 
 from ._rustred import (
     CandidateBundleResult,
+    CandidateGenerationRequest,
+    CandidateGenerationSession,
+    CandidateArtifact,
     CampaignPlanResult,
     CampaignPreflightResult,
     ClosingArtifactGenerationResult,
@@ -35,6 +38,8 @@ from ._rustred import (
     entry_domain_plan,
     family_close,
     family_candidates,
+    candidate_generation_request,
+    start_family_candidates,
     generate_closing_artifact,
     inspect_closing_artifact,
     inspect_candidate_program,
@@ -68,6 +73,11 @@ class ClosingFamily(StrEnum):
 
 
 __all__ = [
+    "CandidateGenerationRequest",
+    "CandidateGenerationSession",
+    "CandidateArtifact",
+    "candidate_generation_request",
+    "start_family_candidates",
     "discovery_strategy",
     "rule_portfolio",
     "integral_order",

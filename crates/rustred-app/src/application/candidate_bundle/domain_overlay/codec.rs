@@ -248,7 +248,7 @@ pub(super) fn load<const N: usize>(
     // Root/order are checked against the actually loaded immutable owner before
     // importing a Symbolica frame; no metadata-only substitute owner is built.
     let search = programs
-        .bind_owner_search(expected_owner, record.policy.native())
+        .bind_owner_search(expected_owner, record.policy.native()?)
         .map_err(|e| AppError::input(e.to_string()))?;
     if search.owner_root().as_slice() != record.root_sector
         || search.owner_ordering().stable_id().to_string() != record.integral_order

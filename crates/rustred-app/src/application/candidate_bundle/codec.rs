@@ -221,7 +221,7 @@ pub(super) fn binary_error(error: BinaryIoError) -> AppError {
     }
 }
 
-fn validate_ids(records: &ProgramRecord, count: usize) -> Result<(), AppError> {
+pub(super) fn validate_ids(records: &ProgramRecord, count: usize) -> Result<(), AppError> {
     for sector in &records.sectors {
         for rule in &sector.rules {
             rules::validate_rule_ids(rule, count)?;

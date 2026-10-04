@@ -81,18 +81,25 @@ impl CandidateExactBackend {
         }
     }
 
-    pub(super) fn solver_backend(self) -> SymbolicExactBackend {
-        match self {
+    pub(super) fn solver_backend(self) -> Result<SymbolicExactBackend, crate::AppError> {
+        Ok(match self {
             Self::Sparse => SymbolicExactBackend::Sparse,
             Self::SparseFactorized => SymbolicExactBackend::SparseFactorized,
             Self::SparseTargetOnlyFactorized => SymbolicExactBackend::SparseTargetOnlyFactorized,
+            #[cfg(feature = "reconstruction")]
             Self::SemiNumerical => SymbolicExactBackend::SemiNumerical {
                 max_degree: 128,
                 max_probes: 200_000,
                 max_attempts: 4,
                 max_primes: 8,
             },
-        }
+            #[cfg(not(feature = "reconstruction"))]
+            Self::SemiNumerical => {
+                return Err(crate::AppError::input(
+                    "semi-numerical backend requires the reconstruction feature",
+                ));
+            }
+        })
     }
 
     pub(super) fn numerical_backend(self) -> rustred::solver::NumericalExactBackend {
@@ -111,7 +118,10 @@ impl std::str::FromStr for CandidateExactBackend {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "sparse" => Ok(Self::Sparse),
-            "semi-numerical" => Ok(Self::SemiNumerical),
+            "semi-numerical" => {
+                Self::SemiNumerical.solver_backend()?;
+                Ok(Self::SemiNumerical)
+            }
             "sparse-factorized" => Ok(Self::SparseFactorized),
             "sparse-target-factorized" => Ok(Self::SparseTargetOnlyFactorized),
             _ => Err(crate::AppError::input(format!(

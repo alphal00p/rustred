@@ -22,6 +22,7 @@ mod owners;
 mod rank;
 mod saved_program;
 mod selection;
+mod session_view;
 
 const K1: &str = r#"
 schema = "rustred.project.toml.v1"
@@ -112,6 +113,7 @@ fn replace_solutions<const N: usize>(
 }
 
 #[test]
+#[cfg(feature = "reconstruction")]
 fn candidate_materialization_backends_keep_small_case_bundles_identical() {
     assert_eq!(
         CandidateExactBackend::default(),
@@ -126,11 +128,15 @@ fn candidate_materialization_backends_keep_small_case_bundles_identical() {
         assert_eq!(backend.as_str().parse(), Ok(backend));
     }
     assert_eq!(
-        CandidateExactBackend::SparseFactorized.solver_backend(),
+        CandidateExactBackend::SparseFactorized
+            .solver_backend()
+            .unwrap(),
         rustred::solver::SymbolicExactBackend::SparseFactorized,
     );
     assert_eq!(
-        CandidateExactBackend::SparseTargetOnlyFactorized.solver_backend(),
+        CandidateExactBackend::SparseTargetOnlyFactorized
+            .solver_backend()
+            .unwrap(),
         rustred::solver::SymbolicExactBackend::SparseTargetOnlyFactorized,
     );
     for (backend, expected) in [

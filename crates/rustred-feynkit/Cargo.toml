@@ -7,7 +7,14 @@ rust-version = "1.89"
 description = "Native RustRed IBP bridge for Feynkit and symbolica.community.hepkit"
 license = "MIT"
 
+[features]
+default = []
+# Optional application/event API; finite native IBP users need not link the
+# campaign application layer or adopt a standalone Python ABI.
+campaign-api = ["dep:rustred_python", "pyo3/multiple-pymethods"]
+
 [dependencies]
 rustred = { path = "../rustred-core", default-features = false }
+rustred_python = { package = "rustred-python", path = "../rustred-python", default-features = false, optional = true }
 symbolica = { workspace = true, features = ["python_export"] }
 pyo3 = { version = "0.28" }

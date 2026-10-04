@@ -9,7 +9,8 @@ license = "MIT"
 publish = false
 
 [features]
-default = ["cli"]
+default = ["cli", "reconstruction"]
+reconstruction = ["rustred/reconstruction"]
 cli = ["dep:tabled", "dep:crossterm", "dep:ratatui", "dep:libc", "dep:signal-hook"]
 # N3 (opt-in, default off): mimalloc as the `rustred` binary's Rust global
 # allocator and, through its `override` feature, as the process-wide C
@@ -103,7 +104,7 @@ required-features = ["cli"]
 bincode.workspace = true
 blake3 = "1"
 rayon = "1"
-rustred = { path = "../rustred-core" }
+rustred = { path = "../rustred-core", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 symbolica.workspace = true

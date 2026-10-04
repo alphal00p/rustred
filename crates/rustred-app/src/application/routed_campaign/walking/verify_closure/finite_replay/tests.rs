@@ -1,4 +1,4 @@
-use super::super::e2e_tests::{Scratch, scratch};
+use super::super::test_scratch::{Scratch, scratch};
 use super::*;
 use crate::{
     FamilyCandidatesRequest, OwnerDomainMatchRequest, OwnerDomainWalkCheckpointOptions,

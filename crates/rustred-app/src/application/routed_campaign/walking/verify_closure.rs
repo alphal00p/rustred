@@ -46,17 +46,19 @@
 //! real cells (`union_sample`). Mutations (`--mutate`)
 //! inject one defect in memory after loading; each must turn the verdict
 //! into FAIL (the alias-chain detour is a positive control that must PASS).
-#[cfg(test)]
+#[cfg(all(test, feature = "cli"))]
 mod e2e_tests;
 mod epoch_checkpoint;
 mod epoch_export;
 mod epoch_g2;
 mod finite_replay;
-#[cfg(test)]
+#[cfg(all(test, feature = "cli"))]
 mod g2_e2e_tests;
 mod graph;
 pub(super) mod lattice;
 mod result_binding;
+#[cfg(test)]
+mod test_scratch;
 mod union_sample;
 
 use super::super::{RoutedCampaignRequest, input, matching, prepare};

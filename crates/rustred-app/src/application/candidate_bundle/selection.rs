@@ -28,8 +28,8 @@ pub(super) fn parse_masks(masks: &[String]) -> Result<Vec<Vec<bool>>, AppError> 
 /// Keep the complete prepared zero census and sources. Only pending nonzero
 /// jobs are selected. Returning canonical masks binds report/checkpoint identity
 /// independently of user-supplied list order or integral coordinate priorities.
-pub(super) fn apply<const N: usize>(
-    prepared: &mut Prepared<N>,
+pub(super) fn apply<const N: usize, F>(
+    prepared: &mut Prepared<N, F>,
     selected: Option<&[Vec<bool>]>,
     max_entries: usize,
 ) -> Result<Option<Vec<Vec<bool>>>, AppError> {

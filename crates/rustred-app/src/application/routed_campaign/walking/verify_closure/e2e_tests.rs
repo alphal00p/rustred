@@ -21,6 +21,7 @@
 //! the gate (verdict PASS, every root independently verified); partial or no
 //! re-inspection must be INCOMPLETE (never PASS); every mutation must give its
 //! exact violation-class set, with the per-node F10 classes firing.
+pub(super) use super::test_scratch::{Scratch, scratch};
 use super::*;
 use crate::application::candidate_bundle::split_generated_candidate_bundle;
 use crate::{FamilyCandidatesRequest, family_candidates, owner_domain_walk_with_progress};
@@ -47,26 +48,6 @@ expression="(q1+q2)^2-1"
 [target]
 powers=[1,1,1]
 "#;
-
-pub(super) struct Scratch(pub PathBuf);
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        if std::env::var_os("RUSTRED_E2E_KEEP").is_none() {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-}
-pub(super) fn scratch(label: &str) -> Scratch {
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let path = std::env::temp_dir().join(format!(
-        "rustred-verify-closure-{label}-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    let _ = std::fs::remove_dir_all(&path);
-    std::fs::create_dir_all(&path).unwrap();
-    Scratch(path)
-}
 
 /// Owners of the sunset family at candidate rank `rank`, one bundle per
 /// sector (except the masks in `omit`), written under `dir`, with the

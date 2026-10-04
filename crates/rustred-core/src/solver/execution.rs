@@ -1,6 +1,10 @@
 //! Bounded sector-level parallelism with shared sources and compact results.
 
 use std::fmt;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
@@ -57,6 +61,8 @@ pub struct SectorCompleted<const N: usize> {
 
 #[derive(Debug)]
 pub enum SectorExecutionError<const N: usize, E> {
+    /// Cooperative stop before starting a sector; running sectors are drained.
+    Cancelled { ordinal: usize, sector: [bool; N] },
     Prepare {
         ordinal: usize,
         sector: [bool; N],
@@ -77,6 +83,7 @@ pub enum SectorExecutionError<const N: usize, E> {
 impl<const N: usize, E> SectorExecutionError<N, E> {
     pub fn ordinal(&self) -> usize {
         match self {
+            Self::Cancelled { ordinal, .. } => *ordinal,
             Self::Prepare { ordinal, .. }
             | Self::Solve { ordinal, .. }
             | Self::Consume { ordinal, .. } => *ordinal,
@@ -85,6 +92,7 @@ impl<const N: usize, E> SectorExecutionError<N, E> {
 
     pub fn sector(&self) -> &[bool; N] {
         match self {
+            Self::Cancelled { sector, .. } => sector,
             Self::Prepare { sector, .. }
             | Self::Solve { sector, .. }
             | Self::Consume { sector, .. } => sector,
@@ -95,6 +103,7 @@ impl<const N: usize, E> SectorExecutionError<N, E> {
 impl<const N: usize, E: fmt::Display> fmt::Display for SectorExecutionError<N, E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Cancelled { ordinal, .. } => write!(f, "sector {ordinal} cancelled before start"),
             Self::Prepare {
                 ordinal, source, ..
             } => {
@@ -122,6 +131,7 @@ impl<const N: usize, E: std::error::Error + 'static> std::error::Error
 {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::Cancelled { .. } => None,
             Self::Prepare { source, .. } => Some(source),
             Self::Solve { source, .. } => Some(source),
             Self::Consume { source, .. } => Some(source),
@@ -147,6 +157,7 @@ pub struct SectorExecutor {
     scheduling: SectorScheduling,
     visit_order: Option<SectorVisitOrder>,
     pool: Option<ThreadPool>,
+    cancellation: Option<Arc<AtomicBool>>,
 }
 
 impl fmt::Debug for SectorExecutor {
@@ -204,11 +215,19 @@ impl SectorExecutor {
             scheduling: SectorScheduling::default(),
             visit_order: None,
             pool,
+            cancellation: None,
         })
     }
 
     pub fn workers(&self) -> usize {
         self.workers
+    }
+
+    /// Default-off cooperative cancellation. No CAS operation is interrupted;
+    /// all started workers/consumers finish before the executor returns.
+    pub fn with_cancellation(mut self, token: Arc<AtomicBool>) -> Self {
+        self.cancellation = Some(token);
+        self
     }
 
     pub fn scheduling(&self) -> SectorScheduling {
@@ -375,6 +394,13 @@ impl SectorExecutor {
         let operation = |ordinal: usize| {
             let sector = sectors[ordinal];
             let result = (|| {
+                if self
+                    .cancellation
+                    .as_ref()
+                    .is_some_and(|token| token.load(Ordering::Acquire))
+                {
+                    return Err(SectorExecutionError::Cancelled { ordinal, sector });
+                }
                 let start = Instant::now();
                 let solver = SectorSolver::new(sources, sector, configure(ordinal, sector))
                     .map_err(|source| SectorExecutionError::Prepare {

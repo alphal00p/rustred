@@ -1,3 +1,7 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Instant;
 
 use rustred::family::IntegralFamily;
@@ -19,7 +23,7 @@ mod portfolio;
 pub fn family_candidates(
     request: FamilyCandidatesRequest,
 ) -> Result<CandidateBundleResult, AppError> {
-    generate_request(request, None)
+    generate_request(request, None, None, None)
 }
 
 /// Observe generation without enabling source replay or closure certification.
@@ -29,22 +33,66 @@ pub fn family_candidates_with_progress(
     request: FamilyCandidatesRequest,
     observe: impl Fn(FamilyCloseProgress) + Send + Sync,
 ) -> Result<CandidateBundleResult, AppError> {
-    generate_request(request, Some(&observe))
+    generate_request(request, Some(&observe), None, None)
+}
+
+/// Controlled in-process generation. Cancellation is checked at sector and
+/// assembly boundaries, never by interrupting an in-flight algebra operation.
+pub fn family_candidates_controlled(
+    request: FamilyCandidatesRequest,
+    cancellation: Arc<AtomicBool>,
+    observe: impl Fn(FamilyCloseProgress) + Send + Sync,
+) -> Result<CandidateBundleResult, AppError> {
+    generate_request(request, Some(&observe), Some(cancellation), None)
+}
+
+/// Generate from an already prepared native family, without a text roundtrip.
+/// The family supplies all denominator/parameter identities. `options.source`
+/// and input format are not parsed; saved source text is a provenance label.
+pub fn family_candidates_from_family_controlled(
+    family: Arc<IntegralFamily>,
+    mut options: FamilyCandidatesRequest,
+    cancellation: Arc<AtomicBool>,
+    observe: impl Fn(FamilyCloseProgress) + Send + Sync,
+) -> Result<CandidateBundleResult, AppError> {
+    options.source = format!("native-family:{}", family.fingerprint());
+    generate_request(options, Some(&observe), Some(cancellation), Some(family))
+}
+
+fn check_cancel(token: Option<&Arc<AtomicBool>>) -> Result<(), AppError> {
+    if token.is_some_and(|token| token.load(Ordering::Acquire)) {
+        Err(AppError::new(
+            crate::AppErrorKind::Cancelled,
+            "candidate generation cancelled",
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 fn generate_request(
     request: FamilyCandidatesRequest,
     observe: Observer<'_>,
+    cancellation: Option<Arc<AtomicBool>>,
+    native_family: Option<Arc<IntegralFamily>>,
 ) -> Result<CandidateBundleResult, AppError> {
     let started = Instant::now();
+    check_cancel(cancellation.as_ref())?;
+    request.exact_backend.solver_backend()?;
     if request.n_cores == 0 {
         return Err(AppError::input(
             "candidate generation n_cores must be positive",
         ));
     }
     policy::validate_request_scope(&request)?;
-    let family = preparation::family(&request.source, request.input_format)?;
+    let family = match native_family {
+        Some(family) => family,
+        None => Arc::new(preparation::family(&request.source, request.input_format)?),
+    };
     let n = family.denominator_count();
+    if !(1..=16).contains(&n) {
+        return Err(AppError::input("candidate family arity must be 1..=16"));
+    }
     let root = preparation::root(n, &request.nonpositive_indices)?;
     preparation::validate_permutation(n, request.permutation.as_deref())?;
     super::order::request_policy(&request, n)?;
@@ -54,7 +102,7 @@ fn generate_request(
     });
     macro_rules! dispatch {
         ($($n:literal),+) => { match n {
-            $($n => generate::<$n>(family, request, &root, started, observe),)+
+            $($n => generate::<$n>(family, request, &root, started, observe, cancellation),)+
             _ => unreachable!("candidate arity checked"),
         } };
     }
@@ -62,13 +110,17 @@ fn generate_request(
 }
 
 fn generate<const N: usize>(
-    family: IntegralFamily,
+    family: Arc<IntegralFamily>,
     request: FamilyCandidatesRequest,
     root: &[bool],
     started: Instant,
     observe: Observer<'_>,
+    cancellation: Option<Arc<AtomicBool>>,
 ) -> Result<CandidateBundleResult, AppError> {
-    let mut prepared = preparation::prepare::<N>(family, root, request.permutation.as_deref())?;
+    check_cancel(cancellation.as_ref())?;
+    let mut prepared =
+        preparation::prepare_shared::<N>(family, root, request.permutation.as_deref())?;
+    check_cancel(cancellation.as_ref())?;
     let selected_sectors = super::selection::apply(
         &mut prepared,
         request.selected_sectors.as_deref(),
@@ -161,6 +213,9 @@ fn generate<const N: usize>(
             None => SectorExecutor::new(request.n_cores)
                 .map_err(|e| AppError::execution(e.to_string()))?,
         };
+        if let Some(token) = &cancellation {
+            executor = executor.with_cancellation(token.clone());
+        }
         if let Some(plan) = request
             .discovery_strategy
             .as_ref()
@@ -187,6 +242,7 @@ fn generate<const N: usize>(
                     .collect::<Result<Vec<_>, _>>()
             })
             .transpose()?;
+        let symbolic_exact_backend = request.exact_backend.solver_backend()?;
         executor
             .map_configured_with_error_observer(
                 &prepared.sources,
@@ -195,7 +251,7 @@ fn generate<const N: usize>(
                     zero_sectors: prepared.zeros.clone(),
                     permutation: prepared.permutation,
                     integral_order: request.integral_order.clone(),
-                    symbolic_exact_backend: request.exact_backend.solver_backend(),
+                    symbolic_exact_backend,
                     numerical_exact_backend: request.exact_backend.numerical_backend(),
                     source_discovery: source_plans
                         .as_ref()
@@ -224,6 +280,9 @@ fn generate<const N: usize>(
                     })
                 },
                 |error| {
+                    if matches!(error, SectorExecutionError::Cancelled { .. }) {
+                        return;
+                    }
                     emit(observe, || {
                         generation_failure(error, pending[error.ordinal()].0, started.elapsed())
                     })
@@ -272,6 +331,7 @@ fn generate<const N: usize>(
             )
             .map_err(|e| execution_error(e, &pending))?
     };
+    check_cancel(cancellation.as_ref())?;
     let mut rule_selection = request
         .discovery_strategy
         .as_ref()
@@ -320,6 +380,7 @@ fn generate<const N: usize>(
         request.bundle_limits,
     )?;
     let elapsed = started.elapsed();
+    check_cancel(cancellation.as_ref())?;
     emit(observe, || FamilyCloseProgress::Encoded {
         bytes: bytes.len(),
         elapsed,
@@ -435,10 +496,14 @@ fn execution_error<const N: usize>(
 ) -> AppError {
     let ordinal = pending[error.ordinal()].0;
     let kind = match &error {
+        SectorExecutionError::Cancelled { .. } => crate::AppErrorKind::Cancelled,
         SectorExecutionError::Consume { source, .. } => source.kind(),
         _ => crate::application::AppErrorKind::Execution,
     };
     let error = match error {
+        SectorExecutionError::Cancelled { sector, .. } => {
+            SectorExecutionError::Cancelled { ordinal, sector }
+        }
         SectorExecutionError::Prepare { sector, source, .. } => SectorExecutionError::Prepare {
             ordinal,
             sector,

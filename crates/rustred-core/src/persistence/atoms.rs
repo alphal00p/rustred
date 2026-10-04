@@ -316,55 +316,12 @@ impl DecodedCoefficientTable {
         let mut source = &atoms[LENGTH_BYTES..];
         for _ in 0..count {
             let frame = take_frame(&mut source, limits.max_atom_bytes)?;
-            let coefficient = catch_unwind(AssertUnwindSafe(|| {
-                let (atom, consumed): (Atom, usize) = bincode::decode_from_slice_with_context(
-                    frame,
-                    bincode::config::standard(),
-                    BorrowedStateMap(&state_map),
-                )
-                .map_err(|error| BinaryIoError::Native(error.to_string()))?;
-                if consumed != frame.len() {
-                    return Err(BinaryIoError::Invalid("trailing native atom bytes"));
-                }
-                let AtomView::Num(number) = atom.as_view() else {
-                    return Err(BinaryIoError::Invalid("coefficient atom is not a number"));
-                };
-                let CoefficientView::RationalPolynomial(packed) = number.get_coeff_view() else {
-                    return Err(BinaryIoError::Invalid(
-                        "coefficient atom is not a rational polynomial",
-                    ));
-                };
-                let coefficient = packed.deserialize();
-                validate_coefficient_on_map(
-                    &coefficient,
-                    coefficient.numerator.variables(),
-                    limits.exact_algebra,
-                )
-                .map_err(|error| BinaryIoError::Native(error.to_string()))?;
-                if normalize_unique {
-                    // Optional native normalization is per unique record,
-                    // never on every subsequent ID use.
-                    let normalized = Coefficient::from_num_den(
-                        coefficient.numerator,
-                        coefficient.denominator,
-                        &Z,
-                        true,
-                    );
-                    // Exact division can increase the sparse term count, e.g.
-                    // (x^m-1)/(x-1), despite lowering the polynomial degree.
-                    validate_coefficient_on_map(
-                        &normalized,
-                        normalized.numerator.variables(),
-                        limits.exact_algebra,
-                    )
-                    .map_err(|error| BinaryIoError::Native(error.to_string()))?;
-                    Ok(normalized)
-                } else {
-                    Ok(coefficient)
-                }
-            }))
-            .map_err(|_| BinaryIoError::Native("native coefficient import panicked".into()))??;
-            coefficients.push(coefficient);
+            coefficients.push(decode_generated_frame(
+                frame,
+                &state_map,
+                limits,
+                normalize_unique,
+            )?);
         }
         Ok(Self { coefficients })
     }
@@ -382,6 +339,58 @@ impl DecodedCoefficientTable {
     pub fn is_empty(&self) -> bool {
         self.coefficients.is_empty()
     }
+}
+
+pub(super) fn decode_generated_frame(
+    frame: &[u8],
+    state_map: &symbolica::state::StateMap,
+    limits: BinaryIoLimits,
+    normalize_unique: bool,
+) -> Result<Coefficient, BinaryIoError> {
+    catch_unwind(AssertUnwindSafe(|| {
+        let (atom, consumed): (Atom, usize) = bincode::decode_from_slice_with_context(
+            frame,
+            bincode::config::standard(),
+            BorrowedStateMap(state_map),
+        )
+        .map_err(|error| BinaryIoError::Native(error.to_string()))?;
+        if consumed != frame.len() {
+            return Err(BinaryIoError::Invalid("trailing native atom bytes"));
+        }
+        let AtomView::Num(number) = atom.as_view() else {
+            return Err(BinaryIoError::Invalid("coefficient atom is not a number"));
+        };
+        let CoefficientView::RationalPolynomial(packed) = number.get_coeff_view() else {
+            return Err(BinaryIoError::Invalid(
+                "coefficient atom is not a rational polynomial",
+            ));
+        };
+        let coefficient = packed.deserialize();
+        validate_coefficient_on_map(
+            &coefficient,
+            coefficient.numerator.variables(),
+            limits.exact_algebra,
+        )
+        .map_err(|error| BinaryIoError::Native(error.to_string()))?;
+        if normalize_unique {
+            // Optional native normalization is per unique record,
+            // never on every subsequent ID use.
+            let normalized =
+                Coefficient::from_num_den(coefficient.numerator, coefficient.denominator, &Z, true);
+            // Exact division can increase the sparse term count, e.g.
+            // (x^m-1)/(x-1), despite lowering the polynomial degree.
+            validate_coefficient_on_map(
+                &normalized,
+                normalized.numerator.variables(),
+                limits.exact_algebra,
+            )
+            .map_err(|error| BinaryIoError::Native(error.to_string()))?;
+            Ok(normalized)
+        } else {
+            Ok(coefficient)
+        }
+    }))
+    .map_err(|_| BinaryIoError::Native("native coefficient import panicked".into()))?
 }
 
 fn checked_add(left: usize, right: usize) -> Result<usize, BinaryIoError> {

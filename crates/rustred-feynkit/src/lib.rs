@@ -3,6 +3,8 @@
 //! The bridge reads Feynkit's existing public family API. Expressions remain
 //! native atoms in the host kernel; no second extension or string parser is used.
 
+#[cfg(feature = "campaign-api")]
+mod campaign;
 mod certificate;
 mod conversion;
 
@@ -774,6 +776,8 @@ pub fn register_hep_module(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyIbpRule>()?;
     module.add_class::<PyIbpSolution>()?;
     module.add_class::<PyIbpCertificate>()?;
+    #[cfg(feature = "campaign-api")]
+    campaign::register(module)?;
     Ok(())
 }
 

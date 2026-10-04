@@ -24,7 +24,8 @@ pub(in crate::application) fn emit(
 /// Exact sizes count stored structure, not bytes or algebraic complexity.
 /// Source rows are one-based; integral/target columns are zero-based. A frame
 /// may stop early, so its source-row count is not a completion denominator.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FamilyCloseGenerationStage {
     Case {
         pending: usize,
@@ -257,6 +258,7 @@ pub(in crate::application) fn generation_failure<const N: usize, E: std::fmt::Di
     elapsed: Duration,
 ) -> FamilyCloseProgress {
     let message = match error {
+        SectorExecutionError::Cancelled { .. } => "cancelled before sector start".to_owned(),
         SectorExecutionError::Prepare { source, .. } => format!("preparation: {source}"),
         SectorExecutionError::Solve { source, .. } => format!("search: {source}"),
         SectorExecutionError::Consume { source, .. } => format!("output: {source}"),
