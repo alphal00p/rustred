@@ -4,6 +4,13 @@
 //! parametric discovery, and finite Laporta elimination are the same native
 //! algorithms used by [`super::SectorSolver`]. Finite-search residuals are a
 //! basis for the returned equations, not a proof of master independence.
+//!
+//! Runtime entry points use [`crate::compiled_runtime_arities`] (default 1..=16;
+//! configurable at build time with `RUSTRED_RUNTIME_ARITIES=1,2,13,14,15`). The
+//! checked `*_for::<N>` entry points do not depend on that registry. This is a
+//! compiled capability boundary, not a mathematical maximum denominator count.
+//! Downstream direct solver hosts can reuse [`crate::dispatch_arity!`] with the
+//! compiled registry or their own explicit arity list.
 
 mod basis;
 mod certificate;
@@ -27,7 +34,7 @@ use super::{
 };
 
 pub use basis::{BasisChange, PreferredMaster, PreferredStatus};
-pub use certificate::{ReductionCertificate, certify_laporta};
+pub use certificate::{ReductionCertificate, certify_laporta, certify_laporta_for};
 
 /// Number of consecutive deeper searches that must reproduce a residual set
 /// before `until_stable` accepts it. One is not enough: some numerator
@@ -153,14 +160,10 @@ pub fn solve_parametric(
     fixed: &[Option<i16>],
     options: DynamicSolveOptions,
 ) -> Result<DynamicSolution, SolverError> {
-    dispatch!(
+    dispatch_arity!(
         family.denominator_count(),
-        parametric,
-        family,
-        cuts,
-        sector,
-        fixed,
-        options
+        solve_parametric_for(family, cuts, sector, fixed, options),
+        arity => Err(unsupported_runtime_arity(arity))
     )
 }
 
@@ -185,40 +188,61 @@ pub fn solve_laporta(
     preferred: &[Vec<i16>],
     options: DynamicSolveOptions,
 ) -> Result<DynamicSolution, SolverError> {
-    dispatch!(
+    dispatch_arity!(
         family.denominator_count(),
-        laporta,
-        family,
-        cuts,
-        targets,
-        preferred,
-        options
+        solve_laporta_for(family, cuts, targets, preferred, options),
+        arity => Err(unsupported_runtime_arity(arity))
     )
 }
 
-// Keep monomorphization at this API boundary. No topology dispatch occurs.
-macro_rules! dispatch {
-    ($arity:expr, $function:ident, $($argument:expr),+) => {
-        match $arity {
-            1 => $function::<1>($($argument),+),
-            2 => $function::<2>($($argument),+),
-            3 => $function::<3>($($argument),+),
-            4 => $function::<4>($($argument),+),
-            5 => $function::<5>($($argument),+),
-            6 => $function::<6>($($argument),+),
-            7 => $function::<7>($($argument),+),
-            8 => $function::<8>($($argument),+),
-            9 => $function::<9>($($argument),+),
-            10 => $function::<10>($($argument),+),
-            11 => $function::<11>($($argument),+),
-            12 => $function::<12>($($argument),+),
-            arity => Err(SolverError::InvalidInput(format!(
-                "the runtime bridge supports 1..=12 denominators; received {arity}"
-            ))),
-        }
-    };
+/// Use the exact parametric solver at an explicitly compiled arity.
+///
+/// This bypasses only runtime dispatch, not family, cut, case, or solver checks.
+/// `N` must be positive and equal the family's denominator count. Search options
+/// and all mathematical semantics are identical to [`solve_parametric`].
+pub fn solve_parametric_for<const N: usize>(
+    family: &IntegralFamily,
+    cuts: &CutConstraint,
+    sector: &[bool],
+    fixed: &[Option<i16>],
+    options: DynamicSolveOptions,
+) -> Result<DynamicSolution, SolverError> {
+    validate_family_arity::<N>(family)?;
+    parametric::<N>(family, cuts, sector, fixed, options)
 }
-use dispatch;
+
+/// Use finite Laporta reduction at an explicitly compiled arity.
+///
+/// All cuts, preferred-master changes, search budgets, and optional residual
+/// stabilization have the same semantics as [`solve_laporta`]. No membership in
+/// [`crate::compiled_runtime_arities`] is required.
+pub fn solve_laporta_for<const N: usize>(
+    family: &IntegralFamily,
+    cuts: &CutConstraint,
+    targets: &[Vec<i16>],
+    preferred: &[Vec<i16>],
+    options: DynamicSolveOptions,
+) -> Result<DynamicSolution, SolverError> {
+    validate_family_arity::<N>(family)?;
+    laporta::<N>(family, cuts, targets, preferred, options)
+}
+
+fn validate_family_arity<const N: usize>(family: &IntegralFamily) -> Result<(), SolverError> {
+    if N == 0 || N != family.denominator_count() {
+        return Err(SolverError::InvalidInput(format!(
+            "const-generic arity {N} must be positive and equal the family denominator count {}",
+            family.denominator_count()
+        )));
+    }
+    Ok(())
+}
+
+fn unsupported_runtime_arity(arity: usize) -> SolverError {
+    SolverError::InvalidInput(format!(
+        "runtime bridge was compiled for arities {:?}; received {arity}; use a checked *_for::<N> entry point or rebuild with RUSTRED_RUNTIME_ARITIES",
+        crate::compiled_runtime_arities()
+    ))
+}
 
 fn search(options: DynamicSolveOptions) -> SearchOptions {
     SearchOptions {

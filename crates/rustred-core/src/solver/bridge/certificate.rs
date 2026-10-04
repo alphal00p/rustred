@@ -36,8 +36,8 @@ use crate::solver::{Integral, SolverError};
 
 use super::combination::{Combination, NumericOrder, add, sector_of, unit, values};
 use super::{
-    DynamicRule, DynamicSolution, RuleOrigin, array, cut_restrictions, dispatch, is_excluded,
-    zero_census,
+    DynamicRule, DynamicSolution, RuleOrigin, array, cut_restrictions, is_excluded,
+    unsupported_runtime_arity, validate_family_arity, zero_census,
 };
 
 /// What a successful certificate checked.
@@ -62,14 +62,26 @@ pub fn certify_laporta(
     solution: &DynamicSolution,
     include_lorentz: bool,
 ) -> Result<ReductionCertificate, SolverError> {
-    dispatch!(
+    dispatch_arity!(
         family.denominator_count(),
-        certify,
-        family,
-        cuts,
-        solution,
-        include_lorentz
+        certify_laporta_for(family, cuts, solution, include_lorentz),
+        arity => Err(unsupported_runtime_arity(arity))
     )
+}
+
+/// Independently certify a Laporta solution at an explicitly compiled arity.
+///
+/// This has the same certificate scope and checks as [`certify_laporta`]; it
+/// does not prove master independence or pole completeness. `N` must match the
+/// family and be positive, independently of the runtime registry.
+pub fn certify_laporta_for<const N: usize>(
+    family: &IntegralFamily,
+    cuts: &CutConstraint,
+    solution: &DynamicSolution,
+    include_lorentz: bool,
+) -> Result<ReductionCertificate, SolverError> {
+    validate_family_arity::<N>(family)?;
+    certify::<N>(family, cuts, solution, include_lorentz)
 }
 
 fn fail(message: String) -> SolverError {

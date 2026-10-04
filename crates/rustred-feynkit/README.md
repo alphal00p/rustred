@@ -91,8 +91,24 @@ them zero. Family symmetries can further identify residuals using Feynkit's
 verified momentum maps, as demonstrated in the notebook. In a cut family, use
 only maps that send cut denominators to cut denominators.
 
-The runtime adapter accepts 1–12 denominators. Concrete search targets and
-fixed coordinates must lie in RustRed's compact power range `-64..63`;
+`hep.IBPFamily.compiled_runtime_arities()` reports the solver entry points
+compiled into the host (by default 1–16 denominators). This is a build
+capability, not a mathematical bound. To choose a different finite registry,
+set, for example, `RUSTRED_RUNTIME_ARITIES=1,2,13,14,15,21` when rebuilding
+the community host; setting it only at Python runtime cannot add compiled
+entry points. The list must contain distinct positive integers, separated by
+commas. Unsupported-arity errors report the actual compiled list.
+
+Rust hosts can bypass the runtime registry using the checked
+`solve_parametric_for::<N>`, `solve_laporta_for::<N>`, and
+`certify_laporta_for::<N>` entry points in `rustred::solver::bridge`, with the
+same cuts, options, preferred-master and certificate contracts. Hosts using
+`SectorSolver` directly can reuse `rustred::dispatch_arity!` with a caller's
+generic function and either the compiled registry or an explicit literal
+list. Neither mechanism changes algebra, ordering, or resource limits.
+
+Concrete search targets and fixed coordinates must lie in RustRed's compact
+power range `-64..63`;
 applying a discovered symbolic recurrence accepts signed 64-bit powers.
 It keeps all kinematic scales
 symbolic and uses the existing native exact sparse backend. RustRed's separate
@@ -234,13 +250,17 @@ From the RustRed checkout, using Python with the rebuilt community host:
 ```sh
 python -m pytest crates/rustred-feynkit/tests
 cargo test -p rustred --test feynkit_bridge -- --test-threads=1
+cargo test -p rustred --test bridge_arity --test arity_dispatch -- --test-threads=1
 ```
 
 The Python tests generate connected two-loop propagator and vertex graphs,
 introduce two independent masses and external virtualities, and check native
 identity conversion, both solving modes, exact analytic reductions,
 reverse-unitarity cuts, tensor invariants, preferred masters, certificates,
-and error handling. Notebook
+and error handling. High-arity tests also check nonzero massive tadpole
+reductions with linear auxiliary slots at arities 13, 14, and 15 and replay
+their original-source certificates; these are API/algebra regressions, not
+large-family performance evidence. Notebook
 execution additionally needs IPython; interactive execution uses a normal
 Python Jupyter kernel.
 

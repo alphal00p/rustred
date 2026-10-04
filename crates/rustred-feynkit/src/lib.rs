@@ -109,8 +109,10 @@ fn terms_to_python(
 /// ``dot(q, q)``, calls declared ``Scalar`` that stay opaque parameters.
 /// Call ``family.complete()`` explicitly for missing numerator slots;
 /// powers of those auxiliary denominators should normally be nonpositive.
-/// Solver searches support up to twelve denominators and fixed powers in
-/// ``-64..=63``. Applying a symbolic recurrence accepts signed 64-bit powers.
+/// ``compiled_runtime_arities()`` reports the solver entry points included in
+/// this host build (by default 1 through 16), not a mathematical arity bound.
+/// Fixed search powers lie in ``-64..=63``; applying a symbolic recurrence
+/// accepts signed 64-bit powers.
 ///
 /// ``cut`` flags reverse-unitarity denominators in family order. Every
 /// integral with a nonpositive power on a cut denominator vanishes; solving
@@ -236,6 +238,14 @@ impl PyIbpFamily {
 
 #[pymethods]
 impl PyIbpFamily {
+    /// Arity entry points compiled into this native host, sorted and unique.
+    /// Set ``RUSTRED_RUNTIME_ARITIES`` when rebuilding the host to select a
+    /// different registry. This is a build capability, not a mathematical cap.
+    #[staticmethod]
+    fn compiled_runtime_arities() -> Vec<usize> {
+        rustred::compiled_runtime_arities().to_vec()
+    }
+
     #[new]
     #[pyo3(signature = (family, *, name="F", cut=None))]
     fn new(family: &Bound<'_, PyAny>, name: &str, cut: Option<Vec<bool>>) -> PyResult<Self> {

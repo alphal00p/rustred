@@ -8,6 +8,9 @@
 //! not sources of generic parametric identities or future discovered rules.
 
 pub mod algebra;
+#[macro_use]
+pub mod arity;
+pub use arity::compiled_runtime_arities;
 pub mod campaign;
 mod diagnostic;
 pub mod family;

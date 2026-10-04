@@ -113,23 +113,63 @@ def test_unresolved_target_remains_explicit_at_finite_depth():
     assert solution.reduce([1]) == [([1], E("1"))]
 
 
-def test_unsupported_solver_arity_reports_bound_before_search():
-    d, p, k1, k2, k3, k4, s = S(
-        "arity::d",
-        "arity::p",
-        "arity::k1",
-        "arity::k2",
-        "arity::k3",
-        "arity::k4",
-        "arity::s",
-    )
-    loops = [k1, k2, k3, k4]
-    kin = hep.Kinematics(d, momenta=loops + [p]).with_scalar_product(p, p, s)
+def tadpole_with_auxiliaries(arity):
+    """One massive propagator plus an independent k.p_i basis, not a zero family."""
+    d, k, mass = S("arity::d", "arity::k", "arity::m2")
+    externals = [S(f"arity::p{i}") for i in range(1, arity)]
+    kin = hep.Kinematics(d, momenta=[k] + externals)
+    for i, left in enumerate(externals):
+        for j, right in enumerate(externals[i:], start=i):
+            kin = kin.with_scalar_product(left, right, E("1" if i == j else "0"))
+    denominators = [kin.scalar_product(k, k) - mass]
+    denominators.extend(kin.scalar_product(k, p) for p in externals)
     family = hep.IBPFamily(
-        hep.IntegralFamily(loops, [p], [], kinematics=kin).complete()
+        hep.IntegralFamily([k], externals, denominators, kinematics=kin)
     )
+    return family, d, mass
+
+
+def test_runtime_arity_capabilities_are_explicit():
+    arities = hep.IBPFamily.compiled_runtime_arities()
+    assert arities and arities == sorted(set(arities))
+    assert all(type(n) is int and n > 0 for n in arities)
+    family, _, _ = tadpole()
+    assert family.compiled_runtime_arities() == arities
+
+
+def test_unsupported_solver_arity_reports_actual_registry_before_search():
+    arities = hep.IBPFamily.compiled_runtime_arities()
+    absent = next(n for n in range(1, max(arities) + 2) if n not in arities)
+    family, _, _ = tadpole_with_auxiliaries(absent)
+    assert family.denominator_count == absent
+    # The unsupported build capability is rejected before source generation.
+    for call in [
+        lambda: family.solve_parametric([True] * absent, max_depth=0),
+        lambda: family.reduce_laporta([[1] * absent], max_depth=0),
+    ]:
+        with pytest.raises(ValueError, match="runtime bridge was compiled") as error:
+            call()
+        assert str(arities) in str(error.value)
+        assert f"received {absent}" in str(error.value)
+        assert "RUSTRED_RUNTIME_ARITIES" in str(error.value)
+
+
+def test_fourteen_slot_nonzero_reduction_and_exact_certificate():
+    if 14 not in hep.IBPFamily.compiled_runtime_arities():
+        pytest.skip("host explicitly built without the 14-slot runtime entry point")
+    family, d, mass = tadpole_with_auxiliaries(14)
     assert family.denominator_count == 14
-    with pytest.raises(ValueError, match="1..=12"):
-        family.solve_parametric([True] * 14, max_depth=0)
-    with pytest.raises(ValueError, match="1..=12"):
-        family.reduce_laporta([[1] * 14], max_depth=0)
+    target, master = [2] + [0] * 13, [1] + [0] * 13
+    solution = family.reduce_laporta([target], max_depth=1)
+    assert solution.residuals == [master]
+    terms = solution.reduce(target)
+    assert len(terms) == 1 and terms[0][0] == master
+    expected = (d - 2) / (2 * mass)
+    assert (terms[0][1] - expected).together() == E("0")
+    assert solution.certify(count_masters=False, replay=True).reduction == "verified"
+    parametric = family.solve_parametric(
+        [True] + [False] * 13, fixed=target, max_depth=1
+    )
+    terms = parametric.reduce(target)
+    assert len(terms) == 1 and terms[0][0] == master
+    assert (terms[0][1] - expected).together() == E("0")
