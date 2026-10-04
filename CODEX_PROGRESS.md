@@ -1,7 +1,10 @@
 # Codex progress: five-loop optimization and controlled deployment
 
-Authoritative current plan:
-[PROFILE_GUIDED_RULE_OPTIMIZATION_PLAN.md](PROFILE_GUIDED_RULE_OPTIMIZATION_PLAN.md).
+Authoritative current delivery plan:
+[HEPKIT_CAMPAIGN_DELIVERY_PLAN.md](HEPKIT_CAMPAIGN_DELIVERY_PLAN.md), including
+the October4 AMFlow runtime-arity follow-up. The earlier
+[PROFILE_GUIDED_RULE_OPTIMIZATION_PLAN.md](PROFILE_GUIDED_RULE_OPTIMIZATION_PLAN.md)
+remains the research record, not an instruction to restart an open-ended search.
 Earlier plans and measurements below remain historical evidence, not a launch
 instruction. The user launched the frozen generation-first trial on September30;
 root observes it read-only and does not control its lifecycle.
@@ -17,7 +20,7 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Literature / radical mechanisms | Research/evaluation agent, root and independent critic | General-rank banana recurrence gives two completed ~26% shared-domain reductions. Direct quadratic-D13 isolation rejected: its Gram-minor coefficient introduces uncancelled higher-rank tails. Negative derivation retained, not a rejection of Baikov methods generally. No new CAS. |
 | Portable steering | Root and independent auditor |66 Python tests pass; optional subset survives staging/copy/evaluator receipts; no production input changed. |
 | Completed observer milestone | Root and all three agents | Pushed `946d1ac9`;134 complete observations,11 tests, independent audit. No shared-work gain claimed. |
-| Production | Root read-only; user controls lifecycle | Live new37 remains unchanged. No new qualifying candidate or restart recommendation. |
+| Production / final delivery | Root read-only; user controls lifecycle | Live new37 remains unchanged. User requests a second experimental campaign after research wind-down, not a demonstrated whole-campaign performance winner. Preserve all116 required queries and67 helpers. |
 | Demand-specific reuse | Root, `lower_sector_discovery` recorded-evidence scan, `exact_and_cost_audit` | Narrow observer rejected: all14 incoming edges are internal to a334-node SCC. Genuine external boundary includes1628parents, mostly Route; an Apply-only union would be circular. Research now targets exact demand envelopes/recurrence summaries, not a scheduler rewrite. |
 | Expensive shared-owner regeneration | `lower_rule_evaluation`, root, independent auditor | Generation and full inventories complete: baseline483/83 versus candidate491/82 rules/residual records; about4% less generation time/bytes, no new residual keys. Existing repair overlay stays intact; same-owner preference/overlay composition remains unsupported, no replacement traversal or campaign gain claimed. |
 | Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4/H55 diagnostics complete. Integrated H55 singleton pair coldPASS: traversal34.147→13.427s, whole246.516→207.747s. Different retained representations; actual candidate356,202 operational states, not merely one saved recipe. One pair, not fullcampaign acceleration. |
@@ -27,12 +30,173 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Conceptual descendant elimination | `lower_rule_evaluation` implementation/evaluation; discovery geometry/inputs; `finite_region_audit` independent audit | Pushed shared exact obstruction diagnostic/174 tests as fb276c64. Trace-directed125 bank proves all19 actual points and one five-ray rule, exported/cold-inspected as e48ecfc2. Both whole29 attempts censor near610s. Complete observer confirms new rule on19/29; native first boundary grows42→85 successors, including2conditional. Performance promotion parked; no workload gain or production change claimed. |
 | Exit-complete chart programs | `lower_sector_discovery`4L diagnostic; `lower_rule_evaluation`5L actual-exit census; `finite_region_audit` independent review | Completed/audited:4L90 points→66 matching pieces/32 rules;5L39 complete exit queries→89 pieces/1,840 successors. D11 returns on uniform obligation chains, without R/A/E growth. Entry fragmentation does not disprove recursive reuse; no graph quotient implemented or closure gain claimed. |
 | Degree-plateau block elimination | `lower_sector_discovery` existing-binary experiment; `lower_rule_evaluation` full-boundary analysis; `finite_region_audit` independent critique | Both complete-bank tests negative:125 rows/19 refinements and witness-guided250 rows/137 refinements miss at all19 points. Exact separator/source preimages distinguish new directions from pivot changes, but do not supply a sufficient bank. No new rule or campaign gain. Further bank enlargement parked. |
-| Weighted plateau cut | `lower_rule_evaluation` implementation; `lower_sector_discovery` input cohorts; `finite_region_audit` independent review; root integration | Active research-only MVP: bounded same-owner equal-E composition, separate coefficient sums per parent, all off-plateau and unresolved branches retained. Prepare original4L90 and5L29 controls; explicit pointwise dispatch, not claimed identical whole-piece campaign dispatch. No production activation. |
+| Weighted plateau cut | `lower_rule_evaluation` implementation; `lower_sector_discovery` input cohorts; `finite_region_audit` independent review; root integration | Delivered/audited then parked:21 tests; depth2 and depth4 complete original4L90/5L29 controls. Depth4 shared support unchanged at4L and only1.66% lower at5L. Research observer remains opt-in, not production-enabled. |
+| PR2 integration / frozen release | `lower_rule_evaluation` isolated integration; `finite_region_audit` independent review; root final verifier | Merge3d0b08fb integrated; optimized CLI/probe,32 focused tests and FeynKit check pass. Final whole4L/cold5L release controls prepared, not yet run. Foreign root edits preserved. |
+| Separate banana485 campaign | `lower_sector_discovery` staging; independent auditor and root | Active delivery: retain entire currentnew37 context and add the two complementary exact owner0 rules with correctly rebound repair. Local gains20–26%; broader260-point control only0.129%. No promised full5L speedup. |
+| AMFlow runtime arity | `finite_region_audit` isolated implementation; `lower_rule_evaluation` independent review and release gate; root integration/coordination | Commit33fd03ec pushed to main: default1–16 configurable registry, shared dispatcher, checked generic APIs and capability getter. All21 optimized native tests pass including exact generic17 beyond registry; FeynKit Rust check passes. AMFlow own adapter still needs migration. Post-push message retry failed (tool unavailable); user received relay text and handoff. |
+| Native sessions / lazy views | `lower_sector_discovery` implementation; root adversarial review; independent integration checks next | Source ready: bounded native events, cooperative cancellation, fork rejection, lazy coefficient decoding and bounded native printing. Embedded-host feature plumbing prepared. Native compile and end-to-end tests pending. |
+| HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Four genuine DOT→HEPKit input fixtures preserve denominator order via explicit edge IDs. Four native input-parity tests plus eight UI lifecycle tests pass; actual new-session generation/visual-live tests pending host build. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Arity native release gate passes — October4
+
+[M] Isolated commit `33fd03ec5ee655d1aec989dad3c37f93c0539478` on reviewed
+PR2 merge `3d0b08fb` passes21 optimized native tests: seven arity reductions/
+replay/input-contract tests, two caller-dispatch tests and twelve existing bridge
+tests. Genuine nonzero exact reductions at13/14/15 and17 slots pass;17 exercises
+the checked generic entry points outside the default1–16 runtime registry.
+The FeynKit Rust check also passes. Python host execution of the new14-slot
+case remains pending the new community extension, not falsely counted here.
+
+[M] Root fast-forwarded main to this isolated tested commit. Its ten files do
+not include ongoing native-session changes. Build/receipt directory:
+`TMP/arity-final-integration-20261004/TMP/arity-gate-v1/`. Source and compiled
+test pins agree, owned build processes drained and both resource locks released.
+AMFlow's independent dispatcher and PR2 argument migration are documented in
+`docs/research/amflow_runtime_arity_handoff_2026-10-04.md`; its own sources were
+not changed. Root pushed main successfully (`4e4d3eb4..33fd03ec`). The post-push
+app send retry returned the same unavailable-tool error: no cross-task message
+was delivered. The user received the pushed revision, handoff and relay text.
+
+### PR2 integrated; arity delivery prioritized — October4 21:55 UTC
+
+[M] All v4 gates pass:32 focused native tests, optimized CLI/probe build and
+FeynKit Rust check. Isolated reviewed merge `3d0b08fb` is fast-forwarded onto
+root main; it is not pushed yet. The collaborator's expanded FeynKit rustdoc is
+temporarily preserved in a targeted stash and exact backup
+`TMP/pr2-foreign-preserve-O4FE6q/`, with an independently reviewed post-PR
+restoration proposal. Their separate Python test edits remain in the worktree.
+Restore the rustdoc before handoff; do not stage it as owned implementation.
+
+[M] Per the user's follow-up, the arity fix has priority over broad new API
+builds. Its isolated release gate is running from exactly `3d0b08fb` in
+`TMP/arity-final-integration-20261004`, with no untested root session changes.
+Tests now include a real17-slot generic solve beyond the default1–16 registry,
+in addition to13/14/15, exact original-source replay, guard/basis/cut behavior,
+runtime/generic parity, registry/macro checks and the existing bridge suite.
+No native arity success or pushed revision is claimed until those receipts pass.
+
+[M] Independent native-session/lazy-view source audit passes. Root corrected
+community namespace exception alias consistency and exposed a minimal native
+`parameter_bindings` presentation legend: original HEPKit parameters are not
+reconstructed by rewriting coefficient strings. New embedded-host smoke tests
+are prepared but not run. Notebook idle visual audit passes in real Chromium
+with the older host honestly marked incapable of generation; actual new-host
+live generation and artifact-browser acceptance remain pending.
+
+### Native delivery and arity source gates — October4 21:40 UTC
+
+[M] Isolated PR2 v4 optimized CLI build passes (1071.057s compilation,
+approximately14.55GB peak build RSS), frozen SHA256
+`05386e852cff135cae040c3c53861ed6b15fa6d84081fb36d98b6b82dd26e6c1`.
+Bridge integration tests12/12 and master-count tests12/12 pass; unit-test link
+and FeynKit Rust check remain in progress. No arity or new session change is
+included in this frozen CLI. Receipts:
+`TMP/pr2-final-integration-20261004/TMP/integration-build-v4/`.
+
+[M] Independent arity source audit passes. The isolated ten-file patch
+`TMP/arity-boundary-20261004/arity-boundary.patch` adds checked generic solve
+and certificate entry points, configurable `RUSTRED_RUNTIME_ARITIES`, exported
+caller dispatch and `IBPFamily.compiled_runtime_arities()`. Its generator and
+downstream macro checks pass, but native13/14/15 exact nonzero reductions are
+not yet compiled/run. Tests are deliberately simple complete tadpole-plus-linear
+coordinate bases: they will test dispatch/algebra, not AMFlow physical parity.
+See `docs/research/amflow_runtime_arity_handoff_2026-10-04.md`.
+
+[M] Root's independent native-session review identified inherited-lock/fork
+and unbounded coefficient-text construction issues; implementation corrected
+both and added regressions. Symbolica supplies the bounded-stream printer;
+there is no new algebra kernel. Code is ready, not yet native-build validated.
+Root added optional embedded-host feature plumbing without forcing standalone
+Python3.11 ABI onto the community's Python3.9-compatible shared kernel.
+
+[M] Real existing HEPKit host tests exposed DOT edge declaration order as
+insufficient to fix the intended denominator slots. Explicit standard edge IDs
+now preserve all four H/X/BMW/FG reference bases exactly. Twelve tests pass
+(four native denominator/mask checks, eight mocked UI lifecycle tests;0.10s).
+This is input preparation validation, not generated-rule or timing evidence.
+Community notebook still awaits the new native host and actual live run.
+
+### AMFlow coordination and runtime dispatch — October4
+
+[M] Read the app task titled `AMFLow+DiffExp` and its current native adapter.
+Its `src/native.rs` uses the const-generic RustRed solver directly through its
+own1–12 dispatcher; RustRed's dynamic `solver::bridge` independently has the
+same arbitrary range. Exported vector-key rules are not inherently12-limited.
+The separate34-coordinate bound belongs to the optional legacy packed
+permutation representation, not to the default integral comparator.
+
+[M] The app's thread-read tool works, but the attempted cross-thread send
+returns “This app tool is no longer available through dynamic tools. Use the
+codex_app MCP server.” No such messaging MCP tool is exposed here. Therefore
+the coordination message has **not** been delivered; do not claim otherwise.
+Root is auditing the accessible AMFlow sources and will retain a downstream
+handoff, retry a supported message channel if it becomes available, and report
+the limitation explicitly. No AMFlow source or production campaign was edited.
+
+[E] Do not interrupt the already-running isolated PR release build for this
+new request. Prepare the arity change separately, with independent design review,
+then validate it on the integrated baseline. The incoming PR also changes bridge
+call signatures; include those details in the downstream handoff.
+
+### Final composition result and delivery boundary — October4
+
+[M] The fixed depth-four follow-up completes and passes independent full
+native-tree/ledger auditing on both original cohorts. No parents, caps, saved
+programs or contexts changed; only the requested composition depth changed.
+All native calls complete, with zero fallback and no surviving owned process.
+
+| Depth4 cohort | Roots | Native calls | Boundary occurrences | Per-parent distinct → nonzero keys | Shared key union | Inclusive seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Four-loop |90/90|657|6,816|2,659 →2,353|235 →235|2.876|
+| Five-loop |29/29|2,269|37,943|10,593 →10,330|5,352 →5,263|83.040|
+
+[M] At four loops all112 distinct canceled keys remain required by another
+parent. At five loops263 parent-key cancellations cover206 distinct keys;
+117 remain required elsewhere and89 disappear from the shared cut (1.663%).
+Those89 include40 same-owner keys and49 pinches. The5L native ledger retains
+40,183 complete successor records. Evidence:
+`TMP/rule-optimizer-20261003/profiles/plateau-cut-original-controls-depth4-v1/`,
+receipts `9135e950…19934` and `6ae9c807…8663a7`. CPU32 also had a foreign
+compiler; timings are observations, not clean matched performance estimates.
+
+[E] Park this fixed composition policy. These exact cancellations do not
+establish avoided native work, a smaller recursively closed campaign, or
+faster full5L completion. No deeper tuning or production activation is planned.
+Depth2 and depth4 propagate different boundaries, so their key counts cannot
+be compared as speedups. The user-requested wind-down now supersedes the
+original open-ended search for a global20% gain.
+
+[M] Source/research milestone `c2d609a7` is committed on main. PR2
+(`hepkit-masters-and-certificates`, head `635363ae`) merges textually cleanly
+in an isolated worktree at that revision. Independent review and optimized
+Cargo validation are next; root's unrelated FeynKit rustdoc/test changes and
+untracked work remain untouched. The candidate campaign inventory confirms
+that the archived483-rule baseline selection equals current production's
+selection exactly. The485-rule candidate changes only owner0 and its bound
+two-rule repair; all67 owners,8,246 routes, the second11-rule repair,116
+required inputs and67 helpers remain represented. Its previously measured
+local20–26% benefit must be reported alongside the broader260-input gain of
+only0.129%, not extrapolated to the full campaign.
+
+[E] Final executable steps: finish PR review/optimized tests/build; validate
+the final executable on the full combined four-loop control and a bounded cold
+five-loop canary; stage a disjoint fresh campaign and preserve the live one;
+audit launch instructions, commit/push, and complete the revised delivery goal.
+No mathematical five-loop closure or unconditional termination claim follows.
+
+[M] Additional user directive: after this research wind-down, also deliver a
+symbolica-community HEPKit PR with a native streamed four-loop marimo campaign,
+lazy artifact exploration and reviewer request to BenRuijl. Root recorded
+`HEPKIT_CAMPAIGN_DELIVERY_PLAN.md` and updated `GOAL.md`; final stopping now
+requires both deliveries. Fresh workspace-local clone
+`TMP/symbolica-community-rustred-gallery-20261004` starts at`b224e50`.
+The gallery and existing four-loop numerator notebook were inspected. No
+community feature implementation or production launch has begun.
 
 ### Weighted-cut controls complete: small cancellation signal — October4
 

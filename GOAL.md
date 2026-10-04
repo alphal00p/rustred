@@ -1,5 +1,46 @@
 # RustRed project goal
 
+## October4 downstream requirement — AMFlow runtime arity
+
+The user requests coordination with the `AMFLow+DiffExp` task to remove the
+incidental twelve-coordinate dispatch restriction. Include the generalization
+and higher-arity tests in the upcoming RustRed delivery, and provide that task
+the pushed revision and migration instructions. The underlying native solver
+must remain topology-generic. Distinguish compile-time runtime specializations
+from mathematical limits; account for the downstream adapter's independent
+dispatch table rather than claiming the RustRed bridge alone fixes that path.
+Do not modify the other task's repository without coordinated ownership.
+
+## October4 additional delivery — HEPKit campaign notebook and API
+
+The user additionally requests a pull request in
+`symbolica-dev/symbolica-community`, with BenRuijl requested as reviewer.
+After winding down the five-loop optimization search, polish the HEPKit API
+against the current RustRed version and add a pedagogical marimo notebook
+that actually runs the four-loop campaign. Follow the visual style of
+`https://symbolica.io/gallery/`; keep long setup/helper code in appropriately
+factored, collapsed-but-expandable startup cells.
+
+Reuse HEPKit's standard DOT graph input, graph/routing/kinematics and integral
+family primitives. Pass the prepared family into RustRed while retaining its
+denominator order and auxiliary-coordinate constraints. Do not rematch graphs
+or require a second manually synchronized TOML family in the notebook.
+
+Expose structured live campaign events through PyO3 using RustRed's existing
+event producers, and provide ergonomic, lazy artifact/rule/terminal access
+with rich displays. The notebook must not duplicate solver logic, block on
+eager rendering of all expressions, or substitute loading packaged rules for
+the advertised generation demonstration. Measure the serial runtime rather
+than assuming the suggested roughly five-minute duration. Perform end-to-end
+and visual checks, and distinguish generation, traversal, optional verification
+and display costs.
+
+The separate five-loop campaign and existing PR integration below remain
+required. Their completion alone is no longer the stopping point: finish and
+push the RustRed delivery, submit the community PR with the requested reviewer,
+then report commands, validation evidence and limitations before stopping.
+The tool-managed goal remains active. See `HEPKIT_CAMPAIGN_DELIVERY_PLAN.md`.
+
 ## October4 delivery directive — finish research, integrate PR, hand off
 
 The latest user instruction supersedes the open-ended October3 optimization
