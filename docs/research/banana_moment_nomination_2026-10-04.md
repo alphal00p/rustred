@@ -1,8 +1,9 @@
 # A finite scalar-moment recurrence for an equal-mass banana
 
-October 4, 2026. Mathematical nomination and small Symbolica checks only: no
-RustRed source certificate, installed rule, native descent claim, numerical
-master evaluation, or five-loop closure result. This supplements the
+October 4, 2026. The scalar-moment construction remains a mathematical
+nomination. The final section additionally records a successful native
+ordinary-source/descent proof for one reusable numerator chart. No rule was
+installed, master evaluated, or five-loop closure established. This supplements the
 [structural-recurrence study](structural_recurrence_alternatives_2026-10-04.md).
 
 The useful new result is a triangular elimination that avoids the singular
@@ -259,3 +260,277 @@ using existing machinery. If that map cannot be made exact, or the relation
 only changes the presentation without shrinking the unchanged downstream
 workload, park it before implementing a moment compiler. A successful
 scalar toy alone does not justify altering either live campaign.
+
+## Actual owner0 numerator: a simpler reusable ordinary-IBP chart
+
+The original archived family is Minkowski-style `D_i=q_i²−1`, not the
+Euclidean convention used above. Its owner `000011001001011` has the
+oriented banana momenta
+
+```
+p1=k5, p2=k1−k3, p3=k2−k3, p4=k3−k5,
+p5=k3−k4, p6=−(k1+k2−k4),     sum(p)=0.
+```
+
+These are respectively `D5,D6,D9,D12,D15,D14`; `D13=(p4−p5)²−1`.
+The actual rank-one pressure point is
+`(0,0,0,0,3,1,0,0,1,0,0,1,−1,1,2)` in original physical axes.
+Thus the two lines touched by its numerator have powers one and two, not
+two unit powers. The other four powers are spectators.
+
+In Euclidean configuration space, expanding this numerator gives the exact
+pinched product plus `U−T+2G`, where
+`U=∫D3 D1^5`, `T=∫D3 D2 D1^4`, and
+`G=∫D3 D1^3 ∂D1·∂D2`. The sign of the last term includes the minus from
+the two Fourier momentum insertions. The pointwise adjacent-order identities
+give `G=T+νU`; the common convergent strip justifies this scalar manipulation.
+The explicit pinch is `D3(0) D1(0)^3 D2(0)`, not a dropped contact term.
+Under Wick rotation, each original denominator changes sign: the target
+has signed power sum eight, while `U,T,pinch` have sums eight, nine, eight.
+The common five-loop measure phase cancels. Consequently the original-family
+identity is `target=pinch+(d−1)U−T`.
+
+More usefully, it has a direct ordinary-IBP version before invoking any
+equal-mass exchange. Let `I(a,b;c)` retain arbitrary positive powers on
+`D5,D6,D9,D14`, put powers `a,b` on `D12,D15`, power `c` on `D13`, and set
+all other absent powers to zero. For `a≥1,b≥2`, the proposed relation is
+
+\[
+ I(a,b;-1)=I(a-1,b;0)
+ +{d+b-1-2a\over b-1}I(a,b-1;0)+I(a,b;0)
+ -{2a\over b-1}I(a+1,b-1;0).
+\]
+
+This follows from `∂_(p5)·p4` acting on the source with pair powers
+`a,b−1`, all other active line momenta held fixed. In the original basis,
+
+\[
+ \partial_{p5}=-\partial_{k1}-\partial_{k2}-\partial_{k3}
+                  -2\partial_{k4},\qquad p4=k3-k5.
+\]
+
+It is exactly eight original ordinary rows. In native `RowId` convention
+`ordinary-ibp:contraction:differentiated`, the pairs are `(2,i)` with weights
+`−s_i` and `(4,i)` with weights `s_i`, for `i=0,1,2,3` and
+`s=(1,1,1,2)`. All have source offset `+e13−e15` (one-based axes).
+The unnormalized target pivot is `b−1`, nonzero on the requested chart;
+no dimension-dependent division is necessary. At `a=1`, the first term is
+the explicit pinched product. No symmetry identity is needed for these four
+tails.
+
+At the observed point the physical RHS keys are:
+
+| Label | Physical powers | Coefficient |
+| --- | --- | --- |
+| P | `(0,0,0,0,3,1,0,0,1,0,0,0,0,1,2)` | `1` |
+| S | `(0,0,0,0,3,1,0,0,1,0,0,1,0,1,1)` | `d−1` |
+| T | `(0,0,0,0,3,1,0,0,1,0,0,1,0,1,2)` | `1` |
+| U | `(0,0,0,0,3,1,0,0,1,0,0,2,0,1,1)` | `−2` |
+
+The exact involution exchanging `p4,p5` has determinant `−1` and sends
+`k_i→k_i−k4+k5` for `i=1,2,3`, `k4→−k4+2k5`, `k5→k5`.
+It leaves the other active lines and `D13` unchanged. For this particular
+pair of powers it identifies `U=T`, giving the three-tail form above.
+That simplification needs an authenticated symmetry bridge; it must not be
+passed to an ordinary-only proof checker as though it were already a source
+combination. The four-tail form avoids that complication.
+
+The archived order is `rustred.spired-uncut-sector-order.v1`. Its source
+comparison checks support and then total corner distance, with numerator
+degree before dot degree at the subsequent degree tie-break. All same-sector
+proposed tails lower numerator rank from one to zero without increasing total
+dot count, so corner distance strictly decreases; a pinched tail lowers
+support. Thus the source-level order analysis predicts
+strict descent over this whole chart, independently of spectator powers;
+the completed native proof below also checks it. The existing observed rule
+emitted seven successors at the pressure point, versus four in this proposal.
+That is an immediate support comparison, **not** a downstream speedup.
+
+### Formal checks and completed native gate
+
+`banana_owner0_rank1_map_v1.py` and its JSON receipt check the actual momentum
+map, the Bessel/moment elimination and the relative Wick signs using the same
+existing Symbolica module. An independent convergent `d=1` calculation gives
+Euclidean target `89/12288`, including pinch `3/512`. The expanded scalar
+result is also retained there; it agrees with the simpler identity above.
+`banana_pair_ibp_formal_v1.py` checks the general rational `a,b,d` row
+identity, all actual directional invariants, and the exchange map. These
+formal checks take fractions of a second and are not native certificates.
+
+The native request is
+`TMP/rule-optimizer-20261003/candidates/banana-owner0-rank1-chart-v1/request.json`.
+It uses the existing compiled `prescribed-source` tool: generate all ordinary
+rows, select the named eight at their exact common offset, normalize the
+actual pivot, retain its conditions, and invoke
+`check_original_source_combination`. All six active powers remain unbounded
+above; only `D15≥2`, `D13=−1`, and the other inactive powers zero are fixed.
+This is a reusable chart, not a fitted catalog point or a five-loop-special
+engine path. Proof only was requested: no export, installation, master
+evaluation, or traversal.
+
+The sole independently preflighted attempt started at 07:28:49 UTC and
+completed successfully: `EXACT_ORIGINAL_SOURCE_CHART_PROVED`. The tool regenerated 25
+ordinary sources, selected the prescribed eight, retained the 37-term
+unspecialized source product, and derived the pivot `n14−1` (zero-based
+index variable, hence `b−1`). Its four normalized RHS coefficients agree
+with the displayed formula. The native checker covers the entire requested
+chart with two sign cells, separating `a=1` from `a≥2`; the pole condition
+`b−1≠0` remains attached with source/normalization/RHS origins. No zero-sector
+tails were discarded.
+
+Measured costs were 1.993 seconds inclusive, with 1.131 seconds preparation
+and 0.002641 seconds isolated source/descent proof. Sampled peak process-tree
+RSS was 328,175,616 bytes; the 16-GiB/150-GB-host-reserve guard drained all
+owned groups without interruption. Evidence is `execution-result.json` and
+`guard/stdout` alongside the request, the latter SHA256
+`c0adaaa3c21714f531a182bc17dc51476336b662edc470bb580712b42805a029`.
+These timings measure this tiny proof, not rule-generation or campaign gain.
+
+### Isolated export and all-positive numerator-rank extension
+
+The rank-one checked export subsequently passed in 3.327 seconds inclusive,
+with sampled peak tree RSS 896,421,888 bytes. It retains all 483 original
+rules and 83 terminal keys, adding one checked
+`AfterBaselinePartitionWholePiece` alternative. Its isolated payload is
+`candidates/banana-owner0-rank1-export-v1/artifact/candidate.rrbin` under the
+same evidence directory, SHA256
+`9c00d51eeed0258c374e791e3991057a54df5d8646ee15c20c134cbfecc41ec9`.
+The exporter reruns the original-source proof and checks its native codec
+roundtrip; the bytes by themselves do not carry a cold source-proof authority.
+Nothing has been installed or compared in a campaign.
+
+The same eight rows also give a wider recurrence. Write
+\(T_r(a,b)=I(a,b;-r)\), keeping the other four positive powers arbitrary.
+For \(a\ge1,b\ge2,r\ge1\),
+
+\[
+\begin{split}
+T_r(a,b)={}&T_{r-1}(a-1,b)+T_{r-1}(a,b)\\
+ &+\frac{d+b-1-2a+2(r-1)}{b-1}T_{r-1}(a,b-1)
+ -\frac{2a}{b-1}T_{r-1}(a+1,b-1)\\
+ &+\frac{2(r-1)}{b-1}
+   \left[T_{r-2}(a-1,b-1)-T_{r-2}(a,b-2)+T_{r-2}(a,b-1)\right].
+\end{split}
+\]
+
+This follows by differentiating the additional source numerator
+\(D13^{r-1}\), with
+\(\partial_{p5}D13=-4(p4-p5)\), since \(p4=P-p5\). Thus
+\(\partial_{p5}\cdot[p4\,D13^{r-1}]\) contributing
+\(-2(r-1)(D12-D15+1+D13)D13^{r-2}\).
+At \(r=1\), the three last terms vanish before any outside-root activation
+test; they are not interpreted as new positive-ISP obligations. At \(a=1\)
+or \(b=2\), the pinches remain explicit. Every surviving same-sector tail
+lowers rank by one or two, without increasing corner distance; pinches lower
+support. There is still only the safe denominator \(b-1\).
+
+The tiny formal Symbolica check and rank-one specialization passed in
+0.014 seconds. A preserved prepared-only v1 narrative originally mislabeled
+the final three denominator powers as `c` rather than `c+2`; its algebra
+was correct and no native run used that narrative. The separately frozen
+v2 request corrects this explicitly.
+
+The sole v2 native proof started at 07:50:37 UTC and passed in 2.205 seconds
+inclusive, 1.118 seconds preparation and 0.003181 seconds isolated proof,
+with sampled peak tree RSS 328,024,064 bytes and a clean owned-group drain.
+It checks the seven-free-axis chart, including an independently unbounded
+negative D13 ray, with the original eight sources and all seven derived
+tails. Eight exact Cartesian sign cells retain the rank-one/higher-rank and
+pinch boundary distinctions. Evidence is
+`candidates/banana-owner0-all-positive-rank-proof-v2/{request.json,guard/stdout,execution-result.json}`.
+This is a native reusable original-family recurrence, not merely a moment
+nomination, but it is not closure of other numerators, the `b=1` face, or
+the whole banana family. Its separately audited isolated export subsequently
+passed in 3.621 seconds inclusive, again preserving the 483-rule suffix and
+83 terminals. The broader payload at
+`candidates/banana-owner0-all-positive-rank-export-v1/artifact/candidate.rrbin`
+has SHA256 `3886d04f3ebb8f957deedd98ed74107bfa3ee5432388d4ae38222f82b1e85440`.
+The broader chart subsequently entered the isolated comparison below; neither
+chart has been installed in production.
+
+### Preserving the existing repair overlay
+
+Owner0 already has an immutable digest-bound repair overlay. Direct base
+replacement invalidates that binding; the preferred-program path currently
+rejects a same-owner overlay. Neither restriction should be bypassed.
+The existing public APIs instead support an explicitly validated re-export:
+cold-load the original overlay against the original owner; precharge its
+native clone-owned payload; replay the unchanged rules, source conditions,
+guards and strict descent against the checked new owner; encode with its
+actual digest; then independently cold-load the result and reject it under
+the old digest. The original rules, requested domains, terminal boundary,
+ordering and both original files remain intact. The standalone research
+adapter implements that sequence with three focused clone/scope/ingress
+tests; the actual overlay runs supply the native replay authority, not those
+three tests or the JSON receipt.
+
+Both re-exports passed. Rank-one took 38.556 seconds inclusive; the broader
+chart took 36.778 seconds. Each preserves the two original repair rules and
+one requested domain, verifies all 83 terminal keys, and replays both rules
+in the old context, new context, and independent new cold import. Each also
+rejects the new overlay under the old owner digest. The bounded clone charge
+was 313,432 bytes; sampled peak process-tree RSS stayed below 890 MB. Evidence
+is in `candidates/banana-owner0-{rank1,broad}-overlay-reexport-v1/`.
+The broader overlay SHA256 is
+`4c4cab7a6ef78e4572b5f891935fed1fcbb7b68288043e8728a34febdff66827`.
+The original owner and overlay were not modified; this does not install the
+new pair or confer recursive closure.
+
+Compilation is separate: the first one-core all-arity optimized link was
+cleanly deadline-censored after 271.611 seconds, with no binary. The unchanged
+source then linked successfully on eight reserved compiler CPUs in 145.354
+seconds inclusive, with a 3.49-GB sampled peak. No engine rebuild or new
+algebra implementation was needed; the adapter links existing native services.
+
+### First complete shared-work comparison
+
+The preregistered original four-query panel completed in 381.601 seconds
+inclusive, retaining all 67 old-saved owners, 8,246 routes and both repair
+overlays. Only the checked owner0 payload and its officially replayed overlay
+changed. Both arms used the same optimized `a3c9e542…2570ec` executable,
+16 reserved workers, original query caps and independent full cold reinspection
+with native levers **Off**. All four required queries passed, with no pending
+work, frontiers, abandoned obligations or native errors.
+
+| Metric | Baseline | Broader recurrence | Change |
+| --- | ---: | ---: | ---: |
+| Scheduled domains | 19,103 | 14,149 | −25.93% |
+| Native inspections | 17,485 | 12,872 | −26.38% |
+| Emitted events | 159,218 | 125,011 | −21.48% |
+| Traversal time | 1.080 s | 0.766 s | −29.05% |
+| Entire fresh arm, including staging/preparation/cold check | 188.341 s | 189.911 s | +0.83% |
+
+This is a substantial reduction of actual shared descendant work on this
+small completed cohort, not just a shorter immediate RHS. It is **not** yet
+a whole-campaign speedup: loading and cold verification dominate these fresh
+arms, and the total time is essentially flat. The reusable recurrence's
+unbounded chart and exact source proof do not establish how often the full
+production campaign will encounter it.
+
+Read-only checkpoint extraction finds four and seven outgoing physical
+singleton images at the two owner0 roots, exactly matching the proved cells;
+the two owner3 root child sets are unchanged. Native counters corroborate
+that support change. This is **support-consistent evidence**, not a selected
+ordinal or coefficient-equality receipt: CP6 does not record selected rule
+IDs, and the reader does not interpret coefficient displays. The independent
+native cold check remains the graph-verification authority.
+
+Evidence: `candidates/banana-owner0-broad-fourpoint-pair-v1/`, including
+`comparison.json`, `execution-result.json`, both `cold-all.json` files and
+`root-activation-diagnostic.json`. A separately frozen candidate-first repeat
+started at 08:31:29 UTC on the identical inputs. The pre-existing H1 validation
+point (independent of banana fitting, but previously exposed in a censored
+union) and four-loop controls remain subsequent gates. No new favorable point
+is selected from this result, and no production restart is recommended yet.
+
+A prospective current-new37 transfer check exposed a naming pitfall: the
+actual current production input inventory already equals the completed
+pilot's inventory, byte for byte for all 67 owner payloads and both overlays,
+with identical routes, family and load limits. Neither manifest contains
+preferred-program entries: the name `new37` is **not** a count of 37 such
+entries. The evaluator hashes actual files; this conclusion does not rely
+on historical manifest metadata. The redundant transfer plan remains
+prepared-only and is not run. Evidence:
+`candidates/banana-owner0-broad-currentpool-fourpoint-v1/input-identity.json`.
+This strengthens the relevance of the tested context but says nothing about
+the untested production query workload or its eventual closure.

@@ -244,6 +244,58 @@ Receipts are under `TMP/rule-optimizer-20261003/`:
 `profiles/h55-concrete-trace-w1-v1/`, and
 `candidates/h55-samebuild-symbolic-baseline-v1/`.
 
+## 4. Eliminate a numerator variable before exploring its lattice
+
+Jiang, Lian and Yang's top-sector ISP reduction keeps propagator variables
+as parameters while reducing the numerator variables. Unlike a maximal-cut
+calculation alone, it retains enough information to construct the pinched
+subsector remainder. Their equations31–51 also expose a practical hazard:
+intermediate generalized Baikov denominators must be removed before returning
+to ordinary integral families. Their three-loop banana example does not prove
+an efficient generic five-loop implementation. Its particularly easy lower
+sectors are explicitly not representative of all graphs.
+[Primary source, §§II,IV.1,IV.5](https://arxiv.org/pdf/2312.03453).
+
+The following is **our proposed narrow discriminator**, not an implemented
+intersection-theory engine or a result copied from that paper. For a quadratic
+ISP weight `P(z,y)=A(y) z²+B(y) z+C(y)`, with the remaining factors independent
+of z, write the partial integral `J_n(y)=∫z^n P(z,y)^γ dz`. A total derivative gives
+
+```text
+A(y) (n+2γ+2) J_(n+1)(y) + B(y) (n+γ+1) J_n(y)
+  + n C(y) J_(n−1)(y) = 0,
+```
+
+provided the endpoint term vanishes in a justified convergence region and
+the relation is continued consistently. This nominates a numerator-lowering
+combination without searching a large rectangular cloud of seed indices.
+It is not enough to divide by A and declare a new integral recurrence:
+A,B,C can depend on other variables that still have to be integrated.
+Their polynomial monomials correspond to simultaneous index shifts;
+`1/A` may instead introduce an inadmissible new denominator. Other
+z-dependent weight factors would also contribute missing derivative terms.
+
+**Smallest test and falsifier.** On one already-profiled sector, inspect
+quadratic ISP choices using existing Symbolica matrix/polynomial operations.
+Prefer an A independent of integration variables, or an exactly manageable
+monomial shift. Expand the complete polynomial identity into the existing
+integral family, retaining pinches and exceptional factors; seek an ordinary
+IBP source certificate and current-order descent using the existing checker.
+Reject the candidate if this requires unrepresented denominators, unresolved
+boundary terms, or cofinally nonlower tails. Only a checked candidate proceeds
+to unchanged-context work measurement. A smaller partial-integral basis is
+not itself evidence of fewer campaign domains or sufficient final masters.
+
+This is related to, but not identical with, the earlier protected-source
+module searches: it proposes a structural elimination variable and complete
+identity rather than requiring every source to protect every denominator.
+Those earlier negative results remain valid. No separate CAS primitive,
+intersection-number package, tensor reducer, or new terminal basis is proposed
+for this first discriminator. Independent mathematical critique accepts this
+nomination with the explicit partial-integral convention above. Native
+applicability, endpoint terms, dimension/prefactor bookkeeping and an ordinary
+source certificate remain untested; no new rule follows merely from the formula.
+
 ## Decision discipline
 
 The source-order generation control measured about4% less solve time in one

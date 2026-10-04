@@ -1,7 +1,10 @@
 # Exact finite demand versus symbolic SCC obligations
 
-Research and bounded diagnostic record, 2026-10-04. No scheduler, algebra,
-source-program, terminal, production or checkpoint semantics are changed.
+Research and bounded diagnostic record, 2026-10-04. The diagnostics below did
+not change scheduler, algebra, source-program, terminal or checkpoint semantics.
+A subsequent authorized **default-off finite replay implementation is under
+acceptance**, described separately below; it is not a production or performance
+claim.
 The canceled local observer test is a negative result, not an unfinished
 optimization. The first discriminator completed with the existing concrete
 tracer on the **original four required singleton inputs**, not a newly selected
@@ -315,7 +318,8 @@ different schedulers, granularity and retained outputs remain. The roughly
 kernel; it is not an achieved12.6-fold program optimization. A worker-budget
 check is still essential before nesting a trace inside existing inspectors:
 sixteen inner workers per inspector would be oversubscription, not a fair
-implementation of this measurement. No finite-summary feature is implemented.
+implementation of this measurement. No finite-summary feature was implemented
+at this measurement stage.
 
 The existing CLI couples route preparation and tracing to the same worker
 count (`routed_campaign/prepare.rs` passes `request.workers` to route
@@ -357,9 +361,9 @@ uninterruptible inline kernel or promise zero thread-launch overhead.
 The next gate is a small separately reviewed finite-discharge/cold-recipe
 design with cumulative budgets and unchanged original-source claims, not
 another worker sweep or automatic feature installation. No further native run
-or finite-summary implementation was performed in this lane.
+or finite-summary implementation was performed during those diagnostics.
 
-**The certification seam is real and still missing.** Core
+**The certification seam identified by those diagnostics.** Core
 `candidate_reduction/model.rs` explicitly says finite reachability is not a
 certificate, even for its entries: source provenance is not replayed by that
 reducer. The concrete summary retains no replayable per-node graph or exact
@@ -367,7 +371,7 @@ used-rule ledger. Existing `SourcePortAudit::replay_sector_rule_batch` is the
 identity half: it replays selected ordinary-source circuits and their guards,
 but separately requires coverage of every actually used rule and declared
 endpoint. The CP5/CP6 cold oracle re-inspects symbolic domain records and exact
-alias/anchor coverage; it currently cannot accept a concrete-trace summary as
+alias/anchor coverage; the diagnostic build could not accept a concrete-trace summary as
 a sealed replacement obligation. No current public service inspected here
 turns this CLI summary directly into a `ClosedArtifact`. This does not mean
 storing every internal edge is logically necessary: an audited **cold replay
@@ -375,8 +379,9 @@ recipe** can instead bind the exact finite input set/enumeration policy,
 complete immutable programs/routes/terminal convention, algorithm version and
 limits, then require a fresh full exact trace with no error or frontier.
 The verifier must recompute success, not trust the saved counters. Such an
-explicit finite-closed disposition and request/checkpoint binding do not yet
-exist. Replay would establish scoped reachability under the admitted candidate
+explicit finite-closed disposition and request/checkpoint binding were missing.
+The bounded implementation below addresses that seam. Replay establishes only
+scoped reachability under the admitted candidate
 identities; it must preserve, not silently strengthen, the current separate
 original-source audit claims.
 
@@ -403,6 +408,198 @@ program/route/source-condition context and retain certification and cumulative
 accounting; no such cache may leak between policy trials. Measure aggregate
 duplicate work, cold replay, retained-state cost and whole-walk cost against a
 contemporaneous control before claiming benefit from prepared-bank reuse.
+
+## Authorized implementation: one fresh singleton replay, acceptance pending
+
+The narrow first slice adds `OwnerDomainWalkRequest::finite_replay: Option<
+OwnerDomainWalkFiniteReplayLimits>` and CLI `--finite-replay-initial-singleton`.
+Omission is the legacy path: no new request-binding marker, record trailer or
+finite-work report. Enabling it requires a **fresh CP6 epoch checkpoint**;
+runtime resume, amendments, CP5 and memory-only walks are explicitly refused.
+Cold checkpoint loading and verification are intentionally still supported.
+
+Only the original first query, admitted as initial ID0, can be attempted. Its
+actual dispatched image must be whole, coordinate-singleton and exactly equal
+to that original query, including rank and A/D caps. An empty cap intersection
+declines rather than tracing the excluded point. A source-validity frontier,
+later ID0 substituted after an inadmissible first query, partial D-band or G2
+scope cannot become a summary. Existing G2, containment and D-band policies
+remain enabled for all other ordinary work; they are not globally disabled to
+make the experiment succeed. A fresh per-walk atomic reservation prevents a
+second attempt after cancellation, decline or redispatch.
+
+The new core caller-thread API uses the **same checked FIFO campaign kernel**
+as the measured cancellable tracer, not the separate DFS API. It starts fresh
+key/worklist state, shares immutable admitted algebra and route payloads, and
+spawns no worker. Existing native Apply coalescing, original poles/source
+conditions, exact transport, terminal/zero convention and descent checks remain
+authoritative. Cancellation is cooperative between native operations, not an
+interruption of Symbolica. There is no new algebra primitive, source audit,
+terminal, coefficient back-substitution, cross-attempt cache or parametric
+generalization.
+
+The six CLI allowance suffixes below are prefixed `--finite-replay-`:
+
+| Allowance | Default | Charged quantity |
+| --- | ---: | --- |
+| `max-nodes` | 1,000,000 | entry, unique operational-state and pending-work admission |
+| `max-rule-applications` | 1,000,000 | native attempts/reservations, not only successful formulas |
+| `max-transport-calls` | 1,000,000 | native routing calls |
+| `max-transport-operations` | 64,000,000 | conservative native expansion-operation bounds |
+| `max-transport-endpoints` | 4,000,000 | projected pre-coalescing endpoint bounds |
+| `max-coalescing-additions` | 16,000,000 | native coalescing reservations and work |
+
+Zero is an explicit zero-work allowance. At app preparation the node/transport
+fields configure the concrete-trace aggregate slots, replacing unrelated
+`routed-campaign` defaults which symbolic walking previously did not consume.
+This matters because its default100,000 transport calls would censor the
+already observed H55 workload. The core attempt then min-intersects its budget
+with the **actually admitted** trace and matching-reduction limits. Original
+per-formula expansion, scratch, algebra and matching limits are not enlarged.
+Online preparation and cold replay use the same policy mapping.
+
+Online decline is deliberately narrow: ineligible geometry, native frontier,
+or explicitly typed aggregate/transport-expansion resource exhaustion may
+fall through to ordinary symbolic inspection, once. Cancel, panic, source,
+context, algebra, descent and unsupported-support-transition errors remain
+errors; a name containing “unsupported” is not a fallback classifier. Separate
+finite-work diagnostics retain applications, attempts, exact transport work,
+conservative reservations and failed/declined prefixes. These do not masquerade
+as ordinary symbolic successor counts, and total inspector elapsed includes
+the attempted trace plus any subsequent fallback.
+
+A successful result has explicit native kind `FiniteReplay` and typed
+`Scope::FiniteReplay(Recipe)`, with version and six limits. Its enclosing typed
+record preserves the full original domain; existing request/payload digests
+bind the immutable bank. It has a completion marker, not fabricated ordinary
+RHS edges or an invented terminal. P1 and record validation reject partial,
+reused, malformed, error/frontier or non-ID0 versions. Diagnostic JSON and
+saved success counters are **not proof**. Cold `reinspect=All` with
+`reference-levers=Off` must reconstruct the same original membership and
+perform a fresh complete exact trace. Any replay frontier, budget failure,
+cancellation or hard error fails certification; cold never falls back to
+ordinary symbolic coverage.
+
+Implementation lives in core `routed/campaign/inline.rs`, app
+`walking/finite_replay.rs`, the small epoch inspector/merge adapters, typed
+record/codec and `verify_closure/finite_replay.rs`. Core focused tests passed
+(119 routed tests including seven new inline cases, plus219 owner tests),
+including caller-thread identity, mid-trace cancellation, failed reservations,
+original pole/source conditions and late descent failure. A preserved first
+test-fixture failure used an out-of-range synthetic index; its replacement
+uses400 legal lower children without reducing the256-operation callback gate.
+Independent app source review passed. The first semantic-test compile found
+four legacy test literals missing the new optional field; the continuation
+adds `None`, preserving their semantics. The v3 semantic-test binary
+`dee1c247…a74e9` passed the22-test finite-replay filter, including typed
+mutation/cold negatives and late resource-plus-cancellation classification.
+The five other focused filters passed3 record,134 restore,6 input,44 CLI and46
+cold-verifier tests. These overlapping filters must not be summed; the cold
+filter also retained one previously ignored exploratory sunset fixture, not a
+new finite-replay skip. Semantic tests used the declared32MiB libtest stack;
+the native acceptance controls will not inherit that override.
+
+Final optimized app and CLI linking passed in539.472s and18.888s respectively,
+with clean owned-process drain; the tested CLI is `c862ba6e…a121be`.
+Default-off native compatibility and the same-build H55 off/on native control
+remain acceptance gates. The prepared-only
+commands are in
+`TMP/rule-optimizer-20261003/candidates/finite-replay-acceptance-v1/plan.json`:
+original immutable staged inputs, fresh outputs, unchanged G2/D-band/rolling
+controls, direct existing guard and mandatory cold All/Off. The thin runner
+binds the final executable hash to its successful link receipt at launch;
+independent command/runner review passed. No finite-replay native acceptance
+or performance result exists yet.
+
+## Conditional geometry lead: exact support as an integer-flow relation
+
+This is a distinct, **unimplemented** possibility, not a claim that another
+Route optimization is worthwhile. The previous five-group H55 deletion screen
+removed232,654 edges but disconnected only8,675 nodes (2.25% of385,477) and
+1.60% of summed inspection time. That fixed-graph optimistic screen is not a
+bound on a changed program, but remains negative evidence against prioritizing
+a large routing feature for those groups.
+
+An authenticated affine numerator map has factors
+`L_i(x) = sum_j a_ij x_j`, including a dummy constant column `x_0=1`.
+For fixed nonnegative integer source powers m, a monomial contribution to
+`product_i L_i(x)^m_i` is an integer allocation z with
+
+```
+z_ij >= 0;  z_ij = 0 whenever a_ij = 0;
+sum_j z_ij = m_i;  sum_i z_ij = e_j.
+```
+
+Suppose the nonzero rational coefficient signs factor as
+`sign(a_ij)=r_i c_j`, with row and column signs in `{−1,+1}`. Every contribution
+to the same exponent vector then has the same sign
+`product_i r_i^m_i product_j c_j^e_j`; positive multinomial factors cannot
+cancel. Thus this integer-flow relation describes **exact nonzero support of
+one product**, not merely its convex hull. Eliminating the constant column is
+safe because `e_0=sum_i m_i−sum_{j>0} e_j` is fixed. Zero factors and zero
+powers need their ordinary native cases. A failed sign test is inconclusive,
+not proof of cancellation. Nor does the result prevent cancellation across a
+sum of different transported terms or establish guard/descent/closure facts.
+
+The sign criterion is the balanced signed-bipartite-graph condition: switching
+row/column signs makes every supported edge positive. Zaslavsky gives the
+equivalence and spanning-tree recognition in §§2.1–2.2; the application to
+multinomial support above is our elementary inference, not an IBP theorem in
+that paper. Only genuinely rational-constant signs are admitted here, not
+assumed signs of symbolic functions.
+[Signed Graphs and Geometry, Theorem2.1 and §2.2.2](https://people.math.binghamton.edu/zaslav/Tpapers/sggm.pdf).
+
+**Native fit and missing representation.**
+`sector/symmetry/integral_transport/compile.rs` already admits rational-constant
+inactive affine rows, unit active-row bijections and retained family/Jacobian
+conditions. Public `Prepared::verified_map().denominators()` exposes the typed
+coefficients; `Prepared::transport` supplies the exact Symbolica endpoint
+oracle. No coefficient-text parser or new algebra engine is needed. Current
+`domain_overcover/support.rs::JointSourceSupport::can_pinch` checks the total
+cost of a removed-column set against its union of supplying rows. It is not
+the full transportation/Hall system and does not retain joint exponent
+correlations. However, the current box/rank/A-D payload cannot represent a
+general existential flow relation without losing correlations again. A new
+typed relational boundary would therefore be a real architectural obligation,
+not a one-line tighter bound.
+
+Barvinok–Woods Theorem1.7 shows that integer projection can have a compact
+rational-generating-function representation **in fixed dimension**; its
+dimension-dependent complexity is substantial. It neither solves coefficient
+cancellation nor supplies an existing RustRed/Symbolica service. Current
+Symbolica polynomial services are suitable for native exact expansion and
+comparison, not a justification for adding a general Presburger engine.
+[Short Rational Generating Functions, Theorem1.7](https://arxiv.org/pdf/math/0211146),
+[Symbolica polynomial services](https://symbolica.io/docs/polynomials.html).
+
+**Smallest prospective falsifier, no run authorized.** Reuse only the admitted
+four-loop map in `domain_overcover/joint_support_tests.rs::fixture4`, not a
+campaign-wide search. First inspect its native typed row signs. If certified,
+compare the flow-predicted support against `Prepared::transport` for the fixed
+sixteen points with source numerator powers on axes0 and2 each in0..3, other
+inactive powers zero and the four active powers one. Require complete exact
+native support equality and at least one unreachable tuple admitted by the
+current joint-pruned cover. A hand-derived nominee is source
+`(-1,1,-1,1,1,0,0,0,0,1)` and target
+`(0,1,1,1,-1,0,0,0,0,0)`: it would consume two units from one numerator row
+whose supply is one. This is **not yet a native-observed counterexample**.
+Stop on failed sign admission, no extra precision, any oracle mismatch or
+budget refusal; no automatic map/degree search. Even a pass establishes only
+a capability witness, not worthwhile full-context cost or permission to
+replace current routing.
+
+This also bounds the finite-proof-lifting analogy. Translating a finite DAG
+usually translates its terminal keys away from the unchanged finite terminal
+boundary; matching several neighboring traces is not a reusable parametric
+proof. Path-focused abstract interpretation suggests proposing an invariant
+then checking every escaping path, but its termination proof relies on
+widening and its SMT transition language does not automatically cover our
+polynomial pole/zero conditions. Here any candidate relation still needs
+complete native image, original guards, side exits and checked terminal
+coverage. Tube/standard-pair discovery and fixed-translation corridor
+acceleration already appear in prior research; they are not new names for
+this experiment or for the current singleton replay implementation.
+[Using Bounded Model Checking to Focus Fixpoint Iterations, §§3.2–3.5](https://arxiv.org/pdf/1106.2637).
 
 ## Bolder alternative: eliminate an independent loop, not an SCC
 
@@ -461,4 +658,5 @@ numerator** whose complete native workload contains appreciable work exclusive
 to that mechanism. Q1707 does not qualify, and the broad cone's shared cost
 does not supply it. Until then, neither a product-artifact plugin nor a general
 Presburger/acceleration framework is justified. The four-root result and fixed
-H55 diagnostic are workload evidence only; architecture remains deferred.
+H55 diagnostic are workload evidence only; these larger alternative
+architectures remain deferred.

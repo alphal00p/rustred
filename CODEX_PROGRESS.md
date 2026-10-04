@@ -22,12 +22,54 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Expensive shared-owner regeneration | `lower_rule_evaluation`, root, independent auditor | Generation and full inventories complete: baseline483/83 versus candidate491/82 rules/residual records; about4% less generation time/bytes, no new residual keys. Existing repair overlay stays intact; same-owner preference/overlay composition remains unsupported, no replacement traversal or campaign gain claimed. |
 | Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4 and H55 exact traces complete; H55 same-build symbolic control coldPASS. H55 traversal:2.759s exactW16,13.627s exactW1,34.760s symbolicW16. Different outputs, not equal-output campaign speedup. Caller-thread core implemented and compiled; app typed/cold replay integration under test. |
 | Finite replay-summary implementation | Active: `lower_sector_discovery`; `exact_and_cost_audit` independent review; root build/resource integration | Explicit default-off CP6 singleton replay kind, one deterministic initial-root attempt, existing exact kernel with caller-thread cancellation. No opaque diagnostic authority or zero-event shortcut. Require cold recomputation, mutation/error/flag-off tests and total-cost controls before broader dispatch. |
-| Banana scalar/numerator bridge | Active: `lower_rule_evaluation`, root, independent critic | Both rank-one and general-positive-rank proofs, isolated exports and native repair-overlay re-exports pass; all83 original terminal keys retained. Original four-root/full67-owner context comparison is frozen; no production installation or workload gain claimed. |
+| Banana scalar/numerator bridge | Active: `lower_rule_evaluation`, root, independent critic | Both rank-one and general-positive-rank proofs, isolated exports and native repair-overlay re-exports pass; all83 original terminal keys retained. First cold-verified original four-root/full67-owner pair shows25.93% fewer domains with essentially flat total time. Counterbalanced repeat/current-pool/held-out controls remain; no production installation. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### First completed structural-rule gain; app semantic gates pass — October4, 08:28 UTC
+
+[M] The preregistered original four-root comparison completes and independently
+cold-verifies both arms, including all four required roots. Same binary,
+complete original67-owner/8246-route/two-overlay pool, unchanged query bytes,
+admission, ordering and terminal inventory; only the source-replayed owner0
+rule and its necessarily re-exported repair overlay change.
+
+| Metric | Baseline | New general-rank recurrence |
+| --- | ---: | ---: |
+| Scheduled symbolic domains |19,103|14,149|
+| Native inspections |17,485|12,872|
+| Native events |159,218|125,011|
+| Traversal wall |1.080s|0.766s|
+| Whole arm, including preparation and cold verification |188.341s|189.911s|
+
+[M] Domain work decreases25.93%, native inspections26.38%, events21.48%;
+traversal decreases29.05%. Whole-arm time increases0.83%, so this is **not
+an end-to-end speedup**. Both arms have zero pending work, frontiers, errors
+or abandoned obligations; all owned phases drain. The pair takes381.601s.
+Independent measurement audit passes. Exact evidence:
+`candidates/banana-owner0-broad-fourpoint-pair-v1/{plan,comparison,execution-result}.json`.
+
+[E] This is a meaningful structural-work signal, not a production recommendation.
+A same-input candidate-first repeat is authorized. Actual selected-rule identity
+is not published by ordinary CP6 records; support consistency must not be
+overstated as an ordinal trace. Root initially inferred a different preferred
+pool from the production directory's "new37" name. **The08:36 actual-byte
+inventory check corrects that inference:** both manifests have zero preferred
+programs, and all67 owner payloads, both overlays, routes, family and load
+limits match. The first pair already uses the current production rule bytes.
+The separately prepared current-pool four-point comparison is redundant and
+will not run. Four-loop and held-out workload validation remain required;
+pool equality does not make four successful inputs the full116-query campaign.
+
+[M] Fresh app v3 semantic build and all six focused groups pass:22 finite
+replay,3 wire,134 restore,6 input,44 CLI,46 cold-verifier tests; these counts
+overlap, and the cold group retains one pre-existing ignored exploration aid.
+Independent runtime audit passes. Optimized app/CLI compilation is now underway;
+no finite-summary whole-campaign gain has been measured. Research steering
+and the preceding progress update are pushed as `0023e6a0`.
 
 ### Broader recurrence composed safely; app tests and literature — October4, 08:18 UTC
 

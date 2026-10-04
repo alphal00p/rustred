@@ -5637,6 +5637,26 @@ not be disabled: only the actual whole original initial-ID0 singleton is
 eligible. Partial/G2 jobs fall through unchanged. Typed record publication,
 mandatory cold replay and mutation/negative tests are separate pending gates.
 
+The app implementation subsequently passes the source gate for coordinated
+tests, not yet the runtime gate. `walking/finite_replay.rs` retains exact
+initial coordinates and caps, and allows one fresh ID0 attempt. Empty capped
+domains now decline as ineligible rather than tracing an excluded point.
+App policy explicitly configures previously unused concrete aggregate slots;
+it does not enlarge matching reduction or per-formula algebra/expansion limits.
+The core intersects the attempt with those admitted limits. Both preparation
+paths use the same mapping; absence leaves defaults unchanged.
+
+`epoch/merge/finite_replay.rs` rejects partial/error/edge-bearing summaries.
+The new typed kind/scope and conditional wire trailer carry a versioned recipe,
+not opaque diagnostic authority. `verify_closure/finite_replay.rs` requires
+exact original-ID0 geometry, cold All/Off, immutable request/payload binding,
+and fresh successful native trace; budget, frontier or hard-error replay cannot
+fall back to ordinary inspection. Runtime resume is refused even through the
+private restore entry point, without preventing cold reading. Reviewed tests
+include forged P1/typed records, recipe/trailer mutations, actual cold budget
+and frontier failures, hard non-descent, empty-cap parity and default mapping.
+Their execution and full-context controls remain pending at this source gate.
+
 The independent banana nomination has now passed the existing native
 original-source chart checker in the sole proof-only attempt
 `candidates/banana-owner0-rank1-chart-v1`. For `a=n_D12>=1`, `b=n_D15>=2`,
@@ -5697,13 +5717,133 @@ full-image/descent failure or no meaningful full-context union-cost gain despite
 fewer local tails. Coefficient cancellations, exceptional faces and every
 pinched term must survive the test; unitarity-cut support alone is insufficient.
 
-There is a direct, unproved general-rank nomination using the same source
+There was a direct general-rank nomination using the same source
 offset, rather than a tensor engine. With `A=D12`, `B=D15`, `z=D13`, the
 transfer derivative satisfies `Dz=-2(A-B+1+z)`. Acting on `z^(r-1)` adds
 three rank-`r-2` tails proportional to `2(r-1)/(b-1)` to the four rank-`r-1`
 tails (and changes the second coefficient by that amount). At r=1 those
 three coefficients vanish; at a=1 or b=2 the corresponding pinches remain.
 This requires its own native full-chart proof, including the finite r=1 face;
-the rank-one receipt does not certify it. Even a seven-tail rank-two identity
+the rank-one receipt alone does not certify it. Even a seven-tail rank-two identity
 may fail the cost objective because the incumbent already has seven tails at
 one measured point. No additional native experiment is authorized by this note.
+
+The separately authorized `banana-owner0-all-positive-rank-proof-v2` now passes
+that exact proof gate: D13 is independently free over `c<=-1`, with the same
+eight source rows/offset and all six positive rays retained. Native checking
+partitions `a=1/≥2`, `b=2/≥3`, and `c=-1/≤-2` into eight cells covering the
+entire chart. At c=-1 the three c+2 coefficients vanish before activation,
+leaving four tails; other cells retain seven, including every pinch. Pivot
+`b-1`, full37-term product, original-source/denominator guards and descent are
+checked without symmetry or zero-sector deletion. The request equals the
+reported request and no artifact exists. Clean/drained2.205405 s inclusive,
+0.003181 s isolated proof; raw SHA-256
+`563b22d2bd0ef5381d2c05688d1826aa4b54a5a81759402a6cf4e0302bdf0b06`.
+This extends mathematical chart coverage, not the unmeasured cost claim.
+
+### Checked owner/overlay transport gate (October 4)
+
+The broader isolated export independently preserves the proved sources, seven
+RHS shifts, guards and eight-cell proof; it retains483 original rules and83
+terminals and adds one whole-piece alternative. Candidate86,019,090 B,
+SHA-256 `3886d04f3ebb8f957deedd98ed74107bfa3ee5432388d4ae38222f82b1e85440`;
+clean/drained3.620696 s. The following overlay bridge performs actual native
+replay, not a header edit: old-owner cold load,313,432 B precharged typed clone,
+new-owner original-source/guard/descent replay, encode with the actual new
+digest, independent cold reimport, and rejection against the old digest.
+
+Both rank-one and broader re-exports pass that chain: two unchanged overlay
+rules on one requested domain, zero residual terminals, all83 original owner
+terminal keys equal. Inclusive38.555993/36.777606 s, both clean/drained; each
+overlay is220,735 B (SHA-256 `fa6d6cf6…602582b` / `4c4cab7a…f66827`). The
+source-identical adapter's three small tests passed; an earlier single-core
+link deadline was preserved, followed by the separately authorized clean
+145.354 s compile. These checks authorize neither installation nor closure.
+
+The research evaluator now transports explicitly paired overlay replacements.
+It identifies each baseline row by index, owner and original digest, requires
+every overlay affected by an owner replacement exactly once, and preserves
+ordering, unaffected rows and metadata. Source provenance is pinned, not
+interpreted as mathematical proof. Native loader/cold rejection remains a
+separate gate. Independent workspace-local execution of all25 evaluator tests
+passes (0.184 s), including duplicate/missing/unpaired targets, changed digests,
+multiple same-owner overlays and staged drop/reorder/metadata mutations. No
+full-context performance run is implied by these transport tests.
+
+The separately authorized full-four-root plan `e281c146…c051faf` passes the
+final command gate. It retains the exact original baseline selection, all four
+query domains/caps/roles, 67 owners, 8,246 routes and two overlays. Only owner0
+and overlay0 change to the independently checked broader exports; the sole
+other selection difference is aggregate byte accounting. Both fresh arms use
+the same tested `a3c9e542…2570ec` executable, original walk controls and cold
+All/Off/all-roots checks, W16/CPUs32–47, 150GB process plus150GB host reserve,
+and1800s inclusive. This is a prospective measurement gate, not a cost result.
+
+App finite-replay v2 semantic receipts are independently checked: finite21,
+wire3, restore134, CLI44 and cold46 pass; the cold suite retains one existing
+exploration-only ignored test. These groups overlap and are not a distinct-test
+sum. The input filter executed zero tests and was correctly rejected by the
+harness. The v3 continuation changes that filter and includes the separately
+reviewed late-cancellation classification fix; its runtime gate remains pending.
+
+The v3 semantic continuation now passes independently checked runtime receipts:
+finite22, wire3, restore134, input6, CLI44, cold46, with the same one existing
+exploration-only ignored cold test. The corrected filter is nonempty and the
+late-cancellation regression is included. All groups are clean/drained against
+test binary `dee1c247…13a74e9`; compile437.440s. These are semantic opt0 tests
+with the explicitly declared test stack, not optimized performance evidence or
+the still-required native default-off/on pilot.
+
+The first banana four-root pair also completes: scheduled domains
+19,103→14,149 (−25.933%), native17,485→12,872 (−26.383%), events
+159,218→125,011 (−21.484%), traversal1.079944→0.766268s (−29.046%).
+Whole arms188.341216→189.910765s (+0.833%); total381.600929s. All six
+guarded phases drain, both original query files remain byte-identical and
+both full67/8246/2 pools survive staging. Cold All/Off independently checks
+all four roots, unchanged request/payload bindings and every native image,
+with zero uncovered images, errors, frontiers or pending work. Live closure
+snapshots remain stale; the cold result, not those flags, supplies coverage.
+This meets the preregistered domain-count threshold on this training cohort
+only. It does not show end-to-end speedup, family closure or promotion; the
+counterbalanced repeat and controls/held-outs remain separate gates.
+
+The read-only root evidence is consistent with the proved identity: owner0's
+two starts have exactly four/seven physical singleton child images, respectively,
+equal to the checked source product's appropriate sign cells. Native visits
+seven terms with three/zero vanishings. The two owner3 starts retain103/71
+physical child images. CP6 does not record a selected rule ordinal here, so
+this is support consistency, not an invented explicit dispatch certificate.
+The candidate-first counterbalanced plan `cc32f082…79e076c` is independently
+equal in both arm selections, queries, controls, budgets and commands after
+destination normalization; only execution order is reversed.
+
+An intended current-pool transfer control is redundant: both inventories in
+`currentpool-fourpoint-v1` are exactly equal to the respective first-pair
+inventories for all67 owners and both overlays; family, all8,246 routes,
+load limits and absence of preferred programs also match. A campaign name
+containing `new37` is not evidence of different current bytes. The audit
+recommends retaining this identity result instead of another native pair.
+The separately prepared H1v2 query is exactly the previously registered panel
+row1, hence distinct from the banana fitting cohort, but was exposed in a
+prior censored union and is not globally untouched validation data.
+
+### Quadratic-ISP nomination boundary
+
+[Jiang, Lian and Yang, §§II/IV](https://arxiv.org/pdf/2312.03453) require a
+quadratic integration variable to occur in only one Baikov factor, and their
+top-sector ISP procedure retains subsector information. This motivates—but
+does not certify—an original-family source nomination. Independently expanding
+`∂z[z^n P^(γ+1)]`, with `P=Az²+Bz+C`, gives coefficients
+`A(n+2γ+2)`, `B(n+γ+1)` and `nC` on adjacent moments. Before the remaining
+integrations these are functions of the other variables; afterward they are
+polynomial insertion/shift operators, not automatically external coefficients.
+
+A bounded discriminator would pin one actual quadratic Gram polynomial,
+expand its three coefficient polynomials into original-family shifts, and
+require a scalar-coefficient pivot with every retained tail lower under the
+native order, including pinches and exceptional faces. Dividing by a
+nonmonomial `A` generally leaves the ordinary family and is not an admissible
+shortcut. Contour boundaries, other z-dependent factors, normalization and
+original-source replay remain separate gates. No new relation authority,
+finite-rank theorem, implementation or native experiment follows from this
+paper-level nomination.
