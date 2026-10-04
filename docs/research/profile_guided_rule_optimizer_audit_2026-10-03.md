@@ -5323,3 +5323,286 @@ search or repetition is nominated by these results. The read-only summary
 ratios, six per-arm metrics and cold counts independently checked. Successful
 cold dependency coverage still retains abstract cycles and does not assert
 full-family closure, concrete back-substitution or production completion.
+
+### Owner0 source-order generation control
+
+The single preregistered generation pair (`owner0-numerator-source-generation-plan-v1.json`,
+`b7de6e6c...62dd81f`) changes only source visitation priority: ascending summed
+negative symbolic displacement on the nine inactive axes, followed by the
+archived A1 term/coefficient-monomial ties. It neither excludes source rows nor
+constrains the final recurrence image. Family, selected sector, nonpositive
+root metadata, integral order, finite `search` policy and all bounds agree.
+Both fresh arms use the same tested executable, with no checkpoint reuse.
+
+Independent raw-report, payload-hash and process-drain checks pass. The pair
+takes376.203171 seconds inclusive; baseline/candidate guarded times are
+191.485679/183.776743 seconds and native solve times182.956210/175.045397.
+Rules change483→491, finite residual records83→82, and serialized bytes
+86,017,923→82,617,112. The baseline payload is byte-identical to the archived
+owner (`663bfba7...9489b5`); candidate is `4fcc9246...94b30d0`. Sampled peaks are
+767,143,936/862,203,904 bytes; summed waited-child CPU is189.826332/181.875717
+seconds, not a reduction benchmark.
+
+The residual count does not establish terminal-set inclusion or an unchanged
+master basis. Native inventory/load and original-source replay are separate
+pending gates. No owner is installed and no traversal or application gain is
+measured. The existing owner0 repair overlay remains mandatory; the current
+preferred-program loader rejects that same-owner collision, so these generation
+results do not authorize a composed-program comparison.
+
+### Same-four-root exact-key diagnostic
+
+The independently checked plan `a8567212...9fa61ac` and runner
+`8496d192...51c4489` preserve all four original singleton keys and entry-domain
+predicates, the full67/8,246/two-overlay baseline selection, tested executable,
+and ordinary native stack. Entry caps admit the starts only; descendants are
+not clipped. Native Apply specializes and locally coalesces coefficients;
+Route's `transport_support_with_usage` visits the nonzero support of an exact
+native polynomial. This is distinct from symbolic Route overcover. Neither
+lane performs global coefficient back-substitution in this diagnostic.
+
+The sole bounded run completes in93.058120 seconds inclusive, with clean
+exit0, owned groups drained, and independently rechecked result/event hashes.
+Native elapsed time is88.654321 seconds including preparation; the shared
+trace reports0.312136 seconds. It completes44,143 operational nodes and44,139
+distinct integral keys,19,201 rule applications,14,587 transport calls,
+368,592 pre-coalescing transport endpoint budget units,393,143 deduplication hits,10,239 visited zeros
+and112 reached declared terminals. All four inputs are admitted; queued,
+active, failed, missing-owner and missing-rule counts are zero, with no
+frontier or first failure. Sampled peak is5,109,940,224 bytes. The original
+fixed node/application/transport/expansion caps are not enlarged.
+The endpoint counter is a prospective support bound charged before native
+expansion, not a count of emitted nonzero transport terms
+(`family/numerator_expansion/expand.rs::ExpansionUsage`).
+
+This is affordable finite local-support closure, not a smaller node workload
+than the same-build19,112 symbolic domains; the two counts describe different
+objects. The trace omits symbolic checkpoint publication/cold verification and
+does not retain a portable complete dependency graph or coefficient solution.
+It therefore establishes neither a backend speedup nor that containment or
+Route overcover accounts for a material fraction of the optimization target.
+No rule is changed, no20% gain is claimed, and the proposed singleton-Route
+bridge is not activated by this result. The broader116-query/67-auxiliary
+campaign and unbounded auxiliary obligations remain outside this diagnostic.
+
+### Owner0 complete inventory continuation
+
+The first full native shape inventory refuses its64MiB diagnostic-output cap
+before producing a baseline inventory; its1.521-second receipt remains.
+Root authorizes one cap-only continuation to256MiB, with the same two payloads,
+complete rule selection, coefficient text disabled, native limits and guard.
+The continuation completes both imports in4.781993 seconds, cleanly drained.
+Independent hash, ordinal-completeness and set checks confirm all483/491
+ordinary rules and all83/82 declared terminal keys, with no omitted records.
+The candidate terminal set is a strict subset:82 common, zero added, and only
+`(0,0,0,-1,1,1,-1,0,1,0,-2,1,0,1,1)` removed. This resolves the earlier
+count-only uncertainty; it does not independently prove that the removed
+terminal reduces completely, or establish a master-basis change.
+
+The bounded structural census finds457 common case/target shapes. Requiring
+identical opaque native guard diagnostics leaves445 paired shapes, of which
+309 have identical complete RHS geometries,89 fewer and35 more candidate
+geometric terms;12 have equal counts but different geometry. This neither
+parses coefficients nor proves coefficient equality or equality of ordered
+dispatch domains. These results remain generation/inventory evidence, with
+the mandatory owner0 overlay collision and downstream-cost gates unresolved.
+
+### Original H55 exact-key diagnostic
+
+Plan `d513ec46...20cf37` and runner `bbb5bc3c...413f89` reuse the completed
+four-point exact-trace controller with only a fresh destination and the one
+original H55 singleton. The physical point has A12/R0; its original entry
+caps A16/R4/D12..14, full67/8,246/two-overlay selection and tested `a3c9`
+executable are unchanged. The fixed600-second guard and native work caps
+are not enlarged. The result/event hashes, entry predicates, zero frontier
+and error counters, and drained process groups are independently checked.
+
+The run takes95.086522 seconds inclusive; native elapsed time is91.285980
+seconds including preparation, and exact tracing2.758839 seconds. It reaches
+355,584 distinct physical keys and356,202 operational nodes, with164,074
+applications,145,366 transport calls,248 declared terminals and45,896 zeros.
+The2,763,255 transport-endpoint units are the prospective expansion budget,
+not emitted support cardinality. Sampled peak is5,215,367,168 bytes. No
+back-substitution, symbolic checkpoint publication or cold closure pass is
+included in this diagnostic.
+
+The historical27.708-second symbolic traversal used an older executable;
+its ratio is not a matched speedup. This is nevertheless a concrete timing
+feasibility signal, not refuted by the different graph objects or counts.
+Root authorizes a single same-`a3c9` symbolic baseline plus cold All/Off
+control. Its actual plan `a0141f5e...ee35d3` independently preserves the
+original query, selection and symbolic controls, with baseline-only execution
+and cumulative stage30/45, walk330/360 and cold540/570 deadlines inside600
+seconds. No optimization is promoted by this registration.
+
+The same-build symbolic control subsequently completes in251.594474 seconds
+inclusive, with independently checked command/input equivalence and all three
+phase groups drained. Native preparation takes88.322540 seconds and traversal
+34.759817 seconds, producing385,815 domains,314,985 native inspections and
+5,344,012 events. Cold All/Off takes114.923095 native seconds (118.624072
+guarded), re-inspects every native and covers all4,838,646 admitted domains
+with zero errors, frontiers or uncovered images. The single root is independently
+verified. The live checkpoint-only report retains its stale `incomplete`/open
+snapshot; cold, not reinterpretation of that flag, establishes dependency
+coverage. Its70,840 abstract-cycle nodes remain within that coinductive claim,
+not a scalar back-substitution or global termination certificate.
+
+The exact2.758839-second versus symbolic34.759817-second traversal contrast
+now uses the same executable and admitted programs. It supports a concrete
+representation/per-publication hypothesis, not an equal-output12.6-fold
+certified speedup: the exact diagnostic lacks symbolic publication and cold
+reinspection, and the local work objects differ. Fresh preparation remains
+about88 seconds in both. An inline summary must also work without spawning
+16 nested workers, so the separately authorized exact W1 diagnostic is a
+relevant implementation-feasibility check, not a production change.
+
+That W1 diagnostic completes in139.877226 seconds inclusive, cleanly drained,
+with native elapsed134.818939 seconds and one-worker tracing13.626978 seconds.
+The complete native JSON differs from W16 only in the two worker fields and
+two elapsed fields: entry admission, finite work caps, all counts and zero
+frontier/error state agree. Result/event hashes match the execution receipt;
+peak owned RSS is5,222,871,040 bytes. The prospective1800-second allowance
+superseded an unexecuted600-second proposal before launch; observed
+preparation-plus-overhead121.191960 seconds supersedes the pessimistic setup
+estimate. This was one attempt, not a timeout-triggered enlargement.
+
+Crucially, W1 measures the shared FIFO campaign with one spawned worker,
+not the separate public `trace_targets` DFS routine. The campaign supports
+cancellation and support-only transport; plain `trace_targets` has no
+cancellation parameter and materializes weighted transport results. Therefore
+13.626978 seconds is evidence for a one-worker native kernel, not a measured
+caller-thread implementation or a certified2.55-fold hybrid gain.
+
+### Structural proposal and replay-recipe boundaries
+
+The [structural alternatives note](structural_recurrence_alternatives_2026-10-04.md)
+correctly treats the adjacent-Bessel moment identity as a direct derivation
+with a justified boundary, not an existing all-d RustRed algorithm. For six
+lines the seven-type transfer is singular; the stated left and right null
+vectors pass elementary multiplication. Finite width therefore does not
+establish finite closure in the radial moment index. Independent symbolic
+propagator powers also require different Bessel orders, so bounded integer
+offset reduction must not be promoted to an arbitrary-index formula.
+The cited configuration-space recurrence paper works after epsilon expansion;
+the numerator paper's contact contribution must survive mapping back to
+pinched products. [Moment recurrences, section4](https://arxiv.org/pdf/hep-ph/9903412),
+[contact terms, section5](https://arxiv.org/pdf/hep-ph/0403122).
+
+A discriminating proposed chart should include the already measured unequal-dot
+owner0 rank-one point, with active powers(3,1,1,1,1,2), and retain its D13
+numerator. Its known rank-two neighbor is an adjacent-case check, not a fresh
+performance holdout. Contact-complete mapping into original-family ordinary
+sources, exact replay, poles, native descent and the whole downstream boundary
+remain gates. A scalar-only identity, the existing seven-tail recurrence in
+another notation, or a dictionary requiring unbounded special-function order
+reduction supplies no demonstrated shared-work improvement. No prototype or
+new source authority is authorized by this mathematical review.
+
+A subsequent formal check supplies a genuine workaround to the singular
+one-step transfer, not a reason to erase that warning. With
+`p0=d−1−Nν` and `M_t(q)=J(p0+t+2q,t)`, the reindexed relation is
+`[d+2q−2tν]M_t(q)=(N−t)M_(t+1)(q)+t M_(t−1)(q+1)`.
+Forward elimination for t<N divides only the nonzero integer N−t; the final
+t=N equation yields a scalar shifted-moment relation. Independent source and
+receipt review of `banana_moment_nomination_v1.py` checks the noncommuting
+q-shift bookkeeping and the convergent d=3 half-integer control formula.
+The existing Symbolica2.2-development module reports25 derivative identities,
+20 triangular identities and30 convergent integral controls for N2..6;
+its receipt/source pins agree. This is formal nomination, not compatibility
+with current artifact codecs or a new algebra implementation.
+
+For N6 the formal recurrence has order3 and leading coefficient
+`16(2d−2q−9)/5`; its trailing coefficient at d=4 vanishes at q=0,1,2,3,4.
+These exceptional loci must remain visible. The hand-derived N2 relation
+`(q+1)(d+2q)(2q+4−d)M0(q)−(4q+6)M0(q+1)=0` agrees with the receipt.
+The formal checks assume zero radial boundary sources. The subsequent
+[banana note](banana_moment_nomination_2026-10-04.md) supplies the stronger
+scalar justification: for q≥0 and0<d<2, the small-r integrand exponent
+`d−1+t(2−d)+2q` exceeds−1, its derivative boundary vanishes, and infinity is
+exponentially suppressed. Meromorphic continuation of that scalar identity
+does not justify discarding contact terms or continuing it blindly to negative
+q. Independent review verifies the sourced B/S recurrence signs and the
+normalized powers-one/two binomial map. Its explicit `M2(−1)` countercheck
+correctly retains the nonzero endpoint and reproduces the pinched product.
+The unit-mass radial map
+`r²D_a=4a(a+1)D_(a+2)+4a(ν−a)D_(a+1)` also follows directly from the Fourier
+transform of `−Δ_k(k²+1)^(−a)`. It is not a cross-line tensor-numerator map.
+Mapping independently powered numerator integrals with all contact terms,
+original-source reconstruction and native descent remain unresolved. A finite
+moment-index order does not by itself establish the desired family reduction.
+
+A finite-summary certificate need not store every exact edge if cold verification
+unconditionally reruns the complete native exact trace. A minimal replay recipe
+must bind the exact finite domain and exhaustive enumeration policy, immutable
+full program/order/terminal authority, algorithm version and limits. Cold must
+recompute all local guard/application/transport obligations and require complete
+coverage with no frontier; counters alone are insufficient. This would certify
+only the declared finite region, not a coefficient solution or enlarged hull.
+It needs an explicit checked disposition and identity; the present trace report
+is not that interface. Overlapping summaries need cumulative work admission and
+safe cache binding. Budget/unsupported/explicit frontier misses may decline a
+summary; cancellation stops, and hard context, algebra, source-condition or
+non-descent errors must not be swallowed as ordinary fallback. No new CAS or
+mandatory serialized exact DAG follows from this design requirement.
+
+The archived-state whole-rule screen is also independently checked. Immutable
+sealed records/edges and dispatch epoch k versus merge epoch k+1 support its
+conservative acyclic availability calculation. It discharges2,021 of19,109
+nodes from1,326 leaves; cycles remain uncertified. All67 observed complete
+alternative boundaries remain incomparable at their recorded baseline epochs,
+and none becomes wholly discharged. Candidate uncertified-child counts are
+lower/equal/higher on48/5/14 cases, not downstream costs. Rule110's early starts
+have no certified discharged children. This is a negative for that conservative
+screen, not a reconstruction of stale snapshot flags, a new closure certificate
+or a prediction of another policy's history.
+
+### Minimal finite-summary design audit
+
+Conditional design GO is limited to a default-off, explicitly typed finite
+replay recipe; relabelling an ordinary native record as an empty successful
+inspection is a NO-GO. `candidate_reduction/preparation/shared.rs:227` retains
+each raw RHS denominator before coefficient normalization. The common
+`evaluator.rs:114,129,149` checks affine equalities, whole exception branches
+and all original denominators; `:176–214` specializes every term, validates
+nonzero child source conditions and strict owner order before coalescing.
+`owners/evaluation.rs:75` advances to another batch only for exact Uncovered.
+Native transport admission requires constant rational maps and a unit active
+bijection (`integral_transport/compile.rs:105–154`); campaign child handling
+retains support/phase descent checks even for already-seen keys
+(`routed/campaign/worker.rs:29–52,131–146`). Source conditions precede zero and
+terminal discharge. These are local checks under the admitted candidate
+identities, not new original-IBP provenance.
+
+The persistence gap is concrete: `walking/epoch/job.rs:298` has no summary
+native kind; `records/typed.rs:176,291` validates existing kinds and excludes
+opaque diagnostics from authority. Cold `verify_closure.rs:1742` invokes the
+ordinary native reference visitor and demands outgoing-image edge coverage.
+An explicit finite-replay kind therefore needs bounded recipe encoding,
+request/checkpoint binding, seal eligibility and mandatory cold recomputation.
+It cannot be smuggled into JSON diagnostics or a zero-event existing kind.
+Default-off behavior/identity must remain unchanged, and unsupported checkpoint
+policies must fail closed rather than silently downgrade certification.
+
+The smallest recommended experiment starts with whole exact singleton domains,
+original cap membership and one deterministically selected initial-root
+attempt per walk. Reuse the already prepared reducer (`epoch/mod.rs:479`),
+not a second bank load; use a cancellation-aware caller-thread form of the
+existing checked kernel. No cache, new terminal, partial/G2 enumeration or
+cross-policy state is needed initially. Online explicit budget/frontier or
+unsupported misses may decline the optional summary; recorded success must
+replay successfully in cold verification without fallback. Cancellation,
+algebra, source-condition, context or non-descent failures are not normal
+fallback. Tests must cover raw-pole cancellation, late failures, changed
+root/caps/payload/policy/recipe, cold replay budget exhaustion and old flag-off
+identity before a full-context comparison.
+
+Internal exact work and failed attempts remain charged: one summary record
+does not turn hundreds of thousands of exact operations into one unit of work.
+Measure whole cost including preparation, exact traversal and cold replay,
+with native applications/transports and published domains reported separately.
+First use4L correctness controls, then the unchanged H55 and four-root inputs;
+no broader campaign claim precedes held-out/full-query coverage. Repeated
+overlapping summaries or cold replay may erase the local gain. Any later
+proved-key cache needs success-only publication, complete immutable-context
+identity and aggregate pre-work admission; per-call limit resets cannot serve
+as a cumulative workload bound.

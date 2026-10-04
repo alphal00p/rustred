@@ -14,16 +14,236 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | --- | --- | --- |
 | Native saved-rule subset | `lower_sector_discovery` implementation; `exact_and_cost_audit` independent review | Delivered/pushed029e2bff;352 successful-suite native tests and ordinary-stack4L semantic control pass. Failed harness and stronger graph-identity checks preserved. No algebra or prepared-session rewrite. |
 | Whole-context policy comparisons | `lower_rule_evaluation`, root and independent auditor | Fixed{110}/{450}/{110,450} matrix complete, all coldPASS: domain changes+1.99%/-0.403%/+1.45%; every whole arm slower. No promotion or automatic sweep. |
-| Literature / radical mechanisms | Research/evaluation agent, root and independent critic | Shared-policy/frame/factorization/demanded-summary review delivered. Top5 Route joint-cut screen negative; frame implementation parked for these groups. Demand-slice inheritance witness audit active, no scheduler change. |
+| Literature / radical mechanisms | Research/evaluation agent, root and independent critic | Demand/SCC and transverse-integration applicability reviewed; narrow observer rejected. Closed-child whole-rule screen negative. Configuration-space banana nomination now has independently checked Symbolica toy recurrences; original-family numerator/contact/source lift remains open. No new CAS or speculative engine rewrite. |
 | Portable steering | Root and independent auditor |66 Python tests pass; optional subset survives staging/copy/evaluator receipts; no production input changed. |
 | Completed observer milestone | Root and all three agents | Pushed `946d1ac9`;134 complete observations,11 tests, independent audit. No shared-work gain claimed. |
 | Production | Root read-only; user controls lifecycle | Live new37 remains unchanged. No new qualifying candidate or restart recommendation. |
-| Demand-specific reuse | Root, `lower_sector_discovery` recorded-evidence scan, `exact_and_cost_audit` | Read-only audit delivered: actual1→220-point alias found, but its removal saves no nodes because14 demands share the lender. Auxiliary-only provenance/net gain remain unproved. Next gate is genuine restricted images for joint demands, not a scheduler rewrite. |
+| Demand-specific reuse | Root, `lower_sector_discovery` recorded-evidence scan, `exact_and_cost_audit` | Narrow observer rejected: all14 incoming edges are internal to a334-node SCC. Genuine external boundary includes1628parents, mostly Route; an Apply-only union would be circular. Research now targets exact demand envelopes/recurrence summaries, not a scheduler rewrite. |
+| Expensive shared-owner regeneration | `lower_rule_evaluation`, root, independent auditor | Generation and full inventories complete: baseline483/83 versus candidate491/82 rules/residual records; about4% less generation time/bytes, no new residual keys. Existing repair overlay stays intact; same-owner preference/overlay composition remains unsupported, no replacement traversal or campaign gain claimed. |
+| Concrete versus symbolic precision | `lower_sector_discovery`, root, independent auditor | Original4 and H55 exact traces complete; H55 same-build symbolic control coldPASS. H55 traversal:2.759s exactW16,13.627s exactW1,34.760s symbolicW16. Different outputs, not equal-output campaign speedup. Design a cancellation-safe finite-demand replay summary, with shared-work and cold-cost gates; no engine change yet. |
+| Finite replay-summary implementation | Pending; root to delegate implementation separately from `exact_and_cost_audit` | Conditional designGO for an explicit default-off CP6 singleton replay kind, one deterministic initial-root attempt, existing exact kernel with caller-thread cancellation. No opaque diagnostic authority or zero-event shortcut. Require cold recomputation, mutation/error/flag-off tests and total-cost controls before broader dispatch. |
+| Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Formal scalar recurrence delivered; contracted-derivative negative-q example explicitly recovers a missing contact term. Next: map the actual unequal-dot numerator-bearing hot point and seek ordinary-source replay/native descent before proposing an engine compiler. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Same-build contrast and independent one-worker check — October4, 07:04 UTC
+
+[M] Completed H55 symbolic control uses the exact same optimized binary,
+original input/caps, full67owners/8246routes/two overlays and CPUs32–47/W16
+as the2.758839s exact trace. Its traversal is34.759817s after88.322540s
+preparation. It discovers385,815domains,314,985native records and5,344,012
+events; all1/1root obligations close. Independent cold All/Off verification
+passes all4,838,646admissions with no uncovered/error/frontier. Cold native
+time114.923095s; entire guarded attempt251.594474s. Evidence:
+`TMP/rule-optimizer-20261003/candidates/h55-samebuild-symbolic-baseline-v1/`.
+Independent mathematical/receipt audit passes. Its70,840abstract-cycle nodes
+are not concrete integral cycles.
+
+[M] A separate original-H55 exact trace changes only workers16→1 and fresh
+output paths. Same immutable context, original entry caps and fixed work
+allowances. It completes139.877226s inclusive,134.818939s native, with
+13.626978s tracing and5.223GB sampled owned peakRSS. All final trace counters
+and entry admission match W16, excluding only worker/timing fields; no full
+key-set/coefficient comparison was retained. Both runs have355,584physical
+keys,356,202operational nodes,248declared terminal keys,zero frontier/error/
+debt/cancellation/cap hits and clean process drain. Evidence:
+`TMP/rule-optimizer-20261003/profiles/h55-concrete-trace-w1-v1/`.
+Independent audit passes. The600s prospective plan was amended to1800s before
+execution because workers also controls route preparation; there was no failed
+attempt or cap-rescue retry. Actual preparation plus minor overhead121.192s
+supersedes the conservative pre-run estimate.
+
+[E] This strongly motivates a hybrid finite-demand discharge path, not a
+12.6-fold certified campaign speedup: exact tracing does not retain the CP6
+graph/cold proof and the symbolic whole time includes an extra verifier
+process. W1 measures the existing cancellable shared FIFO queue with one
+spawned worker, NOT the separate inline serial DFS API. The latter lacks a
+cancellation argument and cannot simply be substituted inside inspectors.
+A sound minimal slice must provide cancellation-aware caller-thread execution,
+exact finite-domain enumeration, immutable context, ordinary symbolic fallback
+and cold replay. A compact replay recipe can regenerate local checks; storing
+every concrete edge is not mathematically required. Failed-attempt cost,
+cumulative budgets and repeated lower-work/cache effects remain real risks.
+No summary engine or new production candidate has been implemented.
+
+[M] The cheap contextual rule policy is now a completed negative: after
+subtracting only child obligations with valid finite acyclic discharge
+witnesses available at each actual recorded version, all67alternative pairs
+still have incomparable whole-child sets; none has an entirely already-closed
+boundary. All six rule110 observations occur at version0/1. Do not use final
+closure retrospectively as an earlier scheduling benefit. Full receipt:
+`profiles/preferred-overlap-applied-v2/historical-closed-choice-screen-v2.json`
+under the local evidence root. No additional rule-ID sweep is authorized.
+
+[E] The structurally different literature proposal is now an explicit
+shifted-moment recurrence, rather than a vague finite-width claim. Independent
+algebra checks on N=2..6 give shift orders1,2,2,3,3. The six-line recurrence
+has a nonzero leading coefficient near d=4 on the nonnegative integer moment
+chart. Its derivation retains boundary terms; a common convergence strip
+justifies the homogeneous scalar positive-moment chart, but distributional
+contacts from numerator derivatives still require lower-sector terms. The
+Symbolica toy uses an existing2.2-dev Python environment for formal algebra
+only, not a current3.x RustRed runtime validation. The original-family map,
+ordinary-IBP source certificate, strict integral descent and shared-work gain
+are not yet established. No new master evaluations or special-function CAS.
+
+[M] Final mathematical audit also passes the scalar-dot bridge
+`r²D_a=4a(a+1)D_(a+2)+4a(ν−a)D_(a+1)` at unit mass, both by adjacent
+Bessel identities and the Fourier momentum Laplacian. Eight supplemental
+Laplacian and50binomial-map Symbolica checks pass. The negative-q contracted
+derivative example reproduces the expected tadpole-product contact term;
+it is not safe to continue the homogeneous positive-q recurrence into that
+chart. The derivation and executable local receipt paths are in
+`docs/research/banana_moment_nomination_2026-10-04.md`.
+
+[E] The independent implementation design audit gives a conditionalGO for
+an explicit typed singleton replay summary, NOT a zero-successor ordinary
+native record. Existing checks already retain raw denominators, full guards,
+source conditions and child descent. Missing pieces are cancellation-aware
+caller-thread use, typed persistence/request binding and mandatory cold replay.
+Start default-off with one deterministic initial-root attempt, no new cache
+or terminals; charge internal exact work and failed attempts separately from
+published domains. The proposed slice and code pointers are retained in the
+independent audit note. All current diagnostic jobs are complete and drained.
+
+[M] Read-only production observation around07:01UTC:177.784Mdiscovered,
+132.684Mlocally completed,14.667Mpending,zero frontiers,155.49GBRSS,
+checkpoint20. The13/67roots and23.871Mrecursive-closure count come from a
+snapshot3963s old; no current closure rate or completion ETA follows.
+Production and all foreign FeynKit edits remain untouched.
+
+### Harder exact trace provides a time hypothesis — October4, 06:43 UTC
+
+[M] Original H55 singleton, unchanged caps and full67/8246/two-overlay context:
+the existing exact tracer finishes in95.087s inclusive,91.286s native including
+preparation,2.758839s shared tracing. It reaches355,584physical keys and
+356,202operational nodes,164,074rule applications,145,366transports,
+248declared terminals and45,896zeros. Peak sampled owned RSS5.215GB.
+No missing rules, frontier, failed/pending/active work, cancellation or cap hit.
+The independent audit passes. Evidence:
+`TMP/rule-optimizer-20261003/profiles/h55-concrete-trace-v1/`.
+
+[E] The historical symbolic traversal took27.708s, but used an older binary
+and retained a graph/cold-verification evidence absent from the exact trace.
+This is a substantial feasibility signal, not a tenfold campaign speedup.
+Root authorized one same-build symbolic control on the original input,
+W16/CPUs32–47,600s inclusive with cold reinspection and owned-process drain.
+The new hypothesis is faster finite-demand discharge within a hybrid walker,
+not a smaller graph or a new parametric relation. No feature is implemented.
+
+[M] Full owner0 candidate inventories also import successfully in4.782s after
+the preserved64MiB output refusal. All82candidate residual keys already exist
+in the old83; none is added. This does not minimize the retained baseline basis.
+RHS terms62,207→60,104; retained ordinary sources57,225→55,253. There are
+457shared case/target shapes,445 also matching opaque guard diagnostics;
+of those,309have equal RHS geometry,89smaller and35larger. These are not
+coefficient equality, ordered dispatch equivalence or application savings.
+
+[E] New primary-literature screen is recorded in
+`docs/research/structural_recurrence_alternatives_2026-10-04.md`.
+Configuration-space banana moments give a genuinely different nomination
+mechanism, but the N=6 transfer matrix is singular and contact terms are
+essential. An independent reviewer checked both pitfalls. No new moment
+masters, special-function CAS, tensor reducer or hidden dimensional-limit
+approximation is introduced. State-dependent whole-rule selection remains
+under read-only screening of the existing134 native observations.
+
+### Two completed diagnostics, neither a campaign promotion — October4, 06:34 UTC
+
+[M] The owner0 source-order pair finishes cleanly in376.203s inclusive.
+Current A1 reproduces the archived86,017,923-byte owner exactly, with483rules
+and83residual records; guarded phase191.486s, reported solve182.956s.
+Prioritizing fewer negative inactive-coordinate shifts gives491rules and82
+residual records,82,617,112bytes,183.777s guarded and175.045s solve. This is
+about4% less generation time and serialized size in one pair, not20% less
+descendant work, fewer independent masters, or unchanged terminal identities.
+Independent receipt/hash audit passes. Exact inventories are being compared;
+the first64MiB full-shape diagnostic refused its output cap cleanly, and a
+scope-identical256MiB continuation is authorized. No candidate is installed;
+the existing owner0 repair overlay remains untouched.
+
+[M] The exact native trace of the original four singleton roots also finishes
+cleanly:93.058s inclusive,88.654s native including preparation,0.312136s in
+the shared trace. It reaches44,139 physical keys/44,143 operational nodes,
+19,201rule applications,14,587transports,112declared terminals and10,239zeros.
+There are no queued/active/failed nodes, missing rules, frontier or cancellation.
+Independent audit confirms all original entry caps and full67/8246/two-overlay
+context. The368,592transport-endpoint counter is projected pre-coalescing
+budget usage, not a measured count of nonzero final terms. No back-substitution
+or cold CP6 certificate is produced by this diagnostic.
+
+[E] This does not establish that symbolic overcoverage dominates: the prior
+symbolic control has19,112regions, not more than44,139physical keys, and the
+objects differ. The proposed singleton-Route precision feature is not triggered.
+A distinct hypothesis remains testable: exact finite-demand summaries might
+discharge a small region faster than publishing every abstract descendant.
+The existing tracer would need retained/replayable local witnesses and complete
+finite-region enumeration before such a summary could become authority.
+The next planned discriminator uses the unchanged, harder H55 training point,
+not a fitted replacement scope. No implementation or speed claim follows yet.
+
+[M] Read-only production snapshot06:33UTC:175.879Mdiscovered,
+130.669Mlocally completed,15.025Mpending,zero frontiers,153.75GBRSS,
+checkpoint20. The13/67root and23.871Mrecursive-closure counts come from a
+snapshot2337s old. They are not an up-to-date closure rate or an ETA.
+
+### Two orthogonal native experiments — October4, 06:21 UTC
+
+[M] Root authorized the frozen owner0 generation pair on CPUs48–63/W16,
+150GB process-tree ceiling plus150GB host reserve,1800s inclusive cap and
+cooperative shutdown. The current-A1 baseline started06:21:17UTC. The sole
+candidate sorts source rows by negative shifts on inactive axes before the
+unchanged A1 ties; it removes no source and changes no integral ordering.
+Plan `profiles/owner0-numerator-source-generation-plan-v1.json` and runner
+`profiles/owner0-numerator-generation-pair-v1/` are beneath the current local
+evidence root. Same-owner overlay composition remains deliberately unsupported;
+this run generates candidates only and does not drop the repair overlay.
+
+[M] The four original training domains are all singleton integral keys.
+An orthogonal no-rebuild `routed-campaign` diagnostic will trace those exact
+four jointly, with the same67owners/8246routes/two overlays and original entry
+domains, on CPUs32–47/W16 with a600s inclusive cap. It uses existing exact
+coalesced routing, rather than symbolic overcoverage. No coefficient
+back-substitution or family-closure claim follows. Root approved the experiment;
+independent review checks native request/receipt semantics and scope.
+
+[E] The transverse-integration literature suggests direct treatment of
+factorizable subgraphs. Owner2 genuinely has an isolated D1 tadpole, but the
+recorded Q1707 numerator does not couple to it; this particular witness cannot
+demonstrate angular savings. Existing product-moment machinery also requires
+authenticated lower artifacts and a complete active correlated scalar-product
+basis, which the remaining four-loop five-line banana does not provide.
+The narrow prospective route is a same-family scalar identity with ordinary
+source replay, not a new tensor reducer or blindly exposing that private API.
+No implementation or gain is claimed from this structural observation.
+
+### New research turn: reject circular demand evidence — October4, 06:14 UTC
+
+[M] The previous coherent milestone is pushed at `6370920b` on main. The
+tool-managed objective remains active: delivered tooling and negative pilots
+are progress, not the required20% shared-work gain. Foreign FeynKit edits and
+untracked material remain untouched. Three agents are active on distinct
+proposal/research/independent-critique duties; production remains read-only.
+
+[M] Full14-parent inventory for Apply lender2738 finds every incoming edge
+inside its334-node strongly connected component: nine aliases, four whole
+native Apply parents, and its own G2 edge. The true SCC boundary has2296edges
+from1628parents, including1331Route parents. Root and auditor reject a proposed
+small Apply-only observer run: it would reconstruct circular internal demand,
+not establish the complete externally requested subset. Inventory is in
+`TMP/rule-optimizer-20261003/profiles/demand-slice-q1707-a2738-v1/inventory.json`.
+
+[E] Research now asks how to retain an exact bounded demand invariant across
+that boundary, or change the recurrences so no broad invariant is needed.
+The verifier already accepts fully sealed abstract cycles, and the existing
+total-excess service already derives finite envelopes for compatible orders.
+Neither is a missing feature to reinvent. A finite but enormous envelope is
+not a performance result; unbounded helpers and widened reuse require care.
+In parallel, the evaluation agent is preparing one mechanism-driven owner0
+source-order experiment, without new CAS or another arbitrary rule-ID sweep.
 
 | Lane | Responsible agent | State | Next executable decision |
 | --- | --- | --- | --- |
