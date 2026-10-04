@@ -1287,6 +1287,7 @@ The object has these fields:
 | `cancel_rank_positive_shifts` | Explicit full-arity shifts of nonzero baseline terms to cancel; each must be a uniformly pinched, rank-positive column. Empty means a zero-objective control, not an improvement. |
 | `forbid_new_rank_positive` | `true` forbids rank-positive columns absent from the baseline. `false` requires the explicit rank cap below. |
 | `max_numerator_rank` | Nonnegative integer, present only with `forbid_new_rank_positive:false`; bounds the sum of all negative endpoint powers over the whole chart, including the formerly active pinch axis. |
+| `exact_dual_separator` | Optional boolean, default `false`; after a complete miss, request an exact diagnostic separator for the frozen forbidden-column system. It does not change the search or produce a rule. |
 
 The initial interface requires all inactive parent indices to be explicitly
 fixed to zero, while active indices may remain free. This is a rank-zero
@@ -1320,7 +1321,7 @@ zero-control outcome and stage-two miss/refusal/proof distinct. A complete miss
 is confined to this frozen correction space; neither a hit nor fewer local
 tails establishes lower campaign work. No owner or overlay is installed.
 
-The implementation passed all131 focused tests. Its first fixed native probe
+The implementation passed all138 focused tests. Its first fixed native probe
 reproduced the313-tail stage-one proof and typed zero control; all nine nominated
 columns were present, but the complete26-row weighted search found no correction
 under the joint constraints. This is a finite-span negative, not a general
@@ -1331,3 +1332,15 @@ The sole matched cap1 probe removed all30 new-rank-one-column prohibitions
 without changing the sources, chart or P9, and also exhausted all26 weighted
 rows without a correction. Both typed zero controls passed. The fixed block
 is parked; these misses do not establish a general optimization impossibility.
+
+The optional separator diagnostic binds the exact forbidden columns and
+independently checks that every correction row pairs to zero while the baseline
+pairs to one. On the unchanged cap1 input it produced an exact two-column
+separator supported entirely inside P9, with all25 correction-row products
+zero and baseline product one. The completed search miss and zero control
+were unchanged. All447 inherited forbidden columns were jointly zero in the
+baseline and correction matrix. Coefficient displays are diagnostic only;
+the rational-function result does not certify exceptional parameter slices.
+It explains this frozen-span obstruction, not a master-integral functional,
+physical rule or authority to grow the source bank or ignore guards. The
+conceptual note records the exact column bindings and raw evidence.

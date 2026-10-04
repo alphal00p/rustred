@@ -24,12 +24,96 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Finite replay-summary implementation | `lower_sector_discovery`; `finite_region_audit` independent review; root integration | Pushed3492584e/eeaa7806. V5 default-off4L full58-query/cold control passes with identical26,025 persisted records. Both corrected H1 arms refuse128M projected-endpoint allowance after about253s; neither completes or cold-verifies. No production activation. |
 | Banana scalar/numerator bridge | `lower_rule_evaluation`, root, independent critic | Delivered local gains, but broader completed260-integral validation gives only0.129% less work; both arms coldPASS. Hard H1 remains incomplete in both arms. No production installation or global speedup claim. |
 | Automatic compact-rule nomination | `lower_sector_discovery`; `finite_region_audit` independent review | Pushed306e8182:117 selector tests. Actual291-source baseline now proves a313-tail identity on all4 native cells; matched strict six-zero-axis preservation misses after291 rows. This is a discriminating finite-bank negative, not generic numerator-free impossibility. No export or work gain. |
-| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Generic two-stage correction and explicit whole-chart rank cap implemented;131 tests pass. Both strict P9 and rank-one-relaxed P9 exhaust the same26-row span without a correction. Independent audit passes. This source block is parked; a source-selection diagnostic needs new evidence before another probe. No new CAS or production change. |
+| Conceptual descendant elimination | `lower_rule_evaluation` implementation; discovery geometry/inputs; `finite_region_audit` independent audit | Both strict and rank-one-relaxed P9 searches miss in the same26-row span. Delivered exact dual diagnostic:138 tests and native probe pass; a two-column P9 coupling explains this bank's failure. Selected next slice is native witness-directed source nomination; collective291 cancellation stays pending. No corrected rule, new CAS or production change. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Exact two-column obstruction identified — October4, 14:31 UTC
+
+[M] The optional diagnostic passes all138 tests and completes its unchanged
+cap-one native probe in2.429s inclusive, cleanly drained. Symbolica returns a
+separator with only two nonzero components, at the actual shifts
+`+e_D1-e_D3-e_D7` and `+e_D1-e_D6-e_D7`. Both belong to P9. Both are supported
+only by correction row10, ordinary source `2:0`. Independent native products
+verify all25 correction pairings vanish while the baseline pairing is one.
+The complete456-column bindings show C and b are nonzero only on P9: all447
+inherited forbidden columns are jointly zero. Therefore this finite-bank
+obstruction is an internal coupling between wanted cancellations, not an old
+descent/root constraint. The original completed-miss report is unchanged.
+Independent receipt review passes; this is not a new reduction rule.
+
+[E] The next action is a read-only raw-source support-preimage census for
+these two columns. Discovery owns that census; evaluator studies the smallest
+native exact-pairing extension; auditor critiques both. No source enlargement
+or second solve has been authorized. A second conceptual possibility, to be
+compared rather than developed in parallel blindly, is to combine the existing
+291 higher-sector sources so their unpinched terms cancel collectively. That
+is not the old strict-six-zero objective: it would preserve the leading rule
+and other rank-one tails while changing P9 only. Literature on magic relations
+motivates this question but does not establish such a relation in our family.
+
+Evidence: `profiles/owner31-boundary-dual-v1/` under the TMP research root;
+raw `3319ec90…`, execution `e1de3454…`; research binary `e1efa6a1…9dc9630e`.
+Test compile86.590s, suite4.535s (0.94s body), executable link86.433s.
+These are cached opt2/no-LTO research builds, not full engine release timings.
+Production and the campaign-switch decision remain unchanged.
+
+### Source selection from an obstruction, not an enlarged shell — October4, 14:25 UTC
+
+[M] Independent source/mathematical review passes the default-off dual hook
+and seven new tests. Symbolica's public dense `Matrix::solve_any` solves the
+stacked system directly; native indexed products independently replay the
+answer. This avoids computing a full nullspace or writing an elimination
+kernel. Every forbidden-column binding remains present, including columns
+which occur only in the baseline. Refusal leaves the original completed-miss
+classification unchanged. The138-test cached optimized build is active;
+native evidence is pending, not a successful result yet.
+
+[E] Register a possible next mechanism, conditional on a useful exact witness:
+for a raw ordinary source shift tau to hit a nonzero witness column f after
+translation t, necessarily t=f-tau. This gives a finite, witness-directed
+source shortlist instead of a larger signed-depth shell. Use raw support
+before fixed-index substitution, keep RowId, and translate coefficients before
+specialization. A coefficient may vanish or cancellation may remove the
+pairing, so support intersection alone does not nominate a useful source.
+Do not ban auxiliary numerator-bearing sources merely because the final rule
+has a rank cap. Final descent, all new forbidden columns, guard conditions and
+the original-source certificate remain mandatory.
+
+The independent auditor confirms this is only a necessary screen. A nonzero
+pairing breaks one finite-bank obstruction, not every obstruction, and is not
+a master-count or full-family completeness claim. First inspect whether the
+witness lies within P9 or also uses old forbidden columns. No source generation
+or retry is authorized by this registration. Production stays untouched.
+
+### Exact obstruction diagnostic activated — October4, 14:14 UTC
+
+[M] Previous goal turn is progress: tested generic boundary correction and rank
+controls were pushed with two completed native negatives that change the next
+action. Current worktree is rechecked; only foreign changes/untracked work
+remain beyond main `083481b0`. No production lifecycle action is authorized.
+
+[E] Activate the previously pending exact-separator diagnostic. Evaluator owns
+a small optional research-only typed hook and focused tests; discovery owns
+the unchanged cap-one input plus diagnostic flag and the sole native probe;
+`finite_region_audit` independently reviews mathematics, Symbolica API reuse,
+source, tests and outcome. Root integrates/profiles and owns this log.
+The diagnostic must replay C lambda=0 and b lambda=1, retain exact column/source
+bindings and report poles/normalization restrictions. It must not read report
+strings back as algebra or reinterpret a generic finite-span negative as
+pointwise infeasibility. Existing native sparse/dense services suffice; no CAS
+or rational-reconstruction kernel is authorized.
+
+Success for this diagnostic is a replayed separator which identifies the
+missing direction. The falsifier is inability to reproduce the exact miss,
+failed product replay, or no useful finite separator within existing limits;
+none licenses source growth. Source nomination and retry remain separate
+decisions requiring this new evidence. Full goal acceptance still requires
+material completed-cohort benefits, four-loop controls and held-out five-loop
+validation, not another successful diagnostic. Production stays read-only.
 
 ### Boundary milestone pushed; next diagnostic remains pending — October4, 14:11 UTC
 

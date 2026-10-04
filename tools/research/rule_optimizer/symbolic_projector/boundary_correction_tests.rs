@@ -4,13 +4,13 @@ use rustred::{
     sector::OrderingPolicy,
 };
 
-fn context(tag: &str) -> IndexedCoefficientContext {
+pub(super) fn context(tag: &str) -> IndexedCoefficientContext {
     IndexedCoefficientContext::try_new(&CoefficientContext::try_new(["d"]).unwrap(), tag, 1)
         .unwrap()
 }
 
 // Genuine native handles from an ordinary source, not forged physical keys.
-fn shift(n: i64) -> IndexShift {
+pub(super) fn shift(n: i64) -> IndexShift {
     static SHIFTS: std::sync::OnceLock<BTreeMap<i64, IndexShift>> = std::sync::OnceLock::new();
     SHIFTS.get_or_init(|| {
         let base = CoefficientContext::try_new(["d"]).unwrap();
@@ -49,7 +49,7 @@ fn shift(n: i64) -> IndexShift {
         .clone()
 }
 
-fn limits() -> project::Limits {
+pub(super) fn limits() -> project::Limits {
     project::Limits {
         arithmetic: Default::default(),
         rows: 64,

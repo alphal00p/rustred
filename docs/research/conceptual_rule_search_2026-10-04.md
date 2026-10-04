@@ -858,3 +858,106 @@ Inclusive time2.324s; the unchanged69/70,16GiB+150GB,270/285/300 guard
 completed cleanly, with the owned group drained and PID absent. Timing remains
 feasibility accounting only. Independent final receipt review passed, including
 the exact30-column F relaxation and complete native miss.
+
+### Exact separator: a two-column obstruction inside the nominated boundary
+
+The sole authorized diagnostic changed only
+`boundary_correction.exact_dual_separator:true` on the completed cap1 input.
+Let C contain the 25 correction rows restricted to the same ordered F, and b
+be the baseline restricted to F. A native exact vector λ with Cλ=0 and bλ=1
+certifies that b cannot be cancelled by these correction rows: any proposed
+combination would still pair to1. Independent native multiplication/replay,
+not a solver success flag or coefficient display, establishes both equalities.
+This is a rational-function row-space statement for the frozen inputs, not a
+new physical recurrence, an exceptional-parameter classification or an
+unrestricted source-space impossibility theorem.
+
+All138 focused tests passed. The unchanged native cap1 search again exhausted
+all26 weighted rows without a correction, with identical stage-one proof and
+typed zero control. The additional diagnostic returned
+`EXACT_FINITE_SPAN_SEPARATOR`: independent native replay checked all25 products
+C_i lambda=0 and b lambda=1. Both C and b have nonzero F support exactly on P9;
+all447 inherited F columns are jointly zero. The separator has only two
+nonzero entries, bound to these native ordered-F columns (D labels one-based):
+
+| F column | Full physical shift, with all other coordinates zero | Nonzero correction row |
+|---|---|---|
+|441|+e_D1 - e_D3 - e_D7|10|
+|447|+e_D1 - e_D6 - e_D7|10|
+
+For this equal-offset, complete25-row input, native row10 is
+`ordinary-ibp:2:0`; this mapping follows the native source chronology, not a
+general promise to preserve arbitrary request ordering. Both columns belong
+to P9. Thus the obstruction is internal to the nominated pinch information,
+not a coupling to the inherited root/cofinal forbidden columns.
+
+The two normalized coefficient displays are identical:
+`(24+12*n1-12*d)/(n0*(-29-12*n1+11*d))`. This is an explanatory display only,
+never reparsed as algebra input. Together with the native replay, it gives an
+equal-weight interpretation: every row in this correction block has zero sum
+on these two columns, whereas the baseline has a generically nonzero sum.
+The result is over the rational-function field. The display has a possible
+pole on `-29-12*n1+11*d=0` (`n0>=2` on the chart), and the report retains1517
+condition entries, not1517 distinct loci or a proof that all are nonzero
+everywhere. Neither exceptional dimensional slices nor pointwise
+impossibility are certified. This functional annihilates this finite bank;
+it is not a master-integral functional or an invariant of all ordinary IBPs.
+
+Evidence is
+`TMP/rule-optimizer-20261003/profiles/owner31-boundary-dual-v1/`;
+request `8423c95200b2dcfc09bed95f4c67301490a9da4690c14f7337f24b995d92376c`,
+raw report `3319ec906852e911ff10899e757da1457bb6af38983b932526f0a5a4744f797e`.
+The unchanged69/70,16GiB+150GB reserve,270/285/300-second guard completed
+cleanly in2.429s inclusive and drained its owned group. No source, chart,
+order, objective or resource allowance changed; no export or source expansion
+occurred. This timing is feasibility accounting, not a performance comparison.
+Independent final receipt audit passed, including unchanged cap1 output and
+the complete25-row plus baseline exact pairing checks.
+
+This is elementary finite-dimensional duality, not Kira3's equation-selection
+algorithm. Kira3 traces forward-elimination dependencies and checks numerical
+reduction sufficiency over a finite field, repeating for unreduced integrals;
+its treatment of intermediate cancellations does not supply this separator or
+prove our full-parametric source identity. It is useful motivation to inspect
+the actual obstruction rather than retain irrelevant equations indiscriminately.
+[Kira3, §3.2](https://arxiv.org/html/2505.20197v1#S3.SS2).
+
+### Next nomination boundary: actual raw support, not a guessed source shell
+
+For a translated ordinary row E to have nonzero E lambda, some supported
+separator column f must equal t+tau for an actual raw shift tau of that RowId.
+This gives a finite necessary shortlist `(RowId,t=f-tau)`, deduplicated across
+the two f values. The nominated fixed pinch imposes only `t[D7]=-1` at this
+stage. Source sign and numerator rank are diagnostic metadata, not rejection
+criteria: numerator-bearing auxiliary seeds may be needed even when the
+**collected final image** must obey rank cap1. Translation must precede fixed
+specialization because coefficients can revive; exact native pairing is still
+required because overlapping support can vanish or cancel. Nonzero pairing
+would not by itself satisfy new forbidden columns, guards or descent.
+
+The bounded read-only evidence check found no retained raw pre-substitution
+per-RowId support. Source-support reports retain IDs/offsets/counts, circuit
+replay retains canonical contributions, and the projector's U is post-fixed.
+Therefore no actual census count or pair list is claimed, and the earlier
+structural121-column superset is not substituted for native support. The
+smallest existing service is already in `symbolic_projector.rs`: its completed
+ordinary generator is translated at zero offset into `inventory`, whose
+`sources().terms()` and provenance expose the raw typed support before
+`Span::ordinary` performs fixed specialization. A small research-tool hook
+could consume this inventory in-process without a new core accessor or CAS;
+that native census/pairing is a separate, not yet executed step.
+
+### A separate collective-correction hypothesis, not a magic-relation claim
+
+Crisanti et al. distinguish cancellation of all generating-sector terms from
+the additional independence from relations generated within subsectors. Their
+critical-variety equivalence is conjectural; the syzygy argument uses stated
+assumptions, including a gcd condition. Our possible next test is different
+and elementary: take the kernel of the unpinched columns of the existing291
+ordinary rows, then seek a collective lower-sector correction preserving B0's
+leading recurrence while cancelling P9. Unlike the earlier strict291 search,
+this does not demand removal of every rank-one column. This is our inference,
+not an implementation of their algorithm or evidence of a magic relation;
+independence, full-image proof and useful downstream work would remain open.
+No critical-variety calculation or collective-kernel experiment was run.
+[Sections3.1,4.4 and6, v2](https://arxiv.org/pdf/2605.29789).

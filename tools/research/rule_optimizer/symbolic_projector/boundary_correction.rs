@@ -12,6 +12,9 @@ use symbolica::domains::SelfRing;
 
 pub const SCHEMA: &str = "rustred.boundary-correction.v1";
 
+#[path = "boundary_dual.rs"]
+mod dual;
+
 pub fn enabled(r: &Value) -> bool {
     r.get("boundary_correction").is_some()
 }
@@ -34,6 +37,7 @@ pub fn validate(r: &Value, n: usize) -> Result<()> {
                     | "cancel_rank_positive_shifts"
                     | "forbid_new_rank_positive"
                     | "max_numerator_rank"
+                    | "exact_dual_separator"
             )
         }),
         "unknown boundary correction field",
@@ -43,6 +47,7 @@ pub fn validate(r: &Value, n: usize) -> Result<()> {
         "boundary correction schema required",
     )?;
     rank_cap(r)?;
+    checked(dual::enabled(cfg))?;
     require(
         number(r, "max_refinements")? == 0,
         "boundary correction does not refine or grow its bank",
@@ -713,6 +718,16 @@ pub fn run(
             report["status"] = json!("NO_BOUNDARY_CORRECTION_IN_FROZEN_WEIGHTED_SPAN");
             report["visited_rows"] = json!(rows);
             report["conditions"] = guards_json(&guards);
+            dual::append_report(
+                c,
+                cfg,
+                &corrections.images,
+                image,
+                &f,
+                &guards,
+                limits,
+                &mut report,
+            );
             return Ok(report);
         }
         project::Projection::Target(proposal) => proposal,
