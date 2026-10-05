@@ -11,7 +11,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Active workboard — October5
+## Delivery workboard — October5
 
 | Lane | Responsible | State / next action |
 | --- | --- | --- |
@@ -34,15 +34,97 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | PR2 integration / frozen release | `lower_rule_evaluation` isolated integration; `finite_region_audit` independent review; root final verifier | Merge3d0b08fb pushed; optimized CLI/probe,32 focused tests and FeynKit check pass. Final whole4L58/cold5L260 controls PASS with exact archived work counts. Foreign root edits preserved. |
 | Separate banana485 campaign | `lower_sector_discovery` staging; independent auditor and root | Delivered; user-owned run now observed live. Retain entire currentnew37 context plus two complementary exact owner0 rules and rebound repair. Local gains20–26%; broader260-point control only0.129%. No promised full5L speedup; production remains untouched. |
 | AMFlow runtime arity | `finite_region_audit` isolated implementation; `lower_rule_evaluation` independent review and release gate; root integration/coordination | Commit33fd03ec pushed to main: default1–16 configurable registry, shared dispatcher, checked generic APIs and capability getter. All21 optimized native tests pass including exact generic17 beyond registry; FeynKit Rust check passes. Read-only observation confirms AMFlow's own adapter now uses the dispatcher; downstream build/physics validation unverified. Direct notification still fails (app tool unavailable); pushed handoff and user relay supplied. |
-| Native sessions / lazy views | `lower_sector_discovery` implementation; root and `lower_rule_evaluation` independent review | Pushed f836862a and accessor correction7f3924bc. Corrected optimized community host built; genuine installed-host109/109 tests PASS, zero skips, including14-slot. Default CLI check PASS; actual notebook is the remaining runtime gate. |
-| HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Actual H generation and lazy viewer pass; X completed searches then hit packaging limit. Save/reopen repair passes app tests; final fresh all-four run waits for rebuilt host. Notebook24 tests and browser-lifecycle7 tests pass. No four-family completion yet; PR follows actual acceptance. |
-| Fresh terminal normalization / FMFT comparison | `lower_sector_discovery` native API; notebook owner presentation; root integration | Existing exact native normalization exposed;12 app and10 Python native gates pass, plus Python/FeynKit typechecks. FMFT has19 representatives, not16; fresh normalization counts remain unmeasured. |
-| HEPKit Vakint FORM-less demonstration | `lower_rule_evaluation` isolated GammaLoop integration; root dependency coordination | Modern namespace/tensor/rich bridge source-audited; actual graph-only construction/refusal checks pass. Selected dependencies resolve to one current kernel; compiled-host H32digit and numerical precision gates pending. Shipped assets remain unchanged. |
+| Native sessions / lazy views | `lower_sector_discovery` implementation; root and `lower_rule_evaluation` independent review | Native986c427f and the final shared host pass129/129 genuine installed-host tests, zero skips, including14-slot, normalization and original invalid-FORM numerical reference. Actual four-family notebook/cold readers remain the final gate. |
+| HEPKit / marimo | `finite_region_audit` notebook; root integration; discovery independent audit | Delivered in community PR16/c115b9d. Actual v5 all-four generation, visual/lazy interaction and four cold readers PASS: 900 sectors, 59,509 rules, 541.563s native total. No closure claim. |
+| Fresh terminal normalization / FMFT comparison | `lower_sector_discovery` native API; notebook owner presentation; evaluator key comparison | Delivered: fresh 1155→179→74 family-local outputs in0.796s. Exact output-key sets match shipped22/19/17/16. FMFT has19 representatives, not16; neither count is an independent-master claim. |
+| HEPKit Vakint FORM-less demonstration | `lower_rule_evaluation` isolated GammaLoop integration; root dependency coordination | GammaLoop f8ff93b0 pushed: modern namespace/tensor/rich bridge and exact current-codec migration of15 shipped assets, preserving74 catalogue entries. Installed-host and actual notebook H32digit invalid-FORM references PASS. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Final engineering delivery published — October5
+
+[M] Community commit `c115b9d532bcb2c43f1e39aecff4c9d8b4025f91` is pushed to
+`SecretGmG:codex/rustred-four-loop-campaign`; upstream
+[PR16](https://github.com/symbolica-dev/symbolica-community/pull/16) is open
+against `main`. Its exact 25 public paths match the independent source/scope
+audit. The final documentation-only measurement update also passes independent
+interpretation review. No generated artifact, private note, license or
+reference checkout is committed. The isolated community and GammaLoop trees
+are clean; unrelated root collaborator files remain untouched.
+
+[M] `gh pr edit --add-reviewer benruijl` was attempted and denied with
+`RequestReviewsByLogin` permissions. BenRuijl was then tagged in an explicit
+[review request](https://github.com/symbolica-dev/symbolica-community/pull/16#issuecomment-5987792999).
+Formal GitHub assignment remains an upstream-maintainer action, not a claimed
+success. PR creation and requested-reviewer outcome are both recorded.
+
+The engineering delivery is complete after this report is pushed. The tool goal
+can then be marked complete and the agent stops. Five-loop mathematical closure
+remains unproved; the user-launched campaign and its checkpoints were untouched.
+Its launch/resume instructions remain in
+`docs/research/five_loop_banana485_launch_2026-10-04.md`; do not launch a duplicate.
+Notebook build/run instructions and actual measured costs are in the PR's
+`examples/hep/README.md`, with explicit Generate/Normalize/Evaluate buttons.
+
+### Actual complete notebook and catalogue-key alignment — October5 03:49 UTC
+
+[M] The finalv5 real browser run passes without source changes, generation
+restarts or mocked results. One explicit Generate action completes H/X/BMW/FG:
+314/328/134/124sectors,21,318/19,907/9,018/9,266rules,
+386/445/179/145residual keys. Native session times are
+91.753/281.629/110.898/57.284s (541.563s total); controller544.258s.
+The browser checks opening/selection remain idle before the button, actual live
+progress, bounded structural/coefficient views, native normalization and the
+H numerator reference. Four independent fresh readers pass, with0 decoded
+coefficients during structure browsing,1 after explicit selection and cached
+reuse. Whole guard578.597s, peak3.246GB, all descendants drained cleanly.
+Root independently reviews live, explorer, normalization and numerical screenshots.
+
+[M] Native normalization costs0.796s summed and yields1155raw→179unit-alias
+representatives→74weighted outputs (22/19/17/16), not independent masters.
+The explicit H calculation passes its original five Laurent references at
+32digits/1e-30 with FORM unavailable (8.973s action). Supplemental exact
+integer-key comparison matches all four shipped Vakint sets, with empty
+differences, no recurrence coefficient decoding, guard4.155s/478MB/clean drain.
+Evaluator owns the comparison; discovery independently audits source and final
+interpretation. These are not program-equivalence or closure certificates.
+
+Evidence:`TMP/hepkit-gallery-e2e-20261004/actual-v5/` and
+`TMP/hepkit-normalized-key-comparison-20261005/`. Notebook agent updates the
+public README with measured results; root prepares final PR publication.
+All25 public contribution paths were independently scope-audited before the
+final documentation update: no private inputs, outputs or local dependencies.
+
+### Complete updated-host numerical acceptance — October5 03:35 UTC
+
+[M] The f8ff93b0/986c427f optimized shared host builds in625.190s,
+peak7.087GB, with exact wheel/installed native payload parity. Its genuine
+installed-host suite passes129/129 tests, zero skips, in7.68s pytest time.
+The original H rank-four32-digit numerical reference passes with an invalid
+FORM path, alongside the raw-index tensor identity, fourteen-slot certificate,
+lazy normalization and high-precision rich-expression checks. No proxy or
+assertion relaxation was used. Earlier failed host receipts remain preserved.
+Evidence: `TMP/hepkit-installed-host-runtime-20261005-v4/`.
+
+Root authorized the fresh v5 notebook/browser gate after the final native
+process drain. The notebook agent owns actual H/X/BMW/FG generation, live visual
+checks, explicit normalization/numerical actions and fresh-process readers.
+The upstream PR remains pending those notebook gates; numerical acceptance of
+one integral is not arbitrary-index or full-family closure.
+
+### Read-only production observation — October5 03:31 UTC
+
+[M] The banana485 campaign remains running and was not modified. At about
+15,048s elapsed it reports64,794,805 discovered domains,38,131,296 local
+completions,12,443,761 pending and zero frontiers. The last recursive scan
+reports13/67 initial roots and7,926,824 closed domains, but is about37.4minutes
+old; those are conservative recorded counts, not a synchronous closure measure.
+The nearby resource sample is60.4GB RSS and5.28 observed cores of32; checkpoint
+generation4 is saved/resumable. No completion ETA, eventual-closure claim or
+matched global speedup is inferred from this observation.
 
 ### Modern tensor gate passes; packaged codec migration required — October5
 

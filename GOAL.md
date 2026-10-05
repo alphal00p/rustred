@@ -1,20 +1,31 @@
 # RustRed project goal
 
-## October5 delivery checkpoint — final host and notebook gates remain
+## October5 delivery complete — community PR opened
 
 RustRed's bounded artifact transport and native terminal-normalization API are
 pushed at `986c427f`. GammaLoop's `vakint_rustred` branch at `f8ff93b0` includes
 the modern tensor bridge, current symbol registration and offline migration of
-all15 packaged1–4L assets to the current Symbolica codec. Native cold checks and
-exact preservation of all74 family-local catalogue entries pass. These are not
+all 15 packaged 1–4L assets to the current Symbolica codec. Native cold checks and
+exact preservation of all 74 family-local catalogue entries pass. These are not
 a substitute for the complete installed-host numerical and notebook tests.
 
-The rebuilt host must pass the unchanged invalid-FORM H numerical reference,
-then the fresh H/X/BMW/FG generation, lazy visual review, terminal normalization
-and cold-reopen gates. Publish the community PR with BenRuijl requested as
-reviewer only after those remaining checks. The user-owned second five-loop
-campaign is already running; keep it and the other production run untouched.
-The engineering goal remains active and does not claim five-loop closure.
+The rebuilt host passes 129/129 genuine installed-host tests, including the
+unchanged invalid-FORM H numerical reference. The fresh H/X/BMW/FG generation,
+lazy visual review, terminal normalization, button-driven numerical evaluation
+and four fresh-process readers all pass. Generation takes 541.563 s summed native
+session time; normalized 22/19/17/16 output-key sets exactly match Vakint's
+shipped catalogue sets (not a whole-program equivalence or closure claim).
+[Community PR #16](https://github.com/symbolica-dev/symbolica-community/pull/16)
+is open from pushed commit `c115b9d`, with all 25 audited public files. BenRuijl
+was tagged in a [review-request comment](https://github.com/symbolica-dev/symbolica-community/pull/16#issuecomment-5987792999).
+GitHub denied formal reviewer assignment to the fork account; that control
+still requires an upstream maintainer. The request is not reported as assigned.
+
+The requested engineering/research delivery is complete after the final report
+push; stop without starting another optimization project. This is not five-loop
+mathematical closure. The user-owned banana485 campaign is already running;
+keep it and the other production run untouched. Its existing launch/resume
+reference is `docs/research/five_loop_banana485_launch_2026-10-04.md`.
 
 ## October5 notebook follow-up — bounded, selection-driven views
 

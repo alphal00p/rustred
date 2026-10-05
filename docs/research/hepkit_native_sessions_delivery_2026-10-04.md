@@ -1,8 +1,12 @@
 # Native HEPKit sessions and the four-loop notebook
 
-Status: native RustRed API pushed; updated Vakint-host numerical integration
-and notebook acceptance are in progress. Earlier embedded RustRed-only tests
-pass. This is not a five-loop closure or performance claim.
+Status: native RustRed API pushed; updated shared-host acceptance passes 129/129
+tests. The actual four-family notebook, visual checks, explicit normalization,
+FORM-less numerical example and fresh-process readers all pass.
+[Upstream PR #16](https://github.com/symbolica-dev/symbolica-community/pull/16)
+is open from `c115b9d`. BenRuijl is tagged in the review-request comment;
+formal assignment was denied by GitHub's upstream permission policy. This is
+not a five-loop closure or performance claim.
 
 ## Ownership and architecture
 
@@ -17,7 +21,9 @@ use the existing strict converter, while four catalogues use existing native
 exact-text import/encoding. Old and current readers verify all74 catalogue
 values/keys/metadata exactly; current cold checks pass K1/K3/K6 replay and all
 four normalization/catalogue pairs. Nothing was regenerated or approximated.
-Full numerical and notebook acceptance remain pending the new host build.
+The rebuilt host passes129/129 tests, including the unchanged32-digit H
+numerator reference with an invalid FORM path. The complete fresh notebook
+and cold-reopen acceptance subsequently pass on that same host.
 RustRed owns the actual generation job,
 bounded event stream, cancellation state and binary-artifact views. HEPKit
 supplies its existing native family; the notebook controls presentation and
@@ -100,9 +106,9 @@ master evaluation. A completed job or finite residual list proves none of
 those additional properties. Generation, UI polling, artifact writing/opening
 and selected-view timings must be reported with their distinct boundaries.
 
-Additional requested sections are in progress: explicit native terminal
-normalization, comparison with FMFT, and a separate FORM-less Vakint numerator
-evaluation using shipped rules and master values. Fresh generated candidates
+The notebook includes explicit native terminal normalization, comparison with
+FMFT, and a separate FORM-less Vakint numerator evaluation using shipped rules
+and master values. Fresh generated candidates
 must not be described as byte-identical to the shipped processed inputs.
 The four public reference TOMLs are byte-identical to RustRed's producer inputs
 and Vakint's shipped family inputs. Native DOT tests check routing, denominator
@@ -117,6 +123,58 @@ or a nonminimal family-local terminal list. See [Czakon, Fig.1](https://arxiv.or
 and [FMFT, §2.4](https://arxiv.org/pdf/1707.01710).
 
 ## Validation record
+
+### Final fresh browser run — October5
+
+One explicit Generate action ran all four families, with no generation on
+opening the notebook, changing a graph selection or refreshing an idle view.
+The optimized installed host used one native worker on an AMD EPYC9754 machine,
+with the test process group restricted to CPUs0–15; unrelated production ran
+on disjoint cores. This is one observed run, not a repeated performance study.
+
+| Family | Sectors | Rules | Raw residual keys | Native session, s | Native normalization outputs | File, decimal MB | Fresh-process open, s |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H |314|21,318|386|91.753|22|58.03|0.263|
+| X |328|19,907|445|281.629|19|149.41|0.511|
+| BMW |134|9,018|179|110.898|17|50.07|0.191|
+| FG |124|9,266|145|57.284|16|22.00|0.108|
+
+All900 sectors finish with zero reported failures and no reused rule cache.
+The summed native session time is541.563s, about9.03minutes, including native
+preparation, solving and bundle assembly. This does not meet a five-minute
+expectation; it is the actual measured workload. The browser workflow, including
+exploration, normalization and numerical evaluation, takes569.053s. The guarded
+whole test, including startup and all four fresh readers, takes578.597s with
+3.246GB sampled peak process-tree RSS. Compilation is separate (625.190s).
+
+Exact native normalization transforms the family-local1155 raw keys through
+179 unit-alias representatives into74 weighted outputs (22/19/17/16), in
+0.796s summed observed calls. A separate fresh-process comparison proves exact
+equality of all four normalized integer-key sets with Vakint's shipped
+22/19/17/16 catalogue sets, with no differences and no decoded recurrence
+coefficients. This is key-set coverage, not equality of rule programs, numerical
+catalogue values or arbitrary-index closure. The supplemental check takes4.155s,
+peak478MB; evidence is`TMP/hepkit-normalized-key-comparison-20261005/`.
+These are not74 independent masters. No recurrence
+coefficient is decoded by normalization or structural browsing. Fresh readers
+in separate Symbolica processes each verify metadata/pages, decode one selected
+coefficient and confirm that its second display reuses the cached value.
+"Fresh" refers to process/state initialization, not flushed OS filesystem caches;
+the open timings exclude host import and are not source-replay certification.
+
+The actual H numerator button reproduces all five original Laurent coefficients
+at32-digit arithmetic, relative threshold1e-30, with an invalid FORM path.
+Its native symbolic phase takes8.941s and numerical substitution0.00245s; the
+whole observed action takes8.973s. It uses FeynKit tensors and Vakint's shipped
+processed RustRed program/catalogue, not the newly generated candidate files.
+
+Root independently reviewed the live dashboard, bounded structural/coefficient
+views, normalization table and computed/reference numerical display. All native
+and browser descendants drained cleanly. Evidence is retained locally under
+`TMP/hepkit-gallery-e2e-20261004/actual-v5/`, including original inputs, native
+timings, screenshots, artifact hashes, the four independent reader receipts and
+the process guard. Generated binaries and screenshots are not added to either
+repository.
 
 Focused optimized RustRed gates passed before the community-host integration:
 
