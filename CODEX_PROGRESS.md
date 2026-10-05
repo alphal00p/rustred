@@ -44,6 +44,120 @@ Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
 
+### Modern tensor gate passes; packaged codec migration required — October5
+
+[M] The v3 optimized host built in613.688s, peak7.005GB, installed cleanly, and
+passes128/129 actual host tests with zero skips. Both the imaginary placeholder
+and raw-index tensor projection now pass. The unchanged H numerical test reaches
+the scalar reducer, which correctly refuses its shipped Symbolica export-v5
+program under the current v6 reader. The failure and clean process drain are
+recorded in`TMP/hepkit-installed-host-runtime-20261005-v3/` (guarded4.202s).
+
+The evaluator inventories all shipped1–4L assets; discovery independently audits
+migration. The existing strictly shape-checked converter admits11 Num-coefficient
+payloads (three sealed artifacts, four candidate programs, four normalization
+sidecars) but correctly refuses four general-Atom numerical catalogues. Those
+catalogues must use the upstream-recommended old-native exact text export and
+new-native import, preserving all keys/values/precision. Do not widen the byte
+converter blindly, regenerate IBPs, add runtime schema shims or weaken the H
+reference. The browser gate remains held until corrected assets pass numerical
+acceptance. Production campaigns and their files remain untouched.
+
+[M] Migration validation succeeds without generation: the old native helper
+proves exact equality of all74 retained catalogue expressions/keys/metadata
+against the shipped v5 catalogues. The unchanged native helper, linked against
+current libraries, re-encodes and cold-verifies those values. All11 Num-only
+payloads differ only at the allowed state/frame version bytes; structural
+sections are unchanged. Current cold checks pass all15 assets in10.161s,
+peak952MB: K1/K3/K6 replay and exact round trip, plus H386→22, X445→19,
+BMW179→17 and FG145→16 normalization replay/catalogue-key equality. The
+evaluator is preparing the narrow asset milestone; discovery independently
+reviews its final diff. These checks precede, not replace, the compiled-host
+numerical and fresh notebook gates. Evidence:
+`TMP/vakint-codec-migration-20261005/`.
+
+[M] GammaLoop f8ff93b0 publishes the15 converted assets, format note, portable
+hash receipt and two native regressions. Both regressions pass (8.00s test body,
+10.17s guarded), and the independent migration audit confirms all allowed byte
+changes, unchanged structural sections/catalogue PROGRAM bytes and74 exact
+values. The isolated checkout is clean. The community dependency now points
+to that pushed revision; the v4 host build is the next gate. No runtime reader
+compatibility shim or solver change was added.
+
+### Corrected native host: one remaining numerical integration failure — October5
+
+[M] GammaLoop fcb0de28 fixes the actual imaginary-symbol initializer using
+upstream's qualified symbol constructor. The rebuilt optimized community wheel
+completed in595.232s, peak7.067GB, and was installed from the sole local wheel;
+installed native payload hashes match. The genuine host gate now passes127 of
+128 tests with zero skips, including that initializer, native normalization,
+the fourteen-slot certificate and rich numerical precision. The H rank-four
+numerical evaluation fails in tensor ingress: `function p carries structural
+ports but is not tagged as a tensor`. The original reference, invalid FORM
+path and assertions remain unchanged. This is not full numerical acceptance.
+
+The evaluator owns the correction; discovery independently audits modern
+FeynKit symbol/port requirements. The notebook agent is rechecking bounded lazy
+display behavior while the full fresh browser run remains held. Guarded test
+duration4.207s, peak100.9MB, all descendants drained and locks released.
+Evidence: `TMP/hepkit-installed-host-runtime-20261005-v2/`. No production
+campaign was interrupted or changed. Remaining delivery gates are the full
+host suite, fresh four-family browser run, cold readers and upstream PR.
+
+[M] Source review identifies the missing prerequisite: the modern bridge adds
+Minkowski ports while preserving Vakint's `p`/`k` heads, but those two heads were
+still registered as untyped functions. GammaLoop1a3714ef now uses exactly the
+upstream rank-one tensor constructors, preserving names and FORM round trips.
+Independent review, selected Cargo checks including tests (8.165s), and formatting
+pass; no numerical assertion changed. The community host pins that pushed fix;
+minimal resolution changes one package and still has one shared kernel. Its
+v3 optimized build is running. An added raw-index tensor identity will run
+alongside the original H reference, not replace it.
+
+[M] The renewed lazy-display audit passes24 helper tests and marimo validation.
+No recurrence coefficients decode during structural browsing; selected pages
+and previews are bounded. Native encoded bytes/structural records remain resident,
+and a display byte limit is not a guarantee on coefficient decoding memory.
+Fresh normalization and complete notebook visual acceptance remain pending.
+
+### Native milestone published; consolidated host build — October5
+
+[M] RustRed main986c427f publishes the bounded transport/normalization slice
+after22 focused native tests and both adapter typechecks passed. Only the19
+owned implementation/doc paths and three root reports were committed; unrelated
+collaborator changes remain untouched. GammaLoop's`vakint_rustred` branch now
+contains f9d74dc6, with the modern FeynKit bridge, rich native wrappers and the
+existing FORM-less backend/catalogue. Its selected release-profile check,
+including test targets, passed after two test fixtures received the current
+integral-order metadata. Assertions and production behavior were unchanged;
+independent review passed. This is not yet numerical acceptance of the new host.
+
+[M] The community checkout pins those two pushed revisions. Minimal dependency
+resolution completed in10.684s with one Symbolica3.0.1 kernel, one PyO3.28.3,
+and one shared RustRed/core/app/Python/bridge source. The host retains its
+existing numerica/graphica3.0.1 registry packages; the isolated GammaLoop patch
+does not override the host's dependency policy. The guarded optimized wheel
+build is now running under`TMP/hepkit-community-native-build-20261005/`.
+The optimized wheel completed in1086.016s (compiler17m54s), peak13.372GB RSS,
+with a clean process drain. Actual installed-host acceptance then caught a
+Vakint import panic before pytest collection: its old`vk_symbol!("𝑖")`
+initializer expects a variable, but this kernel parses the imaginary unit as a
+numeric constant. This is an actual compatibility failure, not successful
+numerical acceptance. The evaluation agent owns the correction; discovery
+independently audits the constants and related uses. Original failed receipts
+remain in`TMP/hepkit-installed-host-runtime-20261005/`.
+[M] The narrow correction matches upstream Vakint's direct qualified-symbol
+constructor. An installed-Symbolica-only diagnostic checks70 literal names;
+only bare`𝑖` is numeric, whereas`vakint::𝑖` remains the intended placeholder.
+That diagnostic does not import the failing Vakint module and is not acceptance.
+Separately, the actual installed host passes all118 non-Vakint tests, zero skips,
+including native normalization, DOT families and the fourteen-slot certificate.
+Pytest1.85s; guarded4.199s/100.9MB peak, clean process drain. Evidence:
+`TMP/hepkit-installed-host-partial-non-vakint-20261005/`. No four-family run has
+started on this host. The full numerical gate remains required after correction.
+The final installed-host suite, fresh four-family browser run, numerical
+reference comparison, cold reopen checks and upstream PR remain pending.
+
 ### Consolidated native and notebook integration gates — October5
 
 [M] Notebook support now has24 passing lightweight lifecycle/display tests;

@@ -1,14 +1,24 @@
 # Native HEPKit sessions and the four-loop notebook
 
-Status: native RustRed API pushed and corrected embedded-host tests pass;
-notebook acceptance is in progress. This is not a five-loop closure or
-performance claim.
+Status: native RustRed API pushed; updated Vakint-host numerical integration
+and notebook acceptance are in progress. Earlier embedded RustRed-only tests
+pass. This is not a five-loop closure or performance claim.
 
 ## Ownership and architecture
 
-The implementation milestone is `f836862a`; `7f3924bc` corrects the FeynKit
-momentum-head accessor against the pinned upstream API. The community host
-pins the latter pushed revision. RustRed owns the actual generation job,
+The initial milestone is `f836862a`; `7f3924bc` corrects the FeynKit
+momentum-head accessor against the pinned upstream API. The follow-up
+`986c427f` publishes the transport budgets and explicit terminal normalization.
+The community host now pins that revision and GammaLoop `f8ff93b0` from
+`vakint_rustred`. The previous installed host passed128/129 checks and exposed
+old Symbolica-v5 packaged assets when the H example reached the scalar reducer.
+The new revision migrates all15 assets offline: eleven Num-coefficient payloads
+use the existing strict converter, while four catalogues use existing native
+exact-text import/encoding. Old and current readers verify all74 catalogue
+values/keys/metadata exactly; current cold checks pass K1/K3/K6 replay and all
+four normalization/catalogue pairs. Nothing was regenerated or approximated.
+Full numerical and notebook acceptance remain pending the new host build.
+RustRed owns the actual generation job,
 bounded event stream, cancellation state and binary-artifact views. HEPKit
 supplies its existing native family; the notebook controls presentation and
 the sequence of four examples. No standalone RustRed extension is imported
@@ -166,6 +176,15 @@ crate-root type re-exports. All10 optimized Python runtime tests then pass
 (seven coordinator, three streaming; zero failures/ignored tests). Their build
 took785.337s with14.039GB peak RSS. The consolidated community-host acceptance
 remains pending; no algebra assertions were weakened.
+
+The first consolidated host built in1086.016s, peak13.372GB RSS. Actual
+import exposed an old Vakint initializer that parsed the imaginary-unit
+placeholder through Symbolica's numeric-literal lexer. The upstream direct
+qualified-symbol construction is now ported in`fcb0de28`, independently
+reviewed and typechecked. Before that correction, all118 non-Vakint installed
+host tests passed; that partial result is not full-host acceptance. The failed
+import and the separate70-literal Symbolica diagnostic are retained. Actual
+corrected-host import, complex-value and32-digit H checks remain required.
 
 Receipts are workspace-local under `TMP/hepkit-*`; generated artifacts, wheels,
 licenses and browser evidence are not committed. The continuously updated

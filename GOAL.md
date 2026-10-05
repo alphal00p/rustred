@@ -1,5 +1,21 @@
 # RustRed project goal
 
+## October5 delivery checkpoint — final host and notebook gates remain
+
+RustRed's bounded artifact transport and native terminal-normalization API are
+pushed at `986c427f`. GammaLoop's `vakint_rustred` branch at `f8ff93b0` includes
+the modern tensor bridge, current symbol registration and offline migration of
+all15 packaged1–4L assets to the current Symbolica codec. Native cold checks and
+exact preservation of all74 family-local catalogue entries pass. These are not
+a substitute for the complete installed-host numerical and notebook tests.
+
+The rebuilt host must pass the unchanged invalid-FORM H numerical reference,
+then the fresh H/X/BMW/FG generation, lazy visual review, terminal normalization
+and cold-reopen gates. Publish the community PR with BenRuijl requested as
+reviewer only after those remaining checks. The user-owned second five-loop
+campaign is already running; keep it and the other production run untouched.
+The engineering goal remains active and does not claim five-loop closure.
+
 ## October5 notebook follow-up — bounded, selection-driven views
 
 Large native artifacts must remain navigable without creating a massive
