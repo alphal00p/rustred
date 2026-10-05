@@ -26,6 +26,28 @@ impl<'a, 'py> FromPyObject<'a, 'py> for EventCapacity {
 
 #[pymethods]
 impl PyIbpFamily {
+    /// Explicit exact finite normalization of this family's candidate terminals.
+    ///
+    /// Reuses RustRed's verified vacuum U/permutation and quadratic-numerator
+    /// transformations. It reads structural terminal keys, not rule coefficients;
+    /// unsupported shapes remain declared outputs. No FMFT values, new IBPs,
+    /// generation, closure or master-minimality claim is involved. The returned
+    /// native object has paged keys/relations and an explicit native sidecar.
+    #[pyo3(signature=(artifact, **options))]
+    fn normalize_candidate_terminals(
+        &self,
+        py: Python<'_>,
+        artifact: &rustred_python::PyCandidateArtifact,
+        options: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<rustred_python::PyTerminalNormalization> {
+        if self.cuts.required_active().active_count() != 0 {
+            return Err(PyValueError::new_err(
+                "vacuum terminal normalization does not support cut families",
+            ));
+        }
+        record_usage();
+        rustred_python::normalize_from_native_family(py, self.family.clone(), artifact, options)
+    }
     /// Native internal parameters paired with their original HEPKit expressions.
     ///
     /// The existing bridge represents opaque scalar invariants as independent

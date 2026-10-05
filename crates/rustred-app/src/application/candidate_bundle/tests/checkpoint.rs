@@ -583,6 +583,49 @@ fn failed_final_encoding_keeps_all_sectors_for_assembly_only_retry() {
 }
 
 #[test]
+fn aggregate_entry_refusal_resumes_assembly_without_any_search() {
+    let directory = Directory::new();
+    let mut request = FamilyCandidatesRequest::new(K3);
+    request.checkpoint = Some(directory.options());
+    let baseline = family_candidates(request.clone()).unwrap();
+    let bundle = codec::read(baseline.bundle(), request.bundle_limits).unwrap();
+    let full = codec::collection_entries(&bundle.records).unwrap();
+    let local_max = std::fs::read_dir(&request.checkpoint.as_ref().unwrap().directory)
+        .unwrap()
+        .map(|e| e.unwrap())
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".rrbin"))
+        .map(|e| {
+            let bytes = std::fs::read(e.path()).unwrap();
+            let (_, record, _) = codec::read_structure(&bytes, request.bundle_limits).unwrap();
+            codec::collection_entries(&record).unwrap()
+        })
+        .max()
+        .unwrap();
+    assert!(local_max < full);
+    request.checkpoint.as_mut().unwrap().resume = true;
+    request.bundle_limits.max_collection_entries = full - 1;
+    let events = Mutex::new(Vec::new());
+    let error =
+        family_candidates_with_progress(request.clone(), |e| events.lock().unwrap().push(e))
+            .unwrap_err();
+    assert!(
+        error
+            .message()
+            .contains("aggregate collection-entry budget exceeded:")
+    );
+    assert_no_search(&events.into_inner().unwrap());
+    request.bundle_limits.max_collection_entries = full;
+    let (retry, events) = observed(request.clone());
+    assert_no_search(&events);
+    assert_same_program(baseline.bundle(), retry.bundle());
+    assert_eq!(retry.bundle_limits(), request.bundle_limits);
+    assert_eq!(
+        retry.artifact().unwrap().metadata().unwrap()["collection_entries"],
+        full
+    );
+}
+
+#[test]
 fn checkpoint_output_failures_are_live_and_keep_resumed_manifest_ordinals() {
     let directory = Directory::new();
     let mut request = FamilyCandidatesRequest::new(K3);

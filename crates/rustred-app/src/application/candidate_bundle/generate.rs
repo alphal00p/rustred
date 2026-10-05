@@ -485,6 +485,7 @@ fn generate<const N: usize>(
     };
     Ok(CandidateBundleResult {
         bundle: bytes,
+        bundle_limits: request.bundle_limits,
         report_toml: toml::to_string_pretty(&report)
             .map_err(|e| AppError::serialization(e.to_string()))?,
     })

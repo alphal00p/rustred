@@ -5,11 +5,30 @@ import unittest
 import os
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
 import rustred
 from test_python_api import UNIT_MASS_PROJECT_K1
 
 
 class SessionApiTests(unittest.TestCase):
+    def test_result_policy_and_explicit_file_read_limits(self):
+        session = rustred.start_family_candidates(UNIT_MASS_PROJECT_K1, bundle_max_entries=10_000_000)
+        self.assertTrue(session.wait(timeout=60))
+        result = session.result()
+        view = result.artifact()
+        self.assertEqual(view.metadata()["transport_limits"]["bundle_max_entries"],10_000_000)
+        self.assertEqual(view.metadata()["decoded_coefficients"],0)
+        with tempfile.TemporaryDirectory(prefix="rustred-view-limits-") as directory:
+            path=Path(directory)/"candidate.rrbin"
+            path.write_bytes(result.bundle)
+            reopened=rustred.CandidateArtifact.open_file(path,bundle_max_entries=10_000_000)
+            self.assertEqual(reopened.metadata(),view.metadata())
+            with self.assertRaises(rustred.RustRedLimitError):
+                rustred.CandidateArtifact.open_file(path,bundle_max_bytes=len(result.bundle)-1)
+        for value in (0,-1,True,2**64):
+            with self.subTest(value=value), self.assertRaises((rustred.RustRedError,TypeError,OverflowError)):
+                rustred.CandidateArtifact.open(result.bundle,bundle_max_entries=value)
     @unittest.skipUnless(hasattr(os, "fork"), "POSIX fork contract")
     def test_inherited_session_and_view_reject_before_locking(self):
         code = f'''

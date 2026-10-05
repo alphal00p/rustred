@@ -11,8 +11,9 @@ use rustred::persistence::{CoefficientId, LazyDecodedCoefficientTable, SectionTa
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
+use symbolica::domains::SelfRing;
 use symbolica::prelude::AtomCore;
-use symbolica::printer::PrintOptions;
+use symbolica::printer::{PrintOptions, PrintState};
 
 /// Immutable structural records plus indexed encoded coefficient frames. Open
 /// does not import Symbolica state or deserialize any coefficient polynomial.
@@ -20,9 +21,11 @@ use symbolica::printer::PrintOptions;
 /// coefficient. This owns encoded bytes; it is not a zero-copy/mmap reader.
 pub struct CandidateArtifact {
     creator_pid: u32,
-    records: ProgramRecord,
+    pub(super) records: ProgramRecord,
     coefficients: LazyDecodedCoefficientTable,
     encoded_bytes: usize,
+    collection_entries: usize,
+    pub(super) limits: CandidateBundleLimits,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -33,6 +36,27 @@ pub struct CandidateArtifactPage<T> {
 }
 
 impl CandidateArtifact {
+    /// Read a trusted generated artifact with an explicit caller-owned bound.
+    /// Never allocate an unbounded file before applying its ingress byte limit.
+    pub fn open_file(
+        path: impl AsRef<std::path::Path>,
+        limits: CandidateBundleLimits,
+    ) -> Result<Self, AppError> {
+        use std::io::Read;
+        let file = std::fs::File::open(path)
+            .map_err(|e| AppError::input(format!("cannot open candidate artifact: {e}")))?;
+        let cap = limits.bundle_byte_limit();
+        let mut bytes = Vec::new();
+        file.take(cap as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| AppError::input(format!("cannot read candidate artifact: {e}")))?;
+        if bytes.len() > cap {
+            return Err(AppError::limit(format!(
+                "candidate artifact exceeds byte limit: > {cap}"
+            )));
+        }
+        Self::open(&bytes, limits)
+    }
     pub fn open(bytes: &[u8], limits: CandidateBundleLimits) -> Result<Self, AppError> {
         let (envelope, records, _family) = codec::read_structure(bytes, limits)?;
         let coefficients = LazyDecodedCoefficientTable::new(
@@ -50,11 +74,14 @@ impl CandidateArtifact {
         )
         .map_err(codec::binary_error)?;
         codec::validate_ids(&records, coefficients.len())?;
+        let collection_entries = codec::collection_entries(&records)?;
         Ok(Self {
             creator_pid: std::process::id(),
             records,
             coefficients,
             encoded_bytes: bytes.len(),
+            collection_entries,
+            limits,
         })
     }
     pub fn metadata(&self) -> Result<Value, AppError> {
@@ -68,6 +95,11 @@ impl CandidateArtifact {
             "total_rules":self.records.sectors.iter().map(|s|s.rules.len()).sum::<usize>(),
             "total_terminals":self.records.sectors.iter().map(|s|s.finite_residuals.len()).sum::<usize>(),
             "total_coefficients":self.coefficients.len(),
+            "collection_entries":self.collection_entries,
+            "transport_limits":{"bundle_max_bytes":self.limits.max_bundle_bytes,
+                "bundle_max_entries":self.limits.max_collection_entries,
+                "bundle_max_coefficient_bytes":self.limits.max_coefficient_bytes,
+                "bundle_max_total_coefficient_bytes":self.limits.max_total_coefficient_bytes},
             "decoded_coefficients":self.coefficients.decoded_count().map_err(codec::binary_error)?,
             "source_replay_claim":false,"closure_claim":false,
             "authority":"trusted-generated structural inspection; coefficient text is display-only"}),
@@ -175,30 +207,7 @@ impl CandidateArtifact {
             .coefficients
             .coefficient(key)
             .map_err(codec::binary_error)?;
-        let mut remaining = max_output_bytes;
-        let mut render = |atom: symbolica::atom::Atom| -> Result<String, AppError> {
-            let text = render_bounded(atom.printer(PrintOptions::file()), remaining)?;
-            remaining -= text.len();
-            Ok(text)
-        };
-        let variables = value
-            .numerator
-            .variables()
-            .iter()
-            .map(|v| render(v.to_atom()))
-            .collect::<Result<Vec<_>, _>>()?;
-        let numerator = render(value.numerator.to_expression())?;
-        let denominator = render(value.denominator.to_expression())?;
-        let view = CandidateCoefficientInspection {
-            id: u32::try_from(id).map_err(|_| AppError::input("coefficient ID overflow"))?,
-            variables,
-            numerator,
-            denominator,
-            numerator_terms: value.numerator.nterms(),
-            denominator_terms: value.denominator.nterms(),
-        };
-        bounded(&view, max_output_bytes)?;
-        Ok(view)
+        coefficient_view(&value, id, max_output_bytes)
     }
     pub fn check_process(&self) -> Result<(), AppError> {
         if self.creator_pid != std::process::id() {
@@ -210,9 +219,55 @@ impl CandidateArtifact {
     }
 }
 
+pub(super) fn coefficient_view(
+    value: &rustred::algebra::Coefficient,
+    id: usize,
+    max_output_bytes: usize,
+) -> Result<CandidateCoefficientInspection, AppError> {
+    output_budget(max_output_bytes)?;
+    let mut remaining = max_output_bytes;
+    let mut render = |atom: symbolica::atom::Atom| -> Result<String, AppError> {
+        let text = render_bounded(atom.printer(PrintOptions::file()), remaining)?;
+        remaining -= text.len();
+        Ok(text)
+    };
+    let variables = value
+        .numerator
+        .variables()
+        .iter()
+        .map(|v| render(v.to_atom()))
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(render);
+    // Format native polynomials directly: do not first materialize their
+    // complete expanded Atom merely to render a bounded selected detail.
+    let numerator = render_bounded(NativePolynomial(&value.numerator), remaining)?;
+    remaining -= numerator.len();
+    let denominator = render_bounded(NativePolynomial(&value.denominator), remaining)?;
+    let view = CandidateCoefficientInspection {
+        id: u32::try_from(id).map_err(|_| AppError::input("coefficient ID overflow"))?,
+        variables,
+        numerator,
+        denominator,
+        numerator_terms: value.numerator.nterms(),
+        denominator_terms: value.denominator.nterms(),
+    };
+    bounded(&view, max_output_bytes)?;
+    Ok(view)
+}
+
+struct NativePolynomial<'a>(&'a rustred::algebra::CoefficientPolynomial);
+impl std::fmt::Display for NativePolynomial<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0
+            .format(&PrintOptions::file(), PrintState::new(), f)
+            .map(|_| ())
+    }
+}
+
 // Use Symbolica's streaming native printer. Its canonical-string API allocates
 // the entire string first and is intentionally NOT used for bounded UI text.
-// Atom conversion itself remains native and is not a hard algebra/RAM budget.
+// Native variable formatting/decoded polynomial storage are not a hard RAM
+// budget; the complete expanded polynomial Atom/string is never constructed.
 fn render_bounded(value: impl std::fmt::Display, limit: usize) -> Result<String, AppError> {
     use std::fmt::Write;
     struct Text {
@@ -257,7 +312,11 @@ mod tests {
     }
 }
 
-fn page(total: usize, start: usize, limit: usize) -> Result<std::ops::Range<usize>, AppError> {
+pub(super) fn page(
+    total: usize,
+    start: usize,
+    limit: usize,
+) -> Result<std::ops::Range<usize>, AppError> {
     if limit == 0 || limit > 1000 {
         return Err(AppError::input("page limit must be from 1 to 1000"));
     }
@@ -266,14 +325,14 @@ fn page(total: usize, start: usize, limit: usize) -> Result<std::ops::Range<usiz
     }
     Ok(start..start.saturating_add(limit).min(total))
 }
-fn output_budget(bytes: usize) -> Result<(), AppError> {
+pub(super) fn output_budget(bytes: usize) -> Result<(), AppError> {
     if bytes == 0 || bytes > crate::MAX_OUTPUT_BYTES {
         Err(AppError::input("invalid detail output budget"))
     } else {
         Ok(())
     }
 }
-fn bounded<T: Serialize>(value: &T, bytes: usize) -> Result<(), AppError> {
+pub(super) fn bounded<T: Serialize>(value: &T, bytes: usize) -> Result<(), AppError> {
     struct Counter {
         count: usize,
         limit: usize,

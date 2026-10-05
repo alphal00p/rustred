@@ -157,9 +157,43 @@ structure without importing coefficient polynomials. Sector/rule/terminal pages
 are bounded (at most 1,000 entries); selected rule details retain native shapes,
 guards and payload-local coefficient IDs. Only `coefficient()` imports the native
 state and decodes/caches the selected polynomial. Its bounded streaming native
-printer is display-only, not a canonical algebra encoding; the output budget is
-not a hard bound on native polynomial-to-Atom conversion. Candidate completion,
+printer is display-only, not a canonical algebra encoding. It streams the
+native polynomial directly, without expanding the whole polynomial to an Atom
+or first constructing its complete string. Selected native coefficient decoding
+and the printer's variable formatting still are not hard RAM bounds. Candidate completion,
 metadata, saved terminals and progress do not certify closure or master minimality.
+
+`result.artifact()` retains the caller's generation transport limits, including
+an explicitly enlarged collection-entry budget. For an independently reopened
+trusted file or byte string, pass the same four `bundle_max_*` keyword options
+to `CandidateArtifact.open_file` or `open`; defaults remain unchanged. File
+reading is itself bounded before structural parsing. `metadata()` exposes the
+actual collection-entry count and the reader's explicit transport policy.
+
+HEPKit's existing native family can explicitly prepare finite terminal identities:
+
+```python
+normalization = ibp.normalize_candidate_terminals(artifact)
+normalization.metadata()            # raw → unit aliases → weighted outputs
+normalization.terminals(limit=20)   # paged canonical integer keys
+normalization.relations(limit=20)   # summaries, no coefficient rendering
+row = normalization.relation(0)     # selected complete native relation
+normalization.coefficient(row["rhs"][0]["coefficient_id"], max_output_bytes=8192)
+sidecar = normalization.sidecar()   # explicit exact native transport, not text
+```
+
+This reuses RustRed's native verified vacuum parameter permutations and
+quadratic-numerator transformations on the artifact's exact family/order/raw
+terminal set. It does not decode candidate rule coefficients, regenerate IBPs,
+consult FMFT, install the sidecar automatically, or prove master minimality or
+closure. Unsupported shapes remain outputs and are reported. The optional
+positive integer limits `max_terminals`, `max_supports`, `max_matrix_cells`, and
+`max_output_terms` retain the existing native defaults; underlying parameter-map
+and exact-algebra limits also remain unchanged. Preparation and selected
+coefficient/sidecar work use the shared native coordinator with the GIL released.
+Pages contain at most 1,000 entries; coefficient IDs belong to this normalization
+result, not the candidate artifact. Native sidecar loading independently rebuilds
+and checks the exact plan against the family, order and declared terminal set.
 
 ### Synchronous candidate bundles
 

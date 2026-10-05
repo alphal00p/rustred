@@ -21,12 +21,17 @@ pub struct PyCandidateBundleResult {
     status: &'static str,
     report: String,
     bundle: Py<PyBytes>,
+    bundle_limits: rustred_app::CandidateBundleLimits,
 }
 
 #[pymethods]
 impl PyCandidateBundleResult {
     fn artifact(&self, py: Python<'_>) -> PyResult<crate::streaming::PyCandidateArtifact> {
-        crate::streaming::PyCandidateArtifact::from_bytes(py, self.bundle.bind(py).as_bytes())
+        crate::streaming::PyCandidateArtifact::from_bytes(
+            py,
+            self.bundle.bind(py).as_bytes(),
+            self.bundle_limits,
+        )
     }
     #[getter]
     fn schema(&self) -> &'static str {
@@ -58,6 +63,7 @@ impl PyCandidateBundleResult {
             status: result.status(),
             report: result.to_toml().to_owned(),
             bundle: PyBytes::new(py, result.bundle()).unbind(),
+            bundle_limits: result.bundle_limits(),
         }
     }
 }

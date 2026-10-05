@@ -1,8 +1,10 @@
 # Second five-loop campaign: complementary banana rules
 
 Status: release controls passed; separate inputs, executable and steering are
-frozen. The new production campaign has **not** been launched. The currently
-running campaign and its checkpoints are not modified by this work.
+frozen. The user launched this campaign on October4; the run was observed
+active on October5. The commands below are the launch/resume reference, not
+an instruction to start a duplicate process. Both production campaigns and
+their checkpoints remain user-controlled and untouched by development work.
 
 ## Why this variant, and what is not established
 
@@ -104,8 +106,10 @@ compilation, include preparation and cold verification, and are release checks
 under host contention—not matched performance improvements. Receipts are under
 `TMP/rule-optimizer-20261003/profiles/release-v4-controls-20261004/`.
 
-In a **new** tab, for example `codex_banana485` in the `rustred` Zellij session,
-run (leave the existing campaign's tab alone):
+For an initial launch in a **new** tab, for example `codex_banana485` in the
+`rustred` Zellij session, the command is below. This campaign is already
+running as of October5: do not invoke it again while that run is active.
+Leave the other campaign's tab alone.
 
 ```bash
 cd /common/dev/rustred

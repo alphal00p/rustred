@@ -2,6 +2,7 @@ mod application;
 pub use application::{
     CandidateArtifact, CandidateArtifactPage, CandidateGenerationEvents, CandidateGenerationJob,
     CandidateGenerationSession, CandidateGenerationSnapshot, CandidateGenerationState,
+    CandidateTerminalNormalization, CandidateTerminalNormalizationLimits,
 };
 pub use application::{EntryPowerBudget, FiniteEntryDomain, entry_domain_plan};
 /// Native family entry for embedded hosts; no source-text round trip.

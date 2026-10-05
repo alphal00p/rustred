@@ -2,6 +2,122 @@ use super::*;
 use std::{sync::Arc, time::Duration};
 
 #[test]
+fn generated_policy_is_retained_and_file_ingress_uses_explicit_bounds() {
+    let mut request = FamilyCandidatesRequest::new(K1);
+    request.bundle_limits.max_collection_entries = 10_000_000;
+    let result = family_candidates(request.clone()).unwrap();
+    assert_eq!(result.bundle_limits(), request.bundle_limits);
+    let view = result.artifact().unwrap();
+    assert_eq!(
+        view.metadata().unwrap()["transport_limits"]["bundle_max_entries"],
+        10_000_000
+    );
+    assert_eq!(view.metadata().unwrap()["decoded_coefficients"], 0);
+    let mut restricted = result.clone();
+    restricted.bundle_limits.max_collection_entries = 1;
+    assert!(
+        restricted
+            .artifact()
+            .err()
+            .unwrap()
+            .message()
+            .contains("aggregate collection-entry")
+    );
+    let directory = super::checkpoint::Directory::new();
+    let path = directory.0.join("candidate.rrbin");
+    std::fs::write(&path, result.bundle()).unwrap();
+    let loaded = CandidateArtifact::open_file(&path, result.bundle_limits()).unwrap();
+    assert_eq!(loaded.metadata().unwrap(), view.metadata().unwrap());
+    let mut short = result.bundle_limits();
+    short.max_bundle_bytes = result.bundle().len() - 1;
+    let error = CandidateArtifact::open_file(path, short).err().unwrap();
+    assert!(error.message().contains("exceeds byte limit"));
+}
+
+#[test]
+fn native_terminal_normalization_is_family_bound_paged_and_structural_only() {
+    use rustred::{
+        family::IntegralKey, reduction::terminal_normalization::TerminalNormalizationPlan,
+    };
+    let generated = family_candidates(FamilyCandidatesRequest::new(K3)).unwrap();
+    let mut bundle = codec::read(generated.bundle(), Default::default()).unwrap();
+    // Three equal independent-product routings, represented in different
+    // sectors of one complete native family. No supplied algebraic weights.
+    let powers = [[1, 1, 0], [1, 0, 1], [0, 1, 1]];
+    let template = bundle.sectors[0].clone();
+    bundle.sectors = powers
+        .iter()
+        .map(|p| {
+            let mut sector = template.clone();
+            sector.sector = p.iter().map(|&n| n > 0).collect();
+            sector.rules.clear();
+            sector.finite_residuals = vec![model::IntegralRecord {
+                symbolic: vec![false; 3],
+                values: p.to_vec(),
+            }];
+            sector
+        })
+        .collect();
+    let bytes = codec::write(&bundle, Default::default()).unwrap();
+    let view = CandidateArtifact::open(&bytes, Default::default()).unwrap();
+    let family = preparation::family(K3, InputFormat::Auto).unwrap();
+    let normalized = view
+        .normalize_terminals(&family, Default::default())
+        .unwrap();
+    let meta = normalized.metadata().unwrap();
+    assert_eq!(meta["raw_terminal_records"], 3);
+    assert_eq!(meta["unique_raw_terminals"], 3);
+    assert_eq!(meta["canonical_terminals"], 1);
+    assert_eq!(meta["closure_claim"], false);
+    assert_eq!(meta["master_minimality_claim"], false);
+    assert_eq!(normalized.relations(0, 1).unwrap().items.len(), 1);
+    assert_eq!(normalized.terminals(0, 1).unwrap().items.len(), 1);
+    assert!(normalized.relations(0, 1001).is_err());
+    assert!(normalized.relation(3, 1000).is_err());
+    assert!(normalized.relation(0, 1).is_err());
+    let relation = normalized.relation(0, 1000).unwrap();
+    normalized
+        .coefficient(
+            relation["rhs"][0]["coefficient_id"].as_u64().unwrap() as usize,
+            1000,
+        )
+        .unwrap();
+    let raw = powers
+        .iter()
+        .map(|p| IntegralKey::try_new(p.iter().copied().map(i64::from)).unwrap())
+        .collect();
+    let rebuilt = TerminalNormalizationPlan::decode_generated(
+        &normalized.sidecar().unwrap(),
+        &family,
+        &raw,
+        super::super::order::saved_policy(&bundle.records).unwrap(),
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(rebuilt.canonical_terminals().len(), 1);
+    assert_eq!(view.metadata().unwrap()["decoded_coefficients"], 0);
+    let other = preparation::family(K1, InputFormat::Auto).unwrap();
+    assert!(
+        view.normalize_terminals(&other, Default::default())
+            .err()
+            .unwrap()
+            .message()
+            .contains("family does not match")
+    );
+    assert!(
+        view.normalize_terminals(
+            &family,
+            CandidateTerminalNormalizationLimits {
+                max_terminals: 2,
+                ..Default::default()
+            }
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn native_session_matches_sync_and_lazy_pages_do_not_decode_coefficients() {
     fn send_sync<T: Send + Sync>() {}
     send_sync::<CandidateArtifact>();

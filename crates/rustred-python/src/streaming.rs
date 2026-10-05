@@ -163,22 +163,30 @@ fn start_family_candidates(
 
 #[pyclass(frozen, module = "rustred", name = "CandidateArtifact")]
 pub struct PyCandidateArtifact {
-    inner: Arc<CandidateArtifact>,
+    pub(crate) inner: Arc<CandidateArtifact>,
 }
 
 impl PyCandidateArtifact {
-    pub(crate) fn from_bytes(py: Python<'_>, bytes: &[u8]) -> PyResult<Self> {
-        if bytes.len() > rustred_app::MAX_CANDIDATE_BUNDLE_BYTES {
-            return Err(RustRedLimitError::new_err(
-                "artifact exceeds native byte limit",
-            ));
+    pub(crate) fn from_bytes(
+        py: Python<'_>,
+        bytes: &[u8],
+        limits: CandidateBundleLimits,
+    ) -> PyResult<Self> {
+        let cap = limits
+            .max_bundle_bytes
+            .min(rustred_app::MAX_CANDIDATE_BUNDLE_BYTES);
+        if bytes.len() > cap {
+            return Err(RustRedLimitError::new_err(format!(
+                "artifact exceeds native byte limit: {} > {cap}",
+                bytes.len(),
+            )));
         }
         let bytes = bytes.to_vec();
         // Framing/structural parsing imports no Symbolica state and decodes no
         // coefficient polynomial, so it need not queue behind generation. The
         // existing codec's once-only format-byte probe encodes the integer 1.
         let inner = py
-            .detach(move || CandidateArtifact::open(&bytes, CandidateBundleLimits::default()))
+            .detach(move || CandidateArtifact::open(&bytes, limits))
             .map_err(map_app_error)?;
         Ok(Self {
             inner: Arc::new(inner),
@@ -189,22 +197,48 @@ impl PyCandidateArtifact {
 #[pymethods]
 impl PyCandidateArtifact {
     #[staticmethod]
-    fn open(py: Python<'_>, bundle: &Bound<'_, PyBytes>) -> PyResult<Self> {
-        Self::from_bytes(py, bundle.as_bytes())
+    #[pyo3(signature=(bundle, *, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None))]
+    fn open(
+        py: Python<'_>,
+        bundle: &Bound<'_, PyBytes>,
+        bundle_max_bytes: Option<PythonInteger>,
+        bundle_max_entries: Option<PythonInteger>,
+        bundle_max_coefficient_bytes: Option<PythonInteger>,
+        bundle_max_total_coefficient_bytes: Option<PythonInteger>,
+    ) -> PyResult<Self> {
+        Self::from_bytes(
+            py,
+            bundle.as_bytes(),
+            read_limits([
+                bundle_max_bytes,
+                bundle_max_entries,
+                bundle_max_coefficient_bytes,
+                bundle_max_total_coefficient_bytes,
+            ])?,
+        )
     }
     #[staticmethod]
-    fn open_file(py: Python<'_>, path: PathBuf) -> PyResult<Self> {
-        let bytes = py
-            .detach(move || -> std::io::Result<Vec<u8>> {
-                use std::io::Read;
-                let file = std::fs::File::open(path)?;
-                let mut bytes = Vec::new();
-                file.take(rustred_app::MAX_CANDIDATE_BUNDLE_BYTES as u64 + 1)
-                    .read_to_end(&mut bytes)?;
-                Ok(bytes)
-            })
-            .map_err(|e| RustRedInputError::new_err(e.to_string()))?;
-        Self::from_bytes(py, &bytes)
+    #[pyo3(signature=(path, *, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None))]
+    fn open_file(
+        py: Python<'_>,
+        path: PathBuf,
+        bundle_max_bytes: Option<PythonInteger>,
+        bundle_max_entries: Option<PythonInteger>,
+        bundle_max_coefficient_bytes: Option<PythonInteger>,
+        bundle_max_total_coefficient_bytes: Option<PythonInteger>,
+    ) -> PyResult<Self> {
+        let limits = read_limits([
+            bundle_max_bytes,
+            bundle_max_entries,
+            bundle_max_coefficient_bytes,
+            bundle_max_total_coefficient_bytes,
+        ])?;
+        let inner = py
+            .detach(move || CandidateArtifact::open_file(path, limits))
+            .map_err(map_app_error)?;
+        Ok(Self {
+            inner: Arc::new(inner),
+        })
     }
     fn metadata(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         to_python(py, &self.inner.metadata().map_err(map_app_error)?)
@@ -314,22 +348,66 @@ impl PyCandidateArtifact {
             meta["total_terminals"],
             meta["decoded_coefficients"],
             meta["total_coefficients"],
-            html_escape(
+            html_preview(
                 meta["family_fingerprint"]
                     .as_str()
-                    .unwrap_or("unknown family")
+                    .unwrap_or("unknown family"),
+                96,
             )
         ))
     }
 }
 
-fn html_escape(value: &str) -> String {
+pub(crate) fn html_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
+}
+
+pub(crate) fn html_preview(value: &str, max_chars: usize) -> String {
+    let prefix: String = value.chars().take(max_chars).collect();
+    if prefix.len() < value.len() {
+        format!(
+            "{}… ({} bytes; full identity in metadata)",
+            html_escape(&prefix),
+            value.len()
+        )
+    } else {
+        html_escape(value)
+    }
+}
+
+fn read_limits(values: [Option<PythonInteger>; 4]) -> PyResult<CandidateBundleLimits> {
+    let mut limits = CandidateBundleLimits::default();
+    for ((name, slot), value) in [
+        ("bundle_max_bytes", &mut limits.max_bundle_bytes),
+        ("bundle_max_entries", &mut limits.max_collection_entries),
+        (
+            "bundle_max_coefficient_bytes",
+            &mut limits.max_coefficient_bytes,
+        ),
+        (
+            "bundle_max_total_coefficient_bytes",
+            &mut limits.max_total_coefficient_bytes,
+        ),
+    ]
+    .into_iter()
+    .zip(values)
+    {
+        if let Some(value) = value {
+            let value = nonnegative_usize(name, value.0)?;
+            if value == 0 {
+                return Err(RustRedInputError::new_err(format!(
+                    "{name} must be positive"
+                )));
+            }
+            *slot = value;
+        }
+    }
+    Ok(limits)
 }
 
 fn index(name: &str, value: PythonInteger) -> PyResult<usize> {
@@ -343,7 +421,7 @@ fn seconds(value: f64) -> PyResult<Duration> {
     }
     Ok(Duration::from_secs_f64(value))
 }
-fn to_python(py: Python<'_>, value: &impl Serialize) -> PyResult<Py<PyAny>> {
+pub(crate) fn to_python(py: Python<'_>, value: &impl Serialize) -> PyResult<Py<PyAny>> {
     let value = serde_json::to_value(value)
         .map_err(|e| crate::RustRedInternalError::new_err(e.to_string()))?;
     value_to_python(py, value)
@@ -385,6 +463,7 @@ fn value_to_python(py: Python<'_>, value: Value) -> PyResult<Py<PyAny>> {
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyCandidateGenerationSession>()?;
     module.add_class::<PyCandidateArtifact>()?;
+    module.add_class::<crate::normalization::PyTerminalNormalization>()?;
     module.add_function(wrap_pyfunction!(start_family_candidates, module)?)?;
     Ok(())
 }
@@ -396,6 +475,34 @@ mod tests {
         atomic::{AtomicBool, Ordering},
         mpsc,
     };
+
+    #[test]
+    fn explicit_read_limits_preserve_defaults_and_reject_invalid_values() {
+        assert_eq!(
+            read_limits([None; 4]).unwrap(),
+            CandidateBundleLimits::default()
+        );
+        assert_eq!(
+            read_limits([None, Some(PythonInteger(10_000_000)), None, None])
+                .unwrap()
+                .max_collection_entries,
+            10_000_000
+        );
+        for value in [0, -1, i128::MAX] {
+            assert!(read_limits([Some(PythonInteger(value)), None, None, None]).is_err());
+        }
+    }
+
+    #[test]
+    fn rich_identity_preview_is_short_unicode_safe_and_escaped() {
+        let text = "λ<&>".repeat(1000);
+        let preview = html_preview(&text, 96);
+        assert!(preview.len() < 600);
+        assert!(preview.contains("&lt;"));
+        assert!(!preview.contains('<'));
+        assert!(preview.contains("full identity in metadata"));
+        assert_eq!(html_preview("<short>", 96), "&lt;short&gt;");
+    }
 
     #[test]
     fn wait_and_poll_release_python_for_a_required_heartbeat() {

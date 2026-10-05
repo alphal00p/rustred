@@ -14,6 +14,8 @@ mod generate;
 mod inspection;
 mod load;
 mod model;
+mod normalization;
+pub use normalization::{CandidateTerminalNormalization, CandidateTerminalNormalizationLimits};
 mod order;
 mod policy;
 pub(super) mod preparation;

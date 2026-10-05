@@ -1,6 +1,8 @@
 mod candidates;
+mod normalization;
 mod streaming;
-pub use streaming::{PyCandidateGenerationSession, start_from_native_family};
+pub use normalization::{PyTerminalNormalization, normalize_from_native_family};
+pub use streaming::{PyCandidateArtifact, PyCandidateGenerationSession, start_from_native_family};
 mod coordinator;
 
 use std::str::FromStr;

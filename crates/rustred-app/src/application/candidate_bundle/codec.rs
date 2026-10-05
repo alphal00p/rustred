@@ -301,6 +301,9 @@ pub(super) struct CollectionBudget {
 }
 
 impl CollectionBudget {
+    pub(super) fn admitted_entries(&self) -> usize {
+        self.entries
+    }
     pub(super) fn new(
         limits: CandidateBundleLimits,
         total_sector_count: usize,
@@ -347,12 +350,25 @@ impl CollectionBudget {
             .checked_add(count)
             .ok_or_else(|| AppError::limit("candidate collection count overflow"))?;
         if self.entries > self.limits.max_collection_entries {
-            return Err(AppError::limit(
-                "candidate aggregate collection-entry budget exceeded",
-            ));
+            return Err(AppError::limit(format!(
+                "candidate aggregate collection-entry budget exceeded: {} > {}",
+                self.entries, self.limits.max_collection_entries,
+            )));
         }
         Ok(())
     }
+}
+
+pub(super) fn collection_entries(record: &ProgramRecord) -> Result<usize, AppError> {
+    let limits = CandidateBundleLimits {
+        max_collection_entries: usize::MAX,
+        ..Default::default()
+    };
+    let mut budget = CollectionBudget::new(limits, record.sectors.len())?;
+    for sector in &record.sectors {
+        budget.admit_sector(sector)?;
+    }
+    Ok(budget.admitted_entries())
 }
 
 #[cfg(test)]

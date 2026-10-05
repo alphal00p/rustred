@@ -11,7 +11,7 @@ root observes it read-only and does not control its lifecycle.
 Root orchestrator owns this log; agents report evidence for integration here.
 `[M]` denotes observed/measured evidence; `[E]` denotes interpretation or estimate.
 
-## Active workboard — October4
+## Active workboard — October5
 
 | Lane | Responsible | State / next action |
 | --- | --- | --- |
@@ -35,14 +35,92 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Separate banana485 campaign | `lower_sector_discovery` staging; independent auditor and root | Delivered; user-owned run now observed live. Retain entire currentnew37 context plus two complementary exact owner0 rules and rebound repair. Local gains20–26%; broader260-point control only0.129%. No promised full5L speedup; production remains untouched. |
 | AMFlow runtime arity | `finite_region_audit` isolated implementation; `lower_rule_evaluation` independent review and release gate; root integration/coordination | Commit33fd03ec pushed to main: default1–16 configurable registry, shared dispatcher, checked generic APIs and capability getter. All21 optimized native tests pass including exact generic17 beyond registry; FeynKit Rust check passes. Read-only observation confirms AMFlow's own adapter now uses the dispatcher; downstream build/physics validation unverified. Direct notification still fails (app tool unavailable); pushed handoff and user relay supplied. |
 | Native sessions / lazy views | `lower_sector_discovery` implementation; root and `lower_rule_evaluation` independent review | Pushed f836862a and accessor correction7f3924bc. Corrected optimized community host built; genuine installed-host109/109 tests PASS, zero skips, including14-slot. Default CLI check PASS; actual notebook is the remaining runtime gate. |
-| HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Actual browser run generated H and solved X, then X packaging hit the aggregate-entry budget. H saved; all328 X checkpoints retained. Fixing consistent save/reopen budgets and lazy bounded views before assembly-only recovery. No four-family completion yet; PR follows actual acceptance. |
-| Fresh terminal normalization / FMFT comparison | `lower_sector_discovery` native API; notebook owner presentation; root integration | Expose existing exact native normalization, not another CAS. Measure fresh records/keys/canonical outputs separately. FMFT has19 PR representatives, not16 (16 undotted labels plus3 dotted). Historical74-output normalization is not yet a result of this notebook. |
-| HEPKit Vakint FORM-less demonstration | `lower_rule_evaluation` isolated GammaLoop integration; root dependency coordination | User expanded delivery: modern HEPKit API plus4L numerator evaluation with FORM unavailable. Existing vakint_rustred has backend/catalogues but older namespace/tensor bridge; reconcile those with current community FeynKit before pinning. No published compatibility claim yet. |
+| HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Actual H generation and lazy viewer pass; X completed searches then hit packaging limit. Save/reopen repair passes app tests; final fresh all-four run waits for rebuilt host. Notebook24 tests and browser-lifecycle7 tests pass. No four-family completion yet; PR follows actual acceptance. |
+| Fresh terminal normalization / FMFT comparison | `lower_sector_discovery` native API; notebook owner presentation; root integration | Existing exact native normalization exposed;12 app and10 Python native gates pass, plus Python/FeynKit typechecks. FMFT has19 representatives, not16; fresh normalization counts remain unmeasured. |
+| HEPKit Vakint FORM-less demonstration | `lower_rule_evaluation` isolated GammaLoop integration; root dependency coordination | Modern namespace/tensor/rich bridge source-audited; actual graph-only construction/refusal checks pass. Selected dependencies resolve to one current kernel; compiled-host H32digit and numerical precision gates pending. Shipped assets remain unchanged. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Consolidated native and notebook integration gates — October5
+
+[M] Notebook support now has24 passing lightweight lifecycle/display tests;
+`marimo check` passes. Normalization and the nontrivial H numerator evaluation
+have explicit buttons and one-shot result storage. Neither runs reactively
+while generation is active. The new sections distinguish fresh candidate
+artifacts from Vakint's shipped processed rules and numerical catalogues.
+Actual all-four-family generation, normalization counts and the new numerical
+example remain final-host gates, not consequences of those lightweight tests.
+
+[M] A seconds-long graph-only diagnostic on the previously validated installed
+host constructs the actual H graph/family and reproduces its exact numerator
+mapping. It caught use of `E` (the text parser) instead of native numeric `N`;
+the adapter now uses only native Expression constructors/replacements. No
+generation or numerical solve ran in that diagnostic. Independent source
+reviews checked edge order, routing, masses, cut/power refusals, precision and
+the current FeynKit tensor bridge. Final compiled-host validation is pending.
+
+[M] Independent community ownership audit lists25 public text files only,
+with no generated binaries, campaign evidence, private notes or licenses.
+All four reference TOMLs match both the RustRed producer inputs and Vakint's
+shipped family inputs; native DOT tests cover the conversion. The raw fresh
+H program is not byte-identical to the shipped one, and normalization/catalogue
+processing is separate. Evidence: `TMP/community-rustred-owned-manifest-20261005-v2.json`
+and `TMP/community-rustred-artifact-lineage-20261005.json`. The final browser
+launcher separately tracks postprocessing drain; seven lifecycle tests and an
+independent source review pass. No final browser run has started yet.
+
+[M] Optimized transport/normalization tests are compiling under the existing
+CPU0–15/j8,32GiB RSS/150GB host-headroom guard. The first build refused a
+non-Serialize stable-order identifier in report metadata; it was corrected to
+its existing Display representation and independently checked. The v2 build
+passed in927.666s (19.560GB peak RSS), followed by six passing session/view tests.
+The intermediate-count regression then refused a fixture denominator named`d`,
+which collided with its dimension symbol before algebra. Only that identifier
+was corrected to`den_d`, preserving all assertions. The v3 optimized app build
+completed in907.662s (19.534GB peak RSS), and all12 focused app tests passed,
+including the count regression and both checkpoint assembly retries. The core
+weighted-normalization regression already covers the same mathematical fixture.
+Negative receipts remain in`TMP/hepkit-terminal-normalization-gates-20261005-v2/`.
+No full solver restart is needed to test the packaging
+repair: regression tests cover assembly-only retry from sector checkpoints.
+
+[M] The subsequent Python build identified two missing crate-root re-exports
+for the new normalization types. The fix adds those two public names only;
+independent review passed. V4 binds the unchanged18 tested source paths and the
+new19th export file. Both Python-with-tests and embedded-FeynKit type checks
+pass (14.238s and14.211s). The optimized Python build completed in785.337s,
+peak14.039GB RSS; all10 native runtime tests pass (seven coordinator and three
+streaming), with zero failures/ignored tests. All pinned inputs match and owned
+processes drained; build/heavy locks are free. The final shared-host build and
+notebook acceptance remain separate pending gates.
+Evidence: `TMP/hepkit-terminal-normalization-gates-20261005-v4/`.
+
+### Large-artifact UI audited against the actual H output — October5
+
+[M] A read-only native scan of all21,318 H rule summaries retained zero decoded
+coefficients out of87,323. The largest rule has499 RHS terms (sector ordinal234,
+rule147). Browser recoveryv8 passed: default64KiB detail refusal is controlled;
+explicit256KiB permits that rule; only10 RHS rows render, with distinct pages;
+page-local search and sector-page navigation work. Decode count is zero after
+structural browsing and becomes one only after the explicit coefficient action.
+All viewer processes drained; no generator ran. Evidence:
+`TMP/hepkit-gallery-e2e-20261004/h-viewer-recovery-v8/` and
+`h-metadata-scan.json`. Root independently inspected the actual refusal and
+expanded-budget screenshots and reran19 UI tests (19PASS,0.57s). This verifies
+the H viewer, not the still-pending complete notebook/final-host acceptance.
+
+[M] Native transport/normalization source received an independent audit from
+`finite_region_audit`, separate from implementer`lower_sector_discovery`.
+Result/load limits remain caller-owned; no schema/default-policy change.
+The normalization wrapper uses the existing verified factory, exact family
+identity and saved ordering. Unsupported keys remain outputs. Root identified
+and implementer corrected an intermediate-count mistake: positive-output union
+size is not raw-after-unit-alias count. A regression now distinguishes them.
+Bounded Symbolica polynomial printing avoids building an entire expanded Atom
+for a selected coefficient preview. Optimized native tests remain pending.
 
 ### Read-only production observation — October5 00:33 UTC
 
