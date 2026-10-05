@@ -38,11 +38,81 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | HEPKit / marimo | `finite_region_audit` notebook; root integration; discovery independent audit | Delivered in community PR16/c115b9d. Actual v5 all-four generation, visual/lazy interaction and four cold readers PASS: 900 sectors, 59,509 rules, 541.563s native total. No closure claim. |
 | Fresh terminal normalization / FMFT comparison | `lower_sector_discovery` native API; notebook owner presentation; evaluator key comparison | Delivered: fresh 1155→179→74 family-local outputs in0.796s. Exact output-key sets match shipped22/19/17/16. FMFT has19 representatives, not16; neither count is an independent-master claim. |
 | HEPKit Vakint FORM-less demonstration | `lower_rule_evaluation` isolated GammaLoop integration; root dependency coordination | GammaLoop f8ff93b0 pushed: modern namespace/tensor/rich bridge and exact current-codec migration of15 shipped assets, preserving74 catalogue entries. Installed-host and actual notebook H32digit invalid-FORM references PASS. |
+| Native graph ingress / citation follow-up | `native_vakint_ingress`, `citation_notebook_rename`; `native_ingress_audit` independent review; root integration | Native Vakint8d6c8f7b and FeynKit accessor eb744c65 pushed;136 installed-host tests PASS, zero skips. Notebook renamed byte-identically; usage-gated SpideR citation added. User requests direct upstream publication using the local token, not another PR. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### PR16 follow-up — native graph ingress, citation and notebook name
+
+The user requests the SpideR reference in `get_citations`, the notebook name
+`four_loop_reduction.py`, and a Rust implementation of the graph adapter.
+The citation/rename source slice is complete and independently reviewed;
+runtime citation acceptance awaits the rebuilt host. INSPIRE3149869 resolves
+to Dlapa et al., arXiv2604.25916, DOI10.1103/wkp4-vy6g. Citation activation
+reuses the existing RustRed usage flag, not import-time registration.
+
+The native implementation lane moves graph/family checks and Symbolica
+transformations into feature-gated `VakintExpression::from_diagram`, with a
+thin typed PyO3 entry. A checked FeynKit graph accessor preserves complete-view
+semantics and refuses partial selections. Python keeps only the native re-export;
+the former graph_adapter.py is removed. Independent review verifies exact
+substitutions, arbitrary integer powers, denominator/routing checks and no
+Python algebra callbacks. New tests exercise generic mappings, substitution
+swaps, selected views and exact-int refusal in addition to the unchanged H
+numerical oracle. Focused native builds are in progress; production is untouched.
+
+[M] The checked FeynKit accessor and selected-view regression are published as
+`eb744c65dbc81d6bb6aaf38977752db073165317` on GammaLoop's `feynkit` branch.
+The focused native test passes (one test, no skips) under optimized ThinLTO;
+the earlier fat-LTO attempt was cooperatively stopped during compilation and
+is not a passing receipt. Evidence: `TMP/feynkit-native-graph-accessor-check-20261005/thin-lto/test/`.
+The implementation lane now owns the serialized Vakint test/build slot.
+
+[M] Native Vakint ingress is committed/pushed on `vakint_rustred` as
+`8d6c8f7b14f2438126819328e20a10e6caf9e0b7`. Four native regressions pass, and
+both community-only and stub-enabled release compile checks pass. A first
+stub check exposed unsupported automatic `PyMapping` stub inference; the
+existing explicit stub-type override fixes this without narrowing runtime
+inputs. Hakari verification and independent source/dependency audit pass.
+The pre-existing generated Nix workspace-graph drift is explicitly deferred;
+the full CI/upload recipe was not run or claimed passing.
+
+[M] HEPKit now pins this native revision and the shared FeynKit accessor.
+Resolved host metadata has one Symbolica/Numerica/Graphica/PyO3 stack and
+one copy of each FeynKit package, all on the same FeynKit revision. The
+optimized shared-wheel build is active in
+`TMP/hepkit-community-native-build-20261005-v5/`; installed-host runtime
+acceptance is next. No four-loop generation or production campaign was rerun.
+
+[M] Optimized shared-wheel build and installation passed (1619.537s including
+packaging,17.84GB peak RSS). Installed core identity is
+`4b8e392faeca236a32089b1dffd23f7c0ba5f424aba4565054c0dd3eb027cf34`.
+The actual installed-host suite passes **136/136**, zero skips/failures:
+8.052s pytest,10.212s guarded process,627.4MB peak. Original H32digit/invalid-FORM
+assertions remain unchanged; native builtin ownership, arbitrary integer
+powers, simultaneous substitutions, general mappings and usage-gated paper
+citation all pass. A first run had135PASS and one new fixture failure because
+element-ID selection invokes an optional Linnet Python exporter. Using the
+existing native full-selection/complement operations corrects the fixture;
+all assertions remain unchanged, and the proper-subset negative case is now
+empty. Both runs remain recorded. Final independent audit passes.
+
+Evidence: `TMP/hepkit-installed-host-runtime-20261005-v5-retry/`, with the
+initial failure in the sibling `...-v5/`. No solver/artifact regeneration was
+needed; earlier notebook timings are historical measurements, not new runs.
+The user supplied direct upstream publication authority and the location of
+its local credential; the credential is not copied into tracked files or logs.
+
+[M] Published directly to `symbolica-dev/symbolica-community:main` as
+`cd363269d20f09a2abc1ccae44b47247262147fe`, verified against the remote.
+This was a normal fast-forward including the earlier notebook contribution;
+GitHub automatically marked existing PR16 merged. No new PR was opened and
+no force push was used. The owned community and Vakint trees are clean.
+The follow-up is complete; unrelated RustRed working-tree changes and running
+campaigns remain untouched.
 
 ### Final engineering delivery published — October5
 
