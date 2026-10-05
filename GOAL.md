@@ -8,9 +8,11 @@ validated and documented in
 it. This is an experimental alternative, not a demonstrated global speedup or
 five-loop closure result. The arity change is pushed at `33fd03ec`, and the
 native streamed-session/lazy-artifact milestone at `f836862a` passes its
-focused optimized/runtime gates. The community checkout is pinned to that
-pushed revision. Its optimized host build, real four-loop notebook run,
-visual validation and BenRuijl-reviewer PR remain required before completion.
+focused optimized/runtime gates. The community checkout now pins the pushed
+FeynKit accessor correction `7f3924bc`; its optimized host rebuild succeeded.
+Corrected installed-host acceptance passes109 tests with zero skips and the
+default CLI typecheck passes. The real four-loop notebook run, visual
+validation and BenRuijl-reviewer PR remain required before completion.
 AMFlow's adapter adoption was observed read-only; direct task messaging is
 unavailable, so the pushed handoff and user relay are the coordination record.
 

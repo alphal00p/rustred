@@ -34,13 +34,48 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | PR2 integration / frozen release | `lower_rule_evaluation` isolated integration; `finite_region_audit` independent review; root final verifier | Merge3d0b08fb pushed; optimized CLI/probe,32 focused tests and FeynKit check pass. Final whole4L58/cold5L260 controls PASS with exact archived work counts. Foreign root edits preserved. |
 | Separate banana485 campaign | `lower_sector_discovery` staging; independent auditor and root | Inputs, optimized executable and steering frozen; no launch. Retain entire currentnew37 context plus two complementary exact owner0 rules and rebound repair. Local gains20–26%; broader260-point control only0.129%. No promised full5L speedup. |
 | AMFlow runtime arity | `finite_region_audit` isolated implementation; `lower_rule_evaluation` independent review and release gate; root integration/coordination | Commit33fd03ec pushed to main: default1–16 configurable registry, shared dispatcher, checked generic APIs and capability getter. All21 optimized native tests pass including exact generic17 beyond registry; FeynKit Rust check passes. Read-only observation confirms AMFlow's own adapter now uses the dispatcher; downstream build/physics validation unverified. Direct notification still fails (app tool unavailable); pushed handoff and user relay supplied. |
-| Native sessions / lazy views | `lower_sector_discovery` implementation; root and `lower_rule_evaluation` independent review | Pushed f836862a: focused7app/3core/8Python-unit/10actual-import tests PASS. Optimized community host built; actual109-test gate exposed a FeynKit accessor mismatch. Independently reviewed three-line fix ready for pushed dependency pin and fresh real-host validation. |
+| Native sessions / lazy views | `lower_sector_discovery` implementation; root and `lower_rule_evaluation` independent review | Pushed f836862a and accessor correction7f3924bc. Corrected optimized community host built; genuine installed-host109/109 tests PASS, zero skips, including14-slot. Default CLI check PASS; actual notebook is the remaining runtime gate. |
 | HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Four genuine DOT→HEPKit input fixtures preserve denominator order via explicit edge IDs. Presentation/source gates pass. Actual four-loop generation and live visual acceptance await corrected installed-host tests; PR will follow those gates, with BenRuijl requested as reviewer. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Corrected installed host passes all109 tests — October5 00:10 UTC
+
+[M] The corrected community release wheel built in1043.870s inclusive
+(compiler17m13s), peak12,357,586,944 bytes RSS. Owned build group3822655 drained;
+both build/heavy locks were released. The sole native core in the wheel has
+SHA256 `f6259fd329b2d6e52ab7710e9408318a7488d18cc17037e2c6d75baa01229c86`,
+and the installed venv file matches it. Wheel SHA256:
+`27194fbae840fa831a3ca150dbff0c4f2b1a8685a896681d3b2c2ac3276f4cbf`.
+This is a local optimized Linux test wheel, not a PyPI portability claim.
+Evidence: `TMP/hepkit-community-native-build-20261004-v2/`.
+
+[M] The unchanged genuine installed-host gate now passes109/109, zero skips,
+including the fourteen-slot nonzero reduction/certificate case. It verifies
+the new installed core before and after the suite, with no standalone DSO,
+proxy, substituted fixture or four-loop generation. Pytest1.74s; guarded run
+3.238s, peak116.53MB, owned group4104954 drained. Existing cut, certificate,
+preferred-master, invariant and bridge tests pass alongside the new native,
+DOT-input and presentation tests. Evidence:
+`TMP/hepkit-installed-host-runtime-20261004-v2/`. The default CLI typecheck is
+still running; this is not yet notebook end-to-end acceptance.
+
+[M] Follow-up: default `cargo check --locked --offline -j8 -p rustred-app`
+passes in74.235s inclusive (cargo1m12s), peak1.597GB. Its33 existing nonblocking
+unused/dead-code warnings are retained. Both owned groups are gone and both
+resource locks are free. Root authorized the notebook agent to start the
+single genuine four-family browser run using the accepted installed host.
+
+[M] Notebook acceptance now explicitly checks Ready/zero outputs before the
+Generate button, including unrelated graph selection and refresh. The user
+confirmed that expensive generation must never start as a lazy display side
+effect. Page search is labeled as current-page only. Fresh-process artifact
+checks are prepared to bind the accepted host identity and actual output
+hashes, with preexisting Symbolica atoms and zero coefficient decodes before
+an explicit selected render. These checks have not run yet.
 
 ### Embedded build completes; actual host exposes accessor mismatch — October4 23:50 UTC
 
