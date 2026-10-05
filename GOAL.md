@@ -1,5 +1,43 @@
 # RustRed project goal
 
+## October5 notebook follow-up — bounded, selection-driven views
+
+Large native artifacts must remain navigable without creating a massive
+notebook output. Initial views contain summaries and bounded pages; rule,
+terminal and coefficient details follow explicit selections. Use the existing
+Symbolica/HEPKit large-expression display conventions where appropriate.
+Collapsed panels must not eagerly construct full JSON, unbounded dropdowns or
+all coefficient expressions. Offer clear bounded previews and explicit larger
+requests, test actual large rules and retain native binary output as authority.
+
+## October5 notebook follow-up — FORM-less Vakint evaluation
+
+Extend the HEPKit contribution to its bundled Vakint API, preserving existing
+HEPKit conventions and using high-level native graph/family/expression objects
+with clear rich displays. Link the appropriate pushed GammaLoop/Vakint revision
+containing the RustRed four-loop backend. Demonstrate a nontrivial four-loop
+vacuum integral with a numerator through the FORM-less tensor/scalar/master
+evaluation chain, with an invalid FORM path and a known numerical reference.
+Verify and explain the relationship between the notebook's freshly generated
+rules and Vakint's shipped rules: include any terminal normalization and
+numerical catalogue step; do not claim raw candidates are directly identical
+to a processed shipped artifact unless actually established. Retain one shared
+Symbolica kernel, old HEPKit/Vakint defaults, and existing FORM-backed modes.
+The final PR must include this example and its measured acceptance evidence.
+
+## October5 notebook follow-up — terminal counts and FMFT comparison
+
+After the current four-family generation run, compare its saved finite residual
+terminal counts with the numerical input/master basis actually required by
+FMFT, and explain the difference in the notebook. Distinguish stored records,
+unique integral keys within a family, cross-family equivalences, and proven
+independent masters; do not union unrelated coordinate vectors or describe
+every residual as an independent master. Investigate and, where feasible,
+demonstrate RustRed's existing terminal-reduction capabilities on the freshly
+generated artifacts without rerunning generation. Use exact native machinery
+and retain any unreduced terminals honestly; no new CAS implementation or
+unsupported minimality claim. This follow-up belongs to the pending HEPKit PR.
+
 ## October4 delivery checkpoint — goal remains active
 
 PR2 is merged and the separate banana485 five-loop campaign is frozen,

@@ -53,6 +53,32 @@ jobs. Record decisions, evidence, failures and source revisions in
 
 ## Acceptance evidence
 
+October5 lazy-view requirement: large artifacts must not become large notebook
+outputs. Fetch bounded structural pages; decode only the selected coefficient;
+render small previews with explicit expansion/export controls. A collapsed
+accordion is not lazy if its contents were already constructed. Bound RHS,
+guard, coefficient-choice and terminal tables as well as raw JSON. Test with
+the actual generated artifacts and an oversized display case; distinguish
+bounded browser output from native coefficient-decoding memory costs.
+
+October5 additional requirement: update the community's Vakint dependency/API
+as necessary for its FORM-less four-loop RustRed backend, with high-level rich
+HEPKit objects rather than a second low-level input dialect. Add a nontrivial
+four-loop numerator evaluation, tested with FORM unavailable and an established
+numerical reference. Verify the fresh-to-shipped artifact lineage, including
+normalization and master-catalogue preparation, before describing equivalence.
+Keep the community kernel shared, preserve default/legacy backend behavior,
+and use the appropriate pushed GammaLoop revision. Coordinate dependency edits
+centrally with root; do not disturb other tasks' checkouts or production runs.
+
+October5 addition: compare actual four-loop generated residual records and
+distinct terminal integrals with FMFT's numerical input/master basis, using
+verified source definitions. Explain the nonminimal-terminal versus master
+distinction in the notebook. Prefer a demonstrable post-generation reduction
+of terminals through existing RustRed APIs when feasible; preserve the current
+run and its outputs, avoid a new generation workload or a separate CAS, and
+do not equate coordinate vectors from different families without a routing map.
+
 The October4 AMFlow+DiffExp follow-up also belongs to this delivery: remove the
 incidental 12-slot runtime-dispatch restriction, test an actual higher-arity
 family, and document the API/build capabilities separately from mathematical

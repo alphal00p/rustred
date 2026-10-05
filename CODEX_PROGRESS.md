@@ -32,15 +32,77 @@ Root orchestrator owns this log; agents report evidence for integration here.
 | Degree-plateau block elimination | `lower_sector_discovery` existing-binary experiment; `lower_rule_evaluation` full-boundary analysis; `finite_region_audit` independent critique | Both complete-bank tests negative:125 rows/19 refinements and witness-guided250 rows/137 refinements miss at all19 points. Exact separator/source preimages distinguish new directions from pivot changes, but do not supply a sufficient bank. No new rule or campaign gain. Further bank enlargement parked. |
 | Weighted plateau cut | `lower_rule_evaluation` implementation; `lower_sector_discovery` input cohorts; `finite_region_audit` independent review; root integration | Delivered/audited then parked:21 tests; depth2 and depth4 complete original4L90/5L29 controls. Depth4 shared support unchanged at4L and only1.66% lower at5L. Research observer remains opt-in, not production-enabled. |
 | PR2 integration / frozen release | `lower_rule_evaluation` isolated integration; `finite_region_audit` independent review; root final verifier | Merge3d0b08fb pushed; optimized CLI/probe,32 focused tests and FeynKit check pass. Final whole4L58/cold5L260 controls PASS with exact archived work counts. Foreign root edits preserved. |
-| Separate banana485 campaign | `lower_sector_discovery` staging; independent auditor and root | Inputs, optimized executable and steering frozen; no launch. Retain entire currentnew37 context plus two complementary exact owner0 rules and rebound repair. Local gains20–26%; broader260-point control only0.129%. No promised full5L speedup. |
+| Separate banana485 campaign | `lower_sector_discovery` staging; independent auditor and root | Delivered; user-owned run now observed live. Retain entire currentnew37 context plus two complementary exact owner0 rules and rebound repair. Local gains20–26%; broader260-point control only0.129%. No promised full5L speedup; production remains untouched. |
 | AMFlow runtime arity | `finite_region_audit` isolated implementation; `lower_rule_evaluation` independent review and release gate; root integration/coordination | Commit33fd03ec pushed to main: default1–16 configurable registry, shared dispatcher, checked generic APIs and capability getter. All21 optimized native tests pass including exact generic17 beyond registry; FeynKit Rust check passes. Read-only observation confirms AMFlow's own adapter now uses the dispatcher; downstream build/physics validation unverified. Direct notification still fails (app tool unavailable); pushed handoff and user relay supplied. |
 | Native sessions / lazy views | `lower_sector_discovery` implementation; root and `lower_rule_evaluation` independent review | Pushed f836862a and accessor correction7f3924bc. Corrected optimized community host built; genuine installed-host109/109 tests PASS, zero skips, including14-slot. Default CLI check PASS; actual notebook is the remaining runtime gate. |
-| HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Four genuine DOT→HEPKit input fixtures preserve denominator order via explicit edge IDs. Presentation/source gates pass. Actual four-loop generation and live visual acceptance await corrected installed-host tests; PR will follow those gates, with BenRuijl requested as reviewer. |
+| HEPKit / marimo | `finite_region_audit` notebook; root host integration and native DOT audit | Actual browser run generated H and solved X, then X packaging hit the aggregate-entry budget. H saved; all328 X checkpoints retained. Fixing consistent save/reopen budgets and lazy bounded views before assembly-only recovery. No four-family completion yet; PR follows actual acceptance. |
+| Fresh terminal normalization / FMFT comparison | `lower_sector_discovery` native API; notebook owner presentation; root integration | Expose existing exact native normalization, not another CAS. Measure fresh records/keys/canonical outputs separately. FMFT has19 PR representatives, not16 (16 undotted labels plus3 dotted). Historical74-output normalization is not yet a result of this notebook. |
+| HEPKit Vakint FORM-less demonstration | `lower_rule_evaluation` isolated GammaLoop integration; root dependency coordination | User expanded delivery: modern HEPKit API plus4L numerator evaluation with FORM unavailable. Existing vakint_rustred has backend/catalogues but older namespace/tensor bridge; reconcile those with current community FeynKit before pinning. No published compatibility claim yet. |
 
 The ledger below preserves earlier results and rejected/deferred avenues.
 Its older prospective next steps are historical unless activated above.
 
 ## Evidence ledger — profile-guided rule optimization
+
+### Read-only production observation — October5 00:33 UTC
+
+[M] The user-owned banana485 run is now active (PID3247913), alongside the old
+currentnew37 process2941870. Latest observed heartbeat at4345.4s records
+26,164,875 discovered domains,12,711,440 native completions,6,790,639 queued,
+zero frontiers, and approximately29.82GB native RSS. The last recursive scan
+reports13/67 initial roots and3,589,364 domains closed; that snapshot is70.1s
+old, not a synchronous count. This is neither closure nor a matched performance
+comparison. Root only read process/event data; no launch, interruption, input
+or checkpoint modification was performed.
+
+### Genuine notebook run exposes a transport limit; delivery scope expanded — October5
+
+[M] Actual-v3 browser acceptance clicked Generate exactly once, after verifying
+Ready, zero artifacts, no output directory and no generation on unrelated graph
+selection/refresh. H completed314 sectors,21,318 rules and386 residual records,
+zero failed sectors: native session91.991s, report91.919s (preparation0.019,
+solve89.238, encoding2.661). X completed all328 sectors with19,907 rules,
+445 residual records and zero failed sectors, then artifact assembly failed:
+`candidate aggregate collection-entry budget exceeded`. X session282.548s;
+whole failed sequence375.230s. BMW/FG were not started. This is a measured
+packaging failure after successful sector searches, not four-family success.
+Evidence: `TMP/hepkit-gallery-e2e-20261004/actual-v3/`.
+
+[M] All328 X sector checkpoints survive. Existing native regression
+`failed_final_encoding_keeps_all_sectors_for_assembly_only_retry` covers this
+recovery route without new search. Discovery owns a generic transport-policy
+fix: keep the caller's budgets on generated results and accept explicit matching
+budgets on cold reopen. Do not raise a save cap while leaving the viewer at a
+smaller hardcoded cap, and do not let artifact contents authorize their own
+load limits. Defaults and binary format need not change.
+
+[M] The browser's explorer screenshot failed because its selector waited for a
+hidden custom table host; native metadata, sector/rule/terminal pages and rule
+structure calls succeeded. Notebook owner is recovering visual evidence from
+the saved H artifact without generation. The original live screenshot is at
+0.2s, before meaningful progress: not sufficient live-dashboard acceptance.
+All original browser/server/native processes drained; evidence remains intact.
+
+[M] User added three delivery requirements: compare fresh terminal counts with
+FMFT, preferably demonstrating further RustRed normalization; modernize HEPKit's
+Vakint integration and show a FORM-less4L numerator evaluation; ensure selection-
+driven bounded artifact views throughout. Plan/GOAL updated. Root audit found
+that collapsed raw-rule JSON and a full coefficient-ID dropdown were still
+constructed eagerly. Notebook owner is correcting those before a new live run.
+
+[M] FMFT's published basis is19 PR representatives: PR0..PR15 plus PR4d,
+PR9d, PR11d (Czakon, hep-ph/0411261, Fig.1). The20th declared source symbol
+PR9x is intermediate and eliminated. Historical family-local1155 residual
+records normalize to74 outputs (H22, X19, BMW17, FG16); those outputs are not
+independent masters. Exact expressions, numerical Laurent constants and family-
+coordinate keys are distinct counts. Fresh normalization will be measured,
+not inferred from agreement with historical raw counts.
+
+[M] Current community pins FeynKit/Vakint8f834d9c; pushed vakint_rustred is
+a5dc6da7 with the RustRed backend and74-entry catalogue but an older native
+module namespace and tensor bridge. Evaluation agent owns an isolated
+compatibility integration. Root will coordinate a single shared Symbolica
+dependency graph and a consolidated optimized build; no production changes.
 
 ### Corrected installed host passes all109 tests — October5 00:10 UTC
 
