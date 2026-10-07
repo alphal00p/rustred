@@ -257,8 +257,9 @@ impl PyClosingArtifactGenerationResult {
 pub struct PyExactMasterCoefficient {
     master_powers: Vec<i64>,
     unit_mass_coefficient: String,
-    // CPython's wasm32 allocator guarantees eight-byte object alignment,
-    // whereas an inline i128 requires sixteen. Keep that payload Rust-owned.
+    // Box is required for alignment: CPython's wasm32 object allocator guarantees
+    // only 8 bytes, but i128 requires 16. Rust allocates the boxed value with the
+    // required alignment; do not inline it into the Python-owned object.
     #[cfg(target_arch = "wasm32")]
     common_mass_squared_power: Box<i128>,
     #[cfg(not(target_arch = "wasm32"))]

@@ -95,6 +95,8 @@ checks. An independent run also loaded an existing native 64-bit artifact in
 WASM32 and matched all 38 master keys and 11 exact reductions. These are
 functional checks, not release-performance benchmarks or four-loop browser
 acceptance. The native adapter regression suite passed all 16 tests.
+The 38 entries are labelled sector terminals, not 38 independent masters;
+they represent [five named integral types](k6_terminal_names.md).
 
 The static Marimo three-loop notebook also passed in an actual Chromium
 Pyodide worker: no generation before clicking Generate, fresh generation and
