@@ -30,7 +30,7 @@ values from a publication.
 | `T5,1` | Five-line connected vacuum, a pinched Mercedes | `I(0,1,1,1,1,1)` | 6 |
 | `T6,1` | Six-line tetrahedron / Mercedes | `I(1,1,1,1,1,1)` | 1 |
 
-Thus there are three connected three-loop representatives and two lower-loop
+Thus there are three nonfactorizing three-loop representatives and two lower-loop
 products. For example, `I(1,1,1,0,0,0)` and `I(0,0,1,0,1,1)` are both three
 independent tadpoles after a unit-Jacobian change of loop variables. No new
 numerical master value is needed for the second spelling.
@@ -53,7 +53,7 @@ T6,1: 111111
 On 2026-10-07, a native graph-derived K6 candidate was generated and passed to
 the existing `IBPFamily.normalize_candidate_terminals` service. Its raw terminal
 set matched all 38 keys of the previously cold-loaded certified artifact.
-The normalizer returned `raw_terminals = 38`, 33 unit aliases, five canonical
+The normalizer returned `unique_raw_terminals = 38`, 33 unit aliases, five canonical
 terminals and no skipped shapes. All 38 returned relation coefficients were
 checked to be one. This is exact routing/factorization normalization, not a
 numerical coincidence or a separately implemented Python algebra kernel.
