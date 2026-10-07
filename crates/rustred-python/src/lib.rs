@@ -1,3 +1,5 @@
+#[cfg(target_arch = "wasm32")]
+mod alignment;
 mod candidates;
 mod normalization;
 mod streaming;
@@ -255,6 +257,11 @@ impl PyClosingArtifactGenerationResult {
 pub struct PyExactMasterCoefficient {
     master_powers: Vec<i64>,
     unit_mass_coefficient: String,
+    // CPython's wasm32 allocator guarantees eight-byte object alignment,
+    // whereas an inline i128 requires sixteen. Keep that payload Rust-owned.
+    #[cfg(target_arch = "wasm32")]
+    common_mass_squared_power: Box<i128>,
+    #[cfg(not(target_arch = "wasm32"))]
     common_mass_squared_power: i128,
 }
 
@@ -272,7 +279,14 @@ impl PyExactMasterCoefficient {
 
     #[getter]
     fn common_mass_squared_power(&self) -> i128 {
-        self.common_mass_squared_power
+        #[cfg(target_arch = "wasm32")]
+        {
+            *self.common_mass_squared_power
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.common_mass_squared_power
+        }
     }
 
     fn __repr__(&self) -> String {
@@ -664,7 +678,12 @@ fn reduce_with_closing_artifact(
         .map(|term| PyExactMasterCoefficient {
             master_powers: term.master_powers().to_vec(),
             unit_mass_coefficient: term.unit_mass_coefficient().to_owned(),
-            common_mass_squared_power: term.common_mass_squared_power(),
+            common_mass_squared_power: {
+                let power = term.common_mass_squared_power();
+                #[cfg(target_arch = "wasm32")]
+                let power = Box::new(power);
+                power
+            },
         })
         .collect();
     Ok(PyClosingArtifactReductionResult {
@@ -1002,6 +1021,24 @@ pub fn register_rustred_module(module: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn master_mass_power_preserves_the_full_integer_range() {
+        for power in [i128::MIN, -2, 0, i128::MAX] {
+            let term = PyExactMasterCoefficient {
+                master_powers: vec![1],
+                unit_mass_coefficient: "1".to_owned(),
+                common_mass_squared_power: {
+                    #[cfg(target_arch = "wasm32")]
+                    let power = Box::new(power);
+                    power
+                },
+            };
+            assert_eq!(term.common_mass_squared_power(), power);
+            assert_eq!(term.clone().common_mass_squared_power(), power);
+            assert!(term.__repr__().contains(&power.to_string()));
+        }
+    }
 
     #[test]
     fn frontend_values_are_validated_before_coordinator_work() {

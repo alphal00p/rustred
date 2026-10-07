@@ -3,6 +3,8 @@
 //! The bridge reads Feynkit's existing public family API. Expressions remain
 //! native atoms in the host kernel; no second extension or string parser is used.
 
+#[cfg(target_arch = "wasm32")]
+mod alignment;
 #[cfg(feature = "campaign-api")]
 mod campaign;
 mod certificate;
