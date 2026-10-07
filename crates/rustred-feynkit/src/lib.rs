@@ -244,10 +244,18 @@ impl PyIbpFamily {
 impl PyIbpFamily {
     /// Arity entry points compiled into this native host, sorted and unique.
     /// Set ``RUSTRED_RUNTIME_ARITIES`` when rebuilding the host to select a
-    /// different registry. This is a build capability, not a mathematical cap.
+    /// different registry with the ``runtime-arity-selection`` Cargo feature.
+    /// This is a build capability, not a mathematical cap.
     #[staticmethod]
     fn compiled_runtime_arities() -> Vec<usize> {
         rustred::compiled_runtime_arities().to_vec()
+    }
+
+    /// Storage capacities compiled into the host. ``capacity-dispatch``
+    /// shares capacities 4, 8 and 16 without restricting physical arities.
+    #[staticmethod]
+    fn compiled_runtime_capacities() -> Vec<usize> {
+        rustred::compiled_runtime_capacities().to_vec()
     }
 
     #[new]

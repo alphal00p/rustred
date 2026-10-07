@@ -76,6 +76,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             ));
         }
         for case in &cases {
+            self.validate_case(&case.clone().into())?;
             if !case.is_numerical() || !case.is_in_sector(self.order.sector()) {
                 return Err(SolverError::InvalidInput(
                     "shared numerical cases must be fully fixed and inside their sector".into(),
@@ -125,7 +126,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut seeds = Seeds::new(
             cases[0].integral(),
             *self.order.sector(),
-            self.config.removed_deltas,
+            self.seed_frozen(),
         );
         let mut visited = BTreeSet::new();
         let mut probe: Option<Probe<N>> = None;
@@ -143,7 +144,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 seeds = Seeds::new(
                     cases[index].integral(),
                     *self.order.sector(),
-                    self.config.removed_deltas,
+                    self.seed_frozen(),
                 );
                 continue;
             }
@@ -204,7 +205,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                         &mut current,
                         &mut seeds,
                         *self.order.sector(),
-                        self.config.removed_deltas,
+                        self.seed_frozen(),
                     );
                     if remaining == 0 {
                         break;
@@ -229,7 +230,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             &mut current,
                             &mut seeds,
                             *self.order.sector(),
-                            self.config.removed_deltas,
+                            self.seed_frozen(),
                         );
                     }
                 }

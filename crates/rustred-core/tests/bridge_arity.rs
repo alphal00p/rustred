@@ -231,3 +231,117 @@ fn high_arity_preserves_cut_preferred_and_stability_options() {
             .any(|p| !p.is_constant())
     );
 }
+
+fn check_capacity<const A: usize, const C: usize>() {
+    use rustred::solver::bridge::{
+        certify_laporta_with_capacity, solve_laporta_with_capacity, solve_parametric_with_capacity,
+    };
+    let (family, _) = family::<A>();
+    let cuts = CutConstraint::none(A).unwrap();
+    let target = powers::<A>(2);
+    let options = DynamicSolveOptions {
+        max_depth: 1,
+        ..Default::default()
+    };
+    let exact = solve_laporta_for::<A>(&family, &cuts, &[target.clone()], &[], options).unwrap();
+    let padded =
+        solve_laporta_with_capacity::<C>(&family, &cuts, &[target.clone()], &[], options).unwrap();
+    assert_solutions_equal(&exact, &padded);
+    assert_eq!(
+        certify_laporta_for::<A>(&family, &cuts, &padded, false).unwrap(),
+        certify_laporta_with_capacity::<C>(&family, &cuts, &padded, false).unwrap()
+    );
+    let sector: Vec<_> = target.iter().map(|n| *n > 0).collect();
+    for symbolic in [false, true] {
+        let fixed: Vec<_> = target
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| if symbolic && i == 0 { None } else { Some(n) })
+            .collect();
+        let exact = solve_parametric_for::<A>(&family, &cuts, &sector, &fixed, options).unwrap();
+        let padded =
+            solve_parametric_with_capacity::<C>(&family, &cuts, &sector, &fixed, options).unwrap();
+        assert_solutions_equal(&exact, &padded);
+    }
+}
+
+fn assert_solutions_equal(left: &DynamicSolution, right: &DynamicSolution) {
+    assert_eq!(left.rules.len(), right.rules.len());
+    for (a, b) in left.rules.iter().zip(&right.rules) {
+        assert_eq!(a.target, b.target);
+        assert_eq!(a.sector, b.sector);
+        assert_eq!(a.rhs, b.rhs);
+        assert_eq!(a.nonzero_conditions, b.nonzero_conditions);
+        assert_eq!(a.exceptions, b.exceptions);
+        for term in &b.rhs {
+            assert!(
+                !term
+                    .coefficient
+                    .numerator
+                    .variables()
+                    .iter()
+                    .any(|v| matches!(v, symbolica::poly::PolyVariable::Temporary(_)))
+            );
+        }
+    }
+    assert_eq!(left.index_variables, right.index_variables);
+    assert_eq!(left.residuals, right.residuals);
+    assert_eq!(left.requested, right.requested);
+    assert_eq!(left.depth, right.depth);
+    assert_eq!(left.stable_depth, right.stable_depth);
+    assert_eq!(left.stats.seeds, right.stats.seeds);
+    assert_eq!(left.stats.rows, right.stats.rows);
+    assert_eq!(left.stats.exact_trace_rows, right.stats.exact_trace_rows);
+}
+
+#[test]
+fn padded_one_in_four_matches_exact() {
+    check_capacity::<1, 4>();
+}
+#[test]
+fn padded_six_in_eight_matches_exact() {
+    check_capacity::<6, 8>();
+}
+#[test]
+fn padded_thirteen_in_sixteen_matches_exact() {
+    check_capacity::<13, 16>();
+}
+
+#[test]
+fn padding_preserves_cut_preferred_and_certificate() {
+    use rustred::solver::bridge::{certify_laporta_with_capacity, solve_laporta_with_capacity};
+    let (family, _) = family::<6>();
+    let cuts = CutConstraint::try_new((0..6).map(|i| i == 0)).unwrap();
+    let targets = [powers::<6>(1), powers::<6>(0)];
+    let preferred = [powers::<6>(2)];
+    let options = DynamicSolveOptions {
+        max_depth: 2,
+        until_stable: true,
+        ..Default::default()
+    };
+    let exact = solve_laporta_for::<6>(&family, &cuts, &targets, &preferred, options).unwrap();
+    let padded =
+        solve_laporta_with_capacity::<8>(&family, &cuts, &targets, &preferred, options).unwrap();
+    assert_solutions_equal(&exact, &padded);
+    let a = exact.basis_change.as_ref().unwrap();
+    let b = padded.basis_change.as_ref().unwrap();
+    assert_eq!(a.preferred, b.preferred);
+    assert_eq!(a.replaced, b.replaced);
+    assert_eq!(a.conditions, b.conditions);
+    assert_eq!(
+        certify_laporta_for::<6>(&family, &cuts, &padded, false).unwrap(),
+        certify_laporta_with_capacity::<8>(&family, &cuts, &padded, false).unwrap()
+    );
+    let mut malformed = padded.clone();
+    malformed.requested[0].push(0);
+    assert!(certify_laporta_with_capacity::<8>(&family, &cuts, &malformed, false).is_err());
+    let mut incorrect = padded.clone();
+    let term = incorrect
+        .rules
+        .iter_mut()
+        .flat_map(|rule| &mut rule.rhs)
+        .next()
+        .unwrap();
+    term.coefficient = &term.coefficient + &term.coefficient;
+    assert!(certify_laporta_with_capacity::<8>(&family, &cuts, &incorrect, false).is_err());
+}

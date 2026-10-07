@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use crate::algebra::Coefficient;
+use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::poly::PolyVariable;
 
 use crate::algebra::CoefficientPolynomial;
@@ -19,6 +21,7 @@ pub struct SourceSystem<const N: usize> {
     pub(super) indices: [usize; N],
     pub(super) variable_count: usize,
     variables: Arc<Vec<PolyVariable>>,
+    active_arity: usize,
     fixed: [Option<i16>; N],
     coefficient_priority: Vec<usize>,
     /// Conditions inherited from the family preparation, before denominator
@@ -71,6 +74,7 @@ impl<const N: usize> SourceSystem<N> {
             indices,
             variable_count,
             variables,
+            active_arity: N,
             fixed,
             coefficient_priority,
             conditions: Vec::new(),
@@ -97,15 +101,31 @@ impl<const N: usize> SourceSystem<N> {
         family: &IntegralFamily,
         include_lorentz: bool,
     ) -> Result<Self, SolverError> {
+        if family.denominator_count() != N {
+            return Err(SolverError::InvalidInput(format!(
+                "expected {N} denominator coordinates, got {}",
+                family.denominator_count()
+            )));
+        }
+        Self::from_family_with_capacity(family, include_lorentz)
+    }
+
+    /// Prepare a physical family in larger inline storage. Extra coordinates
+    /// are numeric zero, fixed before search, and never physical denominators.
+    pub fn from_family_with_capacity(
+        family: &IntegralFamily,
+        include_lorentz: bool,
+    ) -> Result<Self, SolverError> {
         let generator = ParametricIbpGenerator::try_new(family)
             .map_err(|error| SolverError::InvalidInput(error.to_string()))?;
         let context = generator.context();
-        if context.index_count() != N {
+        if context.index_count() == 0 || context.index_count() > N {
             return Err(SolverError::InvalidInput(format!(
-                "expected {N} denominator coordinates, got {}",
+                "capacity {N} cannot hold {} denominator coordinates",
                 context.index_count()
             )));
         }
+        let active_arity = context.index_count();
         let offset = context.base().parameter_names().len();
         let indices = std::array::from_fn(|i| offset + i);
         let batch = generator
@@ -144,7 +164,41 @@ impl<const N: usize> SourceSystem<N> {
         for relation in &relations {
             rows.push(lower_relation(relation, &mut conditions)?);
         }
-        let mut system = Self::new(rows, indices)?;
+        let mut fixed = [None; N];
+        if active_arity < N {
+            let variables = rows
+                .iter()
+                .flatten()
+                .next()
+                .ok_or_else(|| SolverError::InvalidInput("the source system is empty".into()))?
+                .coefficient
+                .variables();
+            let mut padding = Vec::new();
+            let mut temporary = 0;
+            while padding.len() < N - active_arity {
+                let variable = PolyVariable::Temporary(temporary);
+                temporary += 1;
+                if !variables.contains(&variable) {
+                    padding.push(variable);
+                }
+            }
+            for term in rows.iter_mut().flatten() {
+                let mut powers = *term.integral.powers();
+                for power in &mut powers[active_arity..] {
+                    *power = Power::new(false, 0)?;
+                }
+                term.integral = super::Integral::new(powers);
+                term.coefficient.add_variables(&padding);
+            }
+            for value in &mut fixed[active_arity..] {
+                *value = Some(0);
+            }
+            for condition in &mut conditions {
+                condition.add_variables(&padding);
+            }
+        }
+        let mut system = Self::new_with_fixed(rows, indices, fixed)?;
+        system.active_arity = active_arity;
         system.conditions = conditions;
         // The reference's coefficient priority is indices, dimension, scalars.
         // Do not mistake caller parameter registration order for that priority.
@@ -164,6 +218,31 @@ impl<const N: usize> SourceSystem<N> {
             }
         }
         Ok(system)
+    }
+
+    /// Number of physical coordinates, independently of inline capacity N.
+    pub fn active_arity(&self) -> usize {
+        self.active_arity
+    }
+
+    /// Remove unused padding variables while rejecting any dependence on them.
+    pub fn physical_coefficient(
+        &self,
+        coefficient: &Coefficient,
+    ) -> Result<Coefficient, SolverError> {
+        let variables = &self.variables[..self.variables.len() - (N - self.active_arity)];
+        Ok(Coefficient::from_num_den(
+            coefficient
+                .numerator
+                .rearrange_with_growth(variables)
+                .map_err(SolverError::InvalidInput)?,
+            coefficient
+                .denominator
+                .rearrange_with_growth(variables)
+                .map_err(SolverError::InvalidInput)?,
+            &symbolica::domains::integer::Z,
+            true,
+        ))
     }
 
     pub fn rows(&self) -> &[PolynomialRow<N>] {

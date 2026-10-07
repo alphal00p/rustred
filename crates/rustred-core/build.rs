@@ -27,13 +27,18 @@ fn parse_arities(value: Option<&str>) -> Result<Vec<usize>, String> {
     Ok(arities.into_iter().collect())
 }
 
-fn render(arities: &[usize]) -> String {
+fn render_dispatch(arities: &[usize], capacities: &[usize]) -> String {
     let arms = arities
         .iter()
         .map(|n| format!("            {n} => $function::<{n}> $arguments,\n"))
         .collect::<String>();
+    let capacity_arms = capacities.iter().map(|n| format!(
+        "            arity if arity > 0 && arity <= {n} && [{allowed}].contains(&arity) => $function::<{n}> $arguments,\n",
+        allowed = arities.iter().map(usize::to_string).collect::<Vec<_>>().join(",")
+    )).collect::<String>();
     let template = r#"
 pub(super) const COMPILED_RUNTIME_ARITIES: &[usize] = &__ARITIES__;
+pub(super) const COMPILED_RUNTIME_CAPACITIES: &[usize] = &__CAPACITIES__;
 
 /// Dispatch a runtime arity to a caller's const-generic function.
 ///
@@ -64,10 +69,22 @@ __ARMS__            $unsupported => $fallback,
         }
     }};
 }
+/// Dispatch to the smallest compiled solver storage capacity. Callback code
+/// must distinguish the physical arity from its const-generic capacity.
+#[macro_export]
+macro_rules! dispatch_solver_capacity {
+    ($arity:expr, $function:ident $arguments:tt, $unsupported:ident => $fallback:expr $(,)?) => {{
+        match $arity {
+__CAPACITY_ARMS__            $unsupported => $fallback,
+        }
+    }};
+}
 "#;
     template
         .replace("__ARITIES__", &format!("{arities:?}"))
         .replace("__ARMS__", &arms)
+        .replace("__CAPACITIES__", &format!("{capacities:?}"))
+        .replace("__CAPACITY_ARMS__", &capacity_arms)
 }
 
 fn main() {
@@ -77,10 +94,31 @@ fn main() {
         Err(env::VarError::NotPresent) => None,
         Err(error) => panic!("invalid {VARIABLE}: {error}"),
     };
+    if value.is_some() && env::var_os("CARGO_FEATURE_RUNTIME_ARITY_SELECTION").is_none() {
+        panic!("RUSTRED_RUNTIME_ARITIES requires the runtime-arity-selection feature");
+    }
     let arities = parse_arities(value.as_deref()).unwrap_or_else(|error| panic!("{error}"));
+    let capacities = if env::var_os("CARGO_FEATURE_CAPACITY_DISPATCH").is_some() {
+        arities
+            .iter()
+            .map(|&arity| match arity {
+                1..=4 => 4,
+                5..=8 => 8,
+                9..=16 => 16,
+                other => other,
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+    } else {
+        arities.clone()
+    };
     let destination = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR"));
-    fs::write(destination.join("runtime_arities.rs"), render(&arities))
-        .expect("write runtime arity registry");
+    fs::write(
+        destination.join("runtime_arities.rs"),
+        render_dispatch(&arities, &capacities),
+    )
+    .expect("write runtime arity registry");
 }
 
 #[cfg(test)]
@@ -96,7 +134,7 @@ mod tests {
     fn custom_registry_can_omit_defaults_and_extend_them() {
         assert_eq!(parse_arities(Some(" 20,14,1 ")).unwrap(), [1, 14, 20]);
         assert_eq!(parse_arities(Some("15")).unwrap(), [15]);
-        let source = render(&[13, 17]);
+        let source = render_dispatch(&[13, 17], &[13, 17]);
         assert!(source.contains("&[13, 17]"));
         assert!(source.contains("$function::<17>"));
         assert!(!source.contains("$function::<16>"));

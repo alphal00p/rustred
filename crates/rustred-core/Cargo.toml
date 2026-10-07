@@ -20,6 +20,10 @@ native = ["symbolica/integer-gmp", "symbolica/float-mpfr"]
 # does not implement another numerical or computer-algebra backend.
 wasm = ["symbolica/wasm"]
 reconstruction = []
+# Optional shared inline storage for smaller physical families.
+capacity-dispatch = []
+# Explicit permission to restrict/extend the runtime arity registry at build time.
+runtime-arity-selection = []
 
 [dependencies]
 bincode.workspace = true

@@ -10,7 +10,7 @@
 pub mod algebra;
 #[macro_use]
 pub mod arity;
-pub use arity::compiled_runtime_arities;
+pub use arity::{compiled_runtime_arities, compiled_runtime_capacities};
 pub mod campaign;
 mod diagnostic;
 pub mod family;

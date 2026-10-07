@@ -13,6 +13,7 @@
 //! compiled registry or their own explicit arity list.
 
 mod basis;
+mod capacity;
 mod census;
 mod certificate;
 mod combination;
@@ -35,6 +36,10 @@ use super::{
 };
 
 pub use basis::{BasisChange, PreferredMaster, PreferredStatus};
+pub use capacity::{
+    certify_laporta_with_capacity, solve_laporta_with_capacity, solve_parametric_with_capacity,
+};
+
 pub use certificate::{ReductionCertificate, certify_laporta, certify_laporta_for};
 
 /// Number of consecutive deeper searches that must reproduce a residual set
@@ -161,9 +166,9 @@ pub fn solve_parametric(
     fixed: &[Option<i16>],
     options: DynamicSolveOptions,
 ) -> Result<DynamicSolution, SolverError> {
-    dispatch_arity!(
+    dispatch_solver_capacity!(
         family.denominator_count(),
-        solve_parametric_for(family, cuts, sector, fixed, options),
+        solve_parametric_with_capacity(family, cuts, sector, fixed, options),
         arity => Err(unsupported_runtime_arity(arity))
     )
 }
@@ -189,9 +194,9 @@ pub fn solve_laporta(
     preferred: &[Vec<i16>],
     options: DynamicSolveOptions,
 ) -> Result<DynamicSolution, SolverError> {
-    dispatch_arity!(
+    dispatch_solver_capacity!(
         family.denominator_count(),
-        solve_laporta_for(family, cuts, targets, preferred, options),
+        solve_laporta_with_capacity(family, cuts, targets, preferred, options),
         arity => Err(unsupported_runtime_arity(arity))
     )
 }
@@ -338,7 +343,7 @@ fn parametric<const N: usize>(
 ) -> Result<DynamicSolution, SolverError> {
     let sector = array::<_, N>(sector, "sector")?;
     let case = CoordinateCase::new(array(fixed, "fixed indices")?)?;
-    let sources = SourceSystem::<N>::from_family_with_lorentz(family, options.include_lorentz)?;
+    let sources = SourceSystem::<N>::from_family_with_capacity(family, options.include_lorentz)?;
     let restrictions = cut_restrictions(family, cuts)?;
     if !case.is_in_sector(&sector) {
         return Err(SolverError::InvalidInput(
@@ -426,7 +431,7 @@ fn laporta<const N: usize>(
     }
     let preferred = basis::validate::<N>(preferred, &restrictions)?;
     requested.extend(preferred.iter().copied());
-    let sources = SourceSystem::<N>::from_family_with_lorentz(family, options.include_lorentz)?;
+    let sources = SourceSystem::<N>::from_family_with_capacity(family, options.include_lorentz)?;
     let initial_sectors: Vec<_> = requested
         .iter()
         .map(|powers| powers.map(|power| power > 0))
@@ -614,6 +619,11 @@ fn cut_restrictions(
     family: &IntegralFamily,
     cuts: &CutConstraint,
 ) -> Result<Restrictions, SolverError> {
+    if cuts.arity() != family.denominator_count() {
+        return Err(SolverError::InvalidInput(
+            "cut constraint arity differs from the physical family".into(),
+        ));
+    }
     if cuts.required_active().active_count() > 0
         && family.power_shifts().iter().any(|shift| !shift.is_zero())
     {
@@ -633,7 +643,11 @@ fn is_excluded<const N: usize>(
     restrictions: &Restrictions,
     sector: [bool; N],
 ) -> Result<bool, SolverError> {
-    let mask = Mask::try_new(sector).map_err(invalid_input)?;
+    let arity = restrictions.cuts().arity();
+    if N < arity || sector[arity..].iter().any(|active| *active) {
+        return Err(SolverError::InvalidInput("invalid capacity sector".into()));
+    }
+    let mask = Mask::try_new(sector[..arity].iter().copied()).map_err(invalid_input)?;
     Ok(restrictions
         .exclusion(&mask)
         .map_err(invalid_input)?
@@ -649,18 +663,19 @@ fn zero_census<const N: usize>(
     restrictions: &Restrictions,
     sectors: &[[bool; N]],
 ) -> Result<(Vec<[bool; N]>, Vec<CoefficientPolynomial>), SolverError> {
-    let sector_count = census::sector_count::<N>()?;
+    let arity = family.denominator_count();
+    let sector_count = census::sector_count_for(arity)?;
     let analyzer = Analyzer::try_new(family, restrictions.clone()).map_err(invalid_input)?;
     let mut zero = Vec::new();
     for bits in 0..sector_count {
-        let sector = std::array::from_fn(|axis| bits & (1 << axis) != 0);
+        let sector = std::array::from_fn(|axis| axis < arity && bits & (1 << axis) != 0);
         if !sectors
             .iter()
             .any(|parent| sector.iter().zip(parent).all(|(a, b)| !a || *b))
         {
             continue;
         }
-        let mask = Mask::try_new(sector).map_err(invalid_input)?;
+        let mask = Mask::try_new(sector[..arity].iter().copied()).map_err(invalid_input)?;
         if matches!(
             analyzer.analyze(&mask).map_err(invalid_input)?,
             Decision::ProvedZero(_) | Decision::Excluded(_)
