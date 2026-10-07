@@ -1,5 +1,98 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October7 — delivered: durable finite master-reduction phase
+
+User follow-up authorizes implementation, superseding the prior feasibility-only
+boundary. Root owns integration, native checkpoint/package I/O, CLI and final
+verification; `wasm_python` owns the exact core session; `wasm_core` owns phase
+steering, dashboard and the coloured inspection table; `three_loop_native_recipe`
+independently audits mathematical claims, persistence and cancellation.
+
+[M] API audit: Symbolica provides incremental exact sparse row reduction,
+column insertion and restoration from saved U/pivots. Existing routed owner
+application is trace-only: do not claim coefficient back-substitution exists.
+The initial finite postprocessor therefore generates ordinary IBPs around the
+normalized keys, retains all auxiliary columns, and publishes only exact
+terminal-only relations. Saved owner payloads and routes remain part of the
+portable output for later integration. Finite search exhaustion is not a
+minimality/independence certificate; CP6 coverage PASS is not a global
+inter-owner termination or regenerated-source certificate.
+
+Plan: native atom-based session snapshots at row boundaries; atomic manifest
+publication; opt-in second phase and same-phase resume; previous-stage U/source
+reuse with reindexing on scope extension; independent mutation/resume/cold-load
+tests; four-loop and completed R0/D9 read-only-input controls. Production runs
+and their checkpoints remain untouched. Completed measurements follow below.
+
+[M] Separate audits identified and addressed: package bytes must match the
+owner hashes actually cold-loaded (now exported in verifier metadata);
+amendment chain files must preserve original bytes; completed publication must
+repair an interrupted final-marker write idempotently; scope widening must not
+race the second phase; sparse fill-in admission must leave a state readable
+under the same limits. Scalar pilot requests can use an independently frozen
+postprocessing executable without replacing their original walk executable.
+
+[M] Python validation passes89 campaign,13 production-upgrade and12 rank
+extension tests. The14 phase tests include actual scratch subprocess signal,
+checkpoint and resume protocol tests (not native algebra). Synthetic visual
+review passes80x24 and150x32; images are in
+`TMP/master-dashboard-20261007/`. Read-only inspection of the real R0/D9
+completed receipt confirms the phase dispatcher skips the first phase.
+Native tests: four initial finite-session tests pass (exact tadpole relation,
+pause/cold restore, extended-scope reuse, empty inventory/resource refusal),
+and nine app/CLI master-related checks pass. The latest optimized core also
+passes the small public-API integration executable: a four-loop five-line
+circuit gives exactly `I_dot=(2*d-5)/5 I_base`, including generated auxiliary
+column equivalence and native resume; conservative fill refusal preserves a
+loadable checkpoint under the same limits. This is a mathematical regression,
+not a complete four-loop campaign result. Evidence:
+`TMP/master-reduction-20261007/{tests,core-tests,integration-tests}.log`.
+The small integration harness was linked directly against the just-built
+optimized core rlib to avoid recompiling the entire core unit-test crate.
+The same two integration tests also pass through ordinary Cargo in0.06s:
+`cargo test --release --locked --no-default-features --features native,reconstruction
+-p rustred --test terminal_postprocessing_native -j4` (4m16s compilation;
+`TMP/master-reduction-20261007/cargo-integration.log`).
+
+[M] Optimized CLI build completed in14m04s, excluded from the timings below.
+`target/release/rustred` SHA256:
+`5430227283a26cb44679d2b6152e87b1350c1ba64d3ee03abc0b2ff9ce7cab8a`.
+Both native controls use the same executable, default finite seed depth0,
+four pinned CPUs32–35 for cold reinspection and a serial incremental exact
+reducer. These are shared-host correctness measurements, not scaling claims.
+
+| Saved input | Raw keys | Normalized keys | Remaining candidates | Result |
+|---|---:|---:|---:|---|
+| Combined four-loop58-query control | 28 | 20 | 19 | completed in6.563s |
+| Five-loop R=0,D≤9 | 196 | 196 | 196 | real SIGINT checkpoint, then completed resume |
+
+The four-loop pass processes320 ordinary IBP source rows; the package contains
+523 installed rule records and429 observed cover rules. The native state is
+33,557bytes. The five-loop pass saves695 completed source rows on real SIGINT
+after78.872s (including cold inventory and packaging), then resumes to4,900
+source rows in26.664s without repeating inventory. Its final native state is
+658,630bytes, with9,982 installed and1,180 observed rule records in the package.
+Depth0 finds no additional five-loop terminal relation:196 is not a minimality
+claim. No deeper terminal-minimization campaign was launched.
+
+Commands/evidence are captured by the scratch driver
+`TMP/master-reduction-20261007/native_smoke.py`; its `four-loop` and
+`r0d9 --pause`, `r0d9 --resume` invocations write only below that TMP directory.
+All source checkpoint-file SHA256 values agree before/after each run.
+Receipts, exact commands, events, native states and metadata are in its
+`four-loop/` and `r0d9/` subdirectories. Fresh-process completed-state resume
+and bounded `master-inspect` were also checked. An initial direct CLI cold-read
+invocation was rejected before work because it omitted the required inner-pool
+environment caps; the correctly capped retry passed.
+
+[M] Independent audit closed without blocking findings after persistence,
+scope-widening and input-path protections were fixed. Final artifacts contain
+portable exact symbolic ingredients and terminal substitutions, not numerical
+master values or a new global routed coefficient-back-substitution engine.
+The latter and stronger terminal minimization remain subsequent work. The
+user can now opt into this phase with the current launcher; no production
+campaign has been started, resumed or rewritten by this delivery.
+
 ## October7 — read-only campaign rule and terminal inventory
 
 The user requests counts from the completed R=0,D≤9 campaign: installed

@@ -363,6 +363,7 @@ derived_lines = DASHBOARD.derived_lines
 clean = DASHBOARD.clean
 duration = DASHBOARD.duration
 def read_status(directory: Path) -> dict:
+    directory = active_status_directory(directory)
     with (directory / "status.json").open("rb") as stream:
         raw = stream.read(MAX_RECORD_BYTES + 1)
     if len(raw) > MAX_RECORD_BYTES:
@@ -404,9 +405,28 @@ def read_status(directory: Path) -> dict:
     return result
 
 
+def active_status_directory(directory: Path) -> Path:
+    """Observe a run directly, or follow a campaign's explicit phase pointer."""
+    if (directory / "status.json").is_file():
+        return directory
+    for pointer in (directory / "master-reduction/active-phase.json", directory / "active-run.json"):
+        if not pointer.is_file():
+            continue
+        with pointer.open("rb") as stream:
+            raw = stream.read(MAX_RECORD_BYTES + 1)
+        if len(raw) > MAX_RECORD_BYTES:
+            raise ValueError("active-phase pointer exceeds 1 MiB")
+        value = json.loads(raw)
+        path = value.get("run_directory") if isinstance(value, dict) else None
+        if not isinstance(path, str) or not path:
+            raise ValueError("active-phase pointer has no run directory")
+        return Path(path)
+    return directory
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("run_directory", type=Path)
+    parser.add_argument("run_directory", type=Path, help="run directory, or campaign directory to follow its current phase")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--json", action="store_true", help="one machine-readable current status")
     parser.add_argument("--interval", type=float, default=2.0)
@@ -421,7 +441,7 @@ def main(argv=None) -> int:
                 print(json.dumps(status, sort_keys=True))
             else:
                 presenter.render(status, force=True)
-            if args.once or args.json or status.get("state") in ("completed", "paused", "failed", "stopped"):
+            if args.once or args.json or status.get("state") in ("completed", "completed_nonminimal", "paused", "failed", "stopped"):
                 return 0
             time.sleep(args.interval)
     except KeyboardInterrupt:

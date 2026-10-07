@@ -206,7 +206,10 @@ def plan(campaign, rank, *, max_power_difference=PRESERVE_DIFFERENCE):
     path = campaign / "amendments" / f"amendment-{sequence:04d}.json"
     raw = pending[1] if pending is not None else encoded(document)
     launcher = campaign / "steering/production_saved_owner_campaign.py"
-    if not launcher.is_file():
+    if not launcher.is_file() or (campaign / "master-reduction/policy.json").is_file():
+        # A pre-phase-two frozen Python snapshot cannot honor the opt-in.
+        # Keep its native binary/policy, but steer the enlarged scope through
+        # this helper's phase-aware sibling launcher. Never rewrite snapshots.
         launcher = Path(PRODUCTION.__file__).resolve()
     if not (campaign / "bin/steering.json").is_file():
         raise ValueError("freeze the campaign executable and steering before extending it")
@@ -262,7 +265,7 @@ def extend(campaign, rank, *, max_power_difference=PRESERVE_DIFFERENCE, dry_run=
         raise ValueError("a saved native checkpoint with checkpoint.lock is required")
     if PRODUCTION.campaign_run_liveness(campaign):
         raise ValueError("campaign is still running; request an orderly save and wait for its exit")
-    with PRODUCTION.checkpoint_lock(checkpoint):
+    with PRODUCTION.checkpoint_lock(checkpoint), PRODUCTION.existing_phase_lock(campaign):
         if PRODUCTION.campaign_run_liveness(campaign):
             raise ValueError("campaign started while acquiring checkpoint lock; wait for an orderly exit")
         path, raw, receipt = plan(campaign, rank, max_power_difference=max_power_difference)

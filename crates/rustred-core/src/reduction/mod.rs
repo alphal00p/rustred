@@ -10,6 +10,7 @@ mod error;
 mod model;
 mod reducer;
 pub mod terminal_normalization;
+pub mod terminal_relations;
 
 pub use error::ReductionError;
 pub use model::{

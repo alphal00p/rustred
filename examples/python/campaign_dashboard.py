@@ -332,6 +332,8 @@ def render_table(frame, width=100, height=24, color=True):
     worker. Narrow/short terminals retain alarms and the key rates; the JSON
     stream always contains the unabridged measurements.
     """
+    if frame.get("master_reduction"):
+        return render_master_table(frame, width, height, color)
     width = max(20, min(160, width))
     height = max(8, height)
     counts, resource, rates = frame["counts"], frame["resources"], frame["rates"]
@@ -462,8 +464,86 @@ def render_table(frame, width=100, height=24, color=True):
     return fixed + [line for index, (_, line) in enumerate(rows) if index in keep] + footer
 
 
+def render_master_table(frame, width=100, height=24, color=True):
+    """Phase-two view of the same event stream; no inferred algebra progress."""
+    width, height = max(20, min(160, width)), max(8, height)
+    inner = width - 4
+    master, resource, checkpoint = frame["master_reduction"], frame["resources"], frame["checkpoint"]
+    label_width, value_width = (19, 18) if width >= 74 else (10, 8)
+    detail_width = inner - label_width - value_width - 6
+    border = lambda left, right: _paint(left + "─" * (width - 2) + right, "2;36", color)
+    full = lambda text, tint=None: "│ " + _paint(fit(text, inner), tint, color) + " │"
+
+    def row(label, value, detail="", tint=None):
+        if detail_width < 12:
+            return full(f"{label}: {value}" + (f" · {detail}" if detail else ""), tint)
+        return ("│ " + fit(label, label_width) + " │ " + _paint(fit(value, value_width), tint, color)
+                + " │ " + fit(detail, detail_width) + " │")
+
+    def gb(value):
+        return "unknown" if number(value) is None else f"{value / 1e9:,.2f}"
+
+    cpu, workers = resource.get("native_busy_cores"), resource.get("workers")
+    cpu_ratio = cpu / workers if number(cpu) is not None and number(workers) is not None and workers > 0 else None
+    total, completed = master.get("total_work"), master.get("completed_work")
+    work = f"{count(completed)} / {count(total)}" if total is not None else count(completed)
+    progress = bar(completed, total, frame["elapsed_seconds"]) if total is not None else "total not yet known"
+    rows = [
+        (0, row("Stage", master["stage"] or "preparing", "bounded exact relation search", "36")),
+        (1, row("Retained keys", count(master["raw_terminals"]), "phase-one keys, including prior stages")),
+        (1, row("Normalized", count(master["normalized_terminals"]), "exact symmetry aliases; not minimal")),
+        (0, row("Remaining basis", count(master["remaining_terminals"]), "finite, potentially nonminimal", "32")),
+        (1, row("Eliminated", count(master["eliminated_terminals"]), "exact relations between terminal keys", "32")),
+        (0, row("Relation work", work, progress, "35")),
+        (1, row("Rows generated", count(master["relation_rows"]), "seed depth " + count(master["seed_depth"]))),
+        (1, row("Sparse system", count(master.get("independent_rows")) + " rows", count(master.get("nonzeros")) + " nonzeros")),
+        (0, row("Active CPU cores", f"{'unknown' if cpu is None else f'{cpu:.1f}'} / {count(workers)}",
+                "observed / reserved", indicator_color(cpu_ratio, "cpu"))),
+        (0, row("Memory (GB)", gb(resource.get("aggregate_rss_bytes")) + " / " + gb(resource.get("hard_memory_bytes")),
+                "save+stop at " + gb(resource.get("soft_memory_bytes")), "33")),
+        (0, row("Checkpoint", checkpoint["state"], "generation " + count(checkpoint["generation"]), "33")),
+        (1, row("Checkpoint size", master_checkpoint_size(checkpoint["bytes"]), duration(checkpoint["duration_seconds"]) + " write")),
+        (2, full("Checkpoint " + (checkpoint["directory"] or "not yet saved"))),
+        (2, full("Scope " + master["scope_binding"], "2")),
+        (2, full("Receipts " + frame["run_directory"], "2")),
+    ]
+    if master["artifact"]:
+        rows.insert(0, (0, full("Artifact " + master["artifact"], "32")))
+    if frame["stop_reason"]:
+        rows.insert(0, (-1, full(frame["stop_reason"], "1;33")))
+    if frame["heartbeat_stale"]:
+        rows.insert(0, (-2, full("STALE HEARTBEAT — current activity unverified", "1;31")))
+    fixed = [border("╭", "╮"),
+             full(f"RustRed / MASTER REDUCTION / {clean(frame['state']).upper()} / {duration(frame['elapsed_seconds'])}", "1;36"),
+             border("├", "┤")]
+    if detail_width >= 12 and height >= 20:
+        fixed += [row("METRIC", "VALUE", "DETAIL", "1"), border("├", "┤")]
+    footer = [border("├", "┤"), full("Exact bounded search · nonminimal basis allowed · no numerical values", "2"), border("╰", "╯")]
+    if height < 14:
+        footer = [border("╰", "╯")]
+    budget = max(0, height - len(fixed) - len(footer))
+    keep = set(sorted(range(len(rows)), key=lambda index: (rows[index][0], index))[:budget])
+    return fixed + [line for index, (_, line) in enumerate(rows) if index in keep] + footer
+
+
+def master_checkpoint_size(value):
+    if number(value) is None:
+        return "unknown"
+    for scale, label in ((1e9, "GB"), (1e6, "MB"), (1e3, "KB")):
+        if value >= scale:
+            return f"{value / scale:,.2f} {label}"
+    return f"{value:,.0f} B"
+
+
 def plain_summary(frame):
     """Readable append-only summary from the same public frame as every consumer."""
+    if frame.get("master_reduction"):
+        master = frame["master_reduction"]
+        return [f"RustRed · Master reduction · {frame['state']} · {duration(frame['elapsed_seconds'])}",
+                f"Stage {master['stage']} · {count(master['remaining_terminals'])} remaining terminals (nonminimal)",
+                f"Relations {count(master['relation_rows'])} · {count(master['eliminated_terminals'])} eliminated",
+                f"Checkpoint {frame['checkpoint']['state']} · {frame['checkpoint']['directory']}",
+                "Exact bounded search; no numerical master values or minimality claim"]
     rates, snapshot = frame["rates"], frame["closure_snapshot"]
     completed = rates["local_completion"]["per_second"]
     rate = "unknown" if completed is None else f"{completed * 3600:,.0f}"

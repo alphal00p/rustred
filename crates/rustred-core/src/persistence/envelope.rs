@@ -25,6 +25,9 @@ pub enum BinaryProgramKind {
     BoundedCertified = 5,
     /// Rules for explicitly nominated partial domains, never sector closure.
     DomainRules = 6,
+    /// Resumable finite terminal relations over exact symbolic parameters.
+    /// Never a minimal-master or unrestricted-family closure certificate.
+    TerminalRelations = 7,
 }
 
 /// Structural sections shared by independently admitted program payloads.
@@ -136,6 +139,7 @@ pub fn inspect_program(
         4 => BinaryProgramKind::TerminalNormalization,
         5 => BinaryProgramKind::BoundedCertified,
         6 => BinaryProgramKind::DomainRules,
+        7 => BinaryProgramKind::TerminalRelations,
         _ => return Err(BinaryIoError::Invalid("unsupported binary program kind")),
     };
     if cursor.take(1)?[0] != WIRE_LENGTH_BYTES {

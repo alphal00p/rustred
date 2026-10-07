@@ -17,6 +17,8 @@ pub(crate) mod generation_progress;
 mod input;
 mod lowering;
 pub(crate) mod memory;
+mod master_reduction;
+pub use master_reduction::{MasterReductionOptions, master_reduce_saved_campaign, master_reduction_inspect, load_master_reduction};
 mod model;
 mod options;
 mod producer;

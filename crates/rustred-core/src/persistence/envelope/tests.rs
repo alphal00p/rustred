@@ -20,6 +20,7 @@ fn envelope_borrows_sections_without_algebra_or_arity_assumptions() {
         BinaryProgramKind::TerminalNormalization,
         BinaryProgramKind::BoundedCertified,
         BinaryProgramKind::DomainRules,
+        BinaryProgramKind::TerminalRelations,
     ] {
         let bytes = encode_program(kind, &sections, limits).unwrap();
         let view = inspect_program(&bytes, limits).unwrap();

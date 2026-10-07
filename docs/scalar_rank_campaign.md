@@ -275,9 +275,85 @@ RustRed already exposes `solver::bridge::solve_laporta` for finite targets.
 Earlier [finite-terminal experiments](research/finite_terminal_relations.md)
 found nine additional four-loop identities after applying structural aliases
 to the generated auxiliary columns too. Those results demonstrate the mechanism,
-not a measured reduction of this five-loop terminal set. This inventory command
-does not yet run that artifact-aware post-processing. A bounded search finding
-no additional relation would not establish a minimal master basis.
+not a measured reduction of this five-loop terminal set. `walk-inventory`
+remains read-only. The optional second phase below runs a finite ordinary-IBP
+search. A bounded search finding no additional relation does not establish a
+minimal master basis.
+
+## Second phase: master reduction and final inspection
+
+Use the current Python launcher with `--master-reduction` to add a durable
+second phase after the saved-domain campaign has completed. It first performs
+a full read-only inventory of the completed scope, normalizes its finite
+terminal keys, generates ordinary IBPs around those keys, and uses Symbolica's
+exact sparse elimination to find terminal-only relations. Generated auxiliary
+integrals remain matrix columns; they are never discarded for exceeding the
+starting R/D bounds. Exact structural aliases on generated columns can expose
+additional relations. This initial lane does **not** back-substitute through
+the routed owner trace engine, which is not a coefficient reducer.
+
+The default finite seed depth is zero: ordinary IBPs at each normalized
+terminal. `--master-seed-depth N` requests a signed-L1 neighbourhood around
+those seeds. At five loops each seed supplies 25 ordinary IBPs; increasing
+the depth can increase work sharply. Finishing the selected search is labelled
+`completed_nonminimal`, not proof of independent masters or an unrestricted
+five-loop family solve.
+
+An existing campaign's solve binary can stay frozen. Select a new postprocessing
+binary independently with `--master-reduction-executable`, which is copied and
+frozen under the campaign's separate `master-reduction/` directory. For example,
+after building the current release:
+
+```bash
+nix develop /common/dev/rustred --command python -B \
+  examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/five-loop-r0-d9-20261007 \
+  --resume --master-reduction \
+  --master-reduction-executable target/release/rustred --start
+```
+
+The opt-in policy persists. A completed, unchanged scope skips phase one;
+an R/D extension returns to phase one before resuming postprocessing for the
+larger scope. Use the **current** `extend_rank_campaign.py` helper, rather than
+an old copied helper, to retain this phase-aware steering.
+
+The dashboard explicitly switches to **Master reduction**, with finite work,
+raw/normalized/remaining terminal counts, sparse rows/nonzeros, CPU/RAM and
+checkpoint status. Ctrl+C requests an orderly stop; the current atomic native
+row finishes before the cursor and matrix are saved. The active Symbolica row
+cannot be asynchronously interrupted safely. A resume continues the saved
+second-phase session rather than rerunning the completed campaign. Scheduled
+checkpoints use the campaign interval; a machine crash may redo work since the
+last durable checkpoint. Earlier R/D-stage packages remain available, and
+compatible later stages reuse saved independent rows instead of regenerating
+their completed source equations.
+
+The final phase directory is a portable **symbolic package**: native owner
+programs, routing and exact starting-scope metadata, plus a native Symbolica
+terminal-relation state. Relative runtime members remain valid after moving
+the entire directory. This supplies symbolic ingredients for later Vakint
+integration; numerical five-loop master values and a routed coefficient
+application adapter are not supplied by this step. CP6 coverage verification
+is not upgraded to a global inter-owner termination or source-certification
+claim.
+
+Inspect either a paused phase or the final package without loading its large
+owner programs:
+
+```bash
+target/release/rustred master-inspect --artifact /path/to/phase-directory
+target/release/rustred master-inspect --artifact /path/to/phase-directory --format table
+target/release/rustred master-inspect --artifact /path/to/phase-directory --format json
+```
+
+Interactive terminals get an aligned coloured table; `NO_COLOR` disables
+colour. Redirected automatic output is JSON. The table distinguishes installed
+rule records from observed-cover rules, the current scope's terminals from the
+retained search inventory, normalized candidates and the remaining nonminimal
+basis. It also displays starting R/D caps (within the recorded domains), search
+depth and checkpoint state. Native Rust callers can cold-load the relation
+session with `load_master_reduction` and apply exact terminal substitutions.
+No numerical evaluation or assertion of master minimality is implied.
 
 ## Reading the corrected monitor
 

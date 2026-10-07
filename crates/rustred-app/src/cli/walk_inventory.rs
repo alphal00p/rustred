@@ -165,7 +165,7 @@ fn campaign_command(campaign: &Path) -> Result<PathBuf, CliError> {
 }
 
 /// Even --force must never replace checkpoint state or frozen input programs.
-fn protect_output(output: &StreamPath, protected: &[PathBuf]) -> Result<(), CliError> {
+pub(super) fn protect_output(output: &StreamPath, protected: &[PathBuf]) -> Result<(), CliError> {
     let StreamPath::File(path) = output else {
         return Ok(());
     };
@@ -212,7 +212,7 @@ fn protect_output(output: &StreamPath, protected: &[PathBuf]) -> Result<(), CliE
 
 /// Preserve every explicit saved-command stream, including documents stored
 /// outside owner_base. Reuse the native parser rather than a second flag grammar.
-fn protected_command_paths(argv: &[OsString]) -> Result<Vec<PathBuf>, CliError> {
+pub(super) fn protected_command_paths(argv: &[OsString]) -> Result<Vec<PathBuf>, CliError> {
     let Command::OwnerDomainMatch(args) = super::args::parse_args(argv.iter().cloned())? else {
         return Err(CliError::Input("not an owner-domain-match command".into()));
     };

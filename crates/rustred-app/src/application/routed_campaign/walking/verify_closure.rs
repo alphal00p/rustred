@@ -2986,6 +2986,11 @@ fn verify<const N: usize>(
             "walk_semantics_version": loaded.raw.walk_semantics_version,
             "executable": loaded.raw.executable, "request_digest": loaded.raw.request,
             "request_binding_matches": bound, "owner_digests_match": owners_match,
+            // Actual immutable bytes imported by this cold preparation, not a
+            // later re-read of mutable paths. Consumers must still require PASS
+            // and owner_digests_match before binding a portable package to them.
+            "prepared_owner_payload_blake3": prepared_owners,
+            "prepared_owner_payload_order": "selection owners, then domain_rule_overlays, then preferred_owner_programs; selection order within each group",
             "file_digest_verify_seconds": loaded.raw.verify_seconds,
             "engine_closure": loaded.raw.closure},
         "result_binding": result_binding,

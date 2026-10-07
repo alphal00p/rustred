@@ -337,6 +337,12 @@ def campaign_runs(campaign):
                         if sibling.name.startswith(run.name + ".resume-"))
     if (campaign / "runs").is_dir():
         runs.update((campaign / "runs").iterdir())
+    phase = campaign / "master-reduction/active-phase.json"
+    if phase.is_file():
+        run = read_bounded_json(phase, MAX_RECEIPT_BYTES, "active-phase.json").get("run_directory")
+        if not isinstance(run, str) or not run:
+            raise ValueError("active-phase.json does not name a run directory")
+        runs.add(Path(run))
     return sorted(run for run in runs if run.is_dir())
 
 
@@ -452,6 +458,27 @@ def ram_guard_liveness(campaign):
             "runs": [row["run"] for row in streak],
             "stop_reasons": [row["stop"] for row in streak],
             "progress": None if not streak else dict(zip(PROGRESS_KEYS, streak[-1]["progress"]))}
+
+
+@contextmanager
+def existing_phase_lock(campaign):
+    """Prevent query amendments while the optional phase dispatcher is active."""
+    path = campaign / "master-reduction/dispatcher.lock"
+    try:
+        descriptor = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except FileNotFoundError:
+        descriptor = None
+    if descriptor is None:
+        yield
+        return
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("master reduction dispatcher is still running; pause it before extending the scope") from None
+        yield
+    finally:
+        os.close(descriptor)
 
 
 @contextmanager
@@ -1034,6 +1061,12 @@ def main(argv=None):
     parser.add_argument("--resume", action="store_true",
                         help="continue the latest native checkpoint with the frozen executable, or with "
                              "--upgrade-executable onto a semantics-compatible replacement")
+    parser.add_argument("--master-reduction", action="store_true",
+                        help="opt into native bounded terminal reduction after scoped closure; persists for later resumes")
+    parser.add_argument("--master-seed-depth", type=int,
+                        help="phase-two ordinary-IBP seed depth (default 0); may increase with exact previous-row reuse")
+    parser.add_argument("--master-reduction-executable", type=Path,
+                        help="freeze a separate phase-two binary; leaves the original campaign binary and CP6 untouched")
     parser.add_argument("--upgrade-executable", type=Path, metavar="NEW",
                         help="only with --resume: freeze NEW in place of the frozen binary when its "
                              "walk-semantics-version equals the checkpoint's, or return to a binary that "
@@ -1103,6 +1136,8 @@ def main(argv=None):
                         help="opt-in singleton refinement eligibility; positive cardinality, default off, unchanged by unbounded work; frozen for resume")
     parser.add_argument("--json", action="store_true", help="print the prepared command as JSON")
     args = parser.parse_args(argv)
+    if args.master_seed_depth is not None and args.master_seed_depth < 0:
+        parser.error("--master-seed-depth must be nonnegative")
     if args.upgrade_executable is not None:
         if args.prepare_from is not None:
             parser.error("--upgrade-executable cannot be combined with --prepare-from")
@@ -1149,6 +1184,14 @@ def main(argv=None):
     except ValueError as error:
         parser.error(str(error))
     campaign = args.campaign_directory.resolve()
+    phase_spec = importlib.util.spec_from_file_location("campaign_phases", Path(__file__).with_name("campaign_phases.py"))
+    phases = importlib.util.module_from_spec(phase_spec)
+    phase_spec.loader.exec_module(phases)
+    try:
+        phase_policy = phases.configuration(campaign, args.master_reduction, args.master_seed_depth,
+                                            args.master_reduction_executable)
+    except (OSError, ValueError, TypeError) as error:
+        parser.error(str(error))
     if (args.epoch_inspector_lookup is not None or args.epoch_rolling or args.epoch_dispatch is not None
             or any(getattr(args, name.replace("-", "_")) is not None
                    for name in SUPERVISOR.DOMAIN.EPOCH_DATA_OPTIONS)) \
@@ -1294,6 +1337,8 @@ def main(argv=None):
     if liveness is not None:
         plan["ram_guard_liveness"] = dict(liveness, limit=args.max_zero_progress_ram_stops)
     plan["memory_admission_preview"] = memory_admission_preview(options)
+    if phase_policy is not None:
+        plan["master_reduction"] = phase_policy
     preview = plan["memory_admission_preview"]
     if not args.json and preview.get("hard_capped_by_available_memory"):
         print(f"RAM admission now: effective hard cap {preview['effective_hard_memory_bytes']} B = MemAvailable "
@@ -1315,7 +1360,11 @@ def main(argv=None):
             for line in upgrade["live_run_evidence"]:
                 print(f"  refusal with --start while alive: {line}")
             print("  apply by rerunning with --start; it will launch:")
-        print(json.dumps(plan, indent=2) if args.json else shlex.join(command))
+        if phase_policy is not None and not args.json:
+            invocation = list(sys.argv[1:] if argv is None else argv)
+            print(shlex.join([sys.executable, str(Path(__file__).resolve()), *invocation, "--start"]))
+        else:
+            print(json.dumps(plan, indent=2) if args.json else shlex.join(command))
         return 0
     if upgrade is not None and not args.json:
         action = "rolled back" if upgrade["reason"] == ROLLBACK_REASON else "upgraded"
@@ -1323,6 +1372,15 @@ def main(argv=None):
               f"{upgrade['walk_semantics_version']}); resuming.", flush=True)
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
     sync_directory(campaign)
+    if phase_policy is not None:
+        try:
+            # This module is often loaded through importlib by tests/steering;
+            # no dependency on a particular sys.modules registration is needed.
+            from types import SimpleNamespace
+            driver = SimpleNamespace(**globals())
+            return phases.run(plan, phase_policy, args.resume, driver)
+        except (OSError, ValueError, TypeError) as error:
+            parser.error(str(error))
     write_json(campaign / "active-run.json", plan)
     os.execv(command[0], command)
 

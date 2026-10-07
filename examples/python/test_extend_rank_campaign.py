@@ -169,6 +169,24 @@ class RankContinuationTests(unittest.TestCase):
         self.assertEqual(receipt["resume_command"][2], str(Path(EXTEND.PRODUCTION.__file__).resolve()))
         self.assertEqual(snapshot(self.campaign / "bin"), before)
 
+    def test_phase_two_opt_in_uses_new_launcher_without_rewriting_frozen_snapshot(self):
+        (self.campaign / "master-reduction").mkdir()
+        (self.campaign / "master-reduction/policy.json").write_text('{"enabled":true}')
+        before = snapshot(self.campaign / "steering")
+        receipt = EXTEND.extend(self.campaign, 1)
+        self.assertEqual(receipt["resume_command"][2], str(Path(EXTEND.PRODUCTION.__file__).resolve()))
+        self.assertEqual(snapshot(self.campaign / "steering"), before)
+
+    def test_phase_dispatcher_lock_prevents_extending_inflight_master_scope(self):
+        import fcntl
+        directory = self.campaign / "master-reduction"
+        directory.mkdir()
+        with (directory / "dispatcher.lock").open("wb") as stream:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with self.assertRaisesRegex(ValueError, "dispatcher is still running"):
+                EXTEND.extend(self.campaign, 1)
+        self.assertFalse((self.campaign / "amendments").exists())
+
     def test_two_cap_disjoint_query_restored_without_rewriting_base(self):
         # A second independent fresh fixture has one fixed-D5 required query.
         source = (self.campaign / "inputs" / PREPARE.SOURCE_QUERIES_NAME).read_bytes()

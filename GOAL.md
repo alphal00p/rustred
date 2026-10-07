@@ -1,5 +1,31 @@
 # RustRed project goal
 
+## October 7 — resumable terminal post-processing and final inspection
+
+The current user directive supersedes historical stop instructions below.
+Add an opt-in, durable second phase to saved campaigns: exact finite
+Laporta-style terminal reduction using Symbolica. Clearly label this phase
+`Master reduction` in the live dashboard. Preserve completed work on Ctrl+C
+and resume in the same phase; keep earlier R/D-stage results available when
+extending the starting scope. Never clip generated auxiliary integrals to the
+starting rank cap, or claim a minimal/independent master basis from finite search.
+
+Publish a portable symbolic package containing the original native rules,
+routing and scope metadata, normalization, and exact terminal substitutions.
+This prepares subsequent Vakint integration; it does not supply numerical
+five-loop masters or assert global termination from a CP6 coverage receipt.
+Expose inspection of paused and completed packages in a polished aligned,
+coloured terminal table, with clean JSON/non-TTY output: installed/encountered
+rules, raw terminals, normalized candidates and remaining candidates after
+post-processing, scope and checkpoint status.
+
+Implementation is split between independent core algebra/session and
+steering/dashboard agents, with a separate mathematical/code auditor. Use
+Symbolica's existing exact sparse reducer and native atom persistence; do not
+create a CAS kernel. Validate cancellation/resume, scope extension, cold
+loading, exact finite relations and bounded display before committing/pushing.
+Do not modify or launch user-owned production campaigns.
+
 ## October5 delivery complete — community PR opened
 
 RustRed's bounded artifact transport and native terminal-normalization API are

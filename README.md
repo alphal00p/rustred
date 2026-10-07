@@ -309,6 +309,13 @@ cover, and optional exact terminal normalization. It is read-only and uses
 cold reinspection; normalized representatives are candidate masters, not a
 proven minimal basis.
 
+An optional [master-reduction phase](docs/campaign_master_reduction.md) adds a
+finite exact Laporta-style search, with its own native checkpoint, clean
+interruption/resume and reuse across expanded starting scopes. Its portable
+symbolic package can be inspected with `rustred master-inspect --artifact DIR`:
+an aligned coloured table on a terminal, or JSON in a pipeline. Remaining
+masters are explicitly a nonminimal candidate basis, not numerical values.
+
 Generated candidate programs now use a shared Symbolica-native binary
 coefficient dictionary and native family geometry, rather than coefficient
 strings in TOML. The original family input remains provenance, not a loading

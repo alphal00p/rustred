@@ -1,0 +1,121 @@
+//! Existing exact ordinary-IBP generation, instantiated at finite integer seeds.
+use super::*;
+use crate::algebra::IndexedCoefficientContext;
+use crate::identity::{ParametricIbpGenerator, ParametricRelation};
+
+pub(super) struct Sources {
+    context: IndexedCoefficientContext,
+    rows: Vec<ParametricRelation>,
+}
+impl Sources {
+    pub fn new(family: &IntegralFamily) -> Result<Self, TerminalRelationError> {
+        let generator = ParametricIbpGenerator::try_new(family).map_err(algebra)?;
+        let context = generator.context().clone();
+        let batch = generator.prepare_ordinary_ibp().map_err(algebra)?;
+        let generated = (0..batch.len()).map(|i| batch.generate(i)).collect();
+        let rows = batch.complete(generated).map_err(algebra)?.into_relations();
+        Ok(Self { context, rows })
+    }
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+    pub fn row(
+        &self,
+        seed: &IntegralKey,
+        ordinal: usize,
+        limits: IndexedAlgebraLimits,
+    ) -> Result<(TerminalRelationRow, Vec<Coefficient>), TerminalRelationError> {
+        let source = self
+            .rows
+            .get(ordinal)
+            .ok_or_else(|| invalid("source row is out of range"))?;
+        let mut row = TerminalRelationRow::new();
+        let mut conditions = Vec::new();
+        for condition in source.nonzero_conditions() {
+            let value = self
+                .context
+                .specialize_polynomial(condition.polynomial(), seed.powers(), limits)
+                .map_err(algebra)?;
+            if value.is_zero() {
+                return Err(invalid("ordinary source condition vanishes at seed"));
+            }
+            if !value.is_constant() {
+                conditions.push(value.into());
+            }
+        }
+        for (shift, value) in source.terms() {
+            let (coefficient, pole) = self
+                .context
+                .specialize(value, seed.powers(), limits)
+                .map_err(algebra)?;
+            if let Some(pole) = pole {
+                conditions.push(pole.into());
+            }
+            if coefficient.is_zero() {
+                continue;
+            }
+            let values = seed
+                .powers()
+                .iter()
+                .zip(shift.values())
+                .map(|(a, b)| {
+                    a.checked_add(*b)
+                        .ok_or_else(|| invalid("seed source integral power overflow"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let key = IntegralKey::try_new(values).map_err(invalid)?;
+            let old = row
+                .remove(&key)
+                .unwrap_or_else(|| self.context.base().zero());
+            let coefficient = self
+                .context
+                .base()
+                .try_add(&old, &coefficient, limits.exact_algebra)
+                .map_err(algebra)?;
+            if !coefficient.is_zero() {
+                row.insert(key, coefficient);
+            }
+        }
+        Ok((row, conditions))
+    }
+}
+
+/// Finite graph-distance expansion equals the signed-L1 balls around all
+/// centres. It never clips descendants by numerator rank or sector support.
+/// Breadth-first order, then lexical key order, is deterministic. Duplicated
+/// seeds are shared between centres instead of regenerating their equations.
+pub(super) fn seeds(
+    centres: &BTreeSet<IntegralKey>,
+    depth: u32,
+    limit: usize,
+) -> Result<Vec<IntegralKey>, TerminalRelationError> {
+    let mut seen = centres.clone();
+    check("seeds", seen.len(), limit)?;
+    let mut result: Vec<_> = seen.iter().cloned().collect();
+    let mut frontier = seen.clone();
+    for _ in 0..depth {
+        let mut next = BTreeSet::new();
+        for seed in frontier {
+            for slot in 0..seed.powers().len() {
+                for shift in [-1, 1] {
+                    let mut powers = seed.powers().to_vec();
+                    powers[slot] = powers[slot]
+                        .checked_add(shift)
+                        .ok_or_else(|| invalid("seed power overflow"))?;
+                    let key = IntegralKey::try_new(powers).map_err(invalid)?;
+                    if !seen.contains(&key) {
+                        next.insert(key);
+                        check("seeds", seen.len().saturating_add(next.len()), limit)?;
+                    }
+                }
+            }
+        }
+        result.extend(next.iter().cloned());
+        seen.extend(next.iter().cloned());
+        frontier = next;
+        if frontier.is_empty() {
+            break;
+        }
+    }
+    Ok(result)
+}

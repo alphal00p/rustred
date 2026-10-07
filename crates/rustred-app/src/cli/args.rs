@@ -174,6 +174,8 @@ pub(crate) enum Command {
     WalkVerifyClosure(super::walk_verify::WalkVerifyClosureArgs),
     WalkRescuePlan(super::walk_rescue::WalkRescuePlanArgs),
     WalkInventory(super::walk_inventory::WalkInventoryArgs),
+    WalkMasterReduce(super::master_reduction::MasterArgs),
+    MasterInspect(super::master_reduction::MasterInspectArgs),
     FoundryCampaignRun(FoundryCampaignRunArgs),
     FoundryWaveCampaignRun(FoundryWaveCampaignRunArgs),
     Help,
@@ -291,6 +293,8 @@ pub(crate) fn parse_args(
         "walk-verify-closure" => super::walk_verify::parse(arguments),
         "walk-rescue-plan" => super::walk_rescue::parse(arguments),
         "walk-inventory" => super::walk_inventory::parse(arguments),
+        "walk-master-reduce" => super::master_reduction::parse(arguments),
+        "master-inspect" => super::master_reduction::parse_inspect(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
 }
@@ -386,6 +390,8 @@ USAGE:
     rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--result RESULT.json | --no-result] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--reference-levers off|as-run] [--union-sample COUNT[:SEED]] [--mutate KIND] [--certification-scope auto|all-roots|physics-queries] [--max-violations N] [--force]
     rustred walk-rescue-plan --command WALK_ARGV.json [--checkpoint DIR] [--helper-id-prefix TEXT] [--rescue-helpers QUERIES.json] [--max-repeats N] [--rescue-scope class|tainted] [--amendment-output AMENDMENT.json] [--output PLAN.json] [--force]
     rustred walk-inventory (--campaign-directory DIR | --command WALK_ARGV.json) [--checkpoint DIR] [--threads N] [--normalize-terminals] [--rules-start N] [--terminals-start N] [--normalized-terminals-start N] [--page-size N] [--output REPORT.json] [--force]
+    rustred walk-master-reduce --command WALK_ARGV.json --checkpoint DIR --directory DIR [--resume | --previous-artifact DIR] [--seed-depth N] [--threads N] [--events PATH] [--stop-file PATH] [--checkpoint-interval-seconds N]
+    rustred master-inspect --artifact DIR [--format auto|table|json]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]

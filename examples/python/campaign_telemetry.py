@@ -282,7 +282,7 @@ def normalize_status(status, sequence=None):
             continue
         milestones.append({**checkpoint_fields(event, text_limit=128), "event": event["event"], "sequence": sequence_number})
 
-    return {
+    frame = {
         "schema": SCHEMA, "sequence": sequence,
         "unix_time": number(status.get("heartbeat_unix_time")),
         "elapsed_seconds": number(status.get("elapsed_seconds")),
@@ -333,6 +333,20 @@ def normalize_status(status, sequence=None):
         "family_closure_claim": False,
         "scope": "observed local work and conservative dependency closure; no closure ETA or family certificate",
     }
+    master = mapping(status.get("master_reduction"))
+    if master:
+        frame["phase"] = "Master reduction"
+        frame["master_reduction"] = {
+            **_numbers(master, ("raw_terminals", "normalized_terminals", "remaining_terminals",
+                                "relation_rows", "eliminated_terminals", "completed_work", "total_work",
+                                "seed_depth", "independent_rows", "auxiliary_columns", "nonzeros")),
+            **{key: clean(master.get(key, ""), 4096 if key == "artifact" else 300)
+               for key in ("stage", "status", "artifact", "scope_binding")},
+            "master_minimality_claim": False,
+            "numerical_evaluation": False,
+        }
+        frame["scope"] = "bounded exact terminal relations; no minimality or numerical master evaluation claim"
+    return frame
 
 
 def descendant_closure_summary(value) -> dict:

@@ -15,6 +15,8 @@ mod shards;
 mod walk_rescue;
 mod walk_verify;
 mod walk_inventory;
+mod master_reduction;
+mod master_table;
 
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
@@ -89,6 +91,8 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::WalkVerifyClosure(arguments) => walk_verify::run(arguments),
         Command::WalkRescuePlan(arguments) => walk_rescue::run(arguments),
         Command::WalkInventory(arguments) => walk_inventory::run(arguments),
+        Command::WalkMasterReduce(arguments) => master_reduction::run(arguments),
+        Command::MasterInspect(arguments) => master_reduction::inspect(arguments),
     }
 }
 
