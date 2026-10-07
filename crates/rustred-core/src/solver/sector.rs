@@ -313,7 +313,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         observe: impl FnMut(SectorEvent<'_, N>),
     ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
         let initial = CoordinateCase::new(std::array::from_fn(|i| {
-            self.config.removed_deltas[i].then_some(1)
+            self.system.fixed()[i].or_else(|| self.config.removed_deltas[i].then_some(1))
         }))
         .expect("one is a representable compact fixed power");
         self.solve_case_queue(vec![Case::from(initial)], options, observe)
@@ -326,6 +326,24 @@ impl<const N: usize> SectorSolver<'_, N> {
         initial: Vec<Case<N>>,
         options: SectorSolveOptions,
         mut observe: impl FnMut(SectorEvent<'_, N>),
+    ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
+        #[cfg(feature = "capacity-dispatch")]
+        {
+            super::capacity::solve_queue(self, initial, options, &mut observe)
+        }
+        #[cfg(not(feature = "capacity-dispatch"))]
+        {
+            self.solve_case_queue_inline(initial, options, &mut observe)
+        }
+    }
+
+    // The observer type is erased here so each host/campaign callback shares
+    // the same search body, independently of its physical arity.
+    pub(super) fn solve_case_queue_inline(
+        &self,
+        initial: Vec<Case<N>>,
+        options: SectorSolveOptions,
+        mut observe: &mut dyn FnMut(SectorEvent<'_, N>),
     ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
         if options.finite_case_policy == FiniteCasePolicy::RetainRankFinite
             && options.max_numerator_rank.is_none()

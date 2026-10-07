@@ -7,6 +7,8 @@
 
 pub mod bridge;
 mod candidate_reduction;
+#[cfg(feature = "capacity-dispatch")]
+mod capacity;
 mod case;
 mod cuts;
 mod discovery;

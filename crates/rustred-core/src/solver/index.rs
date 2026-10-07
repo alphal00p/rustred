@@ -212,6 +212,37 @@ impl<const N: usize> IntegralOrder<N> {
         self.program.as_ref()
     }
 
+    /// Resize private solver storage without extending a physical order program.
+    #[cfg(feature = "capacity-dispatch")]
+    pub(super) fn resize<const K: usize>(&self) -> Result<IntegralOrder<K>, SolverError> {
+        if self.sector.iter().skip(K).any(|&v| v)
+            || self.deltas.iter().skip(K).any(|&v| v)
+            || self.program.as_ref().is_some_and(|p| p.arity() > K)
+        {
+            return Err(SolverError::InvalidInput(
+                "cannot discard an ordering coordinate".into(),
+            ));
+        }
+        let mut order = IntegralOrder::new(
+            std::array::from_fn(|i| self.sector.get(i).copied().unwrap_or(false)),
+            std::array::from_fn(|i| self.deltas.get(i).copied().unwrap_or(false)),
+        );
+        if let Some(permutation) = &self.permutation {
+            if permutation.iter().take(K.min(N)).any(|&i| i >= K)
+                || permutation.iter().enumerate().skip(K).any(|(i, &v)| i != v)
+            {
+                return Err(SolverError::InvalidInput(
+                    "cannot discard a permuted ordering coordinate".into(),
+                ));
+            }
+            order = order.with_permutation(std::array::from_fn(|i| {
+                permutation.get(i).copied().unwrap_or(i)
+            }))?;
+        }
+        order.program = self.program.clone();
+        Ok(order)
+    }
+
     /// The exact uncut mathematical order carried into replay and persistence.
     /// Legacy cut search is still available, but cannot masquerade as uncut.
     pub fn persisted_policy(&self) -> Result<crate::sector::OrderingPolicy, SolverError> {
@@ -299,7 +330,12 @@ impl<const N: usize> IntegralOrder<N> {
             let l: [i64; N] = std::array::from_fn(|axis| i64::from(left[axis].value()));
             let r: [i64; N] = std::array::from_fn(|axis| i64::from(right[axis].value()));
             return program
-                .compare_mixed(&self.sector, &symbolic, &l, &r)
+                .compare_mixed(
+                    &self.sector[..program.arity()],
+                    &symbolic[..program.arity()],
+                    &l[..program.arity()],
+                    &r[..program.arity()],
+                )
                 .expect("program and compact integral arities were checked")
                 .ordering
                 .reverse();
