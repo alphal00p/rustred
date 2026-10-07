@@ -85,3 +85,33 @@ runtime acceptance result.
 The HEPKit four-loop notebook may use the same serial APIs, but completing
 four-loop production workloads within browser memory/time limits is a separate
 performance exercise. Vakint and FORM-based backends remain native-only here.
+
+### Validation snapshot (2026-10-07)
+
+A real Pyodide development-profile Community wheel using RustRed `00bf3793`,
+FeynKit `71552e89`, and Symbolica `ed2374f1` passed fresh K6 generation,
+certification, binary cold loading, exact homogeneity, numerator and pinch
+checks. An independent run also loaded an existing native 64-bit artifact in
+WASM32 and matched all 38 master keys and 11 exact reductions. These are
+functional checks, not release-performance benchmarks or four-loop browser
+acceptance. The native adapter regression suite passed all 16 tests.
+
+The static Marimo three-loop notebook also passed in an actual Chromium
+Pyodide worker: no generation before clicking Generate, fresh generation and
+certification to 38 terminals, lazy coefficient rendering, and dotted and
+numerator reductions. The development build took about 4.4 seconds for the
+generation UI action and 20.8 seconds for certification; these are separate
+operations, not a claim that full closure takes the generation time alone.
+See Community's `reports/2026-10-07-rustred-wasm/README.md` for the wheel identity,
+validation scope and reproduction commands.
+
+Debug checks exposed over-aligned Python wrapper payloads. RustRed's mass-power
+wrapper and FeynKit's tensor-reducer/group-member wrappers now keep these
+payloads in Rust-owned allocations; the public Python APIs remain unchanged.
+
+Community's explicit `--rustred-only` Pyodide gate includes the shared kernel,
+HEPKit graph/tensor checks, RustRed and optional native-artifact comparisons.
+It does not claim that unrelated Community modules passed. In particular, the
+full debug suite exposed a separate inline-`u128` Python-object alignment issue
+in RustFlow `9599e358`'s boundary-return API, outside this port. Its full-suite
+test remains enabled and is not reported as passing.
