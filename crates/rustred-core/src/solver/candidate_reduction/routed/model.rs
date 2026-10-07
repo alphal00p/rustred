@@ -1,4 +1,5 @@
 use super::super::{CandidateOwnerPrograms, CandidateReductionError};
+use crate::algebra::Coefficient;
 use crate::family::IntegralKey;
 use crate::sector::Mask;
 use crate::sector::symmetry::integral_transport;
@@ -11,6 +12,19 @@ use std::sync::Arc;
 pub struct CandidateOwnerRoute {
     pub owner_sector: Mask,
     pub transport: Arc<integral_transport::Prepared>,
+}
+
+/// An exact homogeneous row for terminal refinement of candidate programs.
+///
+/// Rows combine verified weighted transport with saved candidate formulas.
+/// Their shared authority is still candidate-only: this interface performs
+/// no replay of original-source derivations or recursive closure proof.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CandidateRoutedIdentity {
+    pub terms: BTreeMap<IntegralKey, Coefficient>,
+    /// Sufficient generic-parameter nonzero conditions; saved-rule exception
+    /// witnesses may restrict the domain (see `CandidateIntegralIdentity`).
+    pub nonzero_conditions: Vec<Coefficient>,
 }
 
 /// Extra per-request trace and routing caps. The programs' ReductionLimits

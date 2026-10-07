@@ -53,12 +53,21 @@ pub(super) fn scope_binding(
     request: &OwnerDomainWalkRequest,
     checkpoint: &Path,
     depth: u32,
+    containing_sector_depth: u32,
+    circuit_symmetry_assistance: bool,
 ) -> Result<String, AppError> {
     let mut hash = blake3::Hasher::new();
     hash.update(b"rustred-master-scope-v1");
     hash.update(request.checkpoint_binding().as_bytes());
     hash.update(digest_file(&checkpoint.join("latest.json"))?.as_bytes());
     hash.update(&depth.to_le_bytes());
+    if containing_sector_depth != 0 {
+        hash.update(b"containing-sector-seeds-v1");
+        hash.update(&containing_sector_depth.to_le_bytes());
+    }
+    if circuit_symmetry_assistance {
+        hash.update(b"circuit-symmetry-assistance-v1");
+    }
     for amendment in &request.amendments {
         hash.update(amendment.digest().as_bytes());
     }

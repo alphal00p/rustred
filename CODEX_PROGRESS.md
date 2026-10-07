@@ -1,5 +1,221 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 8 — active: distinct terminal-compression strategies
+
+**Latest larger gain (public API pilot, integration next):** the conservative
+normalization wrapper's20k prospective-term limit skips ALL829five-loop labels.
+The exact failing multiplication needs20970prospective terms (U has1398terms,
+the mass polynomial15). Using shared documented Symanzik budgets finds164exact
+scalar aliases in1.444s. Full fresh normalization also recovers14previously
+unbound numerator projections:829→651. Ordinary depth0 then closes the finite
+search at613; adding the338circuit equations yields608. All829original keys
+pass exact warm/cold coefficient equality and remaining-only output checks.
+Wide ordinary54.780s includes31.902verification; wide circuit64.157s includes
+36.673verification. No minimality claim. Four-loop wide controls remain19.
+
+Do NOT silently widen core defaults: native normalization import regenerates
+the recorded plan under its original policy. App implementation will expose
+and persist explicit conservative-v1/standard-v1 profiles; legacy source
+packages load under conservative bounds and a changed refinement profile
+starts a fresh finite search. Independent audit confirmed both mathematical
+validity of the wider admission and the replay-compatibility concern. Pending
+profile implementation follows the current tested API milestone.
+
+Current integrated release SHA3156153f950cd11ac44daf5a0e810f96c4840f16735975b498739db8703154b5
+finished9m43s; native app/CLI24tests pass (9m32s compilation). Matched app
+ordinary/circuit controls PASS:4Lboth19in0.254/0.305s,5L829/780in12.253/17.843s;
+fresh-process inspect/resume nativeidentities unchanged, sourcehashes unchanged.
+Five-loop containing negativepilot also cold-resumes successfully in3.468s.
+Core/policy source edits are held
+for a coherent commit/push, while the next profile is designed. Previous goal
+turn classified **progress** (implemented, audited and measured distinct
+strategies, including completed exact829→780result), not a status-only turn.
+
+**New completed positive result:** frozen optimized core driver
+`19e385ed8cec177881f6d6f5c6f80b07921167f315b684b6540af1f0259aec9a` produced
+829→780 (49exact terminal relations) with338verified circuit equations and
+20725ordinary IBPs. Total47.159s includes2.556s preparation and30.368s exhaustive
+cold-load/application verification of all829raw keys. This is a core-only pilot,
+not the app's timing boundary, and not a minimality/independence claim. The full
+bank has20verified maps on4supports (initial rank-one census saw only10on2).
+Evidence: `TMP/terminal-compression-20261008/five-loop-circuit-core-depth0.*`.
+The generic one-dot-lowering variant (154extra source points,24575ordinary rows)
+completed with829remaining in36.846s including22.164s cold verification—negative
+compression result. Its combination with circuit equations completes with780
+remaining in50.177s including29.811s cold verification—no extra gain. Matched
+core ordinary baseline829→829 took35.359s:2.191prep/9.617search+checkpoint/
+23.551verification. The49removed labels are35dotted scalars,11rank-one and
+3rank-two numerators; mechanism attribution awaits ablation.
+
+Five-loop containing-depth1 also **completed negative**,829→829 after141850
+ordinary rows in670.469s wall/664.268CPU-s, sampled peak2496724KiB. Its fresh
+process cold-resume is finishing. Python91focused tests pass; core circuit6
+plus existing normalization60pass. Native app integrated circuit test/release
+builds remain active under build-0/build-1 respectively; one test fixture API
+typo was corrected (`CoefficientContext::try_new`). No new CLI release claim
+or commit yet. Independent realSIGINT containing-depth4 control resumes to
+byte-identical native state and rejects changedpolicy without writes.
+
+Latest checkpoint: saved assistance is **measured negative/expensive**, not
+the whole strategy programme. The isolated five-loop assisted pilot was
+cooperatively paused after898.210s/1004.573CPU-s,5777/20725ordinary rows and
+107643assisted rows;821remaining is provisional. Checkpoint generation334 is
+15,121,579bytes. All88source files were independently checked unchanged; the
+user's live refinement was not signalled.
+
+Containing-sector source selection is now **implemented/audited/tested**.
+Frozen release `0147466d76d8effb3a9adf335766a244c38880d92d072d88bce57c89df848186`
+(11m08s compilation excluded) completed four-loop promotions of one/two
+inactive slots in0.659/1.114s,1616/3248ordinary equations; both still19remaining.
+Both cold-resume to identical native states and preserve source files. The
+five-loop one-slot promotion pilot is now running in
+`TMP/terminal-compression-20261008/five-loop-containing1`. Native app/CLI20tests
+pass, core18terminal-session tests pass, Python40focused lifecycle tests pass.
+
+Weighted circuit identities have an **actionable exact census**, unlike the
+parked independent-tadpole idea: five-loop existing normalization already
+verified10maps on2supports, but14rank-one projections were rejected solely
+because transformed outputs were not declared terminal labels. New finite
+homogeneous symmetry rows retain those outputs as auxiliary columns and can
+also transport higher ranks/dots. `terminal_session_assist_impl` owns core,
+`terminal_saved_identity_impl` owns app/CLI and independent core audit,
+`terminal_integration_auditor` owns Python and app review. No compression gain
+from this third strategy is claimed before measurements.
+
+Older chronological notes below are preserved as history; the status above
+supersedes their references to active builds/pilots.
+
+Current distinct-strategy lanes (not merely different signed-L1 depths):
+saved-rule equations **measuring**; targeted containing-sector source seeds
+**active implementation** (`terminal_integration_auditor`, independently
+reviewed by `terminal_saved_identity_impl`); partial-factorization/lower-loop
+reuse **active feasibility/census** (`terminal_session_assist_impl`). The narrow
+unequal-dot product-of-tadpoles proposal is **rejected for these inventories**:
+exact census finds just one eligible all-unit product in each input, hence no
+pair to relate. Broader factorization remains open; dimensional/subgraph
+recurrences are deferred until earlier mechanisms have been tested.
+
+Measured first release (`7bec0eedb2da0418e8c270fe058f85bbc80baf191ec100735af882e4e543ab83`):
+four-loop depth0 ordinary20→19 in0.254s versus assisted20→19 in2.283s;
+depth1 ordinary20→19 in1.722s versus assisted20→19 in105.422s. Both depth1
+results cold-reload and preserve their native-state identities. No four-loop
+compression gain from assistance at either depth. Five-loop depth0 ordinary
+829→829 in12.072s; assistance was subsequently paused (821 is provisional, not a final
+count). Evidence `TMP/terminal-compression-20261008/*pair*`; wall includes
+loading, preparation, refinement and publication, not compilation. These are
+single measured controls, not statistical speed claims. Native candidate suite
+418/418 and app/CLI master suite18/18 pass, including the shared-budget fix.
+
+User authorized implementation and requested a new tool-managed goal; assigned
+the full terminal-compression objective. Plan: (1) exact homogeneous identities
+from all applicable saved rules, without execution-only terminal/dispatch
+stopping; (2) finite resumable session injection at ordinary-source support,
+keeping unresolved auxiliaries and existing provenance status; (3) portable
+package/CLI/Python integration with ordinary mode retained; (4) four-loop
+matched controls and isolated 829-terminal experiments; (5) exact validation,
+independent audits, measured report and coherent commit/push. Weighted generated
+normalization, lower-loop recurrences and containing-sector seeds follow in
+evidence order; global dimensional shifts remain deferred unless a sparse
+subgraph case warrants them. No user-owned campaign is modified.
+
+Active agents: `terminal_saved_identity_impl` owns the candidate evaluator/owner
+identity API; `terminal_session_assist_impl` owns finite relation-session and
+checkpoint integration; `terminal_integration_auditor` independently checks
+math/API/persistence and locates frozen controls. Root owns app/CLI steering,
+build/resource coordination, measurements and final verification. Existing
+HEPKit edits and untracked campaign/reference materials are unrelated and
+preserved. Baseline study and known limitations are recorded immediately below.
+
+Implementation checkpoint: owner identities share existing exact specialization
+and guards, include all applicable candidate rules, and ignore execution-only
+terminal stopping. Weighted routing identities preserve every unresolved
+endpoint. Finite assistance requests are restricted to ordinary source support;
+saved-equation RHS terms do not recursively enlarge that request set. Native
+schema2 persists the pending requests, equations and cursors; ordinary schema1
+remains unchanged. CLI/Python assistance is explicit and opt-in.
+
+Independent audits: `terminal_integration_auditor` found and fixed a shared
+resource-budget hole across weighted endpoints; `terminal_saved_identity_impl`
+independently reviewed it. The latter also fixed a policy-switch first-save
+race, with interruption tests in both directions. `terminal_session_assist_impl`
+independently checked Python integration (34 tests); the implementer ran79
+adjacent Python tests. Cargo check passes. Debug native tests and release build
+are running with disjoint CPU32–39/40–47 affinities and separate build locks;
+logs: `TMP/terminal-compression-20261008/`. No benchmark or new terminal-count
+reduction is claimed yet.
+
+Known limitation: an assisted refinement cannot yet feed rebuild-only
+publication of a larger scope. Native publication now explicitly rejects that
+import rather than silently resetting away its rows. Its source and result
+remain intact. Supporting this reuse is pending after the first comparisons;
+ordinary extension is unchanged. Next executable tests: matched depth0
+ordinary/assisted refinement of `four-loop-published` (28→20 baseline labels,
+known ordinary result19), then scope52afacba… (829 labels), all into new TMP
+directories. Source copies are fingerprinted before/after. The user's live
+depth1 refinement is untouched. Promising follow-up if saved assistance
+plateaus: exact unequal-dot independent tadpole-product rows using existing
+verified geometry and generated one-loop rules; census eligibility first.
+
+Validation update: native relation-session tests12/12, saved-owner identity
+tests8/8, and routed application/identity tests19/19 pass. These debug tests do
+not include the subsequently added shared-budget regression; that remains in
+the next rebuilt native test pass. The app/CLI regression build and optimized
+binary build are still active, so release comparisons have not run. Generic
+read-only example `terminal_relation_census` is delivered for the subsequent
+eligibility census (not yet compiled). No new terminal count is claimed.
+
+## October7 — research: reducing the current 829 terminal candidates
+
+Active tool-goal request: literature/code investigation of additional relations
+that could reduce the current five-loop terminals. Research only; no production
+mutation or implementation authorized by this request. Root coordinates
+independent `terminal_literature_20261008`, `terminal_reducer_audit_20261008`
+and `dimension_relation_audit_20261008` lanes (names08, actual dateOctober7).
+
+[M] Current publication `five-loop-rank-ladder-THE-ONE`, scope52afacba…,
+is `published_unrefined`, R<=2,D<=9,829raw=normalized=remaining and zero processed
+refinement rows. Inventory is an explicit symbolic-domain overapproximation,
+not a concrete target-reachability or master-independence proof. A separate
+depth1refinement is actually live: PID3167813 verified, snapshotUnix1791409435
+has38,831/533,825source rows,99,827columns/98,998auxiliaries, zero terminal-only
+rows,1,660.60s/~1.01core/277.41MB. Its final column-normalization/rebuild is
+pending; intermediate zero is not a failed completed search. Evidence copies:
+`TMP/terminal-research-20261007/{published-pointer,published-artifact,
+refinement-snapshot}.json`. Production run remains untouched.
+
+[M] Refinement presently regenerates ordinary finite IBPs without using saved
+owner/routing equations. Independent audit confirms exact one-step saved-rule
+injection can exploit those rules without first implementing a terminating
+routed recursive applier. Preserve all guards/weights and auxiliary columns.
+[D] Best next experiment: saved-rule-assisted terminal Laporta plus weighted
+normalization, followed by selected higher-sector cancellation identities.
+Dimensional/subgraph recurrences are secondary; literature proves the standard
+inverse-shift composite is in the ordinary IBP ideal, and earlier local global
+shift pilots were dense. No proven new equation among the829 or reduced count
+is claimed. No solver code or campaign data was edited.
+
+Research synthesis and executable next-step design:
+[829-terminal study](docs/research/five_loop_829_terminal_reduction_2026-10-07.md).
+Supporting reports cover TIDE/Kira,2026magic-relations research, exact toy
+identities, Symbolica reuse, and epsilon/Gram/massive-bubble pitfalls. Backlog:
+literature and current-state audit **delivered**; saved-row injection and
+per-key census **pending implementation authorization**; global dimension-shift
+reopening **deferred until a sparse subgraph candidate**; terminal minimality
+**not required**. All unrelated worktree edits are preserved.
+
+Final independent audits are delivered. `terminal_literature_20261008` checked
+the synthesis's equations and primary references; corrected the Smirnov paper
+section to 5, made numerator homogeneity explicit, and distinguished an
+invertible basis exchange from compression of redundant labels.
+`terminal_report_code_crosscheck` verified the missing saved-rule connection
+and identified the required owner-sector/source-condition checks, pole
+metadata, and separation of identity specialization from descent policy.
+Candidate-rule arithmetic does not certify source provenance: any proposed
+compression must preserve that status or verify the contributing identities.
+These corrections are incorporated in the synthesis. `git diff --check`
+passes. Completion concerns the requested literature/code investigation only;
+no smaller terminal count, new implementation, or production change is claimed.
+
 ## October7 — validated: explicit solve / inspect / refine lifecycle
 
 The user authorizes simplifying the workflow: publish an artifact after every

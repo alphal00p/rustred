@@ -14,6 +14,7 @@ pub use domains::{
 };
 mod factor_census;
 mod feedback;
+mod identities;
 mod model;
 pub use factor_census::{FactorCensusLimits, FactorCensusRole, OwnerFactorCensus};
 mod preferred;
@@ -26,7 +27,8 @@ pub use feedback::{
 };
 
 pub use model::{
-    CandidateOwnerContext, CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerScope,
+    CandidateIntegralIdentity, CandidateOwnerContext, CandidateOwnerInput, CandidateOwnerPrograms,
+    CandidateOwnerScope,
 };
 
 #[cfg(test)]

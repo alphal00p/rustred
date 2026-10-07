@@ -10,6 +10,15 @@ pub(super) fn sort_keys(keys: &mut [IntegralKey]) {
     });
 }
 
+pub(super) fn column_offsets(columns: &[IntegralKey]) -> BTreeMap<IntegralKey, u32> {
+    columns
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, key)| (key.clone(), i as u32))
+        .collect()
+}
+
 impl TerminalRelationSession {
     pub(super) fn normalized_row(
         &self,
@@ -52,10 +61,9 @@ impl TerminalRelationSession {
             self.reducer.u().nrows() as usize + 1,
             self.limits.max_rows,
         )?;
-        let existing: BTreeSet<_> = self.columns.iter().cloned().collect();
         let mut new: Vec<_> = row
             .keys()
-            .filter(|k| !existing.contains(*k))
+            .filter(|k| !self.column_offsets.contains_key(*k))
             .cloned()
             .collect();
         check(
@@ -80,19 +88,20 @@ impl TerminalRelationSession {
         )?;
         sort_keys(&mut new);
         if !new.is_empty() {
+            for (index, key) in new.iter().enumerate() {
+                self.column_offsets
+                    .insert(key.clone(), (width - 1 - index) as u32);
+            }
             // Inserting before all existing columns preserves their relative
             // order and keeps every newly encountered auxiliary before targets.
             self.reducer.add_cols(&vec![0; new.len()]);
             new.append(&mut self.columns);
             self.columns = new;
         }
-        let positions: BTreeMap<_, _> = self
-            .columns
-            .iter()
-            .enumerate()
-            .map(|(i, k)| (k, i as u32))
+        let mut terms: Vec<_> = row
+            .into_iter()
+            .map(|(k, c)| (width as u32 - 1 - self.column_offsets[&k], c))
             .collect();
-        let mut terms: Vec<_> = row.into_iter().map(|(k, c)| (positions[&k], c)).collect();
         terms.sort_by_key(|(c, _)| *c);
         let ids: Vec<_> = terms.iter().map(|(i, _)| *i).collect();
         let values: Vec<_> = terms.into_iter().map(|(_, c)| c).collect();
@@ -141,6 +150,7 @@ impl TerminalRelationSession {
         self.terminals = terminals;
         self.columns = self.terminals.iter().cloned().collect();
         sort_keys(&mut self.columns);
+        self.column_offsets = column_offsets(&self.columns);
         self.reducer = SparseRowReducer::new(
             u32::try_from(self.columns.len()).map_err(invalid)?,
             RationalPolynomialField::new(Z),

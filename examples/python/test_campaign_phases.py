@@ -1,5 +1,6 @@
 """Scratch-only phase transitions; no production runs or algebra in Python."""
 import importlib.util
+import hashlib
 import io
 import json
 import os
@@ -83,6 +84,98 @@ class PhaseTests(unittest.TestCase):
             PHASES.configuration(self.campaign, seed_depth=1)
         self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
 
+    def test_saved_rule_preference_is_explicit_only_and_legacy_defaults_to_ordinary(self):
+        self.assertFalse(self.policy["saved_rule_assistance"])
+        legacy = {key: value for key, value in self.policy.items() if key != "saved_rule_assistance"}
+        self.write("master-reduction/policy.json", legacy)
+        self.assertFalse(PHASES.configuration(self.campaign, enabled=True)["saved_rule_assistance"])
+        assisted = PHASES.configuration(self.campaign, enabled=True, saved_rule_assistance=True)
+        self.write("master-reduction/policy.json", assisted)
+        self.assertTrue(PHASES.configuration(self.campaign, enabled=True)["saved_rule_assistance"])
+        ordinary = PHASES.configuration(self.campaign, enabled=True, saved_rule_assistance=False)
+        self.assertFalse(ordinary["saved_rule_assistance"])
+        self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
+        for supplied in (True, False):
+            with self.assertRaisesRegex(ValueError, "explicit"):
+                PHASES.configuration(self.campaign, saved_rule_assistance=supplied)
+        self.write("master-reduction/policy.json", {**assisted, "saved_rule_assistance": "true"})
+        with self.assertRaisesRegex(ValueError, "invalid persisted"):
+            PHASES.configuration(self.campaign, enabled=True)
+
+    def test_production_assistance_flag_reaches_phase_configuration(self):
+        for flag, value in (("--master-saved-rule-assistance", True),
+                            ("--no-master-saved-rule-assistance", False)):
+            with self.subTest(flag=flag), patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure:
+                with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters", flag])
+                self.assertTrue(configure.call_args.args[1])
+                self.assertEqual(configure.call_args.kwargs["saved_rule_assistance"], value)
+
+    def test_circuit_preference_is_refine_only_boolean_and_legacy_compatible(self):
+        self.assertFalse(self.policy["circuit_symmetry_assistance"])
+        legacy = {key: value for key, value in self.policy.items() if key != "circuit_symmetry_assistance"}
+        self.write("master-reduction/policy.json", legacy)
+        self.assertFalse(PHASES.configuration(self.campaign, enabled=True)["circuit_symmetry_assistance"])
+        assisted = PHASES.configuration(self.campaign, enabled=True, circuit_symmetry_assistance=True)
+        self.write("master-reduction/policy.json", assisted)
+        self.assertTrue(PHASES.configuration(self.campaign, enabled=True)["circuit_symmetry_assistance"])
+        self.assertFalse(PHASES.configuration(self.campaign, enabled=True, circuit_symmetry_assistance=False)["circuit_symmetry_assistance"])
+        self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
+        for supplied in (True, False):
+            with self.assertRaisesRegex(ValueError, "explicit"):
+                PHASES.configuration(self.campaign, circuit_symmetry_assistance=supplied)
+        for invalid in ("true", 1):
+            with self.assertRaisesRegex(ValueError, "boolean"):
+                PHASES.configuration(self.campaign, enabled=True, circuit_symmetry_assistance=invalid)
+            self.write("master-reduction/policy.json", {**assisted, "circuit_symmetry_assistance": invalid})
+            with self.assertRaisesRegex(ValueError, "invalid persisted"):
+                PHASES.configuration(self.campaign, enabled=True)
+
+    def test_production_circuit_flags_reach_phase_configuration(self):
+        for flag, value in (("--master-circuit-symmetry-assistance", True),
+                            ("--no-master-circuit-symmetry-assistance", False)):
+            with self.subTest(flag=flag), patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure:
+                with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters", flag])
+                self.assertTrue(configure.call_args.args[1])
+                self.assertEqual(configure.call_args.kwargs["circuit_symmetry_assistance"], value)
+
+    def test_containing_sector_preference_is_explicit_monotone_and_legacy_compatible(self):
+        self.assertEqual(self.policy["containing_sector_depth"], 0)
+        legacy = {key: value for key, value in self.policy.items() if key != "containing_sector_depth"}
+        self.write("master-reduction/policy.json", legacy)
+        self.assertEqual(PHASES.configuration(self.campaign, enabled=True)["containing_sector_depth"], 0)
+        extra = PHASES.configuration(self.campaign, enabled=True, containing_sector_depth=1)
+        self.write("master-reduction/policy.json", extra)
+        self.assertEqual(PHASES.configuration(self.campaign, enabled=True)["containing_sector_depth"], 1)
+        self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
+        with self.assertRaisesRegex(ValueError, "cannot lower"):
+            PHASES.configuration(self.campaign, enabled=True, containing_sector_depth=0)
+        for supplied in (0, 1):
+            with self.assertRaisesRegex(ValueError, "explicit"):
+                PHASES.configuration(self.campaign, containing_sector_depth=supplied)
+        for invalid in (-1, True, "1"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "nonnegative"):
+                PHASES.configuration(self.campaign, enabled=True, containing_sector_depth=invalid)
+            self.write("master-reduction/policy.json", {**extra, "containing_sector_depth": invalid})
+            with self.assertRaisesRegex(ValueError, "invalid persisted"):
+                PHASES.configuration(self.campaign)
+
+    def test_production_containing_sector_flag_is_refine_only(self):
+        with patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure:
+            with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters",
+                                 "--master-containing-sector-depth", "2"])
+            self.assertTrue(configure.call_args.args[1])
+            self.assertEqual(configure.call_args.kwargs["containing_sector_depth"], 2)
+        for options in (("--master-containing-sector-depth", "0"),
+                        ("--publish-only", "--master-containing-sector-depth", "1"),
+                        ("--refine-masters", "--master-containing-sector-depth", "-1")):
+            with self.subTest(options=options), patch.object(PRODUCTION.sys, "stderr", io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    PRODUCTION.main(["--campaign-directory", str(self.campaign), *options])
+        self.assertFalse((self.campaign / "master-reduction").exists())
+
     def test_separate_native_executable_freezes_without_changing_phase_one(self):
         binary = self.campaign / "new-native"
         binary.write_bytes(b"#!/bin/sh\nexit 0\n")
@@ -147,11 +240,15 @@ class PhaseTests(unittest.TestCase):
         first.assert_not_called()
         second.assert_not_called()
 
-    def publish_fixture(self, operation="publish", depth=0):
+    def publish_fixture(self, operation="publish", depth=0, saved_rule_assistance=False, containing_sector_depth=0,
+                        circuit_symmetry_assistance=False):
         path = self.campaign / "master-reduction/scopes/published"
         self.write("master-reduction/scopes/published/artifact.json", {"status": "published_unrefined"})
         PHASES.publish_pointer(self.campaign, path, self.binding(), operation, self.driver,
-                               {"seed_depth": depth} if operation == "refine" else None)
+                               {"seed_depth": depth, "saved_rule_assistance": saved_rule_assistance,
+                                "circuit_symmetry_assistance": circuit_symmetry_assistance,
+                                "containing_sector_depth": containing_sector_depth}
+                               if operation == "refine" else None)
         return path
 
     def test_refine_is_explicit_and_reads_published_artifact_without_walking(self):
@@ -172,6 +269,111 @@ class PhaseTests(unittest.TestCase):
         first.assert_not_called()
         second.assert_not_called()
         self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["operation"], "refine")
+
+    def test_assistance_mode_has_a_distinct_checkpoint_and_keeps_legacy_ordinary_identity(self):
+        source = self.publish_fixture()
+        source_bytes = (source / "artifact.json").read_bytes()
+        ordinary = PHASES.configuration(self.campaign, enabled=True)
+        with patch.object(PHASES, "phase_one") as first, patch.object(PHASES, "phase_two", return_value=4) as second:
+            PHASES.run(self.plan, ordinary, True, self.driver, postprocess_only=True)
+            old_directory = second.call_args.args[4]
+            legacy_identity = {"scope": self.binding()["key"], "operation": "refine", "seed_depth": 0,
+                               "source": str(source.relative_to(self.campaign)), "executable": None}
+            expected = hashlib.sha256(json.dumps(legacy_identity, sort_keys=True).encode()).hexdigest()
+            self.assertEqual(old_directory.name, expected)
+            (old_directory / "latest.json").write_text("{}")
+            assisted = PHASES.configuration(self.campaign, enabled=True, saved_rule_assistance=True)
+            PHASES.run(self.plan, assisted, True, self.driver, postprocess_only=True)
+            assisted_directory = second.call_args.args[4]
+            self.assertNotEqual(assisted_directory, old_directory)
+            self.assertFalse((assisted_directory / "latest.json").exists())
+            self.assertEqual(second.call_args.args[1]["source_artifact"], str(source))
+            self.assertTrue(PHASES.read_json(assisted_directory / "steering-binding.json")["saved_rule_assistance"])
+            resumed = PHASES.configuration(self.campaign, enabled=True)
+            PHASES.run(self.plan, resumed, True, self.driver, postprocess_only=True)
+            self.assertEqual(second.call_args.args[4], assisted_directory)
+            ordinary = PHASES.configuration(self.campaign, enabled=True, saved_rule_assistance=False)
+            PHASES.run(self.plan, ordinary, True, self.driver, postprocess_only=True)
+            self.assertEqual(second.call_args.args[4], old_directory)
+        first.assert_not_called()
+        self.assertEqual((source / "artifact.json").read_bytes(), source_bytes)
+
+    def test_completed_refinement_only_satisfies_the_same_assistance_mode(self):
+        for previous_mode in (False, True):
+            with self.subTest(previous_mode=previous_mode):
+                source = self.publish_fixture("refine", 0, previous_mode)
+                same = PHASES.configuration(self.campaign, enabled=True, saved_rule_assistance=previous_mode)
+                changed = PHASES.configuration(self.campaign, enabled=True, saved_rule_assistance=not previous_mode)
+                with patch.object(PHASES, "phase_one") as first, patch.object(PHASES, "phase_two", return_value=4) as second:
+                    self.assertEqual(PHASES.run(self.plan, same, True, self.driver, postprocess_only=True), 0)
+                    second.assert_not_called()
+                    self.assertEqual(PHASES.run(self.plan, changed, True, self.driver, postprocess_only=True), 4)
+                    self.assertEqual(second.call_args.args[1]["source_artifact"], str(source))
+                    self.assertEqual(second.call_args.args[1]["saved_rule_assistance"], not previous_mode)
+                first.assert_not_called()
+
+    def test_containing_sector_search_isolated_checkpoint_and_inherited_effective_depth(self):
+        source = self.publish_fixture()
+        ordinary = PHASES.configuration(self.campaign, enabled=True)
+        with patch.object(PHASES, "phase_one") as first, patch.object(PHASES, "phase_two", return_value=4) as second:
+            PHASES.run(self.plan, ordinary, True, self.driver, postprocess_only=True)
+            ordinary_directory = second.call_args.args[4]
+            extra = PHASES.configuration(self.campaign, enabled=True, containing_sector_depth=1)
+            PHASES.run(self.plan, extra, True, self.driver, postprocess_only=True)
+            extra_directory = second.call_args.args[4]
+            self.assertNotEqual(ordinary_directory, extra_directory)
+            self.assertEqual(PHASES.read_json(extra_directory / "steering-binding.json")["containing_sector_depth"], 1)
+            resumed = PHASES.configuration(self.campaign, enabled=True)
+            PHASES.run(self.plan, resumed, True, self.driver, postprocess_only=True)
+            self.assertEqual(second.call_args.args[4], extra_directory)
+            self.publish_fixture("refine", depth=2, containing_sector_depth=2)
+            second.reset_mock()
+            self.assertEqual(PHASES.run(self.plan, extra, True, self.driver, postprocess_only=True), 0)
+            second.assert_not_called()
+            changed = {**extra, "saved_rule_assistance": True}
+            PHASES.run(self.plan, changed, True, self.driver, postprocess_only=True)
+            launched = second.call_args.args[1]
+            self.assertEqual(launched["source_artifact"], str(source))
+            self.assertEqual(launched["containing_sector_depth"], 1)  # Requested depth binds resume.
+            self.assertEqual(launched["effective_containing_sector_depth"], 2)
+            self.assertEqual(launched["effective_seed_depth"], 2)
+        first.assert_not_called()
+
+    def test_all_assistance_modes_have_distinct_checkpoints_and_exact_reuse_policy(self):
+        source = self.publish_fixture()
+        source_bytes = (source / "artifact.json").read_bytes()
+        directories = set()
+        for saved, circuit in ((False, False), (True, False), (False, True), (True, True)):
+            policy = PHASES.configuration(self.campaign, enabled=True, saved_rule_assistance=saved,
+                                          circuit_symmetry_assistance=circuit)
+            with patch.object(PHASES, "phase_one") as first, patch.object(PHASES, "phase_two", return_value=4) as second:
+                self.assertEqual(PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True), 4)
+                directory = second.call_args.args[4]
+                self.assertNotIn(directory, directories)
+                directories.add(directory)
+                (directory / "latest.json").write_text("{}")
+                restored = PHASES.configuration(self.campaign, enabled=True)
+                PHASES.run(self.plan, restored, True, self.driver, postprocess_only=True)
+                self.assertEqual(second.call_args.args[4], directory)
+                first.assert_not_called()
+        self.assertEqual((source / "artifact.json").read_bytes(), source_bytes)
+        for saved, circuit in ((False, False), (True, False), (False, True), (True, True)):
+            self.publish_fixture("refine", saved_rule_assistance=saved, circuit_symmetry_assistance=circuit)
+            same = PHASES.configuration(self.campaign, enabled=True, saved_rule_assistance=saved,
+                                        circuit_symmetry_assistance=circuit)
+            changed = {**same, "circuit_symmetry_assistance": not circuit}
+            with patch.object(PHASES, "phase_two", return_value=4) as second:
+                self.assertEqual(PHASES.run(self.plan, same, True, self.driver, postprocess_only=True), 0)
+                second.assert_not_called()
+                self.assertEqual(PHASES.run(self.plan, changed, True, self.driver, postprocess_only=True), 4)
+                self.assertEqual(second.call_args.args[1]["circuit_symmetry_assistance"], not circuit)
+
+    def test_completed_ordinary_search_does_not_satisfy_containing_sector_request(self):
+        self.publish_fixture("refine", depth=2)
+        extra = PHASES.configuration(self.campaign, enabled=True, containing_sector_depth=1)
+        with patch.object(PHASES, "phase_two", return_value=4) as second:
+            self.assertEqual(PHASES.run(self.plan, extra, True, self.driver, postprocess_only=True), 4)
+        self.assertEqual(second.call_args.args[1]["containing_sector_depth"], 1)
 
     def test_extension_prevents_refining_old_scope(self):
         self.publish_fixture()
@@ -241,14 +443,40 @@ class PhaseTests(unittest.TestCase):
     def test_explicit_refinement_saves_and_resumes_without_replacing_publication_on_pause(self):
         self._scratch_native_pause_resume("refine")
 
-    def _scratch_native_pause_resume(self, operation):
+    def test_assisted_refinement_forwards_mode_and_resumes_its_checkpoint(self):
+        self._scratch_native_pause_resume("refine", saved_rule_assistance=True)
+
+    def test_publication_does_not_enable_saved_refinement_preference(self):
+        self._scratch_native_pause_resume("publish", saved_rule_assistance=True, containing_sector_depth=1,
+                                          circuit_symmetry_assistance=True)
+
+    def test_circuit_refinement_forwards_mode_and_resumes(self):
+        self._scratch_native_pause_resume("refine", circuit_symmetry_assistance=True)
+
+    def test_combined_refinement_forwards_both_modes_and_resumes(self):
+        self._scratch_native_pause_resume("refine", saved_rule_assistance=True,
+                                          circuit_symmetry_assistance=True)
+
+    def test_containing_sector_refinement_forwards_depth_and_resumes_its_checkpoint(self):
+        self._scratch_native_pause_resume("refine", containing_sector_depth=1, inherited_containing_depth=2)
+
+    def _scratch_native_pause_resume(self, operation, saved_rule_assistance=False,
+                                    containing_sector_depth=0, inherited_containing_depth=0,
+                                    circuit_symmetry_assistance=False):
         # Fake native protocol only; this proves process/checkpoint orchestration,
         # not mathematical correctness or a successful native Rust solve.
         binary = self.campaign / "fake-native"
-        binary.write_text(f"#!{sys.executable}\n" + '''import json, pathlib, sys, time
+        binary.write_text(f"#!{sys.executable}\nexpected_assistance = {saved_rule_assistance and operation == 'refine'}\n"
+                          f"expected_circuit = {circuit_symmetry_assistance and operation == 'refine'}\n"
+                          f"expected_containing_depth = {containing_sector_depth if operation == 'refine' else 0}\n" + '''import json, pathlib, sys, time
 args = sys.argv
 refine = args[1] == 'walk-master-reduce'
 assert ('--seed-depth' in args) == refine
+assert ('--saved-rule-assistance' in args) == expected_assistance
+assert ('--circuit-symmetry-assistance' in args) == expected_circuit
+assert ('--containing-sector-depth' in args) == bool(expected_containing_depth)
+if expected_containing_depth:
+    assert int(args[args.index('--containing-sector-depth') + 1]) == expected_containing_depth
 assert ('--artifact' in args) == refine
 assert ('--command' in args) != refine
 directory = pathlib.Path(args[args.index('--directory') + 1])
@@ -277,7 +505,10 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                     "ram_guard_margin_percent": 5, "host_memory_reserve_bytes": 1_000_000,
                     "swap_growth_stop_bytes_per_second": 0, "swap_growth_stop_seconds": 120}}
         driver = SimpleNamespace(**vars(PRODUCTION))
-        native_policy = {**self.policy, "operation": operation}
+        native_policy = {**self.policy, "operation": operation, "saved_rule_assistance": saved_rule_assistance,
+                         "circuit_symmetry_assistance": circuit_symmetry_assistance,
+                         "containing_sector_depth": containing_sector_depth,
+                         "effective_containing_sector_depth": max(containing_sector_depth, inherited_containing_depth)}
         if operation == "refine":
             native_policy["source_artifact"] = str(self.publish_fixture())
         binding = self.binding()
@@ -304,6 +535,13 @@ event('completed_nonminimal' if refine else 'published_unrefined')
         self.assertEqual(status["state"], expected)
         self.assertEqual(status["master_reduction"]["remaining_terminals"], 3)
         self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["status"], expected)
+        if operation == "refine":
+            self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["circuit_symmetry_assistance"],
+                             circuit_symmetry_assistance)
+            self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["saved_rule_assistance"],
+                             saved_rule_assistance)
+            self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["containing_sector_depth"],
+                             max(containing_sector_depth, inherited_containing_depth))
 
 
 class MasterDashboardTests(unittest.TestCase):

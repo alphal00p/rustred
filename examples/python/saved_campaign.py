@@ -61,6 +61,12 @@ def main(argv=None):
             bounds.add_argument("--unbounded-power-difference", action="store_true", help="remove only the additional stage ceiling")
         if action == "refine":
             sub.add_argument("--seed-depth", type=int, help="finite IBP search depth, unrelated to input rank (default saved preference or 0)")
+            sub.add_argument("--containing-sector-depth", type=int,
+                             help="promote up to N inactive indices to +1 for extra IBP sources (default saved preference or 0)")
+            sub.add_argument("--saved-rule-assistance", action=argparse.BooleanOptionalAction, default=None,
+                             help="include applicable saved-rule and routing equations (default saved refinement preference or off)")
+            sub.add_argument("--circuit-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
+                             help="include native circuit-reflection equations (default saved refinement preference or off)")
         if action == "inspect":
             sub.add_argument("--format", choices=("auto", "table", "json"), default="auto")
     args, extra = parser.parse_known_args(argv)
@@ -89,10 +95,20 @@ def main(argv=None):
                 command += ["--executable", str(executable)]
             if args.action == "refine":
                 command.append("--refine-masters")
+                if args.saved_rule_assistance is not None:
+                    command.append("--master-saved-rule-assistance" if args.saved_rule_assistance
+                                   else "--no-master-saved-rule-assistance")
+                if args.circuit_symmetry_assistance is not None:
+                    command.append("--master-circuit-symmetry-assistance" if args.circuit_symmetry_assistance
+                                   else "--no-master-circuit-symmetry-assistance")
                 if args.seed_depth is not None:
                     if args.seed_depth < 0:
                         raise ValueError("seed depth must be nonnegative")
                     command += ["--master-seed-depth", str(args.seed_depth)]
+                if args.containing_sector_depth is not None:
+                    if args.containing_sector_depth < 0:
+                        raise ValueError("containing-sector depth must be nonnegative")
+                    command += ["--master-containing-sector-depth", str(args.containing_sector_depth)]
             elif args.action == "publish":
                 command.append("--publish-only")
             command += extra

@@ -20,6 +20,8 @@ struct Record {
     fingerprint: String,
     raw: Vec<Vec<i64>>,
     normalization: Vec<u8>,
+    // Exact append-only ordinary-source inventory, including explicit seeds
+    // outside the signed-L1 shell. Decode must not regenerate it from depth.
     seeds: Vec<Vec<i64>>,
     seed_cursor: u64,
     source_cursor: u64,
@@ -37,6 +39,19 @@ struct Record {
     rebuild_cursor: u64,
     completed_rebuild_rows: u64,
 }
+
+// Schema 1 is deliberately unchanged, including unassisted output bytes.
+// Schema 2 appends this state after that same record; both readers share the
+// original structural and Symbolica coefficient validation.
+#[derive(bincode::Encode, bincode::Decode)]
+struct AssistanceRecord {
+    binding: String,
+    pending: Vec<Vec<i64>>,
+    queried: Vec<Vec<i64>>,
+    equations: Vec<(Vec<(Vec<i64>, u32)>, Vec<u32>)>,
+    equation_cursor: u64,
+    completed_rows: u64,
+}
 fn binary(error: impl fmt::Display) -> TerminalRelationError {
     TerminalRelationError::Binary(error.to_string())
 }
@@ -45,6 +60,11 @@ pub(super) fn encode(
     session: &TerminalRelationSession,
     limits: BinaryIoLimits,
 ) -> Result<Vec<u8>, TerminalRelationError> {
+    check(
+        "source conditions",
+        session.conditions.len(),
+        limits.max_collection_entries,
+    )?;
     let mut table = CoefficientTableBuilder::new(limits);
     let family = NativeFamilyRecord::from_family(&session.family, &mut table).map_err(binary)?;
     let mut intern = |c: &Coefficient| table.intern(c).map(|id| id.index() as u32).map_err(binary);
@@ -68,8 +88,49 @@ pub(super) fn encode(
                 .collect::<Result<Vec<_>, TerminalRelationError>>()
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let assistance = session
+        .assistance
+        .as_ref()
+        .map(|a| -> Result<AssistanceRecord, TerminalRelationError> {
+            check(
+                "assistance keys",
+                a.pending.len().saturating_add(a.queried.len()),
+                limits.max_collection_entries,
+            )?;
+            check(
+                "equation-provider binding bytes",
+                a.binding.len(),
+                limits.max_collection_entries,
+            )?;
+            Ok(AssistanceRecord {
+                binding: a.binding.clone(),
+                pending: a.pending.iter().map(|k| k.powers().to_vec()).collect(),
+                queried: a.queried.iter().map(|k| k.powers().to_vec()).collect(),
+                equations: a
+                    .equations
+                    .iter()
+                    .map(|equation| {
+                        Ok((
+                            equation
+                                .terms
+                                .iter()
+                                .map(|(k, c)| Ok((k.powers().to_vec(), intern(c)?)))
+                                .collect::<Result<Vec<_>, TerminalRelationError>>()?,
+                            equation
+                                .nonzero_conditions
+                                .iter()
+                                .map(&mut intern)
+                                .collect::<Result<Vec<_>, _>>()?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, TerminalRelationError>>()?,
+                equation_cursor: a.equation_cursor as u64,
+                completed_rows: a.completed_rows,
+            })
+        })
+        .transpose()?;
     let record = Record {
-        schema: 1,
+        schema: if assistance.is_some() { 2 } else { 1 },
         family,
         fingerprint: session.family.fingerprint().to_owned(),
         raw: session.raw.iter().map(|k| k.powers().to_vec()).collect(),
@@ -102,7 +163,13 @@ pub(super) fn encode(
         rebuild_cursor: session.rebuild_cursor as u64,
         completed_rebuild_rows: session.completed_rebuild_rows,
     };
-    let records = bincode::encode_to_vec(record, bincode::config::standard()).map_err(binary)?;
+    let mut records =
+        bincode::encode_to_vec(record, bincode::config::standard()).map_err(binary)?;
+    if let Some(assistance) = assistance {
+        records.extend(
+            bincode::encode_to_vec(assistance, bincode::config::standard()).map_err(binary)?,
+        );
+    }
     check(
         "checkpoint structural bytes",
         records.len(),
@@ -153,9 +220,54 @@ pub(super) fn decode(
         bincode::config::standard().with_limit::<MAX_STRUCTURAL_BYTES>(),
     )
     .map_err(binary)?;
-    if used != data.len() || record.schema != 1 {
-        return Err(binary("unsupported or trailing terminal-relations records"));
-    }
+    let assistance = match record.schema {
+        1 if used == data.len() => None,
+        2 => {
+            let (record, extra): (AssistanceRecord, usize) = bincode::decode_from_slice(
+                &data[used..],
+                bincode::config::standard().with_limit::<MAX_STRUCTURAL_BYTES>(),
+            )
+            .map_err(binary)?;
+            if used + extra != data.len() {
+                return Err(binary("trailing terminal-relations assistance records"));
+            }
+            check(
+                "assistance keys",
+                record.pending.len().saturating_add(record.queried.len()),
+                io.max_collection_entries.min(
+                    limits
+                        .max_columns
+                        .saturating_add(limits.max_seeds)
+                        .saturating_add(limits.normalization.max_terminals),
+                ),
+            )?;
+            check(
+                "equation-provider binding bytes",
+                record.binding.len(),
+                io.max_collection_entries,
+            )?;
+            check(
+                "pending assistance rows",
+                record.equations.len(),
+                limits.max_rows,
+            )?;
+            let nonzeros = record
+                .equations
+                .iter()
+                .fold(0usize, |n, (terms, _)| n.saturating_add(terms.len()));
+            let conditions = record.equations.iter().fold(0usize, |n, (_, conditions)| {
+                n.saturating_add(conditions.len())
+            });
+            check("pending assistance nonzeros", nonzeros, limits.max_nonzeros)?;
+            check(
+                "pending assistance conditions",
+                conditions,
+                limits.max_nonzeros,
+            )?;
+            Some(record)
+        }
+        _ => return Err(binary("unsupported or trailing terminal-relations records")),
+    };
     check("seeds", record.seeds.len(), limits.max_seeds)?;
     check("columns", record.columns.len(), limits.max_columns)?;
     check(
@@ -348,6 +460,70 @@ pub(super) fn decode(
         return Err(binary("rebuild cursor exceeds row inventory"));
     }
     let terminals = normalization.canonical_terminals().clone();
+    let assistance = assistance
+        .map(
+            |a| -> Result<assistance::Assistance, TerminalRelationError> {
+                let pending_count = a.pending.len();
+                let queried_count = a.queried.len();
+                let pending = a
+                    .pending
+                    .into_iter()
+                    .map(&key)
+                    .collect::<Result<BTreeSet<_>, _>>()?;
+                let queried = a
+                    .queried
+                    .into_iter()
+                    .map(&key)
+                    .collect::<Result<BTreeSet<_>, _>>()?;
+                if a.binding.is_empty()
+                    || pending.len() != pending_count
+                    || queried.len() != queried_count
+                    || !pending.is_disjoint(&queried)
+                {
+                    return Err(binary(
+                        "invalid equation-provider binding or support partition",
+                    ));
+                }
+                let equations = a
+                    .equations
+                    .into_iter()
+                    .map(|(terms, conditions)| {
+                        let count = terms.len();
+                        let terms = terms
+                            .into_iter()
+                            .map(|(k, c)| Ok((key(k)?, coefficient(c)?)))
+                            .collect::<Result<TerminalRelationRow, TerminalRelationError>>()?;
+                        if count != terms.len() {
+                            return Err(binary("duplicate assistance-row key"));
+                        }
+                        Ok(TerminalEquation {
+                            terms,
+                            nonzero_conditions: conditions
+                                .into_iter()
+                                .map(&coefficient)
+                                .collect::<Result<Vec<_>, _>>()?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, TerminalRelationError>>()?;
+                let equation_cursor = usize::try_from(a.equation_cursor).map_err(binary)?;
+                if (equations.is_empty() && equation_cursor != 0)
+                    || (!equations.is_empty()
+                        && (equation_cursor >= equations.len() || queried.is_empty()))
+                    || equation_cursor as u64 > a.completed_rows
+                {
+                    return Err(binary("invalid assistance equation cursor"));
+                }
+                Ok(assistance::Assistance {
+                    binding: a.binding,
+                    pending,
+                    queried,
+                    equations,
+                    equation_cursor,
+                    completed_rows: a.completed_rows,
+                })
+            },
+        )
+        .transpose()?;
     let mut session = TerminalRelationSession {
         family,
         raw,
@@ -357,6 +533,7 @@ pub(super) fn decode(
         seed_cursor,
         source_cursor,
         seed_depth: record.seed_depth,
+        column_offsets: elimination::column_offsets(&columns),
         columns,
         terminals,
         alias_keys,
@@ -368,8 +545,12 @@ pub(super) fn decode(
         rebuild,
         rebuild_cursor,
         completed_rebuild_rows: record.completed_rebuild_rows,
+        assistance,
         limits,
     };
+    if let Some(assistance) = &session.assistance {
+        session.validate_equations(&assistance.equations)?;
+    }
     if !session.alias_keys.is_empty() {
         let (aliases, terminals) = session.make_aliases(&session.alias_keys)?;
         session.aliases = aliases;

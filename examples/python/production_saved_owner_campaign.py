@@ -1073,6 +1073,12 @@ def main(argv=None):
                             help="publish an already completed current checkpoint; never start a solve")
     parser.add_argument("--master-seed-depth", type=int,
                         help="phase-two ordinary-IBP seed depth (default 0); may increase with exact previous-row reuse")
+    parser.add_argument("--master-containing-sector-depth", type=int,
+                        help="only with --refine-masters: promote up to N inactive indices for extra ordinary IBP sources (default saved preference or 0)")
+    parser.add_argument("--master-saved-rule-assistance", action=argparse.BooleanOptionalAction, default=None,
+                        help="only with --refine-masters: add saved-rule/routing equations; omitted resumes the saved preference")
+    parser.add_argument("--master-circuit-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
+                        help="only with --refine-masters: add native circuit-reflection equations; omitted resumes the saved preference")
     parser.add_argument("--master-reduction-executable", type=Path,
                         help="freeze a separate publisher/refiner binary; leaves the original campaign binary and CP6 untouched")
     parser.add_argument("--upgrade-executable", type=Path, metavar="NEW",
@@ -1195,7 +1201,10 @@ def main(argv=None):
     phases = PHASES
     try:
         phase_policy = phases.configuration(campaign, args.refine_masters, args.master_seed_depth,
-                                            args.master_reduction_executable)
+                                            args.master_reduction_executable,
+                                            saved_rule_assistance=args.master_saved_rule_assistance,
+                                            containing_sector_depth=args.master_containing_sector_depth,
+                                            circuit_symmetry_assistance=args.master_circuit_symmetry_assistance)
     except (OSError, ValueError, TypeError) as error:
         parser.error(str(error))
     if (args.epoch_inspector_lookup is not None or args.epoch_rolling or args.epoch_dispatch is not None

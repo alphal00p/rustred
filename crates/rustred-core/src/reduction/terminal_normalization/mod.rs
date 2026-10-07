@@ -13,12 +13,16 @@
 //! Unsupported terminals are retained, and neither minimality nor closure is
 //! claimed. Application/cache integration is deliberately separate.
 
+mod circuit_equations;
 mod corank_one;
 mod model;
 mod parametric;
 mod products;
 mod weighted;
 
+pub use circuit_equations::{
+    TerminalCircuitEquations, TerminalCircuitLimits, TerminalCircuitStatistics,
+};
 pub use model::{
     ProductSkipReason, TerminalAliasError, TerminalAliasPlan, TerminalAliasStatistics,
     TerminalAliasWitness, VerifiedTerminalAlias,

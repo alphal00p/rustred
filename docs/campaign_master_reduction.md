@@ -15,6 +15,12 @@ python -B examples/python/saved_campaign.py extend --campaign /path/to/campaign 
   --rank 1 --max-power-difference 10
 python -B examples/python/saved_campaign.py refine --campaign /path/to/campaign \
   --seed-depth 0
+python -B examples/python/saved_campaign.py refine --campaign /path/to/campaign \
+  --seed-depth 0 --saved-rule-assistance
+python -B examples/python/saved_campaign.py refine --campaign /path/to/campaign \
+  --seed-depth 0 --containing-sector-depth 1
+python -B examples/python/saved_campaign.py refine --campaign /path/to/campaign \
+  --seed-depth 0 --circuit-symmetry-assistance
 ```
 
 Inputs must already be staged. `run` automatically resumes an existing
@@ -62,9 +68,75 @@ a new phase-two search scope and passes the prior completed artifact to Rust
 for validated reuse of its exact rows. Depth cannot silently decrease. The
 seed depth is **not** the input numerator-rank cap.
 
+`refine --containing-sector-depth 1` adds ordinary IBP source points by setting
+one nonpositive index of each raw terminal directly to `+1`; depth `2` also
+includes every pair of such promotions. This is a different finite source
+selection from the signed-L1 `--seed-depth` neighborhood: a negative index can
+jump several powers. All other indices stay unchanged. These extra sources
+are not declared terminals, and their higher-sector columns remain in the
+exact elimination. Ordinary source guards and seed/resource limits still
+apply, with no mass or factorization assumption about the promoted slot.
+
+Containing-sector depth defaults to `0` (disabled), is nonnegative and cannot
+exceed the native family's arity. It is remembered only as a preference for
+later explicit refinement and cannot decrease; inherited deeper work is
+retained and reported at its effective depth. A changed depth selects its own
+checkpoint. The low-level spelling is `--master-containing-sector-depth N`,
+requiring `--refine-masters`; ordinary run, extension and publication never
+activate this search. It can be combined with saved-rule assistance but does
+not imply a smaller basis or a minimality proof.
+
+`refine --circuit-symmetry-assistance` independently enables finite exact
+equations from the native verified unit-circuit transformations. The supported
+geometry is unshifted unit-mass vacuum integrals with full-rank `L+1` active
+supports and unit primitive circuits. The native transport retains positive
+dots and expands finite numerator powers, keeping every resulting auxiliary
+term. Unsupported geometries are skipped; a terminal declaration is not an
+equation. This option neither increases the ordinary seed depth nor enables
+saved candidate equations. It can be combined with the other explicit search
+options and does not establish a minimal-master or numerical-value claim.
+
+`refine --saved-rule-assistance` opts into additional exact equations from the
+portable package's applicable saved rules and verified weighted routes. The
+ordinary IBP seed budget is unchanged. Both sides of each equation remain in
+the sparse system, including unresolved integrals outside the starting rank
+or power-difference bounds. A terminal declaration supplies no equation.
+The saved rules retain their candidate authority: exact specialization does
+not independently replay their source derivations. The resulting count is a
+finite symbolic spanning list, with generic-parameter conditions; it is not a
+claim of independent or numerical masters.
+
+The default remains ordinary refinement. Once explicitly chosen, the mode is
+remembered for subsequent explicit `refine` resumes. Use
+`refine --no-saved-rule-assistance --no-circuit-symmetry-assistance` for an
+ordinary-source comparison; each flag independently disables its provider.
+Changing either mode
+selects a distinct refinement checkpoint and starts a fresh finite search
+when the source artifact used the other mode; it does not rerun the campaign
+solver or modify the source package. A paused ordinary cursor is never resumed
+as assisted work. The low-level launcher spells these options
+`--master-saved-rule-assistance` and `--no-master-saved-rule-assistance`, both
+requiring `--refine-masters`. Ordinary run, publication and extension never
+start refinement merely because this preference was saved.
+
+The circuit option follows the same explicit-only, independently remembered
+boolean policy. Its low-level flags are `--master-circuit-symmetry-assistance`
+and `--no-master-circuit-symmetry-assistance`. The four provider combinations
+have distinct checkpoint bindings. Circuit-only refinement does not inherit
+saved candidate-rule authority; combining providers preserves that authority
+distinction. Already completed containing-sector and signed-L1 depths are
+retained when a provider-mode change starts a new finite search.
+
+Current experimental limitation: publishing a larger scope cannot yet import
+an assisted refinement's native state. It reports an explicit error rather
+than silently dropping those relations. The original publication and assisted
+result remain intact; ordinary-refinement scope reuse is unchanged. Use
+isolated native artifact refinement for comparisons until assisted
+rebuild-only publication is available.
+
 The current finite exact elimination uses one incremental Symbolica reducer.
-The worker budget parallelizes cold scope reinspection, not that row stream;
-the dashboard reports measured CPU usage rather than implying all reserved
+The worker budget parallelizes cold scope reinspection and saved-route
+verification. The dashboard reports measured CPU usage rather than implying all reserved
 workers are busy throughout post-processing.
 
 ## Stop, resume and enlarge the input scope
@@ -155,7 +227,21 @@ separate. Native-only manual refinement of a copied package is also possible:
 ```bash
 target/release/rustred walk-master-reduce --artifact /path/to/published-package \
   --directory /path/to/new-refinement --seed-depth 0
+# Optional saved-rule assistance, in a separate output directory:
+target/release/rustred walk-master-reduce --artifact /path/to/published-package \
+  --directory /path/to/assisted-refinement --seed-depth 0 --saved-rule-assistance
+# Optional verified circuit equations, independently of saved candidate rules:
+target/release/rustred walk-master-reduce --artifact /path/to/published-package \
+  --directory /path/to/circuit-refinement --seed-depth 0 --circuit-symmetry-assistance
 ```
+
+Legacy ordinary native checkpoints remain readable. Assisted checkpoints use
+the native version that also stores the fixed provider binding, pending
+equations and their progress. Resume requires the same provider flags:
+`--saved-rule-assistance` and/or `--circuit-symmetry-assistance` when selected.
+The package supplies owners and
+routes directly for saved-rule assistance, without a CP6 reload or scope
+reinspection; circuit-only preparation does not require saved-rule dispatch.
 
 The package preserves original native programs, routing and exact terminal
 substitutions for subsequent Vakint integration. The saved-campaign routed
@@ -169,7 +255,7 @@ keeps every unresolved auxiliary column; it does not drop uncovered terms.
 The steering tests cover default publication, explicit-only refinement,
 checkpoint/amendment binding, rank and power-difference widening, monotone
 search deepening, frozen phase-two executable isolation, process ownership,
-Ctrl+C/save/resume, and structured non-TTY output. Native mathematical and
+Ctrl+C/save/resume, assistance-mode isolation and structured non-TTY output. Native mathematical and
 checkpoint replay checks are separate from these Python protocol tests.
 
 Publication and refinement tables were visually reviewed at 80×24 and 150×32.

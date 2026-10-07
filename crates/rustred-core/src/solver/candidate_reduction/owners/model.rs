@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use crate::algebra::IndexedCoefficientContext;
+use crate::algebra::{Coefficient, IndexedCoefficientContext};
 use crate::family::{IntegralFamily, IntegralKey};
 use crate::reduction::ReductionLimits;
 use crate::sector::OrderingPolicy;
@@ -17,6 +17,28 @@ use super::super::preparation::shared::PreparedFamily;
 pub struct CandidateOwnerScope {
     pub max_numerator_rank: Option<u32>,
     pub finite_case_policy: FiniteCasePolicy,
+}
+
+/// A specialized saved candidate equation `sum(terms) = 0`.
+///
+/// Coefficients are exact, but original-source provenance has NOT been
+/// replayed. This record must retain candidate authority when composed with
+/// independently certified identities. A declared terminal supplies no row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CandidateIntegralIdentity {
+    /// Homogeneous target minus RHS, with equal integral keys coalesced.
+    pub terms: BTreeMap<IntegralKey, Coefficient>,
+    /// Sufficient generic-parameter conditions, all required nonzero. These
+    /// retain original denominators, inherited source conditions, and one
+    /// nonzero witness per excluded AND-zero exception branch. Choosing a
+    /// witness can restrict the dimension domain more than the full branch;
+    /// this is not a claim to describe the maximal applicability domain.
+    pub nonzero_conditions: Vec<Coefficient>,
+    /// Exact positive-support owner, followed by zero-based saved batch and
+    /// rule ordinals. These identify a candidate, not a replay certificate.
+    pub owner: Vec<bool>,
+    pub batch: usize,
+    pub rule: usize,
 }
 
 /// One original saved sector with its own root and ordering.

@@ -1,5 +1,6 @@
 //! Optional finite, resumable master-candidate reduction after a saved walk.
 //! CP6 coverage and finite IBP row-span identities remain distinct authorities.
+mod assistance;
 mod refine;
 mod storage;
 #[cfg(test)]
@@ -38,6 +39,15 @@ pub struct MasterReductionOptions {
     pub resume: bool,
     pub threads: usize,
     pub seed_depth: u32,
+    /// Maximum number of nonpositive slots promoted to +1 in an additional
+    /// finite ordinary-IBP seed set. These seeds are not new terminals.
+    pub containing_sector_depth: u32,
+    /// Incorporate applicable saved candidate equations at finite source support.
+    /// This does not upgrade their original-source provenance authority.
+    pub saved_rule_assistance: bool,
+    /// Add verified circuit-symmetry equations for raw and normalized terminals.
+    /// Does not load or certify saved candidate rules.
+    pub circuit_symmetry_assistance: bool,
     pub checkpoint_interval: Duration,
     pub operation: MasterReductionOperation,
 }
@@ -51,6 +61,9 @@ impl MasterReductionOptions {
             resume: false,
             threads: 1,
             seed_depth: 0,
+            containing_sector_depth: 0,
+            saved_rule_assistance: false,
+            circuit_symmetry_assistance: false,
             checkpoint_interval: Duration::from_secs(3600),
             operation: MasterReductionOperation::Refine,
         }
@@ -122,9 +135,24 @@ pub fn master_reduce_saved_campaign(
             "threads and checkpoint interval must be positive",
         ));
     }
+    if (options.saved_rule_assistance
+        || options.circuit_symmetry_assistance
+        || options.containing_sector_depth != 0)
+        && options.operation != MasterReductionOperation::Refine
+    {
+        return Err(AppError::input(
+            "additional terminal-search strategies require explicit refinement",
+        ));
+    }
     let _lock = storage::WriterLock::acquire(&options.directory)?;
     let started = Instant::now();
-    let binding = storage::scope_binding(request, &options.checkpoint, options.seed_depth)?;
+    let binding = storage::scope_binding(
+        request,
+        &options.checkpoint,
+        options.seed_depth,
+        options.containing_sector_depth,
+        options.circuit_symmetry_assistance,
+    )?;
     let manifest_path = options.directory.join("latest.json");
     let mut report = if options.resume {
         let report = read_json(&manifest_path)?;
@@ -133,7 +161,14 @@ pub fn master_reduce_saved_campaign(
                 "master checkpoint belongs to a different scope or seed depth; start a new phase directory",
             ));
         }
-        if report["operation"].as_str().unwrap_or("refine") != operation_name(options.operation) {
+        if report["operation"].as_str().unwrap_or("refine") != operation_name(options.operation)
+            || report["saved_rule_assistance"].as_bool().unwrap_or(false)
+                != options.saved_rule_assistance
+            || report["circuit_symmetry_assistance"]
+                .as_bool()
+                .unwrap_or(false)
+                != options.circuit_symmetry_assistance
+        {
             return Err(AppError::input(
                 "cannot change a saved phase operation in place; refine a published artifact into a new directory",
             ));
@@ -158,6 +193,7 @@ pub fn master_reduce_saved_campaign(
             && report["status"] == "published_unrefined")
     {
         let session = load_master_reduction(&options.directory)?;
+        assistance::validate(options, &session, &report)?;
         if report["status"] == "completed_nonminimal" && !session.is_complete() {
             return Err(AppError::input(
                 "completed manifest has unfinished native session",
@@ -168,6 +204,8 @@ pub fn master_reduce_saved_campaign(
         return Ok(report);
     }
     report["operation"] = json!(operation_name(options.operation));
+    report["saved_rule_assistance"] = json!(options.saved_rule_assistance);
+    report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);
     report["status"] = json!("running");
     report["scope"] = storage::scope_summary(request)?;
     write_json(&manifest_path, &report)?;
@@ -244,14 +282,19 @@ fn run(
         )
         .map_err(|_| AppError::input("cold verifier did not return prepared owner identities"))?;
         report["inputs"] = storage::package_inputs(request, &options.directory, &digests)?;
-        if storage::scope_binding(request, &options.checkpoint, options.seed_depth)?
-            != report["scope_binding"]
+        if storage::scope_binding(
+            request,
+            &options.checkpoint,
+            options.seed_depth,
+            options.containing_sector_depth,
+            options.circuit_symmetry_assistance,
+        )? != report["scope_binding"]
         {
             return Err(AppError::input(
                 "saved scope changed while preparing master reduction",
             ));
         }
-        let session = if let Some(previous) = &options.previous_artifact {
+        let mut session = if let Some(previous) = &options.previous_artifact {
             let previous_report = master_reduction_inspect(previous)?;
             if !matches!(
                 previous_report["status"].as_str(),
@@ -278,6 +321,11 @@ fn run(
                 )
                 .map_err(io)?;
             report["reused_previous_stage"] = json!(previous_report["scope_binding"]);
+            report["containing_sector_depth"] = json!(
+                previous_report["containing_sector_depth"]
+                    .as_u64()
+                    .unwrap_or(0)
+            );
             previous_session
         } else {
             TerminalRelationSession::new(
@@ -288,6 +336,7 @@ fn run(
             )
             .map_err(io)?
         };
+        assistance::configure(options, &mut session, report)?;
         save(options, &session, report, "running", started, observer)?;
         session
     };
@@ -302,6 +351,7 @@ fn execute_session(
     observer: &impl Fn(Value),
     started: Instant,
 ) -> Result<(), AppError> {
+    let mut provider = assistance::prepare(options, session, report, cancel, observer, started)?;
     let mut last_checkpoint = Instant::now();
     let mut last_event = Instant::now();
     while !session.is_complete() && !cancel.load(Ordering::Relaxed) {
@@ -312,7 +362,11 @@ fn execute_session(
         {
             break;
         }
-        session.step(cancel).map_err(io)?;
+        if let Some(provider) = &mut provider {
+            session.step_with_provider(cancel, provider).map_err(io)?;
+        } else {
+            session.step(cancel).map_err(io)?;
+        }
         if last_event.elapsed() >= Duration::from_millis(250) {
             update_stats(report, &session);
             observer(event(report, "master_reduction_progress", started));
@@ -361,7 +415,11 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     // The core owns all algebraic counts and work cursors; this is only their
     // presentation/transport boundary, shared by CLI and notebook consumers.
     let stats = session.statistics();
-    report["stage"] = json!(if stats.pending_rebuild_rows > 0 {
+    report["stage"] = json!(if stats.pending_assistance_keys > 0
+        || stats.pending_assistance_rows > 0
+    {
+        "assisted_equations"
+    } else if stats.pending_rebuild_rows > 0 {
         "elimination"
     } else {
         "relations"
@@ -370,9 +428,16 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     report["normalized_terminals"] = json!(initially_normalized);
     report["algebraic_basis_terminals"] = json!(stats.normalized_terminals);
     report["relation_rows"] = json!(stats.completed_source_rows);
-    report["completed_work"] = json!(stats.completed_source_rows + stats.completed_rebuild_rows);
+    let assistance_done = stats.completed_assistance_rows + stats.completed_assistance_keys as u64;
+    report["completed_work"] =
+        json!(stats.completed_source_rows + stats.completed_rebuild_rows + assistance_done);
     report["total_work"] = json!(
-        stats.total_source_rows + stats.completed_rebuild_rows + stats.pending_rebuild_rows as u64
+        stats.total_source_rows
+            + stats.completed_rebuild_rows
+            + stats.pending_rebuild_rows as u64
+            + assistance_done
+            + stats.pending_assistance_keys as u64
+            + stats.pending_assistance_rows as u64
     );
     report["independent_rows"] = json!(stats.independent_rows);
     report["columns"] = json!(stats.columns);
@@ -386,6 +451,10 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
         json!(initially_normalized.saturating_sub(stats.remaining_terminals));
     report["terminal_relations"] = json!(stats.terminal_relations);
     report["seed_depth"] = json!(stats.seed_depth);
+    report["completed_assistance_keys"] = json!(stats.completed_assistance_keys);
+    report["pending_assistance_keys"] = json!(stats.pending_assistance_keys);
+    report["completed_assistance_rows"] = json!(stats.completed_assistance_rows);
+    report["pending_assistance_rows"] = json!(stats.pending_assistance_rows);
     report["refinement_complete"] = json!(stats.complete);
     report["capabilities"] = json!({
         "saved_scope_coverage_verified": report["inventory"]["complete"] == true,

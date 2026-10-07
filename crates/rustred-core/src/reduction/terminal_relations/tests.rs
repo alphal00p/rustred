@@ -2,6 +2,8 @@ use super::*;
 use crate::algebra::CoefficientContext;
 use crate::family::AffineDenominator;
 
+mod source_seeds;
+
 fn tadpole() -> Arc<IntegralFamily> {
     let c = CoefficientContext::new(["d"]);
     Arc::new(
@@ -267,4 +269,358 @@ fn fill_admission_never_makes_a_checkpoint_exceed_its_own_nonzero_limit() {
     let loaded =
         TerminalRelationSession::from_native_bytes(&bytes, limits, Default::default()).unwrap();
     assert_eq!(loaded.statistics(), before);
+}
+
+fn assisted_tadpole() -> TerminalRelationSession {
+    let mut session = TerminalRelationSession::new(
+        tadpole(),
+        BTreeSet::from([key(1), key(3)]),
+        0,
+        Default::default(),
+    )
+    .unwrap();
+    session
+        .enable_assistance("fixed-test-authority".into())
+        .unwrap();
+    session
+}
+
+fn saved_middle_equations(family: &IntegralFamily) -> Vec<TerminalEquation> {
+    // The saved middle recurrence is absent from the depth-zero ordinary
+    // worklist, but closes its gap between the two requested terminals.
+    let (terms, mut conditions) = sources::Sources::new(family)
+        .unwrap()
+        .row(&key(2), 0, Default::default())
+        .unwrap();
+    conditions.push(family.coefficient_context().parameter("d").unwrap());
+    let equation = TerminalEquation {
+        terms,
+        nonzero_conditions: conditions,
+    };
+    vec![equation.clone(), equation]
+}
+
+#[test]
+fn assisted_exact_rows_match_larger_ordinary_reference_and_reuse_keys() {
+    let mut assisted = assisted_tadpole();
+    let equations = saved_middle_equations(assisted.family_owner());
+    let mut queries = Vec::new();
+    for _ in 0..1000 {
+        if assisted.is_complete() {
+            break;
+        }
+        assisted
+            .step_with_provider(&AtomicBool::new(false), |target| {
+                queries.push(target.clone());
+                Ok(if target == &key(2) {
+                    equations.clone()
+                } else {
+                    vec![]
+                })
+            })
+            .unwrap();
+    }
+    assert!(assisted.is_complete());
+    assert_eq!(queries.len(), queries.iter().collect::<BTreeSet<_>>().len());
+    assert_eq!(
+        queries.iter().cloned().collect::<BTreeSet<_>>(),
+        BTreeSet::from([key(1), key(2), key(3), key(4)])
+    );
+    assert_eq!(assisted.statistics().completed_assistance_rows, 2);
+    assert!(
+        assisted.nonzero_conditions().contains(
+            &assisted
+                .family_owner()
+                .coefficient_context()
+                .parameter("d")
+                .unwrap()
+        )
+    );
+    let mut reference = TerminalRelationSession::new(
+        tadpole(),
+        BTreeSet::from([key(1), key(3)]),
+        1,
+        Default::default(),
+    )
+    .unwrap();
+    finish(&mut reference);
+    assert_eq!(
+        assisted.remaining_terminals(),
+        reference.remaining_terminals()
+    );
+    assert_eq!(
+        assisted.apply_terminal(&key(3)).unwrap(),
+        reference.apply_terminal(&key(3)).unwrap()
+    );
+
+    let mut ordinary = TerminalRelationSession::new(
+        tadpole(),
+        BTreeSet::from([key(1), key(3)]),
+        0,
+        Default::default(),
+    )
+    .unwrap();
+    finish(&mut ordinary);
+    assert_eq!(ordinary.statistics().remaining_terminals, 2);
+    assert_eq!(assisted.statistics().remaining_terminals, 1);
+    assert_eq!(
+        ordinary.statistics().completed_source_rows,
+        assisted.statistics().completed_source_rows
+    );
+}
+
+#[test]
+fn assistance_children_stay_unresolved_and_do_not_expand_provider_work() {
+    let family = tadpole();
+    let c = family.coefficient_context();
+    let equation = TerminalEquation {
+        terms: BTreeMap::from([(key(1), c.one()), (key(99), c.integer(-1))]),
+        nonzero_conditions: vec![],
+    };
+    let mut session =
+        TerminalRelationSession::new(family, BTreeSet::from([key(1)]), 0, Default::default())
+            .unwrap();
+    session.enable_assistance("finite-support".into()).unwrap();
+    let mut queries = Vec::new();
+    for _ in 0..100 {
+        if session.is_complete() {
+            break;
+        }
+        session
+            .step_with_provider(&AtomicBool::new(false), |target| {
+                queries.push(target.clone());
+                assert_ne!(target, &key(99));
+                Ok(if target == &key(1) {
+                    vec![equation.clone()]
+                } else {
+                    vec![]
+                })
+            })
+            .unwrap();
+    }
+    assert!(session.is_complete());
+    assert_eq!(queries, vec![key(1), key(2)]);
+    assert!(session.columns.contains(&key(99)));
+    assert_eq!(session.remaining_terminals(), BTreeSet::from([key(1)]));
+    assert_eq!(
+        session.apply_terminal(&key(1)).unwrap(),
+        BTreeMap::from([(key(1), session.family_owner().coefficient_context().one())])
+    );
+}
+
+#[test]
+fn assistance_checkpoint_at_every_boundary_preserves_requests_rows_and_conditions() {
+    let mut continuous = assisted_tadpole();
+    let mut resumed = assisted_tadpole();
+    let equations = saved_middle_equations(continuous.family_owner());
+    let mut continuous_queries = Vec::new();
+    let mut resumed_queries = Vec::new();
+    for _ in 0..1000 {
+        if continuous.is_complete() {
+            break;
+        }
+        continuous
+            .step_with_provider(&AtomicBool::new(false), |target| {
+                continuous_queries.push(target.clone());
+                Ok(if target == &key(2) {
+                    equations.clone()
+                } else {
+                    vec![]
+                })
+            })
+            .unwrap();
+        let before = resumed.statistics();
+        resumed
+            .step_with_provider(&AtomicBool::new(true), |_| {
+                panic!("cancelled provider called")
+            })
+            .unwrap();
+        assert_eq!(before, resumed.statistics());
+        resumed
+            .step_with_provider(&AtomicBool::new(false), |target| {
+                resumed_queries.push(target.clone());
+                Ok(if target == &key(2) {
+                    equations.clone()
+                } else {
+                    vec![]
+                })
+            })
+            .unwrap();
+        let bytes = resumed.to_native_bytes(Default::default()).unwrap();
+        resumed = TerminalRelationSession::from_native_bytes(
+            &bytes,
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+        resumed
+            .enable_assistance("fixed-test-authority".into())
+            .unwrap();
+        assert!(
+            resumed
+                .enable_assistance("changed-authority".into())
+                .is_err()
+        );
+        assert_eq!(continuous.statistics(), resumed.statistics());
+        assert_eq!(continuous.basis_rows(), resumed.basis_rows());
+        assert_eq!(
+            continuous.nonzero_conditions(),
+            resumed.nonzero_conditions()
+        );
+    }
+    assert!(continuous.is_complete() && resumed.is_complete());
+    assert_eq!(continuous_queries, resumed_queries);
+    assert_eq!(continuous.terminal_rules(), resumed.terminal_rules());
+    assert!(resumed.step(&AtomicBool::new(false)).is_err());
+}
+
+#[test]
+fn assistance_validation_provider_and_admission_errors_preserve_retry_boundaries() {
+    let mut session = assisted_tadpole();
+    let before = session.statistics();
+    assert!(
+        session
+            .step_with_provider(&AtomicBool::new(false), |_| Err(invalid(
+                "provider failure"
+            )))
+            .is_err()
+    );
+    assert_eq!(before, session.statistics());
+    let c = session.family_owner().coefficient_context();
+    let invalid_equation = TerminalEquation {
+        terms: BTreeMap::from([(key(1), c.one())]),
+        nonzero_conditions: vec![c.zero()],
+    };
+    assert!(
+        session
+            .step_with_provider(&AtomicBool::new(false), |_| Ok(vec![
+                invalid_equation.clone()
+            ]))
+            .is_err()
+    );
+    assert_eq!(before, session.statistics());
+
+    let family = tadpole();
+    let equation = TerminalEquation {
+        terms: BTreeMap::from([
+            (key(1), family.coefficient_context().one()),
+            (key(99), family.coefficient_context().integer(-1)),
+        ]),
+        nonzero_conditions: vec![],
+    };
+    let limits = TerminalRelationLimits {
+        max_columns: 1,
+        ..Default::default()
+    };
+    let mut session =
+        TerminalRelationSession::new(family, BTreeSet::from([key(1)]), 0, limits).unwrap();
+    session.enable_assistance("column-limit".into()).unwrap();
+    session
+        .step_with_provider(&AtomicBool::new(false), |_| Ok(vec![equation.clone()]))
+        .unwrap();
+    let before = session.statistics();
+    assert!(
+        session
+            .step_with_provider(&AtomicBool::new(false), |_| panic!(
+                "cached provider called again"
+            ))
+            .is_err()
+    );
+    assert_eq!(before, session.statistics());
+    let bytes = session.to_native_bytes(Default::default()).unwrap();
+    let mut resumed =
+        TerminalRelationSession::from_native_bytes(&bytes, limits, Default::default()).unwrap();
+    assert_eq!(before, resumed.statistics());
+    assert!(
+        resumed
+            .step_with_provider(&AtomicBool::new(false), |_| panic!(
+                "cached provider called again"
+            ))
+            .is_err()
+    );
+    assert_eq!(before, resumed.statistics());
+}
+
+#[test]
+fn old_unassisted_checkpoint_remains_v1_and_can_bind_before_sources() {
+    use crate::persistence::{SectionTag, inspect_program};
+    let mut session =
+        TerminalRelationSession::new(tadpole(), BTreeSet::from([key(1)]), 0, Default::default())
+            .unwrap();
+    let bytes = session.to_native_bytes(Default::default()).unwrap();
+    let envelope = inspect_program(&bytes, Default::default()).unwrap();
+    assert_eq!(envelope.section(SectionTag::PROGRAM).unwrap()[0], 1);
+    let mut loaded =
+        TerminalRelationSession::from_native_bytes(&bytes, Default::default(), Default::default())
+            .unwrap();
+    loaded.enable_assistance("v1-upgrade".into()).unwrap();
+    let bytes = loaded.to_native_bytes(Default::default()).unwrap();
+    let envelope = inspect_program(&bytes, Default::default()).unwrap();
+    assert_eq!(envelope.section(SectionTag::PROGRAM).unwrap()[0], 2);
+    session.step(&AtomicBool::new(false)).unwrap();
+    assert!(session.enable_assistance("too-late".into()).is_err());
+}
+
+#[test]
+fn empty_provider_preserves_ordinary_rows_and_assisted_extension_reuses_queries() {
+    let mut ordinary = TerminalRelationSession::new(
+        tadpole(),
+        BTreeSet::from([key(1), key(3)]),
+        0,
+        Default::default(),
+    )
+    .unwrap();
+    finish(&mut ordinary);
+    let mut assisted = assisted_tadpole();
+    let mut queries = Vec::new();
+    for _ in 0..1000 {
+        if assisted.is_complete() {
+            break;
+        }
+        assisted
+            .step_with_provider(&AtomicBool::new(false), |target| {
+                queries.push(target.clone());
+                Ok(vec![])
+            })
+            .unwrap();
+    }
+    assert!(assisted.is_complete());
+    assert_eq!(assisted.basis_rows(), ordinary.basis_rows());
+    assert_eq!(assisted.terminal_rules(), ordinary.terminal_rules());
+    let completed = assisted.statistics().completed_source_rows;
+    // I(2) was already queried as ordinary support; promoting it to a target
+    // must not request its equations again after the persisted basis rebuild.
+    assisted.extend(&BTreeSet::from([key(2)]), 1).unwrap();
+    assert_eq!(assisted.statistics().completed_source_rows, completed);
+    let bytes = assisted.to_native_bytes(Default::default()).unwrap();
+    assisted =
+        TerminalRelationSession::from_native_bytes(&bytes, Default::default(), Default::default())
+            .unwrap();
+    for _ in 0..1000 {
+        if assisted.is_complete() {
+            break;
+        }
+        assisted
+            .step_with_provider(&AtomicBool::new(false), |target| {
+                queries.push(target.clone());
+                Ok(vec![])
+            })
+            .unwrap();
+    }
+    assert!(assisted.is_complete());
+    assert_eq!(queries.len(), queries.iter().collect::<BTreeSet<_>>().len());
+    let mut reference = TerminalRelationSession::new(
+        tadpole(),
+        BTreeSet::from([key(1), key(2), key(3)]),
+        1,
+        Default::default(),
+    )
+    .unwrap();
+    finish(&mut reference);
+    for target in [key(1), key(2), key(3)] {
+        assert_eq!(
+            assisted.apply_terminal(&target).unwrap(),
+            reference.apply_terminal(&target).unwrap()
+        );
+    }
 }

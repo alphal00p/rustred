@@ -3,7 +3,7 @@
 //! This does not generate IBPs, certify coverage or assert master independence.
 
 mod prepare;
-mod projection;
+pub(super) mod projection;
 #[cfg(test)]
 mod tests;
 
@@ -201,6 +201,7 @@ impl TerminalNormalizationPlan {
 pub enum TerminalNormalizationError {
     Alias(TerminalAliasError),
     Binary(BinaryIoError),
+    Transport(crate::sector::symmetry::integral_transport::Error),
     ExactAlgebra(String),
     InvalidWitness(&'static str),
     Limit {
@@ -215,6 +216,7 @@ impl fmt::Display for TerminalNormalizationError {
         match self {
             Self::Alias(e) => e.fmt(f),
             Self::Binary(e) => e.fmt(f),
+            Self::Transport(e) => e.fmt(f),
             Self::ExactAlgebra(e) => write!(f, "terminal normalization exact algebra: {e}"),
             Self::InvalidWitness(e) => write!(f, "invalid terminal normalization witness: {e}"),
             Self::Limit {
@@ -237,6 +239,11 @@ impl From<TerminalAliasError> for TerminalNormalizationError {
 impl From<BinaryIoError> for TerminalNormalizationError {
     fn from(e: BinaryIoError) -> Self {
         Self::Binary(e)
+    }
+}
+impl From<crate::sector::symmetry::integral_transport::Error> for TerminalNormalizationError {
+    fn from(e: crate::sector::symmetry::integral_transport::Error) -> Self {
+        Self::Transport(e)
     }
 }
 

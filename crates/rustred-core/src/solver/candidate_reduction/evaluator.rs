@@ -1,6 +1,8 @@
 //! The single exact one-step evaluator shared by candidate callers.
-use super::model::{CandidateReductionError, PreparedRule};
-use crate::algebra::{Coefficient, IndexedCoefficientContext, IndexedPolynomial};
+use super::model::{CandidateReductionError, PreparedRule, PreparedTerm};
+use crate::algebra::{
+    Coefficient, CoefficientPolynomial, IndexedCoefficientContext, IndexedPolynomial,
+};
 use crate::family::IntegralKey;
 use crate::reduction::{
     ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics,
@@ -25,6 +27,14 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
         &self,
         target: &IntegralKey,
     ) -> Result<(), CandidateReductionError> {
+        self.validate_target_with_conditions(target, &mut |_| {})
+    }
+
+    fn validate_target_with_conditions(
+        &self,
+        target: &IntegralKey,
+        nonzero: &mut impl FnMut(&CoefficientPolynomial),
+    ) -> Result<(), CandidateReductionError> {
         if target.powers().len() != N {
             return Err(ReductionError::WrongArity {
                 expected: N,
@@ -43,20 +53,18 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
             });
         }
         for (ordinal, condition) in self.source_conditions.iter().enumerate() {
-            if self
-                .context
-                .specialize_polynomial_sealed(
-                    condition,
-                    target.powers(),
-                    self.limits.indexed_algebra,
-                )?
-                .is_zero()
-            {
+            let condition = self.context.specialize_polynomial_sealed(
+                condition,
+                target.powers(),
+                self.limits.indexed_algebra,
+            )?;
+            if condition.is_zero() {
                 return Err(CandidateReductionError::SourceConditionVanished {
                     target: target.clone(),
                     ordinal,
                 });
             }
+            nonzero(&condition);
         }
         Ok(())
     }
@@ -103,6 +111,15 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
         rule: &PreparedRule<N>,
         target: &IntegralKey,
     ) -> Result<bool, CandidateReductionError> {
+        self.applicable_with_conditions(rule, target, &mut |_| {})
+    }
+
+    fn applicable_with_conditions(
+        &self,
+        rule: &PreparedRule<N>,
+        target: &IntegralKey,
+        nonzero: &mut impl FnMut(&CoefficientPolynomial),
+    ) -> Result<bool, CandidateReductionError> {
         if rule
             .fixed
             .iter()
@@ -129,16 +146,17 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
         for branch in &rule.exceptions {
             let mut all_zero = true;
             for condition in branch {
-                if !self
-                    .context
-                    .specialize_polynomial_sealed(
-                        condition,
-                        target.powers(),
-                        self.limits.indexed_algebra,
-                    )?
-                    .is_zero()
-                {
+                let condition = self.context.specialize_polynomial_sealed(
+                    condition,
+                    target.powers(),
+                    self.limits.indexed_algebra,
+                )?;
+                if !condition.is_zero() {
                     all_zero = false;
+                    // One nonzero witness suffices to avoid this AND-zero
+                    // branch. Retaining every factor as nonzero would split
+                    // the original conjunction into stronger exclusions.
+                    nonzero(&condition);
                     break;
                 }
             }
@@ -149,17 +167,15 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
         // Test every original denominator before coefficient cancellation
         // or RHS coalescing. An undefined formula is not a zero identity.
         for term in &rule.rhs {
-            if self
-                .context
-                .specialize_polynomial_sealed(
-                    &term.denominator,
-                    target.powers(),
-                    self.limits.indexed_algebra,
-                )?
-                .is_zero()
-            {
+            let denominator = self.context.specialize_polynomial_sealed(
+                &term.denominator,
+                target.powers(),
+                self.limits.indexed_algebra,
+            )?;
+            if denominator.is_zero() {
                 return Ok(false);
             }
+            nonzero(&denominator);
         }
         Ok(true)
     }
@@ -173,34 +189,11 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
     ) -> Result<BTreeMap<IntegralKey, Coefficient>, CandidateReductionError> {
         let mut result = BTreeMap::new();
         for term in &rule.rhs {
-            let (coefficient, _) = self.context.specialize_sealed(
-                &term.coefficient,
-                target.powers(),
-                self.limits.indexed_algebra,
-            )?;
-            if coefficient.is_zero() {
+            let Some((child, coefficient)) =
+                self.specialize_term(rule, term, target, &mut |_| {})?
+            else {
                 continue;
-            }
-            let mut child = [0_i64; N];
-            for (axis, ((out, &n), &shift)) in child
-                .iter_mut()
-                .zip(target.powers())
-                .zip(&term.shift)
-                .enumerate()
-            {
-                *out =
-                    n.checked_add(shift)
-                        .ok_or_else(|| CandidateReductionError::IndexOverflow {
-                            target: target.clone(),
-                            axis,
-                            rule: rule.ordinal,
-                        })?;
-            }
-            let child = IntegralKey::try_new(child).map_err(ReductionError::IntegralKey)?;
-            self.validate_target(&child)?;
-            if self.is_zero(&child) {
-                continue;
-            }
+            };
             if self
                 .ordering
                 .compare(child.powers(), target.powers())
@@ -224,6 +217,97 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
             )?;
         }
         Ok(result)
+    }
+
+    /// Exact arithmetic beneath dispatch, terminal stopping, and descent.
+    /// This operation does not replay a candidate's source provenance.
+    pub(super) fn applicable_identity(
+        &self,
+        rule: &PreparedRule<N>,
+        target: &IntegralKey,
+        request: &mut ReductionRequest,
+        statistics: &mut ReductionStatistics,
+    ) -> Result<
+        Option<(BTreeMap<IntegralKey, Coefficient>, Vec<Coefficient>)>,
+        CandidateReductionError,
+    > {
+        let mut conditions = Vec::new();
+        let mut nonzero = |condition: &CoefficientPolynomial| {
+            if !condition.is_constant() {
+                let condition: Coefficient = condition.clone().into();
+                if !conditions.contains(&condition) {
+                    conditions.push(condition);
+                }
+            }
+        };
+        self.validate_target_with_conditions(target, &mut nonzero)?;
+        if !self.applicable_with_conditions(rule, target, &mut nonzero)? {
+            return Ok(None);
+        }
+        request.record_rule_application(self.limits.max_rule_applications)?;
+        let mut terms = BTreeMap::from([(target.clone(), self.context.base().one())]);
+        for term in &rule.rhs {
+            let Some((child, coefficient)) =
+                self.specialize_term(rule, term, target, &mut nonzero)?
+            else {
+                continue;
+            };
+            let coefficient = self
+                .context
+                .base()
+                .try_neg(&coefficient, self.limits.exact_algebra)?;
+            accumulate_master_in_request(
+                self.context.base(),
+                &mut terms,
+                &child,
+                coefficient,
+                self.limits,
+                request,
+                statistics,
+            )?;
+        }
+        Ok(Some((terms, conditions)))
+    }
+
+    fn specialize_term(
+        &self,
+        rule: &PreparedRule<N>,
+        term: &PreparedTerm<N>,
+        target: &IntegralKey,
+        nonzero: &mut impl FnMut(&CoefficientPolynomial),
+    ) -> Result<Option<(IntegralKey, Coefficient)>, CandidateReductionError> {
+        let (coefficient, denominator) = self.context.specialize_sealed(
+            &term.coefficient,
+            target.powers(),
+            self.limits.indexed_algebra,
+        )?;
+        if let Some(denominator) = denominator {
+            nonzero(&denominator);
+        }
+        if coefficient.is_zero() {
+            return Ok(None);
+        }
+        let mut child = [0_i64; N];
+        for (axis, ((out, &n), &shift)) in child
+            .iter_mut()
+            .zip(target.powers())
+            .zip(&term.shift)
+            .enumerate()
+        {
+            *out = n
+                .checked_add(shift)
+                .ok_or_else(|| CandidateReductionError::IndexOverflow {
+                    target: target.clone(),
+                    axis,
+                    rule: rule.ordinal,
+                })?;
+        }
+        let child = IntegralKey::try_new(child).map_err(ReductionError::IntegralKey)?;
+        self.validate_target_with_conditions(&child, nonzero)?;
+        if self.is_zero(&child) {
+            return Ok(None);
+        }
+        Ok(Some((child, coefficient)))
     }
 }
 pub(super) fn validate_entry_rank(

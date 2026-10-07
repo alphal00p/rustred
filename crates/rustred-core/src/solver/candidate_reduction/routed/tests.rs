@@ -226,6 +226,60 @@ fn verified_route_is_one_way_and_phase_nodes_keep_physical_identity_separate() {
 }
 
 #[test]
+fn terminal_equations_include_direct_rules_at_weighted_route_endpoints() {
+    let family = Arc::new(crate::solver::tests::sunset());
+    let programs = programs(
+        family.clone(),
+        Some(0),
+        vec![input(
+            [true, false, true],
+            Some(0),
+            vec![rule(&family, [2, -1, 1], &[([1, -1, 1], 3)])],
+            &[[2, -1, 1], [1, -1, 1]],
+        )],
+        Default::default(),
+    );
+    let route = swap_route(family.clone(), [false, true, true], [true, false, true]);
+    let owner =
+        RoutedCandidateReducer::try_new(programs.clone(), [route.clone()], Default::default())
+            .unwrap();
+    let rows = owner.terminal_identity_equations(&key([-1, 2, 1])).unwrap();
+    assert_eq!(rows.len(), 2);
+    let c = family.coefficient_context();
+    assert_eq!(rows[0].terms[&key([-1, 2, 1])], c.one());
+    assert_eq!(rows[0].terms[&key([2, -1, 1])], c.integer(-1));
+    assert_eq!(rows[1].terms[&key([2, -1, 1])], c.one());
+    assert_eq!(rows[1].terms[&key([1, -1, 1])], c.integer(-3));
+    // Literal owner equations and internal rank-one keys bypass entry caps.
+    assert_eq!(
+        owner.terminal_identity_equations(&key([2, -1, 1])).unwrap(),
+        rows[1..]
+    );
+    assert!(
+        owner
+            .terminal_identity_equations(&key([1, 1, 1]))
+            .unwrap()
+            .is_empty()
+    );
+    let limited = RoutedCandidateReducer::try_new(
+        programs,
+        [route],
+        RoutedCandidateLimits {
+            max_transport_calls: 0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(matches!(
+        limited.terminal_identity_equations(&key([-1, 2, 1])),
+        Err(CandidateRoutedError::ResourceLimit {
+            resource: "transport calls",
+            ..
+        })
+    ));
+}
+
+#[test]
 fn installed_owner_cannot_be_redirected_and_duplicate_routes_are_rejected() {
     let family = Arc::new(crate::solver::tests::sunset());
     let both = programs(
@@ -572,6 +626,25 @@ fn native_affine_numerator_route_expands_multiple_endpoints_and_a_strict_pinch()
     };
     let owner =
         RoutedCandidateReducer::try_new(p.clone(), [route.clone()], Default::default()).unwrap();
+    let rows = owner.terminal_identity_equations(&key([1, 0, -1])).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].terms[&key([1, 0, -1])], c.one());
+    assert_eq!(rows[0].terms.len(), expanded.terms().len() + 1);
+    for endpoint in expanded.terms() {
+        assert_eq!(
+            rows[0].terms[endpoint.key()],
+            c.try_neg(endpoint.coefficient(), Default::default())
+                .unwrap()
+        );
+    }
+    // The affine constant and multiplicities must survive exact transport;
+    // a successor set with unit weights is not this equation.
+    assert!(
+        rows[0]
+            .terms
+            .values()
+            .any(|coefficient| coefficient == &c.integer(-2))
+    );
     let result = owner.trace_targets([key([1, 0, -1])]).unwrap();
     assert!(result.frontier().is_empty());
     assert_eq!(result.transport_calls(), 1);

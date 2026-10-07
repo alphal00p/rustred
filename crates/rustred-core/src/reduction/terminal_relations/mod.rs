@@ -5,6 +5,7 @@
 //! additional declared masters. Exhausting this finite worklist is not a proof
 //! of minimality, unrestricted closure, or absence of further relations.
 
+mod assistance;
 mod codec;
 mod elimination;
 mod sources;
@@ -27,6 +28,14 @@ use crate::persistence::BinaryIoLimits;
 use crate::sector::OrderingPolicy;
 
 pub type TerminalRelationRow = BTreeMap<IntegralKey, Coefficient>;
+
+/// An exact homogeneous equation, together with the generic-parameter domain
+/// on which its provider authorizes it. A declared terminal is not an equation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalEquation {
+    pub terms: TerminalRelationRow,
+    pub nonzero_conditions: Vec<Coefficient>,
+}
 type NativeReducer = SparseRowReducer<RationalPolynomialField<IntegerRing, u16>>;
 
 #[derive(Clone, Copy, Debug)]
@@ -69,6 +78,10 @@ pub struct TerminalRelationStats {
     pub nonzeros: usize,
     pub pending_rebuild_rows: usize,
     pub completed_rebuild_rows: u64,
+    pub completed_assistance_keys: usize,
+    pub pending_assistance_keys: usize,
+    pub completed_assistance_rows: u64,
+    pub pending_assistance_rows: usize,
     pub seed_depth: u32,
     pub complete: bool,
 }
@@ -136,6 +149,8 @@ pub struct TerminalRelationSession {
     source_cursor: usize,
     seed_depth: u32,
     columns: Vec<IntegralKey>,
+    // Distance from the end stays invariant when auxiliary columns prepend.
+    column_offsets: BTreeMap<IntegralKey, u32>,
     terminals: BTreeSet<IntegralKey>,
     alias_keys: BTreeSet<IntegralKey>,
     aliases: BTreeMap<IntegralKey, IntegralKey>,
@@ -146,6 +161,7 @@ pub struct TerminalRelationSession {
     rebuild: Vec<TerminalRelationRow>,
     rebuild_cursor: usize,
     completed_rebuild_rows: u64,
+    assistance: Option<assistance::Assistance>,
     limits: TerminalRelationLimits,
 }
 
@@ -194,12 +210,14 @@ impl TerminalRelationSession {
             aliases: BTreeMap::new(),
             column_normalized: empty,
             terminal_relations: 0,
+            column_offsets: elimination::column_offsets(&columns),
             columns,
             reducer: SparseRowReducer::new(width, RationalPolynomialField::new(Z), LuLMode::None),
             conditions: Vec::new(),
             rebuild: Vec::new(),
             rebuild_cursor: 0,
             completed_rebuild_rows: 0,
+            assistance: None,
             limits,
         })
     }
@@ -237,6 +255,7 @@ impl TerminalRelationSession {
         self.column_normalized
             && self.rebuild_cursor == self.rebuild.len()
             && self.seed_cursor == self.seeds.len()
+            && self.assistance.as_ref().is_none_or(|a| a.is_complete())
     }
     pub fn statistics(&self) -> TerminalRelationStats {
         TerminalRelationStats {
@@ -256,6 +275,13 @@ impl TerminalRelationSession {
             nonzeros: self.reducer.u().nvalues(),
             pending_rebuild_rows: self.rebuild.len() - self.rebuild_cursor,
             completed_rebuild_rows: self.completed_rebuild_rows,
+            completed_assistance_keys: self.assistance.as_ref().map_or(0, |a| a.queried.len()),
+            pending_assistance_keys: self.assistance.as_ref().map_or(0, |a| a.pending.len()),
+            completed_assistance_rows: self.assistance.as_ref().map_or(0, |a| a.completed_rows),
+            pending_assistance_rows: self
+                .assistance
+                .as_ref()
+                .map_or(0, |a| a.equations.len() - a.equation_cursor),
             seed_depth: self.seed_depth,
             complete: self.is_complete(),
         }
@@ -264,6 +290,16 @@ impl TerminalRelationSession {
     /// Execute one complete native source/elimination row. Cancellation checked
     /// before work leaves the session unchanged and safe to save.
     pub fn step(
+        &mut self,
+        cancel: &AtomicBool,
+    ) -> Result<TerminalRelationStats, TerminalRelationError> {
+        if self.assistance.is_some() {
+            return Err(invalid("assisted sessions require step_with_provider"));
+        }
+        self.step_ordinary(cancel)
+    }
+
+    fn step_ordinary(
         &mut self,
         cancel: &AtomicBool,
     ) -> Result<TerminalRelationStats, TerminalRelationError> {
@@ -292,8 +328,14 @@ impl TerminalRelationSession {
                 self.source_cursor,
                 self.limits.algebra,
             )?;
-            let row = self.normalized_row(&row)?;
-            self.add_row(row)?;
+            let normalized = self.normalized_row(&row)?;
+            // Only ordinary-source support can request more saved equations.
+            // Added saved-equation children never grow this finite worklist.
+            let support = self.assistance_support(row.keys().chain(normalized.keys()))?;
+            self.add_row(normalized)?;
+            if let Some(assistance) = &mut self.assistance {
+                assistance.pending.extend(support);
+            }
             for guard in conditions {
                 if !self.conditions.contains(&guard) {
                     self.conditions.push(guard);
@@ -355,6 +397,11 @@ impl TerminalRelationSession {
             self.limits.max_seeds,
         )?;
         let changed = raw != self.raw;
+        let support = self.assistance_support(
+            raw.iter()
+                .chain(normalization.canonical_terminals())
+                .chain(new_seeds.iter()),
+        )?;
         if changed {
             self.rebuild = self.basis_rows();
             self.rebuild_cursor = 0;
@@ -364,6 +411,7 @@ impl TerminalRelationSession {
                 .cloned()
                 .collect();
             elimination::sort_keys(&mut self.columns);
+            self.column_offsets = elimination::column_offsets(&self.columns);
             self.reducer = SparseRowReducer::new(
                 u32::try_from(self.columns.len()).map_err(invalid)?,
                 RationalPolynomialField::new(Z),
@@ -383,7 +431,69 @@ impl TerminalRelationSession {
             self.alias_keys.clear();
         }
         self.column_normalized = false;
+        if let Some(assistance) = &mut self.assistance {
+            assistance.pending.extend(support);
+        }
         Ok(())
+    }
+
+    /// Append finite ordinary-IBP source points without promoting any integral
+    /// into the requested terminal block or changing the signed-L1 seed depth.
+    /// Existing source/rebuild cursors and proved rows remain valid. Appending
+    /// during a rebuild is safe: it changes no column roles, and ordinary work
+    /// still drains the existing rebuild before processing the new sources.
+    ///
+    /// The complete ordered seed inventory already belongs to the native
+    /// checkpoint. Repeated additions are no-ops, including after resume.
+    pub fn extend_source_seeds(
+        &mut self,
+        additional: &BTreeSet<IntegralKey>,
+    ) -> Result<usize, TerminalRelationError> {
+        Self::validate_keys(&self.family, additional)?;
+        let existing: BTreeSet<_> = self.seeds.iter().collect();
+        let new: Vec<_> = additional
+            .iter()
+            .filter(|key| !existing.contains(key))
+            .cloned()
+            .collect();
+        check(
+            "seeds",
+            self.seeds.len().saturating_add(new.len()),
+            self.limits.max_seeds,
+        )?;
+        let support = self.assistance_support(new.iter())?;
+        let added = new.len();
+        if added == 0 {
+            return Ok(0);
+        }
+        self.seeds.extend(new);
+        self.column_normalized = false;
+        if let Some(assistance) = &mut self.assistance {
+            assistance.pending.extend(support);
+        }
+        Ok(added)
+    }
+
+    /// Add containing-sector ordinary sources around the raw terminal keys.
+    /// Each selected nonpositive index is set directly to +1; every other
+    /// index is retained. All combinations of one through `max_promoted_axes`
+    /// axes are considered, with deterministic deduplication and seed limits.
+    /// Zero selects no additional sources; values above the family arity fail.
+    ///
+    /// These are same-family ordinary IBPs, including when an inactive slot
+    /// represents a numerator. No physical-propagator, mass, or factorization
+    /// assumption is used. This is distinct from a signed-L1 neighborhood:
+    /// promoting a negative index can jump over several integer powers.
+    pub fn extend_containing_sector_seeds(
+        &mut self,
+        max_promoted_axes: usize,
+    ) -> Result<usize, TerminalRelationError> {
+        if max_promoted_axes > self.family.denominator_count() {
+            return Err(invalid("containing-sector promotions exceed family arity"));
+        }
+        let additional =
+            sources::containing_sector_seeds(&self.raw, max_promoted_axes, self.limits.max_seeds)?;
+        self.extend_source_seeds(&additional)
     }
 
     pub fn to_native_bytes(

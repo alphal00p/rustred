@@ -53,6 +53,44 @@ class SavedCampaignTests(unittest.TestCase):
         self.assertIn("--resume", command)
         self.assertEqual(command[command.index("--master-seed-depth") + 1], "2")
         self.assertNotIn("--executable", command)  # Never replace the phase-one engine.
+        self.assertNotIn("--master-saved-rule-assistance", command)
+        self.assertNotIn("--no-master-saved-rule-assistance", command)
+        self.assertNotIn("--master-containing-sector-depth", command)
+        self.assertNotIn("--master-circuit-symmetry-assistance", command)
+        self.assertNotIn("--no-master-circuit-symmetry-assistance", command)
+
+    def test_containing_sector_depth_is_refine_only_and_forwarded(self):
+        for depth in (0, 1, 2):
+            command = self.invoke("refine", "--containing-sector-depth", str(depth))
+            self.assertEqual(command[command.index("--master-containing-sector-depth") + 1], str(depth))
+            self.assertIn("--refine-masters", command)
+        for action, options in (("refine", ["--containing-sector-depth", "-1"]),
+                                ("publish", ["--containing-sector-depth", "1"]),
+                                ("inspect", ["--containing-sector-depth", "1"])):
+            with self.subTest(action=action), patch.object(WRAPPER.sys, "stderr", io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    self.invoke(action, *options)
+
+    def test_refine_saved_rule_assistance_can_be_enabled_or_explicitly_disabled(self):
+        for supplied, forwarded in (("--saved-rule-assistance", "--master-saved-rule-assistance"),
+                                    ("--no-saved-rule-assistance", "--no-master-saved-rule-assistance")):
+            with self.subTest(supplied=supplied):
+                command = self.invoke("refine", supplied)
+                self.assertIn(forwarded, command)
+                self.assertIn("--refine-masters", command)
+                self.assertIn("--start", command)
+
+    def test_circuit_symmetry_assistance_is_independent_and_refine_only(self):
+        for supplied, forwarded in (("--circuit-symmetry-assistance", "--master-circuit-symmetry-assistance"),
+                                    ("--no-circuit-symmetry-assistance", "--no-master-circuit-symmetry-assistance")):
+            command = self.invoke("refine", supplied, "--saved-rule-assistance")
+            self.assertIn(forwarded, command)
+            self.assertIn("--master-saved-rule-assistance", command)
+            self.assertIn("--refine-masters", command)
+        for action in ("publish", "inspect"):
+            with self.subTest(action=action), patch.object(WRAPPER.sys, "stderr", io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    self.invoke(action, "--circuit-symmetry-assistance")
 
     def test_publish_is_only_postprocess_and_inspect_calls_native(self):
         self.assertIn("--publish-only", self.invoke("publish"))

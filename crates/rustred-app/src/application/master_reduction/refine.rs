@@ -46,6 +46,16 @@ pub fn master_refine_published_artifact(
     hash.update(b"rustred-published-refinement-v1");
     hash.update(&source_metadata);
     hash.update(&options.seed_depth.to_le_bytes());
+    if options.containing_sector_depth != 0 {
+        hash.update(b"containing-sector-seeds-v1");
+        hash.update(&options.containing_sector_depth.to_le_bytes());
+    }
+    if options.saved_rule_assistance {
+        hash.update(b"saved-rule-assistance-v1");
+    }
+    if options.circuit_symmetry_assistance {
+        hash.update(b"circuit-symmetry-assistance-v1");
+    }
     let binding = hash.finalize().to_hex().to_string();
     let started = Instant::now();
     let latest = options.directory.join("latest.json");
@@ -57,6 +67,7 @@ pub fn master_refine_published_artifact(
             ));
         }
         let session = load_master_reduction(&options.directory)?;
+        assistance::validate(options, &session, &report)?;
         (report, session)
     } else {
         if latest.exists() {
@@ -86,6 +97,7 @@ pub fn master_refine_published_artifact(
         });
         report["operation"] = json!("refine");
         report["seed_depth"] = json!(session.statistics().seed_depth);
+        assistance::configure(options, &mut session, &mut report)?;
         save(
             options,
             &session,

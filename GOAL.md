@@ -1,5 +1,31 @@
 # RustRed project goal
 
+## October 8 — measured terminal compression
+
+Implement and experimentally validate the most promising methods from the
+829-terminal literature/code study: saved-rule-assisted terminal-targeted
+Laporta reduction, weighted symmetry and lower-loop/factorization reuse, and
+targeted higher-sector cancellations. Use generic Rust and Symbolica primitives,
+not a new CAS. Keep the ordinary refinement mode as a matched baseline.
+
+Work on immutable copies of four-loop controls and the current 829-terminal
+five-loop publication; never alter the user's running campaign. Preserve all
+unresolved auxiliary columns, guards, source conditions, exact coefficient
+weights and the authority status of contributing rules. Finite-field discovery
+may select sources but cannot establish an exact relation. Check interruption,
+resume, portable cold loading and exact substitutions. Measure terminal counts,
+wall/CPU time and memory; distinguish normalization, algebraic compression and
+independence. No minimality claim is required or implied.
+
+Root coordinates separate saved-identity and session implementation agents,
+then integrates CLI/Python steering and profiles release controls. A separate
+agent audits mathematics, persistence and implementation. Prioritize actual
+significant compression, not only micro-optimization. Escalate to sparse
+subgraph dimensional relations only if earlier methods plateau with evidence.
+Document positive and negative results and commit/push coherent tested
+milestones with the requested ValentinHirschi identity. Existing unrelated
+changes and all reference-only/private material remain untouched.
+
 ## October 7 — explicit saved-campaign lifecycle
 
 The newest user directive separates solving from optional master refinement.

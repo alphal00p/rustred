@@ -25,11 +25,11 @@ pub use model::{
     CandidateReductionError, CandidateStatistics,
 };
 pub use owners::{
-    BoundOwnerOverlay, BoundOwnerSearch, CandidateOwnerContext, CandidateOwnerInput,
-    CandidateOwnerPrograms, CandidateOwnerScope, FactorCensusLimits, FactorCensusRole,
-    OwnerAppliedCellRefinement, OwnerAppliedError, OwnerAppliedEvent, OwnerAppliedFailure,
-    OwnerAppliedLimits, OwnerAppliedNonzero, OwnerAppliedProblem, OwnerAppliedProblemKind,
-    OwnerAppliedStats, OwnerAppliedSuccessor, OwnerDomainAttemptLimits,
+    BoundOwnerOverlay, BoundOwnerSearch, CandidateIntegralIdentity, CandidateOwnerContext,
+    CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerScope, FactorCensusLimits,
+    FactorCensusRole, OwnerAppliedCellRefinement, OwnerAppliedError, OwnerAppliedEvent,
+    OwnerAppliedFailure, OwnerAppliedLimits, OwnerAppliedNonzero, OwnerAppliedProblem,
+    OwnerAppliedProblemKind, OwnerAppliedStats, OwnerAppliedSuccessor, OwnerDomainAttemptLimits,
     OwnerDomainMatchDisposition, OwnerDomainMatchError, OwnerDomainMatchFailure,
     OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats, OwnerDomainPredicate,
     OwnerDomainRefinementAxes, OwnerDomainScope, OwnerFactorCensus, OwnerFeedbackError,
@@ -49,10 +49,10 @@ pub use routed::{
     CandidateDomainRouteStats, CandidateEntryAdmission, CandidateOwnerRoute,
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
     CandidateRoutedCampaignSnapshot, CandidateRoutedError, CandidateRoutedFrontier,
-    CandidateRoutedFrontierReason, CandidateRoutedTraceReport, CandidateRoutedWork,
-    CandidateRoutedWorkBudget, EntryWitnessError, EntryWitnessLimits, EntryWitnessOutcome,
-    FiniteRootAdmission, RootAdmissionError, RootRegionInput, RoutedCandidateLimits,
-    RoutedCandidateReducer, pick_entry_intersection_witness,
+    CandidateRoutedFrontierReason, CandidateRoutedIdentity, CandidateRoutedTraceReport,
+    CandidateRoutedWork, CandidateRoutedWorkBudget, EntryWitnessError, EntryWitnessLimits,
+    EntryWitnessOutcome, FiniteRootAdmission, RootAdmissionError, RootRegionInput,
+    RoutedCandidateLimits, RoutedCandidateReducer, pick_entry_intersection_witness,
 };
 pub use trace::{CandidateTraceLimits, CandidateTraceReport};
 

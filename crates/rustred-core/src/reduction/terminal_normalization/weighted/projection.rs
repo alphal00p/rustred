@@ -78,7 +78,7 @@ fn denominator(family: &IntegralFamily, slot: usize) -> Result<Vec<Rational>, Er
         .collect()
 }
 
-pub(super) fn prepare(
+pub(in crate::reduction::terminal_normalization) fn prepare(
     family: &IntegralFamily,
     support: &Support,
     limits: TerminalNormalizationLimits,

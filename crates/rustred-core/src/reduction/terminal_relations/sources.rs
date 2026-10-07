@@ -119,3 +119,54 @@ pub(super) fn seeds(
     }
     Ok(result)
 }
+
+/// Direct support promotions, rather than a larger signed-power shell. Source
+/// specialization remains the ordinary generator above, with all its guards.
+pub(super) fn containing_sector_seeds(
+    centres: &BTreeSet<IntegralKey>,
+    max_promoted_axes: usize,
+    limit: usize,
+) -> Result<BTreeSet<IntegralKey>, TerminalRelationError> {
+    fn visit(
+        powers: &mut [i64],
+        inactive: &[usize],
+        start: usize,
+        remaining: usize,
+        output: &mut BTreeSet<IntegralKey>,
+        limit: usize,
+    ) -> Result<(), TerminalRelationError> {
+        for position in start..inactive.len() {
+            let axis = inactive[position];
+            let previous = powers[axis];
+            powers[axis] = 1;
+            output.insert(IntegralKey::try_new(powers.to_vec()).map_err(invalid)?);
+            check("seeds", output.len(), limit)?;
+            if remaining > 1 {
+                visit(powers, inactive, position + 1, remaining - 1, output, limit)?;
+            }
+            powers[axis] = previous;
+        }
+        Ok(())
+    }
+
+    let mut output = BTreeSet::new();
+    if max_promoted_axes != 0 {
+        for centre in centres {
+            let inactive: Vec<_> = centre
+                .powers()
+                .iter()
+                .enumerate()
+                .filter_map(|(axis, power)| (*power <= 0).then_some(axis))
+                .collect();
+            visit(
+                &mut centre.powers().to_vec(),
+                &inactive,
+                0,
+                max_promoted_axes,
+                &mut output,
+                limit,
+            )?;
+        }
+    }
+    Ok(output)
+}

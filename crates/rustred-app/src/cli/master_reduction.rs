@@ -23,6 +23,9 @@ pub(crate) struct MasterArgs {
     pub resume: bool,
     pub threads: usize,
     pub seed_depth: u32,
+    pub containing_sector_depth: u32,
+    pub saved_rule_assistance: bool,
+    pub circuit_symmetry_assistance: bool,
     pub checkpoint_interval_seconds: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,6 +47,9 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
         resume: false,
         threads: 1,
         seed_depth: 0,
+        containing_sector_depth: 0,
+        saved_rule_assistance: false,
+        circuit_symmetry_assistance: false,
         checkpoint_interval_seconds: 3600,
     };
     let mut seen = BTreeSet::new();
@@ -60,6 +66,9 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--resume" => "--resume",
             "--threads" => "--threads",
             "--seed-depth" => "--seed-depth",
+            "--containing-sector-depth" => "--containing-sector-depth",
+            "--saved-rule-assistance" => "--saved-rule-assistance",
+            "--circuit-symmetry-assistance" => "--circuit-symmetry-assistance",
             "--checkpoint-interval-seconds" => "--checkpoint-interval-seconds",
             _ => return Err(ArgError::UnknownOption(option)),
         };
@@ -68,6 +77,8 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
         }
         match option {
             "--resume" => result.resume = true,
+            "--saved-rule-assistance" => result.saved_rule_assistance = true,
+            "--circuit-symmetry-assistance" => result.circuit_symmetry_assistance = true,
             "--threads" => {
                 result.threads =
                     parse_positive_integer(option, next_utf8_value(&mut args, option)?)?
@@ -79,6 +90,15 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
                     value,
                     expected: "a nonnegative integer",
                 })?;
+            }
+            "--containing-sector-depth" => {
+                let value = next_utf8_value(&mut args, option)?;
+                result.containing_sector_depth =
+                    value.parse().map_err(|_| ArgError::InvalidValue {
+                        option,
+                        value,
+                        expected: "a nonnegative integer",
+                    })?;
             }
             "--checkpoint-interval-seconds" => {
                 let value = next_utf8_value(&mut args, option)?;
@@ -141,6 +161,14 @@ pub(super) fn parse_publish(args: impl Iterator<Item = OsString>) -> Result<Comm
     if args.artifact.is_some() {
         return Err(ArgError::InvalidCombination(
             "walk-publish requires a saved campaign --command and --checkpoint",
+        ));
+    }
+    if args.saved_rule_assistance
+        || args.circuit_symmetry_assistance
+        || args.containing_sector_depth != 0
+    {
+        return Err(ArgError::InvalidCombination(
+            "additional terminal-search strategies require refinement and cannot be used with walk-publish",
         ));
     }
     args.operation = crate::MasterReductionOperation::Publish;
@@ -262,6 +290,9 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     options.previous_artifact = args.previous_artifact;
     options.threads = args.threads;
     options.seed_depth = args.seed_depth;
+    options.containing_sector_depth = args.containing_sector_depth;
+    options.saved_rule_assistance = args.saved_rule_assistance;
+    options.circuit_symmetry_assistance = args.circuit_symmetry_assistance;
     options.checkpoint_interval = Duration::from_secs(args.checkpoint_interval_seconds);
     let cancel = Arc::new(AtomicBool::new(false));
     let finished = Arc::new(AtomicBool::new(false));
@@ -373,6 +404,102 @@ fn prospective_path(path: &Path) -> Result<PathBuf, CliError> {
 mod tests {
     use super::*;
     #[test]
+    fn circuit_assistance_is_explicit_independent_and_refine_only() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        let Command::WalkMasterReduce(default) =
+            parse(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert!(!default.circuit_symmetry_assistance);
+        for saved in [false, true] {
+            let mut args: Vec<_> = base
+                .into_iter()
+                .chain(["--circuit-symmetry-assistance"])
+                .map(OsString::from)
+                .collect();
+            if saved {
+                args.push(OsString::from("--saved-rule-assistance"));
+            }
+            let Command::WalkMasterReduce(parsed) = parse(args.clone().into_iter()).unwrap() else {
+                panic!()
+            };
+            assert!(parsed.circuit_symmetry_assistance);
+            assert_eq!(parsed.saved_rule_assistance, saved);
+            args.push(OsString::from("--circuit-symmetry-assistance"));
+            assert!(matches!(
+                parse(args.into_iter()),
+                Err(ArgError::DuplicateOption("--circuit-symmetry-assistance"))
+            ));
+        }
+        assert!(
+            parse_publish(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--circuit-symmetry-assistance",
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn containing_sector_search_is_explicit_and_nonnegative() {
+        let argv = [
+            "--artifact",
+            "source",
+            "--directory",
+            "out",
+            "--containing-sector-depth",
+            "2",
+        ];
+        let Command::WalkMasterReduce(args) = parse(argv.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(args.containing_sector_depth, 2);
+        assert_eq!(args.seed_depth, 0);
+        assert!(!args.saved_rule_assistance);
+        assert!(
+            parse(
+                [
+                    "--artifact",
+                    "source",
+                    "--directory",
+                    "out",
+                    "--containing-sector-depth",
+                    "-1"
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+        assert!(
+            parse_publish(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--containing-sector-depth",
+                    "1"
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+    }
+    #[test]
     fn master_inspect_format_contract() {
         assert!(
             parse_inspect(
@@ -467,6 +594,57 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn saved_rule_assistance_is_an_explicit_refinement_only_flag() {
+        let Command::WalkMasterReduce(args) = parse(
+            [
+                "--artifact",
+                "source",
+                "--directory",
+                "out",
+                "--saved-rule-assistance",
+            ]
+            .map(OsString::from)
+            .into_iter(),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert!(args.saved_rule_assistance);
+        assert_eq!(args.operation, crate::MasterReductionOperation::Refine);
+        assert!(
+            parse_publish(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--saved-rule-assistance"
+                ]
+                .map(OsString::from)
+                .into_iter(),
+            )
+            .is_err()
+        );
+        assert!(matches!(
+            parse(
+                [
+                    "--artifact",
+                    "source",
+                    "--directory",
+                    "out",
+                    "--saved-rule-assistance",
+                    "--saved-rule-assistance"
+                ]
+                .map(OsString::from)
+                .into_iter(),
+            ),
+            Err(ArgError::DuplicateOption("--saved-rule-assistance"))
+        ));
     }
 
     #[test]

@@ -43,7 +43,8 @@ def digest(path):
     return value.hexdigest()
 
 
-def configuration(campaign, enabled=False, seed_depth=None, executable=None):
+def configuration(campaign, enabled=False, seed_depth=None, executable=None, saved_rule_assistance=None,
+                  containing_sector_depth=None, circuit_symmetry_assistance=None):
     """Read-only configuration. Only this invocation can request refinement.
 
     Historical ``enabled`` policies retain executable/search preferences, never
@@ -53,17 +54,42 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None):
     existing = read_json(path) if path.is_file() else None
     if seed_depth is not None and (type(seed_depth) is not int or seed_depth < 0):
         raise ValueError("master seed depth must be nonnegative")
+    if saved_rule_assistance is not None and type(saved_rule_assistance) is not bool:
+        raise ValueError("master saved-rule assistance must be boolean")
+    if circuit_symmetry_assistance is not None and type(circuit_symmetry_assistance) is not bool:
+        raise ValueError("master circuit-symmetry assistance must be boolean")
+    if containing_sector_depth is not None and (type(containing_sector_depth) is not int or containing_sector_depth < 0):
+        raise ValueError("master containing-sector depth must be nonnegative")
     if existing is not None:
         if (existing.get("schema") != SCHEMA or existing.get("enabled") is not True
-                or type(existing.get("seed_depth")) is not int or existing["seed_depth"] < 0):
+                or type(existing.get("seed_depth")) is not int or existing["seed_depth"] < 0
+                or type(existing.get("saved_rule_assistance", False)) is not bool
+                or type(existing.get("circuit_symmetry_assistance", False)) is not bool
+                or type(existing.get("containing_sector_depth", 0)) is not int
+                or existing.get("containing_sector_depth", 0) < 0):
             raise ValueError("invalid persisted master-reduction policy")
         if enabled and seed_depth is not None and seed_depth < existing["seed_depth"]:
             raise ValueError("cannot lower the previous master seed depth")
+        if (enabled and containing_sector_depth is not None
+                and containing_sector_depth < existing.get("containing_sector_depth", 0)):
+            raise ValueError("cannot lower the previous master containing-sector depth")
     if seed_depth is not None and not enabled:
         raise ValueError("master seed depth requires explicit --refine-masters")
+    if saved_rule_assistance is not None and not enabled:
+        raise ValueError("master saved-rule assistance requires explicit --refine-masters")
+    if circuit_symmetry_assistance is not None and not enabled:
+        raise ValueError("master circuit-symmetry assistance requires explicit --refine-masters")
+    if containing_sector_depth is not None and not enabled:
+        raise ValueError("master containing-sector depth requires explicit --refine-masters")
     policy = {**(existing or {}), "schema": SCHEMA, "enabled": True,
             "operation": "refine" if enabled else "publish",
             "seed_depth": (existing or {}).get("seed_depth", 0) if seed_depth is None else seed_depth,
+            "saved_rule_assistance": ((existing or {}).get("saved_rule_assistance", False)
+                                      if saved_rule_assistance is None else saved_rule_assistance),
+            "circuit_symmetry_assistance": ((existing or {}).get("circuit_symmetry_assistance", False)
+                                            if circuit_symmetry_assistance is None else circuit_symmetry_assistance),
+            "containing_sector_depth": ((existing or {}).get("containing_sector_depth", 0)
+                                        if containing_sector_depth is None else containing_sector_depth),
             "terminal_policy": "bounded exact search; finite nonminimal basis permitted",
             "master_minimality_claim": False}
     if executable is not None:
@@ -281,6 +307,12 @@ def phase_two(plan, policy, request, binding, directory, driver):
                "--threads", str(plan["requested_workers"])]
     if not publishing:
         command += ["--seed-depth", str(policy["seed_depth"])]
+        if policy.get("containing_sector_depth", 0):
+            command += ["--containing-sector-depth", str(policy["containing_sector_depth"])]
+        if policy.get("saved_rule_assistance", False):
+            command.append("--saved-rule-assistance")
+        if policy.get("circuit_symmetry_assistance", False):
+            command.append("--circuit-symmetry-assistance")
     if (directory / "latest.json").is_file():
         command.append("--resume")
     elif publishing:
@@ -318,7 +350,11 @@ def phase_two(plan, policy, request, binding, directory, driver):
     tail = supervisor.MONITOR.EventTail(events)
     latest = {"phase": phase, "operation": operation,
               "stage": "cold closure verification" if publishing else "loading published artifact", "status": "running",
-              "seed_depth": policy["seed_depth"], "scope_binding": binding["key"]}
+              "seed_depth": policy.get("effective_seed_depth", policy["seed_depth"]), "scope_binding": binding["key"],
+              "containing_sector_depth": (policy.get("effective_containing_sector_depth",
+                                                    policy.get("containing_sector_depth", 0)) if not publishing else 0),
+              "saved_rule_assistance": not publishing and policy.get("saved_rule_assistance", False),
+              "circuit_symmetry_assistance": not publishing and policy.get("circuit_symmetry_assistance", False)}
     checkpoint = {}
 
     def observe(event):
@@ -423,7 +459,10 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 and previous.get("operation") == "refine"
             if not keep_refined:
                 refinement = None if publishing else {
-                        "seed_depth": policy["seed_depth"], "source_artifact": str(
+                        "seed_depth": latest["seed_depth"],
+                        "containing_sector_depth": latest["containing_sector_depth"],
+                        "circuit_symmetry_assistance": policy.get("circuit_symmetry_assistance", False),
+                        "saved_rule_assistance": policy.get("saved_rule_assistance", False), "source_artifact": str(
                             Path(policy["source_artifact"]).relative_to(Path(plan["campaign_directory"])))}
                 publish_pointer(plan["campaign_directory"], directory, binding, operation, driver, refinement)
             driver.write_json(directory.parent.parent / "completed-phase.json", {
@@ -435,8 +474,14 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 print("Symbolic artifact: " + str(latest["artifact"]), flush=True)
         else:
             print(f"{phase} {'paused' if paused else 'stopped'}; checkpoint: {directory}", flush=True)
+            refinement_flags = ("--refine-masters " + ("--master-saved-rule-assistance "
+                                if policy.get("saved_rule_assistance", False)
+                                else "--no-master-saved-rule-assistance ")
+                                + ("--master-circuit-symmetry-assistance "
+                                   if policy.get("circuit_symmetry_assistance", False)
+                                   else "--no-master-circuit-symmetry-assistance ")) if not publishing else ""
             print(f"Resume with: {sys.executable} {Path(driver.__file__).resolve()} --campaign-directory "
-                  f"{plan['campaign_directory']} --resume {'--refine-masters ' if not publishing else ''}--start", flush=True)
+                  f"{plan['campaign_directory']} --resume {refinement_flags}--start", flush=True)
             if not paused:
                 print(f"Native error details: {attempt / 'stderr.log'}", file=sys.stderr)
         return status if status >= 0 else 128 - status
@@ -468,10 +513,18 @@ def run(plan, policy, resume, driver, postprocess_only=False):
             previous = completed_artifact(campaign)
             if not previous or not binding or not same_input_scope(previous.get("scope_binding", {}), binding):
                 raise ValueError("refine requires a completed artifact for the current scope; run or publish it first")
-            if previous.get("operation") == "refine" and previous.get("refinement", {}).get("seed_depth", -1) >= policy["seed_depth"]:
+            refinement = previous.get("refinement", {})
+            if (previous.get("operation") == "refine"
+                    and refinement.get("seed_depth", -1) >= policy["seed_depth"]
+                    and refinement.get("containing_sector_depth", 0) >= policy.get("containing_sector_depth", 0)
+                    and refinement.get("circuit_symmetry_assistance", False) == policy.get("circuit_symmetry_assistance", False)
+                    and refinement.get("saved_rule_assistance", False) == policy.get("saved_rule_assistance", False)):
                 print("Requested refinement already completed: " + str(previous["resolved_directory"]), flush=True)
                 return 0
-            policy = {**policy, "source_artifact": str(previous["resolved_directory"])}
+            policy = {**policy, "source_artifact": str(previous["resolved_directory"]),
+                      "effective_seed_depth": max(policy["seed_depth"], refinement.get("seed_depth", 0)),
+                      "effective_containing_sector_depth": max(policy.get("containing_sector_depth", 0),
+                                                               refinement.get("containing_sector_depth", 0))}
         elif binding:
             previous = completed_artifact(campaign)
             if previous and same_input_scope(previous.get("scope_binding", {}), binding):
@@ -507,6 +560,16 @@ def run(plan, policy, resume, driver, postprocess_only=False):
                     "seed_depth": policy["seed_depth"] if operation == "refine" else 0,
                     "source": str(Path(policy["source_artifact"]).relative_to(campaign)) if policy.get("source_artifact") else None,
                     "executable": policy.get("executable", {}).get("sha256", plan.get("executable_sha256"))}
+        if operation == "refine" and policy.get("saved_rule_assistance", False):
+            # Preserve legacy ordinary checkpoint paths. Assisted work has a
+            # distinct identity and can never resume an ordinary row cursor.
+            identity["saved_rule_assistance"] = True
+        if operation == "refine" and policy.get("circuit_symmetry_assistance", False):
+            identity["circuit_symmetry_assistance"] = True
+        if operation == "refine" and policy.get("containing_sector_depth", 0):
+            # Zero retains ordinary legacy paths; different source strategies
+            # must not resume one another's native cursors.
+            identity["containing_sector_depth"] = policy["containing_sector_depth"]
         phase_key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         target = directory / "scopes" / phase_key
         target.mkdir(parents=True, exist_ok=True)
