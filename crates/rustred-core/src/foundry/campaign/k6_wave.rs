@@ -8,6 +8,7 @@
 //! detached deterministic progress values.
 
 use std::fmt;
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use crate::campaign::{ParallelExecution, ParallelExecutionError};
@@ -40,13 +41,12 @@ use super::{
 
 mod progress;
 
-use progress::{
-    K6_PROGRESS_POLL_INTERVAL, K6OrbitProgressScalars, K6ProgressExecutionGuard,
-    LatestK6WaveProgress,
-};
+#[cfg(not(target_arch = "wasm32"))]
+use progress::{K6_PROGRESS_POLL_INTERVAL, K6ProgressExecutionGuard};
 pub use progress::{
     K6OrbitCampaignProgress, K6OrbitCampaignState, K6WaveCampaignProgress, K6WaveCampaignState,
 };
+use progress::{K6OrbitProgressScalars, LatestK6WaveProgress};
 
 /// Canonical bottom-up widths of the full-rank K6 orbit waves.
 pub const K6_FULL_RANK_WAVE_WIDTHS: [usize; 4] = [2, 2, 1, 1];
@@ -690,9 +690,34 @@ fn try_drive_k6_wave_with_progress(
 > {
     let (latest, receiver) =
         LatestK6WaveProgress::try_new(wave_ordinal, active_count, orbit_start, wave_width)?;
+    #[cfg(not(target_arch = "wasm32"))]
     let finished = AtomicBool::new(false);
     let mut last_emitted = None;
 
+    #[cfg(target_arch = "wasm32")]
+    let results = {
+        // Serial WebAssembly cannot host a separate progress-aggregation
+        // thread. Preserve exact work/results and publish at the wave
+        // boundary; native threaded progress remains unchanged below.
+        let _ = &receiver;
+        let results = execution.map_ordered(wave_width, |local_ordinal| {
+            try_drive_k6_sibling(
+                inputs,
+                orbit_start + local_ordinal,
+                local_ordinal,
+                predecessor,
+                resource_profile,
+                campaign_limits,
+                ordering.clone(),
+                coordinator_config,
+                campaign_config,
+                &latest,
+            )
+        })?;
+        emit_latest_wave_progress(&latest, observe, &mut last_emitted)?;
+        results
+    };
+    #[cfg(not(target_arch = "wasm32"))]
     let results = std::thread::scope(|scope| {
         let runner = std::thread::Builder::new()
             .name(format!("rustred-k6-wave-{wave_ordinal}"))

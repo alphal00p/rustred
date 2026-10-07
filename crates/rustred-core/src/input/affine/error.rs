@@ -62,6 +62,11 @@ pub enum SymbolicaAffineDenominatorError {
     ResourceCountOverflow {
         resource: &'static str,
     },
+    /// A backend hides retained allocation capacity needed by this strict
+    /// input-boundary budget. Ordinary exact arithmetic is still supported.
+    UnsupportedRetainedHeapAccounting {
+        backend: &'static str,
+    },
     AllocationFailure {
         resource: &'static str,
         requested: usize,
@@ -179,6 +184,10 @@ impl fmt::Display for SymbolicaAffineDenominatorError {
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed its representation")
             }
+            Self::UnsupportedRetainedHeapAccounting { backend } => write!(
+                formatter,
+                "{backend} does not expose retained large-integer heap capacity required by the strict affine-input memory budget; exact solver arithmetic is unaffected"
+            ),
             Self::AllocationFailure {
                 resource,
                 requested,

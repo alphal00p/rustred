@@ -50,8 +50,10 @@ impl Default for ProjectiveLimits {
             max_translations: 4_000_000,
             max_generated_polynomial_terms: 1_000_000_000,
             max_retained_polynomial_terms: 1_000_000_000,
-            max_retained_polynomial_exponent_cells: 16_000_000_000,
-            max_retained_polynomial_bytes: 17_179_869_184,
+            max_retained_polynomial_exponent_cells: crate::platform::default_usize_limit(
+                16_000_000_000,
+            ),
+            max_retained_polynomial_bytes: crate::platform::default_usize_limit(17_179_869_184),
         }
     }
 }

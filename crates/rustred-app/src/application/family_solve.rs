@@ -90,6 +90,11 @@ pub fn family_solve(request: FamilySolveRequest) -> Result<FamilySolveResult, Ap
     if request.n_cores == 0 {
         return Err(AppError::input("family solve n_cores must be positive"));
     }
+    if cfg!(target_arch = "wasm32") && request.n_cores != 1 {
+        return Err(AppError::input(
+            "WebAssembly family solving requires n_cores = 1",
+        ));
+    }
     let prepared = prepare_input(&request.source, request.input_format)?;
     let lowered = lower_project(prepared)?;
     let (_form, _schema, _metadata, lowered) = lowered.into_parts();

@@ -169,6 +169,11 @@ fn family_close_impl(
     if request.n_cores == 0 {
         return Err(AppError::input("family close n_cores must be positive"));
     }
+    if cfg!(target_arch = "wasm32") && request.n_cores != 1 {
+        return Err(AppError::input(
+            "WebAssembly family closure requires n_cores = 1",
+        ));
+    }
     let lowered = lower_project(prepare_input(&request.source, request.input_format)?)?;
     let (_, _, _, lowered) = lowered.into_parts();
     let family = lowered.into_family();

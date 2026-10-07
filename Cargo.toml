@@ -28,7 +28,9 @@ authors = [
 
 [workspace.dependencies]
 bincode = { version = "2.0.1", features = ["serde"] }
-symbolica = { version = "~3.0.0", default-features = false, features = ["integer-gmp", "float-mpfr", "tracing_max_level_info", "bincode"] }
+# Numerical backends are selected by the embedding crate's native/wasm
+# features. Keeping GMP/MPFR here would enable them even in a Pyodide build.
+symbolica = { version = "~3.0.0", default-features = false, features = ["tracing_max_level_info", "bincode"] }
 
 [patch.crates-io]
 symbolica = { path = "vendor/symbolica" }

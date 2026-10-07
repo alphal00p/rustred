@@ -57,7 +57,9 @@ impl Default for SpiredSerialDriverLimits {
             max_case_attempts: 1_048_576,
             max_case_reports: 1_048_576,
             max_generated_probes: 268_435_456,
-            max_generated_probe_coordinate_cells: 17_179_869_184,
+            max_generated_probe_coordinate_cells: crate::platform::default_usize_limit(
+                17_179_869_184,
+            ),
             max_probe_attempts: 268_435_456,
             max_scheduled_requests: 1_073_741_824,
             max_streamed_rows: 1_073_741_824,

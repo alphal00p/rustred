@@ -112,6 +112,11 @@ impl CandidateGenerationSession {
         if capacity == 0 || capacity > 65_536 {
             return Err(AppError::input("event_capacity must be from 1 to 65536"));
         }
+        if cfg!(target_arch = "wasm32") && request.n_cores != 1 {
+            return Err(AppError::input(
+                "WebAssembly candidate generation requires n_cores = 1",
+            ));
+        }
         let shared = Arc::new(Shared {
             creator_pid: std::process::id(),
             started: Instant::now(),
@@ -177,6 +182,14 @@ impl CandidateGenerationSession {
     pub fn wait(&self, timeout: Option<Duration>) -> Result<bool, AppError> {
         self.check_process()?;
         let inner = self.shared.inner.lock().unwrap_or_else(|e| e.into_inner());
+        // The Pyodide host executes the job inline, not on a background OS
+        // thread. Waiting on a condition variable cannot make progress there.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = timeout;
+            return Ok(inner.state.done());
+        }
+        #[cfg(not(target_arch = "wasm32"))]
         Ok(if let Some(timeout) = timeout {
             self.shared
                 .changed
@@ -204,12 +217,18 @@ impl CandidateGenerationSession {
             return Err(AppError::input("max_events must be from 1 to 65536"));
         }
         let inner = self.shared.inner.lock().unwrap_or_else(|e| e.into_inner());
+        #[cfg(not(target_arch = "wasm32"))]
         let mut inner = self
             .shared
             .changed
             .wait_timeout_while(inner, timeout, |i| i.events.is_empty() && !i.state.done())
             .unwrap_or_else(|e| e.into_inner())
             .0;
+        #[cfg(target_arch = "wasm32")]
+        let mut inner = {
+            let _ = timeout;
+            inner
+        };
         let count = max_events.min(inner.events.len());
         let events = inner.events.drain(..count).collect();
         Ok(CandidateGenerationEvents {
@@ -406,6 +425,32 @@ fn observe(shared: &Shared, event: FamilyCloseProgress) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn inline_failed_job_is_observable_without_waiting() {
+        let (session, job) =
+            CandidateGenerationSession::prepare(FamilyCandidatesRequest::new("unused"), 4).unwrap();
+        assert!(!session.wait(Some(Duration::ZERO)).unwrap());
+        drop(job);
+        assert!(session.wait(Some(Duration::ZERO)).unwrap());
+        let events = session.poll_events(4, Duration::ZERO).unwrap();
+        assert!(events.snapshot.done);
+        assert_eq!(events.snapshot.state, CandidateGenerationState::Failed);
+        assert!(session.result().is_err());
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn wasm_sessions_reject_multiple_workers_at_admission() {
+        let mut request = FamilyCandidatesRequest::new("unused");
+        request.n_cores = 2;
+        let error = CandidateGenerationSession::prepare(request, 4)
+            .err()
+            .unwrap();
+        assert_eq!(error.kind(), crate::AppErrorKind::Input);
+        assert!(error.to_string().contains("n_cores = 1"));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn concurrent_progress_coalesces_events_without_losing_counts() {
         let (session, job) =

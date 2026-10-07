@@ -4,7 +4,7 @@ use symbolica::domains::integer::MultiPrecisionInteger;
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::prelude::{Integer, Rational, Z};
 
-use crate::algebra::{Coefficient, CoefficientContext};
+use crate::algebra::{Coefficient, CoefficientContext, integer_clone_owned_heap_byte_bound};
 
 use super::{CoefficientWeight, MultiAffineNumeratorExpansionError};
 
@@ -56,17 +56,10 @@ pub(super) fn rational_weight(
 ) -> Result<CoefficientWeight, MultiAffineNumeratorExpansionError> {
     let mut bytes = Some(constant_wrapper_bytes);
     for integer in [value.numerator_ref(), value.denominator_ref()] {
-        // Same ownership convention as algebra/coefficient/validation.rs:
-        // GMP capacity belongs to the integer clone, shared maps do not.
-        if let Integer::Large(integer) = integer {
-            bytes = bytes.and_then(|bytes| {
-                usize::try_from(integer.as_raw().capacity())
-                    .ok()?
-                    .checked_add(7)?
-                    .checked_div(8)?
-                    .checked_add(bytes)
-            });
-        }
+        // Backend-aware ownership accounting is shared with coefficient
+        // admission: retained GMP capacity or fresh Malachite clone payload.
+        bytes = bytes
+            .and_then(|bytes| bytes.checked_add(integer_clone_owned_heap_byte_bound(integer)?));
     }
     Ok(CoefficientWeight {
         terms: if value.is_zero() { 1 } else { 2 },

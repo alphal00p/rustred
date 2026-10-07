@@ -7,8 +7,8 @@ the adapter, while semantic validation, shared resource policy, algebra, and
 canonical TOML serialization remain in the Rust application layer.
 
 Python 3.11 or newer is required. The extension uses Python's stable ABI with
-a Python 3.11 floor. RustRed still uses Symbolica's Rust API with GMP; it does
-not enable Symbolica's Python feature.
+a Python 3.11 floor. Native builds use Symbolica's Rust API with GMP. The
+standalone adapter does not enable Symbolica's Python feature.
 
 The public module is imported directly:
 
@@ -23,6 +23,48 @@ Embedded hosts may instead link the Rust adapter with `default-features = false`
 and call `register_rustred_module` on a host-owned submodule. They supply the
 host's Python ABI and Symbolica features; they must not import a second RustRed
 extension/DSO. The standalone wheel retains its Python 3.11 ABI and defaults.
+
+### WebAssembly / Pyodide
+
+The embedded and standalone adapters expose the same exact generation,
+artifact inspection, certification, and reduction APIs on
+`wasm32-unknown-emscripten`. Build with default features disabled and `wasm`
+enabled (`rustred-feynkit` also needs `campaign-api` for these endpoints).
+This selects Symbolica's own WASM-compatible integer/float backends, not a
+RustRed algebra implementation. A matching Pyodide/Emscripten Python toolchain
+and wheel build are required; a native wheel cannot be loaded into Pyodide.
+
+Execution differs intentionally:
+
+- `n_cores=1` is required; requesting more workers raises `RustRedInputError`.
+- No OS coordinator thread is started. `family_candidates`, certification,
+  and reduction execute synchronously in the calling interpreter.
+- `start_family_candidates()` and request/family `.start()` also run to
+  completion **before returning**. Their sessions then expose the result and
+  bounded recorded events. This is not asynchronous browser generation.
+- There is no live polling or in-flight cancellation from that same Python
+  interpreter. Browser hosts should run their interpreter in a Web Worker to
+  keep the page responsive and require an explicit Generate button.
+- Binary artifacts have the same topology-generic format. Byte-oriented APIs
+  do not require filesystem access; file APIs use Pyodide's virtual filesystem.
+
+Use `rustred.execution_capabilities()` (or `hep.rustred.execution_capabilities()`
+inside HEPKit) to adapt UI controls without platform-name guesses:
+
+```python
+capabilities = rustred.execution_capabilities()
+# WASM: execution_mode="synchronous", background_sessions=False,
+# live_event_polling=False, cancellation_in_flight=False, max_workers=1.
+# Native: execution_mode="background-coordinator", booleans=True,
+# max_workers=None (worker budgets are validated by the native application).
+```
+
+`tests/wasm_smoke.py` supplies `run_smoke(api)` for the installed extension. It
+generates a tadpole, certifies the emitted bundle, reloads its artifact, and
+reduces a dotted integral, including its dimensional mass factor. Native
+coordinator safety remains covered independently from the inline executor.
+See the shared [WebAssembly contract](../../docs/wasm.md) for target scope,
+artifact compatibility, and the narrow affine-input retained-memory limitation.
 
 The initial operations are:
 

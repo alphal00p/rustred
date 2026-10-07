@@ -14,7 +14,9 @@ path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["standalone", "reconstruction"]
+default = ["native", "standalone", "reconstruction"]
+native = ["rustred-app/native"]
+wasm = ["rustred-app/wasm"]
 # Embedded HEPKit shares its host's Python ABI and Symbolica feature selection.
 standalone = ["pyo3/abi3-py311"]
 reconstruction = ["rustred-app/reconstruction"]

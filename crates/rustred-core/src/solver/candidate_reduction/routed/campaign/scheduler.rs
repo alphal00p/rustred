@@ -180,6 +180,12 @@ impl<'a, const N: usize> Shared<'a, N> {
             )
             .into());
         }
+        if cfg!(target_arch = "wasm32") && self.workers != 1 {
+            return Err(CandidateRoutedError::InvalidInput(
+                "WebAssembly campaigns require exactly one inline worker".into(),
+            )
+            .into());
+        }
         let evaluator = worker::base(reducer);
         let mut entries = BTreeSet::new();
         for target in targets {

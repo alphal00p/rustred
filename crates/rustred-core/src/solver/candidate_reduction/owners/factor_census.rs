@@ -6,6 +6,7 @@
 //! the index and base variables. It never feeds a walk, a proof or a cache.
 use std::collections::{BTreeMap, HashMap};
 
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 use symbolica::poly::factor::Factorize;
 
@@ -164,9 +165,13 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                         }
                     }
                     let entries: Vec<(&CoefficientPolynomial, usize)> = map.into_iter().collect();
-                    // Factor every distinct polynomial in parallel.
+                    // Native builds factor in parallel; WebAssembly must not
+                    // implicitly initialize Rayon's global OS worker pool.
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let entries = entries.par_iter();
+                    #[cfg(target_arch = "wasm32")]
+                    let entries = entries.iter();
                     let factored: Vec<(usize, usize, Option<Vec<CoefficientPolynomial>>)> = entries
-                        .par_iter()
                         .map(|&(p, count)| {
                             if p.nterms() > limits.max_terms {
                                 return (count, p.nterms(), None);

@@ -17,6 +17,7 @@ use super::super::{
 };
 use super::manifest::{Manifest, Section};
 use super::sections::{self, Identity};
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use std::fs::File;
@@ -89,7 +90,12 @@ fn section_path(dir: &Path, file: &str) -> Result<std::path::PathBuf, String> {
 /// Streams every referenced file once, in parallel, retaining nothing.
 pub(super) fn verify_files(dir: &Path, manifest: &Manifest) -> Result<f64, String> {
     let started = Instant::now();
-    manifest.files().par_iter().try_for_each(|f| {
+    let files = manifest.files();
+    #[cfg(not(target_arch = "wasm32"))]
+    let files = files.par_iter();
+    #[cfg(target_arch = "wasm32")]
+    let mut files = files.iter();
+    files.try_for_each(|f| {
         let path = section_path(dir, f.file)?;
         if file_digest(&path)? != (f.bytes, f.blake3.to_owned()) {
             return Err(format!(
@@ -392,37 +398,51 @@ fn derive_accepted_events(sidecar: &Sidecar, native_records: usize) -> Result<us
         accepted_events: Option<usize>,
     }
     let files = sidecar.files();
-    let (natives, accepted) = files
-        .parts()
-        .par_iter()
-        .map(|part| {
-            let (mut natives, mut accepted) = (0usize, 0usize);
-            records::read_part(sidecar.directory(), part, &mut |line| {
-                let probe: Probe<'_> = serde_json::from_slice(line)
-                    .map_err(|e| format!("invalid checkpoint record line: {e}"))?;
-                if probe.record_kind.as_deref() != Some("delegated_not_inspected") {
-                    let events = probe
-                        .accepted_events
-                        .ok_or("ready checkpoint native record has no accepted-events count")?;
-                    natives += 1;
-                    accepted = accepted
-                        .checked_add(events)
-                        .ok_or("checkpoint accepted-events overflow")?;
-                }
-                Ok(())
-            })?;
-            Ok::<_, String>((natives, accepted))
-        })
-        .try_reduce(
-            || (0, 0),
-            |a, b| {
-                Ok((
-                    a.0 + b.0,
-                    a.1.checked_add(b.1)
-                        .ok_or("checkpoint accepted-events overflow")?,
-                ))
-            },
-        )?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let parts = files.parts().par_iter();
+    #[cfg(target_arch = "wasm32")]
+    let parts = files.parts().iter();
+    let contributions = parts.map(|part| {
+        let (mut natives, mut accepted) = (0usize, 0usize);
+        records::read_part(sidecar.directory(), part, &mut |line| {
+            let probe: Probe<'_> = serde_json::from_slice(line)
+                .map_err(|e| format!("invalid checkpoint record line: {e}"))?;
+            if probe.record_kind.as_deref() != Some("delegated_not_inspected") {
+                let events = probe
+                    .accepted_events
+                    .ok_or("ready checkpoint native record has no accepted-events count")?;
+                natives += 1;
+                accepted = accepted
+                    .checked_add(events)
+                    .ok_or("checkpoint accepted-events overflow")?;
+            }
+            Ok(())
+        })?;
+        Ok::<_, String>((natives, accepted))
+    });
+    #[cfg(not(target_arch = "wasm32"))]
+    let (natives, accepted) = contributions.try_reduce(
+        || (0, 0),
+        |a, b| {
+            Ok((
+                a.0 + b.0,
+                a.1.checked_add(b.1)
+                    .ok_or("checkpoint accepted-events overflow")?,
+            ))
+        },
+    )?;
+    #[cfg(target_arch = "wasm32")]
+    let (natives, accepted) = {
+        let mut contributions = contributions;
+        contributions.try_fold((0usize, 0usize), |a, b| {
+            let b = b?;
+            Ok::<_, String>((
+                a.0 + b.0,
+                a.1.checked_add(b.1)
+                    .ok_or("checkpoint accepted-events overflow")?,
+            ))
+        })?
+    };
     if natives != native_records {
         return Err("ready checkpoint records/publications disagree".into());
     }
@@ -450,9 +470,11 @@ pub(super) fn validate_g2_cover<const N: usize>(
     for row in &log.rows {
         by_id.insert(row.id, *row);
     }
-    let failures = log
-        .rows
-        .par_iter()
+    #[cfg(not(target_arch = "wasm32"))]
+    let rows = log.rows.par_iter();
+    #[cfg(target_arch = "wasm32")]
+    let rows = log.rows.iter();
+    let failures = rows
         .filter(|row| matches!(row.kind, kind::G2_RESIDUAL | kind::G2_FULL_COVER))
         .filter(|row| {
             let q = domains[row.id as usize].expand();

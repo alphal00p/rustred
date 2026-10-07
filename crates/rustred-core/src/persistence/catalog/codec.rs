@@ -11,8 +11,8 @@ use crate::family::IntegralKey;
 use crate::persistence::error::check_limit;
 use crate::persistence::limits::CappedWriter;
 use crate::persistence::native::{
-    BorrowedStateMap, NATIVE_ATOM_HEADER_BYTES, ensure_native_word_size, preflight_native_frame,
-    preflight_state_export, read_length, write_length,
+    BorrowedStateMap, NATIVE_ATOM_HEADER_BYTES, preflight_native_frame, preflight_state_export,
+    read_length, write_length,
 };
 use crate::persistence::{
     BinaryIoError, BinaryIoLimits, BinaryProgramKind, BinarySection, SectionTag, encode_program,
@@ -29,7 +29,6 @@ pub(super) fn encode(
     catalog: &ExactTerminalCatalog,
     limits: BinaryIoLimits,
 ) -> Result<Vec<u8>, BinaryIoError> {
-    ensure_native_word_size()?;
     check_counts(catalog.index_count, catalog.terms.len(), limits)?;
     let mut records = CappedWriter::new("terminal catalog records", limits.max_program_bytes);
     scalar(&mut records, &SCHEMA)?;

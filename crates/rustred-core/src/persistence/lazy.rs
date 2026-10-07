@@ -2,9 +2,7 @@
 //! Trusted generated input only, exactly like DecodedCoefficientTable.
 
 use super::error::check_limit;
-use super::native::{
-    ensure_native_word_size, preflight_native_frame, preflight_state_export, read_length,
-};
+use super::native::{preflight_native_frame, preflight_state_export, read_length};
 use super::{BinaryIoError, BinaryIoLimits, CoefficientId};
 use crate::algebra::Coefficient;
 use std::{
@@ -37,7 +35,6 @@ impl LazyDecodedCoefficientTable {
         atoms: Arc<[u8]>,
         limits: BinaryIoLimits,
     ) -> Result<Self, BinaryIoError> {
-        ensure_native_word_size()?;
         check_limit("Symbolica state bytes", state.len(), limits.max_state_bytes)?;
         check_limit(
             "coefficient table bytes",

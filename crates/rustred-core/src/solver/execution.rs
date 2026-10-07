@@ -28,6 +28,7 @@ pub enum SectorScheduling {
 #[derive(Debug)]
 pub enum SectorExecutorBuildError {
     ZeroWorkers,
+    UnsupportedTargetWorkers { requested: usize },
     NativeThreadLimit { requested: usize, allowed: usize },
     WorkerPool { requested: usize, message: String },
 }
@@ -36,6 +37,10 @@ impl fmt::Display for SectorExecutorBuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ZeroWorkers => write!(f, "sector worker budget must be positive"),
+            Self::UnsupportedTargetWorkers { requested } => write!(
+                f,
+                "this WebAssembly build supports exactly one inline sector worker, not {requested}"
+            ),
             Self::NativeThreadLimit { requested, allowed } => write!(
                 f,
                 "requested {requested} sector workers, but Symbolica permits {allowed} on the execution threads"
@@ -175,6 +180,9 @@ impl SectorExecutor {
     pub fn new(workers: usize) -> Result<Self, SectorExecutorBuildError> {
         if workers == 0 {
             return Err(SectorExecutorBuildError::ZeroWorkers);
+        }
+        if cfg!(target_arch = "wasm32") && workers != 1 {
+            return Err(SectorExecutorBuildError::UnsupportedTargetWorkers { requested: workers });
         }
         let pool = if workers == 1 {
             None

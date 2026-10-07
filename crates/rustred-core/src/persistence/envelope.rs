@@ -8,6 +8,7 @@ const MAGIC: &[u8; 8] = b"RRPBIN\r\n";
 pub const BINARY_PROGRAM_VERSION: u32 = 1;
 const HEADER_BYTES: usize = 20;
 const SECTION_HEADER_BYTES: usize = 12;
+const WIRE_LENGTH_BYTES: u8 = 8;
 
 /// A payload claim, not a proof or a constructor for trusted rule ownership.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,7 +79,6 @@ pub fn encode_program(
     sections: &[BinarySection<'_>],
     limits: BinaryIoLimits,
 ) -> Result<Vec<u8>, BinaryIoError> {
-    require_native_word_size(std::mem::size_of::<usize>())?;
     check_limit("section count", sections.len(), limits.max_sections)?;
     let count = u32::try_from(sections.len())
         .map_err(|_| BinaryIoError::Invalid("section count exceeds wire width"))?;
@@ -100,7 +100,7 @@ pub fn encode_program(
     };
     write(out.write_all(MAGIC))?;
     write(out.write_all(&BINARY_PROGRAM_VERSION.to_le_bytes()))?;
-    write(out.write_all(&[kind as u8, 8, 0, 0]))?;
+    write(out.write_all(&[kind as u8, WIRE_LENGTH_BYTES, 0, 0]))?;
     write(out.write_all(&count.to_le_bytes()))?;
     for section in sections {
         write(out.write_all(&section.tag.0.to_le_bytes()))?;
@@ -138,8 +138,9 @@ pub fn inspect_program(
         6 => BinaryProgramKind::DomainRules,
         _ => return Err(BinaryIoError::Invalid("unsupported binary program kind")),
     };
-    require_native_word_size(usize::from(cursor.take(1)?[0]))?;
-    require_native_word_size(std::mem::size_of::<usize>())?;
+    if cursor.take(1)?[0] != WIRE_LENGTH_BYTES {
+        return Err(BinaryIoError::Invalid("unsupported binary length width"));
+    }
     if cursor.u16()? != 0 {
         return Err(BinaryIoError::Invalid("nonzero reserved header flags"));
     }
@@ -190,16 +191,6 @@ fn check_tag_order(previous: Option<SectionTag>, tag: SectionTag) -> Result<(), 
         ))
     } else {
         Ok(())
-    }
-}
-
-fn require_native_word_size(bytes: usize) -> Result<(), BinaryIoError> {
-    if bytes == 8 {
-        Ok(())
-    } else {
-        Err(BinaryIoError::Invalid(
-            "native Symbolica Atom format currently requires a 64-bit host",
-        ))
     }
 }
 

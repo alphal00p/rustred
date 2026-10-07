@@ -26,6 +26,11 @@ pub struct PyCandidateGenerationSession {
 
 #[pymethods]
 impl PyCandidateGenerationSession {
+    /// Native sessions run on the coordinator; WASM start() completes inline.
+    #[getter]
+    fn execution_mode(&self) -> &'static str {
+        crate::execution_mode()
+    }
     #[getter]
     fn done(&self) -> PyResult<bool> {
         self.inner.done().map_err(map_app_error)
@@ -134,6 +139,8 @@ pub(crate) fn start_request(
 /// Embedded-host entry. The Arc is the existing family with its original
 /// denominator/parameter identity; options only steer the common generator.
 /// The host must link this rlib into its existing Symbolica-owning extension.
+/// On WASM this runs synchronously and returns an already completed session;
+/// buffered events remain available, but there is no background progress.
 pub fn start_from_native_family(
     py: Python<'_>,
     family: Arc<NativeIntegralFamily>,
@@ -146,6 +153,9 @@ pub fn start_from_native_family(
     submit(session, job)
 }
 
+/// Start generation on the native background coordinator, or synchronously in
+/// WebAssembly. Inspect execution_capabilities() before offering live progress
+/// or cancellation controls in a browser UI.
 #[pyfunction]
 #[pyo3(signature=(source,*,event_capacity=PythonInteger(256),**options))]
 fn start_family_candidates(
@@ -504,6 +514,7 @@ mod tests {
         assert_eq!(html_preview("<short>", 96), "&lt;short&gt;");
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn wait_and_poll_release_python_for_a_required_heartbeat() {
         Python::initialize();

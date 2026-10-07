@@ -19,7 +19,13 @@ pub(super) const HEADER_BYTES: usize = 32;
 pub(super) const FLAG_READY: u16 = 1;
 const EDGE_BYTES: usize = 8;
 /// Upper bound on one bincode section (ledger, index) and one domain segment.
-const MAX_BINCODE_BYTES: usize = 1 << 40;
+// Keep the native decoder ceiling while respecting the address space of a
+// wasm32 host. The actual section length is still admitted before allocation.
+const MAX_BINCODE_BYTES: usize = if usize::BITS >= 64 {
+    (1u64 << 40) as usize
+} else {
+    usize::MAX
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Tag {

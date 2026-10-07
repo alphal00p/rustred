@@ -10,7 +10,7 @@ use std::str::FromStr;
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyBool, PyBytes};
+use pyo3::types::{PyAnyMethods, PyBool, PyBytes, PyDict};
 use rustred_app::{
     AppError, AppErrorKind, CampaignPlanRequest, CampaignPreflightRequest,
     ClosingArtifactGenerateRequest, ClosingArtifactInspectRequest, ClosingArtifactReduceRequest,
@@ -730,6 +730,11 @@ fn positive_core_count(label: &str, value: i128) -> PyResult<usize> {
             "{label} must be a positive integer"
         )));
     }
+    if cfg!(target_arch = "wasm32") && value != 1 {
+        return Err(RustRedInputError::new_err(format!(
+            "{label} must be 1 in the single-threaded WebAssembly runtime"
+        )));
+    }
     usize::try_from(value).map_err(|_| {
         RustRedInputError::new_err(format!(
             "{label} must be a positive integer fitting this platform"
@@ -870,6 +875,7 @@ fn map_coordinator_error(error: CoordinatorError) -> PyErr {
         CoordinatorError::Poisoned => RustRedCoordinatorPoisonedError::new_err(
             "the RustRed Python coordinator is permanently poisoned after an internal panic",
         ),
+        #[cfg(not(target_arch = "wasm32"))]
         CoordinatorError::Forked {
             creator_pid,
             current_pid,
@@ -888,11 +894,37 @@ fn _rustred(module: &Bound<'_, PyModule>) -> PyResult<()> {
     register_rustred_module(module)
 }
 
+/// Report execution semantics without starting computation.
+///
+/// WebAssembly sessions complete synchronously inside start(). Their bounded
+/// events can be inspected afterwards, but are not live background progress.
+/// A browser host should run its interpreter in a Web Worker for a responsive
+/// page; this API does not create that worker or imply pthread support.
+#[pyfunction]
+fn execution_capabilities(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
+    let wasm = cfg!(target_arch = "wasm32");
+    let capabilities = PyDict::new(py);
+    capabilities.set_item("execution_mode", execution_mode())?;
+    capabilities.set_item("background_sessions", !wasm)?;
+    capabilities.set_item("live_event_polling", !wasm)?;
+    capabilities.set_item("cancellation_in_flight", !wasm)?;
+    capabilities.set_item("max_workers", wasm.then_some(1))?;
+    Ok(capabilities)
+}
+
+pub(crate) fn execution_mode() -> &'static str {
+    if cfg!(target_arch = "wasm32") {
+        "synchronous"
+    } else {
+        "background-coordinator"
+    }
+}
+
 /// Register in a host-owned extension (for example hep.rustred), sharing its
 /// linked Symbolica state. Does not import a second Python extension/DSO.
 pub fn register_rustred_module(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    // Starting this thread during module initialization establishes it before
-    // any binding can call the core or initialize Symbolica.
+    // Establish the coordinator before any binding can call Symbolica. Native
+    // builds start one OS thread; WASM uses a guarded inline executor.
     process_coordinator().map_err(RustRedInternalError::new_err)?;
     streaming::register(module)?;
 
@@ -952,6 +984,7 @@ pub fn register_rustred_module(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyExactMasterCoefficient>()?;
     module.add_class::<PyClosingArtifactReductionResult>()?;
     module.add_function(wrap_pyfunction!(derive, module)?)?;
+    module.add_function(wrap_pyfunction!(execution_capabilities, module)?)?;
     module.add_function(wrap_pyfunction!(campaign_plan, module)?)?;
     module.add_function(wrap_pyfunction!(entry_domain_plan, module)?)?;
     module.add_function(wrap_pyfunction!(campaign_preflight, module)?)?;
@@ -984,10 +1017,12 @@ mod tests {
         assert!(parse_relation_selection("laporta").is_err());
         assert!(positive_core_count("n_cores", 0).is_err());
         assert!(positive_core_count("n_cores", -1).is_err());
-        assert_eq!(
-            positive_core_count("n_cores", 4).expect("positive count"),
-            4
-        );
+        assert_eq!(positive_core_count("n_cores", 1).unwrap(), 1);
+        if cfg!(target_arch = "wasm32") {
+            assert!(positive_core_count("n_cores", 4).is_err());
+        } else {
+            assert_eq!(positive_core_count("n_cores", 4).unwrap(), 4);
+        }
     }
 
     #[test]

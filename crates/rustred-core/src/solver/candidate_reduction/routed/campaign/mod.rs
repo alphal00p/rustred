@@ -11,7 +11,9 @@ mod worker;
 use super::{CandidateEntryAdmission, RoutedCandidateReducer};
 use crate::family::IntegralKey;
 pub use model::*;
-use scheduler::{Failure, Shared};
+#[cfg(not(target_arch = "wasm32"))]
+use scheduler::Failure;
+use scheduler::Shared;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
@@ -77,6 +79,12 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             return result;
         }
         observer(&shared.snapshot());
+        #[cfg(target_arch = "wasm32")]
+        {
+            worker::run_with_progress(self, &shared, || observer(&shared.snapshot()));
+            observer(&shared.snapshot());
+        }
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::scope(|scope| {
             for _ in 0..workers {
                 let shared = &shared;

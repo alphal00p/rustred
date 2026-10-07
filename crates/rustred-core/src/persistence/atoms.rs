@@ -23,8 +23,8 @@ use crate::algebra::{Coefficient, validate_coefficient_on_map};
 use super::error::check_limit;
 use super::limits::CappedWriter;
 use super::native::{
-    BorrowedStateMap, LENGTH_BYTES, NATIVE_ATOM_HEADER_BYTES, ensure_native_word_size,
-    preflight_native_frame, preflight_state_export, read_length, write_length,
+    BorrowedStateMap, LENGTH_BYTES, NATIVE_ATOM_HEADER_BYTES, preflight_native_frame,
+    preflight_state_export, read_length, write_length,
 };
 use super::{BinaryIoError, BinaryIoLimits};
 
@@ -163,7 +163,6 @@ impl CoefficientTableBuilder {
     }
 
     pub fn finish(self) -> Result<EncodedCoefficientTable, BinaryIoError> {
-        ensure_native_word_size()?;
         check_limit(
             "coefficient table bytes",
             self.encoded_atom_bytes,
@@ -266,7 +265,6 @@ impl DecodedCoefficientTable {
         limits: BinaryIoLimits,
         normalize_unique: bool,
     ) -> Result<Self, BinaryIoError> {
-        ensure_native_word_size()?;
         check_limit("Symbolica state bytes", state.len(), limits.max_state_bytes)?;
         check_limit(
             "coefficient table bytes",

@@ -14,7 +14,11 @@ path = "src/lib.rs"
 [features]
 # Experimental reconstruction needs the newer vendored Symbolica API. Exact
 # sparse IBP solving can also be embedded in hosts using released Symbolica 3.
-default = ["reconstruction"]
+default = ["native", "reconstruction"]
+native = ["symbolica/integer-gmp", "symbolica/float-mpfr"]
+# Symbolica supplies its pure-Rust Malachite/Astro implementation; RustRed
+# does not implement another numerical or computer-algebra backend.
+wasm = ["symbolica/wasm"]
 reconstruction = []
 
 [dependencies]

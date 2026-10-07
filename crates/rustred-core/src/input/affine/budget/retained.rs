@@ -31,6 +31,7 @@ pub(in crate::input::affine) fn signed_i64_magnitude_bits(value: i64) -> usize {
 fn integer_owned_heap_bytes(integer: &Integer) -> Result<usize, SymbolicaAffineDenominatorError> {
     match integer {
         Integer::Single(_) | Integer::Double(_) => Ok(0),
+        #[cfg(not(feature = "wasm"))]
         Integer::Large(value) => usize::try_from(value.as_raw().capacity())
             .map_err(|_| SymbolicaAffineDenominatorError::ResourceCountOverflow {
                 resource: "integer owned heap bytes",
@@ -40,6 +41,32 @@ fn integer_owned_heap_bytes(integer: &Integer) -> Result<usize, SymbolicaAffineD
             .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
                 resource: "integer owned heap bytes",
             }),
+        // This census promises actual retained capacity, not fresh-clone
+        // payload. Malachite deliberately hides spare Vec capacity; using
+        // significant_bits here would silently undercount retained storage.
+        // Fail closed only at this strict affine-input admission boundary.
+        #[cfg(feature = "wasm")]
+        Integer::Large(_) => Err(
+            SymbolicaAffineDenominatorError::UnsupportedRetainedHeapAccounting {
+                backend: "Symbolica/Malachite",
+            },
+        ),
+    }
+}
+
+#[cfg(all(test, feature = "wasm"))]
+mod portable_storage_tests {
+    use super::*;
+
+    #[test]
+    fn large_exact_arithmetic_works_but_unknown_retained_capacity_is_rejected() {
+        let large = Integer::from(1) << 200usize;
+        assert_eq!((&large + &large) >> 1usize, large);
+        assert!(matches!(
+            integer_owned_heap_bytes(&large),
+            Err(SymbolicaAffineDenominatorError::UnsupportedRetainedHeapAccounting { .. })
+        ));
+        assert_eq!(integer_owned_heap_bytes(&Integer::from(i128::MAX)), Ok(0));
     }
 }
 

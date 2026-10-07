@@ -8,7 +8,9 @@ description = "Native RustRed IBP bridge for Feynkit and symbolica.community.hep
 license = "MIT"
 
 [features]
-default = []
+default = ["native"]
+native = ["rustred/native", "rustred_python?/native"]
+wasm = ["rustred/wasm", "rustred_python?/wasm"]
 # Optional application/event API; finite native IBP users need not link the
 # campaign application layer or adopt a standalone Python ABI.
 campaign-api = ["dep:rustred_python", "pyo3/multiple-pymethods"]

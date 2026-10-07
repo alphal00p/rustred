@@ -93,13 +93,21 @@ impl Default for InvolutiveLimits {
             max_basis_rows: 1_000_000,
             max_basis_coordinate_cells: 64_000_000,
             max_basis_coefficient_terms: 1_000_000_000,
-            max_basis_coefficient_exponent_cells: 8_000_000_000,
-            max_basis_coefficient_retained_bytes: 17_179_869_184,
+            max_basis_coefficient_exponent_cells: crate::platform::default_usize_limit(
+                8_000_000_000,
+            ),
+            max_basis_coefficient_retained_bytes: crate::platform::default_usize_limit(
+                17_179_869_184,
+            ),
             max_initial_sort_comparisons: 1_000_000_000,
-            max_initial_sort_payload_visits: 8_000_000_000,
+            max_initial_sort_payload_visits: crate::platform::default_usize_limit(8_000_000_000),
             max_initial_pivot_head_comparisons: 1_000_000_000,
-            max_initial_pivot_head_coordinate_visits: 4_096_000_000_000,
-            max_initial_pivot_insertion_moves: 500_000_000_000,
+            max_initial_pivot_head_coordinate_visits: crate::platform::default_usize_limit(
+                4_096_000_000_000,
+            ),
+            max_initial_pivot_insertion_moves: crate::platform::default_usize_limit(
+                500_000_000_000,
+            ),
             max_mask_prefix_comparisons: 1_000_000_000,
             max_mask_sort_coordinate_comparisons: 1_000_000_000,
             max_mask_retained_bytes: 536_870_912,

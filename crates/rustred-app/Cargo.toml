@@ -9,7 +9,9 @@ license = "MIT"
 publish = false
 
 [features]
-default = ["cli", "reconstruction"]
+default = ["native", "cli", "reconstruction"]
+native = ["rustred/native"]
+wasm = ["rustred/wasm"]
 reconstruction = ["rustred/reconstruction"]
 cli = ["dep:tabled", "dep:crossterm", "dep:ratatui", "dep:libc", "dep:signal-hook"]
 # N3 (opt-in, default off): mimalloc as the `rustred` binary's Rust global

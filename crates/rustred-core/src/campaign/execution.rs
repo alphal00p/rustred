@@ -15,6 +15,9 @@ use symbolica::license::LicenseManager;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParallelExecutionError {
     ZeroCoreBudget,
+    UnsupportedTargetWorkers {
+        requested: usize,
+    },
     AvailableParallelism {
         message: String,
     },
@@ -42,6 +45,10 @@ impl fmt::Display for ParallelExecutionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ZeroCoreBudget => formatter.write_str("the worker-core budget must be positive"),
+            Self::UnsupportedTargetWorkers { requested } => write!(
+                formatter,
+                "this WebAssembly build supports exactly one inline worker, not {requested}"
+            ),
             Self::AvailableParallelism { message } => write!(
                 formatter,
                 "cannot determine the process's available worker-core budget: {message}"
@@ -108,6 +115,11 @@ impl ParallelExecution {
         let n_cores = NonZeroUsize::new(n_cores).ok_or(ParallelExecutionError::ZeroCoreBudget)?;
         if n_cores.get() == 1 {
             return Ok(());
+        }
+        if cfg!(target_arch = "wasm32") {
+            return Err(ParallelExecutionError::UnsupportedTargetWorkers {
+                requested: n_cores.get(),
+            });
         }
         let available = std::thread::available_parallelism().map_err(|error| {
             ParallelExecutionError::AvailableParallelism {
@@ -245,6 +257,15 @@ mod tests {
                 .map_ordered(8, |ordinal| ordinal * ordinal)
                 .unwrap(),
             vec![0, 1, 4, 9, 16, 25, 36, 49]
+        );
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn wasm_rejects_multicore_without_os_or_license_probes() {
+        assert_eq!(
+            ParallelExecution::preflight_requested_core_budget(2),
+            Err(ParallelExecutionError::UnsupportedTargetWorkers { requested: 2 })
         );
     }
 

@@ -4,6 +4,12 @@ The [Feynkit bridge](crates/rustred-feynkit/README.md) adds native parametric
 and Laporta IBP solving to `symbolica.community.hepkit`, including multiscale
 two-loop graph tests and a [FeynCalc phi4 reproduction notebook](examples/notebooks/feyncalc_phi4_two_loop.ipynb).
 
+The [WebAssembly/Pyodide build](docs/wasm.md) uses Symbolica's portable
+arithmetic backend and supports serial IBP generation, artifact inspection,
+certification and reduction through RustRed's Python and HEPKit APIs. Browser
+sessions execute synchronously; native builds retain their existing background
+coordinator and multicore execution.
+
 RustRed is a pre-alpha, pure-Rust and Symbolica-native project for deriving and
 applying parametric integration-by-parts identities. Its active target is
 finite, power-counted five-loop single-scale vacuum starting domains, building on the completed

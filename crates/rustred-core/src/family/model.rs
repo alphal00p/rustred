@@ -107,10 +107,14 @@ impl Default for IntegralFamilyLimits {
             max_derivative_contractions: 16_000_000,
             max_derivative_contraction_coefficient_cells: 16_000_000,
             max_fingerprint_bytes: 1024 * 1024 * 1024,
-            max_fingerprint_encoding_work: 4_000_000_000_000_000,
+            max_fingerprint_encoding_work: crate::platform::default_usize_limit(
+                4_000_000_000_000_000,
+            ),
             max_fingerprint_polynomial_terms: 256_000_000,
-            max_fingerprint_exponent_entries: 16_000_000_000,
-            max_fingerprint_integer_bits: 4_000_000_000_000_000,
+            max_fingerprint_exponent_entries: crate::platform::default_usize_limit(16_000_000_000),
+            max_fingerprint_integer_bits: crate::platform::default_usize_limit(
+                4_000_000_000_000_000,
+            ),
         }
     }
 }

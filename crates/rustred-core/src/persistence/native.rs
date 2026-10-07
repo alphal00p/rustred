@@ -19,16 +19,8 @@ impl HasStateMap for BorrowedStateMap<'_> {
     }
 }
 
-pub(super) fn ensure_native_word_size() -> Result<(), BinaryIoError> {
-    // Native atom frames carry a u64 length; RustRed framing assumes a 64-bit usize.
-    if std::mem::size_of::<usize>() != LENGTH_BYTES {
-        return Err(BinaryIoError::Invalid(
-            "native atom bincode requires a 64-bit target",
-        ));
-    }
-    Ok(())
-}
-
+// Symbolica's Atom encoder writes one format byte and a fixed u64 length on
+// every target. RustRed uses the same fixed framing, independently of usize.
 pub(super) fn write_length(writer: &mut impl Write, value: usize) -> Result<(), BinaryIoError> {
     let value = u64::try_from(value).map_err(|_| BinaryIoError::Invalid("length exceeds u64"))?;
     writer
@@ -114,6 +106,24 @@ mod tests {
         frame.extend_from_slice(&1u64.to_le_bytes());
         frame.push(1);
         frame
+    }
+
+    #[test]
+    fn lengths_are_always_fixed_u64_not_host_pointer_width() {
+        let mut bytes = Vec::new();
+        write_length(&mut bytes, 513).unwrap();
+        assert_eq!(bytes, 513u64.to_le_bytes());
+        assert_eq!(read_length(&mut bytes.as_slice()).unwrap(), 513);
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn oversized_native_lengths_are_rejected_before_atom_allocation() {
+        let length = (u64::from(u32::MAX) + 1).to_le_bytes();
+        assert!(read_length(&mut length.as_slice()).is_err());
+        let mut bytes = frame(native_atom_format());
+        bytes[1..9].copy_from_slice(&length);
+        assert!(preflight_native_frame(&bytes).is_err());
     }
 
     #[test]

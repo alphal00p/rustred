@@ -150,11 +150,43 @@ pub(crate) fn polynomial_clone_owned_heap_byte_bound(
 
 pub(crate) fn integer_clone_owned_heap_byte_bound(value: &Integer) -> Option<usize> {
     if let Integer::Large(value) = value {
-        usize::try_from(value.as_raw().capacity())
-            .ok()?
-            .checked_add(7)?
-            .checked_div(8)
+        #[cfg(not(feature = "wasm"))]
+        {
+            usize::try_from(value.as_raw().capacity())
+                .ok()?
+                .checked_add(7)?
+                .checked_div(8)
+        }
+        #[cfg(feature = "wasm")]
+        {
+            // Symbolica's Malachite backend clones a normalized Vec<Limb>,
+            // without GMP's retained allocation cache. Its public, generic
+            // significant_bits() therefore bounds the fresh clone's payload.
+            // Round to 64-bit limbs, conservatively also covering 32-bit
+            // Malachite limbs. Inline object storage is charged by the caller.
+            usize::try_from(value.significant_bits())
+                .ok()?
+                .checked_add(63)?
+                .checked_div(64)?
+                .checked_mul(8)
+        }
     } else {
         Some(0)
+    }
+}
+
+#[cfg(all(test, feature = "wasm"))]
+mod wasm_tests {
+    use super::*;
+
+    #[test]
+    fn portable_large_integer_clone_bound_rounds_native_limbs() {
+        assert_eq!(
+            integer_clone_owned_heap_byte_bound(&Integer::from(1)),
+            Some(0)
+        );
+        let large = Integer::from(1) << 128usize;
+        assert_eq!(integer_clone_owned_heap_byte_bound(&large), Some(24));
+        assert_eq!(integer_clone_owned_heap_byte_bound(&(-large)), Some(24));
     }
 }

@@ -428,6 +428,23 @@ fn preparation_and_search_errors_keep_their_original_ordinal() {
 }
 
 #[test]
+fn one_sector_worker_is_inline_without_an_os_pool() {
+    let executor = SectorExecutor::new(1).unwrap();
+    assert_eq!(executor.workers(), 1);
+    assert!(executor.pool.is_none());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[test]
+fn wasm_rejects_multiple_sector_workers_before_native_setup() {
+    assert!(matches!(
+        SectorExecutor::new(2),
+        Err(SectorExecutorBuildError::UnsupportedTargetWorkers { requested: 2 })
+    ));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
 fn native_thread_limits_are_errors_not_silent_multicore_fallback() {
     assert!(matches!(
         SectorExecutor::new(0),

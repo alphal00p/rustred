@@ -4,8 +4,8 @@ use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::prelude::*;
 
 use crate::algebra::{
-    Coefficient, CoefficientPolynomial, ExactAlgebraLimits, validate_coefficient_on_map,
-    validate_polynomial_on_map,
+    Coefficient, CoefficientPolynomial, ExactAlgebraLimits, integer_clone_owned_heap_byte_bound,
+    validate_coefficient_on_map, validate_polynomial_on_map,
 };
 
 use super::super::error::IndexedAlgebraError;
@@ -391,18 +391,12 @@ fn preflight_guard_polynomial_payload(
                 .ok_or(IndexedAlgebraError::ResourceCountOverflow {
                     resource: "guard polynomial serialized payload bytes",
                 })?;
-        if let Integer::Large(value) = coefficient {
-            let capacity_bits = usize::try_from(value.as_raw().capacity()).map_err(|_| {
+        if matches!(coefficient, Integer::Large(_)) {
+            let capacity_bytes = integer_clone_owned_heap_byte_bound(coefficient).ok_or(
                 IndexedAlgebraError::ResourceCountOverflow {
                     resource: "guard polynomial cloned payload bytes",
-                }
-            })?;
-            let capacity_bytes = capacity_bits
-                .checked_add(7)
-                .map(|rounded| rounded / 8)
-                .ok_or(IndexedAlgebraError::ResourceCountOverflow {
-                    resource: "guard polynomial cloned payload bytes",
-                })?;
+                },
+            )?;
             cloned = cloned.checked_add(capacity_bytes).ok_or(
                 IndexedAlgebraError::ResourceCountOverflow {
                     resource: "guard polynomial cloned payload bytes",

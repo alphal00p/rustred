@@ -292,6 +292,20 @@ class GeneratedProgramAssertions(unittest.TestCase):
 
 
 class PythonApiTests(GeneratedProgramAssertions):
+    def test_execution_capabilities_describe_actual_runtime(self) -> None:
+        capabilities = rustred.execution_capabilities()
+        wasm = sys.platform in {"emscripten", "wasi"}
+        self.assertEqual(
+            capabilities,
+            {
+                "execution_mode": "synchronous" if wasm else "background-coordinator",
+                "background_sessions": not wasm,
+                "live_event_polling": not wasm,
+                "cancellation_in_flight": not wasm,
+                "max_workers": 1 if wasm else None,
+            },
+        )
+
     def test_native_program_comparison_checks_payload_and_not_closure(self) -> None:
         generated = rustred.generate_closing_artifact().artifact
         self.assertProgramEqual(generated, generated)

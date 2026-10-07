@@ -46,7 +46,9 @@ impl Default for SpiredFixedPointLimits {
             max_rejected_hits: 268_435_456,
             max_alternative_nodes: 67_108_864,
             max_excluded_requests: 1_073_741_824,
-            max_excluded_request_coordinate_cells: 17_179_869_184,
+            max_excluded_request_coordinate_cells: crate::platform::default_usize_limit(
+                17_179_869_184,
+            ),
             max_guard_predicates: 67_108_864,
             max_guard_obligations: 67_108_864,
             max_owner_compile_attempts: 268_435_456,

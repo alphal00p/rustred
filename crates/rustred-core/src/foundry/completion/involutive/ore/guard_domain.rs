@@ -105,7 +105,7 @@ impl Default for LocalizationDomainLimits {
             max_native_output_bytes: 2_147_483_648,
             max_intermediate_terms: 128_000_000,
             max_intermediate_exponent_cells: 2_000_000_000,
-            max_intermediate_bytes: 8_589_934_592,
+            max_intermediate_bytes: crate::platform::default_usize_limit(8_589_934_592),
             max_output_signatures: 2_000_000,
             max_output_terms: 16_000_000,
             max_output_exponent_cells: 256_000_000,

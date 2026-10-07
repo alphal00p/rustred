@@ -84,6 +84,11 @@ fn generate_request(
             "candidate generation n_cores must be positive",
         ));
     }
+    if cfg!(target_arch = "wasm32") && request.n_cores != 1 {
+        return Err(AppError::input(
+            "WebAssembly candidate generation requires n_cores = 1",
+        ));
+    }
     policy::validate_request_scope(&request)?;
     let family = match native_family {
         Some(family) => family,

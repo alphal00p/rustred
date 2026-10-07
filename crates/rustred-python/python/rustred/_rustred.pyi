@@ -1,6 +1,10 @@
 import os
 from typing import final
 
+def execution_capabilities() -> dict[str, object]:
+    """Execution mode, background/live-event/cancel flags, and worker limit."""
+    ...
+
 def entry_domain_plan(source: str) -> dict[str, object]:
     """Count/preview a finite input envelope; does not solve or certify it."""
     ...
@@ -35,6 +39,8 @@ class CandidateGenerationRequest:
 
 @final
 class CandidateGenerationSession:
+    @property
+    def execution_mode(self) -> str: ...
     def _repr_html_(self) -> str: ...
     @property
     def done(self) -> bool: ...

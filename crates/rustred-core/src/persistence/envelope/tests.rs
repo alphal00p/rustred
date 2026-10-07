@@ -88,3 +88,46 @@ fn framing_checks_lengths_and_counts_before_reserving() {
         Err(BinaryIoError::Limit { .. })
     ));
 }
+
+#[test]
+fn portable_envelope_has_identical_fixed_width_bytes() {
+    let bytes = encode_program(
+        BinaryProgramKind::Candidates,
+        &[BinarySection {
+            tag: SectionTag::PROGRAM,
+            bytes: b"x",
+        }],
+        BinaryIoLimits::default(),
+    )
+    .unwrap();
+    let expected = [
+        b'R', b'R', b'P', b'B', b'I', b'N', b'\r', b'\n', 1, 0, 0, 0, 1, 8, 0, 0, 1, 0, 0, 0, 4, 0,
+        0, 0, 1, 0, 0, 0, 0, 0, 0, 0, b'x',
+    ];
+    assert_eq!(bytes, expected);
+    assert_eq!(
+        inspect_program(&expected, BinaryIoLimits::default())
+            .unwrap()
+            .section(SectionTag::PROGRAM),
+        Some(b"x".as_slice())
+    );
+}
+
+#[cfg(target_pointer_width = "32")]
+#[test]
+fn foreign_lengths_exceeding_address_space_fail_before_section_loading() {
+    let mut bytes = encode_program(
+        BinaryProgramKind::Candidates,
+        &[BinarySection {
+            tag: SectionTag::PROGRAM,
+            bytes: b"x",
+        }],
+        BinaryIoLimits::default(),
+    )
+    .unwrap();
+    bytes[24..32].copy_from_slice(&(u64::from(u32::MAX) + 1).to_le_bytes());
+    assert!(matches!(
+        inspect_program(&bytes, BinaryIoLimits::default()),
+        Err(BinaryIoError::Invalid("section length exceeds host width"))
+    ));
+}

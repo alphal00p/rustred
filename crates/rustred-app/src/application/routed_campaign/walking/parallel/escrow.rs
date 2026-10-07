@@ -14,7 +14,8 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             entries: 65_536,
-            bytes: 8 * 1024 * 1024 * 1024,
+            // Preserve 8 GiB natively; a 32-bit runtime cannot address it.
+            bytes: 8usize.saturating_mul(1024 * 1024 * 1024),
         }
     }
 }
