@@ -29,6 +29,11 @@ cross-toolchain, disabled defaults, and `wasm,extension-module` features.
 No reconstruction implementation was added: that feature still depends on the
 selected Symbolica revision's existing reconstruction API.
 
+For faster functional iterations, Community's build script also accepts
+`WASM_RUST_PROFILE=dev`. This retains debug assertions, disables debug symbols
+by default to keep the wheel manageable, and uses an unoptimized final link.
+Use release builds for performance measurements; dev timings are not comparable.
+
 ## Execution contract
 
 `hep.rustred.execution_capabilities()` (or `rustred.execution_capabilities()`)

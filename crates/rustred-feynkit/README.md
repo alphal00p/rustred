@@ -5,6 +5,12 @@ Feynkit. The community host registers `IBPFamily`, `IBPRule`, and
 `IBPSolution` in `symbolica.community.hepkit`. No standalone `rustred` Python
 extension, Kira executable, or expression string conversion is involved.
 
+The bridge also supports the shared HEPKit **Pyodide/WebAssembly** host. Build
+with `default-features = false` and `features = ["wasm", "campaign-api"]` to use
+Symbolica's portable arithmetic and the same rule/artifact APIs. Browser
+generation is single-worker and synchronous, with explicit execution
+capabilities for notebook controls; see [the WASM contract](../../docs/wasm.md).
+
 ```python
 from symbolica import S
 from symbolica.community import hepkit as hep
