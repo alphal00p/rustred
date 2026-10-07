@@ -1,5 +1,99 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October7 — scalar-start restart and monitoring corrections
+
+Current user request: prepare a fresh five-loop starting-numerator-rank-zero
+campaign from the improved saved rules, repair monitoring, build an optimized
+executable, and hand back a manual launch command. The user has stopped the
+previous campaign. Do not launch production or alter its checkpoints.
+
+- Root: integration, optimized build, native controls and final frozen delivery.
+- `wasm_python`: Rust closure-scan history/eligibility and effective encountered
+  numerator-rank telemetry; observational changes only, no scheduling change.
+- `wasm_core`: dashboard/event consumer, retained scan-interval discovery/closure
+  ratio, checkpoint-size recovery and focused/visual tests.
+- `three_loop_native_recipe`: generic rank-stage input preparation plus independent
+  producer/consumer audit. Historical agent names do not describe these assignments.
+
+The proposed scalar scope retains all116 physical/convenience query IDs,
+intersects each original request with R=0, and omits67 auxiliary starting
+requests unless explicitly requested. All67 owner rule sets,8246 routes and
+both frontier overlays remain available. Original coordinate/positive-power
+bounds are preserved; descendants are never clipped to R=0. Later stages
+must derive from the original input, not widen a rank-zero checkpoint.
+The fresh stage uses the recommended required-only scope; auxiliary input
+requests can still be explicitly retained with `--include-auxiliary`.
+
+[M] Original input is
+`campaigns/five-loop-a1-banana485-20261004/inputs/selection.json` (SHA256
+`90245dd3babf801915f786b273988d351e3d843487c25ee3671842853d0c3dc6`).
+The generic preparer passes7 new tests and32 existing staging tests. It has
+staged the new inputs without launching a production campaign. Optimized core
+build completed in4m51s; the final optimized CLI build completed in13m25s.
+Evidence and build logs: `TMP/scalar-campaign-20261007/`.
+
+[M, historical] The earlier helper-free scalar physical scope completed all116
+required queries (92 admitted roots,24 absorbed), with1,870,662 scheduled
+domains, in587.90s including independent full reinspection. This is not a
+measurement of the current executable and not a guarantee of future timing.
+See `docs/research/finite_physics_domain_growth_2026-10-01.md`.
+
+The intended display preserves the existing hourly metric and additionally
+shows discoveries/closures between the last two completed scans, their ages,
+and the next scan's eligibility rather than an invented start-time guarantee.
+Checkpoint bytes refer to the saved checkpoint's referenced payload; effective
+rank reports genuinely unbounded domains explicitly rather than inventing a
+finite maximum. All earlier research/launch instructions below are historical
+unless relevant to this narrowly scoped restart.
+
+### Validation and frozen delivery
+
+[M] The complete monitor/steering set passes188 focused Python tests. Root
+independently reran124 overlapping monitor, heartbeat, supervisor and rank-stage
+tests after the final correction; all pass. The focused native set passes40
+tests with one pre-existing ignored test. Its test harness uses opt-level0
+with optimized dependencies; the delivered CLI and actual control use the
+normal optimized release profile. Source and interpretation audits are separate
+from implementation. Visual audits cover150,80 and55-column terminal layouts.
+
+[M] Actual optimized combined four-loop control:26,025 scheduled domains,
+17,957 native inspections,495,898 edges and872,486 committed events, exactly
+matching the archived work counts. Full cold reinspection passes all58 query
+rows/32 independent roots with zero frontiers and zero uncovered obligations.
+Walk wall time6.124s, cold verification7.592s; these are correctness-control
+measurements, not a matched new performance claim. An initial local harness
+attempt omitted the checkpoint parent directory; subsequent standalone cold
+invocations initially omitted inner-pool environment settings. Both were
+harness setup issues, corrected before the passing evidence.
+
+[M] The live control and actual checkpoint resume both report finite encountered
+rank15 over26,025 domains,11,157,129 checkpoint payload bytes and retained
+completed-scan history. Runtime resume passed in2.087s. The short control drains
+before a second periodic scan; two-scan interval calculation, cancellation,
+staleness and restore are covered by focused tests. CP6's intentionally lean
+final report is checkpoint-only: the independent cold verifier, not the queue
+counter alone, establishes the control's closure.
+
+[M] Independent manifest/stat comparison also confirms size reporting for the
+stopped original campaigns (228,887,035,977 and266,486,059,249 referenced bytes).
+Only metadata/file sizes were read. No old production checkpoint was modified.
+
+Fresh destination: `campaigns/five-loop-banana485-rank0-20261007`.
+Its116-query SHA256 is
+`c1c315affae42a6f5f10bd97c48e5865ed20c768b066f3529e3b930fd0ce3ed7`.
+The release executable SHA256 is
+`7452ac89eace3c7691fb7cc0f69658b44e861472b22744a84f5567eebdb0f993`.
+The resource policy remains32 workers onCPUs64–95,600GB requested ceiling,
+150GB host reserve,5% guard margin and hourly checkpoints. Host availability
+can reduce the admitted ceiling. Rules are reused, not regenerated. The old
+campaign remains independently resumable; rank stages use fresh checkpoints.
+
+Evidence: `TMP/scalar-campaign-20261007/` (build/tests, control `four-loop58-v2`,
+preparation/freeze receipts) and `TMP/campaign-monitor-observation-audit-20261007/`
+(synthetic visual tests). User instructions: [scalar rank campaigns](docs/scalar_rank_campaign.md).
+No five-loop production run is started by this delivery. Commit/push and frozen
+steering publication are the final handoff operations, not new solver work.
+
 Authoritative current delivery plan:
 [HEPKIT_CAMPAIGN_DELIVERY_PLAN.md](HEPKIT_CAMPAIGN_DELIVERY_PLAN.md), including
 the October4 AMFlow runtime-arity follow-up. The earlier

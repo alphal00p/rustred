@@ -27,7 +27,7 @@ def clean(value) -> str:
 
 
 def count(value) -> str:
-    return "unknown" if number(value) is None else f"{value:,.0f}"
+    return "unknown" if number(value) is None else f"{value:,}" if type(value) is int else f"{value:,.0f}"
 
 
 def duration(seconds) -> str:
@@ -39,6 +39,52 @@ def duration(seconds) -> str:
 
 def percent(value) -> str:
     return "unknown" if number(value) is None else f"{100 * value:.0f}%"
+
+
+def rank_text(rank):
+    if rank.get("status") == "unbounded":
+        return "unbounded"
+    maximum = number(rank.get("maximum"))
+    if rank.get("status") == "finite" and maximum is not None:
+        return f"≤{count(maximum)} (bound)"
+    qualifier = "finite cap" if rank.get("scope", "").startswith("legacy") else "finite part"
+    return "unknown" if maximum is None else f"unknown ({qualifier} {count(maximum)})"
+
+
+def scan_observation_lines(frame):
+    """Retained completed-scan evidence, separately from the trailing-hour rate."""
+    ratio = frame["rates"].get("discovery_per_recursive_closure_scans", {})
+    before, after = ratio.get("previous"), ratio.get("latest")
+    policy = frame["closure_snapshot"].get("refresh_policy", {})
+    state = policy.get("status", "unknown")
+    if state == "eligible":
+        next_scan = "due; awaiting coordinator safe-point"
+    elif state == "throttled":
+        next_scan = "eligible in " + duration(policy.get("next_refresh_seconds")) + "; start not guaranteed"
+    elif state == "unchanged":
+        next_scan = "not needed; graph unchanged"
+    elif state == "unavailable":
+        next_scan = "unavailable"
+    else:
+        next_scan = "unknown"
+    lines = ["Next closure scan " + next_scan]
+    if before is None or after is None:
+        lines.insert(0, "Completed-scan D/C unknown · awaiting two completed scans")
+        return lines
+    def timestamp(value):
+        try:
+            return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        except (TypeError, ValueError, OverflowError, OSError):
+            return "unknown"
+    interval = duration(ratio.get("covered_seconds"))
+    lines[:0] = [
+        f"Completed-scan D/C {_ratio_text(ratio)} · ΔD {count(ratio.get('discovered_delta'))} / ΔC {count(ratio.get('closed_delta'))} · interval {interval}",
+        f"Scans #{count(before.get('refresh_count'))}→#{count(after.get('refresh_count'))} · {timestamp(before.get('completed_unix_seconds'))} → {timestamp(after.get('completed_unix_seconds'))}",
+        f"Scan counters D {count(before.get('total_domains'))}→{count(after.get('total_domains'))} · C {count(before.get('total_closed'))}→{count(after.get('total_closed'))} · last finished {duration(ratio.get('age_seconds'))} ago",
+    ]
+    if ratio.get("state") != "valid":
+        lines[0] += " · " + clean(ratio.get("state", "unknown"))
+    return lines
 
 
 def derived_lines(status: dict) -> list[str]:
@@ -59,13 +105,20 @@ def derived_lines(status: dict) -> list[str]:
     rss_text = "unknown" if rss_per_domain is None else f"{rss_per_domain / 1000:.1f}"
     checkpoint = derived.get("last_checkpoint")
     checkpoint = checkpoint if isinstance(checkpoint, dict) else {}
+    current_checkpoint = status.get("checkpoint")
+    if isinstance(current_checkpoint, dict) and current_checkpoint.get("state") == "saved":
+        checkpoint = {**checkpoint, **current_checkpoint}
     size = number(checkpoint.get("bytes"))
     size_text = "unknown" if size is None else f"{size / 1e9:.2f} GB"
     seconds = number(checkpoint.get("duration_seconds"))
     seconds_text = "unknown" if seconds is None else f"{seconds:.0f} s"
     net = derived.get("discovery_closure_net_1h")
     net = net if isinstance(net, dict) else {}
-    ratio = TELEMETRY.normalize_status(status)["rates"]["discovery_per_recursive_closure_1h"]
+    frame = TELEMETRY.normalize_status(status)
+    ratio = frame["rates"]["discovery_per_recursive_closure_1h"]
+    rank_detail = ("encountered rank " + rank_text(frame["rates"]["encountered_numerator_rank"])
+                   if isinstance(progress.get("encountered_numerator_rank"), dict) else
+                   "max scheduled rank " + count(derived.get("max_scheduled_finite_rank")))
     closure = progress.get("descendant_closure")
     if isinstance(closure, dict) and closure.get("available") is False:
         ratio.update(value=None, infinite=False, state="closure_unavailable")
@@ -78,6 +131,8 @@ def derived_lines(status: dict) -> list[str]:
     # the fallback sampled endpoint needs the status-file heartbeat age added.
     if closure is None and age is not None:
         age += max(0, number(status.get("heartbeat_age_seconds")) or 0)
+    if age is None:
+        age = frame["closure_snapshot"]["snapshot_age_seconds"]
     net_line = (f"Discovery/closure {_ratio_text(ratio)} observed scan-batched · window {duration(net.get('covered_seconds'))}"
                 f"/{duration(net.get('window_seconds'))}" + (" warm-up" if net.get("warmup") is True else ""))
     if ratio["state"] not in ("valid", "warmup"):
@@ -86,10 +141,11 @@ def derived_lines(status: dict) -> list[str]:
         f"Inspectors {computing_text} computing / {count(reservations.get('inspectors'))} reserved"
         f" · stall >=5 s {percent(derived.get('stall_share_5s'))} · coordinator duty {percent(derived.get('coordinator_duty_1h'))}",
         f"Rate {rate_text} per hour · pending {growth_text} per completion"
-        f" · max scheduled rank {count(derived.get('max_scheduled_finite_rank'))} · RSS {rss_text} KB per domain",
+        f" · {rank_detail} · RSS {rss_text} KB per domain",
         net_line,
         f"Closure snapshot {freshness} · age {duration(age)} · {scan}"
         + (" · heartbeat stale" if status.get("heartbeat_stale") is True else ""),
+        *scan_observation_lines(frame),
         f"Checkpoint gen {count(checkpoint.get('generation'))} · {size_text} in {seconds_text}"
         f" · duty {percent(derived.get('checkpoint_duty'))} · roots closed {count(derived.get('roots_closed'))}/{count(derived.get('roots_total'))}",
     ]
@@ -224,6 +280,9 @@ def _ratio_text(ratio):
 
 
 def _closure_ratio(frame):
+    completed = frame["rates"].get("discovery_per_recursive_closure_scans", {})
+    if completed.get("previous") is not None or completed.get("latest") is not None:
+        return completed
     # Recompute from raw paired deltas, including for saved frames that still
     # contain the old (D-C)/(D+C) field. Never reinterpret that stored value.
     ratio = TELEMETRY.discovery_per_recursive_closure_1h(
@@ -237,7 +296,8 @@ def _closure_rate(frame):
     # Recheck saved frames too: older producers stored a zero rate while a
     # dirty closure snapshot predated the entire observation window.
     rate = dict(frame["rates"]["recursive_closure"])
-    state = _closure_ratio(frame)["state"]
+    state = TELEMETRY.discovery_per_recursive_closure_1h(
+        frame["rates"]["discovery_minus_closure"], frame["closure_snapshot"])["state"]
     if state in ("awaiting_closure_scan", "closure_unavailable"):
         rate.update(per_second=None, state=state)
     return rate
@@ -326,7 +386,9 @@ def render_table(frame, width=100, height=24, color=True):
     if stale_heartbeat:
         freshness_text += " · heartbeat stale"
     gap_state = ratio["state"]
-    gap_detail = window(gap) + (f" · {clean(gap_state)}" if gap_state not in (None, "valid", "warmup") else "")
+    hour_ratio = TELEMETRY.discovery_per_recursive_closure_1h(gap, snap)
+    gap_detail = ((f"Trailing-hour D/C {_ratio_text(hour_ratio)} · " if ratio.get("latest") else "")
+                  + window(gap) + (f" · {clean(hour_ratio['state'])}" if hour_ratio["state"] not in (None, "valid", "warmup") else ""))
     published = f"published {count(counts['initial_published'])}/{count(counts['initial_entries'])}; not closure"
     cpu = number(resource["native_busy_cores"])
     reserved = number(resource["workers"])
@@ -353,18 +415,20 @@ def render_table(frame, width=100, height=24, color=True):
                 f"reserved {count(reservations['inspectors'])} inspect / {count(reservations['admission_helpers'])} admission / {count(reservations['coordinator'])} coordinator")),
         (5, row("Coordinator duty", percent(resource["coordinator_duty_1h"]), "stall >=5 s " + percent(resource["stall_share_5s"]))),
         (3, row("Memory (GB)", f"{gb(resource['aggregate_rss_bytes'])} / {gb(resource['hard_memory_bytes'])}", f"stop {gb(resource['soft_memory_bytes'])} · host free {gb(resource['host_available_bytes'])}", "33")),
-        (5, row("Max scheduled rank", count(rates["max_scheduled_finite_rank"]),
+        (2, row("Encountered rank", rank_text(rates.get("encountered_numerator_rank", {})),
                 "RSS " + ("unknown" if rates["rss_bytes_per_discovered_domain"] is None else f"{rates['rss_bytes_per_discovered_domain'] / 1000:.1f} KB / domain"))),
         (-2, row("Local completions", _rate(completion["per_second"]), rate_window(completion), "36")),
         (-2, row("Recursive closure", _rate(closure["per_second"]), rate_window(closure, scan_batched=True), "35")),
         (0, full(f"pending {growth_text} per completion · local completion ≠ recursive closure", indicator_color(growth, "pending"))),
-        (0, full(f"Discovery/closure {_ratio_text(ratio)} · D/C · observed scan-batched", ratio_color)),
-        (0, full(gap_detail)),
+        (0, full(f"Discovery/closure {_ratio_text(ratio)} · D/C · " +
+                 ("last two completed scans" if ratio.get("latest") else "observed scan-batched"), ratio_color)),
+        (3 if ratio.get("latest") else 0, full(gap_detail)),
+        *[(0 if index == 0 else 1, full(line)) for index, line in enumerate(scan_observation_lines(frame))],
         (-2, full(freshness_text, "33" if snap["stale"] is not False else "2")),
         (3, full("Initial " + published)),
         (2, full("Checkpoint " + checkpoint_text, "33" if writing["state"] == "writing" else None)),
         (3, full("Checkpoint path " + (writing["state_path"] if writing["state"] == "writing" else checkpoint["state_path"] or checkpoint["directory"]))),
-        (5, row("Checkpoint size", gb(checkpoint["bytes"]) + " GB", "duty " + percent(rates["checkpoint_duty"]))),
+        (2, row("Checkpoint size", ("unavailable" if checkpoint["bytes"] is None else gb(checkpoint["bytes"]) + " GB"), "duty " + percent(rates["checkpoint_duty"]))),
         (3, full(f"Heartbeat age {duration(frame['heartbeat_age_seconds'])} · update age {duration(frame['progress_age_seconds'])} · closure ETA unknown")),
         (4, full("Receipts " + frame["run_directory"], "2")),
     ]
@@ -389,7 +453,7 @@ def plain_summary(frame):
     growth = rates["pending_growth_per_completion_1h"]
     growth_text = "unknown" if growth is None else f"{growth:+.2f}"
     gap = rates["discovery_minus_closure"]
-    ratio = _closure_ratio(frame)
+    ratio = TELEMETRY.discovery_per_recursive_closure_1h(gap, snapshot)
     net_line = (f"Discovery/closure {_ratio_text(ratio)} D/C observed scan-batched · window {duration(gap['covered_seconds'])}"
                 f"/{duration(gap['window_seconds'])}" + (" warm-up" if gap["warmup"] else ""))
     if ratio["state"] not in ("valid", "warmup"):
@@ -409,7 +473,10 @@ def plain_summary(frame):
             net_line,
             f"Closure snapshot {freshness} · age {duration(snapshot['snapshot_age_seconds'])} · {scan}"
             + (" · heartbeat stale" if frame["heartbeat_stale"] else ""),
+            *scan_observation_lines(frame),
+            "Encountered numerator rank " + rank_text(rates.get("encountered_numerator_rank", {})),
             checkpoint_text,
+            f"Checkpoint size {'unavailable' if checkpoint['bytes'] is None else format(checkpoint['bytes'] / 1e9, '.2f') + ' GB'} · duty {percent(rates['checkpoint_duty'])}",
             f"Phase {frame['phase']} · closure ETA unknown"]
 
 

@@ -73,6 +73,10 @@ def sample_from_record(record, fallback_elapsed=None):
     discovered = nonnegative_int(record.get("currently_discovered_nodes"))
     if discovered is None:
         discovered = nonnegative_int(counters.get("scheduled_nodes"))
+    phase_wall = _mapping(_mapping(counters.get("telemetry")).get("phase_wall_seconds"))
+    checkpoint_seconds = number(phase_wall.get("checkpoint"))
+    phase_seconds = (sum(phase_wall.values()) if checkpoint_seconds is not None and
+                     all(number(value) is not None and value >= 0 for value in phase_wall.values()) else None)
     return {
         "elapsed": float(elapsed),
         "completed": completed,
@@ -88,6 +92,8 @@ def sample_from_record(record, fallback_elapsed=None):
         "computing_explicit": isinstance(parallel.get("activity_observation"), str),
         "active": number(parallel.get("active_workers")),
         "max_rank": nonnegative_int(counters.get("max_scheduled_finite_rank")),
+        "checkpoint_phase_seconds": checkpoint_seconds,
+        "coordinator_phase_seconds": phase_seconds,
         "roots_closed": roots_closed,
         "roots_total": roots_total,
     }
@@ -271,6 +277,8 @@ class HeartbeatWindow:
                 self.saves[save["generation"]] = save
             elif known["duration_seconds"] is None and save["duration_seconds"] is not None:
                 known.update(duration_seconds=save["duration_seconds"], bytes=save["bytes"])
+            elif known["bytes"] is None and save["bytes"] is not None:
+                known["bytes"] = save["bytes"]
 
     def derived(self, now=None, session_start=0.0, window_seconds=None):
         """Measured rates over [now - window, now]; checkpoint duty over [session_start, now]."""
@@ -298,6 +306,7 @@ class HeartbeatWindow:
             "coordinator_duty_1h": None,
             "coordinator_duty_breakdown_1h": None,
             "checkpoint_duty": None,
+            "checkpoint_duty_scope": "completed saves / observed invocation time",
             "checkpoint_saves_counted": 0,
             "checkpoint_save_seconds": 0.0,
             "computing_inspectors_mean_1h": None,
@@ -377,6 +386,12 @@ class HeartbeatWindow:
         total = sum(save["duration_seconds"] for save in counted)
         result.update(checkpoint_saves_counted=len(counted), checkpoint_save_seconds=total,
                       checkpoint_duty=_ratio(total, now - session_start) if counted else None)
+        if not counted:
+            phase = next((sample for sample in reversed(self.samples)
+                          if sample["coordinator_phase_seconds"] is not None), None)
+            if phase is not None:
+                result["checkpoint_duty"] = _ratio(phase["checkpoint_phase_seconds"], phase["coordinator_phase_seconds"])
+                result["checkpoint_duty_scope"] = "native current-invocation coordinator phase wall"
         if self.saves:
             latest = self.saves[max(self.saves)]
             result["last_checkpoint"] = {name: latest[name] for name in

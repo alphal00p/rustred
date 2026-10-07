@@ -31,6 +31,8 @@ class MonitorTests(unittest.TestCase):
                      "graph_revision": 12, "snapshot_revision": 12, "snapshot_stale": False,
                      "snapshot_age_seconds": 2.0, "last_refresh_seconds": 0.01,
                      "refresh_count": 4, "refresh_seconds": 0.04,
+                     "scan_history": {}, "refresh_policy": {"next_refresh_seconds": None,
+                         "earliest_refresh_unix_seconds": None, "status": "unknown"},
                      "retained_storage_estimate_bytes": 1234, "refresh_scratch_estimate_bytes": 234,
                      "storage_estimate_scope": "logical capacities; not RSS",
                      "method": "reverse_unsealed_reachability_including_sealed_cycles",

@@ -19,6 +19,7 @@ import time
 
 MAX_RECORD_BYTES = 1024 * 1024
 MAX_POLL_BYTES = 4 * MAX_RECORD_BYTES
+MAX_CHECKPOINT_METADATA_BYTES = 16 * 1024 * 1024
 
 
 def _sibling(name):
@@ -46,6 +47,110 @@ def atomic_json(path: Path, value: dict) -> None:
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+class CheckpointSizeCache:
+    """Read bounded published metadata once per generation, never walk a tree.
+
+    Counts the files referenced by that generation, including CP6 sealed record
+    sidecars. It excludes older/orphan generations, directory metadata and the
+    small manifest itself, matching native CP5's payload-byte convention.
+    This is observation, not checkpoint authentication or resume authority.
+    """
+    def __init__(self):
+        self.key = None
+        self.details = {}
+        self.checked_at = None
+
+    @staticmethod
+    def _json(path):
+        with Path(path).open("rb") as stream:
+            raw = stream.read(MAX_CHECKPOINT_METADATA_BYTES + 1)
+        if len(raw) > MAX_CHECKPOINT_METADATA_BYTES:
+            raise ValueError("checkpoint metadata exceeds observation limit")
+        return json.loads(raw)
+
+    @staticmethod
+    def _file(reference):
+        if not isinstance(reference, dict):
+            raise ValueError("invalid checkpoint file reference")
+        name, size = reference.get("file"), reference.get("bytes")
+        if not isinstance(name, str) or not name or Path(name).name != name or name in (".", ".."):
+            raise ValueError("invalid checkpoint file name")
+        if type(size) is not int or size < 0:
+            raise ValueError("invalid checkpoint byte count")
+        return name, size
+
+    def enrich(self, checkpoint):
+        if not isinstance(checkpoint, dict) or checkpoint.get("state") != "saved":
+            return checkpoint
+        if type(checkpoint.get("bytes")) is int and checkpoint["bytes"] >= 0:
+            return checkpoint
+        directory, generation = checkpoint.get("directory"), checkpoint.get("generation")
+        if not isinstance(directory, str) or type(generation) is not int or generation < 0:
+            return checkpoint
+        key = (directory, generation)
+        now = time.monotonic()
+        if key != self.key or (self.details.get("bytes") is None and
+                               (self.checked_at is None or now - self.checked_at >= 30)):
+            self.key, self.details = key, {}
+            self.checked_at = now
+            try:
+                self.details = self._measure(Path(directory), generation)
+            except (OSError, ValueError, TypeError, KeyError, RecursionError) as error:
+                self.details = {"bytes": None, "bytes_observation_error": str(error)[:300]}
+        return {**checkpoint, **self.details}
+
+    def _measure(self, directory, generation):
+        manifest = None
+        for name in ("latest.json", "previous.json"):
+            try:
+                document = self._json(directory / name)
+            except FileNotFoundError:
+                continue
+            candidate = document.get("manifest", document) if isinstance(document, dict) else {}
+            if not isinstance(candidate, dict):
+                raise ValueError("checkpoint manifest must be an object")
+            if candidate.get("generation") == generation:
+                manifest = candidate
+                break
+        if manifest is None:
+            raise ValueError("saved generation is not named by latest/previous manifest")
+        references = []
+        if manifest.get("format") == "RUSTRED-WALK-CP5":
+            sections = manifest.get("sections")
+            if not isinstance(sections, dict):
+                raise ValueError("missing checkpoint sections")
+            for section in sections.values():
+                if section is None:
+                    continue
+                references.extend(section["segments"] if "segments" in section else [section])
+        elif manifest.get("format") == "RUSTRED-WALK-CP6":
+            if not isinstance(manifest.get("files"), list):
+                raise ValueError("checkpoint files must be an array")
+            references = list(manifest["files"])
+            for reference in tuple(references):
+                if not isinstance(reference, dict):
+                    raise ValueError("invalid checkpoint file reference")
+                if reference.get("key") == "record-segments":
+                    name, _ = self._file(reference)
+                    segments = self._json(directory / name)
+                    if not isinstance(segments, list):
+                        raise ValueError("invalid checkpoint record-segment index")
+                    references.extend(segments)
+        else:
+            raise ValueError("unsupported checkpoint metadata format")
+        files = {}
+        for reference in references:
+            name, size = self._file(reference)
+            if name in files and files[name] != size:
+                raise ValueError("inconsistent duplicate checkpoint file size")
+            files[name] = size
+        return {"bytes": sum(files.values()), "bytes_source": "published_manifest",
+                "bytes_scope": "this generation's referenced payloads, including sealed record segments"}
+
+
+_READ_CHECKPOINT_SIZE = CheckpointSizeCache()
 
 
 class EventTail:
@@ -149,7 +254,7 @@ class EventTail:
         self.milestone_count += 1
         self.milestones.append({"event": kind, "sequence": self.milestone_count,
             **{name: checkpoint[name] for name in ("generation", "directory", "state_path",
-               "started_unix_time", "saved_unix_time", "duration_seconds", "bootstrap")
+               "started_unix_time", "saved_unix_time", "duration_seconds", "bytes", "bootstrap")
                if name in checkpoint}})
 
     def diagnostics(self):
@@ -184,6 +289,9 @@ def progress_summary(event: dict, observed_at: float | None, now: float) -> dict
     checkpoint = counters.get("checkpoint", outer.get("checkpoint"))
     checkpoint_write = counters.get("checkpoint_write", outer.get("checkpoint_write"))
     closure = descendant_closure_summary(counters.get("descendant_closure"))
+    if (closure.get("refresh_policy", {}).get("status") == "unknown"
+            and isinstance(parallel.get("closure_refresh_policy"), dict)):
+        closure["refresh_policy"] = dict(parallel["closure_refresh_policy"])
     if closure["snapshot_age_seconds"] is not None:
         closure["snapshot_age_seconds"] += max(0.0, age or 0.0)
     return {
@@ -193,6 +301,9 @@ def progress_summary(event: dict, observed_at: float | None, now: float) -> dict
         "owner": counters.get("owner"),
         "progress_age_seconds": age,
         "descendant_closure": closure,
+        "encountered_numerator_rank": counters.get("encountered_numerator_rank"),
+        "max_scheduled_finite_rank": number(counters.get("max_scheduled_finite_rank")),
+        "unbounded_rank_domains": number(counters.get("unbounded_rank_domains")),
         "initial_entry_progress": {
             "total": number(counters.get("initial_entry_domains_total")),
             "locally_inspected": number(counters.get("initial_entry_domains_inspected")),
@@ -270,6 +381,8 @@ def read_status(directory: Path) -> dict:
     closure = progress.get("descendant_closure") if isinstance(progress, dict) else None
     if isinstance(closure, dict) and number(closure.get("snapshot_age_seconds")) is not None:
         closure["snapshot_age_seconds"] += result["heartbeat_age_seconds"] or 0
+    checkpoint = result.get("checkpoint") or (progress.get("checkpoint") if isinstance(progress, dict) else None)
+    result["checkpoint"] = _READ_CHECKPOINT_SIZE.enrich(checkpoint)
     return result
 
 

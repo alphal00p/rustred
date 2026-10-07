@@ -158,6 +158,7 @@ fn scalar_closure_matches_monitor_fields_without_refreshing() {
             "refresh_count",
             "refresh_seconds",
             "last_refresh_seconds",
+            "scan_history",
             "reason",
         ] {
             assert_eq!(actual[field], expected[field], "{field}");
@@ -173,6 +174,26 @@ fn scalar_closure_matches_monitor_fields_without_refreshing() {
     let live = scalar_progress(&state, &dispatch);
     assert_eq!(live["descendant_closure"]["initial_closed"], 1);
     assert_eq!(live["descendant_closure"]["refresh_count"], 1);
+    assert_eq!(
+        live["descendant_closure"]["scan_history"]["latest"]["total_closed"],
+        1
+    );
+    assert_eq!(
+        live["descendant_closure"]["scan_history"]["latest"]["total_domains"],
+        2
+    );
+    assert_eq!(
+        live["descendant_closure"]["refresh_policy"]["status"],
+        "unchanged"
+    );
+    assert_eq!(live["encountered_numerator_rank"]["status"], "finite");
+    assert_eq!(live["encountered_numerator_rank"]["maximum"], 0);
+    assert_eq!(live["encountered_numerator_rank"]["finite_domains"], 2);
+    assert_eq!(live["max_scheduled_finite_rank"], Value::Null);
+    assert_eq!(
+        live["unbounded_rank_domains"], 2,
+        "legacy counter means no declared cap, not geometric infinity"
+    );
     assert!(live["descendant_closure"]["snapshot_age_seconds"].is_number());
     assert_eq!(
         live["descendant_closure"]["refresh_policy"]["duty_bound"],

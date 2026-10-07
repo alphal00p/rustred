@@ -422,13 +422,23 @@ window of any `events.jsonl`, tolerating a partially written last line.
 The additive `discovery_closure_net_1h` object reports
 `delta(total_domains - total_closed) / observed_seconds` over the trailing
 hour, with actual span, warm-up, reset state and closure-snapshot freshness.
-`Discovery/closure` renders `D/C`, where `D` and `C` are newly discovered
-and newly recursively closed counts from the **same** trailing-hour window
-(the actual shorter interval during warm-up). The raw signed domains/second
+`Discovery/closure` now prefers `D/C` from the **last two completed closure
+scans**. Both counters come from each completed scan, not from a fresh discovery
+counter paired with an old closure counter. The display retains that measured
+ratio even when the most recent scan is hours old, and shows both scan numbers,
+UTC completion times, counter pairs, their deltas and the interval duration.
+For example, scans `(D,C)=(100,50)` and `(500,250)` give `400/200=2`, regardless
+of how many discoveries happened after the second scan. This is historical
+evidence, not a prediction of current convergence.
+
+The existing **trailing-hour D/C** remains separate: its discoveries and newly
+recursively closed counts use the same hourly window (the actual shorter
+interval during warm-up). The raw signed domains/second
 rate remains in telemetry. Positive discoveries with zero closures display
 `∞` in red; an empty `0/0` window, unavailable telemetry, missing endpoints,
 resets or inconsistent windows produce `unknown`, not an inferred zero.
-The normalized frame uses the new `rates.discovery_per_recursive_closure_1h`
+The normalized frame uses `rates.discovery_per_recursive_closure_scans` for
+the retained scan pair and `rates.discovery_per_recursive_closure_1h`
 object: finite `value` or null, explicit `infinite` boolean, and window/state
 metadata. Null without the infinity flag means unavailable; the frame never
 serializes a nonstandard JSON infinity. Displays derive D/C from raw paired
@@ -451,11 +461,45 @@ The CPU row retains both observed cores and total reserved cores. Colours are
 diagnostics, not closure evidence. In particular, differences of stale lower-
 bound closed counts do not themselves form a lower-bound closure rate.
 Each launcher invocation, including resume or automatic rescue, starts a fresh
-window. Closure counts persist, but sample history is not imported from the
-previous process and scan age is unknown until the next native refresh.
+hourly window. New checkpoints also retain the completed-scan pair. Older
+checkpoints cold-load with no invented scan history: the pair is available
+after two real refreshes. Older binaries do not understand the newly persisted
+history; resume the fresh campaign with the same updated build, not an older
+binary. This does not require maintaining a checkpoint compatibility layer.
 Epoch refreshes the dependency tracker periodically at committed boundaries
 with the existing dirty, duty and cancellation checks. Heartbeat serialization
 is O(1), and saving a checkpoint does not force an additional scan.
+
+`Next closure scan` says **eligible in …** while the existing throttle applies,
+or **due; awaiting coordinator safe-point** after that delay. This is not a
+guaranteed start time: an ongoing inspection/merge can postpone the scan.
+An unchanged graph needs no scan; unavailable scheduling information remains
+explicitly unknown.
+
+`Checkpoint size` is the saved generation's **referenced payload bytes**, not
+the whole checkpoint directory, previous generations or orphan files. Native
+sizes take precedence. If absent, the supervisor or a newly attached monitor
+reads the small published CP5/CP6 manifest and, for CP6, its sealed-record index.
+This bounded observation is cached per generation; it never recursively walks
+the directory on dashboard ticks. Zero bytes is a valid measurement, not a
+missing value. Malformed or missing metadata produces an observation diagnostic,
+never a solver stop. Checkpoint duty uses completed-save durations when known,
+otherwise the native current-invocation checkpoint/coordinator phase-wall ratio;
+no duration is inferred from file modification times.
+
+`Encountered rank` is the largest **effective numerator-rank bound in scheduled
+domain geometry**, including restored domains. It is not the maximum rank of
+an integral actually evaluated, and is distinct from the starting-input cap:
+even a scalar `R=0` request can produce higher-rank descendants. The display
+distinguishes a finite bound, genuinely unbounded geometry and unavailable
+information. Absence of an explicit rank cap alone does not imply unbounded
+geometry (an all-positive sector has numerator rank zero).
+
+The 2026-10-07 monitor-only audit checked aligned 55/80/120/160-column views,
+stale scan retention, neutral unknowns, the unchanged pending-growth indicator,
+and checkpoint/rank states. Local preview evidence is in
+`TMP/campaign-monitor-observation-audit-20261007/`; these previews are synthetic
+UI evidence, not new production campaign measurements.
 
 Experimental Epoch result escrow is controlled by paired
 `--epoch-result-escrow-jobs E --epoch-result-escrow-bytes BYTES` options in the

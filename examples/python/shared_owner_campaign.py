@@ -1289,6 +1289,7 @@ def main() -> int:
                                   plain_seconds=args.plain_progress_seconds)
     telemetry = MONITOR.TELEMETRY.TelemetryStream(output / "telemetry.jsonl")
     last_checkpoint = {"state": "awaiting_first_save", "directory": checkpoint_directory} if checkpoint_directory else None
+    checkpoint_sizes = MONITOR.CheckpointSizeCache()
     resume_command = None
     identities = {"supervisor": {"pid": os.getpid(), "start_ticks": collector.identities.get(os.getpid())}}
     try:
@@ -1307,6 +1308,7 @@ def main() -> int:
         progress = MONITOR.progress_summary(tail.latest, tail.observed_at, now)
         for candidate in (progress["checkpoint"], tail.saved_checkpoint):
             last_checkpoint = advance_checkpoint(last_checkpoint, candidate)
+        last_checkpoint = checkpoint_sizes.enrich(last_checkpoint)
         writings = [candidate for candidate in (progress.get("checkpoint_write"), tail.checkpoint_write)
                     if candidate is not None and isinstance(MONITOR.number(candidate.get("generation")), int)]
         writing = max(writings, key=lambda candidate: candidate["generation"], default=None)

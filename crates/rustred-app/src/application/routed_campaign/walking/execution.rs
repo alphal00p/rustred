@@ -341,6 +341,7 @@ impl<const N: usize> State<N> {
             "frontiers":self.frontiers, "events":self.events, "committed_events":self.events,
             "routed_domains":self.routed, "route_masks":self.route_masks,
             "parallel":self.enrich_with(telemetry.clone(), lean)});
+        progress["encountered_numerator_rank"] = self.queue.encountered_rank.json();
         progress["route_joint_support_masks_pruned"] = json!(self.route_joint_support_masks_pruned);
         self.add_delegation_progress(&mut progress);
         self.add_ready_progress(&mut progress);

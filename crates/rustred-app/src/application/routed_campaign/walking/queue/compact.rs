@@ -639,6 +639,21 @@ impl<const N: usize> CompactSummary<N> {
         self.flags & WIDE != 0
     }
 
+    /// Tight rank geometry for telemetry. `None` requests the existing native
+    /// fallback for a wide summary; an absent explicit cap is not infinity.
+    pub fn numerator_rank_extent(&self) -> Option<super::super::rank_telemetry::RankExtent> {
+        use super::super::rank_telemetry::RankExtent;
+        if self.is_wide() {
+            None
+        } else if self.flags & EMPTY != 0 {
+            Some(RankExtent::Empty)
+        } else if self.flags & NUMERATOR_UPPER_NONE != 0 {
+            Some(RankExtent::Unbounded)
+        } else {
+            Some(RankExtent::Finite(u128::from(self.numerator_upper)))
+        }
+    }
+
     /// `DomainPowerSummary::contains` on the compact fields, or None when
     /// either side is wide (a release check, A1: the caller then compares
     /// the rebuilt native summaries). Like the native predicate it ignores

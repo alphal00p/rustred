@@ -180,6 +180,7 @@ pub(super) struct Queue<const N: usize> {
     pub orthant_hits: usize,
     pub max_finite_rank: Option<u32>,
     pub unbounded_rank_domains: usize,
+    pub encountered_rank: super::rank_telemetry::RankCensus,
     /// Digest-keyed exact index; every hit is confirmed on the stored domain.
     exact: ExactIndex<N>,
     by_owner: HashMap<(Phase, [bool; N]), OwnerBucket<N>>,
@@ -403,6 +404,7 @@ impl<const N: usize> Queue<N> {
             orthant_hits: 0,
             max_finite_rank: None,
             unbounded_rank_domains: 0,
+            encountered_rank: Default::default(),
             exact: ExactIndex::new(),
             by_owner: HashMap::new(),
             summaries: Vec::new(),
@@ -871,6 +873,8 @@ impl<const N: usize> Queue<N> {
         } else {
             self.unbounded_rank_domains += 1;
         }
+        self.encountered_rank
+            .observe_domain(&compact, query.as_ref().map(|query| &query.compact));
         self.exact.insert(key, id);
         self.domains.push(compact);
         if let Some(query) = query {

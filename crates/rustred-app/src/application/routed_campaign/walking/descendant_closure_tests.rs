@@ -172,6 +172,65 @@ fn image(graph: &Tracker) -> (Vec<u8>, Vec<(u32, u32)>, Value) {
     (graph.node_flags().collect(), edges, counters)
 }
 
+#[test]
+fn scan_history_records_completed_scans_not_heartbeats_and_survives_restore() {
+    let mut graph = Tracker::new(2);
+    assert_eq!(graph.refresh_policy_json()["status"], "eligible");
+    assert_eq!(
+        graph.scan_history_json(),
+        json!({"previous":null,"latest":null})
+    );
+    graph.finish(0, true, true);
+    graph.refresh(&AtomicBool::new(false), true);
+    let first = graph.scan_history_json()["latest"].clone();
+    assert_eq!(first["total_domains"], 2);
+    assert_eq!(first["total_closed"], 1);
+    assert_eq!(first["refresh_count"], 1);
+    assert!(first["completed_unix_seconds"].as_f64().unwrap() > 0.0);
+    assert_eq!(graph.refresh_policy_json()["status"], "unchanged");
+
+    graph.discovered(3);
+    assert_eq!(graph.refresh_policy_json()["status"], "throttled");
+    graph.refresh(&AtomicBool::new(false), false);
+    graph.refresh(&AtomicBool::new(true), true);
+    assert_eq!(graph.scan_history_json()["latest"], first);
+    assert_eq!(graph.scan_history_json()["previous"], Value::Null);
+    graph.finish(1, true, true);
+    graph.refresh(&AtomicBool::new(false), true);
+    let history = graph.scan_history_json();
+    assert_eq!(history["previous"], first);
+    assert_eq!(history["latest"]["total_domains"], 3);
+    assert_eq!(history["latest"]["total_closed"], 2);
+    assert_eq!(history["latest"]["refresh_count"], 2);
+
+    let (flags, edges, counters) = image(&graph);
+    let mut restored = rebuild(&flags, &edges, &counters).unwrap();
+    restored.restore(3, 2).unwrap();
+    assert_eq!(restored.scan_history_json(), history);
+    assert_eq!(restored.refresh_policy_json()["status"], "unchanged");
+    restored.finish(2, true, true);
+    assert_eq!(restored.refresh_policy_json()["status"], "eligible");
+    restored.refresh(&AtomicBool::new(false), true);
+    assert_eq!(restored.scan_history_json()["previous"], history["latest"]);
+    assert_eq!(restored.scan_history_json()["latest"]["total_closed"], 3);
+
+    // Old checkpoints remain readable, but cannot invent scan timestamps.
+    let mut old_counters = counters;
+    old_counters.as_object_mut().unwrap().remove("scan_history");
+    let mut old = rebuild(&flags, &edges, &old_counters).unwrap();
+    old.restore(3, 2).unwrap();
+    assert_eq!(
+        old.scan_history_json(),
+        json!({"previous":null,"latest":null})
+    );
+    old.disable("test unavailable");
+    assert_eq!(old.refresh_policy_json()["status"], "unavailable");
+    assert_eq!(
+        old.refresh_policy_json()["earliest_refresh_unix_seconds"],
+        Value::Null
+    );
+}
+
 fn rebuild(flags: &[u8], edges: &[(u32, u32)], counters: &Value) -> Result<Tracker, String> {
     let counters: Counters = serde_json::from_value(counters.clone()).unwrap();
     Tracker::from_parts(counters, flags, edges)

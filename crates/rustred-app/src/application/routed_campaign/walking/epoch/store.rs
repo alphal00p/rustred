@@ -228,6 +228,7 @@ pub(super) struct Store<const N: usize> {
     pub bucket_of: HashMap<(u8, u32), u32>,
     pub max_finite_rank: Option<u32>,
     pub unbounded_rank_domains: u64,
+    pub encountered_rank: super::super::rank_telemetry::RankCensus,
     /// Resume-boundary lookup exclusions. Historical edges/records are untouched.
     pub quarantine: Vec<u64>,
     /// Explicitly enabled only by an authenticated rescue amendment chain.
@@ -315,6 +316,7 @@ impl<const N: usize> Store<N> {
             bucket_of: HashMap::new(),
             max_finite_rank: None,
             unbounded_rank_domains: 0,
+            encountered_rank: Default::default(),
             quarantine: Vec::new(),
             rescue_duplicates: false,
         }
@@ -635,6 +637,7 @@ impl<const N: usize> Store<N> {
             }
             None => self.unbounded_rank_domains += 1,
         }
+        self.encountered_rank.observe_domain(&image, Some(&summary));
         Ok(id)
     }
 

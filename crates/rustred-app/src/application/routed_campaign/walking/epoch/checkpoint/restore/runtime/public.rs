@@ -191,6 +191,9 @@ fn scalar_progress<const N: usize>(
         "abandoned_obligations":counts.get(Tag::Abandoned),
         "frontiers":state.counters.frontiers,"ledger6":state.ledger.counts().json(),
         "requeue_waiting":dispatch.queued().0,"deferred_waiting":dispatch.queued().1,
+        "max_scheduled_finite_rank":state.store.max_finite_rank,
+        "unbounded_rank_domains":state.store.unbounded_rank_domains,
+        "encountered_numerator_rank":state.store.encountered_rank.json(),
         "descendant_closure":scalar_closure(state)})
 }
 
@@ -254,6 +257,7 @@ fn scalar_closure<const N: usize>(state: &epoch::state::EpochState<N>) -> Value 
         "snapshot_age_seconds":state.tracker.snapshot_age_seconds(),
         "last_refresh_seconds":state.tracker.last_refresh_seconds(),
         "refresh_count":closure.refresh_count,"refresh_seconds":closure.refresh_seconds,
+        "scan_history":state.tracker.scan_history_json(),
         "refresh_policy":state.tracker.refresh_policy_json(),
         "reason":if available {None} else {Some(closure.unavailable.as_deref().unwrap_or("dependency domain inventory mismatch"))},
         "closed_counts_are_conservative_lower_bounds":true,"refreshed_for_result":false,
@@ -347,6 +351,9 @@ fn summary<const N: usize>(
     doc.as_object_mut()
         .expect("summary object")
         .extend(progress);
+    doc["max_scheduled_finite_rank"] = json!(state.store.max_finite_rank);
+    doc["unbounded_rank_domains"] = json!(state.store.unbounded_rank_domains);
+    doc["encountered_numerator_rank"] = state.store.encountered_rank.json();
     doc["parallel"]["admission_preparation"] = reservation_json(WorkerBudget::for_request(request));
     doc["epoch"]["inspector_lookup_mode"] = json!(request.epoch_inspector_lookup.name());
     if request.epoch_rolling {

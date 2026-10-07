@@ -210,6 +210,11 @@ impl<const N: usize> Queue<N> {
             .map_err(|_| "checkpoint exact index allocation")?;
         q.domains = domains;
         for (id, domain) in q.domains.iter().enumerate() {
+            // The capped lane has no retained summaries; rebuild its tiny
+            // diagnostic extent in the existing restore pass, not per tick.
+            if m.max_checks.is_some() {
+                q.encountered_rank.observe_domain(domain, None);
+            }
             let key = q.exact.key(domain);
             let miss = match q.exact.get(key, domain, &q.domains) {
                 Err(miss) => miss,
@@ -343,6 +348,10 @@ impl<const N: usize> Queue<N> {
             .map_err(|_| "checkpoint summary allocation")?;
         for domain in &self.domains {
             let summary = domain.try_native_summary().map_err(|e| e.to_string())?;
+            self.encountered_rank
+                .observe(super::super::rank_telemetry::RankExtent::from_core(
+                    &summary,
+                ));
             self.summaries.push(CompactSummary::from_core(&summary));
         }
         Ok(())

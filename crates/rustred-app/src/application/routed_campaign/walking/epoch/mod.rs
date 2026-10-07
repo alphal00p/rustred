@@ -790,6 +790,7 @@ fn heartbeat_event<const N: usize>(
         "events":state.counters.events,"frontiers":state.counters.frontiers,
         "requeue":dispatch.queued().0,"deferred":dispatch.queued().1,
         "completed_nodes":state.counters.completed,"scheduled_nodes":state.watermark(),
+        "encountered_numerator_rank":state.store.encountered_rank.json(),
         "queued_nodes":state.pending_or_reserved(),
         "traversal_seconds":started.elapsed().as_secs_f64(),"family_closure_claim":false})
 }
@@ -897,6 +898,7 @@ fn finish<const N: usize>(
         "error":parts.error,"stop_reason":stop_reason.map(StopReason::name),
         "prepared_seconds":parts.prepared,
         "walk_semantics_version":EPOCH_WALK_SEMANTICS_VERSION});
+    document["encountered_numerator_rank"] = state.store.encountered_rank.json();
     document["inputs"] = Value::Array(parts.inputs.clone());
     document["input_frontiers"] = Value::Array(parts.input_frontiers.clone());
     document["workers"] = json!(request.workers);

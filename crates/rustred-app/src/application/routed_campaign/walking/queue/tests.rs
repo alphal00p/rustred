@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn encountered_rank_is_rebuilt_for_capped_and_unlimited_checkpoint_lanes() {
+    for max_checks in [None, Some(100)] {
+        let mut queue = Queue::new(20, max_checks);
+        let mut finite = domain(None);
+        finite.upper[1] = Some(7);
+        queue.admit(finite.clone()).unwrap();
+        // Exact reuses do not count as additional scheduled domains.
+        queue.admit(finite).unwrap();
+        assert_eq!(queue.encountered_rank.json()["maximum"], 7);
+        assert_eq!(queue.encountered_rank.json()["finite_domains"], 1);
+        let mut restored: Queue<2> =
+            serde_json::from_value(serde_json::to_value(&queue).unwrap()).unwrap();
+        assert_eq!(
+            restored.encountered_rank.json(),
+            queue.encountered_rank.json()
+        );
+        restored.admit(domain(None)).unwrap();
+        assert_eq!(restored.encountered_rank.json()["status"], "unbounded");
+        assert_eq!(restored.encountered_rank.json()["unbounded_domains"], 1);
+        let reopened: Queue<2> =
+            serde_json::from_value(serde_json::to_value(&restored).unwrap()).unwrap();
+        assert_eq!(
+            reopened.encountered_rank.json(),
+            restored.encountered_rank.json()
+        );
+    }
+}
+
+#[test]
 fn power_predicates_participate_in_identity_and_dominance_without_dropping_work() {
     let mut queue = Queue::new(8, None);
     let mut bounded = domain(Some(4));

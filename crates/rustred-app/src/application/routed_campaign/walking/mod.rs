@@ -20,6 +20,7 @@ mod parallel;
 mod physical_parts;
 mod publication;
 mod queue;
+mod rank_telemetry;
 #[cfg(all(test, feature = "cli"))]
 mod reinspection;
 mod rescue;
@@ -569,6 +570,7 @@ impl OwnerDomainWalkResult {
             "route_joint_source_support_pruning",
             "max_scheduled_finite_rank",
             "unbounded_rank_domains",
+            "encountered_numerator_rank",
             "successors",
             "conditional_successors",
             "optional_coefficient_refusals",
@@ -1563,6 +1565,7 @@ fn run<const N: usize>(
         "frontiers":state.frontiers,"events":state.events,
         "error":state.error,"prepared_seconds":prepared,
         "traversal_seconds":started.elapsed().as_secs_f64()-prepared,"elapsed_seconds":started.elapsed().as_secs_f64()});
+    document["encountered_numerator_rank"] = state.queue.encountered_rank.json();
     add_rescue_report(
         &mut document,
         &state,

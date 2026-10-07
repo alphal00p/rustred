@@ -4,6 +4,28 @@ use super::super::{Query, admit_initial_with};
 use super::*;
 use serde_json::json;
 
+#[test]
+fn encountered_rank_is_identical_when_rebuilding_epoch_store() {
+    let mut finite = domain(APPLY, [0, 0], [None, Some(7)]);
+    finite.rank = None;
+    let mut unbounded = domain(OTHER, [0, 0], [None, None]);
+    unbounded.rank = None;
+    let state = state_with(&[finite, unbounded]);
+    assert_eq!(state.store.encountered_rank.json()["status"], "unbounded");
+    assert_eq!(state.store.encountered_rank.json()["maximum"], 7);
+    let mut restored = Store::new();
+    for (&image, &summary) in state.store.domains.iter().zip(&state.store.summaries) {
+        restored.try_reserve(1).unwrap();
+        restored
+            .push_restored(image, summary, image.digest().0)
+            .unwrap();
+    }
+    assert_eq!(
+        restored.encountered_rank.json(),
+        state.store.encountered_rank.json()
+    );
+}
+
 #[derive(PartialEq, Eq)]
 struct Authority {
     images: Vec<CompactDomain<2>>,

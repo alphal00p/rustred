@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const FLAG_SEALED: u8 = 1;
 const FLAG_INSPECTED: u8 = 2;
@@ -36,6 +36,34 @@ pub(super) struct Counters {
     pub inspected: usize,
     pub refresh_count: u64,
     pub refresh_seconds: f64,
+    /// Optional diagnostic history; older checkpoints did not record scan times.
+    #[serde(default)]
+    scan_history: ScanHistory,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScanHistory {
+    previous: Option<CompletedScan>,
+    latest: Option<CompletedScan>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompletedScan {
+    completed_unix_seconds: Option<f64>,
+    total_domains: usize,
+    total_closed: usize,
+    initial_closed: usize,
+    refresh_count: u64,
+    scan_seconds: f64,
+}
+
+fn unix_seconds() -> Option<f64> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|elapsed| elapsed.as_secs_f64())
 }
 
 /// Periodic refresh spacing as a multiple of the last scan's wall time: the
@@ -66,6 +94,7 @@ pub(super) struct Tracker {
     open_targets: HashMap<u32, HashSet<u32>>,
     last_refresh: Option<Instant>,
     last_refresh_seconds: f64,
+    scan_history: ScanHistory,
 }
 
 impl Tracker {
@@ -85,6 +114,7 @@ impl Tracker {
             open_targets: HashMap::new(),
             last_refresh: None,
             last_refresh_seconds: 0.0,
+            scan_history: ScanHistory::default(),
         };
         value.discovered(initial);
         value
@@ -311,17 +341,47 @@ impl Tracker {
         self.refresh_count = self.refresh_count.saturating_add(1);
         self.refresh_seconds += self.last_refresh_seconds;
         self.last_refresh = Some(Instant::now());
+        self.scan_history.previous = self.scan_history.latest.take();
+        self.scan_history.latest = Some(CompletedScan {
+            completed_unix_seconds: unix_seconds(),
+            total_domains: nodes,
+            total_closed: total,
+            initial_closed: initial,
+            refresh_count: self.refresh_count,
+            scan_seconds: self.last_refresh_seconds,
+        });
         Ok(())
     }
 
-    /// The periodic refresh throttle, reported under `parallel` so the
-    /// historical `descendant_closure` key set stays byte-comparable between
-    /// binaries.
+    /// Observational eligibility for the existing periodic refresh throttle.
+    /// This does not promise a scan at a particular wall-clock time: the
+    /// coordinator must first reach a cooperative monitoring boundary.
     pub fn refresh_policy_json(&self) -> Value {
+        let delay = self.next_refresh_seconds();
+        let status = if self.unavailable.is_some() {
+            "unavailable"
+        } else if self.revision == self.snapshot_revision {
+            "unchanged"
+        } else if delay.is_some_and(|seconds| seconds > 0.0) {
+            "throttled"
+        } else {
+            "eligible"
+        };
+        let earliest = matches!(status, "eligible" | "throttled")
+            .then(|| unix_seconds().map(|now| now + delay.unwrap_or(0.0)))
+            .flatten();
         json!({"duty_bound":1.0 / REFRESH_DUTY_MULTIPLIER,
             "min_interval_seconds":REFRESH_MIN_INTERVAL_SECONDS,
-            "next_refresh_seconds":self.next_refresh_seconds(),
+            "next_refresh_seconds":delay,"status":status,
+            "earliest_refresh_unix_seconds":earliest,
+            "schedule_scope":"eligibility at a coordinator monitoring boundary, not a promised execution time",
             "scope":"periodic_refresh_spacing_max(min_interval, last_scan_wall / duty_bound); forced_refreshes_bypass"})
+    }
+
+    /// Last two *completed* scans, not repeated heartbeat observations. This
+    /// O(1) diagnostic survives new checkpoints and never triggers a scan.
+    pub(super) fn scan_history_json(&self) -> Value {
+        json!(self.scan_history)
     }
 
     pub fn json(&self, total: usize, initial: usize) -> Value {
@@ -340,6 +400,7 @@ impl Tracker {
             "snapshot_age_seconds":self.last_refresh.map(|t|t.elapsed().as_secs_f64()),
             "last_refresh_seconds":self.last_refresh_seconds,
             "refresh_count":self.refresh_count,"refresh_seconds":self.refresh_seconds,
+            "scan_history":self.scan_history_json(),
             "retained_storage_estimate_bytes":self.storage_estimate_bytes(),
             "refresh_scratch_estimate_bytes":total.div_ceil(64).saturating_mul(size_of::<u64>())
                 .saturating_add(total.saturating_mul(size_of::<u32>())),
@@ -641,6 +702,7 @@ impl Tracker {
             inspected: self.inspected,
             refresh_count: self.refresh_count,
             refresh_seconds: self.refresh_seconds,
+            scan_history: self.scan_history.clone(),
         }
     }
 
@@ -691,6 +753,7 @@ impl Tracker {
             open_targets: HashMap::new(),
             last_refresh: None,
             last_refresh_seconds: 0.0,
+            scan_history: counters.scan_history,
         })
     }
 
@@ -727,6 +790,7 @@ impl Tracker {
             open_targets: HashMap::new(),
             last_refresh: None,
             last_refresh_seconds: 0.0,
+            scan_history: counters.scan_history,
         })
     }
 
