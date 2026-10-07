@@ -61,6 +61,24 @@ pub(super) fn lower_rule<const N: usize>(
     cover_limits: crate::foundry::artifact::ArtifactCoverReplayLimits,
 ) -> Result<Vec<Arc<RuleCell>>, SourcePortAuditError> {
     let context = corpus.context();
+    let physical_arity = context.index_count();
+    if sector[physical_arity..].iter().any(|active| *active)
+        || checked.fixed[physical_arity..]
+            .iter()
+            .any(|value| *value != Some(0))
+        || checked
+            .rhs
+            .iter()
+            .any(|term| term.shift[physical_arity..].iter().any(|value| *value != 0))
+    {
+        return Err(error("retained rule has invalid storage coordinates"));
+    }
+    let sector = &sector[..physical_arity];
+    let zero_sectors: Vec<_> = zero_sectors
+        .iter()
+        .map(|sector| &sector[..physical_arity])
+        .collect();
+    let zero_sectors = zero_sectors.as_slice();
     let limits = ReplayLimits {
         rule: rule_limits,
         geometry: cover_limits.geometry(),
@@ -69,6 +87,7 @@ pub(super) fn lower_rule<const N: usize>(
     let fixed: Vec<_> = checked
         .fixed
         .iter()
+        .take(physical_arity)
         .enumerate()
         .filter_map(|(position, value)| {
             value.map(|value| FixedIndexRestriction::new(position, value))
@@ -78,7 +97,16 @@ pub(super) fn lower_rule<const N: usize>(
         .iter()
         .map(|item| (item.position(), item.value()))
         .collect();
-    let affine = checked.affine.clone();
+    let affine = checked
+        .affine
+        .as_ref()
+        .map(|domain| domain.project_storage(context).map(Arc::new).map_err(error))
+        .transpose()?;
+    let affine_exclusions = checked
+        .affine_exclusions
+        .iter()
+        .map(|domain| domain.project_storage(context).map(Arc::new).map_err(error))
+        .collect::<Result<Vec<_>, _>>()?;
     let translated = corpus.translate_normalized(
         generator,
         &checked.ordinary,
@@ -92,7 +120,7 @@ pub(super) fn lower_rule<const N: usize>(
     for condition in inherited.iter().chain(&checked.nonzero_conditions) {
         conditions.push(
             context
-                .admit_native_polynomial_result_with_limits(
+                .admit_storage_polynomial_result_with_limits(
                     condition.clone(),
                     limits.cell.indexed_algebra.exact_algebra,
                 )
@@ -101,9 +129,11 @@ pub(super) fn lower_rule<const N: usize>(
     }
     let mut rhs = Vec::with_capacity(checked.rhs.len());
     for term in checked.rhs {
-        let shift = IndexShift::try_new(term.shift, N).map_err(error)?;
+        let shift =
+            IndexShift::try_new(term.shift[..physical_arity].iter().copied(), physical_arity)
+                .map_err(error)?;
         let coefficient = context
-            .admit_native_result_with_limits(
+            .admit_storage_result_with_limits(
                 term.coefficient,
                 limits.cell.indexed_algebra.exact_algebra,
             )
@@ -124,12 +154,28 @@ pub(super) fn lower_rule<const N: usize>(
         translated.contributions,
         fixed,
         affine.clone(),
-        checked.affine_exclusions.clone().into(),
+        affine_exclusions.into(),
         conditions,
         limits,
     )?;
     let mut result = Vec::new();
     for (application_ordinal, application) in checked.application.into_iter().enumerate() {
+        if application.lower()[physical_arity..]
+            .iter()
+            .any(|value| *value != 0)
+            || application.upper()[physical_arity..]
+                .iter()
+                .any(|value| *value != Some(0))
+        {
+            return Err(error(
+                "retained application has invalid storage coordinates",
+            ));
+        }
+        let application = LatticeBox::try_new(
+            application.lower()[..physical_arity].iter().copied(),
+            application.upper()[..physical_arity].iter().copied(),
+        )
+        .map_err(error)?;
         let application = if let Some(degree) = max_total_excess_degree {
             // Admission of original sources, canceled poles, fixed faces and
             // coefficient maps above is never bypassed by a small scope.
@@ -138,11 +184,11 @@ pub(super) fn lower_rule<const N: usize>(
                 .ok_or_else(|| error("degree hull count overflow"))?;
             if count > limits.geometry.max_requested_boxes
                 || count
-                    .checked_mul(N)
+                    .checked_mul(physical_arity)
                     .and_then(|v| v.checked_mul(2))
                     .is_none_or(|v| v > limits.geometry.max_requested_box_coordinate_cells)
                 || count
-                    .checked_mul(N)
+                    .checked_mul(physical_arity)
                     .and_then(|v| v.checked_mul(3))
                     .is_none_or(|v| v > limits.geometry.max_split_operations)
             {

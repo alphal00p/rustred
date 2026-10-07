@@ -122,6 +122,10 @@ pub fn owner_domain_scan_with_progress(
     rustred::campaign::ParallelExecution::preflight_requested_core_budget(1)
         .map_err(|e| AppError::input(e.to_string()))?;
     let (selection, n, limits) = input::Selection::parse(&request.selection_json)?;
+    let observer = |mut event| {
+        super::storage::project(&mut event, n);
+        observer(event);
+    };
     observer(
         json!({"event":"admitted", "operation":"owner_domain_scan", "arity":n,
         "max_numerator_rank":request.max_numerator_rank, "positive_powers_unbounded":true,
@@ -129,14 +133,16 @@ pub fn owner_domain_scan_with_progress(
         "scan_limits_per_owner":format!("{:?}",request.scan_limits),
         "max_total_regions":request.max_total_regions, "max_summary_groups":request.max_summary_groups}),
     );
-    macro_rules! dispatch { ($($n:literal),*) => { match n {
+    macro_rules! dispatch { ($($n:literal),*) => { match rustred::campaign_storage_arity(n ){
         $($n => run::<$n>(&request, &selection, limits, cancellation, &observer),)*
         _ => Err(crate::AppError::input("campaign arity is not compiled")),
     }} }
-    {
+    let mut result = {
         crate::ensure_runtime_arity(n)?;
         rustred::with_app_runtime_arities!(dispatch)
-    }
+    }?;
+    super::storage::project(&mut result.document, n);
+    Ok(result)
 }
 
 fn mask(bits: &[bool]) -> String {

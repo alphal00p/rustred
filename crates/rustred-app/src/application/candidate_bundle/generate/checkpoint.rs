@@ -55,7 +55,9 @@ pub(super) fn assemble<const N: usize, F: Borrow<rustred::family::IntegralFamily
                 limits.binary_limits(),
             )
             .map_err(codec::binary_error)?;
-        if family.fingerprint() != native_family.fingerprint() || family.denominator_count() != N {
+        if family.fingerprint() != native_family.fingerprint()
+            || !rustred::fits_storage(family.denominator_count(), N)
+        {
             return Err(AppError::input(
                 "checkpoint native family differs from the prepared family",
             ));
@@ -72,7 +74,12 @@ pub(super) fn assemble<const N: usize, F: Borrow<rustred::family::IntegralFamily
             ));
         }
         let (sector, solution) = solutions.pop().expect("checked one solution");
-        sectors.push(codec::sector_record(sector, &solution, coefficients)?);
+        sectors.push(codec::physical_sector_record(
+            native_family.denominator_count(),
+            sector,
+            &solution,
+            coefficients,
+        )?);
     }
     // Caller interns the family only AFTER all sectors. Copying every local
     // dictionary wholesale would change coefficient first-use order and IDs.

@@ -126,6 +126,13 @@ pub(super) fn mask(text: &str, n: usize) -> Result<Mask, AppError> {
 }
 
 impl Selection {
+    pub(super) fn physical_arity(&self) -> usize {
+        self.owners
+            .first()
+            .map(|owner| owner.mask.len())
+            .unwrap_or(0)
+    }
+
     pub fn parse(text: &str) -> Result<(Self, usize, CandidateOwnerLoadLimits), AppError> {
         if text.len() > MAX_STEERING_BYTES {
             return Err(AppError::limit("owner selection exceeds 16 MiB"));

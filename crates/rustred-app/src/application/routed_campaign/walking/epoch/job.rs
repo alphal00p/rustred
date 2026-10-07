@@ -197,6 +197,16 @@ pub(super) fn write_image<const N: usize>(w: &mut Writer, image: &CompactDomain<
 /// domains (F1), without allocating temporary coordinate vectors. Canonical
 /// wire checks and their error order remain independent of domain validation.
 pub(super) fn read_image<const N: usize>(r: &mut Reader<'_>) -> Decoded<CompactDomain<N>> {
+    read_image_with_arity(r, N)
+}
+
+pub(super) fn read_image_with_arity<const N: usize>(
+    r: &mut Reader<'_>,
+    wire_arity: usize,
+) -> Decoded<CompactDomain<N>> {
+    if !crate::application::routed_campaign::storage::compatible_width(wire_arity, N) {
+        return Err("image wire arity");
+    }
     let phase = match r.u8()? {
         0 => Phase::Apply,
         1 => Phase::Route,
@@ -211,14 +221,14 @@ pub(super) fn read_image<const N: usize>(r: &mut Reader<'_>) -> Decoded<CompactD
     if !rank_present && rank_value != 0 {
         return Err("non-canonical absent rank");
     }
-    let mut lower = [0_u64; N];
-    for value in &mut lower {
-        *value = u64::from(r.u16()?);
+    let mut lower = Vec::with_capacity(wire_arity);
+    for _ in 0..wire_arity {
+        lower.push(u64::from(r.u16()?));
     }
-    let mut upper = [None; N];
-    for value in &mut upper {
+    let mut upper = Vec::with_capacity(wire_arity);
+    for _ in 0..wire_arity {
         let v = r.u16()?;
-        *value = (v != INFINITE).then_some(u64::from(v));
+        upper.push((v != INFINITE).then_some(u64::from(v)));
     }
     let powers = r.powers()?;
     CompactDomain::try_from_parts(

@@ -104,14 +104,27 @@ impl<const N: usize> CompactDomain<N> {
         powers: DomainPowerBounds,
     ) -> Result<Self, &'static str> {
         const { assert!(N <= MAX_COMPACT_ARITY) };
-        if lower_bounds.len() != N || upper_bounds.len() != N {
+        if !crate::application::routed_campaign::storage::compatible_width(lower_bounds.len(), N)
+            || upper_bounds.len() != lower_bounds.len()
+            || owner
+                .get(lower_bounds.len()..)
+                .is_some_and(|tail| tail.iter().any(|active| *active))
+        {
             return Err("domain coordinate arity");
         }
+        let lower_bounds =
+            crate::application::routed_campaign::storage::restore_array::<_, N>(lower_bounds, 0)
+                .ok_or("domain lower storage padding")?;
+        let upper_bounds = crate::application::routed_campaign::storage::restore_array::<_, N>(
+            upper_bounds,
+            Some(0),
+        )
+        .ok_or("domain upper storage padding")?;
         let mut lower = [0; N];
         let mut upper = [INFINITE_COORDINATE; N];
         for axis in 0..N {
-            lower[axis] = compact_coordinate(lower_bounds[axis])?;
-            if let Some(value) = upper_bounds[axis] {
+            lower[axis] = compact_coordinate(lower_bounds.get(axis).copied().unwrap_or(0))?;
+            if let Some(value) = upper_bounds.get(axis).copied().unwrap_or(Some(0)) {
                 upper[axis] = compact_coordinate(value)?;
             }
         }
@@ -137,7 +150,9 @@ impl<const N: usize> CompactDomain<N> {
 
     /// Checkpoint restore: the historical record checks, then the compact range.
     pub(in super::super) fn restore(domain: &Domain<N>) -> Result<Self, String> {
-        if domain.lower.len() != N || domain.upper.len() != N {
+        if !crate::application::routed_campaign::storage::compatible_width(domain.lower.len(), N)
+            || domain.upper.len() != domain.lower.len()
+        {
             return Err("checkpoint coordinate arity".into());
         }
         domain.powers.validate().map_err(|e| e.to_string())?;

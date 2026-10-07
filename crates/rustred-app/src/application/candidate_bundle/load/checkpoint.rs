@@ -57,10 +57,10 @@ pub fn load_generated_candidate_checkpoint<const N: usize>(
         return Err(AppError::input("checkpoint/reducer arity mismatch"));
     }
     let family = preparation::family(&request.source, request.input_format)?;
-    if family.denominator_count() != N {
+    if !rustred::fits_storage(family.denominator_count(), N) {
         return Err(AppError::input("checkpoint/reducer arity mismatch"));
     }
-    let root = preparation::root(N, &request.nonpositive_indices)?;
+    let root = preparation::root(family.denominator_count(), &request.nonpositive_indices)?;
     let mut prepared = preparation::prepare::<N>(family, &root, request.permutation.as_deref())?;
     super::super::selection::apply(
         &mut prepared,
@@ -74,7 +74,7 @@ pub fn load_generated_candidate_checkpoint<const N: usize>(
         prepared
             .sectors
             .iter()
-            .map(|sector| sector.to_vec())
+            .map(|sector| sector[..prepared.family.denominator_count()].to_vec())
             .collect(),
     )?;
     let limits = request.bundle_limits;

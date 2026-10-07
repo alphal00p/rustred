@@ -76,10 +76,13 @@ fn phase_for<const N: usize>(
     if amended.is_some() {
         crate::application::routed_campaign::walking::rescue::domain::<N>(
             query,
-            reducer
-                .programs()
-                .owner_sectors()
-                .any(|owner| owner.as_slice() == query.owner.as_slice()),
+            reducer.programs().owner_sectors().any(|owner| {
+                owner.as_slice()
+                    == rustred::storage_array::<_, N>(&query.owner, false)
+                        .as_ref()
+                        .map(|owner| owner.as_slice())
+                        .unwrap_or(&[])
+            }),
             identity.route_domain_overcover(),
             reducer.domain_routing_requires_source_conditions(),
         )
@@ -177,7 +180,10 @@ fn read_query_rows<const N: usize>(
     let mut admitted = 0u32;
     let mut counters = VerifyCounters::default();
     for &(query, amendment) in queries.iter().take(inputs.count as usize) {
-        if query.owner.len() != N || query.lower.len() != N || query.upper.len() != N {
+        if !rustred::fits_storage(query.owner.len(), N)
+            || query.lower.len() != query.owner.len()
+            || query.upper.len() != query.owner.len()
+        {
             return Err(invalid("epoch root query arity"));
         }
         // JSON escapes cost at most6 bytes per input UTF-8 byte. Geometry and
@@ -265,7 +271,10 @@ fn check_row<const N: usize>(
     if row.amendment.is_some() && phase.is_none() {
         return Err(invalid("epoch amendment has unresolved source validity"));
     }
-    if query.owner.len() != N || query.lower.len() != N || query.upper.len() != N {
+    if !rustred::fits_storage(query.owner.len(), N)
+        || query.lower.len() != query.owner.len()
+        || query.upper.len() != query.owner.len()
+    {
         return Err(invalid("epoch root query arity"));
     }
     if row.id != query.id
@@ -283,9 +292,13 @@ fn check_row<const N: usize>(
             }
             let domain = Domain {
                 phase,
-                owner: query.owner.as_slice().try_into().expect("arity checked"),
-                lower: query.lower.clone(),
-                upper: query.upper.clone(),
+                owner: rustred::storage_array(&query.owner, false).expect("arity checked"),
+                lower: rustred::storage_array::<_, N>(&query.lower, 0)
+                    .expect("arity checked")
+                    .to_vec(),
+                upper: rustred::storage_array::<_, N>(&query.upper, Some(0))
+                    .expect("arity checked")
+                    .to_vec(),
                 rank: query.rank,
                 powers: query.powers,
             };
@@ -309,9 +322,13 @@ fn check_row<const N: usize>(
         (Some(phase), Some(id), None) if id < p0 && id <= *admitted => {
             let domain = Domain {
                 phase,
-                owner: query.owner.as_slice().try_into().expect("arity checked"),
-                lower: query.lower.clone(),
-                upper: query.upper.clone(),
+                owner: rustred::storage_array(&query.owner, false).expect("arity checked"),
+                lower: rustred::storage_array::<_, N>(&query.lower, 0)
+                    .expect("arity checked")
+                    .to_vec(),
+                upper: rustred::storage_array::<_, N>(&query.upper, Some(0))
+                    .expect("arity checked")
+                    .to_vec(),
                 rank: query.rank,
                 powers: query.powers,
             };

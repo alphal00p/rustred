@@ -255,11 +255,20 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
         self.powers
             .validate()
             .map_err(OwnerDomainMatchFailure::PowerDomain)?;
-        if N == 0 || N > 4096 || lower.len() != N || upper.len() != N {
+        if N == 0
+            || N > 4096
+            || lower.len() != upper.len()
+            || !crate::fits_storage(lower.len(), N)
+            || self.owner[lower.len()..].iter().any(|&v| v)
+        {
             return Err(OwnerDomainMatchFailure::InvalidInput(
                 "owner/box arity must match and lie in 1..=4096".into(),
             ));
         }
+        let lower_storage = crate::storage_array::<_, N>(lower, 0).expect("validated bounds");
+        let upper_storage = crate::storage_array::<_, N>(upper, Some(0)).expect("validated bounds");
+        let lower = &lower_storage[..];
+        let upper = &upper_storage[..];
         if !self.programs.owners.contains_key(&self.owner)
             && !self
                 .programs

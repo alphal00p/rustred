@@ -5,7 +5,7 @@
 //! must still pass before constructing a usable EpochState or running workers.
 use super::super::super::queue::Query;
 use super::super::edges::EdgeStore;
-use super::super::job::{Reader, read_image};
+use super::super::job::{Reader, read_image_with_arity};
 use super::super::ledger6::{Entry6, Ledger6};
 use super::super::state::{NODE_ANCHORED, NODE_INSPECTED, NODE_RESIDUAL, NODE_SEALED};
 use super::super::store::Store;
@@ -30,8 +30,20 @@ fn open_section<const N: usize>(
     directory: &Path,
     receipt: &SectionReceipt,
     count: u64,
-) -> io::Result<CheckedRead> {
+) -> io::Result<(CheckedRead, usize)> {
     if N > 32 || receipt.generation == 0 {
+        return Err(invalid("invalid epoch section arity or generation"));
+    }
+    open_section_with_arity::<N>(directory, receipt, count, N)
+}
+
+fn open_section_with_arity<const N: usize>(
+    directory: &Path,
+    receipt: &SectionReceipt,
+    count: u64,
+    expected_arity: usize,
+) -> io::Result<(CheckedRead, usize)> {
+    if N > 32 || expected_arity > 32 || receipt.generation == 0 {
         return Err(invalid("invalid epoch section arity or generation"));
     }
     let mut reader = CheckedRead::open(
@@ -42,28 +54,42 @@ fn open_section<const N: usize>(
     )?;
     let mut magic = [0; 8];
     reader.read_exact(&mut magic)?;
+    let version = reader.u32()?;
+    let wire_arity = reader.u32()? as usize;
     if &magic != b"EPC6PART"
-        || reader.u32()? != 1
-        || reader.u32()? != N as u32
+        || version != 1
+        || wire_arity != expected_arity
+        || !crate::application::routed_campaign::storage::compatible_width(wire_arity, N)
         || reader.u32()? != receipt.section as u32
         || reader.u64()? != count
     {
         return Err(invalid("epoch section header differs"));
     }
-    Ok(reader)
+    Ok((reader, wire_arity))
 }
 
 pub(super) struct FixedSection<const N: usize> {
     reader: CheckedRead,
     section: Section,
     count: usize,
+    wire_arity: usize,
 }
 
 impl<const N: usize> FixedSection<N> {
     pub fn open(directory: &Path, receipt: &SectionReceipt, count: u64) -> io::Result<Self> {
-        let reader = open_section::<N>(directory, receipt, count)?;
+        Self::open_with_arity(directory, receipt, count, N)
+    }
+
+    pub fn open_with_arity(
+        directory: &Path,
+        receipt: &SectionReceipt,
+        count: u64,
+        expected_arity: usize,
+    ) -> io::Result<Self> {
+        let (reader, wire_arity) =
+            open_section_with_arity::<N>(directory, receipt, count, expected_arity)?;
         let width = match receipt.section {
-            Section::Domains => 37 + 4 * N as u64,
+            Section::Domains => 37 + 4 * wire_arity as u64,
             Section::Nodes | Section::ClosureFlags => 1,
             Section::Live | Section::Ledger | Section::Frontiers => 8,
             // Edge headers count runs, not u32 words. A run has at least
@@ -98,6 +124,7 @@ impl<const N: usize> FixedSection<N> {
             reader,
             section: receipt.section,
             count,
+            wire_arity,
         })
     }
 
@@ -121,10 +148,11 @@ impl<const N: usize> FixedSection<N> {
         store.rescue_duplicates = rescue;
         let mut bytes = [0u8; 37 + 4 * 32];
         for _ in 0..self.count {
-            let bytes = &mut bytes[..37 + 4 * N];
+            let bytes = &mut bytes[..37 + 4 * self.wire_arity];
             self.reader.read_exact(bytes)?;
             let mut reader = Reader::new(bytes);
-            let image = read_image::<N>(&mut reader).map_err(invalid)?;
+            let image =
+                read_image_with_arity::<N>(&mut reader, self.wire_arity).map_err(invalid)?;
             reader.finish().map_err(invalid)?;
             let query = QueryImage::new(image).map_err(invalid)?;
             let compact = Query::new(query.core, image.phase()).compact;

@@ -4,7 +4,7 @@ use super::super::super::anchors::{
     ANCHORS_VERSION, AnchorKind, AnchorMap, Lent, MAX_ANCHORS, MAX_RESIDUAL_PIECES,
 };
 use super::super::{Section, SectionReceipt, invalid};
-use super::open_section;
+use super::open_section_with_arity;
 use std::io::{self, Read};
 use std::path::Path;
 
@@ -16,6 +16,18 @@ pub(super) fn anchors<const N: usize>(
     p0: u32,
     epoch: u64,
 ) -> io::Result<AnchorMap> {
+    anchors_with_arity::<N>(directory, receipt, count, watermark, p0, epoch, N)
+}
+
+pub(super) fn anchors_with_arity<const N: usize>(
+    directory: &Path,
+    receipt: &SectionReceipt,
+    count: u64,
+    watermark: u32,
+    p0: u32,
+    epoch: u64,
+    wire_arity: usize,
+) -> io::Result<AnchorMap> {
     if receipt.section != Section::Anchors
         || watermark == u32::MAX
         || p0 > watermark
@@ -24,7 +36,7 @@ pub(super) fn anchors<const N: usize>(
     {
         return Err(invalid("epoch anchor inventory range"));
     }
-    let mut reader = open_section::<N>(directory, receipt, count)?;
+    let (mut reader, _) = open_section_with_arity::<N>(directory, receipt, count, wire_arity)?;
     if count
         .checked_mul(44)
         .and_then(|body| body.checked_add(10))
@@ -55,7 +67,7 @@ pub(super) fn anchors<const N: usize>(
         if n == 0
             || n > MAX_ANCHORS
             || n > watermark as usize
-            || scope_len > 4 + MAX_RESIDUAL_PIECES * (18 + 4 * N)
+            || scope_len > 4 + MAX_RESIDUAL_PIECES * (18 + 4 * wire_arity)
             || tail as u64 > reader.remaining()
         {
             return Err(invalid("epoch anchor variable shape exceeds bounds"));
@@ -67,7 +79,7 @@ pub(super) fn anchors<const N: usize>(
         reader.read_exact(&mut scratch[34..])?;
         // Counts/kind are bounded before entering the shared generic codec;
         // it checks canonical reserved bytes, stamps and exact consumption.
-        let mut decoded = AnchorMap::decode(&scratch, N).map_err(io::Error::other)?;
+        let mut decoded = AnchorMap::decode(&scratch, wire_arity).map_err(io::Error::other)?;
         let record = decoded
             .pop()
             .ok_or_else(|| invalid("missing epoch anchor record"))?;

@@ -851,7 +851,7 @@ impl Store {
         let previous = self
             .manifest
             .as_ref()
-            .filter(|m| m.kind == "state")
+            .filter(|m| m.kind == "state" && m.arity as usize == N)
             .map(|m| &m.sections);
         let closure_ref = state.closure.borrow();
         let closure: &super::descendant_closure::Tracker = &closure_ref;
@@ -1225,12 +1225,12 @@ pub(super) fn read_raw<const N: usize>(directory: &Path) -> Result<RawCheckpoint
     if manifest.kind != "state" {
         return Err("checkpoint generation holds no walk state".into());
     }
-    if manifest.arity as usize != N {
+    if !crate::application::routed_campaign::storage::compatible_width(manifest.arity as usize, N) {
         return Err("checkpoint coordinate arity".into());
     }
     let verify_seconds = restore::verify_files(directory, &manifest)?;
     let identity = Identity {
-        arity: N,
+        arity: manifest.arity as usize,
         ready: manifest.publication_policy == "ready",
         semantics: manifest.walk_semantics_version,
     };

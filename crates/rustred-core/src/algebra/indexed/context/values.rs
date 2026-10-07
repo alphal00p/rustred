@@ -251,6 +251,53 @@ impl IndexedCoefficientContext {
         self.wrap_checked_with_limits(raw, limits)
     }
 
+    /// Remove only unused temporary storage axes before authenticating a
+    /// campaign coefficient against its unchanged physical context.
+    pub(crate) fn admit_storage_result_with_limits(
+        &self,
+        raw: Coefficient,
+        limits: ExactAlgebraLimits,
+    ) -> Result<IndexedCoefficient, IndexedAlgebraError> {
+        if raw.get_variables() == &self.variables {
+            return self.admit_native_result_with_limits(raw, limits);
+        }
+        let numerator = self.project_storage_polynomial(raw.numerator)?;
+        let denominator = self.project_storage_polynomial(raw.denominator)?;
+        self.admit_native_result_with_limits(
+            Coefficient::from_num_den(numerator, denominator, &Z, true),
+            limits,
+        )
+    }
+
+    pub(crate) fn admit_storage_polynomial_result_with_limits(
+        &self,
+        raw: CoefficientPolynomial,
+        limits: ExactAlgebraLimits,
+    ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
+        let raw = self.project_storage_polynomial(raw)?;
+        self.admit_native_polynomial_result_with_limits(raw, limits)
+    }
+
+    fn project_storage_polynomial(
+        &self,
+        raw: CoefficientPolynomial,
+    ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
+        let variables = raw.variables();
+        if variables == &self.variables {
+            return Ok(raw);
+        }
+        if !cfg!(feature = "capacity-dispatch")
+            || !variables.starts_with(&self.variables)
+            || variables[self.variables.len()..]
+                .iter()
+                .any(|v| !matches!(v, PolyVariable::Temporary(_)))
+        {
+            return Err(IndexedAlgebraError::WrongContext);
+        }
+        raw.rearrange_with_growth(&self.variables)
+            .map_err(|_| IndexedAlgebraError::WrongContext)
+    }
+
     /// Admit one raw polynomial returned by a native Symbolica algorithm
     /// which consumed values from this exact indexed context.
     ///

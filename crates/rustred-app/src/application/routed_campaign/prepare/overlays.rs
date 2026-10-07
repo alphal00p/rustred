@@ -103,13 +103,13 @@ pub(super) fn install<const N: usize>(
             json!({"event":"preparation", "phase":"domain_rule_overlay_replay",
             "completed":ordinal, "total":payloads.len()}),
         );
-        let owner: [bool; N] = selection.owners[payload.owner_ordinal]
+        let bits = selection.owners[payload.owner_ordinal]
             .mask
             .bytes()
             .map(|byte| byte == b'1')
-            .collect::<Vec<_>>()
-            .try_into()
-            .map_err(|_| AppError::input("domain-rule overlay owner arity mismatch"))?;
+            .collect::<Vec<_>>();
+        let owner = rustred::storage_array(&bits, false)
+            .ok_or_else(|| AppError::input("domain-rule overlay owner arity mismatch"))?;
         let (overlay, replay) = load_generated_domain_overlay(
             &programs,
             &payload.bytes,

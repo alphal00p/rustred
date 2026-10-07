@@ -27,7 +27,7 @@ pub fn with_replayed_candidate_rule_circuits<const N: usize, R>(
         return Err(AppError::limit("retained replay rule count exceeds policy"));
     }
     let bundle = codec::read(bytes, input_limits)?;
-    if bundle.root_sector.len() != N {
+    if !rustred::fits_storage(bundle.root_sector.len(), N) {
         return Err(AppError::input("candidate circuit replay arity differs"));
     }
     let family = bundle
@@ -38,7 +38,9 @@ pub fn with_replayed_candidate_rule_circuits<const N: usize, R>(
             input_limits.binary_limits(),
         )
         .map_err(codec::binary_error)?;
-    if family.fingerprint() != bundle.family_fingerprint || family.denominator_count() != N {
+    if family.fingerprint() != bundle.family_fingerprint
+        || family.denominator_count() != bundle.root_sector.len()
+    {
         return Err(AppError::input(
             "candidate circuit replay family binding differs",
         ));

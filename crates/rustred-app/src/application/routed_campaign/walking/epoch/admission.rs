@@ -1,6 +1,6 @@
 //! Shared one-row initial handling; no dispatcher, checkpoint or CAS policy.
 use super::super::{
-    mask, power_bounds_json,
+    power_bounds_json,
     queue::{Domain, Phase},
 };
 use super::{AdmissionError, EpochState, admit_initial_with, input_row, matching};
@@ -23,10 +23,13 @@ pub(super) fn query_phase<const N: usize>(
     query: &matching::input::Query,
 ) -> Option<Phase> {
     phase(
-        reducer
-            .programs()
-            .owner_sectors()
-            .any(|owner| owner.as_slice() == query.owner.as_slice()),
+        reducer.programs().owner_sectors().any(|owner| {
+            owner.as_slice()
+                == rustred::storage_array::<_, N>(&query.owner, false)
+                    .as_ref()
+                    .map(|owner| owner.as_slice())
+                    .unwrap_or(&[])
+        }),
         overcover,
         reducer.domain_routing_requires_source_conditions(),
     )
@@ -34,7 +37,7 @@ pub(super) fn query_phase<const N: usize>(
 
 pub(super) fn source_frontier<const N: usize>(query: &matching::input::Query) -> Value {
     json!({"id":query.id,"kind":"initial_route_source_validity_obligation",
-        "owner":mask::<N>(query.owner.as_slice().try_into().expect("validated query arity")),
+        "owner":query.owner.iter().map(|&active| if active {'1'} else {'0'}).collect::<String>(),
         "lower":query.lower,"upper":query.upper,"rank":query.rank,
         "power_bounds":power_bounds_json(query.powers),"reached_missing_rule_claim":false})
 }
@@ -62,7 +65,10 @@ pub(super) fn one_with<const N: usize>(
     if state.poisoned {
         return Err(E::Internal("initial admission: state is poisoned".into()));
     }
-    if query.owner.len() != N || query.lower.len() != N || query.upper.len() != N {
+    if !rustred::fits_storage(query.owner.len(), N)
+        || query.lower.len() != query.owner.len()
+        || query.upper.len() != query.owner.len()
+    {
         return Err(E::Refused("input: domain coordinate arity".into()));
     }
     if phase.is_none() && frontiers.len() as u64 >= state.max_frontiers {
@@ -76,9 +82,13 @@ pub(super) fn one_with<const N: usize>(
     if let Some(phase) = phase {
         let domain = Domain {
             phase,
-            owner: query.owner.as_slice().try_into().expect("arity checked"),
-            lower: query.lower.clone(),
-            upper: query.upper.clone(),
+            owner: rustred::storage_array(&query.owner, false).expect("arity checked"),
+            lower: rustred::storage_array::<_, N>(&query.lower, 0)
+                .expect("validated query arity")
+                .to_vec(),
+            upper: rustred::storage_array::<_, N>(&query.upper, Some(0))
+                .expect("validated query arity")
+                .to_vec(),
             rank: query.rank,
             powers: query.powers,
         };

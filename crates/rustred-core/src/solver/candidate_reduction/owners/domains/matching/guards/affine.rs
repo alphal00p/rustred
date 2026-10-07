@@ -128,7 +128,10 @@ impl<'a, const N: usize> Probe<'a, N> {
         }
         // Check TOTAL degree, including mixed monomials. No temporary native
         // polynomial, expression, matrix or coefficient copy is constructed.
-        if p.nvars() != base_count + N
+        if !p
+            .nvars()
+            .checked_sub(base_count)
+            .is_some_and(|physical| crate::arity::fits_storage(physical, N))
             || !p.exponents_iter().all(|powers| {
                 powers[..base_count].iter().all(|&v| v == 0)
                     && powers[base_count..]

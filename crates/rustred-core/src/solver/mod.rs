@@ -162,7 +162,13 @@ pub fn solve_family<const N: usize>(
     config: SectorConfig<N>,
     options: SectorSolveOptions,
 ) -> Result<FamilySolveSummary, FamilySolveError> {
-    if family.denominator_count() != N {
+    if !crate::arity::fits_storage(family.denominator_count(), N)
+        || sectors.iter().any(|sector| {
+            sector[family.denominator_count()..]
+                .iter()
+                .any(|active| *active)
+        })
+    {
         return Err(FamilySolveError::Source(format!(
             "family has {} denominators but the sector manifest has arity {N}",
             family.denominator_count()

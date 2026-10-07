@@ -48,9 +48,15 @@ impl OriginalSourceCorpus {
         let generator = ParametricIbpGenerator::try_new(family).map_err(error)?;
         let context = generator.context().clone();
         let first_index = context.base().parameter_names().len();
-        if context.index_count() != N
+        if !crate::arity::fits_storage(context.index_count(), N)
             || system.index_variables() != &std::array::from_fn(|axis| first_index + axis)
-            || system.fixed().iter().any(Option::is_some)
+            || system.active_arity() != context.index_count()
+            || system.fixed()[..context.index_count()]
+                .iter()
+                .any(Option::is_some)
+            || system.fixed()[context.index_count()..]
+                .iter()
+                .any(|value| *value != Some(0))
         {
             return Err(error(
                 "adapter index coordinates differ from the original generator context",
@@ -123,9 +129,32 @@ impl OriginalSourceCorpus {
                 ));
             }
         }
+        let storage_variables = replay
+            .contributions
+            .first()
+            .map(|entry| entry.weight.numerator.variables().clone());
+        let grow_polynomial =
+            |value: &CoefficientPolynomial| -> Result<CoefficientPolynomial, SourcePortAuditError> {
+                match &storage_variables {
+                    Some(variables) if value.variables() != variables => {
+                        value.rearrange_with_growth(variables).map_err(error)
+                    }
+                    _ => Ok(value.clone()),
+                }
+            };
+        let grow_coefficient = |value: &Coefficient| -> Result<Coefficient, SourcePortAuditError> {
+            use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
+            Ok(Coefficient::from_num_den(
+                grow_polynomial(&value.numerator)?,
+                grow_polynomial(&value.denominator)?,
+                &symbolica::domains::integer::Z,
+                true,
+            ))
+        };
         let fixed: Vec<_> = case
             .fixed()
             .iter()
+            .take(self.context.index_count())
             .enumerate()
             .filter_map(|(axis, value)| value.map(|value| (axis, i64::from(value))))
             .collect();
@@ -153,14 +182,14 @@ impl OriginalSourceCorpus {
                 .map_err(error)?;
             let weight = self
                 .context
-                .admit_native_result_with_limits(contribution.weight.clone(), Default::default())
+                .admit_storage_result_with_limits(contribution.weight.clone(), Default::default())
                 .map_err(error)?;
             let (weight, scale) = if let Some(affine) = case.affine() {
                 // Preserve the incoming pole BEFORE chart restriction and
                 // scale multiplication can cancel it. The chart is a native
                 // coefficient service, never a replacement for integral keys.
                 let denominator = affine
-                    .restrict_equation(&weight.raw().denominator)
+                    .restrict_equation(&grow_polynomial(&weight.raw().denominator)?)
                     .map_err(error)?;
                 if denominator.is_zero() {
                     return Err(error(
@@ -171,21 +200,25 @@ impl OriginalSourceCorpus {
                     conditions.push(denominator);
                 }
                 let restrict = |value: &crate::algebra::IndexedCoefficient| {
-                    let restricted = affine.restrict_coefficient(value.raw()).map_err(error)?;
+                    let restricted = affine
+                        .restrict_coefficient(&grow_coefficient(value.raw())?)
+                        .map_err(error)?;
                     self.context
-                        .admit_native_result_with_limits(restricted, Default::default())
+                        .admit_storage_result_with_limits(restricted, Default::default())
                         .map_err(error)
                 };
                 (restrict(&weight)?, restrict(&scale)?)
             } else {
                 (weight, scale)
             };
-            contribution.weight = self
-                .context
-                .mul(&weight, &scale)
-                .map_err(error)?
-                .raw()
-                .clone();
+            contribution.weight = grow_coefficient(
+                &self
+                    .context
+                    .mul(&weight, &scale)
+                    .map_err(error)?
+                    .raw()
+                    .clone(),
+            )?;
             for condition in self.completed.relations()[original.ordinal].nonzero_conditions() {
                 let restricted = self.condition_for_target(
                     condition.polynomial(),
@@ -193,7 +226,9 @@ impl OriginalSourceCorpus {
                     &fixed,
                 )?;
                 let restricted = match case.affine() {
-                    Some(affine) => affine.restrict_equation(restricted.raw()).map_err(error)?,
+                    Some(affine) => affine
+                        .restrict_equation(&grow_polynomial(restricted.raw())?)
+                        .map_err(error)?,
                     None => restricted.raw().clone(),
                 };
                 if restricted.is_zero() {
@@ -209,7 +244,10 @@ impl OriginalSourceCorpus {
         replay
             .contributions
             .retain(|contribution| !contribution.weight.is_zero());
-        replay.source_conditions = conditions;
+        replay.source_conditions = conditions
+            .iter()
+            .map(grow_polynomial)
+            .collect::<Result<_, _>>()?;
         replay.normalization = OriginalRowNormalization::OriginalGeneratorOrdinaryV1;
         Ok(replay)
     }
@@ -256,8 +294,11 @@ fn checked_scale<const N: usize>(
             .integral
             .powers()
             .iter()
+            .take(context.index_count())
             .any(|power| !power.is_symbolic())
-            || term.coefficient.variables() != template.raw().numerator.variables()
+            || term.integral.powers()[context.index_count()..]
+                .iter()
+                .any(|power| power.is_symbolic() || power.value() != 0)
         {
             return Err(error(
                 "adapter normalization has incompatible powers or variable map",
@@ -267,8 +308,9 @@ fn checked_scale<const N: usize>(
             term.integral
                 .powers()
                 .iter()
+                .take(context.index_count())
                 .map(|power| i64::from(power.value())),
-            N,
+            context.index_count(),
         )
         .map_err(error)?;
         if !seen.insert(shift.clone()) {
@@ -281,14 +323,17 @@ fn checked_scale<const N: usize>(
         if coefficient.is_zero() || term.coefficient.is_zero() {
             return Err(error("adapter normalization contains a zero source term"));
         }
-        let adapted: Coefficient = term.coefficient.clone().into();
-        let factor = scale.get_or_insert_with(|| &adapted / coefficient.raw());
+        let adapted = context
+            .admit_storage_result_with_limits(term.coefficient.clone().into(), Default::default())
+            .map_err(error)?;
+        let adapted = adapted.raw();
+        let factor = scale.get_or_insert_with(|| adapted / coefficient.raw());
         if !factor.denominator.is_one() || factor.is_zero() {
             return Err(error(
                 "adapter normalization is not a nonzero polynomial multiplier",
             ));
         }
-        if !(&(coefficient.raw() * &*factor) - &adapted).is_zero() {
+        if !(&(coefficient.raw() * &*factor) - adapted).is_zero() {
             return Err(error(
                 "adapter normalization fails complete original-row replay",
             ));

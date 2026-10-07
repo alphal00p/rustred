@@ -150,6 +150,7 @@ impl<const N: usize> fmt::Display for Integral<N> {
 /// The harder-first order of SpIRed's `intLessStatic` / `intLessDynamic`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IntegralOrder<const N: usize> {
+    physical_arity: usize,
     sector: [bool; N],
     deltas: [bool; N],
     permutation: Option<[usize; N]>,
@@ -159,11 +160,29 @@ pub struct IntegralOrder<const N: usize> {
 impl<const N: usize> IntegralOrder<N> {
     pub const fn new(sector: [bool; N], deltas: [bool; N]) -> Self {
         Self {
+            physical_arity: N,
             sector,
             deltas,
             permutation: None,
             program: None,
         }
+    }
+
+    pub fn with_physical_arity(mut self, arity: usize) -> Result<Self, SolverError> {
+        if !crate::fits_storage(arity, N)
+            || self.sector[arity..].iter().any(|&v| v)
+            || self.deltas[arity..].iter().any(|&v| v)
+        {
+            return Err(SolverError::InvalidInput(
+                "order uses a padding coordinate".into(),
+            ));
+        }
+        self.physical_arity = arity;
+        Ok(self)
+    }
+
+    pub fn physical_arity(&self) -> usize {
+        self.physical_arity
     }
 
     /// Set the coordinate order of the final denominator/numerator tie breaks.
@@ -200,11 +219,14 @@ impl<const N: usize> IntegralOrder<N> {
         mut self,
         program: rustred_order::CompiledOrder,
     ) -> Result<Self, SolverError> {
-        if program.arity() != N || self.deltas.iter().any(|&cut| cut) || self.permutation.is_some()
+        if !crate::fits_storage(program.arity(), N)
+            || self.deltas.iter().any(|&cut| cut)
+            || self.permutation.is_some()
         {
             return Err(SolverError::InvalidInput("integral-order program requires matching arity, no cuts and no legacy tie permutation".into()));
         }
         self.program = Some(program);
+        self.physical_arity = self.program.as_ref().unwrap().arity();
         Ok(self)
     }
 
@@ -240,6 +262,7 @@ impl<const N: usize> IntegralOrder<N> {
             }))?;
         }
         order.program = self.program.clone();
+        order.physical_arity = self.physical_arity;
         Ok(order)
     }
 
@@ -262,8 +285,12 @@ impl<const N: usize> IntegralOrder<N> {
         for (rank, slot) in slots.into_iter().enumerate() {
             ranks[slot] = rank;
         }
-        let priority = crate::sector::CoordinatePriority::try_new(N, &ranks, Default::default())
-            .map_err(|error| SolverError::InvalidInput(error.to_string()))?;
+        let priority = crate::sector::CoordinatePriority::try_new(
+            self.physical_arity,
+            &ranks[..self.physical_arity],
+            Default::default(),
+        )
+        .map_err(|error| SolverError::InvalidInput(error.to_string()))?;
         crate::sector::OrderingPolicy::try_spired_with_coordinate_priority(&priority)
             .map_err(|error| SolverError::InvalidInput(error.to_string()))
     }
@@ -285,16 +312,17 @@ impl<const N: usize> IntegralOrder<N> {
             .try_coordinate_priority()
             .map_err(|error| SolverError::InvalidInput(error.to_string()))?
         {
-            if priority.arity() != N {
+            if !crate::fits_storage(priority.arity(), N) {
                 return Err(SolverError::InvalidInput(
                     "persisted order arity differs".into(),
                 ));
             }
-            let mut slots = [0; N];
+            let mut slots = std::array::from_fn(|i| i);
             for (slot, &rank) in priority.rank_by_slot().iter().enumerate() {
                 slots[rank] = slot;
             }
             order = order.with_permutation(slots)?;
+            order.physical_arity = priority.arity();
         }
         Ok(order)
     }

@@ -206,6 +206,29 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover_up_to_degree(
     degree: EntryDegreeBound,
     limits: PredicateCoverLimits,
 ) -> Result<PredicateCoverCertificate, PredicateCoverError> {
+    certify_predicate_cover_up_to_degree_with_arity(
+        sector,
+        sector.len(),
+        owners,
+        terminals,
+        degree,
+        limits,
+    )
+}
+
+pub(in crate::foundry::artifact) fn certify_predicate_cover_up_to_degree_with_arity(
+    sector: &[bool],
+    physical_arity: usize,
+    owners: &[PredicateCoveragePiece<'_>],
+    terminals: &[LatticeBox],
+    degree: EntryDegreeBound,
+    limits: PredicateCoverLimits,
+) -> Result<PredicateCoverCertificate, PredicateCoverError> {
+    if !crate::arity::fits_storage(physical_arity, sector.len())
+        || sector[physical_arity..].iter().any(|active| *active)
+    {
+        return Err(PredicateCoverError::InvalidDomain("physical arity"));
+    }
     if sector.is_empty() || sector.len() > limits.geometry.max_arity {
         return Err(PredicateCoverError::InvalidDomain("sector arity"));
     }
@@ -219,10 +242,14 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover_up_to_degree(
     }
     let hull = LatticeBox::try_new(
         sector.iter().map(|_| 0),
-        sector.iter().map(|&active| match degree {
-            EntryDegreeBound::MaxNegativeIndexDegree(_) if active => None,
-            _ => Some(degree.limit()),
-        }),
+        sector
+            .iter()
+            .enumerate()
+            .map(|(axis, &active)| match degree {
+                _ if axis >= physical_arity => Some(0),
+                EntryDegreeBound::MaxNegativeIndexDegree(_) if active => None,
+                _ => Some(degree.limit()),
+            }),
     )
     .map_err(geometry)?;
     certify_predicate_cover_impl(

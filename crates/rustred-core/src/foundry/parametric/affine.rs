@@ -79,6 +79,67 @@ impl AffineApplicationDomain {
         })
     }
 
+    /// Remove only solver storage coordinates authenticated as fixed zero.
+    /// The original equations and integer witness are projected without
+    /// replacing coupled predicates by a rectangular approximation.
+    pub(crate) fn project_storage(
+        &self,
+        context: &crate::algebra::IndexedCoefficientContext,
+    ) -> Result<Self, AffineApplicationDomainError> {
+        let n = context.index_count();
+        if n == self.sector.len() {
+            return Ok(self.clone());
+        }
+        if !crate::arity::fits_storage(n, self.sector.len())
+            || self.sector[n..].iter().any(|active| *active)
+            || self.fixed[n..].iter().any(|value| *value != Some(0))
+        {
+            return Err(AffineApplicationDomainError::ArityMismatch);
+        }
+        let equations = self
+            .equations
+            .iter()
+            .map(|equation| {
+                let mut value = equation.clone();
+                for &index in &self.indices[n..] {
+                    value = value.replace(index, &Integer::from(0));
+                }
+                context
+                    .admit_storage_polynomial_result_with_limits(value, Default::default())
+                    .map(|value| value.raw().clone())
+                    .map_err(|_| AffineApplicationDomainError::VariableMapMismatch)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let matrix = self
+            .primitive_matrix
+            .as_ref()
+            .ok_or(AffineApplicationDomainError::ArityMismatch)?;
+        let mut rows = Vec::new();
+        for row in matrix.row_iter() {
+            let mut physical = row[..n].to_vec();
+            physical.push(row[self.sector.len()].clone());
+            if !physical.iter().all(Integer::is_zero) {
+                rows.push(physical);
+            }
+        }
+        let matrix = Matrix::from_linear(
+            rows.iter().flatten().cloned().collect(),
+            rows.len() as u32,
+            (n + 1) as u32,
+            symbolica::prelude::Z,
+        )
+        .map_err(|_| AffineApplicationDomainError::ArityMismatch)?;
+        Self::from_persisted(
+            self.sector[..n].into(),
+            self.fixed[..n].into(),
+            self.indices[..n].into(),
+            equations.into(),
+            matrix,
+            self.integral_chart
+                .ok_or(AffineApplicationDomainError::ArityMismatch)?,
+        )
+    }
+
     /// Reconstitute the exact witness carried by a durable source-port plan.
     ///
     /// This is deliberately a structural/authentication boundary, not an

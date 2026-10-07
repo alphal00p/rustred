@@ -98,7 +98,7 @@ pub fn owner_domain_walk_rescue_plan(
     options: &OwnerDomainWalkRescuePlanOptions,
 ) -> Result<OwnerDomainWalkRescuePlan, AppError> {
     let (_, arity, _) = input::Selection::parse(&request.matching.selection_json)?;
-    macro_rules! dispatch { ($($n:literal),*) => { match arity {
+    macro_rules! dispatch { ($($n:literal),*) => { match rustred::campaign_storage_arity(arity ){
         $($n => plan::<$n>(request, options),)*
         _ => Err(AppError::input("unsupported owner arity")),
     }} }
@@ -132,9 +132,13 @@ impl Class {
 fn query_domain<const N: usize>(query: &matching::input::Query) -> Option<Domain<N>> {
     Some(Domain {
         phase: Phase::Apply,
-        owner: query.owner.as_slice().try_into().ok()?,
-        lower: query.lower.clone(),
-        upper: query.upper.clone(),
+        owner: rustred::storage_array(&query.owner, false)?,
+        lower: rustred::storage_array::<_, N>(&query.lower, 0)
+            .expect("validated query arity")
+            .to_vec(),
+        upper: rustred::storage_array::<_, N>(&query.upper, Some(0))
+            .expect("validated query arity")
+            .to_vec(),
         rank: query.rank,
         powers: query.powers,
     })
@@ -165,10 +169,11 @@ fn plan<const N: usize>(
     request: &OwnerDomainWalkRequest,
     options: &OwnerDomainWalkRescuePlanOptions,
 ) -> Result<OwnerDomainWalkRescuePlan, AppError> {
+    let (selection, _, _) = input::Selection::parse(&request.matching.selection_json)?;
     let input_error = |e: String| AppError::input(e);
     let queries = matching::input::parse(
         &request.matching.queries_json,
-        N,
+        selection.physical_arity(),
         request.matching.max_queries,
         request.matching.max_query_bytes,
     )?;
@@ -176,7 +181,7 @@ fn plan<const N: usize>(
     let amendments = request
         .amendments
         .iter()
-        .map(|a| rescue::parse(a, N))
+        .map(|a| rescue::parse(a, selection.physical_arity()))
         .collect::<Result<Vec<_>, _>>()
         .map_err(input_error)?;
     let saved =
@@ -207,7 +212,7 @@ fn plan<const N: usize>(
         ));
     }
     let helpers = match &options.rescue_helpers_json {
-        Some(text) => matching::input::parse(text, N, 1 << 20, 64 << 20)?,
+        Some(text) => matching::input::parse(text, selection.physical_arity(), 1 << 20, 64 << 20)?,
         None => Vec::new(),
     };
     let total = raw.domains.len();

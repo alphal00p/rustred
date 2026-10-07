@@ -699,13 +699,14 @@ fn finish<const N: usize>(
             .map(
                 |(q, _)| crate::application::routed_campaign::walking::queue::Domain {
                     phase: crate::application::routed_campaign::walking::queue::Phase::Apply,
-                    owner: q
-                        .owner
-                        .as_slice()
-                        .try_into()
+                    owner: rustred::arity::storage_array(&q.owner, false)
                         .expect("validated query arity"),
-                    lower: q.lower.clone(),
-                    upper: q.upper.clone(),
+                    lower: rustred::arity::storage_array::<_, N>(&q.lower, 0)
+                        .expect("validated query arity")
+                        .to_vec(),
+                    upper: rustred::arity::storage_array::<_, N>(&q.upper, Some(0))
+                        .expect("validated query arity")
+                        .to_vec(),
                     rank: q.rank,
                     powers: q.powers,
                 },

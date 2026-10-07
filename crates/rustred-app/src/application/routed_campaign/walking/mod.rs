@@ -468,6 +468,12 @@ enum RecordSource {
     Epoch(epoch::record_store::Streamed),
 }
 impl RecordSource {
+    fn project_coordinates(&mut self, n: usize) {
+        match self {
+            Self::Legacy(source) => source.project_coordinates(n),
+            Self::Epoch(source) => source.project_coordinates(n),
+        }
+    }
     fn write_json(&self, document: &Value, out: impl std::io::Write) -> Result<(), String> {
         match self {
             Self::Legacy(s) => s.write_json(document, out),
@@ -1044,11 +1050,12 @@ fn walk_with_progress(
     let with_allowances = |mut event: Value| {
         event["requested_max_queries"] = json!(request.matching.max_queries);
         event["requested_max_query_bytes"] = json!(request.matching.max_query_bytes);
+        super::storage::project(&mut event, arity);
         observer(event);
     };
     with_allowances(admitted);
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::Epoch {
-        macro_rules! dispatch_epoch { ($($n:literal),*) => { match arity {
+        macro_rules! dispatch_epoch { ($($n:literal),*) => { match rustred::campaign_storage_arity(arity ){
             $($n => epoch::run::<$n>(request, &selection, limits, &queries, cancellation, &with_allowances),)*
             _ => Err(crate::AppError::input("campaign arity is not compiled")),
         }} }
@@ -1056,11 +1063,15 @@ fn walk_with_progress(
             crate::ensure_runtime_arity(arity)?;
             rustred::with_app_runtime_arities!(dispatch_epoch)
         }?;
+        super::storage::project(&mut result.document, arity);
+        if let Some(records) = &mut result.records.0 {
+            records.project_coordinates(arity);
+        }
         result.document["requested_max_queries"] = json!(request.matching.max_queries);
         result.document["requested_max_query_bytes"] = json!(request.matching.max_query_bytes);
         return Ok(result);
     }
-    macro_rules! dispatch { ($($n:literal),*) => { match arity {
+    macro_rules! dispatch { ($($n:literal),*) => { match rustred::campaign_storage_arity(arity ){
         $($n => run::<$n>(request, &selection, limits, &queries, cancellation, &with_allowances, diagnostic_pause),)*
         _ => Err(crate::AppError::input("campaign arity is not compiled")),
     }} }
@@ -1068,6 +1079,10 @@ fn walk_with_progress(
         crate::ensure_runtime_arity(arity)?;
         rustred::with_app_runtime_arities!(dispatch)
     }?;
+    super::storage::project(&mut result.document, arity);
+    if let Some(records) = &mut result.records.0 {
+        records.project_coordinates(arity);
+    }
     result.document["requested_max_queries"] = json!(request.matching.max_queries);
     result.document["requested_max_query_bytes"] = json!(request.matching.max_query_bytes);
     Ok(result)
@@ -1152,7 +1167,7 @@ fn run<const N: usize>(
     let amendments = request
         .amendments
         .iter()
-        .map(|amendment| rescue::parse(amendment, N))
+        .map(|amendment| rescue::parse(amendment, selection.physical_arity()))
         .collect::<Result<Vec<_>, _>>()
         .map_err(AppError::input)?;
     let first_new_amendment = match checkpoint.as_ref() {
@@ -1269,9 +1284,13 @@ fn run<const N: usize>(
         for query in queries {
             let domain = Domain {
                 phase: Phase::Apply,
-                owner: query.owner.as_slice().try_into().expect("validated arity"),
-                lower: query.lower.clone(),
-                upper: query.upper.clone(),
+                owner: rustred::storage_array(&query.owner, false).expect("validated arity"),
+                lower: rustred::storage_array::<_, N>(&query.lower, 0)
+                    .expect("validated query arity")
+                    .to_vec(),
+                upper: rustred::storage_array::<_, N>(&query.upper, Some(0))
+                    .expect("validated query arity")
+                    .to_vec(),
                 rank: query.rank,
                 powers: query.powers,
             };
@@ -1750,15 +1769,19 @@ fn add_rescue_report<const N: usize>(
         .iter()
         .chain(amendments.iter().flat_map(|a| a.queries.iter()))
     {
-        let Ok(owner) = <[bool; N]>::try_from(query.owner.as_slice()) else {
+        let Some(owner) = rustred::storage_array(&query.owner, false) else {
             return;
         };
         ids.push((query.id.as_str(), query.auxiliary));
         domains.push(Domain {
             phase: Phase::Apply,
             owner,
-            lower: query.lower.clone(),
-            upper: query.upper.clone(),
+            lower: rustred::storage_array::<_, N>(&query.lower, 0)
+                .expect("validated query arity")
+                .to_vec(),
+            upper: rustred::storage_array::<_, N>(&query.upper, Some(0))
+                .expect("validated query arity")
+                .to_vec(),
             rank: query.rank,
             powers: query.powers,
         });

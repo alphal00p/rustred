@@ -100,19 +100,25 @@ pub fn owner_guarded_apply_with_progress(
     rustred::campaign::ParallelExecution::preflight_requested_core_budget(1)
         .map_err(|e| AppError::input(e.to_string()))?;
     let (selection, arity, load_limits) = owners::Selection::parse(&request.selection_json)?;
+    let observer = |mut event| {
+        super::storage::project(&mut event, arity);
+        observer(event);
+    };
     let queries = input::parse(&request.queries_json, arity, request.max_queries)?;
     observer(
         json!({"event":"admitted","operation":"owner_guarded_apply","arity":arity,"query_count":queries.len(),
         "diagnostic_only":true,"first_priority_dispatch_claim":false,"family_closure_claim":false}),
     );
-    macro_rules! dispatch {($($n:literal),*)=>{match arity {
+    macro_rules! dispatch {($($n:literal),*)=>{match rustred::campaign_storage_arity(arity ){
         $($n=>run::<$n>(&request,&selection,load_limits,&queries,cancellation,&observer),)*
         _=>Err(crate::AppError::input("campaign arity is not compiled")),
     }}}
-    {
+    let mut result = {
         crate::ensure_runtime_arity(arity)?;
         rustred::with_app_runtime_arities!(dispatch)
-    }
+    }?;
+    super::storage::project(&mut result.document, arity);
+    Ok(result)
 }
 
 fn run<const N: usize>(
@@ -172,7 +178,7 @@ fn run<const N: usize>(
             json!({"event":"guarded_query_started","operation":"owner_guarded_apply","id":q.id,
             "completed_queries":completed,"processed_queries":records.len(),"query_count":queries.len(),"retained_events":budget.events}),
         );
-        let owner: [bool; N] = q.owner.as_slice().try_into().expect("validated arity");
+        let owner: [bool; N] = rustred::storage_array(&q.owner, false).expect("validated arity");
         let mut definition = None;
         let mut events = Vec::new();
         let mut render_error = None;

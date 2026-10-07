@@ -214,7 +214,8 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 ));
             }
         }
-        let mut order = IntegralOrder::new(sector, config.deltas);
+        let mut order =
+            IntegralOrder::new(sector, config.deltas).with_physical_arity(system.active_arity())?;
         if let Some(permutation) = config.permutation {
             order = order.with_permutation(permutation)?;
         }

@@ -101,7 +101,7 @@ impl<const N: usize> SourceSystem<N> {
         family: &IntegralFamily,
         include_lorentz: bool,
     ) -> Result<Self, SolverError> {
-        if family.denominator_count() != N {
+        if !crate::fits_storage(family.denominator_count(), N) {
             return Err(SolverError::InvalidInput(format!(
                 "expected {N} denominator coordinates, got {}",
                 family.denominator_count()

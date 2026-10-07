@@ -102,9 +102,20 @@ pub(crate) fn project<const N: usize>(
     rank: Option<u32>,
     powers: DomainPowerBounds,
 ) -> Result<Option<DomainPowerProjection<N>>, DomainPowerError> {
-    if N == 0 || N > 4096 || lower.len() != N || upper.len() != N {
+    if N == 0
+        || N > 4096
+        || lower.len() != upper.len()
+        || !crate::fits_storage(lower.len(), N)
+        || owner[lower.len()..].iter().any(|&v| v)
+    {
         return Err(DomainPowerError::InvalidArity);
     }
+    let lower_storage =
+        crate::storage_array::<_, N>(lower, 0).ok_or(DomainPowerError::InvalidArity)?;
+    let upper_storage =
+        crate::storage_array::<_, N>(upper, Some(0)).ok_or(DomainPowerError::InvalidArity)?;
+    let lower = &lower_storage;
+    let upper = &upper_storage;
     powers.validate()?;
     let mut groups = [Sum::default(); 2];
     let mut active = 0i128;

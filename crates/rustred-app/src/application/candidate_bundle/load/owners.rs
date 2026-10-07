@@ -173,7 +173,9 @@ fn load_owner_programs<const N: usize>(
             limits.max_total_symbolica_state_bytes,
             "selected owner aggregate Symbolica-state byte budget exceeded",
         )?;
-        if record.root_sector.len() != N || input.owner_sector.arity() != N {
+        if !rustred::fits_storage(record.root_sector.len(), N)
+            || input.owner_sector.arity() != record.root_sector.len()
+        {
             return Err(AppError::input("candidate owner/reducer arity mismatch"));
         }
         if record.sectors.len() != 1 {
@@ -186,11 +188,8 @@ fn load_owner_programs<const N: usize>(
                 "selected owner mask differs from saved sector",
             ));
         }
-        let sector: [bool; N] = record.sectors[0]
-            .sector
-            .as_slice()
-            .try_into()
-            .expect("checked arity");
+        let sector: [bool; N] =
+            rustred::storage_array(&record.sectors[0].sector, false).expect("checked arity");
         if ordinal < inputs.len() {
             if !owners.insert(sector) {
                 return Err(AppError::input("duplicate selected candidate owner mask"));
@@ -198,11 +197,8 @@ fn load_owner_programs<const N: usize>(
         } else if !owners.contains(&sector) || !preferred_owners.insert(sector) {
             return Err(AppError::input("preferred owner is missing or duplicated"));
         }
-        let root: [bool; N] = record
-            .root_sector
-            .as_slice()
-            .try_into()
-            .expect("checked arity");
+        let root: [bool; N] =
+            rustred::storage_array(&record.root_sector, false).expect("checked arity");
         // The common codec has already checked that the saved sector is a
         // subset of this root; never substitute a narrower fabricated root.
         roots.insert(root);
@@ -353,7 +349,8 @@ fn zero_proofs<const N: usize>(
     let mut proofs = Vec::new();
     for &bits in masks {
         let sector: [bool; N] = std::array::from_fn(|axis| bits & (1 << axis) != 0);
-        let mask = Mask::try_new(sector).map_err(|error| AppError::input(error.to_string()))?;
+        let mask = Mask::try_new(sector[..family.denominator_count()].iter().copied())
+            .map_err(|error| AppError::input(error.to_string()))?;
         match analyzer
             .analyze(&mask)
             .map_err(|error| AppError::execution(error.to_string()))?

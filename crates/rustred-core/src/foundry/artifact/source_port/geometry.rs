@@ -223,15 +223,52 @@ pub(super) fn prove_descent<const N: usize>(
         }
         terms.push((shifts, &term.coefficient));
     }
+    let physical_arity = ordering
+        .program()
+        .map(|program| program.arity())
+        .or_else(|| ordering.coordinate_priority_arity())
+        .unwrap_or(N);
+    if !crate::arity::fits_storage(physical_arity, N)
+        || sector[physical_arity..].iter().any(|active| *active)
+        || terms
+            .iter()
+            .any(|(shift, _)| shift[physical_arity..].iter().any(|value| *value != 0))
+        || boxes.iter().any(|cell| {
+            cell.lower()[physical_arity..]
+                .iter()
+                .any(|value| *value != 0)
+                || cell.upper()[physical_arity..]
+                    .iter()
+                    .any(|value| *value != Some(0))
+        })
+    {
+        return Err(error("descent has invalid storage coordinates"));
+    }
+    let physical_boxes = boxes
+        .iter()
+        .map(|cell| {
+            LatticeBox::try_new(
+                cell.lower()[..physical_arity].iter().copied(),
+                cell.upper()[..physical_arity].iter().copied(),
+            )
+            .map_err(error)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     prove_wide_descent_with_limits(
         terms
             .iter()
-            .map(|(shift, coefficient)| (shift.as_slice(), *coefficient)),
-        boxes,
-        sector,
+            .map(|(shift, coefficient)| (&shift[..physical_arity], *coefficient)),
+        &physical_boxes,
+        &sector[..physical_arity],
         ordering,
         CompletionGeometryLimits::default(),
         |coefficient, piece| {
+            let storage_piece = LatticeBox::try_new(
+                (0..N).map(|axis| piece.lower().get(axis).copied().unwrap_or(0)),
+                (0..N).map(|axis| piece.upper().get(axis).copied().unwrap_or(Some(0))),
+            )
+            .map_err(error)?;
+            let piece = &storage_piece;
             // Authenticate all native maps before any empty-domain shortcut,
             // including the original coefficient (which may be 0/0 here).
             for domain in affine_domain

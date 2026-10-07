@@ -90,7 +90,7 @@ fn certify_request(
         elapsed: started.elapsed(),
     });
     macro_rules! dispatch {
-        ($($n:literal),*) => { match family.denominator_count() {
+        ($($n:literal),*) => { match rustred::campaign_storage_arity(family.denominator_count() ){
             $($n => certify::<$n>(family, bundle, request, started, decoded_at, observe),)*
             _ => Err(crate::AppError::input("campaign arity is not compiled")),
         } };

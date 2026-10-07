@@ -79,7 +79,9 @@ __CAPACITY_ARMS__            $unsupported => $fallback,
         }
     }};
 }
-/// Invoke a caller macro with registered campaign arities (at most 16).
+/// Invoke a caller macro with campaign storage widths (at most 16).
+/// With capacity-dispatch these are only 4, 8 and 16. Callers must admit
+/// physical inputs separately and select campaign_storage_arity before matching.
 /// Empty registries are possible when only larger finite-reducer arities are
 /// selected. The callback must accept zero or more literals.
 #[macro_export]
@@ -95,7 +97,7 @@ macro_rules! with_app_runtime_arities {
         .replace("__CAPACITY_ARMS__", &capacity_arms)
         .replace(
             "__APP_ARITIES__",
-            &arities
+            &capacities
                 .iter()
                 .filter(|&&arity| arity <= 16)
                 .map(usize::to_string)

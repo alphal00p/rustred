@@ -405,11 +405,16 @@ impl<R: Read> Read for Hashed<R> {
 pub(in crate::application::routed_campaign::walking) struct Streamed {
     files: SidecarFiles,
     annotations: Annotations,
+    projection: Option<usize>,
 }
 
 impl Streamed {
+    pub fn project_coordinates(&mut self, physical_arity: usize) {
+        self.projection = Some(physical_arity);
+    }
     pub fn new(sidecar: Sidecar, annotations: Annotations) -> Self {
         Self {
+            projection: None,
             files: sidecar.files(),
             annotations,
         }
@@ -428,6 +433,9 @@ impl Streamed {
         self.files.for_each_record(|record| {
             let mut record = record.project()?;
             self.annotations.apply(&mut record);
+            if let Some(n) = self.projection {
+                crate::application::routed_campaign::storage::project(&mut record, n);
+            }
             out.push(record);
             Ok(())
         })?;
@@ -518,6 +526,9 @@ impl Serialize for Domains<'_> {
         let read = self.0.files.for_each_record(|record| {
             let mut record = record.project()?;
             self.0.annotations.apply(&mut record);
+            if let Some(n) = self.0.projection {
+                crate::application::routed_campaign::storage::project(&mut record, n);
+            }
             sequence.serialize_element(&record).map_err(|e| {
                 let message = e.to_string();
                 failure = Some(e);

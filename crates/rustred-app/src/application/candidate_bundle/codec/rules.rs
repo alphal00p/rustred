@@ -196,9 +196,17 @@ pub(in crate::application::candidate_bundle) fn restore_rule<const N: usize>(
     indices: &[usize; N],
     sector: &[bool; N],
 ) -> Result<SectorRule<N>, AppError> {
-    validate_rule(record, N)?;
+    validate_rule(record, record.target.values.len())?;
+    if !rustred::fits_storage(record.target.values.len(), N) {
+        return Err(AppError::input("candidate rule exceeds storage capacity"));
+    }
     validate_rule_ids(record, table.len())?;
-    let case = restore_case(&record.case, table, variables, indices, sector)?;
+    let mut padded_case = record.case.clone();
+    for axis in record.target.values.len()..N {
+        padded_case.fixed_axes.push(axis);
+        padded_case.fixed_values.push(0);
+    }
+    let case = restore_case(&padded_case, table, variables, indices, sector)?;
     let target = integral(&record.target)?;
     if target != case.integral() {
         return Err(AppError::input(
@@ -223,10 +231,7 @@ pub(in crate::application::candidate_bundle) fn restore_rule<const N: usize>(
                 basis_row: source.basis_row,
                 seed: Seed {
                     integral: integral(&source.integral)?,
-                    shifts: source
-                        .shifts
-                        .as_slice()
-                        .try_into()
+                    shifts: rustred::storage_array(&source.shifts, 0)
                         .expect("validated seed arity"),
                 },
             })
@@ -255,19 +260,44 @@ pub(in crate::application::candidate_bundle) fn restore_rule<const N: usize>(
     })
 }
 
-fn coefficient<'a>(
-    table: &'a DecodedCoefficientTable,
+fn coefficient(
+    table: &DecodedCoefficientTable,
     variables: &[PolyVariable],
     id: u32,
-) -> Result<&'a Coefficient, AppError> {
+) -> Result<Coefficient, AppError> {
     let id = CoefficientId::try_from_index(id as usize).map_err(binary_error)?;
     let value = table.coefficient(id).map_err(binary_error)?;
-    if value.get_variables().as_slice() != variables {
+    let physical_variables = value.get_variables().as_slice();
+    if physical_variables != variables
+        && (!cfg!(feature = "capacity-dispatch")
+            || !variables.starts_with(physical_variables)
+            || variables[physical_variables.len()..]
+                .iter()
+                .any(|v| !matches!(v, PolyVariable::Temporary(_))))
+    {
         return Err(AppError::input(
             "candidate coefficient has the wrong indexed variable map",
         ));
     }
-    Ok(value)
+    if value.get_variables().as_slice() == variables {
+        Ok(value.clone())
+    } else {
+        let numerator = value
+            .numerator
+            .rearrange_with_growth(variables)
+            .map_err(AppError::input)?;
+        let denominator = value
+            .denominator
+            .rearrange_with_growth(variables)
+            .map_err(AppError::input)?;
+        use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
+        Ok(Coefficient::from_num_den(
+            numerator,
+            denominator,
+            &symbolica::domains::integer::Z,
+            true,
+        ))
+    }
 }
 
 fn polynomial(

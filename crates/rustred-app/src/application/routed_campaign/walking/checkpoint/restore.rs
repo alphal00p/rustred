@@ -134,12 +134,12 @@ pub(super) fn restore<const N: usize>(
     if manifest.kind != "state" {
         return Err("bootstrap checkpoint has no walk state".into());
     }
-    if manifest.arity as usize != N {
+    if !crate::application::routed_campaign::storage::compatible_width(manifest.arity as usize, N) {
         return Err("checkpoint coordinate arity".into());
     }
     let ready = manifest.publication_policy == "ready";
     let identity = Identity {
-        arity: N,
+        arity: manifest.arity as usize,
         ready,
         semantics: manifest.walk_semantics_version,
     };
@@ -644,11 +644,11 @@ pub(in super::super) fn read_queue_sections<const N: usize>(
     dir: &Path,
 ) -> Result<QueueSections<N>, String> {
     let manifest = super::manifest::read(&dir.join("latest.json"))?;
-    if manifest.arity as usize != N {
+    if !crate::application::routed_campaign::storage::compatible_width(manifest.arity as usize, N) {
         return Err("checkpoint coordinate arity".into());
     }
     let identity = Identity {
-        arity: N,
+        arity: manifest.arity as usize,
         ready: manifest.publication_policy == "ready",
         semantics: manifest.walk_semantics_version,
     };

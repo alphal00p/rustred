@@ -97,23 +97,29 @@ impl<'a> Cursor<'a> {
     }
 }
 
-fn read_image<const N: usize>(c: &mut Cursor<'_>) -> Result<CompactDomain<N>, String> {
+fn read_image<const N: usize>(
+    c: &mut Cursor<'_>,
+    wire_arity: usize,
+) -> Result<CompactDomain<N>, String> {
     let phase = match c.u8()? {
         0 => Phase::Apply,
         1 => Phase::Route,
         _ => return Err("epoch domain phase".into()),
     };
     let owner = c.u32()?;
+    if N < 32 && owner >> N != 0 {
+        return Err("epoch domain owner uses an omitted axis".into());
+    }
     let rank = if c.u8()? == 1 {
         Some(c.u32()?)
     } else {
         c.u32()?;
         None
     };
-    let lower = (0..N)
+    let lower = (0..wire_arity)
         .map(|_| c.u16().map(u64::from))
         .collect::<Result<Vec<_>, _>>()?;
-    let upper = (0..N)
+    let upper = (0..wire_arity)
         .map(|_| c.u16().map(|v| (v != u16::MAX).then_some(u64::from(v))))
         .collect::<Result<Vec<_>, _>>()?;
     let option = |c: &mut Cursor<'_>| -> Result<Option<u64>, String> {
@@ -158,10 +164,13 @@ pub(super) fn read_raw<const N: usize>(
         || manifest["walk_semantics_version"] != 4
         || manifest["record_schema"] != 1
         || manifest["publication_policy"] != "epoch"
-        || manifest["arity"].as_u64() != Some(N as u64)
+        || !manifest["arity"].as_u64().is_some_and(|arity| {
+            crate::application::routed_campaign::storage::compatible_width(arity as usize, N)
+        })
     {
         return Err("not an epoch export of this arity".into());
     }
+    let wire_arity = manifest["arity"].as_u64().ok_or("epoch wire arity")? as usize;
     let read = |key: &str| -> Result<Vec<u8>, String> {
         let entry = &manifest["files"][key];
         let file = entry["file"]
@@ -182,10 +191,10 @@ pub(super) fn read_raw<const N: usize>(
         bytes: &domain_bytes,
         at: 0,
     };
-    let count = c.header(b"EPDOMS01", N)? as usize;
+    let count = c.header(b"EPDOMS01", wire_arity)? as usize;
     let mut domains = Vec::with_capacity(count);
     for _ in 0..count {
-        domains.push(read_image::<N>(&mut c)?);
+        domains.push(read_image::<N>(&mut c, wire_arity)?);
     }
     c.done()?;
     let node_bytes = read("nodes")?;
@@ -193,7 +202,7 @@ pub(super) fn read_raw<const N: usize>(
         bytes: &node_bytes,
         at: 0,
     };
-    if c.header(b"EPNODE01", N)? as usize != count {
+    if c.header(b"EPNODE01", wire_arity)? as usize != count {
         return Err("epoch nodes count".into());
     }
     let flags = c.take(count)?.to_vec();
@@ -203,7 +212,7 @@ pub(super) fn read_raw<const N: usize>(
         bytes: &ledger_bytes,
         at: 0,
     };
-    if c.header(b"EPLED601", N)? as usize != count {
+    if c.header(b"EPLED601", wire_arity)? as usize != count {
         return Err("epoch ledger6 count".into());
     }
     let ledger = (0..count).map(|_| c.u64()).collect::<Result<Vec<_>, _>>()?;
@@ -213,7 +222,7 @@ pub(super) fn read_raw<const N: usize>(
         bytes: &edge_bytes,
         at: 0,
     };
-    let run_count = c.header(b"EPEDGE01", N)?;
+    let run_count = c.header(b"EPEDGE01", wire_arity)?;
     let mut runs = Vec::new();
     let mut edges = Vec::new();
     for _ in 0..run_count {

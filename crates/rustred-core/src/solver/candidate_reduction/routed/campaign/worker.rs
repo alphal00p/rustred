@@ -23,7 +23,7 @@ pub(super) fn base<const N: usize>(
     }
 }
 fn support<const N: usize>(key: &IntegralKey) -> [bool; N] {
-    std::array::from_fn(|i| key.powers()[i] > 0)
+    std::array::from_fn(|i| key.powers().get(i).copied().unwrap_or(0) > 0)
 }
 
 /// Count/support/phase descent is checked even for an already-seen child. The
@@ -143,7 +143,14 @@ fn process<const N: usize>(
                     })
                     .map_err(|error| Failure::from(CandidateRoutedError::Transport(error)))?;
                 shared.check()?;
-                let owner = std::array::from_fn(|i| route.owner_sector.active_bits()[i]);
+                let owner = std::array::from_fn(|i| {
+                    route
+                        .owner_sector
+                        .active_bits()
+                        .get(i)
+                        .copied()
+                        .unwrap_or(false)
+                });
                 // Admission proves active-denominator bijection, hence equal
                 // root support counts. Verify that scheduling premise too.
                 if owner.iter().filter(|&&x| x).count() != parent.iter().filter(|&&x| x).count() {

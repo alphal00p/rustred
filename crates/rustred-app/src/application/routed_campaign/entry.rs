@@ -19,10 +19,15 @@ pub(super) struct RequestedEntryDomain<const N: usize> {
 }
 
 impl<const N: usize> RequestedEntryDomain<N> {
+    #[cfg(test)]
     pub fn parse(text: &str) -> Result<Self, AppError> {
+        Self::parse_with_arity(text, N)
+    }
+
+    pub fn parse_with_arity(text: &str, physical_arity: usize) -> Result<Self, AppError> {
         // Reuse the same strict, bounded coordinate/A/R/D input vocabulary as
         // local matching. FiniteRootAdmission additionally requires finiteness.
-        let queries = input::parse(text, N, MAX_REGIONS, 1024 * 1024)?;
+        let queries = input::parse(text, physical_arity, MAX_REGIONS, 1024 * 1024)?;
         let description = json!({
             "mode":"explicit_finite", "region_count":queries.len(),
             "exhaustive_coverage_claim":false,
@@ -43,7 +48,7 @@ impl<const N: usize> RequestedEntryDomain<N> {
             .try_reserve_exact(queries.len())
             .map_err(|_| AppError::limit("finite starting domain region allocation failed"))?;
         regions.extend(queries.into_iter().map(|q| RootRegionInput {
-            support: std::array::from_fn(|i| q.owner[i]),
+            support: std::array::from_fn(|i| q.owner.get(i).copied().unwrap_or(false)),
             lower: q.lower,
             upper: q.upper,
             rank: q.rank,

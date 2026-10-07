@@ -27,7 +27,7 @@ pub(in crate::solver::candidate_reduction) fn prepare_family<const N: usize>(
     zero_certificates: Vec<zero::Certificate>,
     limits: ReductionLimits,
 ) -> Result<PreparedFamily<N>, CandidateReductionError> {
-    if N == 0 || family.denominator_count() != N {
+    if N == 0 || !crate::fits_storage(family.denominator_count(), N) {
         return Err(CandidateReductionError::InvalidInput(format!(
             "candidate arity {N} does not match family arity {}",
             family.denominator_count()
@@ -38,7 +38,7 @@ pub(in crate::solver::candidate_reduction) fn prepare_family<const N: usize>(
     let generator = ParametricIbpGenerator::try_new(family)
         .map_err(|e| CandidateReductionError::InvalidInput(e.to_string()))?;
     let context = generator.context().clone();
-    let sources = SourceSystem::<N>::from_family(family)
+    let sources = SourceSystem::<N>::from_family_with_capacity(family, true)
         .map_err(|e| CandidateReductionError::InvalidInput(e.to_string()))?;
     #[cfg(test)]
     PREPARATION_COUNT.with(|count| count.set(count.get() + 1));
@@ -46,12 +46,12 @@ pub(in crate::solver::candidate_reduction) fn prepare_family<const N: usize>(
         .conditions()
         .iter()
         .cloned()
-        .map(|p| context.admit_native_polynomial_result_with_limits(p, limits.exact_algebra))
+        .map(|p| context.admit_storage_polynomial_result_with_limits(p, limits.exact_algebra))
         .collect::<Result<Vec<_>, _>>()?;
     let mut zero_sectors = BTreeSet::new();
     for certificate in &zero_certificates {
         if certificate.family_fingerprint() != family.fingerprint()
-            || certificate.raw_sector().arity() != N
+            || certificate.raw_sector().arity() != family.denominator_count()
         {
             return Err(CandidateReductionError::InvalidInput(
                 "zero certificate does not belong to the supplied family".into(),
@@ -68,7 +68,14 @@ pub(in crate::solver::candidate_reduction) fn prepare_family<const N: usize>(
                 ));
             }
         }
-        let mask = std::array::from_fn(|i| certificate.raw_sector().active_bits()[i]);
+        let mask = std::array::from_fn(|i| {
+            certificate
+                .raw_sector()
+                .active_bits()
+                .get(i)
+                .copied()
+                .unwrap_or(false)
+        });
         zero_sectors.insert(mask);
     }
 
@@ -159,8 +166,14 @@ pub(in crate::solver::candidate_reduction) fn prepare_batch<const N: usize>(
                 "a symbolic residual is not a finite candidate terminal".into(),
             ));
         }
-        let key = IntegralKey::try_new(residual.powers().iter().map(|p| i64::from(p.value())))
-            .map_err(crate::reduction::ReductionError::IntegralKey)?;
+        let key = IntegralKey::try_new(
+            residual
+                .powers()
+                .iter()
+                .take(context.index_count())
+                .map(|p| i64::from(p.value())),
+        )
+        .map_err(crate::reduction::ReductionError::IntegralKey)?;
         if key
             .powers()
             .iter()
@@ -192,7 +205,7 @@ pub(in crate::solver::candidate_reduction) fn prepare_batch<const N: usize>(
                 .iter()
                 .cloned()
                 .map(|p| {
-                    context.admit_native_polynomial_result_with_limits(p, limits.exact_algebra)
+                    context.admit_storage_polynomial_result_with_limits(p, limits.exact_algebra)
                 })
                 .collect::<Result<Vec<_>, _>>()?
         } else {
@@ -206,7 +219,7 @@ pub(in crate::solver::candidate_reduction) fn prepare_batch<const N: usize>(
                 branch
                     .into_iter()
                     .map(|p| {
-                        context.admit_native_polynomial_result_with_limits(p, limits.exact_algebra)
+                        context.admit_storage_polynomial_result_with_limits(p, limits.exact_algebra)
                     })
                     .collect::<Result<Vec<_>, _>>()
             })
@@ -224,12 +237,12 @@ pub(in crate::solver::candidate_reduction) fn prepare_batch<const N: usize>(
                     "candidate RHS changes symbolic versus fixed coordinate layout".into(),
                 ));
             }
-            let denominator = context.admit_native_polynomial_result_with_limits(
+            let denominator = context.admit_storage_polynomial_result_with_limits(
                 term.coefficient.denominator.clone(),
                 limits.exact_algebra,
             )?;
             let coefficient =
-                context.admit_native_result_with_limits(term.coefficient, limits.exact_algebra)?;
+                context.admit_storage_result_with_limits(term.coefficient, limits.exact_algebra)?;
             let shift = std::array::from_fn(|i| {
                 i64::from(term.integral[i].value()) - i64::from(candidate.target[i].value())
             });
