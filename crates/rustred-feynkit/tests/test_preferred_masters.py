@@ -112,7 +112,6 @@ def light_like_triangle():
         ("zero_sector", "zero sector"),
         ("outside_cut", "outside the cut"),
         ("dependent", "depends on preferred master"),
-        ("lower_sectors", "lower-sector integrals"),
         ("arity", "coordinates"),
         ("range", "compact range"),
     ],
@@ -131,10 +130,7 @@ def test_strict_preferred_masters_explain_failures(bubble, tadpole, case, match)
             [[2, 1]], preferred_masters=[[1, 0]]
         ),
         "dependent": lambda: hep.IBPFamily(family).reduce_laporta(
-            [[1, 1]], max_depth=1, preferred_masters=[[2, 1], [1, 2]]
-        ),
-        "lower_sectors": lambda: light_like_triangle().reduce_laporta(
-            [[1, 1, 1]], preferred_masters=[[1, 1, 1]]
+            [[1, 1]], max_depth=1, preferred_masters=[[2, 1], [1, 2], [1, 0]]
         ),
         "arity": lambda: tadpole_ibp.reduce_laporta([[1]], preferred_masters=[[1, 1]]),
         "range": lambda: tadpole_ibp.reduce_laporta([[1]], preferred_masters=[[64]]),
@@ -150,3 +146,21 @@ def test_preferred_masters_are_validated_and_budgeted(tadpole):
     with pytest.raises(ValueError, match="max_targets"):
         ibp.reduce_laporta([], max_depth=1, max_targets=0, preferred_masters=[[2]])
     assert ibp.reduce_laporta([[1]], max_depth=1).preferred_masters == []
+
+
+def test_preferred_masters_can_replace_lower_sectors(bubble):
+    triangle = light_like_triangle().reduce_laporta(
+        [[1, 1, 1]], preferred_masters=[[1, 1, 1]])
+    assert triangle.residuals == [[1, 1, 1]]
+    assert triangle.certify().reduction == "verified"
+    family, I = bubble
+    targets = [[1,1], [1,0]]
+    plain = hep.IBPFamily(family).reduce_laporta(targets+[[2,1],[1,2]],max_depth=1)
+    changed = hep.IBPFamily(family).reduce_laporta(targets,max_depth=1,preferred_masters=[[2,1],[1,2]])
+    assert changed.residuals == [[1,2],[2,1]]
+    for target in targets:
+        restored=(changed.reduce(target,integral=I)
+                  .replace(I(2,1),plain.reduce([2,1],integral=I))
+                  .replace(I(1,2),plain.reduce([1,2],integral=I)))
+        equal(restored,plain.reduce(target,integral=I))
+    assert changed.certify().excess_sectors == []

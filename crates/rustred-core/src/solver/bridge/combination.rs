@@ -62,12 +62,6 @@ impl<const N: usize> NumericOrder<N> {
     pub(super) fn integrals(&self, left: &[i16], right: &[i16]) -> Ordering {
         self.0.compare(&integral(left), &integral(right))
     }
-
-    /// Compare sectors through their corner integrals: `Less` means harder.
-    pub(super) fn sectors(&self, left: &[bool; N], right: &[bool; N]) -> Ordering {
-        let corner = |sector: &[bool; N]| sector.map(i16::from);
-        self.integrals(&corner(left), &corner(right))
-    }
 }
 
 fn integral<const N: usize>(powers: &[i16]) -> Integral<N> {

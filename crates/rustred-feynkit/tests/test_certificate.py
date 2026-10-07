@@ -148,3 +148,21 @@ def test_sunrise_with_several_preferred_masters_is_certified():
         "replaced",
     ]
     assert solution.certify(count_masters=False).reduction == "verified"
+
+
+def test_cross_sector_triangle_basis_keeps_search_sector_counts():
+    d,k,p,q,s=S("cross_sector::d", "cross_sector::k", "cross_sector::p", "cross_sector::q", "cross_sector::s")
+    kin=(hep.Kinematics(d,momenta=[k,p,q]).with_scalar_product(p,p,E("0"))
+         .with_scalar_product(q,q,E("0")).with_scalar_product(p,q,s/2))
+    family=hep.IntegralFamily([k],[p,q],[kin.scalar_product(v,v) for v in [k,k-p,k-p-q]],kinematics=kin)
+    ibp=hep.IBPFamily(family)
+    plain=ibp.reduce_laporta([[1,1,1],[1,0,1]],max_depth=2)
+    preferred=ibp.reduce_laporta([[1,1,1],[1,0,1]],max_depth=2,preferred_masters=[[1,1,1]])
+    assert preferred.residuals == [[1,1,1]]
+    cert=preferred.certify()
+    assert cert.reduction == "verified"
+    assert cert.residual_counts == plain.certify().residual_counts
+    assert cert.excess_sectors == []
+    integral=S("cross_sector::I")
+    assert (preferred.reduce([1,0,1], integral=integral)
+            + (d-4)*s/(2*(d-3))*integral(1,1,1)).together() == 0

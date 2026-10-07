@@ -851,8 +851,21 @@ fn preferred_masters_change_the_basis_exactly() {
     assert!(error(&tadpole, &[vec![1]], &[vec![2], vec![2]]).contains("listed twice"));
     assert!(error(&tadpole, &[vec![1]], &[vec![0]]).contains("zero sector"));
     assert!(error(&tadpole, &[vec![1]], &[vec![1, 1]]).contains("coordinates"));
+    // These are dependent modulo lower sectors but form an independent
+    // global basis once the tadpole may also be replaced.
+    let global = solve_laporta(
+        &bubble,
+        &uncut(&bubble),
+        &targets,
+        &[vec![2, 1], vec![1, 2]],
+        options,
+    )
+    .unwrap();
+    assert_eq!(global.residuals, [vec![1, 2], vec![2, 1]]);
+    certify_laporta(&bubble, &uncut(&bubble), &global, true).unwrap();
     assert!(
-        error(&bubble, &targets, &[vec![2, 1], vec![1, 2]]).contains("depends on preferred master")
+        error(&bubble, &targets, &[vec![2, 1], vec![1, 2], vec![1, 0]])
+            .contains("depends on preferred master")
     );
     let triangle = light_like_triangle();
     let deeper = DynamicSolveOptions {
@@ -866,8 +879,40 @@ fn preferred_masters_change_the_basis_exactly() {
         &[vec![1, 1, 1]],
         deeper,
     );
-    let message = lower.unwrap_err().to_string();
-    assert!(message.contains("lower-sector integrals"), "{message}");
+    let lower = lower.unwrap();
+    assert_eq!(lower.residuals, [vec![1, 1, 1]]);
+    assert_eq!(
+        lower.basis_change.as_ref().unwrap().preferred[0].status,
+        PreferredStatus::Replaced
+    );
+    certify_laporta(&triangle, &uncut(&triangle), &lower, true).unwrap();
+    // The bubble is now an epsilon-suppressed multiple of C0, rather than
+    // C0 being B0/(d-4). Replaying the certificate checks this exact identity.
+    assert!(
+        lower
+            .basis_change
+            .as_ref()
+            .unwrap()
+            .replaced
+            .iter()
+            .all(|p| p.iter().filter(|&&x| x > 0).count() == 2)
+    );
+    let dependent = solve_laporta(
+        &triangle,
+        &uncut(&triangle),
+        &[vec![1, 1, 1]],
+        &[
+            vec![1, 1, 1],
+            lower.basis_change.as_ref().unwrap().replaced[0].clone(),
+        ],
+        deeper,
+    );
+    assert!(
+        dependent
+            .unwrap_err()
+            .to_string()
+            .contains("depends on preferred master")
+    );
     let cut = CutConstraint::try_new([true, true]).unwrap();
     let outside = solve_laporta(&bubble, &cut, &targets, &[vec![1, 0]], options).unwrap_err();
     assert!(outside.to_string().contains("outside the cut"));
