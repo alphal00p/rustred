@@ -1,6 +1,14 @@
 # Codex progress: five-loop optimization and controlled deployment
 
-## October7 — delivered: durable finite master-reduction phase
+## October7 — locally complete: durable finite master-reduction phase
+
+Delivery status: implementation committed as `0a3d4d5b`. At17:00UTC, four
+non-force push attempts (including a no-thin-pack retry) failed with GitHub
+`remote: Internal Server Error`; remote `main` still points at `4d008f09`.
+Local compilation, controls and tests below pass. Remote publication is the
+remaining delivery blocker; retry `git push origin main` with the requested
+ValentinHirschi identity when the remote accepts writes. Do not describe this
+milestone as pushed or start the user's production campaign.
 
 User follow-up authorizes implementation, superseding the prior feasibility-only
 boundary. Root owns integration, native checkpoint/package I/O, CLI and final
