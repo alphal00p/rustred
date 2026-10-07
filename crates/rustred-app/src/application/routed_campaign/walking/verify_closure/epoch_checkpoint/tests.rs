@@ -4,6 +4,26 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[test]
+fn cp6_amendment_shape_accepts_declared_required_scope_and_auxiliary_rescue() {
+    for role in ["required", "auxiliary"] {
+        let row = json!({"id":"appended","domain":17,"role":role,
+            "role_declared":true,"amendment":1});
+        // Shape only. The independent oracle subsequently authenticates the
+        // exact role/geometry against the immutable supplied amendment chain.
+        assert!(input_inventory(&[row.clone()], &[]).is_ok());
+        for (key, value) in [
+            ("role_declared", json!(false)),
+            ("amendment", json!(0)),
+            ("role", json!("unexpected")),
+        ] {
+            let mut bad = row.clone();
+            bad[key] = value;
+            assert!(input_inventory(&[bad], &[]).is_err());
+        }
+    }
+}
+
 struct Fixture {
     directory: PathBuf,
     manifest: Manifest,

@@ -32,6 +32,37 @@ def scan(at, discovered, closed, sequence):
 
 
 class CompletedScanTests(unittest.TestCase):
+    def test_extended_required_scope_does_not_relabel_base_closure_as_stage_closure(self):
+        status = self.status()
+        status["progress"]["query_admission"] = {
+            "required": 232, "original_required": 116, "appended_required": 116,
+            "admitted_required": 232, "unadmitted": 0,
+        }
+        frame = TELEMETRY.normalize_status(status)
+        rendered = "\n".join(DASHBOARD.render_table(frame, width=160, height=42, color=False))
+        self.assertIn("BASE ROOT CLOSURE", rendered)
+        self.assertIn("Required requests 232 cumulative", rendered)
+        self.assertIn("cold verification required", rendered)
+        compact = "\n".join(DASHBOARD.render_table(frame, width=80, height=24, color=False))
+        self.assertIn("BASE ROOT CLOSURE", compact)
+        self.assertIn("base bar ≠ stage closure; cold verify", compact)
+        self.assertIn("Checkpoint size", compact)
+        self.assertIn("Completed-scan D/C", compact)
+        plain = "\n".join(DASHBOARD.plain_summary(frame))
+        self.assertIn("116 appended", plain)
+        native = MONITOR.progress_summary({"query_admission": status["progress"]["query_admission"]}, None, 0)
+        self.assertEqual(native["query_admission"]["required"], 232)
+        wrapped = {"query_admission": status["progress"]["query_admission"], "snapshot": {"phase": "inspect"}}
+        self.assertEqual(MONITOR.progress_summary(wrapped, None, 0)["query_admission"]["required"], 232)
+        tail = MONITOR.EventTail(Path("unused-scope-test.jsonl"))
+        tail.pending = json.dumps(wrapped).encode()
+        tail._finish(0)
+        tail.pending = json.dumps({"event": "epoch_heartbeat", "snapshot": {"phase": "inspect"}}).encode()
+        tail._finish(1)
+        self.assertEqual(tail.query_admission["required"], 232)
+        self.assertEqual(tail.query_admission["appended_required"], 116)
+        self.assertNotIn("required_closed", tail.query_admission)
+
     def status(self):
         return {"heartbeat_unix_time": 11000, "heartbeat_age_seconds": 50,
             "derived": {"pending_growth_per_completion_1h": .22},

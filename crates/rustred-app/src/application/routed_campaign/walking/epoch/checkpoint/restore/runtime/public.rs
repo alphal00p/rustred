@@ -33,6 +33,7 @@ use std::time::Instant;
 struct Roles {
     required_prefix: Vec<usize>,
     total: usize,
+    original_total: usize,
 }
 impl Roles {
     fn new(queries: &[Query]) -> io::Result<Self> {
@@ -50,20 +51,37 @@ impl Roles {
             required_prefix
                 .push(required_prefix.last().copied().unwrap() + usize::from(!query.auxiliary));
         }
+        let total = required_prefix.len() - 1;
         Ok(Self {
             required_prefix,
-            total: queries.len(),
+            total,
+            original_total: total,
         })
+    }
+    fn append(&mut self, queries: &[Query]) -> io::Result<()> {
+        self.required_prefix
+            .try_reserve_exact(queries.len())
+            .map_err(|_| io::Error::other("extended query census allocation"))?;
+        for query in queries {
+            self.required_prefix.push(
+                self.required_prefix.last().copied().unwrap() + usize::from(!query.auxiliary),
+            );
+        }
+        self.total = self.required_prefix.len() - 1;
+        Ok(())
     }
     fn json(&self, admitted: usize) -> Value {
         let admitted = admitted.min(self.total);
         let required = self.required_prefix[self.total];
+        let original_required = self.required_prefix[self.original_total];
         let admitted_required = self.required_prefix[admitted];
         json!({"requested":self.total,"admitted":admitted,"unadmitted":self.total-admitted,
             "required":required,"auxiliary":self.total-required,
             "admitted_required":admitted_required,"admitted_auxiliary":admitted-admitted_required,
+            "original_requested":self.original_total,"original_required":original_required,
+            "appended_requested":self.total-self.original_total,"appended_required":required-original_required,
             "required_closed":null,"required_closed_evaluated":false,
-            "scope":"ordered query rows, including aliases and source-frontier rows; not unique IDs"})
+            "scope":"original and append-only query rows, including aliases and source-frontier rows; not the protected initial-domain prefix"})
     }
 }
 
@@ -410,7 +428,12 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         .map_err(AppError::input)?;
     let identity = Identity::new(request, owners, queries)
         .map_err(|error| AppError::input(error.to_string()))?;
-    let roles = Roles::new(queries).map_err(|error| AppError::input(error.to_string()))?;
+    let mut roles = Roles::new(queries).map_err(|error| AppError::input(error.to_string()))?;
+    for amendment in identity.amendments() {
+        roles
+            .append(&amendment.queries)
+            .map_err(|error| AppError::input(error.to_string()))?;
+    }
     let failed = Cell::new(false);
     let telemetry = RefCell::new(Telemetry::new());
     let reservations = reservation_json(WorkerBudget::for_request(request));

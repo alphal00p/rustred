@@ -15,14 +15,17 @@ previous campaign. Do not launch production or alter its checkpoints.
 - `three_loop_native_recipe`: generic rank-stage input preparation plus independent
   producer/consumer audit. Historical agent names do not describe these assignments.
 
-The proposed scalar scope retains all116 physical/convenience query IDs,
-intersects each original request with R=0, and omits67 auxiliary starting
-requests unless explicitly requested. All67 owner rule sets,8246 routes and
-both frontier overlays remain available. Original coordinate/positive-power
-bounds are preserved; descendants are never clipped to R=0. Later stages
-must derive from the original input, not widen a rank-zero checkpoint.
-The fresh stage uses the recommended required-only scope; auxiliary input
-requests can still be explicitly retained with `--include-auxiliary`.
+The user selected R=0,D≤9, where A is the total positive power, R the total
+negative power magnitude and D=A−R. The current source has minimum D=9,
+so this initial stage has A=D=9. It retains67 required request rows and
+explicitly omits49 disjoint fixed-D=10 rows; this is a restricted input band,
+not all scalar five-loop integrals. Native admission still decides which
+retained query geometries are nonempty. All67 owner rule sets,8246 routes and
+both frontier overlays remain available; auxiliary starting requests are
+omitted. Original coordinate/positive-power bounds are preserved, and
+descendants are never clipped to input caps. Later R/D stages derive from
+the complete original query attachment and append required requests to the
+same checkpoint, retaining already processed and pending work.
 
 [M] Original input is
 `campaigns/five-loop-a1-banana485-20261004/inputs/selection.json` (SHA256
@@ -78,7 +81,8 @@ counter alone, establishes the control's closure.
 stopped original campaigns (228,887,035,977 and266,486,059,249 referenced bytes).
 Only metadata/file sizes were read. No old production checkpoint was modified.
 
-Fresh destination: `campaigns/five-loop-banana485-rank0-20261007`.
+Historical preliminary destination (never launched, superseded below):
+`campaigns/five-loop-banana485-rank0-20261007`.
 Its116-query SHA256 is
 `c1c315affae42a6f5f10bd97c48e5865ed20c768b066f3529e3b930fd0ce3ed7`.
 The release executable SHA256 is
@@ -86,13 +90,136 @@ The release executable SHA256 is
 The resource policy remains32 workers onCPUs64–95,600GB requested ceiling,
 150GB host reserve,5% guard margin and hourly checkpoints. Host availability
 can reduce the admitted ceiling. Rules are reused, not regenerated. The old
-campaign remains independently resumable; rank stages use fresh checkpoints.
+campaign remains independently resumable. The first restricted stage starts
+fresh; subsequent stages now append to that same checkpoint, as described below.
 
 Evidence: `TMP/scalar-campaign-20261007/` (build/tests, control `four-loop58-v2`,
 preparation/freeze receipts) and `TMP/campaign-monitor-observation-audit-20261007/`
 (synthetic visual tests). User instructions: [scalar rank campaigns](docs/scalar_rank_campaign.md).
 No five-loop production run is started by this delivery. Commit/push and frozen
 steering publication are the final handoff operations, not new solver work.
+
+[M] Monitor/rank-zero preparation milestone committed and pushed as`be6805a6`.
+User then required actual R0-result reuse for R1,R2,... before handoff. The
+existing CP6 append transaction already retains the entire saved graph and
+performs exact lookup reuse, but v1 rescue amendments force every appended
+query auxiliary. Reusing that unchanged would leave AUTO required-scope
+verification at R0, so it is not the chosen implementation.
+
+Follow-up implementation: `wasm_python` implements an explicit additive required-scope
+amendment using the existing atomic append machinery; `three_loop_native_recipe`
+implements rank-stage steering derived from the original frozen query inputs;
+`wasm_core` independently audits required-query protection, interruption,
+restore, reporting and cold certification. Original queries/rules/p0 are not
+rewritten, and higher-rank work must reuse earlier inspected/closed domains.
+Root coordinates native R0→R1→R2 versus one-shot controls and a second optimized
+delivery after the extension is tested. The already prepared rank-zero directory
+remains unlaunched; its preliminary frozen binary is not yet a launch handoff.
+
+### R/D continuation delivery — validated and frozen
+
+[M] The user chose initial R=0,D≤9. The new unlaunched input directory is
+`campaigns/five-loop-r0-d9-20261007`; its67-query SHA256 is
+`7a737c18573e9d480c07e7e7074ea772b780338745da9ded1a7eb43f3a96db54`.
+It retains the full183-row original attachment, including116 required rows,
+so later widening can recover the49 fixed-D=10 requests. Eighteen retained
+nested-counterterm rows receive maxD9. No old production data was modified.
+
+[M] Independent geometry audit:26 retained rows are provably empty at R0,D9
+(15 with10 active lines,7 with11 and4 with12);41 are nonempty, with explicit
+integer witnesses and637 starting integer tuples in total. This is not a
+descendant bound. Selection/8246 routes are byte-identical; all67 owner files
+and both overlays independently match SHA256. The full attachment preserves
+all original physical and auxiliary rows; later D10 input planning restores
+the49 omitted fixed-D10 rows.
+
+`wasm_python` implemented required-scope extensions through the existing CP6
+atomic amendment transaction. No original request, rule or initial-domain
+prefix is rewritten; required rows cannot be superseded. `three_loop_native_recipe`
+implemented the high-level R/D staging helper and monotone cumulative additions.
+`wasm_core` independently audited geometry, chain immutability, cold-verifier
+scope and monitor semantics. Root integrated a retained required-query census
+so lean heartbeats cannot relabel base-root progress as enlarged-scope closure.
+
+[M] Optimized CLI build completed in12m52s, SHA256
+`c7b54e5eb5cd459abf4a636f1680ed134e4a8d4c114d0af31e977b2734db24f9`.
+With this executable the independent combined4L58-row control again cold-PASSed:
+26,025 domains,17,957 native inspections,495,898 edges; work counts match the
+archived baseline. Walk6.119s and cold verification9.324s are correctness-control
+timings, not a matched performance comparison. Evidence:
+`TMP/scalar-campaign-20261007/four-loop58-scope/`.
+
+All implementation and delivery validation gates are complete. The new
+five-loop campaign remains unlaunched; only the user starts it.
+
+[M] The real Python→CLI control caught a separate cold-reader assumption:
+resume accepted new required rows, but the CP6 raw verifier rejected them as
+`CP6 amendment row shape` because its shape guard allowed only auxiliaries.
+This was fixed narrowly: explicit required/auxiliary roles are structurally
+accepted, then checked against the immutable digest-bound amendment as before.
+A focused invalid-role/undeclared-role/sequence regression was added. The
+control's first obsolete two-loop fixture was also correctly rejected for an
+old Symbolica binary version; it was replaced by an already compatible saved
+four-loop factorized owner, without conversion or rule regeneration. Logs:
+`TMP/scalar-campaign-20261007/four-loop-helper-native/`.
+
+[M] Repaired release CLI completed its rebuild in 13m23s, final SHA256
+`a017db90bf9f34c2806b1088d01ae5c753fe76b20560fc20dfe385668d9a67c6`.
+The final combined four-loop control again independently cold-PASSed all
+58 rows, with unchanged 26,025 domains, 17,957 native inspections and 495,898
+edges. Walk 6.121s; independent cold verification 9.924s. Evidence:
+`TMP/scalar-campaign-20261007/four-loop58-final/`.
+
+[M] Actual Python→optimized CLI continuation control PASSED at every stage:
+R0,D4 → R1,D4 → R1,D5 → R2,D5. Native full reinspection independently verifies
+1 → 2 → 4 → 6 cumulative required rows. Native inspections grow
+1 → 4 → 5 → 13; known reuse grows 0 → 38 → 82 → 317. The original request
+binding and initial-domain prefix remain unchanged; each amendment begins
+at the previous ledger watermark. The original D5 row, omitted in the R0,D4
+input, is restored by widening D. All stages finish with no pending nodes or
+frontiers. This demonstrates actual retained work, not merely rule-file reuse.
+Evidence: `TMP/scalar-campaign-20261007/four-loop-helper-native-final/`.
+
+[M] Final Python checks: 75 campaign tests, 27 supervisor tests, 18 rank/D
+steering tests, 32 staging tests and 16 heartbeat tests pass (168 total).
+Compact 80-column and wide dashboard layouts were visually audited; the
+checkpoint size and completed-scan D/C ratio stay visible when new required
+scope is appended. The original-root bar is explicitly not enlarged-scope
+closure. Native focused tests also caught an Epoch test-fixture setup omission;
+its scheduler was corrected to the existing TransferUnreserved requirement,
+without changing production code or weakening assertions.
+
+Frozen manual-start destination: `campaigns/five-loop-r0-d9-20261007`, with
+the final binary and Python steering. It keeps the requested 32 workers,
+CPUs64–95, 600GB ceiling, 150GB host reserve and hourly checkpoints. There are
+no five-loop run/checkpoint files: no production solve has been started.
+
+[M] Final independent delivery audit passed: all 31 frozen Python steering
+files match current source and their hash inventory; the executable matches
+the real control's hash. Both stored options and launch arguments preserve
+the requested resource and Epoch scheduling policy. The final continuation
+control also verifies that every previous immutable record segment remains
+an identical prefix (names, counts, bytes and BLAKE3) at each later stage.
+
+[M] Final native focused suite: all eight filters pass, comprising 53 passing
+test executions (overlapping filters) and one pre-existing ignored test.
+The actual native R0→R1→R2 test proves cold verification refuses the admitted
+but unfinished R1 stage, then accepts completed R1/R2 and a one-shot control;
+repeat resume performs no new inspections and modified/omitted chain links
+are rejected. The app test harness uses opt-level0 to shorten compilation
+and requires `RUST_MIN_STACK=67108864`; the initial ordinary test-thread stack
+overflow is preserved in the failed log. No stack override was required by
+the actual normal-release CLI controls. Final passing log and exact command
+script: `TMP/scalar-campaign-20261007/tests-scope-native-passing.log` and
+`TMP/scalar-campaign-20261007/test_native.sh`. Production binary is fully
+optimized and unchanged by test-only harness settings.
+
+Delivery commits are scoped to these monitoring/R/D-continuation changes on
+`main`, using the requested ValentinHirschi identity. Unrelated FeynKit edits,
+research files, old campaigns and reference-only content remain outside the
+commit. User launch and later continuation instructions are in
+`docs/scalar_rank_campaign.md`; the prepared campaign freezes that steering
+and the exact tested executable, without requiring the user to compile again.
 
 Authoritative current delivery plan:
 [HEPKIT_CAMPAIGN_DELIVERY_PLAN.md](HEPKIT_CAMPAIGN_DELIVERY_PLAN.md), including

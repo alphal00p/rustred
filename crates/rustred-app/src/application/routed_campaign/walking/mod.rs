@@ -84,6 +84,7 @@ pub use publication::{
 pub use rescue::{
     AMENDMENT_SCHEMA as OWNER_DOMAIN_WALK_AMENDMENT_SCHEMA,
     MAX_AMENDMENT_BYTES as OWNER_DOMAIN_WALK_AMENDMENT_MAX_BYTES, OwnerDomainWalkAmendment,
+    SCOPE_EXTENSION_SCHEMA as OWNER_DOMAIN_WALK_SCOPE_EXTENSION_SCHEMA,
 };
 pub use rescue_plan::{
     OWNER_DOMAIN_WALK_RESCUE_PLAN_SCHEMA, OwnerDomainWalkRescuePlan,
@@ -191,6 +192,16 @@ pub struct OwnerDomainWalkRequest {
     pub amendments: Vec<OwnerDomainWalkAmendment>,
 }
 impl OwnerDomainWalkRequest {
+    /// Digest of this exact frozen request for the first append-only amendment
+    /// parent. This is an identity helper, not checkpoint validation or proof
+    /// of closure. Later amendments chain from the preceding file's digest.
+    pub fn checkpoint_binding(&self) -> String {
+        match self.publication_policy {
+            OwnerDomainWalkPublicationPolicy::Epoch => checkpoint::epoch_request_binding(self),
+            _ => checkpoint::request_binding(self),
+        }
+    }
+
     pub fn new(matching: OwnerDomainMatchRequest) -> Self {
         Self {
             checkpoint: None,

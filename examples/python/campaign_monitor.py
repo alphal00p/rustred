@@ -171,6 +171,7 @@ class EventTail:
         self.milestone_count = 0
         self.saved_checkpoint = None
         self.checkpoint_write = None
+        self.query_admission = None
         # Every complete parsed record is also handed to these callbacks (for
         # example the derived heartbeat metrics); they must not raise.
         self.observers = []
@@ -186,6 +187,7 @@ class EventTail:
                     self.pending = b""
                     self.discarding = False
                     self.rotations += 1
+                    self.query_admission = None
                 self.identity = identity
                 stream.seek(self.offset)
                 remaining = MAX_POLL_BYTES
@@ -221,11 +223,26 @@ class EventTail:
                 self.latest = value
                 self.observed_at = now
                 self._checkpoint_milestone(value)
+                self._query_scope(value)
                 for observer in self.observers:
                     observer(value)
             except (ValueError, UnicodeError, RecursionError):
                 self.invalid_records += 1
         self.pending = b""
+
+    def _query_scope(self, value):
+        outer = value.get("progress", value)
+        if not isinstance(outer, dict):
+            return
+        snapshot = outer.get("snapshot", outer)
+        snapshot = snapshot if isinstance(snapshot, dict) else {}
+        scope = snapshot.get("query_admission", outer.get("query_admission"))
+        if isinstance(scope, dict):
+            # Immutable declared scope survives lean heartbeats. Retain only
+            # bounded scalar counts, never a cached claim that queries closed.
+            self.query_admission = {name: number(scope.get(name)) for name in (
+                "requested", "required", "auxiliary", "original_requested", "original_required",
+                "appended_requested", "appended_required", "admitted_required", "unadmitted")}
 
     def _checkpoint_milestone(self, value):
         progress = value.get("progress", value)
@@ -301,6 +318,7 @@ def progress_summary(event: dict, observed_at: float | None, now: float) -> dict
         "owner": counters.get("owner"),
         "progress_age_seconds": age,
         "descendant_closure": closure,
+        "query_admission": counters.get("query_admission", outer.get("query_admission")),
         "encountered_numerator_rank": counters.get("encountered_numerator_rank"),
         "max_scheduled_finite_rank": number(counters.get("max_scheduled_finite_rank")),
         "unbounded_rank_domains": number(counters.get("unbounded_rank_domains")),

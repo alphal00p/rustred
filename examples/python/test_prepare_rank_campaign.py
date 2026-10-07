@@ -110,6 +110,27 @@ class RankQueryPlanningTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "at least one"):
             PREPARE.plan_rank_queries(json.dumps(source).encode(), 0)
 
+    def test_difference_cap_omits_only_proven_disjoint_rows_and_preserves_full_source(self):
+        source = document()
+        source["queries"][1]["power_bounds"].update(min_power_difference=10, max_power_difference=10)
+        source["queries"][2]["power_bounds"].update(min_power_difference=9, max_power_difference=None)
+        raw = json.dumps(source).encode()
+        scoped, receipt = PREPARE.plan_rank_queries(raw, 0, max_power_difference=9)
+        selected = json.loads(scoped)
+        self.assertEqual(selected["query_roles"], {"required": ["required-first"], "auxiliary": []})
+        self.assertEqual(receipt["omitted_disjoint_power_difference_query_ids"], ["required-second"])
+        self.assertEqual(receipt["removed_auxiliary_query_ids"], ["helper"])
+        expected = copy.deepcopy(source["queries"][2])
+        expected["max_numerator_rank"] = 0
+        expected["power_bounds"]["max_power_difference"] = 9
+        self.assertEqual(selected["queries"], [expected])
+        self.assertEqual(json.loads(raw), source)
+        widened, _ = PREPARE.plan_rank_queries(raw, 0, max_power_difference=10)
+        self.assertEqual(len(json.loads(widened)["queries"]), 2)
+        for cap in (True, 2**63, -(2**63)-1, "9", 1.2):
+            with self.subTest(cap=cap), self.assertRaises(ValueError):
+                PREPARE.plan_rank_queries(raw, 0, max_power_difference=cap)
+
 
 class RankCampaignStagingTests(unittest.TestCase):
     @classmethod

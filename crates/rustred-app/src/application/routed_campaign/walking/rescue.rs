@@ -34,8 +34,10 @@
 //! A query is certified iff some input root (of an original or an amended
 //! query) whose domain contains the query's domain is descendant-closed.
 //! Required and auxiliary roles are an immutable exact-ID partition in the
-//! original request. New amendment queries are auxiliary; required queries
-//! cannot be superseded. The audit and `walk-verify-closure` independently
+//! original request. Rescue amendments add auxiliary queries; explicit scope
+//! extensions append required queries without rewriting the original request.
+//! No original or appended required query can be superseded. The audit and
+//! `walk-verify-closure` independently
 //! re-derive per-query containment and closure, never classifying by name.
 //! `family_closure_claim` stays false.
 use super::matching::input::{self as query_input, power_bounds_json};
@@ -45,6 +47,9 @@ use serde_json::{Value, json};
 use std::path::PathBuf;
 
 pub const AMENDMENT_SCHEMA: &str = "rustred.owner-domain-walk-amendment.json.v1";
+/// Append-only enlargement of required scope, using the same chained resume
+/// transaction as rescue but never reclassifying or superseding old queries.
+pub const SCOPE_EXTENSION_SCHEMA: &str = "rustred.owner-domain-scope-extension.json.v1";
 /// Bounds of one amendment file and of the chain.
 pub const MAX_AMENDMENT_BYTES: usize = 16 << 20;
 pub const MAX_AMENDMENT_QUERIES: usize = 65_536;
@@ -115,18 +120,23 @@ pub(super) fn parse(amendment: &OwnerDomainWalkAmendment, arity: usize) -> Resul
     let object = document
         .as_object()
         .ok_or_else(|| format!("amendment {name} is not a JSON object"))?;
+    let scope_extension = match document["schema"].as_str() {
+        Some(AMENDMENT_SCHEMA) => false,
+        Some(SCOPE_EXTENSION_SCHEMA) => true,
+        _ => {
+            return Err(format!(
+                "amendment {name}: schema must be {AMENDMENT_SCHEMA} or {SCOPE_EXTENSION_SCHEMA}"
+            ));
+        }
+    };
     if let Some(key) = object.keys().find(|k| {
         !matches!(
             k.as_str(),
-            "schema" | "sequence" | "parent" | "queries" | "supersede" | "provenance"
-        )
+            "schema" | "sequence" | "parent" | "queries" | "provenance"
+        ) && !(scope_extension && k.as_str() == "query_roles")
+            && !(!scope_extension && k.as_str() == "supersede")
     }) {
         return Err(format!("amendment {name}: unknown field {key:?}"));
-    }
-    if document["schema"] != AMENDMENT_SCHEMA {
-        return Err(format!(
-            "amendment {name}: schema must be {AMENDMENT_SCHEMA}"
-        ));
     }
     let sequence = document["sequence"]
         .as_u64()
@@ -156,16 +166,35 @@ pub(super) fn parse(amendment: &OwnerDomainWalkAmendment, arity: usize) -> Resul
     let queries = if rows.is_empty() && !supersede.is_empty() {
         Vec::new()
     } else {
-        let text =
-            json!({"schema":"rustred.owner-domain-queries.json.v2","queries":rows}).to_string();
+        let mut query_document =
+            json!({"schema":"rustred.owner-domain-queries.json.v2","queries":rows});
+        if scope_extension {
+            if !document["query_roles"].is_object() {
+                return Err(format!(
+                    "amendment {name}: scope extension needs explicit complete query_roles"
+                ));
+            }
+            query_document["query_roles"] = document["query_roles"].clone();
+        }
+        let text = query_document.to_string();
         let mut queries =
             query_input::parse(&text, arity, MAX_AMENDMENT_QUERIES, MAX_AMENDMENT_BYTES)
                 .map_err(|e| format!("amendment {name}: {e}"))?;
-        // Amendments only add auxiliary coverage. The original required set
-        // remains request-bound and cannot be enlarged, removed or relabelled.
-        for query in &mut queries {
-            query.auxiliary = true;
-            query.role_declared = true;
+        if scope_extension {
+            if queries
+                .iter()
+                .any(|query| query.auxiliary || !query.role_declared)
+            {
+                return Err(format!(
+                    "amendment {name}: scope extension may append only explicitly required queries"
+                ));
+            }
+        } else {
+            // Preserve the original rescue-v1 auxiliary-only semantics.
+            for query in &mut queries {
+                query.auxiliary = true;
+                query.role_declared = true;
+            }
         }
         queries
     };
@@ -204,7 +233,7 @@ pub(super) fn check_chain(
     }
     let mut ids: std::collections::BTreeSet<&str> =
         originals.iter().map(|q| q.id.as_str()).collect();
-    let required: std::collections::BTreeSet<&str> = originals
+    let mut required: std::collections::BTreeSet<&str> = originals
         .iter()
         .filter(|q| !q.auxiliary)
         .map(|q| q.id.as_str())
@@ -267,6 +296,9 @@ pub(super) fn check_chain(
                     amendment.path.display(),
                     query.id
                 ));
+            }
+            if !query.auxiliary {
+                required.insert(query.id.as_str());
             }
         }
     }
@@ -721,6 +753,75 @@ mod tests {
             quarantined: 0,
             resumed_generation: 1,
         }
+    }
+
+    fn extension(sequence: u64, parent: &str, ids: &[&str]) -> OwnerDomainWalkAmendment {
+        let mut result = amendment(sequence, parent, ids);
+        let mut document: Value = serde_json::from_str(&result.text).unwrap();
+        document["schema"] = SCOPE_EXTENSION_SCHEMA.into();
+        document["query_roles"] = json!({"required":ids,"auxiliary":[]});
+        result.text = document.to_string();
+        result
+    }
+
+    #[test]
+    fn scope_extension_requires_complete_required_roles_and_protects_the_chain() {
+        let request = "a".repeat(64);
+        let first_file = extension(1, &request, &["rank-1"]);
+        let first = parse(&first_file, 2).unwrap();
+        assert!(!first.queries[0].auxiliary);
+        assert!(first.queries[0].role_declared);
+        let second = parse(&extension(2, &first.digest, &["rank-2"]), 2).unwrap();
+        assert_eq!(
+            check_chain(&[], &[first, second], &request, &originals(false)),
+            Ok(0)
+        );
+        for bad_roles in [
+            Value::Null,
+            json!({"required":[],"auxiliary":["rank-1"]}),
+            json!({"required":[],"auxiliary":[]}),
+            json!({"required":["rank-1"],"auxiliary":["rank-1"]}),
+        ] {
+            let mut file = first_file.clone();
+            let mut doc: Value = serde_json::from_str(&file.text).unwrap();
+            doc["query_roles"] = bad_roles;
+            file.text = doc.to_string();
+            assert!(parse(&file, 2).is_err());
+        }
+        let mut illegal = first_file.clone();
+        let mut doc: Value = serde_json::from_str(&illegal.text).unwrap();
+        doc["supersede"] = json!([]);
+        illegal.text = doc.to_string();
+        assert!(parse(&illegal, 2).err().unwrap().contains("supersede"));
+
+        // A later legacy rescue cannot silently weaken the enlarged scope.
+        let first = parse(&first_file, 2).unwrap();
+        let mut rescue_file = amendment(2, &first.digest, &["helper"]);
+        let mut doc: Value = serde_json::from_str(&rescue_file.text).unwrap();
+        doc["supersede"] = json!(["rank-1"]);
+        rescue_file.text = doc.to_string();
+        let rescue = parse(&rescue_file, 2).unwrap();
+        assert!(rescue.queries[0].auxiliary, "rescue-v1 keeps old semantics");
+        assert!(
+            check_chain(&[], &[first, rescue], &request, &originals(false))
+                .unwrap_err()
+                .contains("required query")
+        );
+
+        let first = parse(&first_file, 2).unwrap();
+        let recorded = [reference(&first, 1)];
+        let mut rewritten = first_file;
+        rewritten.text.push(' ');
+        assert!(
+            check_chain(
+                &recorded,
+                &[parse(&rewritten, 2).unwrap()],
+                &request,
+                &originals(false)
+            )
+            .unwrap_err()
+            .contains("append-only")
+        );
     }
 
     #[test]

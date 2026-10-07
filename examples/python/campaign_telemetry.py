@@ -294,6 +294,8 @@ def normalize_status(status, sequence=None):
         "heartbeat_stale": status.get("heartbeat_stale") is True,
         "heartbeat_age_seconds": number(status.get("heartbeat_age_seconds")),
         "progress_age_seconds": number(progress.get("progress_age_seconds")),
+        "query_scope": _numbers(mapping(progress.get("query_admission")),
+            ("required", "original_required", "appended_required", "admitted_required", "unadmitted")),
         "counts": {**_numbers(work, ("scheduled", "locally_completed", "pending", "pending_descendants", "frontiers")),
                    **closure_counts,
                    "initial_published": number(entry.get("published")),

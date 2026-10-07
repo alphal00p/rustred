@@ -51,6 +51,18 @@ def rank_text(rank):
     return "unknown" if maximum is None else f"unknown ({qualifier} {count(maximum)})"
 
 
+def extended_scope_line(frame, compact=False):
+    scope = frame.get("query_scope", {})
+    if (number(scope.get("appended_required")) or 0) <= 0:
+        return None
+    if compact:
+        return (f"Required {count(scope.get('required'))} · {count(scope.get('appended_required'))} appended"
+                " · base bar ≠ stage closure; cold verify")
+    return (f"Required requests {count(scope.get('required'))} cumulative · "
+            f"{count(scope.get('appended_required'))} appended · "
+            "base-root bar is not enlarged-scope closure; cold verification required")
+
+
 def scan_observation_lines(frame):
     """Retained completed-scan evidence, separately from the trailing-hour rate."""
     ratio = frame["rates"].get("discovery_per_recursive_closure_scans", {})
@@ -407,7 +419,8 @@ def render_table(frame, width=100, height=24, color=True):
         checkpoint_text = f"WRITING generation {count(writing['generation'])} · last {checkpoint_text}"
     # Priorities are for terminal-height adaptation, not a progress heuristic.
     rows = [
-        (0, row("ROOT CLOSURE", root, bar(counts["initial_closed"], counts["initial_total"], frame["elapsed_seconds"]) + " recursive", "94")),
+        (0, row("BASE ROOT CLOSURE" if extended_scope_line(frame) else "ROOT CLOSURE", root,
+                bar(counts["initial_closed"], counts["initial_total"], frame["elapsed_seconds"]) + " recursive", "94")),
         (1, row("Domains", count(counts["total_domains"]), f"{conservative}{count(counts['total_closed'])} closed · {unresolved_bound}{count(counts['unresolved_domains'])} unresolved")),
         (2, row("Queue / local", count(counts["pending"]) + " pending", f"{count(counts['locally_completed'])} completions · frontiers {count(counts['frontiers'])}")),
         (2, row("Active CPU cores", cpu_text, "observed · " + workers, indicator_color(utilization, "cpu"))),
@@ -420,10 +433,12 @@ def render_table(frame, width=100, height=24, color=True):
         (-2, row("Local completions", _rate(completion["per_second"]), rate_window(completion), "36")),
         (-2, row("Recursive closure", _rate(closure["per_second"]), rate_window(closure, scan_batched=True), "35")),
         (0, full(f"pending {growth_text} per completion · local completion ≠ recursive closure", indicator_color(growth, "pending"))),
-        (0, full(f"Discovery/closure {_ratio_text(ratio)} · D/C · " +
+        (3 if extended_scope_line(frame) and ratio.get("latest") else 0,
+         full(f"Discovery/closure {_ratio_text(ratio)} · D/C · " +
                  ("last two completed scans" if ratio.get("latest") else "observed scan-batched"), ratio_color)),
         (3 if ratio.get("latest") else 0, full(gap_detail)),
-        *[(0 if index == 0 else 1, full(line)) for index, line in enumerate(scan_observation_lines(frame))],
+        *[(0 if index == 0 else 1, full(line, ratio_color if index == 0 and ratio.get("latest") else None))
+          for index, line in enumerate(scan_observation_lines(frame))],
         (-2, full(freshness_text, "33" if snap["stale"] is not False else "2")),
         (3, full("Initial " + published)),
         (2, full("Checkpoint " + checkpoint_text, "33" if writing["state"] == "writing" else None)),
@@ -432,6 +447,8 @@ def render_table(frame, width=100, height=24, color=True):
         (3, full(f"Heartbeat age {duration(frame['heartbeat_age_seconds'])} · update age {duration(frame['progress_age_seconds'])} · closure ETA unknown")),
         (4, full("Receipts " + frame["run_directory"], "2")),
     ]
+    if extended_scope_line(frame):
+        rows.insert(1, (-1, full(extended_scope_line(frame, compact=width < 100), "33")))
     if alarm:
         rows.insert(0, (-3, full(alarm, "1;31")))
     fixed = [border("╭", "╮"), full(title, "1;36"), border("├", "┤")]
@@ -467,6 +484,7 @@ def plain_summary(frame):
     if number(checkpoint["duration_seconds"]) is not None:
         checkpoint_text += f" · {checkpoint['duration_seconds']:.2f}s"
     return [f"RustRed · {clean(frame['state']).upper()} · {duration(frame['elapsed_seconds'])}",
+            *([extended_scope_line(frame)] if extended_scope_line(frame) else []),
             f"Rate {rate} per hour · pending {growth_text} per completion",
             f"Recursive closure {_rate(_closure_rate(frame)['per_second'])} "
             + ("awaiting closure scan" if ratio["state"] == "awaiting_closure_scan" else "observed scan-batched"),

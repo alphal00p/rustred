@@ -116,7 +116,7 @@ fn input_inventory(inputs: &[Value], frontiers: &[Value]) -> Result<(), String> 
             None => false,
             Some(value)
                 if value.as_u64().is_some_and(|n| n > 0)
-                    && row["role"] == "auxiliary"
+                    && matches!(row["role"].as_str(), Some("required" | "auxiliary"))
                     && row["role_declared"] == true =>
             {
                 true

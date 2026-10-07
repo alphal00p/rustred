@@ -3,11 +3,13 @@
 
 All saved owners, routes and rule overlays are reused. Required queries are
 retained by exact ID; auxiliary starts are omitted unless --include-auxiliary
-is explicit. Only max_numerator_rank changes, to min(original cap, requested
-cap). Coordinate and positive-power bounds are untouched, including empty
-intersections and unbounded auxiliary positive powers. Descendants are NOT
-rank-clipped. Later rank stages must be derived from the original campaign,
-not by widening a previous rank-scoped stage or reusing its checkpoint.
+is explicit. Rank and optional D=A-R upper caps intersect the original bounds.
+Coordinate, positive-power and minimum-D bounds are untouched. Proven disjoint
+D intervals are omitted explicitly; other empty intersections stay. Descendants are NOT
+rank-clipped. This fresh-input preparer always derives from the original
+campaign. To retain a completed or paused stage's actual checkpoint work,
+use extend_rank_campaign.py instead: it appends required queries without
+rewriting the original request.
 
 This writes only a fresh destination's inputs. Use the ordinary production
 launcher separately to freeze a tested executable and resource policy.
@@ -37,9 +39,25 @@ WORKSPACE = Path(__file__).resolve().parents[2]
 WORKSPACE_TEMP = WORKSPACE / "TMP"
 
 
-def plan_rank_queries(query_bytes, max_numerator_rank, *, include_auxiliary=False):
+def power_difference(value):
+    if type(value) is not int or not -(2**63) <= value < 2**63:
+        raise ValueError("power difference cap must be an i64 integer")
+    return value
+
+
+def cli_power_difference(value):
+    try:
+        return power_difference(int(value))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def plan_rank_queries(query_bytes, max_numerator_rank, *, include_auxiliary=False,
+                      max_power_difference=None):
     """Intersect starting queries with an input rank cap, not an algebra rule."""
     STAGE.unsigned(max_numerator_rank, 32, "input rank")
+    if max_power_difference is not None:
+        power_difference(max_power_difference)
     if type(include_auxiliary) is not bool:
         raise ValueError("include_auxiliary must be a Boolean")
     document = STAGE.ROLES.loads_document(query_bytes)
@@ -66,8 +84,29 @@ def plan_rank_queries(query_bytes, max_numerator_rank, *, include_auxiliary=Fals
         if row["max_numerator_rank"] is not None:
             STAGE.unsigned(row["max_numerator_rank"], 32, "original input rank")
     roles = STAGE.ROLES.query_roles(document, require_explicit=True)
-    retained = [row for row in originals
-                if roles[row["id"]] == "required" or include_auxiliary]
+    retained = []
+    omitted_difference = []
+    changed_difference = []
+    for row in originals:
+        if roles[row["id"]] != "required" and not include_auxiliary:
+            continue
+        bounds = row["power_bounds"]
+        previous = bounds.get("max_power_difference")
+        minimum = bounds.get("min_power_difference")
+        for value in (previous, minimum):
+            if value is not None:
+                power_difference(value)
+        if previous is not None and minimum is not None and minimum > previous:
+            raise ValueError("original power difference interval is invalid")
+        cap = (previous if max_power_difference is None else max_power_difference
+               if previous is None else min(previous, max_power_difference))
+        if minimum is not None and cap is not None and minimum > cap:
+            omitted_difference.append(row["id"])
+            continue
+        if previous != cap:
+            changed_difference.append({"id": row["id"], "from": previous, "to": cap})
+            bounds["max_power_difference"] = cap
+        retained.append(row)
     if not retained:
         raise ValueError("rank-scoped campaign must retain at least one starting query")
     removed = [row["id"] for row in originals if roles[row["id"]] == "auxiliary"
@@ -80,12 +119,15 @@ def plan_rank_queries(query_bytes, max_numerator_rank, *, include_auxiliary=Fals
             changed.append({"id": row["id"], "from": previous, "to": cap})
         row["max_numerator_rank"] = cap
     document["queries"] = retained
-    document["query_roles"]["auxiliary"] = (
-        document["query_roles"]["auxiliary"] if include_auxiliary else [])
+    retained_ids = {row["id"] for row in retained}
+    document["query_roles"] = {
+        role: [identity for identity in document["query_roles"][role] if identity in retained_ids]
+        for role in ("required", "auxiliary")}
     scoped = (json.dumps(document, indent=2, allow_nan=False) + "\n").encode()
     receipt = {
         "schema": "rustred.rank-scoped-starting-queries.v1",
         "max_numerator_rank": max_numerator_rank,
+        "max_power_difference": max_power_difference,
         "include_auxiliary": include_auxiliary,
         "source_queries_sha256": hashlib.sha256(query_bytes).hexdigest(),
         "queries_sha256": hashlib.sha256(scoped).hexdigest(),
@@ -95,11 +137,15 @@ def plan_rank_queries(query_bytes, max_numerator_rank, *, include_auxiliary=Fals
         "auxiliary_query_count": len(document["query_roles"]["auxiliary"]),
         "retained_query_ids": [row["id"] for row in retained],
         "removed_auxiliary_query_ids": removed,
+        "omitted_disjoint_power_difference_query_ids": omitted_difference,
         "changed_rank_caps": changed,
+        "changed_power_difference_caps": changed_difference,
         "query_order_preserved": True,
         "coordinate_bounds_unchanged": True,
-        "positive_power_and_difference_bounds_unchanged": True,
-        "empty_intersections_retained": True,
+        "positive_power_and_difference_bounds_unchanged": not changed_difference,
+        "positive_power_and_minimum_difference_bounds_unchanged": True,
+        "empty_intersections_retained": not omitted_difference,
+        "other_empty_intersections_retained": True,
         "descendant_clipping": False,
         "rule_generation_performed": False,
         "native_coverage_checked": False,
@@ -109,7 +155,8 @@ def plan_rank_queries(query_bytes, max_numerator_rank, *, include_auxiliary=Fals
     return scoped, receipt
 
 
-def prepare(source_campaign, destination, max_numerator_rank, *, include_auxiliary=False):
+def prepare(source_campaign, destination, max_numerator_rank, *, include_auxiliary=False,
+            max_power_difference=None):
     """Reuse the audited saved-input stager; do not freeze or invoke a binary."""
     source_campaign = Path(source_campaign).resolve(strict=True)
     destination = Path(destination)
@@ -120,7 +167,8 @@ def prepare(source_campaign, destination, max_numerator_rank, *, include_auxilia
         raise ValueError("derive each rank stage from the original campaign, not a rank-scoped stage")
     source_bytes = (inputs / "queries.json").read_bytes()
     scoped, receipt = plan_rank_queries(
-        source_bytes, max_numerator_rank, include_auxiliary=include_auxiliary)
+        source_bytes, max_numerator_rank, include_auxiliary=include_auxiliary,
+        max_power_difference=max_power_difference)
     if receipt["source_queries_sha256"] != original["queries_sha256"]:
         raise ValueError("source queries changed during rank planning")
     receipt.update({
@@ -161,10 +209,13 @@ def main(argv=None):
                         type=STAGE.cli_unsigned(32, "input rank"))
     parser.add_argument("--include-auxiliary", action="store_true",
                         help="also intersect and retain auxiliary starting rows; default required-only")
+    parser.add_argument("--max-power-difference", type=cli_power_difference,
+                        help="intersect starting D=A-R with this cap; omit explicitly disjoint rows")
     args = parser.parse_args(argv)
     try:
         receipt = prepare(args.source_campaign, args.destination, args.max_numerator_rank,
-                          include_auxiliary=args.include_auxiliary)
+                          include_auxiliary=args.include_auxiliary,
+                          max_power_difference=args.max_power_difference)
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.error(str(error))
     print(json.dumps({"status": "inputs-prepared-no-native-work", **receipt}, indent=2))

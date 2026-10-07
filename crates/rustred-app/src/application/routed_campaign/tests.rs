@@ -13,6 +13,7 @@ mod power_domains;
 mod preparation;
 mod record_sidecar;
 mod rescue;
+mod scope_extension;
 
 #[test]
 fn shared_snapshot_exposes_first_failure_while_native_calls_drain() {

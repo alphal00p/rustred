@@ -276,8 +276,10 @@ fn check_row<const N: usize>(
     }
     match (phase, row.domain.0, row.source_validity_unresolved) {
         (Some(phase), Some(id), None) if row.amendment.is_some() && (id as usize) < store.len() => {
-            if !query.auxiliary || !query.role_declared {
-                return Err(invalid("epoch amendment changed required scope"));
+            // Query roles come from the immutable, digest-bound amendment:
+            // rescue-v1 adds auxiliaries; scope extensions add required rows.
+            if !query.role_declared {
+                return Err(invalid("epoch amendment lacks an explicit query role"));
             }
             let domain = Domain {
                 phase,

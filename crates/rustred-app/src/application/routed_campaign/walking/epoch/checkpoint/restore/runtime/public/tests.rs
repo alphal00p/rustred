@@ -257,6 +257,16 @@ fn query_role_census_keeps_116_required_and_67_auxiliary_rows() {
     let full = roles.json(183);
     assert_eq!(full["required_closed"], Value::Null);
     assert_eq!(full["required_closed_evaluated"], false);
+    let mut extended = roles;
+    extended.append(&queries[..2]).unwrap();
+    let pending = extended.json(183);
+    assert_eq!(pending["required"], 118);
+    assert_eq!(pending["original_required"], 116);
+    assert_eq!(pending["appended_required"], 2);
+    assert_eq!(pending["admitted_required"], 116);
+    assert_eq!(pending["unadmitted"], 2);
+    assert_eq!(pending["required_closed"], Value::Null);
+    assert_eq!(extended.json(185)["admitted_required"], 118);
 }
 
 #[test]

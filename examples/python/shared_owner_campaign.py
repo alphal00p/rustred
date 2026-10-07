@@ -1306,6 +1306,8 @@ def main() -> int:
         except OSError as error:
             read_error = str(error)
         progress = MONITOR.progress_summary(tail.latest, tail.observed_at, now)
+        if progress.get("query_admission") is None:
+            progress["query_admission"] = tail.query_admission
         for candidate in (progress["checkpoint"], tail.saved_checkpoint):
             last_checkpoint = advance_checkpoint(last_checkpoint, candidate)
         last_checkpoint = checkpoint_sizes.enrich(last_checkpoint)
@@ -1447,6 +1449,8 @@ def main() -> int:
     status = child.wait()
     tail.poll()
     terminal_progress = MONITOR.progress_summary(tail.latest, tail.observed_at, time.monotonic())
+    if terminal_progress.get("query_admission") is None:
+        terminal_progress["query_admission"] = tail.query_admission
     for candidate in (terminal_progress["checkpoint"], tail.saved_checkpoint):
         last_checkpoint = advance_checkpoint(last_checkpoint, candidate)
     last_checkpoint = terminal_checkpoint(args.publication_policy, status, tail.latest, last_checkpoint)
