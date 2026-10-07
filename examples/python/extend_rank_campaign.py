@@ -205,12 +205,10 @@ def plan(campaign, rank, *, max_power_difference=PRESERVE_DIFFERENCE):
         raise ValueError("rank-stage query IDs collide with earlier immutable queries")
     path = campaign / "amendments" / f"amendment-{sequence:04d}.json"
     raw = pending[1] if pending is not None else encoded(document)
-    launcher = campaign / "steering/production_saved_owner_campaign.py"
-    if not launcher.is_file() or (campaign / "master-reduction/policy.json").is_file():
-        # A pre-phase-two frozen Python snapshot cannot honor the opt-in.
-        # Keep its native binary/policy, but steer the enlarged scope through
-        # this helper's phase-aware sibling launcher. Never rewrite snapshots.
-        launcher = Path(PRODUCTION.__file__).resolve()
+    # Every completed new scope must publish an artifact. Older frozen Python
+    # snapshots only emitted CP6; retain their native engine and use this
+    # publisher-aware launcher without rewriting the snapshots.
+    launcher = Path(PRODUCTION.__file__).resolve()
     if not (campaign / "bin/steering.json").is_file():
         raise ValueError("freeze the campaign executable and steering before extending it")
     command = [sys.executable, "-B", str(launcher), "--campaign-directory", str(campaign), "--resume"]

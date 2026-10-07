@@ -16,6 +16,7 @@ fn field(summary: &Value, name: &str) -> String {
     match value {
         Value::Number(value) => value.to_string(),
         Value::String(value) => clean(value, 4096),
+        Value::Bool(value) => if *value { "yes" } else { "no" }.into(),
         _ => "not reported".into(),
     }
 }
@@ -36,18 +37,18 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
     let mut builder = Builder::default();
     builder.push_record([
         paint("ARTIFACT", color, "1;36"),
-        paint(
-            &clean("SYMBOLIC MASTER REDUCTION", value_width),
-            color,
-            "1;36",
-        ),
+        paint(&clean("SAVED CAMPAIGN", value_width), color, "1;36"),
     ]);
     let fields = [
         ("Status", "status"),
+        ("Selection", "scope_selection"),
+        ("Master refinement", "refinement_status"),
         ("Installed rule records", "inventory.installed.rules"),
         ("Observed cover rules", "inventory.encountered.rules"),
-        ("Starting R cap", "scope.max_starting_rank"),
-        ("Starting D cap", "scope.max_starting_d"),
+        ("Published R cap", "scope.max_starting_rank"),
+        ("Published D cap", "scope.max_starting_d"),
+        ("Requested R cap", "requested_scope.max_starting_rank"),
+        ("Requested D cap", "requested_scope.max_starting_d"),
         ("Query domains", "scope.starting_queries"),
         ("Current scope terminals", "inventory.encountered.terminals"),
         ("Retained source keys", "raw_terminals"),
@@ -62,9 +63,24 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
         ("Seed depth", "seed_depth"),
         ("Checkpoint generation", "checkpoint.generation"),
         ("Artifact", "artifact"),
+        ("Source checkpoint", "source_checkpoint"),
         ("Source scope", "scope_binding"),
     ];
     for (label, name) in fields {
+        if (name.starts_with("requested_scope.") && summary["requested_scope"].is_null())
+            || (name == "source_checkpoint" && summary[name].is_null())
+        {
+            continue;
+        }
+        let label = if summary["artifact"].is_null() && label.starts_with("Published") {
+            if label == "Published R cap" {
+                "Inventoried R cap"
+            } else {
+                "Inventoried D cap"
+            }
+        } else {
+            label
+        };
         let value = field(summary, name);
         // Wrap by Unicode scalars: report fields are ASCII IDs, numeric values
         // and file paths, never mathematical pretty-printed expressions.
@@ -98,13 +114,13 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
     table.with(Style::modern_rounded());
     format!(
         "{}\n{table}\n{}\n{}\n",
-        paint("RustRed · Master reduction", color, "1;36"),
+        paint("RustRed · Saved campaign artifact", color, "1;36"),
         paint(
-            "Exact bounded relation search; a nonminimal basis is allowed.",
+            "Normalized terminals are candidate masters, not an independence claim.",
             color,
             "33"
         ),
-        "No numerical master values, independence proof or unrestricted family-closure claim."
+        "Symbolic package only: numerical master values and routed coefficient application are not included."
     )
 }
 
@@ -124,5 +140,25 @@ mod tests {
         assert!(plain.contains("not reported"));
         assert!(!plain.contains('\u{001b}'));
         assert!(render_master_table(&summary, true, 80).contains("\x1b[1;36m"));
+    }
+
+    #[test]
+    fn earlier_publication_keeps_published_and_requested_caps_distinct() {
+        let summary = serde_json::json!({
+            "status":"published_unrefined", "refinement_status":"not requested",
+            "artifact":"/artifact", "scope":{"max_starting_rank":0,"max_starting_d":9},
+            "requested_scope":{"max_starting_rank":2,"max_starting_d":10},
+            "scope_selection":"earlier publication; new request not published"
+        });
+        let table = render_master_table(&summary, false, 110);
+        for text in [
+            "Published R cap",
+            "Requested R cap",
+            "not requested",
+            "earlier publication",
+        ] {
+            assert!(table.contains(text));
+        }
+        assert!(!table.contains("Inventoried R cap"));
     }
 }

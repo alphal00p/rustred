@@ -42,6 +42,10 @@ import sys
 import tempfile
 import time
 
+_PHASE_SPEC = importlib.util.spec_from_file_location("campaign_phases", Path(__file__).with_name("campaign_phases.py"))
+PHASES = importlib.util.module_from_spec(_PHASE_SPEC)
+_PHASE_SPEC.loader.exec_module(PHASES)
+
 # Supervisor RAM guard options: frozen at preparation, overridable per start/resume.
 # None (steering frozen before the option existed) means the supervisor's
 # default at launch; new steering freezes each default explicitly.
@@ -1061,12 +1065,16 @@ def main(argv=None):
     parser.add_argument("--resume", action="store_true",
                         help="continue the latest native checkpoint with the frozen executable, or with "
                              "--upgrade-executable onto a semantics-compatible replacement")
-    parser.add_argument("--master-reduction", action="store_true",
-                        help="opt into native bounded terminal reduction after scoped closure; persists for later resumes")
+    postprocess = parser.add_mutually_exclusive_group()
+    postprocess.add_argument("--refine-masters", "--masters-only", "--master-reduction",
+                            dest="refine_masters", action="store_true",
+                            help="explicit refinement only: require the current completed artifact; never start a solve")
+    postprocess.add_argument("--publish-only", action="store_true",
+                            help="publish an already completed current checkpoint; never start a solve")
     parser.add_argument("--master-seed-depth", type=int,
                         help="phase-two ordinary-IBP seed depth (default 0); may increase with exact previous-row reuse")
     parser.add_argument("--master-reduction-executable", type=Path,
-                        help="freeze a separate phase-two binary; leaves the original campaign binary and CP6 untouched")
+                        help="freeze a separate publisher/refiner binary; leaves the original campaign binary and CP6 untouched")
     parser.add_argument("--upgrade-executable", type=Path, metavar="NEW",
                         help="only with --resume: freeze NEW in place of the frozen binary when its "
                              "walk-semantics-version equals the checkpoint's, or return to a binary that "
@@ -1184,11 +1192,9 @@ def main(argv=None):
     except ValueError as error:
         parser.error(str(error))
     campaign = args.campaign_directory.resolve()
-    phase_spec = importlib.util.spec_from_file_location("campaign_phases", Path(__file__).with_name("campaign_phases.py"))
-    phases = importlib.util.module_from_spec(phase_spec)
-    phase_spec.loader.exec_module(phases)
+    phases = PHASES
     try:
-        phase_policy = phases.configuration(campaign, args.master_reduction, args.master_seed_depth,
+        phase_policy = phases.configuration(campaign, args.refine_masters, args.master_seed_depth,
                                             args.master_reduction_executable)
     except (OSError, ValueError, TypeError) as error:
         parser.error(str(error))
@@ -1378,7 +1384,8 @@ def main(argv=None):
             # no dependency on a particular sys.modules registration is needed.
             from types import SimpleNamespace
             driver = SimpleNamespace(**globals())
-            return phases.run(plan, phase_policy, args.resume, driver)
+            return phases.run(plan, phase_policy, args.resume, driver,
+                              postprocess_only=args.publish_only or args.refine_masters)
         except (OSError, ValueError, TypeError) as error:
             parser.error(str(error))
     write_json(campaign / "active-run.json", plan)

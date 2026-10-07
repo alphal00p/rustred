@@ -441,7 +441,7 @@ def main(argv=None) -> int:
                 print(json.dumps(status, sort_keys=True))
             else:
                 presenter.render(status, force=True)
-            if args.once or args.json or status.get("state") in ("completed", "completed_nonminimal", "paused", "failed", "stopped"):
+            if args.once or args.json or status.get("state") in ("completed", "published_unrefined", "completed_nonminimal", "paused", "failed", "stopped"):
                 return 0
             time.sleep(args.interval)
     except KeyboardInterrupt:

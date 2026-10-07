@@ -253,8 +253,38 @@ impl Drop for Signals {
 }
 
 pub(super) fn run(args: WalkInventoryArgs) -> Result<(), CliError> {
-    super::routed::preflight_inner_pools()?;
     preflight_output_destination(&args.output, args.force)?;
+    let report = collect_report(&args, true)?;
+    let mut bytes =
+        serde_json::to_vec_pretty(&report).map_err(|e| CliError::OutputIo(e.to_string()))?;
+    bytes.push(b'\n');
+    write_output(&args.output, &bytes, args.force)?;
+    inventory_verdict(&report)
+}
+
+/// Read-only fallback for old campaigns which have a CP6 but no published
+/// package yet. Avoid constructing individual rule/coefficient pages.
+pub(super) fn campaign_summary(campaign: &Path, threads: usize) -> Result<Value, CliError> {
+    collect_report(
+        &WalkInventoryArgs {
+            command: None,
+            campaign_directory: Some(campaign.to_path_buf()),
+            checkpoint: None,
+            output: StreamPath::Stdio,
+            threads,
+            normalize_terminals: true,
+            rules_start: 0,
+            terminals_start: 0,
+            normalized_terminals_start: 0,
+            page_size: 1,
+            force: false,
+        },
+        false,
+    )
+}
+
+fn collect_report(args: &WalkInventoryArgs, include_pages: bool) -> Result<Value, CliError> {
+    super::routed::preflight_inner_pools()?;
     let command = match (&args.command, &args.campaign_directory) {
         (Some(command), None) => canonical(command)?,
         (None, Some(campaign)) => campaign_command(campaign)?,
@@ -308,8 +338,10 @@ pub(super) fn run(args: WalkInventoryArgs) -> Result<(), CliError> {
         let _ = writeln!(std::io::stderr().lock(), "{event}");
     })?;
     let mut report = inventory.summary();
-    report["rule_page"] = json!(inventory.rules(args.rules_start, args.page_size)?);
-    report["terminal_page"] = json!(inventory.terminals(args.terminals_start, args.page_size)?);
+    if include_pages {
+        report["rule_page"] = json!(inventory.rules(args.rules_start, args.page_size)?);
+        report["terminal_page"] = json!(inventory.terminals(args.terminals_start, args.page_size)?);
+    }
     report["normalization_requested"] = json!(args.normalize_terminals);
     if args.normalize_terminals && report["complete"] == true {
         if cancel.load(Ordering::Relaxed) {
@@ -321,8 +353,10 @@ pub(super) fn run(args: WalkInventoryArgs) -> Result<(), CliError> {
         }
         let normalized = inventory.normalize_terminals(Default::default())?;
         report["normalization"] = normalized.metadata()?;
-        report["normalized_terminal_page"] =
-            json!(normalized.terminals(args.normalized_terminals_start, args.page_size)?);
+        if include_pages {
+            report["normalized_terminal_page"] =
+                json!(normalized.terminals(args.normalized_terminals_start, args.page_size)?);
+        }
     } else if args.normalize_terminals {
         report["normalization"] = json!({
             "status":"not-run",
@@ -336,11 +370,7 @@ pub(super) fn run(args: WalkInventoryArgs) -> Result<(), CliError> {
         )
         .into());
     }
-    let mut bytes =
-        serde_json::to_vec_pretty(&report).map_err(|e| CliError::OutputIo(e.to_string()))?;
-    bytes.push(b'\n');
-    write_output(&args.output, &bytes, args.force)?;
-    inventory_verdict(&report)
+    Ok(report)
 }
 
 fn inventory_verdict(report: &Value) -> Result<(), CliError> {

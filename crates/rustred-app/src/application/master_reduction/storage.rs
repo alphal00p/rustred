@@ -169,7 +169,9 @@ pub(super) fn package_inputs(
     }
     write_json(&inputs.join("amendments.json"), &json!(amendments))?;
     Ok(
-        json!({"program_binding":program_binding,"selection":"inputs/selection.json", "queries":"inputs/queries.json","amendments":"inputs/amendments.json","payloads":payloads}),
+        json!({"program_binding":program_binding,"selection":"inputs/selection.json", "queries":"inputs/queries.json","amendments":"inputs/amendments.json","payloads":payloads,
+            "queries_blake3":blake3::hash(request.matching.queries_json.as_bytes()).to_hex().to_string(),
+            "amendments_blake3":digest_file(&inputs.join("amendments.json"))?}),
     )
 }
 
@@ -191,6 +193,164 @@ pub(super) fn safe_child(directory: &Path, name: &str) -> Result<PathBuf, AppErr
         return Err(AppError::input("artifact member escapes directory"));
     }
     Ok(path)
+}
+
+pub(super) fn reject_overlapping_directories(source: &Path, output: &Path) -> Result<(), AppError> {
+    let mut ancestor = std::path::absolute(output).map_err(io)?;
+    let mut suffix = Vec::new();
+    while !ancestor.exists() {
+        suffix.push(
+            ancestor
+                .file_name()
+                .ok_or_else(|| AppError::input("invalid output directory"))?
+                .to_owned(),
+        );
+        if !ancestor.pop() {
+            return Err(AppError::input("output directory has no existing ancestor"));
+        }
+    }
+    let mut resolved = ancestor.canonicalize().map_err(io)?;
+    for component in suffix.iter().rev() {
+        resolved.push(component);
+    }
+    if resolved.starts_with(source) || source.starts_with(&resolved) {
+        return Err(AppError::input(
+            "source and output artifact directories must be distinct and non-nested",
+        ));
+    }
+    Ok(())
+}
+
+/// Immutable content is linked where possible, copied otherwise. Either form
+/// survives moving/removing the source artifact and has no path dependency.
+pub(super) fn clone_inputs(source: &Path, output: &Path, report: &Value) -> Result<(), AppError> {
+    let inputs = &report["inputs"];
+    let payloads = inputs["payloads"]
+        .as_array()
+        .ok_or_else(|| AppError::input("published artifact has no portable input inventory"))?;
+    let mut members = std::collections::BTreeMap::new();
+    for payload in payloads {
+        let name = payload["path"]
+            .as_str()
+            .ok_or_else(|| AppError::input("payload path missing"))?;
+        let path = safe_child(source, name)?;
+        if Some(fs::metadata(&path).map_err(io)?.len()) != payload["bytes"].as_u64()
+            || Some(digest_file(&path)?.as_str()) != payload["blake3"].as_str()
+        {
+            return Err(AppError::input(
+                "published owner payload differs from its inventory",
+            ));
+        }
+        members.insert(
+            name.to_owned(),
+            payload["blake3"].as_str().unwrap().to_owned(),
+        );
+    }
+    for field in ["selection", "queries", "amendments"] {
+        let name = inputs[field]
+            .as_str()
+            .ok_or_else(|| AppError::input("portable input metadata path missing"))?;
+        members.insert(name.to_owned(), digest_file(&safe_child(source, name)?)?);
+    }
+    let selection = safe_child(source, inputs["selection"].as_str().unwrap())?;
+    if Some(digest_file(&selection)?.as_str()) != inputs["program_binding"].as_str() {
+        return Err(AppError::input(
+            "published selection differs from its program binding",
+        ));
+    }
+    members.insert(
+        inputs["selection"].as_str().unwrap().to_owned(),
+        inputs["program_binding"].as_str().unwrap().to_owned(),
+    );
+    let query_digest = inputs["queries_blake3"]
+        .as_str()
+        .or_else(|| report["inventory"]["verification"]["queries"]["blake3"].as_str())
+        .ok_or_else(|| AppError::input("published query identity missing"))?;
+    members.insert(
+        inputs["queries"].as_str().unwrap().to_owned(),
+        query_digest.to_owned(),
+    );
+    let amendment_path = safe_child(source, inputs["amendments"].as_str().unwrap())?;
+    let amendments = read_json(&amendment_path)?;
+    if let Some(digest) = inputs["amendments_blake3"].as_str() {
+        members.insert(
+            inputs["amendments"].as_str().unwrap().to_owned(),
+            digest.to_owned(),
+        );
+    } else {
+        let recorded = report["inventory"]["verification"]["amendments"]["digests"]
+            .as_array()
+            .ok_or_else(|| AppError::input("published amendment chain identity missing"))?;
+        let actual: Vec<_> = amendments
+            .as_array()
+            .ok_or_else(|| AppError::input("invalid amendment inventory"))?
+            .iter()
+            .map(|row| row["blake3"].clone())
+            .collect();
+        if &actual != recorded {
+            return Err(AppError::input(
+                "published amendment index differs from the verified scope",
+            ));
+        }
+    }
+    for amendment in amendments
+        .as_array()
+        .ok_or_else(|| AppError::input("invalid amendment inventory"))?
+    {
+        let name = amendment["path"]
+            .as_str()
+            .ok_or_else(|| AppError::input("amendment path missing"))?;
+        let member = format!("inputs/{name}");
+        let path = safe_child(source, &member)?;
+        if Some(digest_file(&path)?.as_str()) != amendment["blake3"].as_str() {
+            return Err(AppError::input(
+                "published amendment differs from its digest",
+            ));
+        }
+        members.insert(member, amendment["blake3"].as_str().unwrap().to_owned());
+    }
+    if source.join("inputs/original-selection.json").exists() {
+        members.insert(
+            "inputs/original-selection.json".into(),
+            digest_file(&source.join("inputs/original-selection.json"))?,
+        );
+    }
+    let mut directories = std::collections::BTreeSet::new();
+    for (name, expected) in members {
+        let from = safe_child(source, &name)?;
+        let to = safe_child(output, &name)?;
+        fs::create_dir_all(
+            to.parent()
+                .ok_or_else(|| AppError::input("invalid artifact member"))?,
+        )
+        .map_err(io)?;
+        if !to.exists() && fs::hard_link(&from, &to).is_err() {
+            write_file_atomically_with(&to, false, |destination| {
+                let mut file = File::open(&from).map_err(|e| e.to_string())?;
+                std::io::copy(&mut file, destination).map_err(|e| e.to_string())?;
+                Ok(())
+            })
+            .map_err(io)?;
+        }
+        if digest_file(&to)? != expected {
+            return Err(AppError::input(
+                "cloned portable input differs from its captured identity",
+            ));
+        }
+        let mut ancestor = to.parent();
+        while let Some(directory) = ancestor.filter(|path| path.starts_with(output)) {
+            directories.insert(directory.to_path_buf());
+            ancestor = directory.parent();
+        }
+    }
+    // Hardlinks require directory durability too. Children are synced before
+    // parents; no publication manifest is installed until this completes.
+    for directory in directories.into_iter().rev() {
+        File::open(directory)
+            .and_then(|file| file.sync_all())
+            .map_err(io)?;
+    }
+    Ok(())
 }
 
 pub(super) fn io(error: impl std::fmt::Display) -> AppError {

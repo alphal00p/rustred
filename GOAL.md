@@ -1,5 +1,29 @@
 # RustRed project goal
 
+## October 7 — explicit saved-campaign lifecycle
+
+The newest user directive separates solving from optional master refinement.
+Every completed requested scope must publish a portable symbolic artifact,
+whether or not its masters have been refined. Provide one simple workflow for
+run/resume, monotone R/D extension, inspection of the latest published result,
+and explicit refinement. Old persisted refinement preferences must not trigger
+new searches implicitly. Retain earlier artifacts and checkpoint work; expose
+the requested/current/published scope clearly instead of showing an old rank
+as though it described an in-flight extension. Inspection remains read-only,
+bounded, coloured and tabled by default on a terminal.
+
+Publish the same generic native format before and after refinement, including
+saved programs, routes, scope, normalization and exact terminal state. These
+are symbolic inputs for later Vakint consumption; explicitly report that the
+saved routed coefficient-application adapter and numerical master catalogue
+are not implemented by this UX change. Do not turn dependency coverage or
+sealed graph cycles into a claim of terminating concrete coefficient reduction.
+No production campaign may be started, stopped or rewritten during development.
+Validate publication without any Laporta source rows, later refinement,
+interruption/resume, scope extension, portable cold loading and latest-artifact
+selection. Delegate independent native and steering implementation, then
+adversarial audit; build, test, commit and push the coherent result.
+
 ## October 7 — resumable terminal post-processing and final inspection
 
 The current user directive supersedes historical stop instructions below.

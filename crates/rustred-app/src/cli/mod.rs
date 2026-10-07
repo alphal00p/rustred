@@ -9,14 +9,15 @@ mod owner_guarded;
 mod owner_match;
 #[cfg(test)]
 pub(crate) use owner_match::walk_request_from_argv;
+mod artifact_inspect;
+mod master_reduction;
+mod master_table;
 mod progress;
 mod routed;
 mod shards;
+mod walk_inventory;
 mod walk_rescue;
 mod walk_verify;
-mod walk_inventory;
-mod master_reduction;
-mod master_table;
 
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
@@ -93,6 +94,7 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::WalkInventory(arguments) => walk_inventory::run(arguments),
         Command::WalkMasterReduce(arguments) => master_reduction::run(arguments),
         Command::MasterInspect(arguments) => master_reduction::inspect(arguments),
+        Command::ArtifactInspect(arguments) => artifact_inspect::run(arguments),
     }
 }
 

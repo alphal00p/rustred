@@ -1,5 +1,5 @@
 mod application;
-pub use application::{MasterReductionOptions, master_reduce_saved_campaign, master_reduction_inspect, load_master_reduction};
+pub use application::{MasterReductionOperation, MasterReductionOptions, master_reduce_saved_campaign, master_refine_published_artifact, master_reduction_inspect, load_master_reduction};
 pub use application::{
     OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
 };

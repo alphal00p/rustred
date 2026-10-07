@@ -1,5 +1,6 @@
 //! Optional finite, resumable master-candidate reduction after a saved walk.
 //! CP6 coverage and finite IBP row-span identities remain distinct authorities.
+mod refine;
 mod storage;
 #[cfg(test)]
 mod tests;
@@ -16,7 +17,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use storage::{io, read_json, write_json};
 
+pub use refine::master_refine_published_artifact;
+
 const SCHEMA: &str = "rustred.master-reduction.v1";
+
+/// Publication packages existing knowledge without searching for new IBPs.
+/// Refinement explicitly drains a bounded ordinary-source search.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MasterReductionOperation {
+    Publish,
+    #[default]
+    Refine,
+}
 
 #[derive(Clone, Debug)]
 pub struct MasterReductionOptions {
@@ -27,6 +39,7 @@ pub struct MasterReductionOptions {
     pub threads: usize,
     pub seed_depth: u32,
     pub checkpoint_interval: Duration,
+    pub operation: MasterReductionOperation,
 }
 
 impl MasterReductionOptions {
@@ -39,6 +52,7 @@ impl MasterReductionOptions {
             threads: 1,
             seed_depth: 0,
             checkpoint_interval: Duration::from_secs(3600),
+            operation: MasterReductionOperation::Refine,
         }
     }
 }
@@ -47,11 +61,12 @@ impl MasterReductionOptions {
 /// load function, not merely to render a table of counts.
 pub fn master_reduction_inspect(path: &Path) -> Result<Value, AppError> {
     let manifest = if path.is_dir() {
-        let final_path = path.join("artifact.json");
-        if final_path.exists() {
-            final_path
+        // A later paused attempt must never be hidden by an older publication.
+        let latest = path.join("latest.json");
+        if latest.exists() {
+            latest
         } else {
-            path.join("latest.json")
+            path.join("artifact.json")
         }
     } else {
         path.to_path_buf()
@@ -118,6 +133,11 @@ pub fn master_reduce_saved_campaign(
                 "master checkpoint belongs to a different scope or seed depth; start a new phase directory",
             ));
         }
+        if report["operation"].as_str().unwrap_or("refine") != operation_name(options.operation) {
+            return Err(AppError::input(
+                "cannot change a saved phase operation in place; refine a published artifact into a new directory",
+            ));
+        }
         report
     } else {
         if manifest_path.exists() {
@@ -133,9 +153,12 @@ pub fn master_reduce_saved_campaign(
             "application":"exact terminal substitutions; routed saved-owner coefficient back-substitution is a separate interface",
             "numerical_master_values_included":false})
     };
-    if report["status"] == "completed_nonminimal" {
+    if report["status"] == "completed_nonminimal"
+        || (options.operation == MasterReductionOperation::Publish
+            && report["status"] == "published_unrefined")
+    {
         let session = load_master_reduction(&options.directory)?;
-        if !session.is_complete() {
+        if report["status"] == "completed_nonminimal" && !session.is_complete() {
             return Err(AppError::input(
                 "completed manifest has unfinished native session",
             ));
@@ -144,6 +167,7 @@ pub fn master_reduce_saved_campaign(
         observer(event(&report, "master_reduction_finished", started));
         return Ok(report);
     }
+    report["operation"] = json!(operation_name(options.operation));
     report["status"] = json!("running");
     report["scope"] = storage::scope_summary(request)?;
     write_json(&manifest_path, &report)?;
@@ -229,12 +253,14 @@ fn run(
         }
         let session = if let Some(previous) = &options.previous_artifact {
             let previous_report = master_reduction_inspect(previous)?;
-            if previous_report["status"] != "completed_nonminimal"
-                || previous_report["inputs"]["program_binding"]
-                    != report["inputs"]["program_binding"]
+            if !matches!(
+                previous_report["status"].as_str(),
+                Some("completed_nonminimal" | "published_unrefined")
+            ) || previous_report["inputs"]["program_binding"]
+                != report["inputs"]["program_binding"]
             {
                 return Err(AppError::input(
-                    "previous stage is unfinished or has different saved rules/routes",
+                    "previous stage is unpublished or has different saved rules/routes",
                 ));
             }
             let mut previous_session = load_master_reduction(previous)?;
@@ -244,7 +270,12 @@ fn run(
                 return Err(AppError::input("previous stage family mismatch"));
             }
             previous_session
-                .extend(inventory.terminal_keys(), options.seed_depth)
+                .extend(
+                    inventory.terminal_keys(),
+                    options
+                        .seed_depth
+                        .max(previous_session.statistics().seed_depth),
+                )
                 .map_err(io)?;
             report["reused_previous_stage"] = json!(previous_report["scope_binding"]);
             previous_session
@@ -260,9 +291,27 @@ fn run(
         save(options, &session, report, "running", started, observer)?;
         session
     };
+    execute_session(options, &mut session, report, cancel, observer, started)
+}
+
+fn execute_session(
+    options: &MasterReductionOptions,
+    session: &mut TerminalRelationSession,
+    report: &mut Value,
+    cancel: &AtomicBool,
+    observer: &impl Fn(Value),
+    started: Instant,
+) -> Result<(), AppError> {
     let mut last_checkpoint = Instant::now();
     let mut last_event = Instant::now();
     while !session.is_complete() && !cancel.load(Ordering::Relaxed) {
+        // Scope extension may need to reindex old exact rows. This preserves
+        // previous refinements, but publication never processes a new source.
+        if options.operation == MasterReductionOperation::Publish
+            && session.statistics().pending_rebuild_rows == 0
+        {
+            break;
+        }
         session.step(cancel).map_err(io)?;
         if last_event.elapsed() >= Duration::from_millis(250) {
             update_stats(report, &session);
@@ -282,7 +331,11 @@ fn run(
         options,
         &session,
         report,
-        "completed_nonminimal",
+        if session.is_complete() {
+            "completed_nonminimal"
+        } else {
+            "published_unrefined"
+        },
         started,
         observer,
     )?;
@@ -295,6 +348,13 @@ fn publish_final(options: &MasterReductionOptions, report: &mut Value) -> Result
     report["artifact"] = json!(options.directory);
     write_json(&options.directory.join("artifact.json"), report)?;
     write_json(&options.directory.join("latest.json"), report)
+}
+
+fn operation_name(operation: MasterReductionOperation) -> &'static str {
+    match operation {
+        MasterReductionOperation::Publish => "publish",
+        MasterReductionOperation::Refine => "refine",
+    }
 }
 
 fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
@@ -325,6 +385,16 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     report["eliminated_terminals"] =
         json!(initially_normalized.saturating_sub(stats.remaining_terminals));
     report["terminal_relations"] = json!(stats.terminal_relations);
+    report["seed_depth"] = json!(stats.seed_depth);
+    report["refinement_complete"] = json!(stats.complete);
+    report["capabilities"] = json!({
+        "saved_scope_coverage_verified": report["inventory"]["complete"] == true,
+        "native_terminal_state": true,
+        "exact_current_terminal_substitutions": stats.pending_rebuild_rows == 0,
+        "routed_coefficient_application": false,
+        "numerical_master_values": false,
+        "minimality_proved": false
+    });
 }
 
 fn save(
@@ -350,6 +420,9 @@ fn save(
     report["native_state"] =
         json!({"file":file,"bytes":bytes.len(),"blake3":blake3::hash(&bytes).to_hex().to_string()});
     report["status"] = json!(status);
+    if status == "published_unrefined" {
+        report["stage"] = json!("published");
+    }
     report["elapsed_seconds"] = json!(started.elapsed().as_secs_f64());
     report["checkpoint"] = json!({"generation":generation,"directory":options.directory,
         "state":"saved","bytes":bytes.len(),"duration_seconds":save_start.elapsed().as_secs_f64(),

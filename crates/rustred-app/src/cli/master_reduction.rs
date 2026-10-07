@@ -13,6 +13,8 @@ use std::time::Duration;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MasterArgs {
     pub command: PathBuf,
+    pub artifact: Option<PathBuf>,
+    pub operation: crate::MasterReductionOperation,
     pub checkpoint: PathBuf,
     pub directory: PathBuf,
     pub previous_artifact: Option<PathBuf>,
@@ -32,6 +34,8 @@ pub(crate) struct MasterInspectArgs {
 pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
     let mut result = MasterArgs {
         command: PathBuf::new(),
+        artifact: None,
+        operation: crate::MasterReductionOperation::Refine,
         checkpoint: PathBuf::new(),
         directory: PathBuf::new(),
         previous_artifact: None,
@@ -47,6 +51,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
         let option: &'static str = match option.as_str() {
             "--command" => "--command",
+            "--artifact" => "--artifact",
             "--checkpoint" => "--checkpoint",
             "--directory" => "--directory",
             "--previous-artifact" => "--previous-artifact",
@@ -95,6 +100,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
                 }
                 match option {
                     "--command" => result.command = path,
+                    "--artifact" => result.artifact = Some(path),
                     "--checkpoint" => result.checkpoint = path,
                     "--directory" => result.directory = path,
                     "--previous-artifact" => result.previous_artifact = Some(path),
@@ -105,12 +111,19 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             }
         }
     }
-    if result.command.as_os_str().is_empty()
-        || result.checkpoint.as_os_str().is_empty()
-        || result.directory.as_os_str().is_empty()
+    let has_command = !result.command.as_os_str().is_empty();
+    let has_checkpoint = !result.checkpoint.as_os_str().is_empty();
+    if result.directory.as_os_str().is_empty()
+        || (result.artifact.is_some() && (has_command || has_checkpoint))
+        || (result.artifact.is_none() && (!has_command || !has_checkpoint))
     {
         return Err(ArgError::InvalidCombination(
-            "walk-master-reduce requires --command, --checkpoint and --directory",
+            "requires --directory and either --artifact or both --command and --checkpoint",
+        ));
+    }
+    if result.artifact.is_some() && result.previous_artifact.is_some() {
+        return Err(ArgError::InvalidCombination(
+            "--artifact already supplies the previous state",
         ));
     }
     if result.resume && result.previous_artifact.is_some() {
@@ -119,6 +132,19 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
         ));
     }
     Ok(Command::WalkMasterReduce(result))
+}
+
+pub(super) fn parse_publish(args: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
+    let Command::WalkMasterReduce(mut args) = parse(args)? else {
+        unreachable!()
+    };
+    if args.artifact.is_some() {
+        return Err(ArgError::InvalidCombination(
+            "walk-publish requires a saved campaign --command and --checkpoint",
+        ));
+    }
+    args.operation = crate::MasterReductionOperation::Publish;
+    Ok(Command::WalkMasterReduce(args))
 }
 
 pub(super) fn parse_inspect(mut args: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -180,18 +206,30 @@ pub(super) fn inspect(args: MasterInspectArgs) -> Result<(), CliError> {
 
 pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     super::routed::preflight_inner_pools()?;
-    let file = std::fs::File::open(&args.command).map_err(|e| CliError::InputIo(e.to_string()))?;
-    let bytes = super::io::read_bounded(file, "saved walk request", crate::MAX_INPUT_BYTES)?;
-    let document: Value =
-        serde_json::from_slice(&bytes).map_err(|e| CliError::Input(e.to_string()))?;
-    let argv: Vec<OsString> = document
-        .get("command")
-        .unwrap_or(&document)
-        .as_array()
-        .and_then(|a| a.iter().map(|v| v.as_str().map(OsString::from)).collect())
-        .ok_or_else(|| CliError::Input("saved command must be a list of strings".into()))?;
-    let mut protected = super::walk_inventory::protected_command_paths(&argv)?;
-    protected.extend([args.command.clone(), args.checkpoint.clone()]);
+    let (request, mut protected) = if let Some(source) = &args.artifact {
+        (None, vec![artifact_directory(source)?])
+    } else {
+        let file =
+            std::fs::File::open(&args.command).map_err(|e| CliError::InputIo(e.to_string()))?;
+        let bytes = super::io::read_bounded(file, "saved walk request", crate::MAX_INPUT_BYTES)?;
+        let document: Value =
+            serde_json::from_slice(&bytes).map_err(|e| CliError::Input(e.to_string()))?;
+        let argv: Vec<OsString> = document
+            .get("command")
+            .unwrap_or(&document)
+            .as_array()
+            .and_then(|a| a.iter().map(|v| v.as_str().map(OsString::from)).collect())
+            .ok_or_else(|| CliError::Input("saved command must be a list of strings".into()))?;
+        let protected = super::walk_inventory::protected_command_paths(&argv)?;
+        let request = super::owner_match::walk_request_from_argv(argv).map_err(CliError::Input)?;
+        (Some(request), protected)
+    };
+    if args.artifact.is_none() {
+        protected.extend([args.command.clone(), args.checkpoint.clone()]);
+    }
+    if let Some(previous) = &args.previous_artifact {
+        protected.push(artifact_directory(previous)?);
+    }
     let proposed_directory = prospective_path(&args.directory)?;
     for source in &protected {
         let source = prospective_path(source)?;
@@ -211,7 +249,6 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
             &protected,
         )?;
     }
-    let request = super::owner_match::walk_request_from_argv(argv).map_err(CliError::Input)?;
     // The phase directory must never be an original input/checkpoint or its
     // ancestor. Explicit paths avoid accidental writes to production state.
     std::fs::create_dir_all(&args.directory).map_err(|e| CliError::OutputIo(e.to_string()))?;
@@ -219,21 +256,8 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
         .directory
         .canonicalize()
         .map_err(|e| CliError::InputIo(e.to_string()))?;
-    for source in [
-        &request.matching.owner_base,
-        &args.checkpoint,
-        &args.command,
-    ] {
-        let source = source
-            .canonicalize()
-            .map_err(|e| CliError::InputIo(e.to_string()))?;
-        if source.starts_with(&directory) || directory.starts_with(&source) {
-            return Err(CliError::Input(
-                "phase directory overlaps saved campaign inputs/checkpoint".into(),
-            ));
-        }
-    }
     let mut options = crate::MasterReductionOptions::new(&args.checkpoint, &directory);
+    options.operation = args.operation;
     options.resume = args.resume;
     options.previous_artifact = args.previous_artifact;
     options.threads = args.threads;
@@ -249,7 +273,9 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
         );
     }
     let events = if let Some(path) = args.events {
-        if path.starts_with(&args.checkpoint) || path == args.command {
+        if (!args.checkpoint.as_os_str().is_empty() && path.starts_with(&args.checkpoint))
+            || path == args.command
+        {
             return Err(CliError::Input("events path overlaps saved inputs".into()));
         }
         Some(Mutex::new(
@@ -277,13 +303,23 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
                 }
             });
         }
-        let result = crate::master_reduce_saved_campaign(&request, &options, &cancel, |event| {
+        let observe = |event| {
             if let Some(events) = &events {
                 let _ = writeln!(events.lock().expect("events writer"), "{event}");
             } else {
                 let _ = writeln!(std::io::stderr().lock(), "{event}");
             }
-        });
+        };
+        let result = if let Some(source) = &args.artifact {
+            crate::master_refine_published_artifact(source, &options, &cancel, observe)
+        } else {
+            crate::master_reduce_saved_campaign(
+                request.as_ref().expect("source request"),
+                &options,
+                &cancel,
+                observe,
+            )
+        };
         finished.store(true, Ordering::Relaxed);
         result
     });
@@ -302,6 +338,19 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
         )));
     }
     Ok(())
+}
+
+fn artifact_directory(path: &Path) -> Result<PathBuf, CliError> {
+    let path = path
+        .canonicalize()
+        .map_err(|e| CliError::InputIo(e.to_string()))?;
+    Ok(if path.is_file() {
+        path.parent()
+            .expect("canonical file has parent")
+            .to_path_buf()
+    } else {
+        path
+    })
 }
 
 fn prospective_path(path: &Path) -> Result<PathBuf, CliError> {
@@ -361,5 +410,80 @@ mod tests {
             panic!()
         };
         assert_eq!(args.seed_depth, 0);
+    }
+
+    #[test]
+    fn publication_and_refinement_have_explicit_distinct_sources() {
+        let Command::WalkMasterReduce(args) = parse_publish(
+            [
+                "--command",
+                "request",
+                "--checkpoint",
+                "cp",
+                "--directory",
+                "out",
+            ]
+            .map(OsString::from)
+            .into_iter(),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(args.operation, crate::MasterReductionOperation::Publish);
+        let Command::WalkMasterReduce(args) = parse(
+            ["--artifact", "source", "--directory", "out"]
+                .map(OsString::from)
+                .into_iter(),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(args.operation, crate::MasterReductionOperation::Refine);
+        for argv in [
+            vec![
+                "--artifact",
+                "source",
+                "--command",
+                "request",
+                "--directory",
+                "out",
+            ],
+            vec![
+                "--artifact",
+                "source",
+                "--previous-artifact",
+                "previous",
+                "--directory",
+                "out",
+            ],
+        ] {
+            assert!(parse(argv.into_iter().map(OsString::from)).is_err());
+        }
+        assert!(
+            parse_publish(
+                ["--artifact", "source", "--directory", "out"]
+                    .map(OsString::from)
+                    .into_iter()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn artifact_manifest_protects_its_entire_source_directory() {
+        let scratch =
+            std::env::temp_dir().join(format!("rustred-cli-master-source-{}", std::process::id()));
+        std::fs::create_dir(&scratch).unwrap();
+        let file = scratch.join("artifact.json");
+        std::fs::write(&file, b"{}").unwrap();
+        assert_eq!(
+            artifact_directory(&file).unwrap(),
+            scratch.canonicalize().unwrap()
+        );
+        assert_eq!(
+            artifact_directory(&scratch).unwrap(),
+            scratch.canonicalize().unwrap()
+        );
+        std::fs::remove_dir_all(scratch).unwrap();
     }
 }

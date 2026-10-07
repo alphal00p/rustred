@@ -335,8 +335,10 @@ def normalize_status(status, sequence=None):
     }
     master = mapping(status.get("master_reduction"))
     if master:
-        frame["phase"] = "Master reduction"
+        operation = master.get("operation", "refine")
+        frame["phase"] = "Artifact publication" if operation == "publish" else "Master refinement"
         frame["master_reduction"] = {
+            "operation": operation,
             **_numbers(master, ("raw_terminals", "normalized_terminals", "remaining_terminals",
                                 "relation_rows", "eliminated_terminals", "completed_work", "total_work",
                                 "seed_depth", "independent_rows", "auxiliary_columns", "nonzeros")),
@@ -345,7 +347,8 @@ def normalize_status(status, sequence=None):
             "master_minimality_claim": False,
             "numerical_evaluation": False,
         }
-        frame["scope"] = "bounded exact terminal relations; no minimality or numerical master evaluation claim"
+        frame["scope"] = ("scoped dependency coverage and portable rule package; no master refinement" if operation == "publish" else
+                          "bounded exact terminal relations; no minimality or numerical master evaluation claim")
     return frame
 
 

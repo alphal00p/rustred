@@ -45,7 +45,14 @@ MISSING_PROBE = ("sys.stderr.write('rustred: usage: unknown command \"walk-seman
 
 def run(campaign, *options):
     output, errors = io.StringIO(), io.StringIO()
-    with redirect_stdout(output), redirect_stderr(errors), patch.object(PRODUCTION.os, "execv") as launch:
+    # These tests cover executable upgrade policy, not native solve/publication.
+    # Preserve their old launch-boundary assertions at the new dispatcher seam;
+    # phase protocol and publication are tested separately on real scratch children.
+    def dispatch(plan, _policy, _resume, _driver, **_options):
+        PRODUCTION.write_json(Path(plan["campaign_directory"]) / "active-run.json", plan)
+        PRODUCTION.os.execv(plan["command"][0], plan["command"])
+    with redirect_stdout(output), redirect_stderr(errors), patch.object(PRODUCTION.os, "execv") as launch, \
+            patch.object(PRODUCTION.PHASES, "run", side_effect=dispatch):
         try:
             status = PRODUCTION.main(["--campaign-directory", str(campaign), *options])
         except SystemExit as error:

@@ -55,7 +55,7 @@ class PhaseTests(unittest.TestCase):
                                       checkpoint_lock=PRODUCTION.checkpoint_lock)
         self.plan = {"campaign_directory": str(self.campaign), "checkpoint_directory": str(self.checkpoint),
                      "run_directory": str(self.campaign / "runs/next"), "command": ["supervisor"]}
-        self.policy = PHASES.configuration(self.campaign, True)
+        self.policy = PHASES.configuration(self.campaign)
 
     def write(self, name, value):
         path = self.campaign / name
@@ -68,16 +68,20 @@ class PhaseTests(unittest.TestCase):
     def ready(self):
         return PHASES.completed_request(self.campaign, self.checkpoint, self.binding(), self.driver)
 
-    def test_opt_in_persists_and_only_explicitly_deepens_search(self):
-        self.assertIsNone(PHASES.configuration(self.campaign))
-        self.write("master-reduction/policy.json", self.policy)
-        self.assertEqual(PHASES.configuration(self.campaign), self.policy)
-        deeper = PHASES.configuration(self.campaign, seed_depth=1)
+    def test_default_publishes_and_legacy_opt_in_never_automatically_refines(self):
+        self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
+        self.write("master-reduction/policy.json", {**self.policy, "operation": "refine"})
+        self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
+        deeper = PHASES.configuration(self.campaign, enabled=True, seed_depth=1)
         self.assertEqual(deeper["seed_depth"], 1)
-        self.assertNotEqual(self.binding()["key"], PHASES.scope_binding(self.campaign, self.checkpoint, 1)["key"])
+        self.assertEqual(deeper["operation"], "refine")
+        self.assertNotEqual(self.binding()["key"], PHASES.scope_binding(self.campaign, self.checkpoint, 1, "refine")["key"])
         self.write("master-reduction/policy.json", deeper)
         with self.assertRaisesRegex(ValueError, "cannot lower"):
-            PHASES.configuration(self.campaign, seed_depth=0)
+            PHASES.configuration(self.campaign, enabled=True, seed_depth=0)
+        with self.assertRaisesRegex(ValueError, "explicit"):
+            PHASES.configuration(self.campaign, seed_depth=1)
+        self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
 
     def test_separate_native_executable_freezes_without_changing_phase_one(self):
         binary = self.campaign / "new-native"
@@ -91,8 +95,11 @@ class PhaseTests(unittest.TestCase):
         self.assertFalse((self.campaign / "bin").exists())
         self.write("master-reduction/policy.json", policy)
         binary.write_bytes(b"#!/bin/sh\nexit 1\n")
-        with self.assertRaisesRegex(ValueError, "cannot be silently replaced"):
-            PHASES.configuration(self.campaign, executable=binary)
+        self.assertEqual(PHASES.configuration(self.campaign)["executable"], policy["executable"])
+        explicit = PHASES.configuration(self.campaign, executable=binary)
+        self.assertNotEqual(explicit["executable"]["sha256"], policy["executable"]["sha256"])
+        PHASES.freeze_master_executable(self.campaign / "master-reduction", explicit, PRODUCTION)
+        self.assertTrue(frozen.is_file())
 
     def test_drained_receipt_bound_to_exact_checkpoint_not_cached_rootbar(self):
         self.assertIsNotNone(self.ready())
@@ -129,6 +136,51 @@ class PhaseTests(unittest.TestCase):
         with patch.object(PHASES, "phase_one", return_value=(4, False)) as first, patch.object(PHASES, "phase_two") as second:
             self.assertEqual(PHASES.run(self.plan, self.policy, True, self.driver), 4)
         first.assert_called_once()
+        second.assert_not_called()
+
+    def test_postprocess_only_never_starts_solve_when_incomplete(self):
+        self.result["recursive_worklist_exhausted"] = False
+        self.write("runs/first/result.json", self.result)
+        with patch.object(PHASES, "phase_one") as first, patch.object(PHASES, "phase_two") as second:
+            with self.assertRaisesRegex(ValueError, "postprocess-only"):
+                PHASES.run(self.plan, self.policy, True, self.driver, postprocess_only=True)
+        first.assert_not_called()
+        second.assert_not_called()
+
+    def publish_fixture(self, operation="publish", depth=0):
+        path = self.campaign / "master-reduction/scopes/published"
+        self.write("master-reduction/scopes/published/artifact.json", {"status": "published_unrefined"})
+        PHASES.publish_pointer(self.campaign, path, self.binding(), operation, self.driver,
+                               {"seed_depth": depth} if operation == "refine" else None)
+        return path
+
+    def test_refine_is_explicit_and_reads_published_artifact_without_walking(self):
+        source = self.publish_fixture()
+        policy = PHASES.configuration(self.campaign, enabled=True)
+        with patch.object(PHASES, "phase_one") as first, patch.object(PHASES, "phase_two", return_value=4) as second:
+            self.assertEqual(PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True), 4)
+        first.assert_not_called()
+        self.assertEqual(second.call_args.args[1]["source_artifact"], str(source))
+        pointer = PHASES.read_json(self.campaign / "artifacts/latest.json")
+        self.assertEqual(pointer["operation"], "publish")  # Paused refinement preserves usable output.
+        self.assertFalse(Path(pointer["directory"]).is_absolute())
+
+    def test_default_resume_preserves_same_scope_refined_artifact_without_rerun(self):
+        self.publish_fixture("refine", 1)
+        with patch.object(PHASES, "phase_one") as first, patch.object(PHASES, "phase_two") as second:
+            self.assertEqual(PHASES.run(self.plan, self.policy, True, self.driver), 0)
+        first.assert_not_called()
+        second.assert_not_called()
+        self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["operation"], "refine")
+
+    def test_extension_prevents_refining_old_scope(self):
+        self.publish_fixture()
+        self.write("amendments/amendment-0001.json", {"rank": 1})
+        with patch.object(PHASES, "phase_one") as first, patch.object(PHASES, "phase_two") as second:
+            with self.assertRaisesRegex(ValueError, "current scope"):
+                PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True), True,
+                           self.driver, postprocess_only=True)
+        first.assert_not_called()
         second.assert_not_called()
 
     def test_interruption_at_phase_one_boundary_does_not_begin_phase_two(self):
@@ -184,11 +236,21 @@ class PhaseTests(unittest.TestCase):
         send.assert_called_once_with(456, signal.SIGINT)
 
     def test_real_scratch_child_saves_on_sigint_and_resume_returns_to_phase_two(self):
+        self._scratch_native_pause_resume("publish")
+
+    def test_explicit_refinement_saves_and_resumes_without_replacing_publication_on_pause(self):
+        self._scratch_native_pause_resume("refine")
+
+    def _scratch_native_pause_resume(self, operation):
         # Fake native protocol only; this proves process/checkpoint orchestration,
         # not mathematical correctness or a successful native Rust solve.
         binary = self.campaign / "fake-native"
         binary.write_text(f"#!{sys.executable}\n" + '''import json, pathlib, sys, time
 args = sys.argv
+refine = args[1] == 'walk-master-reduce'
+assert ('--seed-depth' in args) == refine
+assert ('--artifact' in args) == refine
+assert ('--command' in args) != refine
 directory = pathlib.Path(args[args.index('--directory') + 1])
 events = pathlib.Path(args[args.index('--events') + 1])
 stop = pathlib.Path(args[args.index('--stop-file') + 1])
@@ -204,7 +266,7 @@ if '--resume' not in args:
     event('paused')
     sys.exit(4)
 (directory/'artifact.json').write_text('{}')
-event('completed_nonminimal')
+event('completed_nonminimal' if refine else 'published_unrefined')
 ''')
         binary.chmod(0o700)
         cpus = sorted(os.sched_getaffinity(0))[:1]
@@ -215,6 +277,9 @@ event('completed_nonminimal')
                     "ram_guard_margin_percent": 5, "host_memory_reserve_bytes": 1_000_000,
                     "swap_growth_stop_bytes_per_second": 0, "swap_growth_stop_seconds": 120}}
         driver = SimpleNamespace(**vars(PRODUCTION))
+        native_policy = {**self.policy, "operation": operation}
+        if operation == "refine":
+            native_policy["source_artifact"] = str(self.publish_fixture())
         binding = self.binding()
         directory = self.campaign / "master-reduction/scopes" / binding["key"]
         directory.mkdir(parents=True)
@@ -222,19 +287,23 @@ event('completed_nonminimal')
         with patch.object(PHASES.sys, "stderr", io.StringIO()), patch.object(PHASES.sys, "stdout", io.StringIO()):
             timer.start()
             try:
-                self.assertEqual(PHASES.phase_two(plan, self.policy, self.campaign / "runs/first/request.json", binding, directory, driver), 4)
+                self.assertEqual(PHASES.phase_two(plan, native_policy, self.campaign / "runs/first/request.json", binding, directory, driver), 4)
             finally:
                 timer.cancel()
                 timer.join()
             self.assertTrue((directory / "latest.json").exists())
-            self.assertEqual(PHASES.phase_two(plan, self.policy, self.campaign / "runs/first/request.json", binding, directory, driver), 0)
+            if operation == "refine":
+                self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["status"], "published_unrefined")
+            self.assertEqual(PHASES.phase_two(plan, native_policy, self.campaign / "runs/first/request.json", binding, directory, driver), 0)
         self.assertTrue((directory / "artifact.json").exists())
         pointer = PHASES.read_json(self.campaign / "master-reduction/active-phase.json")
         observer = PRODUCTION.SUPERVISOR.MONITOR
         self.assertEqual(observer.active_status_directory(self.campaign), Path(pointer["run_directory"]))
         status = observer.read_status(self.campaign)
-        self.assertEqual(status["state"], "completed_nonminimal")
+        expected = "published_unrefined" if operation == "publish" else "completed_nonminimal"
+        self.assertEqual(status["state"], expected)
         self.assertEqual(status["master_reduction"]["remaining_terminals"], 3)
+        self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["status"], expected)
 
 
 class MasterDashboardTests(unittest.TestCase):
@@ -260,7 +329,7 @@ class MasterDashboardTests(unittest.TestCase):
             self.assertTrue(all(DASHBOARD.cell_width(ANSI.sub("", row)) == width for row in rows))
             self.assertIn("\x1b[", "\n".join(rows))
         shown = "\n".join(DASHBOARD.render_table(frame, 80, 24, False))
-        self.assertIn("MASTER REDUCTION", shown)
+        self.assertIn("MASTER REFINEMENT", shown)
         self.assertIn("nonminimal", shown)
         self.assertNotIn("ROOT CLOSURE", shown)
         self.assertNotIn("pending", shown)
@@ -271,10 +340,25 @@ class MasterDashboardTests(unittest.TestCase):
         stream = io.StringIO()
         DASHBOARD.Presenter(stream=stream).render_frame(frame, now=0, force=True)
         value = json.loads(stream.getvalue())
-        self.assertEqual(value["telemetry"]["phase"], "Master reduction")
+        self.assertEqual(value["telemetry"]["phase"], "Master refinement")
         self.assertIsNone(value["telemetry"]["master_reduction"]["remaining_terminals"])
         self.assertNotIn("\x1b", stream.getvalue())
         self.assertFalse(value["telemetry"]["master_reduction"]["master_minimality_claim"])
+
+    def test_publication_has_its_own_coverage_display_and_no_relation_search(self):
+        frame = self.frame()
+        frame["master_reduction"]["operation"] = "publish"
+        frame["state"] = "published_unrefined"
+        for width, height in ((80, 24), (150, 32), (35, 12)):
+            rows = DASHBOARD.render_table(frame, width, height, True)
+            self.assertLessEqual(len(rows), height)
+            self.assertTrue(all(DASHBOARD.cell_width(ANSI.sub("", row)) == width for row in rows))
+        shown = "\n".join(DASHBOARD.render_table(frame, 80, 24, False))
+        self.assertIn("ARTIFACT PUBLICATION", shown)
+        self.assertIn("verified", shown)
+        self.assertIn("not requested", shown)
+        self.assertNotIn("ROOT CLOSURE", shown)
+        self.assertNotIn("Relation work", shown)
 
 
 if __name__ == "__main__":

@@ -469,6 +469,7 @@ def render_master_table(frame, width=100, height=24, color=True):
     width, height = max(20, min(160, width)), max(8, height)
     inner = width - 4
     master, resource, checkpoint = frame["master_reduction"], frame["resources"], frame["checkpoint"]
+    publishing = master.get("operation") == "publish"
     label_width, value_width = (19, 18) if width >= 74 else (10, 8)
     detail_width = inner - label_width - value_width - 6
     border = lambda left, right: _paint(left + "─" * (width - 2) + right, "2;36", color)
@@ -489,7 +490,7 @@ def render_master_table(frame, width=100, height=24, color=True):
     work = f"{count(completed)} / {count(total)}" if total is not None else count(completed)
     progress = bar(completed, total, frame["elapsed_seconds"]) if total is not None else "total not yet known"
     rows = [
-        (0, row("Stage", master["stage"] or "preparing", "bounded exact relation search", "36")),
+        (0, row("Stage", master["stage"] or "preparing", "verify and package scoped rules" if publishing else "bounded exact relation search", "36")),
         (1, row("Retained keys", count(master["raw_terminals"]), "phase-one keys, including prior stages")),
         (1, row("Normalized", count(master["normalized_terminals"]), "exact symmetry aliases; not minimal")),
         (0, row("Remaining basis", count(master["remaining_terminals"]), "finite, potentially nonminimal", "32")),
@@ -507,6 +508,11 @@ def render_master_table(frame, width=100, height=24, color=True):
         (2, full("Scope " + master["scope_binding"], "2")),
         (2, full("Receipts " + frame["run_directory"], "2")),
     ]
+    if publishing:
+        rows = [entry for index, entry in enumerate(rows) if index not in (4, 5, 6, 7)]
+        rows.insert(1, (0, row("Coverage", "verified" if frame["state"] == "published_unrefined" else "checking",
+                              "scoped dependency coverage; not termination", "32")))
+        rows.insert(2, (0, row("Refinement", "not requested", "explicit refine command only", "36")))
     if master["artifact"]:
         rows.insert(0, (0, full("Artifact " + master["artifact"], "32")))
     if frame["stop_reason"]:
@@ -514,11 +520,12 @@ def render_master_table(frame, width=100, height=24, color=True):
     if frame["heartbeat_stale"]:
         rows.insert(0, (-2, full("STALE HEARTBEAT — current activity unverified", "1;31")))
     fixed = [border("╭", "╮"),
-             full(f"RustRed / MASTER REDUCTION / {clean(frame['state']).upper()} / {duration(frame['elapsed_seconds'])}", "1;36"),
+             full(f"RustRed / {'ARTIFACT PUBLICATION' if publishing else 'MASTER REFINEMENT'} / {clean(frame['state']).upper()} / {duration(frame['elapsed_seconds'])}", "1;36"),
              border("├", "┤")]
     if detail_width >= 12 and height >= 20:
         fixed += [row("METRIC", "VALUE", "DETAIL", "1"), border("├", "┤")]
-    footer = [border("├", "┤"), full("Exact bounded search · nonminimal basis allowed · no numerical values", "2"), border("╰", "╯")]
+    footer = [border("├", "┤"), full("Portable scoped artifact · unrefined terminals · no numerical values" if publishing else
+              "Exact bounded search · nonminimal basis allowed · no numerical values", "2"), border("╰", "╯")]
     if height < 14:
         footer = [border("╰", "╯")]
     budget = max(0, height - len(fixed) - len(footer))
@@ -539,7 +546,7 @@ def plain_summary(frame):
     """Readable append-only summary from the same public frame as every consumer."""
     if frame.get("master_reduction"):
         master = frame["master_reduction"]
-        return [f"RustRed · Master reduction · {frame['state']} · {duration(frame['elapsed_seconds'])}",
+        return [f"RustRed · {frame['phase']} · {frame['state']} · {duration(frame['elapsed_seconds'])}",
                 f"Stage {master['stage']} · {count(master['remaining_terminals'])} remaining terminals (nonminimal)",
                 f"Relations {count(master['relation_rows'])} · {count(master['eliminated_terminals'])} eliminated",
                 f"Checkpoint {frame['checkpoint']['state']} · {frame['checkpoint']['directory']}",

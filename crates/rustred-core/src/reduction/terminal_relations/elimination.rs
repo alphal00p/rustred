@@ -242,7 +242,9 @@ impl TerminalRelationSession {
             .collect()
     }
 
-    /// Exact unit-mass substitution onto the remaining finite terminal basis.
+    /// Exact unit-mass substitution using currently known terminal relations.
+    /// This also applies before finite search completion: unprocessed sources
+    /// may improve the result, but cannot invalidate already proved rows.
     /// For a common mass m² adapters restore (m²)^(sum(output)-sum(input)); the
     /// dimension remains symbolic. No numerical catalog is required here.
     pub fn apply_terminal(
@@ -254,7 +256,7 @@ impl TerminalRelationSession {
                 "integral is not in the original terminal inventory",
             ));
         }
-        if !self.column_normalized || self.rebuild_cursor < self.rebuild.len() {
+        if self.rebuild_cursor < self.rebuild.len() {
             return Err(invalid("terminal basis is being rebuilt"));
         }
         let rules = self.terminal_rules();

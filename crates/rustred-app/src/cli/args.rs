@@ -176,6 +176,7 @@ pub(crate) enum Command {
     WalkInventory(super::walk_inventory::WalkInventoryArgs),
     WalkMasterReduce(super::master_reduction::MasterArgs),
     MasterInspect(super::master_reduction::MasterInspectArgs),
+    ArtifactInspect(super::artifact_inspect::InspectArgs),
     FoundryCampaignRun(FoundryCampaignRunArgs),
     FoundryWaveCampaignRun(FoundryWaveCampaignRunArgs),
     Help,
@@ -294,7 +295,9 @@ pub(crate) fn parse_args(
         "walk-rescue-plan" => super::walk_rescue::parse(arguments),
         "walk-inventory" => super::walk_inventory::parse(arguments),
         "walk-master-reduce" => super::master_reduction::parse(arguments),
+        "walk-publish" => super::master_reduction::parse_publish(arguments),
         "master-inspect" => super::master_reduction::parse_inspect(arguments),
+        "artifact-inspect" => super::artifact_inspect::parse(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
 }
@@ -392,6 +395,9 @@ USAGE:
     rustred walk-inventory (--campaign-directory DIR | --command WALK_ARGV.json) [--checkpoint DIR] [--threads N] [--normalize-terminals] [--rules-start N] [--terminals-start N] [--normalized-terminals-start N] [--page-size N] [--output REPORT.json] [--force]
     rustred walk-master-reduce --command WALK_ARGV.json --checkpoint DIR --directory DIR [--resume | --previous-artifact DIR] [--seed-depth N] [--threads N] [--events PATH] [--stop-file PATH] [--checkpoint-interval-seconds N]
     rustred master-inspect --artifact DIR [--format auto|table|json]
+    rustred artifact-inspect (--campaign-directory DIR | --artifact DIR) [--format auto|table|json] [--threads N]
+    rustred walk-publish --command WALK_ARGV.json --checkpoint DIR --directory OUTPUT [--resume] [--previous-artifact DIR] [--threads N] [--events FILE] [--stop-file FILE]
+    rustred walk-master-reduce --artifact SOURCE --directory OUTPUT [--resume] [--seed-depth N] [--threads N] [--events FILE] [--stop-file FILE]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]

@@ -280,12 +280,43 @@ remains read-only. The optional second phase below runs a finite ordinary-IBP
 search. A bounded search finding no additional relation does not establish a
 minimal master basis.
 
-## Second phase: master reduction and final inspection
+## Publish every completed scope; refine manually
 
-Use the current Python launcher with `--master-reduction` to add a durable
-second phase after the saved-domain campaign has completed. It first performs
-a full read-only inventory of the completed scope, normalizes its finite
-terminal keys, generates ordinary IBPs around those keys, and uses Symbolica's
+The current common wrapper publishes a portable artifact after every successful
+solve or scope extension, without automatically searching master relations:
+
+```bash
+python -B examples/python/saved_campaign.py run --campaign /path/to/campaign
+python -B examples/python/saved_campaign.py inspect --campaign /path/to/campaign
+python -B examples/python/saved_campaign.py extend --campaign /path/to/campaign \
+  --rank 1 --max-power-difference 10
+```
+
+To publish an already completed checkpoint without permission to solve an
+incomplete scope, use `publish` instead of `run`. The wrapper defaults to the
+current optimized native binary; `--executable /path/to/rustred` selects a
+publisher/refiner separately from the original frozen solve engine.
+
+Refinement is explicitly requested and consumes the published artifact:
+
+```bash
+python -B examples/python/saved_campaign.py refine --campaign /path/to/campaign \
+  --seed-depth 0
+```
+
+The old persisted opt-in never authorizes future automatic refinement.
+`artifacts/latest.json` selects the latest completed package; each earlier
+scope package remains intact. A paused refinement does not replace usable
+output. Repeat `run` after interruption of solving/publication, or explicitly
+repeat `refine` after interruption of refinement. See
+[campaign_master_reduction.md](campaign_master_reduction.md) for the full
+command surface and portability/claim boundaries.
+
+### Details of explicitly requested terminal refinement
+
+Use `refine` (or low-level `--refine-masters`) only after publication. It
+loads the published finite terminal inventory, generates ordinary IBPs around
+those keys, and uses Symbolica's
 exact sparse elimination to find terminal-only relations. Generated auxiliary
 integrals remain matrix columns; they are never discarded for exceeding the
 starting R/D bounds. Exact structural aliases on generated columns can expose
@@ -308,21 +339,20 @@ after building the current release:
 nix develop /common/dev/rustred --command python -B \
   examples/python/production_saved_owner_campaign.py \
   --campaign-directory campaigns/five-loop-r0-d9-20261007 \
-  --resume --master-reduction \
+  --resume --refine-masters \
   --master-reduction-executable target/release/rustred --start
 ```
 
-The opt-in policy persists. A completed, unchanged scope skips phase one;
-an R/D extension returns to phase one before resuming postprocessing for the
-larger scope. Use the **current** `extend_rank_campaign.py` helper, rather than
-an old copied helper, to retain this phase-aware steering.
+Executable and seed preferences persist, but permission to refine does not.
+An R/D extension solves and publishes the larger scope without refinement.
+Use the current helper, not an older copied Python snapshot.
 
-The dashboard explicitly switches to **Master reduction**, with finite work,
+The dashboard explicitly switches to **Master refinement**, with finite work,
 raw/normalized/remaining terminal counts, sparse rows/nonzeros, CPU/RAM and
 checkpoint status. Ctrl+C requests an orderly stop; the current atomic native
 row finishes before the cursor and matrix are saved. The active Symbolica row
 cannot be asynchronously interrupted safely. A resume continues the saved
-second-phase session rather than rerunning the completed campaign. Scheduled
+refinement session when `refine` is explicitly repeated, rather than rerunning the completed campaign. Scheduled
 checkpoints use the campaign interval; a machine crash may redo work since the
 last durable checkpoint. Earlier R/D-stage packages remain available, and
 compatible later stages reuse saved independent rows instead of regenerating

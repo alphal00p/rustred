@@ -1,7 +1,7 @@
-"""Optional two-phase campaign steering. Native Rust owns all mathematical state.
+"""Solve, publish, and explicitly refine a saved campaign.
 
-Phase one retains its CP6 worklist. Phase two has a separate checkpoint and
-bounded, exact terminal-relation artifact. This module only binds scopes,
+Phase one retains its CP6 worklist. Publication and optional refinement have
+separate checkpoints and portable symbolic artifacts. This module only binds scopes,
 launches owned processes and feeds the generic telemetry/dashboard consumers.
 """
 from __future__ import annotations
@@ -44,7 +44,11 @@ def digest(path):
 
 
 def configuration(campaign, enabled=False, seed_depth=None, executable=None):
-    """Read-only configuration; an existing opt-in survives ordinary resumes."""
+    """Read-only configuration. Only this invocation can request refinement.
+
+    Historical ``enabled`` policies retain executable/search preferences, never
+    authority to refine an ordinary solve or extension automatically.
+    """
     path = Path(campaign) / "master-reduction" / "policy.json"
     existing = read_json(path) if path.is_file() else None
     if seed_depth is not None and (type(seed_depth) is not int or seed_depth < 0):
@@ -53,16 +57,13 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None):
         if (existing.get("schema") != SCHEMA or existing.get("enabled") is not True
                 or type(existing.get("seed_depth")) is not int or existing["seed_depth"] < 0):
             raise ValueError("invalid persisted master-reduction policy")
-        if seed_depth is not None and seed_depth < existing["seed_depth"]:
+        if enabled and seed_depth is not None and seed_depth < existing["seed_depth"]:
             raise ValueError("cannot lower the previous master seed depth")
-        if executable is not None and digest(executable) != existing.get("executable", {}).get("sha256"):
-            raise ValueError("the independently frozen master executable cannot be silently replaced")
-        return {**existing, "seed_depth": existing["seed_depth"] if seed_depth is None else seed_depth}
-    if not enabled:
-        if seed_depth is not None or executable is not None:
-            raise ValueError("master options require --master-reduction")
-        return None
-    policy = {"schema": SCHEMA, "enabled": True, "seed_depth": 0 if seed_depth is None else seed_depth,
+    if seed_depth is not None and not enabled:
+        raise ValueError("master seed depth requires explicit --refine-masters")
+    policy = {**(existing or {}), "schema": SCHEMA, "enabled": True,
+            "operation": "refine" if enabled else "publish",
+            "seed_depth": (existing or {}).get("seed_depth", 0) if seed_depth is None else seed_depth,
             "terminal_policy": "bounded exact search; finite nonminimal basis permitted",
             "master_minimality_claim": False}
     if executable is not None:
@@ -114,7 +115,7 @@ def _chain(campaign):
             for path in sorted((Path(campaign) / "amendments").glob("amendment-*.json"))]
 
 
-def scope_binding(campaign, checkpoint, seed_depth=0):
+def scope_binding(campaign, checkpoint, seed_depth=0, operation="publish"):
     """Cheap launch identity, not an alternative to Rust's cold verification."""
     campaign, checkpoint = Path(campaign), Path(checkpoint)
     latest = checkpoint / "latest.json"
@@ -124,10 +125,46 @@ def scope_binding(campaign, checkpoint, seed_depth=0):
         raise ValueError("master reduction requires a resumable native checkpoint")
     components = {"checkpoint_manifest_sha256": digest(latest), "amendments": _chain(campaign),
                   "selection_sha256": digest(campaign / "inputs/selection.json"),
-                  "queries_sha256": digest(campaign / "inputs/queries.json"), "seed_depth": seed_depth}
+                  "queries_sha256": digest(campaign / "inputs/queries.json"),
+                  "operation": operation, "seed_depth": seed_depth if operation == "refine" else 0}
     key = hashlib.sha256(json.dumps(components, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return {"key": key, "components": components, "generation": manifest.get("generation"),
             "manifest_blake3": bytes(envelope["blake3"]).hex() if isinstance(envelope.get("blake3"), list) else None}
+
+
+def same_input_scope(left, right):
+    """Operation/depth change the search, not the admitted physics scope."""
+    fields = ("checkpoint_manifest_sha256", "amendments", "selection_sha256", "queries_sha256")
+    return all(left.get("components", {}).get(key) == right.get("components", {}).get(key) for key in fields)
+
+
+def completed_artifact(campaign):
+    path = Path(campaign) / "artifacts/latest.json"
+    if not path.is_file():
+        return None
+    record = read_json(path)
+    relative = record.get("directory")
+    if record.get("schema") != "rustred.saved-artifact-pointer.v1" or not isinstance(relative, str):
+        raise ValueError("invalid saved artifact pointer")
+    directory = (Path(campaign) / relative).resolve()
+    if Path(relative).is_absolute() or not directory.is_relative_to(Path(campaign).resolve()):
+        raise ValueError("artifact pointer must remain relative inside the campaign")
+    if not (directory / "artifact.json").is_file():
+        raise ValueError("saved artifact pointer has no completed native artifact")
+    return {**record, "resolved_directory": directory}
+
+
+def publish_pointer(campaign, directory, binding, operation, driver, refinement=None):
+    # Called under the dispatcher lock, only after native success. An interrupted
+    # refinement leaves the last valid publication visible and untouched.
+    (Path(campaign) / "artifacts").mkdir(exist_ok=True)
+    driver.write_json(Path(campaign) / "artifacts/latest.json", {
+        "schema": "rustred.saved-artifact-pointer.v1",
+        "directory": str(Path(directory).resolve().relative_to(Path(campaign).resolve())),
+        "scope_binding": binding, "operation": operation,
+        "status": "published_unrefined" if operation == "publish" else "completed_nonminimal",
+        "completed_unix_time": time.time(), "master_minimality_claim": False,
+        **({"refinement": refinement} if refinement is not None else {})})
 
 
 def _arguments(command, option):
@@ -220,7 +257,10 @@ def phase_one(command):
 
 
 def phase_two(plan, policy, request, binding, directory, driver):
-    """Native bounded relation search under the existing CPU and RAM policies."""
+    """Native publication or explicit refinement, never Python algebra."""
+    operation = policy.get("operation", "publish")
+    publishing = operation == "publish"
+    phase = "Artifact publication" if publishing else "Master refinement"
     supervisor = driver.SUPERVISOR
     telemetry, dashboard = supervisor.MONITOR.TELEMETRY, supervisor.MONITOR.DASHBOARD
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
@@ -230,14 +270,20 @@ def phase_two(plan, policy, request, binding, directory, driver):
     executable = driver.steering_executable(plan["steering_policy"])[1]
     if policy.get("executable"):
         executable = Path(plan["campaign_directory"]) / "master-reduction" / policy["executable"]["path"]
-    command = [str(executable), "walk-master-reduce", "--command", str(request),
-               "--checkpoint", plan["checkpoint_directory"], "--directory", str(directory),
+    command = [str(executable), "walk-publish" if publishing else "walk-master-reduce"]
+    if publishing:
+        command += ["--command", str(request), "--checkpoint", plan["checkpoint_directory"]]
+    else:
+        command += ["--artifact", str(policy["source_artifact"])]
+    command += ["--directory", str(directory),
                "--events", str(events), "--stop-file", str(stop_file),
                "--checkpoint-interval-seconds", str(plan["checkpoint_interval_seconds"]),
-               "--threads", str(plan["requested_workers"]), "--seed-depth", str(policy["seed_depth"])]
+               "--threads", str(plan["requested_workers"])]
+    if not publishing:
+        command += ["--seed-depth", str(policy["seed_depth"])]
     if (directory / "latest.json").is_file():
         command.append("--resume")
-    else:
+    elif publishing:
         previous_path = directory.parent.parent / "completed-phase.json"
         if previous_path.is_file():
             previous = read_json(previous_path)
@@ -263,14 +309,15 @@ def phase_two(plan, policy, request, binding, directory, driver):
     for name in supervisor.DIAGNOSTIC_ONLY_ENVIRONMENT:
         environment.pop(name, None)
     driver.write_json(attempt / "request.json", {"command": command, "cpus": sorted(cpus),
-                      "scope_binding": binding, "phase": "Master reduction"})
+                      "scope_binding": binding, "phase": phase, "operation": operation})
     driver.write_json(directory.parent.parent / "active-phase.json", {
-        "schema": SCHEMA, "phase": "Master reduction", "scope_binding": binding["key"],
+        "schema": SCHEMA, "phase": phase, "operation": operation, "scope_binding": binding["key"],
         "directory": str(directory), "run_directory": str(attempt), "request": str(request)})
     presenter = dashboard.Presenter()
     stream = telemetry.TelemetryStream(attempt / "telemetry.jsonl")
     tail = supervisor.MONITOR.EventTail(events)
-    latest = {"phase": "Master reduction", "stage": "cold closure verification", "status": "running",
+    latest = {"phase": phase, "operation": operation,
+              "stage": "cold closure verification" if publishing else "loading published artifact", "status": "running",
               "seed_depth": policy["seed_depth"], "scope_binding": binding["key"]}
     checkpoint = {}
 
@@ -279,8 +326,9 @@ def phase_two(plan, policy, request, binding, directory, driver):
         payload = event.get("progress", event)
         if not isinstance(payload, dict):
             return
-        if payload.get("event", "").startswith("master_reduction") or payload.get("phase") == "Master reduction":
+        if payload.get("event", "").startswith(("master_reduction", "artifact_")) or payload.get("phase") in ("Master reduction", phase):
             latest.update({key: value for key, value in payload.items() if value is not None})
+            latest.update(phase=phase, operation=operation)
             if isinstance(payload.get("checkpoint"), dict):
                 checkpoint = dict(payload["checkpoint"])
                 if "saved_unix_time" not in checkpoint:
@@ -314,7 +362,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
                   "process_identity": identities,
                   "run_directory": str(attempt), "workers": plan["requested_workers"],
                   "hard_memory_bytes": hard, "soft_memory_bytes": soft, "stop_reason": stop_reason,
-                  "resources": last_resources, "progress": {"phase": "Master reduction"},
+                  "resources": last_resources, "progress": {"phase": phase},
                   "master_reduction": latest, "checkpoint": checkpoint}
         frame = stream.emit(status)
         driver.write_json(attempt / "status.json", status)
@@ -359,21 +407,36 @@ def phase_two(plan, policy, request, binding, directory, driver):
         # The CLI also uses exit 4 for input errors. Only the native event
         # attesting a cooperative pause justifies displaying a resumable pause.
         paused = status == 4 and latest.get("status") == "paused"
-        publish("completed_nonminimal" if status == 0 else "paused" if paused else "failed", force=True)
+        finished_state = "published_unrefined" if publishing else "completed_nonminimal"
+        publish(finished_state if status == 0 else "paused" if paused else "failed", force=True)
         driver.write_json(attempt / "supervisor-result.json", {"exit_status": status, "stop_reason": stop_reason,
-                          "phase": "Master reduction", "scope_binding": binding["key"],
+                          "phase": phase, "operation": operation, "scope_binding": binding["key"],
                           "peak_observed_rss_bytes": peak, "elapsed_seconds": time.monotonic() - started})
         if status == 0:
+            if not (directory / "artifact.json").is_file():
+                raise ValueError("native success did not produce its completed artifact.json")
+            current = scope_binding(plan["campaign_directory"], plan["checkpoint_directory"])
+            if not same_input_scope(current, binding):
+                raise ValueError("campaign scope changed during postprocessing; artifact retained but latest pointer not updated")
+            previous = completed_artifact(plan["campaign_directory"])
+            keep_refined = publishing and previous and same_input_scope(previous.get("scope_binding", {}), binding) \
+                and previous.get("operation") == "refine"
+            if not keep_refined:
+                refinement = None if publishing else {
+                        "seed_depth": policy["seed_depth"], "source_artifact": str(
+                            Path(policy["source_artifact"]).relative_to(Path(plan["campaign_directory"])))}
+                publish_pointer(plan["campaign_directory"], directory, binding, operation, driver, refinement)
             driver.write_json(directory.parent.parent / "completed-phase.json", {
                 "schema": SCHEMA, "directory": str(directory), "scope_binding": binding,
                 "completed_unix_time": time.time(), "master_minimality_claim": False})
-            print("Master reduction completed for the configured bounded search (not a minimality proof).", flush=True)
+            print("Scoped artifact published; master refinement was not requested." if publishing else
+                  "Explicit master refinement completed (bounded search, not a minimality proof).", flush=True)
             if latest.get("artifact"):
                 print("Symbolic artifact: " + str(latest["artifact"]), flush=True)
         else:
-            print(f"Master reduction {'paused' if paused else 'stopped'}; checkpoint: {directory}", flush=True)
+            print(f"{phase} {'paused' if paused else 'stopped'}; checkpoint: {directory}", flush=True)
             print(f"Resume with: {sys.executable} {Path(driver.__file__).resolve()} --campaign-directory "
-                  f"{plan['campaign_directory']} --resume --start", flush=True)
+                  f"{plan['campaign_directory']} --resume {'--refine-masters ' if not publishing else ''}--start", flush=True)
             if not paused:
                 print(f"Native error details: {attempt / 'stderr.log'}", file=sys.stderr)
         return status if status >= 0 else 128 - status
@@ -382,7 +445,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
             signal.signal(sig, handler)
 
 
-def run(plan, policy, resume, driver):
+def run(plan, policy, resume, driver, postprocess_only=False):
     campaign, checkpoint = Path(plan["campaign_directory"]), Path(plan["checkpoint_directory"])
     directory = campaign / "master-reduction"
     with ExitStack() as held:
@@ -396,10 +459,37 @@ def run(plan, policy, resume, driver):
             if evidence:
                 raise ValueError("campaign is still running: " + "; ".join(evidence))
             freeze_master_executable(directory, policy, driver)
-            driver.write_json(directory / "policy.json", policy)
-            binding = scope_binding(campaign, checkpoint, policy["seed_depth"]) if (checkpoint / "latest.json").is_file() else None
-            request = completed_request(campaign, checkpoint, binding, driver) if resume and binding else None
+            driver.write_json(directory / "policy.json", {key: value for key, value in policy.items()
+                              if key not in ("operation", "source_artifact")})
+            binding = scope_binding(campaign, checkpoint) if (checkpoint / "latest.json").is_file() else None
+            request = completed_request(campaign, checkpoint, binding, driver) if (resume or postprocess_only) and binding else None
+        operation = policy.get("operation", "publish")
+        if operation == "refine":
+            previous = completed_artifact(campaign)
+            if not previous or not binding or not same_input_scope(previous.get("scope_binding", {}), binding):
+                raise ValueError("refine requires a completed artifact for the current scope; run or publish it first")
+            if previous.get("operation") == "refine" and previous.get("refinement", {}).get("seed_depth", -1) >= policy["seed_depth"]:
+                print("Requested refinement already completed: " + str(previous["resolved_directory"]), flush=True)
+                return 0
+            policy = {**policy, "source_artifact": str(previous["resolved_directory"])}
+        elif binding:
+            previous = completed_artifact(campaign)
+            if previous and same_input_scope(previous.get("scope_binding", {}), binding):
+                print("Current scope already published: " + str(previous["resolved_directory"]), flush=True)
+                active_path = directory / "active-phase.json"
+                try:
+                    if active_path.is_file():
+                        active = read_json(active_path)
+                        status_path = Path(active.get("run_directory", "")) / "status.json"
+                        if active.get("operation") == "refine" and status_path.is_file() \
+                                and read_json(status_path).get("state") == "paused":
+                            print("Manual refinement is paused; repeat saved_campaign.py refine to resume it explicitly.", flush=True)
+                except (OSError, ValueError, TypeError):
+                    pass  # An optional monitor hint cannot invalidate the artifact.
+                return 0
         if request is None:
+            if postprocess_only or operation == "refine":
+                raise ValueError("current scope is not completed; postprocess-only never starts a solve")
             driver.write_json(campaign / "active-run.json", plan)
             driver.write_json(directory / "active-phase.json", {"schema": SCHEMA, "phase": "IBP closure",
                               "run_directory": plan["run_directory"]})
@@ -408,12 +498,17 @@ def run(plan, policy, resume, driver):
                 return 4  # Native phase one may have finished just before Ctrl+C.
             if status not in (0, 4):
                 return status
-            binding = scope_binding(campaign, checkpoint, policy["seed_depth"]) if (checkpoint / "latest.json").is_file() else None
+            binding = scope_binding(campaign, checkpoint) if (checkpoint / "latest.json").is_file() else None
             request = completed_request(campaign, checkpoint, binding, driver) if binding else None
             if request is None:
-                print("IBP campaign remains paused/incomplete; master reduction has not started.", flush=True)
+                print("IBP campaign remains paused/incomplete; no final artifact was published.", flush=True)
                 return status if status else 4
-        target = directory / "scopes" / binding["key"]
+        identity = {"scope": binding["key"], "operation": operation,
+                    "seed_depth": policy["seed_depth"] if operation == "refine" else 0,
+                    "source": str(Path(policy["source_artifact"]).relative_to(campaign)) if policy.get("source_artifact") else None,
+                    "executable": policy.get("executable", {}).get("sha256", plan.get("executable_sha256"))}
+        phase_key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        target = directory / "scopes" / phase_key
         target.mkdir(parents=True, exist_ok=True)
-        driver.write_json(target / "scope.json", binding)
+        driver.write_json(target / "steering-binding.json", {"scope_binding": binding, **identity})
         return phase_two(plan, policy, request, binding, target, driver)

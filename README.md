@@ -309,12 +309,28 @@ cover, and optional exact terminal normalization. It is read-only and uses
 cold reinspection; normalized representatives are candidate masters, not a
 proven minimal basis.
 
-An optional [master-reduction phase](docs/campaign_master_reduction.md) adds a
-finite exact Laporta-style search, with its own native checkpoint, clean
-interruption/resume and reuse across expanded starting scopes. Its portable
-symbolic package can be inspected with `rustred master-inspect --artifact DIR`:
-an aligned coloured table on a terminal, or JSON in a pipeline. Remaining
-masters are explicitly a nonminimal candidate basis, not numerical values.
+Saved campaigns automatically publish a portable symbolic package after
+successful scoped coverage collection. Master refinement is **manual**, never
+an implicit consequence of running or extending the campaign. The
+[saved-campaign interface](docs/campaign_master_reduction.md) takes the campaign
+directory, so no hash-named artifact path needs to be copied:
+
+```bash
+python -B examples/python/saved_campaign.py run --campaign "$CAMPAIGN"
+python -B examples/python/saved_campaign.py inspect --campaign "$CAMPAIGN"
+python -B examples/python/saved_campaign.py extend --campaign "$CAMPAIGN" --rank 1
+# Optional, only when wanted:
+python -B examples/python/saved_campaign.py refine --campaign "$CAMPAIGN" --seed-depth 0
+```
+
+Inspection uses an aligned coloured table on a terminal, or JSON in a pipeline;
+it distinguishes published bounds from newly requested bounds. Refinement is
+a finite exact Laporta-style search with its own interruption/resume checkpoint.
+The last published package remains inspectable while an extension or refinement
+is unfinished. Remaining masters are a nonminimal candidate basis, not numerical
+values. These packages preserve native programs, routing and terminal relations
+for later Vakint integration; the saved-campaign engine does not yet provide
+general coefficient back-substitution through its dependency traces.
 
 Generated candidate programs now use a shared Symbolica-native binary
 coefficient dictionary and native family geometry, rather than coefficient

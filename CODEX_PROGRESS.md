@@ -1,5 +1,45 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October7 — active: explicit solve / inspect / refine lifecycle
+
+The user authorizes simplifying the workflow: publish an artifact after every
+completed solve/extension, choose master refinement manually, and inspect the
+latest artifact by campaign directory without copying scope hashes. Old
+persistent auto-refinement is superseded. No production run is changed here.
+
+Responsibilities: root integrates native CLI, verifies release controls and
+delivery; `wasm_python` implements native publish-only/session reuse;
+`wasm_core` owns Python steering, dashboard and user documentation;
+`three_loop_native_recipe` independently audits scope/persistence/math claims.
+
+Plan: (1) distinct native publish/refine operations sharing the same native
+package and schema; zero source-row work during publish; (2) default solve→
+publish, strict explicit refine, one latest-artifact pointer with relative
+paths; (3) a thin run/extend/inspect/refine front end, coloured inspection of
+current and prior published scope; (4) interruption, stale-pointer, wider-scope
+and portable-reader tests; (5) release four-loop and read-only-input scalar
+controls entirely under TMP; independent review, commit and push. Existing
+coefficient back-substitution is still absent for the saved routed engine, so
+the portable package is not called a turnkey Vakint reducer. No new CAS or
+five-loop optimization research is part of this change.
+
+Implementation/audit checkpoint: native publish/refine separation, immutable
+portable source copies, explicit-only Python lifecycle, latest-artifact pointer,
+current-versus-requested scope tables and source-path guards are implemented.
+Independent audit is clean. Python protocol tests pass (95 campaign,13 upgrade,
+12 rank-extension,7 public-wrapper tests); native application/CLI master tests
+pass17/17. `cargo check --release --locked -p rustred-app -j8` passes. Evidence:
+`TMP/saved-lifecycle-20261007/{check.log,native-tests.log}`. Native test compilation
+took9m22s; this is not a solver timing. Real optimized wrapper/native controls
+remain pending the final build. Paused refinement stays resumable but its partial
+rows are not automatically imported into a scope extension; completed refinement
+rows are reusable. No claim of numerical Vakint readiness is made.
+
+Remote `main` advanced independently to `0f9f4e7c` (runtime/capacity dispatch).
+Preserve those changes and unrelated local HEPKit work when integrating this
+milestone; do not overwrite remote history. Previous failed-push notes below are
+historical, not evidence of current GitHub availability.
+
 ## October7 — locally complete: durable finite master-reduction phase
 
 Delivery status: implementation committed as `0a3d4d5b`. At17:00UTC, four
