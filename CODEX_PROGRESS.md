@@ -1,6 +1,6 @@
 # Codex progress: five-loop optimization and controlled deployment
 
-## October7 — active: explicit solve / inspect / refine lifecycle
+## October7 — validated: explicit solve / inspect / refine lifecycle
 
 The user authorizes simplifying the workflow: publish an artifact after every
 completed solve/extension, choose master refinement manually, and inspect the
@@ -31,14 +31,49 @@ Independent audit is clean. Python protocol tests pass (95 campaign,13 upgrade,
 pass17/17. `cargo check --release --locked -p rustred-app -j8` passes. Evidence:
 `TMP/saved-lifecycle-20261007/{check.log,native-tests.log}`. Native test compilation
 took9m22s; this is not a solver timing. Real optimized wrapper/native controls
-remain pending the final build. Paused refinement stays resumable but its partial
+subsequently passed as recorded below. Paused refinement stays resumable but its partial
 rows are not automatically imported into a scope extension; completed refinement
 rows are reusable. No claim of numerical Vakint readiness is made.
 
 Remote `main` advanced independently to `0f9f4e7c` (runtime/capacity dispatch).
-Preserve those changes and unrelated local HEPKit work when integrating this
-milestone; do not overwrite remote history. Previous failed-push notes below are
-historical, not evidence of current GitHub availability.
+Implementation commit `15074a37` and upstream merge `f6ba9179` preserve both
+histories. Unrelated local HEPKit edits were temporarily saved, restored and
+checked against their saved copy: only the upstream arity getter/documentation
+was added. Those unrelated edits remain uncommitted, as do reference materials
+and campaign outputs. Previous failed-push notes below are historical.
+
+[M] Final merged release build passed in14m06s (`cargo build --release --locked
+-p rustred-app --bin rustred -j8`, unset `RUSTRED_RUNTIME_ARITIES`, affinity0–15).
+Binary SHA256 `c2f9bcee5cc2a5ca120478b41d998538d606b18b1008e20d830bdc063e723d82`.
+Three artifact-inspection and six inventory CLI tests also passed. The merged
+runtime-arity integration test and both merged exact terminal-postprocessing
+integration tests pass (four-loop identity/native resume; refused-row checkpoint
+remains loadable). Extra full-core/default-feature test
+compilation was cancelled and split into matching-feature commands to reuse
+the release build; this is not a solver interruption or performance result.
+
+[M] Optimized native controls passed: four-loop58-query publication28→20 in
+5.900s, **zero** source rows; explicit refinement20→19 in0.330s (320 sources).
+Five-loop R0,D≤9 publication196→196 in75.235s, **zero** source rows; real SIGINT
+saved662 rows after1.974s, then resumed at662 and finished4,900 rows in26.230s,
+without repeating cold inventory. Basis stays196; no minimality claim. Copied
+artifact cold imports passed (0.254s/2.127s). Source packages and original
+checkpoint/input hashes stayed unchanged. Commands and evidence:
+`TMP/saved-lifecycle-20261007/native_controls.py --case all --cpus 36-39
+--directory /common/dev/rustred/TMP/saved-lifecycle-20261007/release-controls`,
+`release-controls/summary.json`. An unpublished small four-loop campaign also
+passes the native inspection fallback, explicitly reporting no publication.
+
+[M] The independently implemented public-wrapper controls passed on CPU32:
+publish5.208s, inspect0.035–0.048s, refine1.171s, repeated ordinary run0.651s
+preserving refined output. A genuine small four-loop R≤1,D≤4→R≤2,D≤5 extension
+resumed and published in5.771s, retained previous16 exact source rows with zero
+new refinement rows, and increased domain records3→11. Inspection correctly
+showed the old scope before completion, and the new scope afterward. Evidence:
+`TMP/saved-campaign-publication-control-20261007/{results.json,
+widen-final-validation.json,final-validation.json}`. These are shared-host
+workflow controls, not full-family solver benchmarks. Independent review is
+clean. No user production campaign was launched or changed.
 
 ## October7 — locally complete: durable finite master-reduction phase
 

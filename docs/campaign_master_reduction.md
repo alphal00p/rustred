@@ -181,20 +181,50 @@ information priority without launching a production campaign.
 
 ## Measured saved-input controls (October 7, 2026)
 
-These earlier explicit-refinement controls predate the publication/refinement
-UX split. Using the optimized release CLI, finite seed depth0, four pinned CPUs for
-cold reinspection and one incremental exact reducer:
+The public wrapper was also exercised with the merged optimized binary on a
+small, finite four-loop bottom-sector control, pinned to one core. These are
+workflow checks, not timings for the complete four-loop family:
 
-| Input | Raw terminals | Normalized | After finite IBPs | Wall time |
-|---|---:|---:|---:|---|
-| Combined four-loop58-query control | 28 | 20 | 19 | 6.563s |
-| Five-loop scalar R=0,D≤9 | 196 | 196 | 196 | 78.872s to interruption +26.664s resumed |
+| Workflow step | Wall time | Observed behavior |
+|---|---:|---|
+| Publish a copied completed R≤2,D≤5 checkpoint | 5.208s | 1 terminal, **0** new IBP rows |
+| Explicitly refine that artifact | 1.171s | 16 source rows, still 1 terminal |
+| Repeat ordinary run on the same scope | 0.651s | kept refined artifact; no solve/refine rerun |
+| Fresh R≤1,D≤4 solve and publication | 6.288s | published automatically |
+| Widen to R≤2,D≤5 and solve/publish | 5.771s | 3→11 domain records; 16 previous rows reused, **0** new rows |
 
-The five-loop test sends a real SIGINT, saves695 completed ordinary source
-rows and resumes to4,900 without repeating the initial cold inventory. This
-validates continuation, not minimality: depth0 finds no further relation among
-these196 candidates. The four-loop control finds one additional relation.
-Compilation is excluded; initialization, cold inspection and package writing
-are included. These single shared-host runs are not performance-comparison
-claims. All output is scratch-local and the source checkpoint files remain
-byte-identical. Evidence is under `TMP/master-reduction-20261007/`.
+Inspection took 0.035–0.048s. Between preparing the extension and finishing
+its solve, inspection explicitly reported the previous published scope as
+different from the new requested scope. Afterward it reported current
+R≤2,D≤5 coverage. Original and copied checkpoint/input/amendment hashes in the
+completed-copy gate remained unchanged. Evidence and commands are under
+`TMP/saved-campaign-publication-control-20261007/` (`results.json`,
+`final-validation.json`, `widen-final-validation.json`). These end-to-end times
+include Python launch, input checks, cold inventory where needed, and
+publication; compilation is excluded.
+
+Separate native controls used the merged optimized CLI, finite seed depth0,
+four pinned CPUs for cold reinspection and one incremental exact reducer:
+
+| Input | Raw terminals | Normalized | After finite IBPs | Publication | Explicit refinement |
+|---|---:|---:|---:|---:|---:|
+| Combined four-loop58-query control | 28 | 20 | 19 | 5.900s | 0.330s |
+| Five-loop scalar R=0,D≤9 | 196 | 196 | 196 | 75.235s | 1.974s to interruption +26.230s resumed |
+
+Both publications generated **zero** ordinary source rows. The five-loop test
+sends a real SIGINT, saves662 completed source rows and resumes from662 to4,900
+without any cold inventory events during refinement. It retains196 candidates:
+depth0 does not establish minimality. Four-loop refinement finds one additional
+terminal-only relation. Copied packages cold-load/refine independently of CP6
+in0.254s (four loops) and2.127s (five loops), preserving every count. Inspection
+uses metadata only; the native subprocess/polling harness measured about0.026s.
+The published source packages and source campaign checkpoint/input hashes stayed
+unchanged. An existing unpublished four-loop checkpoint also passes read-only
+`artifact-inspect` fallback with explicit `inventory_only_not_published` status.
+
+Compilation is excluded; per-operation initialization and package writing are
+included. These single shared-host controls are not performance-comparison
+claims. Evidence and exact commands are under
+`TMP/saved-lifecycle-20261007/release-controls/summary.json`; earlier controls
+remain under `TMP/master-reduction-20261007/`. The delivered release SHA256 is
+`c2f9bcee5cc2a5ca120478b41d998538d606b18b1008e20d830bdc063e723d82`.
