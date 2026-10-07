@@ -1,17 +1,11 @@
 //! Exact change from a Laporta solution's residuals to preferred masters.
 //!
-//! The search reduces every preferred integral `p` it can: `p = sum_r c_r r`
-//! over the residuals `r`. Each such `p` replaces one residual of its own
-//! sector. Per sector, the rows `p - sum_r c_r r` are brought to reduced
-//! echelon form over the sector's remaining residuals, hardest column first,
-//! and every pivot residual is then expressed through the preferred integrals
-//! and the other residuals. Lower sectors are processed first, so a higher
-//! sector's rows already use their replacements. Dividing by a pivot adds its
-//! numerator to the nonzero conditions of every rule that uses the pivot's
-//! replacement. Mapping each replaced preferred integral back to its original
-//! reduction must restore every rule of the search exactly; this is checked.
+//! Requested integrals are first reduced to the search's residuals. Exact
+//! elimination then exchanges independent residuals for the requested basis,
+//! including across sectors. This permits an IR triangle to replace a bubble
+//! when the reverse relation would introduce a pole at d=4. Every returned
+//! rule is mapped back to the original residuals and checked exactly.
 
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use symbolica::domains::{integer::Z, rational_polynomial::RationalPolynomialField};
@@ -29,7 +23,7 @@ use super::{
 /// What the basis change did with one preferred master.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PreferredStatus {
-    /// The search reduced it, and it replaced a residual of its own sector.
+    /// The search reduced it, and it replaced an independent residual.
     Replaced,
     /// The search left it unreduced, so it already was a residual. Whether
     /// that basis is minimal is a question about the search, not the change.
@@ -120,40 +114,17 @@ pub(super) fn prefer<const N: usize>(
                 "preferred master {key:?} reduces to zero"
             )));
         }
-        let own = sector_of(master);
-        for term in &rule.rhs {
-            let powers = values(&term.powers);
-            // Search rules strictly descend, so no term can lie in a later sector.
-            if order.sectors(&sector_of(&powers), &own) == Ordering::Less {
-                return Err(SolverError::ExactReplay(format!(
-                    "the rule for preferred master {key:?} uses {powers:?} from a later sector"
-                )));
-            }
-        }
-        if !rule
-            .rhs
-            .iter()
-            .any(|term| sector_of(&values(&term.powers)) == own)
-        {
-            let lower: Vec<_> = rule.rhs.iter().map(|term| values(&term.powers)).collect();
-            return Err(SolverError::InvalidInput(format!(
-                "preferred master {key:?} reduces to lower-sector integrals {lower:?}; it cannot replace a master of its sector"
-            )));
-        }
         statuses.push(PreferredMaster {
             integral: key,
             status: PreferredStatus::Replaced,
         });
         reduced.push((*master, index));
     }
-    // Lowest sector first; the stable sort keeps request order within a sector.
-    reduced.sort_by(|left, right| order.sectors(&sector_of(&right.0), &sector_of(&left.0)));
 
     let mut replacements = BTreeMap::<Vec<i16>, (Combination, Vec<CoefficientPolynomial>)>::new();
     let mut pivot_conditions = Vec::new();
-    for group in reduced.chunk_by(|left, right| sector_of::<N>(&left.0) == sector_of::<N>(&right.0))
-    {
-        let own = sector_of::<N>(&group[0].0);
+    if !reduced.is_empty() {
+        let group = &reduced;
         let mut conditions = Vec::new();
         let mut rows = Vec::with_capacity(group.len());
         for &(master, index) in group {
@@ -164,31 +135,19 @@ pub(super) fn prefer<const N: usize>(
             add(&mut row, master.to_vec(), one);
             for term in &rule.rhs {
                 let key = values(&term.powers);
-                match replacements.get(&key) {
-                    Some((combination, used)) => {
-                        extend_conditions(&mut conditions, used);
-                        for (integral, coefficient) in combination {
-                            add(
-                                &mut row,
-                                integral.clone(),
-                                -(&term.coefficient * coefficient),
-                            );
-                        }
-                    }
-                    None => add(&mut row, key, -term.coefficient.clone()),
-                }
+                add(&mut row, key, -term.coefficient.clone());
             }
             rows.push((master.to_vec(), row));
         }
 
         // Keep eligible residuals first, hardest first. The remaining columns
-        // are protected preferred masters and lower sectors, not legal pivots.
+        // are protected preferred masters, not legal pivots.
         // Symbolica owns both elimination and back substitution.
         let all: BTreeSet<Vec<i16>> = rows
             .iter()
             .flat_map(|(_, row)| row.keys().cloned())
             .collect();
-        let eligible = |key: &Vec<i16>| sector_of(key) == own && !preferred_keys.contains(key);
+        let eligible = |key: &Vec<i16>| residuals.contains(key) && !preferred_keys.contains(key);
         let mut columns: Vec<_> = all.iter().filter(|key| eligible(key)).cloned().collect();
         columns.sort_by(|left, right| order.integrals(left, right));
         let eligible_count = columns.len();
@@ -211,12 +170,9 @@ pub(super) fn prefer<const N: usize>(
             let (indices, values): (Vec<_>, Vec<_>) = entries.into_iter().unzip();
             let pivot = reducer.add_row(&values, &indices);
             if !pivot.is_some_and(|column| (column as usize) < eligible_count) {
-                let others: Vec<_> = preferred_keys
-                    .iter()
-                    .filter(|key| *key != master && sector_of(key) == own)
-                    .collect();
+                let others: Vec<_> = preferred_keys.iter().filter(|key| *key != master).collect();
                 return Err(SolverError::InvalidInput(format!(
-                    "preferred master {master:?} depends on preferred master(s) {others:?} modulo lower sectors"
+                    "preferred master {master:?} depends on preferred master(s) {others:?}"
                 )));
             }
             // Native L's last diagonal is the unnormalized pivot. Retain its
@@ -457,7 +413,7 @@ mod tests {
                 })
         );
         // The same native path must refuse a dependent preferred direction,
-        // rather than pivot on a protected preferred or lower-sector column.
+        // rather than pivot on a protected preferred column.
         let mut dependent = original;
         dependent.rules[1].rhs = dependent.rules[0].rhs.clone();
         assert!(matches!(
