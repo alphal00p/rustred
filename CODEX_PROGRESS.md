@@ -42,7 +42,7 @@ checked against their saved copy: only the upstream arity getter/documentation
 was added. Those unrelated edits remain uncommitted, as do reference materials
 and campaign outputs. Previous failed-push notes below are historical.
 
-[M] Final merged release build passed in14m06s (`cargo build --release --locked
+[M] First merged release build passed in14m06s (`cargo build --release --locked
 -p rustred-app --bin rustred -j8`, unset `RUSTRED_RUNTIME_ARITIES`, affinity0–15).
 Binary SHA256 `c2f9bcee5cc2a5ca120478b41d998538d606b18b1008e20d830bdc063e723d82`.
 Three artifact-inspection and six inventory CLI tests also passed. The merged
@@ -74,6 +74,19 @@ showed the old scope before completion, and the new scope afterward. Evidence:
 widen-final-validation.json,final-validation.json}`. These are shared-host
 workflow controls, not full-family solver benchmarks. Independent review is
 clean. No user production campaign was launched or changed.
+
+[M] Delivery push: concurrent upstream commit `4d9b0e40` initially caused a
+non-fast-forward refusal; it was merged without overwriting changes and `main`
+was successfully pushed as `08e4a4df`. Rebuilt this final source in9m21s using
+the same release command; final executable SHA256 is
+`9e6c0e9f4c6aa9b51062c213a168fac5ae4c1d2a50454eeab2e06f4c337fb327`.
+Repeated both native controls on that executable in
+`TMP/saved-lifecycle-20261007/final-controls/`: four-loop publication5.904s and
+refinement0.330s still28→20→19; scalar publication75.779s still196→196, zero source
+rows; real SIGINT saved652 rows after1.970s, resumed exactly there and completed
+4,900 rows in26.134s. Portable cold checks, all final counts and source hash
+immutability pass. No further implementation work is pending for this lifecycle
+change; downstream coefficient application/numerical masters remain separate.
 
 ## October7 — locally complete: durable finite master-reduction phase
 

@@ -226,5 +226,14 @@ Compilation is excluded; per-operation initialization and package writing are
 included. These single shared-host controls are not performance-comparison
 claims. Evidence and exact commands are under
 `TMP/saved-lifecycle-20261007/release-controls/summary.json`; earlier controls
-remain under `TMP/master-reduction-20261007/`. The delivered release SHA256 is
+remain under `TMP/master-reduction-20261007/`. That first merged test build has SHA256
 `c2f9bcee5cc2a5ca120478b41d998538d606b18b1008e20d830bdc063e723d82`.
+
+After incorporating upstream capacity-search commit `4d9b0e40`, the delivered
+`08e4a4df` source was rebuilt and both native controls repeated successfully
+(`TMP/saved-lifecycle-20261007/final-controls/summary.json`). Four-loop publication
+and refinement took5.904s and0.330s. Five-loop publication took75.779s; SIGINT
+saved652 rows after1.970s and resumed from652 to4,900 in26.134s. Counts, portable
+cold imports, zero-source publication and unchanged source hashes all pass.
+The delivered optimized executable SHA256 is
+`9e6c0e9f4c6aa9b51062c213a168fac5ae4c1d2a50454eeab2e06f4c337fb327`.
