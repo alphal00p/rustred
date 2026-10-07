@@ -13,6 +13,7 @@
 //! compiled registry or their own explicit arity list.
 
 mod basis;
+mod census;
 mod certificate;
 mod combination;
 
@@ -648,9 +649,10 @@ fn zero_census<const N: usize>(
     restrictions: &Restrictions,
     sectors: &[[bool; N]],
 ) -> Result<(Vec<[bool; N]>, Vec<CoefficientPolynomial>), SolverError> {
+    let sector_count = census::sector_count::<N>()?;
     let analyzer = Analyzer::try_new(family, restrictions.clone()).map_err(invalid_input)?;
     let mut zero = Vec::new();
-    for bits in 0..(1usize << N) {
+    for bits in 0..sector_count {
         let sector = std::array::from_fn(|axis| bits & (1 << axis) != 0);
         if !sectors
             .iter()
