@@ -225,6 +225,84 @@ impl<const N: usize> SourceSystem<N> {
         self.active_arity
     }
 
+    /// Resize already prepared sources. This does not regenerate identities,
+    /// precondition rows, or change their ordinals and physical variable map.
+    #[cfg(feature = "capacity-dispatch")]
+    pub(super) fn resize<const K: usize>(&self) -> Result<SourceSystem<K>, SolverError> {
+        if self.active_arity > K {
+            return Err(SolverError::InvalidInput(
+                "solver capacity is smaller than its physical arity".into(),
+            ));
+        }
+        let physical_variables = self.variables.len() - (N - self.active_arity);
+        let mut variables = self.variables[..physical_variables].to_vec();
+        let mut temporary = 0;
+        while variables.len() < physical_variables + K - self.active_arity {
+            let variable = PolyVariable::Temporary(temporary);
+            temporary += 1;
+            if !variables.contains(&variable) {
+                variables.push(variable);
+            }
+        }
+        let variables = Arc::new(variables);
+        let indices = std::array::from_fn(|i| {
+            if i < self.active_arity {
+                self.indices[i]
+            } else {
+                physical_variables + i - self.active_arity
+            }
+        });
+        let rows = self
+            .rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|term| {
+                        Ok(Term {
+                            integral: super::capacity::integral(&term.integral)?,
+                            coefficient: term
+                                .coefficient
+                                .rearrange_with_growth(&variables)
+                                .map_err(SolverError::InvalidInput)?,
+                        })
+                    })
+                    .collect()
+            })
+            .collect::<Result<Vec<_>, SolverError>>()?;
+        let fixed = std::array::from_fn(|i| {
+            if i < self.active_arity {
+                self.fixed[i]
+            } else {
+                Some(0)
+            }
+        });
+        let conditions = self
+            .conditions
+            .iter()
+            .map(|p| {
+                p.rearrange_with_growth(&variables)
+                    .map_err(SolverError::InvalidInput)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let coefficient_priority = self
+            .coefficient_priority
+            .iter()
+            .copied()
+            .filter(|&i| i < physical_variables)
+            .chain(physical_variables..variables.len())
+            .collect();
+        Ok(SourceSystem {
+            rows,
+            indices,
+            variable_count: variables.len(),
+            variables,
+            active_arity: self.active_arity,
+            fixed,
+            coefficient_priority,
+            conditions,
+        })
+    }
+
     /// Remove unused padding variables while rejecting any dependence on them.
     pub fn physical_coefficient(
         &self,

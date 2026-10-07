@@ -110,6 +110,9 @@ The independent, opt-in `capacity-dispatch` Cargo feature uses storage
 capacities 4, 8 and 16 for all supported physical arities. It changes no
 denominators or powers: padding is frozen to zero and removed from results.
 `hep.IBPFamily.compiled_runtime_capacities()` reports the selected capacities.
+Campaign sector generation and nominated-domain searches share the same
+three capacities. Their prepared basis ordinals, saved programs, checkpoints,
+progress keys and certified artifacts retain the original physical arity.
 Neither feature is enabled by default. Community forwards them as
 `ibp-capacity-dispatch` and `ibp-runtime-arity-selection`, respectively.
 
