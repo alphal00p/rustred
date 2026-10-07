@@ -8,9 +8,6 @@ mod input;
 mod matching;
 mod prepare;
 mod walking;
-pub use walking::{
-    OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
-};
 pub use domains::{OwnerDomainScanRequest, OwnerDomainScanResult, owner_domain_scan_with_progress};
 pub use feedback::{
     RoutedEntryWitnessLimits, RoutedEntryWitnessProposal, RoutedEntryWitnessRoundResult,
@@ -45,6 +42,9 @@ pub use walking::{
     OwnerDomainWalkVerifyScope, WALK_SEMANTICS_VERSION as OWNER_DOMAIN_WALK_SEMANTICS_VERSION,
     owner_domain_walk_rescue_plan, owner_domain_walk_verify_closure,
     owner_domain_walk_with_progress,
+};
+pub use walking::{
+    OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
 };
 #[cfg(test)]
 mod tests;
@@ -130,9 +130,12 @@ pub fn routed_campaign_with_progress(
     );
     macro_rules! dispatch { ($($n:literal),*) => { match n {
         $($n => run::<$n>(&request, &selection, limits, targets, cancellation, &observer),)*
-        _ => unreachable!("admitted arity"),
+        _ => Err(crate::AppError::input("campaign arity is not compiled")),
     }} }
-    dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    {
+        crate::ensure_runtime_arity(n)?;
+        rustred::with_app_runtime_arities!(dispatch)
+    }
 }
 
 fn run<const N: usize>(

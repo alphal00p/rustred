@@ -170,6 +170,12 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         ))
     }
 
+    pub(super) fn seed_frozen(&self) -> [bool; N] {
+        std::array::from_fn(|axis| {
+            axis >= self.system.active_arity() || self.config.removed_deltas[axis]
+        })
+    }
+
     fn prepare(
         system: &'a SourceSystem<N>,
         sector: [bool; N],
@@ -189,6 +195,18 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 return Err(SolverError::InvalidInput(
                     "invalid delta sector/configuration".into(),
                 ));
+            }
+            if i >= system.active_arity() {
+                if sector[i]
+                    || config.deltas[i]
+                    || config.removed_deltas[i]
+                    || system.fixed()[i] != Some(0)
+                {
+                    return Err(SolverError::InvalidInput(
+                        "padding coordinates must remain inactive numeric zero".into(),
+                    ));
+                }
+                continue;
             }
             if system.fixed()[i].is_some_and(|value| value != 1 || !config.removed_deltas[i]) {
                 return Err(SolverError::InvalidInput(
@@ -328,6 +346,14 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 "case lies outside its sector".into(),
             ));
         }
+        if case.fixed()[self.system.active_arity()..]
+            .iter()
+            .any(|value| *value != Some(0))
+        {
+            return Err(SolverError::InvalidInput(
+                "padding coordinates must remain fixed to zero".into(),
+            ));
+        }
         for (i, removed) in self.config.removed_deltas.iter().enumerate() {
             if *removed && case.fixed()[i] != Some(1) {
                 return Err(SolverError::InvalidInput(
@@ -423,7 +449,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut original_rows = Vec::new();
         let mut original_sources = Vec::new();
         let initial = case.integral();
-        let mut seeds = Seeds::new(initial, *self.order.sector(), self.config.removed_deltas);
+        let mut seeds = Seeds::new(initial, *self.order.sector(), self.seed_frozen());
         // A coupled affine chart can determine the sign of a symbolic power
         // only after its equations are solved together with the sector.  The
         // rectangular zero-sector census cannot make that inference: pruning

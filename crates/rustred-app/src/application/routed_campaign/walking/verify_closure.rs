@@ -780,7 +780,10 @@ fn verify_closure_with_progress(
         $($n => verify::<$n>(request, options, &selection, limits, cancellation, &observer, inventory),)*
         _ => Err(AppError::input("unsupported owner arity")),
     }} }
-    dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    {
+        crate::ensure_runtime_arity(arity)?;
+        rustred::with_app_runtime_arities!(dispatch)
+    }
 }
 
 fn load<const N: usize>(

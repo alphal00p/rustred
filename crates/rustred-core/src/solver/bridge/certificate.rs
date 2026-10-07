@@ -36,8 +36,8 @@ use crate::solver::{Integral, SolverError};
 
 use super::combination::{Combination, NumericOrder, add, sector_of, unit, values};
 use super::{
-    DynamicRule, DynamicSolution, RuleOrigin, array, cut_restrictions, is_excluded,
-    unsupported_runtime_arity, validate_family_arity, zero_census,
+    DynamicRule, DynamicSolution, RuleOrigin, array, certify_laporta_with_capacity,
+    cut_restrictions, is_excluded, unsupported_runtime_arity, validate_family_arity, zero_census,
 };
 
 /// What a successful certificate checked.
@@ -62,9 +62,9 @@ pub fn certify_laporta(
     solution: &DynamicSolution,
     include_lorentz: bool,
 ) -> Result<ReductionCertificate, SolverError> {
-    dispatch_arity!(
+    dispatch_solver_capacity!(
         family.denominator_count(),
-        certify_laporta_for(family, cuts, solution, include_lorentz),
+        certify_laporta_with_capacity(family, cuts, solution, include_lorentz),
         arity => Err(unsupported_runtime_arity(arity))
     )
 }
@@ -154,7 +154,7 @@ fn validate_solution<const N: usize>(solution: &DynamicSolution) -> Result<(), S
     Ok(())
 }
 
-fn certify<const N: usize>(
+pub(super) fn certify<const N: usize>(
     family: &IntegralFamily,
     cuts: &CutConstraint,
     solution: &DynamicSolution,
@@ -464,8 +464,10 @@ fn instantiate<const N: usize>(
     for (shift, coefficient) in relation.terms() {
         let powers = seed
             .iter()
-            .zip(shift.values())
-            .map(|(&seed, &shift)| i16::try_from(i64::from(seed) + shift))
+            .enumerate()
+            .map(|(axis, &seed)| {
+                i16::try_from(i64::from(seed) + shift.values().get(axis).copied().unwrap_or(0))
+            })
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| fail("an instantiated power overflows".into()))?;
         validate_numeric_key::<N>(&powers)?;
@@ -474,7 +476,7 @@ fn instantiate<const N: usize>(
         }
         let raw = coefficient.raw();
         let (mut numerator, mut denominator) = (raw.numerator.clone(), raw.denominator.clone());
-        for (axis, &value) in seed.iter().enumerate() {
+        for (axis, &value) in seed.iter().take(shift.values().len()).enumerate() {
             let value = Integer::from(i64::from(value));
             numerator = numerator.replace(offset + axis, &value);
             denominator = denominator.replace(offset + axis, &value);

@@ -1,14 +1,14 @@
 mod application;
 pub use application::{MasterReductionOperation, MasterReductionOptions, master_reduce_saved_campaign, master_refine_published_artifact, master_reduction_inspect, load_master_reduction};
 pub use application::{
-    OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
-};
-pub use application::{
     CandidateArtifact, CandidateArtifactPage, CandidateGenerationEvents, CandidateGenerationJob,
     CandidateGenerationSession, CandidateGenerationSnapshot, CandidateGenerationState,
     CandidateTerminalNormalization, CandidateTerminalNormalizationLimits,
 };
 pub use application::{EntryPowerBudget, FiniteEntryDomain, entry_domain_plan};
+pub use application::{
+    OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
+};
 /// Native family entry for embedded hosts; no source-text round trip.
 pub use rustred::family::IntegralFamily as NativeIntegralFamily;
 #[cfg(feature = "cli")]
@@ -95,4 +95,20 @@ pub use application::{
 #[cfg(feature = "cli")]
 pub fn cli_main_entry() -> i32 {
     cli::main_entry()
+}
+
+/// Shared admission for the dynamic campaign entry points. Their persisted
+/// representation retains its existing 16-coordinate limit independently of
+/// the finite reducer's larger explicit arities.
+pub(crate) fn ensure_runtime_arity(arity: usize) -> Result<(), AppError> {
+    if arity > 16 || !rustred::compiled_runtime_arities().contains(&arity) {
+        return Err(AppError::input(format!(
+            "campaign arity {arity} is not compiled; registered arities at most 16 are {:?}",
+            rustred::compiled_runtime_arities()
+                .iter()
+                .filter(|&&n| n <= 16)
+                .collect::<Vec<_>>()
+        )));
+    }
+    Ok(())
 }

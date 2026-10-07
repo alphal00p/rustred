@@ -5,13 +5,18 @@ use super::SolverError;
 /// This bounds this census representation, not the mathematical family arity.
 /// In particular, a wasm32 build must not wrap a 32-denominator census to one
 /// sector or panic before returning the ordinary typed input error.
+#[cfg(test)]
 pub(super) fn sector_count<const N: usize>() -> Result<usize, SolverError> {
-    u32::try_from(N)
+    sector_count_for(N)
+}
+
+pub(super) fn sector_count_for(arity: usize) -> Result<usize, SolverError> {
+    u32::try_from(arity)
         .ok()
         .and_then(|shift| 1usize.checked_shl(shift))
         .ok_or_else(|| {
             SolverError::InvalidInput(format!(
-                "exhaustive sector census for {N} denominators exceeds this target's {}-bit address space",
+                "exhaustive sector census for {arity} denominators exceeds this target's {}-bit address space",
                 usize::BITS
             ))
         })

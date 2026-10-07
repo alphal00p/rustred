@@ -156,7 +156,7 @@ fn dispatch_solve(
     workers: usize,
 ) -> Result<(usize, usize, usize, usize, Duration), AppError> {
     macro_rules! arms {
-        ($($n:literal),+ $(,)?) => {
+        ($($n:literal),* $(,)?) => {
             match arity {
                 $(
                 $n => {
@@ -168,12 +168,15 @@ fn dispatch_solve(
                     .map_err(|error| AppError::execution(error.to_string()))?;
                 Ok((summary.sectors, summary.solved_sectors, summary.rules, summary.finite_residuals, summary.elapsed))
                 }
-                ),+
+                ),*
                 _ => Err(AppError::input(format!("family arity {arity} exceeds the diagnostic dispatch limit 16"))),
             }
         };
     }
-    arms!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    {
+        crate::ensure_runtime_arity(arity)?;
+        rustred::with_app_runtime_arities!(arms)
+    }
 }
 
 #[cfg(test)]

@@ -8,6 +8,8 @@ description = "Native RustRed IBP bridge for Feynkit and symbolica.community.hep
 license = "MIT"
 
 [features]
+capacity-dispatch = ["rustred/capacity-dispatch"]
+runtime-arity-selection = ["rustred/runtime-arity-selection"]
 default = ["native"]
 native = ["rustred/native", "rustred_python?/native"]
 wasm = ["rustred/wasm", "rustred_python?/wasm"]

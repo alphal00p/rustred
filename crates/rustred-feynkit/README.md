@@ -100,10 +100,18 @@ only maps that send cut denominators to cut denominators.
 `hep.IBPFamily.compiled_runtime_arities()` reports the solver entry points
 compiled into the host (by default 1–16 denominators). This is a build
 capability, not a mathematical bound. To choose a different finite registry,
-set, for example, `RUSTRED_RUNTIME_ARITIES=1,2,13,14,15,21` when rebuilding
+enable the `runtime-arity-selection` Cargo feature and set, for example,
+`RUSTRED_RUNTIME_ARITIES=1,2,13,14,15,21` when rebuilding
 the community host; setting it only at Python runtime cannot add compiled
 entry points. The list must contain distinct positive integers, separated by
 commas. Unsupported-arity errors report the actual compiled list.
+
+The independent, opt-in `capacity-dispatch` Cargo feature uses storage
+capacities 4, 8 and 16 for all supported physical arities. It changes no
+denominators or powers: padding is frozen to zero and removed from results.
+`hep.IBPFamily.compiled_runtime_capacities()` reports the selected capacities.
+Neither feature is enabled by default. Community forwards them as
+`ibp-capacity-dispatch` and `ibp-runtime-arity-selection`, respectively.
 
 Rust hosts can bypass the runtime registry using the checked
 `solve_parametric_for::<N>`, `solve_laporta_for::<N>`, and

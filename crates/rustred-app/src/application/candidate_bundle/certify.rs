@@ -90,12 +90,15 @@ fn certify_request(
         elapsed: started.elapsed(),
     });
     macro_rules! dispatch {
-        ($($n:literal),+) => { match family.denominator_count() {
-            $($n => certify::<$n>(family, bundle, request, started, decoded_at, observe),)+
-            _ => unreachable!("candidate arity checked"),
+        ($($n:literal),*) => { match family.denominator_count() {
+            $($n => certify::<$n>(family, bundle, request, started, decoded_at, observe),)*
+            _ => Err(crate::AppError::input("campaign arity is not compiled")),
         } };
     }
-    dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    {
+        crate::ensure_runtime_arity(family.denominator_count())?;
+        rustred::with_app_runtime_arities!(dispatch)
+    }
 }
 
 fn certify<const N: usize>(

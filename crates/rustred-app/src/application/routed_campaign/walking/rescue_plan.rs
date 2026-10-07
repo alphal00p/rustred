@@ -102,7 +102,10 @@ pub fn owner_domain_walk_rescue_plan(
         $($n => plan::<$n>(request, options),)*
         _ => Err(AppError::input("unsupported owner arity")),
     }} }
-    dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    {
+        crate::ensure_runtime_arity(arity)?;
+        rustred::with_app_runtime_arities!(dispatch)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]

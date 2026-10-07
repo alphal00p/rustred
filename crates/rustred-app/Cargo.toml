@@ -9,6 +9,8 @@ license = "MIT"
 publish = false
 
 [features]
+capacity-dispatch = ["rustred/capacity-dispatch"]
+runtime-arity-selection = ["rustred/runtime-arity-selection"]
 default = ["native", "cli", "reconstruction"]
 native = ["rustred/native"]
 wasm = ["rustred/wasm"]
