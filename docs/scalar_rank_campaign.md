@@ -183,6 +183,102 @@ R=0,D≤9 run or any enlarged stage. A fresh independent campaign is still
 possible with `prepare_rank_campaign.py`, but does not reuse a prior ledger;
 use continuation when retaining results is intended.
 
+## Inspect rules, terminals and normalized candidate masters
+
+`walk-inventory` reads an existing campaign without launching or resuming it.
+CP6 saves coverage records and event counts, not the identities of every
+selected rule and terminal. The command therefore cold-loads the saved owners
+and re-inspects the saved domains once. Expect owner preparation time, not
+just a quick checkpoint-header read. It generates no new IBPs and changes no
+owner, input, checkpoint or numerical catalog.
+
+```bash
+cd /common/dev/rustred
+env RAYON_NUM_THREADS=1 OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 \
+  OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 BLIS_NUM_THREADS=1 \
+  SYMBOLICA_HIDE_BANNER=1 \
+  target/release/rustred walk-inventory \
+  --campaign-directory campaigns/five-loop-r0-d9-20261007 \
+  --threads 4 --normalize-terminals \
+  --output campaigns/five-loop-r0-d9-20261007/inventory.json
+
+jq '{complete, installed_rules: .installed.rules,
+     encountered_rules: .encountered.rules,
+     encountered_terminals: .encountered.terminals,
+     normalized_candidate_masters: .normalization.canonical_terminals}' \
+  campaigns/five-loop-r0-d9-20261007/inventory.json
+```
+
+The existing Symbolica license is inherited. Build `target/release/rustred`
+with the release command above if necessary. No Nix environment is needed
+merely to run that built executable on this machine. The report destination
+must not exist unless `--force` is specified; even that flag cannot overwrite
+checkpoint or input data. Progress goes to stderr; omit `--output` for JSON
+on stdout. The command follows the published `active-run.json`, not whichever
+directory happens to sort last. To inspect a specific saved request, use
+`--command PATH/TO/request.json --checkpoint PATH/TO/checkpoints/main` instead.
+
+The report separates three different counts:
+
+1. `installed`: rules and terminal declarations in the installed owner batches,
+   including preferred programs and overlays. Declarations can repeat across
+   batches. These counts describe available programs, not their use.
+2. `encountered`: distinct owner/batch/rule identities and integral keys found
+   while re-inspecting the saved symbolic covers. Partial and G2-reused records
+   contribute their actual inspected residuals, not their entire enclosing
+   domain. Previously inspected helper or quarantined history is counted too;
+   never-inspected abandoned records are excluded. Conditional successors and
+   routing covers can conservatively include terminals not needed by a
+   particular concrete starting integral.
+3. `normalization.canonical_terminals`: representatives remaining after the
+   existing exact native vacuum normalization of that encountered key union.
+   Structural aliases, eligible quadratic-numerator identities and proved zeros
+   are applied; unsupported shapes are retained and reported. This is a
+   **nonminimal candidate-master count**, not a proof of independence or a
+   decomposition of all products into connected master factors.
+
+Normalization is explicit (`--normalize-terminals`). It uses the one common
+family already validated across the owners. It does not alter rule application
+order or import relations from FORM/FMFT. `rule_page`, `terminal_page` and
+`normalized_terminal_page` are bounded: select `--rules-start`,
+`--terminals-start`, `--normalized-terminals-start`, and `--page-size`
+(default25, at most1000).
+An incomplete or failed census is reported as such and exits nonzero;
+normalization is not presented as the complete campaign basis in that case.
+
+Measured on October7,2026 with the optimized CLI:
+
+| Saved scope | Installed rules | Encountered rules | Encountered terminals | Normalized representatives |
+| --- | ---: | ---: | ---: | ---: |
+| Combined four-loop,58-query control | 523 | 429 | 28 | 20 |
+| Five-loop R=0,D≤9,67-query stage | 9,982 | 1,180 | 196 | 196 |
+
+Both inventories pass complete cold reinspection. The five-loop normalizer
+reports38 unsupported numerator shapes and14 cases whose projected positive
+outputs are unbound in the selected terminal set; these remain in the output.
+No further identities are inferred. All referenced five-loop checkpoint files
+have identical checksums before and after inspection. These are scoped cover
+inventories, not unrestricted-loop master counts. Local receipts are under
+`TMP/walk-inventory-20261007/` and are not distributed as source.
+
+### Further Laporta-style compression
+
+Structural normalization is not IBP minimization. A separate optional
+post-processing pass could generate ordinary IBPs near these finite terminals,
+apply the saved rules where applicable, and eliminate the remaining auxiliary
+integrals with Symbolica to obtain terminal-only relations. Uncovered auxiliary
+integrals must remain columns; they cannot be dropped just because they lie
+outside the initial rank/D request. Verified relations could then be stored as
+an exact terminal-substitution sidecar, without regenerating the campaign.
+
+RustRed already exposes `solver::bridge::solve_laporta` for finite targets.
+Earlier [finite-terminal experiments](research/finite_terminal_relations.md)
+found nine additional four-loop identities after applying structural aliases
+to the generated auxiliary columns too. Those results demonstrate the mechanism,
+not a measured reduction of this five-loop terminal set. This inventory command
+does not yet run that artifact-aware post-processing. A bounded search finding
+no additional relation would not establish a minimal master basis.
+
 ## Reading the corrected monitor
 
 - `Completed-scan D/C` is new discoveries divided by new recursive closures

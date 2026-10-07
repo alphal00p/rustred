@@ -303,6 +303,12 @@ native `IBPFamily`, sharing the host's Symbolica kernel rather than importing a
 second extension. See the [session API and lifecycle limits](crates/rustred-python/README.md#in-process-streamed-generation-and-lazy-exploration).
 Generated candidates and finite residual lists are not closure certificates.
 
+For saved owner campaigns, [`walk-inventory`](docs/scalar_rank_campaign.md#inspect-rules-terminals-and-normalized-candidate-masters)
+reports installed rules, rules and terminals encountered in the saved domain
+cover, and optional exact terminal normalization. It is read-only and uses
+cold reinspection; normalized representatives are candidate masters, not a
+proven minimal basis.
+
 Generated candidate programs now use a shared Symbolica-native binary
 coefficient dictionary and native family geometry, rather than coefficient
 strings in TOML. The original family input remains provenance, not a loading

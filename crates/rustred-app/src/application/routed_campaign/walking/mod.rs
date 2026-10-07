@@ -28,6 +28,9 @@ mod rescue_plan;
 mod reuse;
 mod routing;
 mod verify_closure;
+pub use verify_closure::{
+    OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
+};
 mod work_policy;
 mod worker_budget;
 

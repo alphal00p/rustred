@@ -1,5 +1,76 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October7 — read-only campaign rule and terminal inventory
+
+The user requests counts from the completed R=0,D≤9 campaign: installed
+rules, encountered terminals and structurally normalized candidate masters.
+This is inspection, not a new production run or a minimal-basis claim.
+
+- Root: integration, verification, documentation and final measurements.
+- `wasm_python`: optional cold-verifier census, bound to the captured CP6
+  generation; recover rule identities and terminal keys in the native visitor.
+- `wasm_core`: `walk-inventory` CLI, campaign-directory resolution, bounded
+  result pages, read-only output safeguards and tests.
+- `three_loop_native_recipe`: reuse existing exact normalization on the
+  explicit encountered key set; independent backend audit afterward.
+
+[M] CP6 deliberately stores event counts, not selected-rule identities or
+terminal keys. A full census therefore requires read-only reinspection;
+no saved checkpoint or owner artifact is rewritten. Owner loading already
+requires one common family across all67 programs, so existing native
+`TerminalNormalizationPlan` suffices: no new cross-family CAS algorithm.
+Installed declarations and identities encountered in the saved symbolic
+domain cover must be reported separately. The latter can overapproximate
+terminals actually used by a particular concrete reduction. Incomplete
+reinspection cannot claim a complete census.
+
+The user's follow-up asks whether Laporta-style post-processing can further
+reduce these representatives. Yes: `solver::bridge::solve_laporta` already
+provides exact finite-target solves, and the historical experiments in
+`docs/research/finite_terminal_relations.md` found nine additional four-loop
+identities after quotienting generated columns by exact structural aliases.
+An artifact-aware terminal-relation pass remains separate from this inventory
+delivery: reduce generated identities through the saved rules where covered,
+retain all unresolved auxiliary columns, eliminate them with Symbolica and
+publish only exactly replayed terminal substitutions. A stalled bounded
+search would not prove independence. No new Laporta run or implementation
+has been started in response to this feasibility question.
+
+[M] Initial native validation:26 inventory-related tests,4 normalization
+tests,5 G2 replay tests and6 closure-oracle tests pass (one existing test
+remains ignored). `cargo check --release --locked -p rustred-app --lib
+--bin rustred --tests` passes. Test harness uses app opt-level0 with optimized
+dependencies; the delivered CLI uses the normal optimized release profile.
+Independent backend audits found no blocking issue. The CLI review identified
+and fixed external-input overwrite and absent stop-file hazards in `--command
+--force` mode. The final native build passes27 inventory-related tests,
+including that added guard regression; no test failures remain in this set.
+Evidence: `TMP/walk-inventory-20261007/`. An early check caught a wrong test
+enum spelling; it was fixed before passing checks. One stale app compilation
+was deliberately stopped before rebuilding the completed CLI safeguards.
+
+[M] Optimized CLI build completed in13m40s. Executable SHA256:
+`5e5f7aadf2686ca5c2ec66d88601f2a54f22784e11acb61fc30cba22bbfbb236`.
+Read-only inspection of the actual `five-loop-r0-d9-20261007` generation1
+passes full reinspection of30,626 native records:9,982 installed rules,
+939 declared terminal records,1,180 distinct encountered rule identities and
+196 encountered integral keys. Existing normalization retains196 outputs;
+38 numerator shapes are unsupported and14 potential projections have no
+bound positive output in this selected set. This is not evidence of196
+independent masters. The verifier portion takes75.778s (72.547s preparation,
+2.403s reinspection); this excludes subsequent normalization and is not an
+IBP-generation timing. All referenced checkpoint files are byte-identical
+before/after the command.
+
+[M] Combined four-loop58-query control also passes:523 installed rules,
+429 encountered rules,28 encountered terminals,20 normalized representatives.
+One- and four-worker runs return identical inventories, rule/key pages and
+normalization metadata. Verifier portion21.406s/5.639s respectively on one/four
+pinned cores; these are single shared-host correctness runs, not a new
+controlled speedup claim. Both use the existing saved programs without
+generation. No production launch, resume, checkpoint rewrite, master numerical
+evaluation or Laporta post-processing was performed.
+
 ## October7 — scalar-start restart and monitoring corrections
 
 Current user request: prepare a fresh five-loop starting-numerator-rank-zero

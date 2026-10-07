@@ -464,6 +464,30 @@ pub(super) fn inspect_reference<const N: usize>(
     )
 }
 
+/// Offline inventory uses the same complete native inspection as the closure
+/// verifier, observing classifications before the production event stream
+/// deliberately erases their rule/terminal identities. No payloads or callbacks
+/// are retained by the production walk.
+pub(super) fn inspect_reference_with_classifications<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    domain: &Domain<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    classified: &mut dyn FnMut(&rustred::solver::OwnerDomainMatchPiece<N>) -> ControlFlow<()>,
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Finished {
+    inspect_native_observed(
+        reducer,
+        domain,
+        request,
+        None,
+        cancellation,
+        &InitialOrthants::empty(),
+        Some(classified),
+        emit,
+    )
+}
+
 /// A physical source duty bypasses initial-overlap planning: its pending broad
 /// parent is not evidence that this part has been inspected. Outgoing reuse is
 /// unchanged and remains after the native source/guard/child checks.
@@ -500,6 +524,30 @@ fn inspect_native<const N: usize>(
     initial: &InitialOrthants<N>,
     emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
 ) -> Finished {
+    inspect_native_observed(
+        reducer,
+        domain,
+        request,
+        limits,
+        cancellation,
+        initial,
+        None,
+        emit,
+    )
+}
+
+fn inspect_native_observed<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    domain: &Domain<N>,
+    request: &OwnerDomainWalkRequest,
+    limits: Option<rustred::solver::OwnerAppliedLimits>,
+    cancellation: &AtomicBool,
+    initial: &InitialOrthants<N>,
+    mut classified: Option<
+        &mut dyn FnMut(&rustred::solver::OwnerDomainMatchPiece<N>) -> ControlFlow<()>,
+    >,
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Finished {
     if domain.phase == Phase::Route {
         return super::routing::inspect(reducer, domain, request, cancellation, initial, emit);
     }
@@ -513,6 +561,12 @@ fn inspect_native<const N: usize>(
     let result = reducer.programs().visit_power_bounded_owner_applied_successors(
         domain.owner, &domain.lower, &domain.upper, domain.rank, domain.powers, limits, cancellation,
         |event| {
+            if let OwnerAppliedEvent::Classified(piece) = &event
+                && let Some(observe) = classified.as_mut()
+                && observe(piece).is_break()
+            {
+                return ControlFlow::Break(());
+            }
             let effect = match event {
                 OwnerAppliedEvent::Classified(piece) => match piece.disposition() {
                     OwnerDomainMatchDisposition::SelectedRule { .. }

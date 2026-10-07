@@ -22,6 +22,9 @@ mod options;
 mod producer;
 mod resource_policy;
 mod routed_campaign;
+pub use routed_campaign::{
+    OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
+};
 
 pub(crate) use routed_campaign::{
     DIAGNOSTIC_PAUSE_VARIABLE, EPOCH_WALK_CHECKPOINT_FORMAT, EPOCH_WALK_CHECKPOINT_SCHEMA,

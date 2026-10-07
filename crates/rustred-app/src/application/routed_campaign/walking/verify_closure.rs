@@ -55,6 +55,10 @@ mod finite_replay;
 #[cfg(all(test, feature = "cli"))]
 mod g2_e2e_tests;
 mod graph;
+mod inventory;
+pub use inventory::{
+    OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
+};
 pub(super) mod lattice;
 mod result_binding;
 #[cfg(test)]
@@ -748,7 +752,7 @@ pub fn owner_domain_walk_verify_closure(
     cancellation: &AtomicBool,
     observer: impl Fn(Value),
 ) -> Result<Value, AppError> {
-    verify_closure_with_progress(request, options, cancellation, &observer)
+    verify_closure_with_progress(request, options, cancellation, &observer, None)
 }
 
 // One callback type reaches the sixteen native arities, independently of the
@@ -759,6 +763,7 @@ fn verify_closure_with_progress(
     options: &OwnerDomainWalkVerifyOptions,
     cancellation: &AtomicBool,
     observer: &dyn Fn(Value),
+    inventory: Option<&inventory::Collector>,
 ) -> Result<Value, AppError> {
     request
         .validate_epoch_inspector_lookup()
@@ -772,7 +777,7 @@ fn verify_closure_with_progress(
     }
     let (selection, arity, limits) = input::Selection::parse(&request.matching.selection_json)?;
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
-        $($n => verify::<$n>(request, options, &selection, limits, cancellation, &observer),)*
+        $($n => verify::<$n>(request, options, &selection, limits, cancellation, &observer, inventory),)*
         _ => Err(AppError::input("unsupported owner arity")),
     }} }
     dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
@@ -1668,6 +1673,7 @@ fn reinspect<const N: usize>(
     id: usize,
     tally: &mut Tally,
     violations: &mut Violations,
+    inventory: Option<&inventory::Collector>,
 ) {
     if id == 0
         && let Some(recipe) = ctx.loaded.finite_replay
@@ -1790,8 +1796,18 @@ fn reinspect<const N: usize>(
         Some((node_id, failing)) if node_id == id => failing,
         _ => ctx.request,
     };
-    let finished =
-        inspection::inspect_reference(ctx.reducer, &domain, request, ctx.cancellation, &mut emit);
+    let finished = if let Some(inventory) = inventory {
+        inspection::inspect_reference_with_classifications(
+            ctx.reducer,
+            &domain,
+            request,
+            ctx.cancellation,
+            &mut |piece| inventory.classified(piece),
+            &mut emit,
+        )
+    } else {
+        inspection::inspect_reference(ctx.reducer, &domain, request, ctx.cancellation, &mut emit)
+    };
     let failed = finished.error.is_some();
     local.inspected = 1;
     local.events = events;
@@ -1901,6 +1917,7 @@ fn run_reinspection<const N: usize>(
     options: &OwnerDomainWalkVerifyOptions,
     violations: &mut Violations,
     observer: &impl Fn(Value),
+    inventory: Option<&inventory::Collector>,
 ) -> Reinspection {
     let started = Instant::now();
     let nodes = &ctx.loaded.nodes;
@@ -1932,7 +1949,7 @@ fn run_reinspection<const N: usize>(
                     if index >= selected.len() || ctx.cancellation.load(Ordering::Relaxed) {
                         break;
                     }
-                    reinspect(ctx, selected[index], &mut tally, &mut local);
+                    reinspect(ctx, selected[index], &mut tally, &mut local, inventory);
                     done.fetch_add(1, Ordering::Relaxed);
                 }
                 let mut guard = shared.lock().expect("verifier tally");
@@ -2132,6 +2149,7 @@ fn verify<const N: usize>(
     load_limits: crate::CandidateOwnerLoadLimits,
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
+    inventory: Option<&inventory::Collector>,
 ) -> Result<Value, AppError> {
     let started = Instant::now();
     let mut violations = Violations::new(options.max_violations);
@@ -2143,6 +2161,11 @@ fn verify<const N: usize>(
     )?;
     let mut loaded =
         load::<N>(options, options.result.is_some(), &mut violations).map_err(AppError::input)?;
+    if inventory.is_some() && loaded.finite_replay.is_some() {
+        return Err(AppError::input(
+            "walk inventory does not yet support finite-replay summary records",
+        ));
+    }
     if loaded.finite_replay.is_some()
         && (options.reinspect != OwnerDomainWalkVerifyReinspect::All
             || options.reference_levers != OwnerDomainWalkVerifyReferenceLevers::Off)
@@ -2185,6 +2208,9 @@ fn verify<const N: usize>(
         Some(&mut bind),
     )?
     .ok_or_else(|| AppError::input("cancelled during owner preparation"))?;
+    if let Some(inventory) = inventory {
+        inventory.prepared(reducer.programs())?;
+    }
     let prepare_seconds = prepare_started.elapsed().as_secs_f64();
     let memory_prepared = memory_status();
     observer(json!({"event":"verify_prepared","seconds":prepare_seconds,"memory":memory_prepared}));
@@ -2684,7 +2710,7 @@ fn verify<const N: usize>(
         failing: failing.map(|id| (id, &failing_request)),
         count_parity,
     };
-    let reinspection = run_reinspection(&ctx, options, &mut violations, observer);
+    let reinspection = run_reinspection(&ctx, options, &mut violations, observer, inventory);
     let complete = reinspection.selected.len() == reinspection.candidates
         && reinspection.tally.inspected == reinspection.candidates as u64;
     // Roots, cones and certification.

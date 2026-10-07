@@ -173,6 +173,7 @@ pub(crate) enum Command {
     PreparationMonitor(Vec<OsString>),
     WalkVerifyClosure(super::walk_verify::WalkVerifyClosureArgs),
     WalkRescuePlan(super::walk_rescue::WalkRescuePlanArgs),
+    WalkInventory(super::walk_inventory::WalkInventoryArgs),
     FoundryCampaignRun(FoundryCampaignRunArgs),
     FoundryWaveCampaignRun(FoundryWaveCampaignRunArgs),
     Help,
@@ -289,6 +290,7 @@ pub(crate) fn parse_args(
         "owner-guarded-apply" => owner_guarded::parse(arguments),
         "walk-verify-closure" => super::walk_verify::parse(arguments),
         "walk-rescue-plan" => super::walk_rescue::parse(arguments),
+        "walk-inventory" => super::walk_inventory::parse(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
 }
@@ -383,6 +385,7 @@ USAGE:
     rustred walk-semantics-version
     rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--result RESULT.json | --no-result] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--reference-levers off|as-run] [--union-sample COUNT[:SEED]] [--mutate KIND] [--certification-scope auto|all-roots|physics-queries] [--max-violations N] [--force]
     rustred walk-rescue-plan --command WALK_ARGV.json [--checkpoint DIR] [--helper-id-prefix TEXT] [--rescue-helpers QUERIES.json] [--max-repeats N] [--rescue-scope class|tainted] [--amendment-output AMENDMENT.json] [--output PLAN.json] [--force]
+    rustred walk-inventory (--campaign-directory DIR | --command WALK_ARGV.json) [--checkpoint DIR] [--threads N] [--normalize-terminals] [--rules-start N] [--terminals-start N] [--normalized-terminals-start N] [--page-size N] [--output REPORT.json] [--force]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]
@@ -883,6 +886,21 @@ re-inspection was partial or none: never a certificate). A gate asserts
 (examples/python/assert_oracle_pass.py). `--mutate` injects
 one defect in memory and must FAIL (`alias-chain-detour` is a positive
 control and must PASS).
+
+`walk-inventory` re-inspects a saved CP6 campaign without modifying it or
+generating rules. Choose --campaign-directory (the published active run) or
+--command (the saved native argv). It separately reports installed rule and
+residual counts, then unique rules and terminal keys observed in the inspected
+domain cover. These conservative covers can contain points not reached by a
+particular concrete reduction. --normalize-terminals applies existing exact
+structural identities to that observed terminal set, not to all stored
+residuals; normalized terminals are not asserted independent or minimal masters.
+Totals are unpaginated; rule and terminal lists use --rules-start,
+--terminals-start, --normalized-terminals-start and --page-size (1..1000,
+default 25). Each list has its own offset. JSON goes to stdout
+unless --output is given. Existing reports require --force; campaign inputs
+and checkpoint data cannot be overwritten even with --force. SIGINT/SIGTERM
+cancel inspection cooperatively and never stop or alter the producer campaign.
 
 Independent starting-owner campaigns (opt-in, Linux):
   rustred campaign shards --config CONFIG.json --directory DIR

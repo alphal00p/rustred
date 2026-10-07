@@ -115,6 +115,23 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
     pub fn owner_sectors(&self) -> impl Iterator<Item = &[bool; N]> {
         self.owners.keys()
     }
+    /// Structural inventory of the installed immutable programs, in owner and
+    /// batch order: `(owner, batch_ordinal, rules, declared_terminals)`.
+    ///
+    /// These are stored counts, not rule-use or reached-terminal evidence.
+    /// Terminal declarations can repeat across batches; [`Self::terminal_count`]
+    /// separately counts distinct declared keys. No expressions are cloned.
+    pub fn installed_inventory(&self) -> impl Iterator<Item = (&[bool; N], usize, usize, usize)> {
+        self.owners.iter().flat_map(|(sector, owner)| {
+            owner
+                .batches
+                .iter()
+                .enumerate()
+                .map(move |(ordinal, batch)| {
+                    (sector, ordinal, batch.rules.len(), batch.terminals.len())
+                })
+        })
+    }
     pub fn terminal_count(&self) -> usize {
         self.owners
             .values()

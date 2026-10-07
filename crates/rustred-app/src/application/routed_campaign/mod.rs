@@ -8,6 +8,9 @@ mod input;
 mod matching;
 mod prepare;
 mod walking;
+pub use walking::{
+    OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
+};
 pub use domains::{OwnerDomainScanRequest, OwnerDomainScanResult, owner_domain_scan_with_progress};
 pub use feedback::{
     RoutedEntryWitnessLimits, RoutedEntryWitnessProposal, RoutedEntryWitnessRoundResult,

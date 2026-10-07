@@ -1,5 +1,8 @@
 mod application;
 pub use application::{
+    OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
+};
+pub use application::{
     CandidateArtifact, CandidateArtifactPage, CandidateGenerationEvents, CandidateGenerationJob,
     CandidateGenerationSession, CandidateGenerationSnapshot, CandidateGenerationState,
     CandidateTerminalNormalization, CandidateTerminalNormalizationLimits,

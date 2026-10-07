@@ -14,6 +14,7 @@ mod routed;
 mod shards;
 mod walk_rescue;
 mod walk_verify;
+mod walk_inventory;
 
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
@@ -87,6 +88,7 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::PreparationMonitor(arguments) => progress::preparation::run(arguments),
         Command::WalkVerifyClosure(arguments) => walk_verify::run(arguments),
         Command::WalkRescuePlan(arguments) => walk_rescue::run(arguments),
+        Command::WalkInventory(arguments) => walk_inventory::run(arguments),
     }
 }
 

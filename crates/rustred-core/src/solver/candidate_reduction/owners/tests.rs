@@ -79,6 +79,13 @@ fn common_context_prepares_sources_once_for_multiple_owners_and_keeps_above_rank
     assert!(Arc::ptr_eq(context.family_owner(), &family));
     assert_eq!(programs.owner_count(), 2);
     assert_eq!(programs.terminal_count(), 2);
+    assert_eq!(
+        programs
+            .installed_inventory()
+            .map(|(owner, batch, rules, terminals)| (*owner, batch, rules, terminals))
+            .collect::<Vec<_>>(),
+        vec![([true, true, false], 0, 0, 1), ([true; 3], 0, 0, 1)]
+    );
     assert!(
         programs.owners[&[true, true, false]].batches[0]
             .terminals
