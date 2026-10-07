@@ -107,9 +107,12 @@ pub fn owner_guarded_apply_with_progress(
     );
     macro_rules! dispatch {($($n:literal),*)=>{match arity {
         $($n=>run::<$n>(&request,&selection,load_limits,&queries,cancellation,&observer),)*
-        _=>unreachable!("admitted arity"),
+        _=>Err(crate::AppError::input("campaign arity is not compiled")),
     }}}
-    dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    {
+        crate::ensure_runtime_arity(arity)?;
+        rustred::with_app_runtime_arities!(dispatch)
+    }
 }
 
 fn run<const N: usize>(

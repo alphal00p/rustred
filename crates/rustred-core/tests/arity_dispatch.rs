@@ -87,3 +87,15 @@ fn capacity_dispatch_uses_smallest_bucket_and_keeps_supported_arities() {
     #[cfg(not(feature = "capacity-dispatch"))]
     assert_eq!(capacities, rustred::compiled_runtime_arities());
 }
+
+#[test]
+fn campaign_macro_uses_the_selected_registry_and_its_existing_maximum() {
+    macro_rules! values { ($($n:literal),*) => { &[$($n as usize),*] }; }
+    let actual: &[usize] = rustred::with_app_runtime_arities!(values);
+    let expected = rustred::compiled_runtime_arities()
+        .iter()
+        .copied()
+        .filter(|&arity| arity <= 16)
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
+}

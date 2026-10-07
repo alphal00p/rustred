@@ -106,12 +106,15 @@ fn generate_request(
         elapsed: started.elapsed(),
     });
     macro_rules! dispatch {
-        ($($n:literal),+) => { match n {
-            $($n => generate::<$n>(family, request, &root, started, observe, cancellation),)+
-            _ => unreachable!("candidate arity checked"),
+        ($($n:literal),*) => { match n {
+            $($n => generate::<$n>(family, request, &root, started, observe, cancellation),)*
+            _ => Err(crate::AppError::input("campaign arity is not compiled")),
         } };
     }
-    dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    {
+        crate::ensure_runtime_arity(n)?;
+        rustred::with_app_runtime_arities!(dispatch)
+    }
 }
 
 fn generate<const N: usize>(

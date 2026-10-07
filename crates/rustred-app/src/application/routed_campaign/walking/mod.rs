@@ -1050,18 +1050,24 @@ fn walk_with_progress(
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::Epoch {
         macro_rules! dispatch_epoch { ($($n:literal),*) => { match arity {
             $($n => epoch::run::<$n>(request, &selection, limits, &queries, cancellation, &with_allowances),)*
-            _ => unreachable!("admitted arity"),
+            _ => Err(crate::AppError::input("campaign arity is not compiled")),
         }} }
-        let mut result = dispatch_epoch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)?;
+        let mut result: OwnerDomainWalkResult = {
+            crate::ensure_runtime_arity(arity)?;
+            rustred::with_app_runtime_arities!(dispatch_epoch)
+        }?;
         result.document["requested_max_queries"] = json!(request.matching.max_queries);
         result.document["requested_max_query_bytes"] = json!(request.matching.max_query_bytes);
         return Ok(result);
     }
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
         $($n => run::<$n>(request, &selection, limits, &queries, cancellation, &with_allowances, diagnostic_pause),)*
-        _ => unreachable!("admitted arity"),
+        _ => Err(crate::AppError::input("campaign arity is not compiled")),
     }} }
-    let mut result = dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)?;
+    let mut result: OwnerDomainWalkResult = {
+        crate::ensure_runtime_arity(arity)?;
+        rustred::with_app_runtime_arities!(dispatch)
+    }?;
     result.document["requested_max_queries"] = json!(request.matching.max_queries);
     result.document["requested_max_query_bytes"] = json!(request.matching.max_query_bytes);
     Ok(result)

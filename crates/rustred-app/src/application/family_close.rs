@@ -272,14 +272,17 @@ fn dispatch_close(
     observe: Observer<'_>,
 ) -> Result<Installed, AppError> {
     macro_rules! arms {
-        ($($n:literal),+ $(,)?) => {
+        ($($n:literal),* $(,)?) => {
             match family.denominator_count() {
-                $($n => close::<$n>(family, request, root_sector, start, observe),)+
-                _ => unreachable!("family-close arity checked before dispatch"),
+                $($n => close::<$n>(family, request, root_sector, start, observe),)*
+                _ => Err(crate::AppError::input("campaign arity is not compiled")),
             }
         };
     }
-    arms!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    {
+        crate::ensure_runtime_arity(family.denominator_count())?;
+        rustred::with_app_runtime_arities!(arms)
+    }
 }
 
 fn close<const N: usize>(

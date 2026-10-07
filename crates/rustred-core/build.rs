@@ -79,12 +79,29 @@ __CAPACITY_ARMS__            $unsupported => $fallback,
         }
     }};
 }
+/// Invoke a caller macro with registered campaign arities (at most 16).
+/// Empty registries are possible when only larger finite-reducer arities are
+/// selected. The callback must accept zero or more literals.
+#[macro_export]
+macro_rules! with_app_runtime_arities {
+    ($callback:ident) => { $callback!(__APP_ARITIES__) };
+}
+
 "#;
     template
         .replace("__ARITIES__", &format!("{arities:?}"))
         .replace("__ARMS__", &arms)
         .replace("__CAPACITIES__", &format!("{capacities:?}"))
         .replace("__CAPACITY_ARMS__", &capacity_arms)
+        .replace(
+            "__APP_ARITIES__",
+            &arities
+                .iter()
+                .filter(|&&arity| arity <= 16)
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(", "),
+        )
 }
 
 fn main() {

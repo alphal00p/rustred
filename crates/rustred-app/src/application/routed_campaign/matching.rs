@@ -146,9 +146,12 @@ pub fn owner_domain_match_with_progress(
     );
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
         $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &with_allowances),)*
-        _ => unreachable!("admitted arity"),
+        _ => Err(crate::AppError::input("campaign arity is not compiled")),
     }} }
-    let mut result = dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)?;
+    let mut result: OwnerDomainMatchResult = {
+        crate::ensure_runtime_arity(arity)?;
+        rustred::with_app_runtime_arities!(dispatch)
+    }?;
     result.document["requested_max_queries"] = json!(request.max_queries);
     result.document["requested_max_query_bytes"] = json!(request.max_query_bytes);
     Ok(result)
