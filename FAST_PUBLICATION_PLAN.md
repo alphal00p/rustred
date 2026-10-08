@@ -61,3 +61,17 @@ An incremental online inventory is desirable but not a prerequisite for the
 first low-risk improvement if adding it would expand into a new checkpoint
 architecture. Record any remaining census/load cost explicitly rather than
 promising instant publication.
+
+## Full-size gate: measured context-cache bottleneck
+
+The first corrected full THE_ONE census was stopped cleanly in its scratch
+directory after 64,783 of 13,105,672 jobs. It is censored, not a successful
+publication timing. A 10-second 99 Hz user-CPU profile put 95.30% of samples in
+RustRed's thread-owned Symbolica context helper: linear cache lookup and full
+cleanup scans dominated, rather than mathematical matching. Add a narrow
+follow-up fix: pointer-indexed source/local identities, Weak-backed pointer
+lifetime safety, idempotent already-local reuse, and bounded incremental
+cleanup. Keep Symbolica's existing context-cloning operations; no CAS kernel,
+rule changes, new reconstruction or wider solver work. Core implements;
+the separate auditor reviews ownership/cleanup/aliasing and tests. Validate
+release cache controls and saved-campaign controls before rerunning THE_ONE.

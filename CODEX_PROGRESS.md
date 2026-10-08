@@ -1,5 +1,52 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 8 — full-size gate exposed a second publication bottleneck
+
+The initial optional-verification implementation is pushed as `e39b072f`.
+The corrected full THE_ONE scratch test decoded its checkpoint in about 800 s
+and prepared its owners in 136.884 s, but census throughput was only about
+200–300 jobs/s with all 16 workers busy. Root stopped **only owned scratch PID
+189089**, after verifying its argv: clean pause, 64,783 of 13,105,672 Apply scopes
+enumerated in 305.864 s. No production campaign pointer or artifact changed.
+This is a censored diagnostic, not a completed fast-publication result.
+
+`finite_feedback_core` profiled 10 s at 99 Hz: 14,190 user samples, no lost
+samples; 95.30% in `clone_thread_owned`. Within that symbol, 36.15% was linear
+pointer lookup and 55.92% cleanup/Weak-count scanning. This explains why the
+large result cannot be extrapolated from the passing small controls. The cache
+was unchanged since September 28; already-local maps can become new cache
+sources, creating retained context chains. Rank-dependent performance made this
+visible in the full saved workload.
+
+Narrow follow-up assigned: core implements pointer-indexed source/local cache,
+idempotent local reuse and bounded round-robin cleanup; audit agent checks
+Weak/ABA safety, ownership, exact values and lifetime tests. Root and both agents
+inspected Symbolica's current `zero_with_new_context`, `clone_with_context_of`
+and variable-map APIs. All polynomial operations remain Symbolica-owned. Plan
+updated in `FAST_PUBLICATION_PLAN.md`. No wider optimization work is authorized
+by this finding; validate this fix and finish delivery.
+
+The cache patch is independently approved and seven optimized focused tests
+pass. It leaves Symbolica's arithmetic/context-copy operations unchanged. Three
+microbenchmark pairs: 8,192 nested copies 76–78 ms→0.38 ms, one retained local
+context instead of 8,192; 65,536 copies across 4,096 maps 111–120 ms→7.2–9.6 ms.
+These are microbenchmarks, not publication timings. Production source frozen;
+real app release builds successfully in 5m15s. Delivery binary:
+`TMP/fast-publication-20261008/rustred-cache-delivery`, SHA256
+`0dd497fb2585a0fa7dfdd50f3c37f8457277bf443edfd2e41210024b970e8748`.
+The first real four-loop fast control passes in 2.429 s with 28→20 terminals.
+Agent is repeating scalar/deep/lifecycle controls; root starts the full THE_ONE
+scratch resume again, using only the captured generation-16 source.
+
+Final cache control gates now pass: four-loop fast/deep 2.429/8.158 s; scalar
+five-loop fast/deep 137.128/137.481 s (preparation dominates, so total scalar
+times are essentially tied). All four native/collection payloads and inventories
+are identical to the preceding build. Full Python lifecycle passes again;
+initial/refined/deep-upgraded/extended payloads are byte-identical across builds.
+Seven focused cache tests plus independent lifetime/code audit passed; no CAS
+implementation or symbolic rule change. Root will record the corrected full
+THE_ONE result separately; do not claim completion from its ongoing read-only run.
+
 ## October 8 — fast publication: delivery validation
 
 The release executable is frozen at SHA256

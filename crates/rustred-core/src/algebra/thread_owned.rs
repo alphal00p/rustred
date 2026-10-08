@@ -20,21 +20,99 @@
 //! string); only the identity of the context allocation differs, so results
 //! stay byte-identical. The shared owner data are then only read.
 //!
-//! Each cache entry keeps a `Weak` of the shared allocation it was derived
-//! from: the allocation cannot be freed and its address reused while the
-//! entry exists, so the lookup compares addresses only (no atomic write and
-//! no content comparison on the hot path). Entries whose shared value was
-//! dropped are pruned when a new entry is inserted.
+//! Each indexed map identity keeps its own `Weak`: the allocation cannot be
+//! freed and its address reused while the entry exists. Both shared source
+//! maps and local destination maps are recognized, so cloning a local result
+//! does not create another context. A bounded round-robin sweep on cache misses
+//! retires expired identities without scanning every live context.
 use std::cell::RefCell;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Weak};
 
 use symbolica::prelude::PolyVariable;
 
 use super::CoefficientPolynomial;
 
-struct Template {
-    shared_map: Weak<Vec<PolyVariable>>,
-    template: CoefficientPolynomial,
+enum TemplateEntry {
+    Shared {
+        map: Weak<Vec<PolyVariable>>,
+        template: CoefficientPolynomial,
+    },
+    // A weak alias survives eviction of its original Shared entry while any
+    // derived polynomial still owns this local context. Do not keep a second
+    // strong template here: that would prevent this alias from ever expiring.
+    Local {
+        map: Weak<Vec<PolyVariable>>,
+    },
+}
+
+impl TemplateEntry {
+    fn is_live(&self) -> bool {
+        let (Self::Shared { map, .. } | Self::Local { map }) = self;
+        map.strong_count() > 0
+    }
+}
+
+#[derive(Default)]
+struct TemplateCache {
+    entries: HashMap<usize, TemplateEntry>,
+    sweep: VecDeque<usize>,
+}
+
+impl TemplateCache {
+    const SWEEP_BUDGET: usize = 8;
+
+    fn sweep_expired(&mut self) {
+        // A live key returns to the queue exactly once. Bound work even when
+        // all maps remain live, and avoid revisiting a short queue in one pass.
+        for _ in 0..self.sweep.len().min(Self::SWEEP_BUDGET) {
+            let key = self.sweep.pop_front().expect("bounded sweep");
+            if self.entries[&key].is_live() {
+                self.sweep.push_back(key);
+            } else {
+                self.entries.remove(&key);
+            }
+        }
+    }
+
+    fn with_template<R>(
+        &mut self,
+        shared: &CoefficientPolynomial,
+        f: impl FnOnce(&CoefficientPolynomial) -> R,
+    ) -> R {
+        let key = Arc::as_ptr(shared.variables()) as usize;
+        if let Some(entry) = self.entries.get(&key) {
+            return match entry {
+                TemplateEntry::Shared { template, .. } => f(template),
+                // Symbolica exposes no weak polynomial-context handle. Use the
+                // input's own context for a recognized local map; both callers
+                // below use only that context, not its coefficients/exponents.
+                TemplateEntry::Local { .. } => f(shared),
+            };
+        }
+        self.sweep_expired();
+        let template = shared.zero_with_new_context();
+        let local_key = Arc::as_ptr(template.variables()) as usize;
+        let local_map = Arc::downgrade(template.variables());
+        // Each key has a Weak of that exact allocation, including local aliases.
+        // No stale pointer can collide with a newly allocated variable map.
+        debug_assert_ne!(key, local_key);
+        debug_assert!(!self.entries.contains_key(&local_key));
+        self.entries
+            .insert(local_key, TemplateEntry::Local { map: local_map });
+        self.entries.insert(
+            key,
+            TemplateEntry::Shared {
+                map: Arc::downgrade(shared.variables()),
+                template,
+            },
+        );
+        self.sweep.extend([key, local_key]);
+        let TemplateEntry::Shared { template, .. } = &self.entries[&key] else {
+            unreachable!("inserted shared template")
+        };
+        f(template)
+    }
 }
 
 struct Seal {
@@ -43,33 +121,17 @@ struct Seal {
 }
 
 thread_local! {
-    static TEMPLATES: RefCell<Vec<Template>> = const { RefCell::new(Vec::new()) };
+    static TEMPLATES: RefCell<TemplateCache> = RefCell::new(TemplateCache::default());
     static SEALS: RefCell<Vec<Seal>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Run `f` on this thread's zero template for `shared`'s variable map.
+/// Run `f` on a polynomial with this thread's context for `shared`'s map.
+/// Only the context may be used: an already-local input need not be zero.
 fn with_template<R>(
     shared: &CoefficientPolynomial,
     f: impl FnOnce(&CoefficientPolynomial) -> R,
 ) -> R {
-    let key = Arc::as_ptr(shared.variables());
-    TEMPLATES.with_borrow_mut(|templates| {
-        let index = match templates
-            .iter()
-            .position(|entry| std::ptr::eq(entry.shared_map.as_ptr(), key))
-        {
-            Some(index) => index,
-            None => {
-                templates.retain(|entry| entry.shared_map.strong_count() > 0);
-                templates.push(Template {
-                    shared_map: Arc::downgrade(shared.variables()),
-                    template: shared.zero_with_new_context(),
-                });
-                templates.len() - 1
-            }
-        };
-        f(&templates[index].template)
-    })
+    TEMPLATES.with_borrow_mut(|templates| templates.with_template(shared, f))
 }
 
 /// `shared.clone()` on the calling thread's context for the same field and
@@ -118,6 +180,10 @@ pub(crate) fn is_thread_owned_seal_of(shared: &Arc<String>, candidate: &Arc<Stri
         })
     })
 }
+
+#[cfg(test)]
+#[path = "thread_owned/cache_tests.rs"]
+mod cache_tests;
 
 #[cfg(test)]
 mod tests {

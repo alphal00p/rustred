@@ -158,6 +158,62 @@ also encounters pre-existing unrelated differences and a missing research
 module (`tools/research/rule_optimizer/routed_cancellation/record.rs`); unrelated
 code is left unchanged rather than claiming that broader check passes.
 
+## Full-size diagnostic and context-cache repair
+
+The first corrected THE_ONE fast run exposed a separate bottleneck after
+checkpoint loading/preparation: only 64,783 of 13,105,672 unique Apply scopes
+were processed in 305.864 s. It was deliberately interrupted with a clean scratch
+checkpoint; **this is not a successful publication timing**. Sixteen workers
+were fully busy. A ten-second, 99 Hz user-CPU profile collected 14,190 samples
+without losses: 95.30% lay in `algebra::thread_owned::clone_thread_owned`.
+Within that function, 36.15% was linear pointer lookup and 55.92% was full-cache
+cleanup scanning. The earlier small controls did not expose this growth.
+
+The old cache treated already-local variable maps as new sources, allowing
+retained context chains. The repair indexes both source and local identities
+with a thread-local hash map. Each key has a Weak reference to its exact
+allocation to prevent pointer-reuse errors. Recognized local polynomials reuse
+their own context; only eight queued entries are examined per cache miss.
+Expired local aliases are cleaned independently of their original source.
+All polynomial copying and zero construction still use Symbolica's existing
+`clone_with_context_of` and `zero_with_new_context`/`zero_with_capacity` APIs.
+No coefficients, variable ordering, algebraic identity or rule choice changes.
+
+Seven optimized tests cover idempotent nested copies/zeros, source eviction,
+2,048 live distinct maps, 10,000 expired-map churn steps, Weak ownership and
+cross-thread isolation. Independent implementation and lifetime/code audit passed.
+Three old/new microbenchmark pairs using the same optimized harness give:
+
+| Context-cache workload | Original cache | Indexed/idempotent cache |
+|---|---:|---:|
+| 8,192 nested copies | 76.3–78.0 ms; 8,192 contexts | 0.380–0.383 ms; one context |
+| 65,536 copies over 4,096 live source maps | 111–120 ms | 7.25–9.55 ms |
+
+These are small cache microbenchmarks with old-first ordering, not whole-campaign
+speedups. Evidence: `TMP/thread-owned-cache-20261008.KeyDLG/`. The same-build
+publication controls above precede this additional cache fix; final real-run
+measurements must be reported separately, without reusing those numbers as
+measurements of the repaired cache.
+
+The repaired optimized executable is SHA256
+`0dd497fb2585a0fa7dfdd50f3c37f8457277bf443edfd2e41210024b970e8748`
+(`target/release/rustred`; scratch copy `rustred-cache-delivery`). Build time
+5m15s, excluded. The four-loop fast control completes in 2.429 s (inventory
+0.506 s, previously 1.907 s); deep completes in 8.158 s. Scalar five-loop fast
+completes in 137.128 s (inventory 0.925 s, previously 4.444 s), still dominated
+by 127.514 s preparation. Both fast controls and the four-loop deep control
+produce exactly the prior native/collection payloads and encountered/installed
+inventories. This distinguishes a measured census improvement from unrelated
+setup time. Scalar deep also passes in 137.481 s (preparation 125.330 s,
+reinspection 3.003 s), so scalar total fast/deep time is essentially tied in
+this measurement. All four control outputs match the preceding executable
+exactly. The fresh full Python lifecycle passes again; initial, refined,
+deep-upgraded and extended native/collection payloads match the preceding
+lifecycle byte-for-byte. Evidence: `matched-controls-summary-cache.json`,
+`workflow-cache-validation.json`, and the cache comparison receipts in the
+publication evidence directory. Whole THE_ONE timing is pending the corrected
+full-size test.
+
 ## Usage
 
 ```bash
