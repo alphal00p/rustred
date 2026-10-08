@@ -7,6 +7,33 @@ use crate::family::{IntegralFamily, IntegralKey};
 use super::super::TerminalAliasError as Error;
 use super::model::{Support, VerifiedVacuumParameterMap};
 
+pub(super) fn prove_between(
+    source_family: &IntegralFamily,
+    target_family: &IntegralFamily,
+    source_key: &IntegralKey,
+    target_key: &IntegralKey,
+    source: Arc<Support>,
+    target: Arc<Support>,
+    permutation: Vec<usize>,
+) -> Result<VerifiedVacuumParameterMap, Error> {
+    if source_family.loop_count() != target_family.loop_count()
+        || !source_family
+            .coefficient_context()
+            .has_same_variable_map(target_family.coefficient_context())
+        || source_family.dimension() != target_family.dimension()
+    {
+        return Err(Error::InvalidParametricWitness);
+    }
+    prove(
+        source_family,
+        source_key,
+        target_key,
+        source,
+        target,
+        permutation,
+    )
+}
+
 pub(super) fn prove(
     family: &IntegralFamily,
     source_key: &IntegralKey,

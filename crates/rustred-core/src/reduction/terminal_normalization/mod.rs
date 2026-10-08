@@ -27,7 +27,10 @@ pub use model::{
     ProductSkipReason, TerminalAliasError, TerminalAliasPlan, TerminalAliasStatistics,
     TerminalAliasWitness, VerifiedTerminalAlias,
 };
-pub use parametric::{VacuumParametricLimits, VerifiedVacuumParameterMap};
+pub use parametric::{
+    VacuumFamilyAliasError, VacuumFamilyAliasLimits, VacuumFamilyAliasPlan, VacuumIntegralKey,
+    VacuumParametricLimits, VerifiedFamilyVacuumAlias, VerifiedVacuumParameterMap,
+};
 pub use weighted::{
     TerminalNormalizationError, TerminalNormalizationLimits, TerminalNormalizationPlan,
     TerminalNormalizationSkipReason, TerminalNormalizationStatistics, TerminalProjectionWitness,

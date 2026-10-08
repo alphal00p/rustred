@@ -468,7 +468,8 @@ records the executable identity, input, Vakint revision, convention map, raw
 output, Laurent order, and precision. Reviewed raw coefficients, where a basis
 map exists, and high-precision evaluated terminal data become versioned
 fixtures; production RustRed never copies authored oracle recurrence tables.
-MATAD's ten shipped three-loop master tables contain about 20,095--20,100
+Vakint's ten shipped MATAD master tables (nine three-loop entries and one
+two-loop entry, not ten distinct three-loop masters) contain about 20,095--20,100
 decimal digits, so a 20,000-digit request leaves only about 95--100 guard
 digits. Four-loop artifact production begins only after the complete Stage 1
 gate. FMFT is a possible

@@ -1,5 +1,78 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 8 — exact cross-family collection: final production controls
+
+Implemented two reusable, prepare-once Rust library services:
+`VacuumFamilyAliasPlan` for exact full-U aliases across family boundaries, and
+`VacuumDiagonalCollectionPlan` for terminal-only consequences of native
+diagonal ordinary IBP sums. No topology-name or loop-count dispatch, oracle
+coefficients, new CAS kernel, or sampled identities enter their authority.
+All generated auxiliary columns survive elimination; admitted equations retain
+original source rows, exact quotient-matrix replay, nonzero conditions, and
+checked mass restoration. Application uses immutable flat maps. Existing
+single-family defaults, saved campaigns, and Vakint packages are unchanged.
+
+Final optimized production-API measurements (shared host, CPUs52–55,
+one Rayon worker, compilation excluded):
+
+| Frozen input | Raw labels | After exact aliases | After diagonal relations | Preparation | Initial native load |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Four-loop H/FG/BMW/X remaining inventories | 65 | 22 | 20 | 0.123633s | 0.379306s |
+| Five-loop scalar/dotted subset | 355 | 355 | 354 | 2.117668s | 15.256863s |
+
+The five-loop inventory additionally contains253 numerator-bearing keys, which
+this scalar API explicitly leaves untouched: combined608→607. This is not a
+newly solved scope or a rewritten campaign artifact. The four-loop20 output
+coordinates are close to the offline FMFT catalogue's19 formal coordinates,
+but neither number is a physical independence certificate. Eight fresh offline
+Vakint/FMFT calls cover the seven oracle classes participating in the two
+four-loop relations; autonomous discovery never consumes those expressions.
+
+Both production controls cold-read the original native sessions again,
+reprepare in reversed family order, and reproduce all exact guarded flat maps,
+equations, source weights and master-only output. Neither introduces a new
+nonconstant guard; dot-first pivots avoid the scratch pilot's unnecessary
+epsilon poles. Including both native reads and preparations:4L0.991229s,
+12MiB peakRSS;5L34.627116s,350.2MiB peakRSS. Checked lookups over all65/355
+requested keys take34.7/403microseconds, respectively; these are lookups, not
+whole-integral reduction benchmarks. Receipts and commands:
+`TMP/critical-geometry-20261008/production-{four-loop,five-loop-scalar}.{json,time}`
+and `docs/research/critical_geometry_terminal_diagnostics_2026-10-08.md`.
+
+Final native checks:27terminal-relation,69terminal-normalization and418candidate
+reducer tests pass (514total). Optimized core library build passes in3m11s;
+compilation is not counted as solver time. One initial missing Symbolica trait
+import was fixed; failed logs remain alongside successful `*-v2.log` receipts.
+`terminal_saved_identity_impl` implemented aliases/oracle checks;
+`terminal_session_assist_impl` implemented diagonal collection and measured
+production controls; `terminal_integration_auditor` supplied independent
+adversarial tests and mathematical/code review. Root integrated, tested and
+verified limits/application behavior. Final independent mathematical/code audit
+passes with no blockers. The oracle lane also verifies both exported equations
+and all65flat maps/72output terms exactly against FMFT, including each mass
+exponent. Evidence: `oracle/production-four-loop-comparison.json` beneath the
+critical-geometry evidence directory. The five-loop relation has native source
+replay and independent mass-Euler validation, not a five-loop numerical oracle.
+
+Campaign-use conclusion: verified terminal postcomposition is useful and cheap;
+the existing weighted-application H/X controls improve output/cache sizes and
+first-application times. This does **not** establish fewer reachability domains.
+The campaign's raw coverage obligations must remain intact. Existing source
+preconditioning may already contain a diagonal/Euler combination. A future
+generation experiment should first detect that combination and try prioritizing
+it; if absent, a provenance-backed prefix with unchanged ordinary fallback is
+possible. No automatic campaign-generation change or speedup is claimed here.
+
+Backlog at delivery: cross-family aliases and diagonal collection **delivered**;
+FMFT/critical-point diagnostics and application feedback **delivered**; broad
+circuit-support expansion **rejected** on cost/no-gain evidence; all-ordinary
+collection **rejected** as a more expensive way to obtain the same20 count;
+further magic/syzygy search **deferred** until a specific unresolved geometry
+motivates it; campaign source-prefix scheduling **deferred** pending a cheap
+representative pilot; CLI/persisted collection and automatic Vakint catalogue
+replacement **not implemented** in this library milestone. No live campaign
+was modified or signalled. Unrelated HEPKit/notebook edits remain untouched.
+
 ## October 8 — new goal: geometry/oracle-guided relations
 
 Active plan: `CRITICAL_GEOMETRY_TERMINAL_PLAN.md`; tool-managed goal created.
@@ -75,6 +148,28 @@ broad circuit-support expansion rejected unless selective evidence reopens it;
 critical geometry diagnostic delivered, further magic search deferred for
 this shortlist. Geometry note:
 `docs/research/critical_geometry_terminal_diagnostics_2026-10-08.md`.
+
+Positive autonomous result: the new generic cross-family full-U collection
+maps all65 four-loop family-local remaining keys to22 representatives using43
+exact unit aliases. Preparation52.2ms; reversed-input replay52.2ms gives
+identical maps. No oracle input enters the engine; offline FMFT independently
+confirms every edge and every class. The new collection/application API keeps
+family-tagged outputs and uses native Symbolica coefficient addition, with
+unknown-key and coefficient-context failures. The rebuilt normalization suite
+passes69tests, including independent dot-multiset/external-family adversaries
+and cross-family application/cancellation tests. One subsequent caller-limit
+validation cleanup awaits the final combined rebuild.
+
+The next successful pilot combines native diagonal ordinary rows at54undotted
+corners with global column aliases:65->22->20,216native rows grouped into54sums,
+50columns including28 retained auxiliaries,0.510s including loading. Full native
+matrix replay after independently proved aliases passes. Offline FMFT confirms
+both new relations exactly. A larger all-ordinary control uses864rows and1092
+columns in0.847s but still reaches20: no incremental gain, so retain the cheaper
+diagonal strategy. `terminal_session_assist_impl` is implementing that bounded,
+prepare-once generic core API with guarded flat outputs, original-source
+provenance, dot-first pivots and mass restoration. Auditor remains independent.
+This is finite basis compression, not a new five-loop closure or minimality proof.
 
 ## October 8 — terminal-compression delivery
 

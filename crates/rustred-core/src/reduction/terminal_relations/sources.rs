@@ -19,6 +19,9 @@ impl Sources {
     pub fn len(&self) -> usize {
         self.rows.len()
     }
+    pub(super) fn row_id(&self, ordinal: usize) -> Option<&crate::identity::RowId> {
+        self.rows.get(ordinal).map(ParametricRelation::row_id)
+    }
     pub fn row(
         &self,
         seed: &IntegralKey,

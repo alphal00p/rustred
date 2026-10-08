@@ -6,6 +6,7 @@
 //! of minimality, unrestricted closure, or absence of further relations.
 
 mod assistance;
+pub mod collection;
 mod codec;
 mod elimination;
 mod sources;

@@ -3,7 +3,7 @@
 ## Result and recommendation
 
 The existing public `sector::masters::MasterCounter` was sufficient for the
-first diagnostic. No new algebra engine or production code was implemented.
+first diagnostic. No new critical-geometry algebra engine was implemented.
 Two oracle-shortlisted four-loop sectors both returned `Counted(2)` before
 symmetry identification. Neither supplied a non-isolated-locus signal that
 would justify a magic-sector search in this experiment.
@@ -15,9 +15,14 @@ undotted corners. Oracle coefficients must not enter that construction.
 Adding a diagonal-row sum at an already processed seed cannot enlarge its
 ordinary row span: the potential gain is identifying previously separate
 dotted columns across parent families, or supplying a genuinely absent seed.
-One further oracle combination involving lower sectors still needs an exact
-uncut row-space experiment. These recommendations are inferences, not results
-of an implemented cross-family reducer.
+The subsequent native diagonal-source experiment reproduced two exact
+relations after cross-parent identification, taking 65 family-local labels
+to 20 retained classes. Its bounded production API reproduced that result
+without introducing epsilon-pole guards; a separate five-loop scalar-subset
+control removed one label, leaving 607 labels when its 253 out-of-scope
+numerator labels are retained. The broader ordinary-row control did not
+improve the four-loop result. None of these finite results establishes
+minimality, and no existing campaign or packaged asset was rewritten.
 
 ## Literature and mathematical boundaries
 
@@ -148,4 +153,200 @@ nix develop --command bash -c 'ulimit -v 2097152; exec time -v -o TMP/critical-g
 The adjacent `count-{A,C}.json`, `.time`, and `.stderr.log` files contain
 verdicts, native hashes/family bindings, timings, and resource measurements.
 All inputs were read-only. No campaign, packaged asset, default, or production
-API changed.
+API changed during G1.
+
+## G2: exact diagonal-source collection pilot
+
+The next bounded experiment succeeded without using oracle coefficients:
+**65 family-local labels ->22 full-U classes ->20 classes** after two exact
+equations. This is a finite relation result, not a minimality claim.
+
+The scratch driver `TMP/critical-geometry-20261008/diagonal_collection.rs`
+derives undotted positive-support corners from each family's remaining keys.
+It prepares ordinary IBPs through `ParametricIbpGenerator`, specializes the
+native diagonal loop-contraction rows with all source guards and coefficient
+poles, and sums them with unit weights. No mass-Euler coefficients or orbit
+multiplicities are entered by hand. The new `VacuumFamilyAliasPlan` identifies
+scalar columns over the union of requested keys and every generated child.
+Unmatched columns remain family-qualified auxiliaries.
+
+The preregistered admission limits were 128 corner seeds, 2,048 specialized
+source rows, 10,000 columns, 200,000 input nonzeros, 1,000,000 retained
+reducer/provenance nonzeros, a 120-second process timeout, and 2 GiB virtual
+address space. Native replay additionally admits at most 2,000,000 scalar
+product contributions. No gain, a resource limit, or nonzero replay would
+stop this experiment. A later matched full ordinary-row control is reported
+below; it did not improve the diagonal result.
+
+Measured on CPUs52–55 with one Rayon thread:
+
+| Quantity | Result |
+| --- | ---: |
+| Family-local requested keys / global target classes | 65 / 22 |
+| Family-local undotted corner seeds | 54 |
+| Specialized diagonal rows / summed rows | 216 / 54 |
+| Columns / retained auxiliary columns | 50 / 28 |
+| Numerator terms after the exact diagonal sums | 0 |
+| Independent terminal equations / remaining target classes | 2 / 20 |
+| Retained reducer and provenance nonzeros | 276 |
+| Decode / source / alias preparation seconds | 0.380352 / 0.007837 / 0.120191 |
+| Native elimination and replay seconds | 0.001188 |
+| Total driver / process wall seconds | 0.509937 / 0.52 |
+| Process user + system seconds / peak RSS KiB | 0.49 + 0.03 / 9,216 |
+
+An identity block appended to the source matrix carries exact source weights
+through Symbolica elimination. For both output equations, native matrix
+multiplication verifies `W*A_quotient=U_physical`, where `A_quotient` contains
+the **entire** source rows after sealed full-U column aliases. No auxiliary
+column is projected away. Each equation in this pilot uses one diagonal sum;
+the original ordinary ordinals and seed are recorded in the JSON evidence.
+
+An independent agent then parsed the actual emitted keys and coefficients,
+substituted `d=4-2*ep` with Symbolica, and checked that both expressions vanish
+in the offline FMFT catalogue. The initial seven fresh FMFT inputs cover six
+distinct classes (the dotted PR9 class was checked in two parents). A later
+eighth fresh call also checks undotted PR9, completing fresh coverage of all
+seven classes used by G2; see `oracle/fresh-pr9-comparison.json`. Evidence is
+`TMP/critical-geometry-20261008/oracle/diagonal-oracle-comparison.json`; none
+of these values were supplied to the autonomous driver.
+
+The scratch lexical target ordering pivots undotted integrals and records
+`4*d-14 != 0` and `4*d-16 != 0`. These are valid generic-d equations, but a
+production implementation should preferentially pivot dotted/higher-power
+targets to avoid gratuitous `d-4` denominators. Unlike unit aliases, the
+equations change total propagator power: any later common-mass restoration
+must use the original target's homogeneity, not assume it was preserved.
+
+### G2 reproduction and identities
+
+The wrapper remains `opt-level=1`; the engine is the optimized release core.
+Its SHA-256 is
+`96c40c061dbfa3c3d787ab9516672b6fe770b5b2a24699b239c8e48fa4036c0e`.
+The new core rlib SHA-256 is
+`c6238bc141692aa8d5a59adc45dc9042b907c9c13f0b0e4b92bde0ec6493ff67`.
+Compilation is excluded from all pilot timings above.
+
+```bash
+nix develop --command taskset -c 52-55 rustc --edition=2024 -C opt-level=1 \
+  TMP/critical-geometry-20261008/diagonal_collection.rs \
+  -o TMP/critical-geometry-20261008/diagonal_collection \
+  --extern rustred=target/release/deps/librustred-1c1049495d0c9e72.rlib \
+  --extern symbolica=target/release/deps/libsymbolica-04d533078f6a1027.rlib \
+  --extern serde_json=target/release/deps/libserde_json-764c963f555eb7fe.rlib \
+  --extern blake3=target/release/deps/libblake3-ffb325460d10c795.rlib \
+  -L dependency=target/release/deps \
+  -L native=target/release/build/gmp-mpfr-sys-d5e4317be2c2f047/out/lib
+
+nix develop --command bash -c 'ulimit -v 2097152; exec time -v -o TMP/critical-geometry-20261008/diagonal-collection.time timeout 120s taskset -c 52-55 env SYMBOLICA_HIDE_BANNER=1 RAYON_NUM_THREADS=1 TMP/critical-geometry-20261008/diagonal_collection diagonal TMP/terminal-compression-20261008/catalog-h-wide-ordinary-measured.rrbin TMP/terminal-compression-20261008/catalog-fg-wide-ordinary-measured.rrbin TMP/terminal-compression-20261008/catalog-bmw-wide-ordinary-measured.rrbin TMP/terminal-compression-20261008/catalog-x-wide-ordinary-measured.rrbin > TMP/critical-geometry-20261008/diagonal-collection.json 2> TMP/critical-geometry-20261008/diagonal-collection.stderr.log'
+```
+
+The output JSON records input BLAKE3 identities, qualified equation terms,
+source origins and weights, nonzero conditions, replay scope, counts, and
+timings. Inputs were read-only. This pilot does not compose the new equations
+with old per-family reductions; such composition must also retain the old
+session's conditions. No packaged catalogue, campaign, or single-family
+refinement behavior was modified by the scratch experiment.
+
+Root also ran the same frozen driver in `all` mode with the same timeout and
+memory caps. Its 864 ordinary sources produced 1,092 columns, including 1,070
+auxiliaries and 3,475 numerator-term occurrences, yet still only the same two
+terminal equations and 20 remaining classes. Total driver time was 0.847 s.
+Evidence is `TMP/critical-geometry-20261008/all-collection.{json,time,stderr.log}`.
+This negative incremental control supports implementing only the smaller
+diagonal-source policy, not adding a broad all-row collection option.
+
+## Production API replay and scalar-subset control
+
+The new prepare-once API is
+`terminal_relations::collection::VacuumDiagonalCollectionPlan::prepare`.
+It reuses the session's exact native source specialization, retains original
+diagonal rows and their guarded sums, performs sealed full-U column
+identification, and verifies its resulting equations by native matrix
+replay over all columns. Auxiliary columns precede requested columns in the
+elimination order. Requested dotted/higher-power columns precede simpler
+ones, so this implementation avoids the scratch pilot's unnecessary
+`d-4` pivot denominator. Its checked flat maps contain only retained,
+actually requested family-qualified labels. Application returns newly
+generated conditions explicitly; callers composing earlier reductions must
+also retain their earlier conditions and external family prefactors.
+
+Ingress is deliberately scalar, vacuum, unshifted, and unit-mass on active
+requested denominators. Inactive coordinates need not have that mass. The
+generic API has no topology or loop-count table and no oracle dependency.
+`common_mass_squared_power` checks the per-output restoration exponent
+against the original target, since these equations change total power.
+There is no persistence, resume, global Laporta, or minimality claim.
+
+The final debug filter passed 27 terminal-relation tests, including the new
+collection regressions and an independently authored test where the
+full-U canonical representative is an undeclared generated auxiliary.
+The latter confirms that a free output still uses an actual requested
+label. Existing session tests remained in the same passing filter.
+
+A read-only wrapper called this public API, then freshly reread each native
+input, reversed family order, rebuilt the plan, and compared every exact
+guarded flat map, equation, source weight, remaining set, and statistic.
+Both measured runs passed all those checks and produced master-only maps.
+Both used separate processes on CPUs52–55 with one Rayon thread, 120-second
+timeouts, and 2 GiB virtual-address-space limits. Compilation is excluded.
+
+| Quantity | Four-loop family collection | Five-loop scalar subset |
+| --- | ---: | ---: |
+| Selected requested labels | 65 | 355 |
+| Full-U target classes | 22 | 355 |
+| Retained scalar classes | 20 | 354 |
+| Numerator labels retained unchanged/out of scope | 0 | 253 |
+| Combined retained labels | 20 | 607 |
+| Corner seeds / native diagonal rows | 54 / 216 | 63 / 315 |
+| Columns / auxiliary columns | 50 / 28 | 515 / 160 |
+| Terminal equations / replay scalar contributions | 2 / 7 | 1 / 5 |
+| Newly generated nonzero conditions | none | none |
+| First native decode seconds | 0.379306 | 15.256863 |
+| Public API preparation seconds | 0.123633 | 2.117668 |
+| Checked flat-map lookup seconds | 0.000035 | 0.000403 |
+| Cold decode / repeated preparation seconds | 0.362978 / 0.123961 | 15.117117 / 2.130813 |
+| Total driver / process wall seconds | 0.991229 / 1.00 | 34.627116 / 34.66 |
+| Process user + system seconds | 0.97 + 0.02 | 34.09 + 0.31 |
+| Peak RSS KiB | 12,288 | 358,572 |
+
+The timing for checked flat-map lookup excludes JSON/coefficient export and
+the cold rebuild. Empty newly generated conditions do not erase conditions
+already attached to the predecessor single-family reductions. The positive
+five-loop result was not assumed in advance: the one equation was derived
+from source sum 51 with native weight `-1/4`, then exactly replayed after
+the full-U quotient. It relates one support-ten corner and four dotted
+classes with coefficients `(20-5*d)/4, 1, 2, 1, 1`. No independent five-loop
+oracle value or minimality certificate is claimed.
+
+Evidence is `TMP/critical-geometry-20261008/production-four-loop.json` and
+`production-five-loop-scalar.json`, with adjacent `.time` and `.stderr.log`
+files. JSON includes all exact maps/equations, source origins and weights,
+input BLAKE3 identities, and explicit unchanged out-of-scope keys. The
+five-loop input is the frozen standard-profile completed circuit state
+whose SHA-256 is
+`8e89e286fd3f89cb10cf1fc169138f307ec68635b406c57a8e806cd976415e8c`.
+
+The wrapper was compiled with `opt-level=3`; the public non-generic engine
+entry point was compiled in release mode. Wrapper SHA-256:
+`72483a11b6a150199a9dbf5d66a37578454cc13c0c7f1cabf807fae4e45ad932`.
+Wrapper source SHA-256:
+`1dad0c834d344e2d902ead117d0ecdf849a549f50efa06455e4833e610601416`.
+Linked release core SHA-256:
+`d64d2ed874f1054502d745cb5b4fc22f9de9021a7e2d1a526ae5c48506b2c5ec`.
+The rlib filename is reused by subsequent builds, so the hash, not only its
+path, identifies this measured engine.
+
+```bash
+nix develop --command taskset -c 52-55 rustc --edition=2024 -C opt-level=3 \
+  TMP/critical-geometry-20261008/production_collection.rs \
+  -o TMP/critical-geometry-20261008/production_collection \
+  --extern rustred=target/release/deps/librustred-c1b5cf29c3a1a26b.rlib \
+  --extern serde_json=target/release/deps/libserde_json-764c963f555eb7fe.rlib \
+  --extern blake3=target/release/deps/libblake3-ffb325460d10c795.rlib \
+  -L dependency=target/release/deps \
+  -L native=target/release/build/gmp-mpfr-sys-d5e4317be2c2f047/out/lib
+
+nix develop --command bash -c 'ulimit -v 2097152; exec time -v -o TMP/critical-geometry-20261008/production-four-loop.time timeout 120s taskset -c 52-55 env SYMBOLICA_HIDE_BANNER=1 RAYON_NUM_THREADS=1 TMP/critical-geometry-20261008/production_collection scalar-only TMP/terminal-compression-20261008/catalog-h-wide-ordinary-measured.rrbin TMP/terminal-compression-20261008/catalog-fg-wide-ordinary-measured.rrbin TMP/terminal-compression-20261008/catalog-bmw-wide-ordinary-measured.rrbin TMP/terminal-compression-20261008/catalog-x-wide-ordinary-measured.rrbin > TMP/critical-geometry-20261008/production-four-loop.json 2> TMP/critical-geometry-20261008/production-four-loop.stderr.log'
+
+nix develop --command bash -c 'ulimit -v 2097152; exec time -v -o TMP/critical-geometry-20261008/production-five-loop-scalar.time timeout 120s taskset -c 52-55 env SYMBOLICA_HIDE_BANNER=1 RAYON_NUM_THREADS=1 TMP/critical-geometry-20261008/production_collection scalar-subset TMP/terminal-compression-20261008/five-loop-standard-v2/circuit/state-0000000000000007.rrbin > TMP/critical-geometry-20261008/production-five-loop-scalar.json 2> TMP/critical-geometry-20261008/production-five-loop-scalar.stderr.log'
+```

@@ -85,5 +85,21 @@ columns while building a finite exact source system, or transport a genuinely
 parametric rule through a verified family map. These retain all auxiliary
 columns, source conditions and closure obligations. A relation found at fixed
 integer powers cannot simply be promoted to a recurrence at arbitrary powers.
-The cross-family ordinary-source pilot tests that mechanism separately. No
-user campaign is modified by these diagnostics.
+The cross-family ordinary-source pilot tests that finite-system mechanism
+separately; its successful implementation and final65→20control are documented
+in `cross_family_terminal_collection_2026-10-08.md`. The same generic code finds
+one additional exact equation on the frozen five-loop scalar subset, giving
+608→607combined labels when numerator keys remain unchanged. These outcomes
+do not establish a gain in campaign generation time. No user campaign is
+modified by these diagnostics.
+
+Inspection of generation's ordinary-source constructor found no explicit
+diagonal/Euler prefix. However, existing sector preconditioning already forms
+linear combinations of the ordinary rows, so the compact sum may occur
+implicitly. Before adding any generation mechanism, a follow-up should check
+the prepared basis, then compare prioritizing an existing proportional row or
+adding a provenance-backed diagonal prefix with the ordinary fallback intact.
+The existing preconditioner provenance maps back to original IBPs and can be
+exactly replayed; a `RowId::Derived` label alone is not authority. This is an
+untested cost-reduction hypothesis, not an additional mathematical relation
+space or a reason to restart the running campaign.

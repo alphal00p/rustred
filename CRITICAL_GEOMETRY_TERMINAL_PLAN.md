@@ -135,3 +135,31 @@ Completion requires a measured successful strategy integrated and audited,
 honest before/after controls, and an explicit conclusion on campaign reuse
 (implemented/tested if worthwhile, otherwise evidence-backed deferral).
 Do not claim minimality or completion of the broader five-loop physics goal.
+
+## Delivered implementation and follow-up boundary
+
+The measured successful strategy is implemented as the generic Rust library
+services `VacuumFamilyAliasPlan` and `VacuumDiagonalCollectionPlan`. Exact
+cross-family parameter equivalences followed by native diagonal ordinary IBP
+sums reduce the four-loop collection65→22→20; the same implementation reduces
+the frozen five-loop scalar subset355→354, with253 numerator keys unchanged
+(608→607 combined). Native Symbolica owns the algebra. All auxiliary columns,
+original source rows, guarded flat maps and mass-power differences are retained.
+Cold reconstruction and independent four-loop FMFT comparisons pass.
+
+The library interface is available now; this milestone does not add a new
+CLI, persisted collection codec, or automatic Vakint/campaign rewrite. Existing
+saved-session interruption/resume and packaged artifacts are unchanged.
+Campaign reuse is supported at the coefficient-application boundary; there is
+no measured generation/reachability improvement from the new collection.
+Source-preconditioning inspection identified a future diagonal-prefix/priority
+experiment, but that is not grounds to change the user's running campaign.
+Broad circuit-support expansion and larger all-ordinary collection did not
+justify their additional costs on these controls. Further magic/syzygy searches
+need a concrete diagnostic trigger rather than an exact-minimality target.
+
+Results, authority limits, preparation costs, API usage, negative controls and
+follow-up conditions are in
+`docs/research/cross_family_terminal_collection_2026-10-08.md` and
+`CODEX_PROGRESS.md`. This completes the finite strategy-delivery scope, not
+the broader five-loop closure or master-evaluation programme.

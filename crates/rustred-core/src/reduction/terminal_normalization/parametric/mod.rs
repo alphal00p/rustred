@@ -23,6 +23,7 @@ use super::{
 
 #[cfg(test)]
 mod audit_tests;
+mod collection;
 mod geometry;
 mod model;
 mod proposal;
@@ -30,7 +31,33 @@ mod proposal;
 mod tests;
 mod verify;
 
+pub use collection::{
+    VacuumFamilyAliasError, VacuumFamilyAliasLimits, VacuumFamilyAliasPlan, VacuumIntegralKey,
+    VerifiedFamilyVacuumAlias,
+};
 pub use model::{VacuumParametricLimits, VerifiedVacuumParameterMap};
+
+fn prepare_symanzik(
+    family: &IntegralFamily,
+    limits: VacuumParametricLimits,
+) -> Result<Option<SymanzikPolynomials>, Error> {
+    match SymanzikPolynomials::try_from_family_with_limits(family, limits.symanzik) {
+        Ok(value) => Ok(Some(value)),
+        Err(
+            FeynmanPolynomialError::ResourceLimit { .. }
+            | FeynmanPolynomialError::ResourceCountOverflow { .. }
+            | FeynmanPolynomialError::AllocationFailure { .. }
+            | FeynmanPolynomialError::ParameterExponentOverflow { .. }
+            | FeynmanPolynomialError::ExactAlgebra(
+                ExactAlgebraError::ResourceLimit { .. }
+                | ExactAlgebraError::ResourceCountOverflow { .. }
+                | ExactAlgebraError::ExponentLimit { .. }
+                | ExactAlgebraError::ExponentArithmeticOverflow { .. },
+            ),
+        ) => Ok(None),
+        Err(error) => Err(Error::ExactAlgebra(error.to_string())),
+    }
+}
 
 impl TerminalAliasPlan {
     /// Prepare a new opt-in plan for all eligible positive-power vacuum keys.
@@ -100,28 +127,15 @@ impl TerminalAliasPlan {
                 .insert(Skip::ParametricPreparationLimit, raw.len());
             return Ok(plan);
         }
-        let symanzik =
-            match SymanzikPolynomials::try_from_family_with_limits(family, limits.symanzik) {
-                Ok(value) => value,
-                Err(
-                    FeynmanPolynomialError::ResourceLimit { .. }
-                    | FeynmanPolynomialError::ResourceCountOverflow { .. }
-                    | FeynmanPolynomialError::AllocationFailure { .. }
-                    | FeynmanPolynomialError::ParameterExponentOverflow { .. }
-                    | FeynmanPolynomialError::ExactAlgebra(
-                        ExactAlgebraError::ResourceLimit { .. }
-                        | ExactAlgebraError::ResourceCountOverflow { .. }
-                        | ExactAlgebraError::ExponentLimit { .. }
-                        | ExactAlgebraError::ExponentArithmeticOverflow { .. },
-                    ),
-                ) => {
-                    plan.statistics
-                        .skipped
-                        .insert(Skip::ParametricPreparationLimit, raw.len());
-                    return Ok(plan);
-                }
-                Err(error) => return Err(Error::ExactAlgebra(error.to_string())),
-            };
+        let symanzik = match prepare_symanzik(family, limits)? {
+            Some(value) => value,
+            None => {
+                plan.statistics
+                    .skipped
+                    .insert(Skip::ParametricPreparationLimit, raw.len());
+                return Ok(plan);
+            }
+        };
         let variables = Arc::new(
             (0..family.loop_count())
                 .map(PolyVariable::Temporary)

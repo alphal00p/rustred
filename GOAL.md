@@ -1,6 +1,16 @@
 # RustRed project goal
 
-## October 8 — active: geometry/oracle-guided compression and campaign feedback
+## October 8 — geometry/oracle-guided compression and campaign feedback
+
+Delivery status: implemented generic prepare-once cross-family alias and
+diagonal ordinary-IBP collection APIs. Final optimized controls give65→22→20
+four-loop labels and608→607 on the frozen five-loop inventory (253 numerator
+keys unchanged). Exact source replay, cold reconstruction, independent FMFT
+checks and514focused regression tests pass. The production APIs are Rust
+library services; no automatic campaign mutation, new CLI/collection codec,
+Vakint package update, minimality or broader five-loop closure is claimed.
+Generation-time source prioritization remains an explicitly untested follow-up.
+See `docs/research/cross_family_terminal_collection_2026-10-08.md`.
 
 The newest directive is authoritative in
 `CRITICAL_GEOMETRY_TERMINAL_PLAN.md`: use offline Vakint/FMFT projections and
