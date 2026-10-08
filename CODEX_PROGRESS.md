@@ -2,6 +2,12 @@
 
 ## October 8 — exact cross-family collection: final production controls
 
+Delivery commit `01a6388f` is pushed to `origin/main`. All task-owned code and
+research changes are committed; unrelated HEPKit/notebook/reference changes
+remain untouched. Independent agents and pilot processes have completed.
+This closes the finite strategy-delivery goal; the broader five-loop closure,
+terminal evaluation and campaign-generation research remain separate work.
+
 Implemented two reusable, prepare-once Rust library services:
 `VacuumFamilyAliasPlan` for exact full-U aliases across family boundaries, and
 `VacuumDiagonalCollectionPlan` for terminal-only consequences of native
