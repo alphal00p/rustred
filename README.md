@@ -305,8 +305,8 @@ Generated candidates and finite residual lists are not closure certificates.
 
 For saved owner campaigns, [`walk-inventory`](docs/scalar_rank_campaign.md#inspect-rules-terminals-and-normalized-candidate-masters)
 reports installed rules, rules and terminals encountered in the saved domain
-cover, and optional exact terminal normalization. It is read-only and uses
-cold reinspection; normalized representatives are candidate masters, not a
+cover, and optional exact terminal normalization. It is read-only; normalized
+representatives are candidate masters, not a
 proven minimal basis.
 
 Saved campaigns automatically publish a portable symbolic package after
@@ -321,7 +321,19 @@ python -B examples/python/saved_campaign.py inspect --campaign "$CAMPAIGN"
 python -B examples/python/saved_campaign.py extend --campaign "$CAMPAIGN" --rank 1
 # Optional, only when wanted:
 python -B examples/python/saved_campaign.py refine --campaign "$CAMPAIGN" --seed-depth 0
+# Optional independent graph/geometry reinspection (potentially expensive):
+python -B examples/python/saved_campaign.py publish --campaign "$CAMPAIGN" --deep-verification
 ```
+
+Deep verification is **off by default**. Normal publication authenticates the
+saved checkpoint and scope, checks recorded dependency completion, and collects
+the actually encountered rule/terminal identities without replaying every
+successor or proving every geometric edge cover again. Inspection distinguishes
+this trusted saved-scope inventory from an independently verified publication.
+Neither mode proves minimal masters or reduction termination. Explicit deep
+verification can upgrade an existing publication without discarding its master
+refinements. The explicit mode is remembered; use `--no-deep-verification` to
+return to ordinary publication on subsequent rank extensions.
 
 Inspection uses an aligned coloured table on a terminal, or JSON in a pipeline;
 it distinguishes published bounds from newly requested bounds. Refinement is

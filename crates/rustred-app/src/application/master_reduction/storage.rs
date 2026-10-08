@@ -56,6 +56,7 @@ pub(super) fn scope_binding(
     containing_sector_depth: u32,
     circuit_symmetry_assistance: bool,
     finite_feedback: bool,
+    deep_verification: bool,
     normalization_profile: super::MasterNormalizationProfile,
 ) -> Result<String, AppError> {
     let mut hash = blake3::Hasher::new();
@@ -72,6 +73,10 @@ pub(super) fn scope_binding(
     }
     if finite_feedback {
         hash.update(super::collection::FEEDBACK_RECIPE.as_bytes());
+    }
+    // Keep the legacy deep-replay binding so omitted legacy resumes remain valid.
+    if !deep_verification {
+        hash.update(b"publication-inventory-census-v1");
     }
     normalization_profile.hash(&mut hash);
     for amendment in &request.amendments {

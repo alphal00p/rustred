@@ -1079,6 +1079,8 @@ def main(argv=None):
                         help="only with --refine-masters: finite normalization budget (default saved preference, then source profile)")
     parser.add_argument("--master-collection-artifact", type=Path, action="append", default=None,
                         help="only with --refine-masters: compatible published terminal inventory to collect alongside this campaign (repeatable)")
+    parser.add_argument("--deep-verification", action=argparse.BooleanOptionalAction, default=None,
+                        help="independently replay the saved dependency graph during publication (default saved preference or off; not with --refine-masters)")
     parser.add_argument("--master-finite-feedback", action=argparse.BooleanOptionalAction, default=None,
                         help="combine retained finite rows after full-U aliases (explicit refinement only; default saved preference or on)")
     parser.add_argument("--master-saved-rule-assistance", action=argparse.BooleanOptionalAction, default=None,
@@ -1213,7 +1215,8 @@ def main(argv=None):
                                             circuit_symmetry_assistance=args.master_circuit_symmetry_assistance,
                                             normalization_profile=args.master_normalization_profile,
                                             collection_artifacts=args.master_collection_artifact,
-                                            finite_feedback=args.master_finite_feedback)
+                                            finite_feedback=args.master_finite_feedback,
+                                            deep_verification=args.deep_verification)
     except (OSError, ValueError, TypeError) as error:
         parser.error(str(error))
     if (args.epoch_inspector_lookup is not None or args.epoch_rolling or args.epoch_dispatch is not None

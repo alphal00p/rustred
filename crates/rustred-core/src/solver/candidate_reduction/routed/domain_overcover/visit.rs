@@ -59,7 +59,9 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         self.visit_bounded_domain_route_overcover(
             source,
             &[0; N],
-            &[None; N],
+            &std::array::from_fn::<_, N, _>(|axis| {
+                (axis >= self.programs.context.family.denominator_count()).then_some(0)
+            }),
             actual_rank,
             limits,
             cancellation,
@@ -184,6 +186,14 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             crate::arity::storage_array(upper, Some(0)).ok_or_else(|| {
                 CandidateDomainRouteFailure::InvalidDomain("source upper-bound arity differs")
             })?;
+        let physical_arity = self.programs.context.family.denominator_count();
+        if (physical_arity..N)
+            .any(|axis| source[axis] || lower[axis] != 0 || upper[axis] != Some(0))
+        {
+            return Err(CandidateDomainRouteFailure::InvalidDomain(
+                "source storage padding must be inactive and fixed at zero",
+            ));
+        }
         if lower
             .iter()
             .zip(upper)
@@ -503,10 +513,12 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                     // projection of the all-positive root. A removed axis now
                     // measures excess numerator degree and must start at zero.
                     let mut pinched_lower = target_lower;
-                    for (axis, &on) in sector.iter().enumerate() {
+                    for (axis, &on) in sector.iter().take(physical_arity).enumerate() {
                         if !on {
                             // An inactive source bound cannot be carried
                             // through an affine map as if it were a permutation.
+                            // Storage padding is not a numerator coordinate;
+                            // leave those nonexistent axes fixed at zero.
                             pinched_upper[axis] = None;
                             pinched_lower[axis] = 0;
                         }

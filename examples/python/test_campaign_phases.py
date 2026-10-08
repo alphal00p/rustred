@@ -84,6 +84,24 @@ class PhaseTests(unittest.TestCase):
             PHASES.configuration(self.campaign, seed_depth=1)
         self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
 
+    def test_publication_verification_defaults_fast_and_rejects_refinement_flag(self):
+        self.assertFalse(self.policy["deep_verification"])
+        deep = PHASES.configuration(self.campaign, deep_verification=True)
+        self.write("master-reduction/policy.json", deep)
+        self.assertTrue(PHASES.configuration(self.campaign)["deep_verification"])
+        self.assertFalse(PHASES.configuration(self.campaign, deep_verification=False)["deep_verification"])
+        for choice in (False, True):
+            with self.assertRaisesRegex(ValueError, "not artifact refinement"):
+                PHASES.configuration(self.campaign, enabled=True, deep_verification=choice)
+        with self.assertRaisesRegex(ValueError, "boolean"):
+            PHASES.configuration(self.campaign, deep_verification="yes")
+
+    def test_production_publication_verification_reaches_configuration(self):
+        for flag, choice in (("--deep-verification", True), ("--no-deep-verification", False)):
+            with patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure:
+                with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    PRODUCTION.main(["--campaign-directory", str(self.campaign), "--publish-only", flag])
+                self.assertEqual(configure.call_args.kwargs["deep_verification"], choice)
     def test_saved_rule_preference_is_explicit_only_and_legacy_defaults_to_ordinary(self):
         self.assertFalse(self.policy["saved_rule_assistance"])
         legacy = {key: value for key, value in self.policy.items() if key != "saved_rule_assistance"}
@@ -293,9 +311,13 @@ class PhaseTests(unittest.TestCase):
         second.assert_not_called()
 
     def publish_fixture(self, operation="publish", depth=0, saved_rule_assistance=False, containing_sector_depth=0,
-                        circuit_symmetry_assistance=False, normalization_profile=None, finite_feedback=True):
+                        circuit_symmetry_assistance=False, normalization_profile=None, finite_feedback=True,
+                        deep_verification=None):
         path = self.campaign / "master-reduction/scopes/published"
         self.write("master-reduction/scopes/published/artifact.json", {"status": "published_unrefined",
+                   "inventory": {"complete": True, **({"independently_verified": deep_verification}
+                                                       if deep_verification is not None else {})},
+                   **({"deep_verification": deep_verification} if deep_verification is not None else {}),
                    **({"normalization_profile": normalization_profile, "normalization_limits": {"fixture": True}}
                       if normalization_profile is not None else {})})
         PHASES.publish_pointer(self.campaign, path, self.binding(), operation, self.driver,
@@ -327,6 +349,38 @@ class PhaseTests(unittest.TestCase):
         first.assert_not_called()
         second.assert_not_called()
         self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["operation"], "refine")
+
+    def test_deep_publication_upgrades_fast_artifact_and_preserves_refinement(self):
+        source = self.publish_fixture("refine", depth=1, deep_verification=False)
+        deep = PHASES.configuration(self.campaign, deep_verification=True)
+        with patch.object(PHASES, "phase_one") as first, patch.object(PHASES, "phase_two", return_value=4) as native:
+            self.assertEqual(PHASES.run(self.plan, deep, True, self.driver, postprocess_only=True), 4)
+            policy = native.call_args.args[1]
+            self.assertEqual(policy["previous_artifact"], str(source))
+            self.assertEqual(policy["preserved_refinement"]["seed_depth"], 1)
+            binding = PHASES.read_json(native.call_args.args[4] / "steering-binding.json")
+            self.assertTrue(binding["deep_verification"])
+        first.assert_not_called()
+
+    def test_verified_legacy_or_new_artifact_satisfies_fast_and_deep_requests(self):
+        for prior in (None, True):
+            self.publish_fixture(deep_verification=prior)
+            for choice in (False, True):
+                policy = PHASES.configuration(self.campaign, deep_verification=choice)
+                with patch.object(PHASES, "phase_two") as native:
+                    self.assertEqual(PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True), 0)
+                native.assert_not_called()
+
+    def test_publication_modes_have_separate_resume_identities(self):
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, self.policy, True, self.driver)
+            fast = native.call_args.args[4]
+            deep = PHASES.configuration(self.campaign, deep_verification=True)
+            PHASES.run(self.plan, deep, True, self.driver)
+            self.assertNotEqual(native.call_args.args[4], fast)
+            self.assertTrue(native.call_args.args[1]["deep_verification"])
+            PHASES.run(self.plan, PHASES.configuration(self.campaign), True, self.driver)
+            self.assertTrue(native.call_args.args[1]["deep_verification"])
 
     def test_assistance_mode_has_a_distinct_collection_checkpoint_identity(self):
         source = self.publish_fixture()
@@ -623,6 +677,12 @@ class PhaseTests(unittest.TestCase):
     def test_real_scratch_child_saves_on_sigint_and_resume_returns_to_phase_two(self):
         self._scratch_native_pause_resume("publish")
 
+    def test_deep_publication_saves_and_resumes_its_own_mode(self):
+        self._scratch_native_pause_resume("publish", deep_verification=True)
+
+    def test_deep_upgrade_keeps_refined_pointer_after_native_publication(self):
+        self._scratch_native_pause_resume("publish", deep_verification=True, preserve_refined=True)
+
     def test_explicit_refinement_saves_and_resumes_without_replacing_publication_on_pause(self):
         self._scratch_native_pause_resume("refine")
 
@@ -648,13 +708,16 @@ class PhaseTests(unittest.TestCase):
 
     def _scratch_native_pause_resume(self, operation, saved_rule_assistance=False,
                                     containing_sector_depth=0, inherited_containing_depth=0,
-                                    circuit_symmetry_assistance=False, normalization_profile=None):
+                                    circuit_symmetry_assistance=False, normalization_profile=None,
+                                    deep_verification=False, preserve_refined=False):
         # Fake native protocol only; this proves process/checkpoint orchestration,
         # not mathematical correctness or a successful native Rust solve.
         binary = self.campaign / "fake-native"
         binary.write_text(f"#!{sys.executable}\nexpected_assistance = {saved_rule_assistance and operation == 'refine'}\n"
                           f"expected_circuit = {circuit_symmetry_assistance and operation == 'refine'}\n"
                           f"expected_profile = {repr(normalization_profile if operation == 'refine' else None)}\n"
+                          f"expected_deep = {deep_verification}\n"
+                          f"expected_previous = {preserve_refined}\n"
                           f"expected_containing_depth = {containing_sector_depth if operation == 'refine' else 0}\n" + '''import json, pathlib, sys, time
 args = sys.argv
 refine = args[1] == 'walk-master-reduce'
@@ -662,12 +725,16 @@ assert ('--seed-depth' in args) == refine
 assert ('--saved-rule-assistance' in args) == expected_assistance
 assert ('--circuit-symmetry-assistance' in args) == expected_circuit
 assert ('--finite-feedback' in args) == refine
+assert ('--deep-verification' in args) == (not refine and expected_deep)
+assert ('--no-deep-verification' in args) == (not refine and not expected_deep)
+assert ('--previous-artifact' in args) == (expected_previous and '--resume' not in args)
 assert ('--normalization-profile' in args) == (expected_profile is not None)
 if expected_profile is not None:
     assert args[args.index('--normalization-profile') + 1] == expected_profile
 profile = (expected_profile or 'conservative') + '-v1'
 metadata = {'normalization_profile': profile, 'normalization_limits': {'fixture': True}}
 metadata.update(finite_feedback=refine, finite_feedback_recipe='finite-row-feedback-v1')
+metadata.update(deep_verification=expected_deep, inventory={'complete': True, 'independently_verified': expected_deep})
 assert ('--containing-sector-depth' in args) == bool(expected_containing_depth)
 if expected_containing_depth:
     assert int(args[args.index('--containing-sector-depth') + 1]) == expected_containing_depth
@@ -700,6 +767,7 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                     "swap_growth_stop_bytes_per_second": 0, "swap_growth_stop_seconds": 120}}
         driver = SimpleNamespace(**vars(PRODUCTION))
         native_policy = {**self.policy, "operation": operation, "saved_rule_assistance": saved_rule_assistance,
+                         "deep_verification": deep_verification,
                          "circuit_symmetry_assistance": circuit_symmetry_assistance,
                          "containing_sector_depth": containing_sector_depth,
                          "effective_containing_sector_depth": max(containing_sector_depth, inherited_containing_depth)}
@@ -708,6 +776,12 @@ event('completed_nonminimal' if refine else 'published_unrefined')
             native_policy["effective_normalization_profile"] = normalization_profile + "-v1"
         if operation == "refine":
             native_policy["source_artifact"] = str(self.publish_fixture())
+        preserved_source = None
+        if preserve_refined:
+            preserved_source = self.publish_fixture("refine", depth=2, deep_verification=False)
+            original_source = (preserved_source / "artifact.json").read_bytes()
+            native_policy["previous_artifact"] = str(preserved_source)
+            native_policy["preserved_refinement"] = PHASES.completed_artifact(self.campaign)["refinement"]
         binding = self.binding()
         directory = self.campaign / "master-reduction/scopes" / binding["key"]
         directory.mkdir(parents=True)
@@ -720,6 +794,10 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                 timer.cancel()
                 timer.join()
             self.assertTrue((directory / "latest.json").exists())
+            if operation == "publish":
+                with self.assertRaisesRegex(ValueError, "cannot change deep verification on resume"):
+                    PHASES.phase_two(plan, {**native_policy, "deep_verification": not deep_verification},
+                                     self.campaign / "runs/first/request.json", binding, directory, driver)
             if operation == "refine":
                 self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["status"], "published_unrefined")
                 with self.assertRaisesRegex(ValueError, "cannot change finite feedback on resume"):
@@ -742,7 +820,15 @@ event('completed_nonminimal' if refine else 'published_unrefined')
         expected = "published_unrefined" if operation == "publish" else "completed_nonminimal"
         self.assertEqual(status["state"], expected)
         self.assertEqual(status["master_reduction"]["remaining_terminals"], 3)
-        self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["status"], expected)
+        self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["status"],
+                         "completed_nonminimal" if preserve_refined else expected)
+        if preserve_refined:
+            published = PHASES.completed_artifact(self.campaign)
+            self.assertEqual(published["operation"], "refine")
+            self.assertEqual(published["resolved_directory"], directory)
+            self.assertEqual(published["refinement"]["seed_depth"], 2)
+            self.assertTrue(published["independently_verified"])
+            self.assertEqual((preserved_source / "artifact.json").read_bytes(), original_source)
         if operation == "refine":
             self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["normalization_profile"],
                              (normalization_profile or "conservative") + "-v1")
@@ -811,16 +897,38 @@ class MasterDashboardTests(unittest.TestCase):
         frame = self.frame()
         frame["master_reduction"]["operation"] = "publish"
         frame["state"] = "published_unrefined"
+        frame["master_reduction"].update(publication_verification_mode="inventory", publication_assurance="trusted_saved_scope")
         for width, height in ((80, 24), (150, 32), (35, 12)):
             rows = DASHBOARD.render_table(frame, width, height, True)
             self.assertLessEqual(len(rows), height)
             self.assertTrue(all(DASHBOARD.cell_width(ANSI.sub("", row)) == width for row in rows))
         shown = "\n".join(DASHBOARD.render_table(frame, 80, 24, False))
         self.assertIn("ARTIFACT PUBLICATION", shown)
-        self.assertIn("verified", shown)
+        self.assertIn("trusted saved", shown)
+        self.assertNotIn("deep replay passed", shown)
         self.assertIn("not requested", shown)
         self.assertNotIn("ROOT CLOSURE", shown)
         self.assertNotIn("Relation work", shown)
+
+    def test_deep_publication_only_reports_success_from_native_assurance(self):
+        frame = TELEMETRY.normalize_status({"state": "published_unrefined", "master_reduction": {
+            "operation": "publish", "publication_verification_mode": "independent_replay",
+            "independently_verified": True, "publication_assurance": "independently_verified",
+            "verification_progress": {"event":"verify_progress", "reinspected":7,"selected":9}}})
+        shown = "\n".join(DASHBOARD.render_table(frame, 150, 40, False))
+        self.assertIn("deep replay passed", shown)
+        self.assertIn("Replay progress", shown)
+        self.assertIn("7 / 9", shown)
+
+    def test_inventory_progress_keeps_native_stages_without_claiming_deep_verification(self):
+        for event in ("verify_loaded", "verify_prepared", "inventory_checked", "inventory_census_progress"):
+            frame = TELEMETRY.normalize_status({"state":"running", "master_reduction": {
+                "operation":"publish", "stage":event, "publication_verification_mode":"inventory",
+                "verification_progress":{"event":event,"completed":3,"total":8}}})
+            shown = "\n".join(DASHBOARD.render_table(frame, 150, 40, False))
+            self.assertEqual(frame["master_reduction"]["stage"], event)
+            self.assertIn("3 / 8", shown)
+            self.assertNotIn("deep replay passed", shown)
 
 
 if __name__ == "__main__":

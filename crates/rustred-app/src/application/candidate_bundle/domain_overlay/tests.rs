@@ -153,6 +153,77 @@ fn domain_overlay_cold_roundtrip_replays_and_preserves_existing_terminals() {
 }
 
 #[test]
+#[cfg(feature = "capacity-dispatch")]
+fn physical_domain_overlay_cold_replays_in_capacity_without_widening_cases() {
+    let (base, _, bytes) = saved();
+    let mask = Mask::try_new([true]).unwrap();
+    let (_, programs) = load_generated_candidate_owners::<4>(
+        &[CandidateOwnerBundle {
+            bytes: &base,
+            owner_sector: &mask,
+        }],
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    let programs = Arc::new(programs);
+    let digest = *blake3::hash(&base).as_bytes();
+    let owner = [true, false, false, false];
+    let (overlay, replay) =
+        load_generated_domain_overlay(&programs, &bytes, owner, digest, Default::default())
+            .unwrap();
+    assert!(!replay.rules.is_empty());
+    assert_eq!(replay.rules.len(), overlay.rule_count());
+    assert_eq!(overlay.owner_root(), &owner);
+    assert_eq!(overlay.partial_solution().order.physical_arity(), 1);
+    for case in &overlay.partial_solution().requested_cases {
+        assert_eq!(case.face().fixed(), &[Some(2), Some(0), Some(0), Some(0)]);
+    }
+    for (altered, owner, digest) in [
+        (bytes.clone(), owner, [0; 32]),
+        (bytes.clone(), [true, true, false, false], digest),
+        (
+            mutate(&bytes, |record| record.family_fingerprint.push_str("wrong")),
+            owner,
+            digest,
+        ),
+        (
+            mutate(&bytes, |record| record.rules[0].rhs.clear()),
+            owner,
+            digest,
+        ),
+    ] {
+        assert!(
+            load_generated_domain_overlay(&programs, &altered, owner, digest, Default::default(),)
+                .is_err()
+        );
+    }
+    let terminal_count = programs.terminal_count();
+    let patched = programs
+        .append_residual_free_domain_overlays(vec![overlay], Default::default())
+        .unwrap();
+    assert_eq!(patched.terminal_count(), terminal_count);
+    let reducer = RoutedCandidateReducer::try_new(patched, [], Default::default()).unwrap();
+    // Storage capacity is internal: public integral keys retain family arity.
+    let trace = reducer
+        .trace_targets([IntegralKey::try_new([2]).unwrap()])
+        .unwrap();
+    assert!(trace.frontier().is_empty());
+    assert_eq!(trace.rule_applications(), 1);
+    assert!(matches!(
+        reducer.trace_targets([IntegralKey::try_new([2, 0, 0, 0]).unwrap()]),
+        Err(rustred::solver::CandidateRoutedError::Candidate(
+            rustred::solver::CandidateReductionError::Application(
+                rustred::reduction::ReductionError::WrongArity {
+                    expected: 1,
+                    actual: 4
+                }
+            )
+        ))
+    ));
+}
+
+#[test]
 fn domain_overlay_cannot_be_loaded_as_complete_sector_candidates() {
     let (_, _, bytes) = saved();
     assert!(sector_codec::read(&bytes, Default::default()).is_err());

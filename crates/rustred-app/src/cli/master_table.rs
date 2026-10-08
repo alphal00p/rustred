@@ -16,6 +16,32 @@ fn field(summary: &Value, name: &str) -> String {
     if name == "normalization_profile" && value.is_null() {
         return "conservative-v1 (legacy)".into();
     }
+    if name == "inventory.authority" && value == "trusted_saved_scope" {
+        return "trusted_saved_scope (not independently verified)".into();
+    }
+    if name == "inventory.authority" && value.is_null() && summary["inventory"]["complete"] == true
+    {
+        return if summary["deep_verification"] == false {
+            "trusted_saved_scope"
+        } else {
+            "independently_verified (legacy)"
+        }
+        .into();
+    }
+    if name == "publication_verification_mode"
+        && value.is_null()
+        && summary["inventory"]["complete"] == true
+    {
+        if let Some(mode) = summary["inventory"]["verification_mode"].as_str() {
+            return mode.into();
+        }
+        return if summary["deep_verification"] == false {
+            "inventory"
+        } else {
+            "independent_replay (legacy)"
+        }
+        .into();
+    }
     match value {
         Value::Number(value) => value.to_string(),
         Value::String(value) => clean(value, 4096),
@@ -46,6 +72,10 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
         ("Status", "status"),
         ("Selection", "scope_selection"),
         ("Master refinement", "refinement_status"),
+        ("Publication verification", "publication_verification_mode"),
+        ("Inventory assurance", "inventory.authority"),
+        ("Inventory complete", "inventory.complete"),
+        ("Verification verdict", "inventory.verification.verdict"),
         ("Installed rule records", "inventory.installed.rules"),
         ("Observed cover rules", "inventory.encountered.rules"),
         ("Published R cap", "scope.max_starting_rank"),
@@ -221,5 +251,17 @@ mod tests {
             assert!(table.contains(text));
         }
         assert!(!table.contains("Inventoried R cap"));
+    }
+    #[test]
+    fn complete_inventory_reports_its_actual_assurance() {
+        let fast = serde_json::json!({"deep_verification":false,"publication_verification_mode":"inventory",
+            "inventory":{"complete":true,"authority":"trusted_saved_scope","verification":{"verdict":"TRUSTED_SAVED_SCOPE"}}});
+        let shown = render_master_table(&fast, false, 120);
+        assert!(shown.contains("trusted_saved_scope"));
+        assert!(!shown.contains("independently_verified"));
+        let legacy = serde_json::json!({"inventory":{"complete":true}});
+        assert!(
+            render_master_table(&legacy, false, 120).contains("independently_verified (legacy)")
+        );
     }
 }

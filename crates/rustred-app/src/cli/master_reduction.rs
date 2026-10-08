@@ -23,6 +23,7 @@ pub(crate) struct MasterArgs {
     pub stop_file: Option<PathBuf>,
     pub resume: bool,
     pub threads: usize,
+    pub deep_verification: Option<bool>,
     pub seed_depth: u32,
     pub containing_sector_depth: u32,
     pub saved_rule_assistance: bool,
@@ -50,6 +51,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
         stop_file: None,
         resume: false,
         threads: 1,
+        deep_verification: None,
         seed_depth: 0,
         containing_sector_depth: 0,
         saved_rule_assistance: false,
@@ -72,6 +74,8 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--stop-file" => "--stop-file",
             "--resume" => "--resume",
             "--threads" => "--threads",
+            "--deep-verification" => "--deep-verification",
+            "--no-deep-verification" => "--no-deep-verification",
             "--seed-depth" => "--seed-depth",
             "--containing-sector-depth" => "--containing-sector-depth",
             "--saved-rule-assistance" => "--saved-rule-assistance",
@@ -87,6 +91,14 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
         }
         match option {
             "--resume" => result.resume = true,
+            "--deep-verification" | "--no-deep-verification" => {
+                if result.deep_verification.is_some() {
+                    return Err(ArgError::InvalidCombination(
+                        "deep verification flags are mutually exclusive",
+                    ));
+                }
+                result.deep_verification = Some(option == "--deep-verification");
+            }
             "--saved-rule-assistance" => result.saved_rule_assistance = true,
             "--circuit-symmetry-assistance" => result.circuit_symmetry_assistance = true,
             "--finite-feedback" | "--no-finite-feedback" => {
@@ -182,6 +194,11 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
     if !result.collection_artifacts.is_empty() && result.artifact.is_none() {
         return Err(ArgError::InvalidCombination(
             "--collection-artifact requires a published --artifact source",
+        ));
+    }
+    if result.artifact.is_some() && result.deep_verification.is_some() {
+        return Err(ArgError::InvalidCombination(
+            "deep verification applies to publication from a saved checkpoint, not artifact refinement",
         ));
     }
     if result.resume && result.previous_artifact.is_some() {
@@ -335,6 +352,7 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     options.previous_artifact = args.previous_artifact;
     options.collection_artifacts = args.collection_artifacts;
     options.threads = args.threads;
+    options.deep_verification = args.deep_verification;
     options.seed_depth = args.seed_depth;
     options.containing_sector_depth = args.containing_sector_depth;
     options.saved_rule_assistance = args.saved_rule_assistance;
@@ -499,6 +517,51 @@ mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn publication_deep_verification_is_optional_and_excludes_artifact_refinement() {
+        let base = [
+            "--command",
+            "request",
+            "--checkpoint",
+            "cp",
+            "--directory",
+            "out",
+        ];
+        let Command::WalkMasterReduce(default) =
+            parse_publish(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(default.deep_verification, None);
+        for (flag, expected) in [
+            ("--deep-verification", true),
+            ("--no-deep-verification", false),
+        ] {
+            let Command::WalkMasterReduce(parsed) =
+                parse_publish(base.into_iter().chain([flag]).map(OsString::from)).unwrap()
+            else {
+                panic!()
+            };
+            assert_eq!(parsed.deep_verification, Some(expected));
+            assert!(
+                parse(
+                    ["--artifact", "source", "--directory", "out", flag]
+                        .map(OsString::from)
+                        .into_iter()
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            parse_publish(
+                base.into_iter()
+                    .chain(["--deep-verification", "--no-deep-verification"])
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+    }
+
     #[test]
     fn finite_feedback_is_optional_boolean_and_refine_only() {
         let base = ["--artifact", "source", "--directory", "out"];

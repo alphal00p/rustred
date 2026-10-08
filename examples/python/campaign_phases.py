@@ -25,6 +25,7 @@ MAX_JSON_BYTES = 16 * 1024 * 1024
 NORMALIZATION_PROFILES = {"conservative": "conservative-v1", "standard": "standard-v1"}
 COLLECTION_STRATEGY = "full-u-diagonal-v1"
 FINITE_FEEDBACK_RECIPE = "finite-row-feedback-v1"
+PUBLICATION_VERIFICATION_RECIPE = "publication-verification-v1"
 
 
 def read_json(path):
@@ -48,7 +49,7 @@ def digest(path):
 
 def configuration(campaign, enabled=False, seed_depth=None, executable=None, saved_rule_assistance=None,
                   containing_sector_depth=None, circuit_symmetry_assistance=None, normalization_profile=None,
-                  collection_artifacts=None, finite_feedback=None):
+                  collection_artifacts=None, finite_feedback=None, deep_verification=None):
     """Read-only configuration. Only this invocation can request refinement.
 
     Historical ``enabled`` policies retain executable/search preferences, never
@@ -67,6 +68,10 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master circuit-symmetry assistance must be boolean")
     if finite_feedback is not None and type(finite_feedback) is not bool:
         raise ValueError("master finite feedback must be boolean")
+    if deep_verification is not None and type(deep_verification) is not bool:
+        raise ValueError("publication deep verification must be boolean")
+    if deep_verification is not None and enabled:
+        raise ValueError("deep verification applies to publication, not artifact refinement")
     if containing_sector_depth is not None and (type(containing_sector_depth) is not int or containing_sector_depth < 0):
         raise ValueError("master containing-sector depth must be nonnegative")
     if existing is not None:
@@ -75,6 +80,7 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                 or type(existing.get("saved_rule_assistance", False)) is not bool
                 or type(existing.get("circuit_symmetry_assistance", False)) is not bool
                 or type(existing.get("finite_feedback", True)) is not bool
+                or type(existing.get("deep_verification", False)) is not bool
                 or existing.get("normalization_profile") not in (None, *NORMALIZATION_PROFILES)
                 or type(existing.get("containing_sector_depth", 0)) is not int
                 or existing.get("containing_sector_depth", 0) < 0):
@@ -111,12 +117,15 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                                             if circuit_symmetry_assistance is None else circuit_symmetry_assistance),
             "finite_feedback": ((existing or {}).get("finite_feedback", True)
                                 if finite_feedback is None else finite_feedback),
+            "deep_verification": ((existing or {}).get("deep_verification", False)
+                                  if deep_verification is None else deep_verification),
             "containing_sector_depth": ((existing or {}).get("containing_sector_depth", 0)
                                         if containing_sector_depth is None else containing_sector_depth),
             "terminal_policy": "bounded exact search; finite nonminimal basis permitted",
             "master_minimality_claim": False}
     policy["collection_strategy"] = COLLECTION_STRATEGY
     policy["finite_feedback_recipe"] = FINITE_FEEDBACK_RECIPE
+    policy["publication_verification_recipe"] = PUBLICATION_VERIFICATION_RECIPE
     policy["collection_artifacts"] = members
     if normalization_profile is not None:
         policy["normalization_profile"] = normalization_profile
@@ -212,7 +221,28 @@ def completed_artifact(campaign):
             raise ValueError("saved artifact pointer normalization profile differs from native artifact")
         if "normalization_limits" in summary and summary["normalization_limits"] != profile.get("normalization_limits"):
             raise ValueError("saved artifact pointer normalization limits differ from native artifact")
-    return {**record, **profile, "resolved_directory": directory}
+    assurance = verification_metadata(native)
+    if ("independently_verified" in record
+            and record["independently_verified"] != assurance["independently_verified"]):
+        raise ValueError("saved artifact pointer verification assurance differs from native artifact")
+    return {**record, **profile, **assurance, "resolved_directory": directory}
+
+
+def verification_metadata(report):
+    """Transport native assurance; complete inventory alone is not new deep proof."""
+    inventory = report.get("inventory", {})
+    deep = report.get("deep_verification")
+    if deep is not None and type(deep) is not bool:
+        raise ValueError("invalid native publication verification mode")
+    verified = inventory.get("independently_verified")
+    if verified is None:
+        # Historical publications always ran the independent verifier.
+        verified = deep is not False and inventory.get("complete") is True
+    if type(verified) is not bool:
+        raise ValueError("invalid native publication verification assurance")
+    return {"deep_verification": deep if deep is not None else verified,
+            "publication_verification_mode": "independent_replay" if (deep is True or verified) else "inventory",
+            "independently_verified": verified}
 
 
 def normalization_metadata(report):
@@ -237,6 +267,7 @@ def publish_pointer(campaign, directory, binding, operation, driver, refinement=
         "status": "published_unrefined" if operation == "publish" else "completed_nonminimal",
         "completed_unix_time": time.time(), "master_minimality_claim": False,
         **normalization_metadata(read_json(Path(directory) / "artifact.json")),
+        **verification_metadata(read_json(Path(directory) / "artifact.json")),
         **({"refinement": refinement} if refinement is not None else {})})
 
 
@@ -247,7 +278,7 @@ def _arguments(command, option):
 def completed_request(campaign, checkpoint, binding, driver):
     """Find a drained native receipt bound to this exact CP6 and amendment chain.
 
-    This is only admission to the native phase-two cold verifier, not closure.
+    This admits native inventory extraction and optional independent replay.
     In particular a cached root-closure progress bar is never consulted.
     """
     candidates = driver.campaign_runs(Path(campaign))
@@ -346,6 +377,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
     command = [str(executable), "walk-publish" if publishing else "walk-master-reduce"]
     if publishing:
         command += ["--command", str(request), "--checkpoint", plan["checkpoint_directory"]]
+        command.append("--deep-verification" if policy.get("deep_verification", False) else "--no-deep-verification")
     else:
         command += ["--artifact", str(policy["source_artifact"])]
     command += ["--directory", str(directory),
@@ -367,8 +399,11 @@ def phase_two(plan, policy, request, binding, directory, driver):
         if profile != "conservative-v1" or policy.get("normalization_profile") is not None:
             command += ["--normalization-profile", profile.removesuffix("-v1")]
     if (directory / "latest.json").is_file():
-        if not publishing:
-            snapshot = read_json(directory / "latest.json")
+        snapshot = read_json(directory / "latest.json")
+        if publishing:
+            if snapshot.get("deep_verification", True) != policy.get("deep_verification", False):
+                raise ValueError("cannot change deep verification on resume; start a new publication phase")
+        else:
             pinned = normalization_metadata(snapshot)["normalization_profile"]
             if pinned != profile:
                 raise ValueError("cannot change normalization profile on resume; start a new phase directory")
@@ -379,7 +414,9 @@ def phase_two(plan, policy, request, binding, directory, driver):
         command.append("--resume")
     elif publishing:
         previous_path = directory.parent.parent / "completed-phase.json"
-        if previous_path.is_file():
+        if policy.get("previous_artifact"):
+            command += ["--previous-artifact", policy["previous_artifact"]]
+        elif previous_path.is_file():
             previous = read_json(previous_path)
             old = previous.get("scope_binding", {})
             if (old.get("key") != binding["key"]
@@ -407,12 +444,14 @@ def phase_two(plan, policy, request, binding, directory, driver):
     driver.write_json(directory.parent.parent / "active-phase.json", {
         "schema": SCHEMA, "phase": phase, "operation": operation, "scope_binding": binding["key"],
         **({"normalization_profile": profile} if not publishing else {}),
+        **({"deep_verification": policy.get("deep_verification", False)} if publishing else {}),
         "directory": str(directory), "run_directory": str(attempt), "request": str(request)})
     presenter = dashboard.Presenter()
     stream = telemetry.TelemetryStream(attempt / "telemetry.jsonl")
     tail = supervisor.MONITOR.EventTail(events)
     latest = {"phase": phase, "operation": operation,
-              "stage": "cold closure verification" if publishing else "loading published artifact", "status": "running",
+              "stage": ("independent_graph_replay" if policy.get("deep_verification", False) else "inventory_census")
+                       if publishing else "loading published artifact", "status": "running",
               "seed_depth": policy.get("effective_seed_depth", policy["seed_depth"]), "scope_binding": binding["key"],
               "containing_sector_depth": (policy.get("effective_containing_sector_depth",
                                                     policy.get("containing_sector_depth", 0)) if not publishing else 0),
@@ -421,6 +460,9 @@ def phase_two(plan, policy, request, binding, directory, driver):
     latest["finite_feedback"] = not publishing and policy.get("finite_feedback", True)
     if not publishing:
         latest["normalization_profile"] = profile
+    else:
+        latest["deep_verification"] = policy.get("deep_verification", False)
+        latest["publication_verification_mode"] = "independent_replay" if latest["deep_verification"] else "inventory"
     checkpoint = {}
 
     def observe(event):
@@ -519,6 +561,10 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 raise ValueError("native success did not produce its completed artifact.json")
             native_artifact = read_json(directory / "artifact.json")
             native_profile = normalization_metadata(native_artifact)
+            native_assurance = verification_metadata(native_artifact)
+            if publishing and (native_assurance["deep_verification"] != policy.get("deep_verification", False)
+                               or (policy.get("deep_verification", False) and not native_assurance["independently_verified"])):
+                raise ValueError("native artifact verification assurance differs from requested publication")
             if not publishing and native_profile["normalization_profile"] != profile:
                 raise ValueError("native artifact normalization profile differs from requested refinement")
             if not publishing and (native_artifact.get("finite_feedback") != policy.get("finite_feedback", True)
@@ -529,7 +575,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 raise ValueError("campaign scope changed during postprocessing; artifact retained but latest pointer not updated")
             previous = completed_artifact(plan["campaign_directory"])
             keep_refined = publishing and previous and same_input_scope(previous.get("scope_binding", {}), binding) \
-                and previous.get("operation") == "refine"
+                and previous.get("operation") == "refine" and not policy.get("previous_artifact")
             if not keep_refined:
                 refinement = None if publishing else {
                         **native_profile,
@@ -542,7 +588,11 @@ def phase_two(plan, policy, request, binding, directory, driver):
                         "circuit_symmetry_assistance": policy.get("circuit_symmetry_assistance", False),
                         "saved_rule_assistance": policy.get("saved_rule_assistance", False), "source_artifact": str(
                             Path(policy["source_artifact"]).relative_to(Path(plan["campaign_directory"])))}
-                publish_pointer(plan["campaign_directory"], directory, binding, operation, driver, refinement)
+                pointer_operation = operation
+                if publishing and policy.get("preserved_refinement"):
+                    refinement = policy["preserved_refinement"]
+                    pointer_operation = "refine"
+                publish_pointer(plan["campaign_directory"], directory, binding, pointer_operation, driver, refinement)
                 if not publishing:
                     # Peers are now native members of the portable publication.
                     # Future plain refinement inherits those copies and never
@@ -569,7 +619,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                                    else "--no-master-circuit-symmetry-assistance ")
                                 + ("--master-finite-feedback " if policy.get("finite_feedback", True)
                                    else "--no-master-finite-feedback ")
-                                + "--master-normalization-profile " + profile.removesuffix("-v1") + " ") if not publishing else ""
+                                + "--master-normalization-profile " + profile.removesuffix("-v1") + " ") if not publishing else (
+                                    "--deep-verification " if policy.get("deep_verification", False) else "--no-deep-verification ")
             print(f"Resume with: {sys.executable} {Path(driver.__file__).resolve()} --campaign-directory "
                   f"{plan['campaign_directory']} --resume {refinement_flags}--start", flush=True)
             if not paused:
@@ -595,7 +646,7 @@ def run(plan, policy, resume, driver, postprocess_only=False):
                 raise ValueError("campaign is still running: " + "; ".join(evidence))
             freeze_master_executable(directory, policy, driver)
             driver.write_json(directory / "policy.json", {key: value for key, value in policy.items()
-                              if key not in ("operation", "source_artifact")})
+                              if key not in ("operation", "source_artifact", "previous_artifact", "preserved_refinement")})
             binding = scope_binding(campaign, checkpoint) if (checkpoint / "latest.json").is_file() else None
             request = completed_request(campaign, checkpoint, binding, driver) if (resume or postprocess_only) and binding else None
         operation = policy.get("operation", "publish")
@@ -648,7 +699,11 @@ def run(plan, policy, resume, driver, postprocess_only=False):
                                                                refinement.get("containing_sector_depth", 0))}
         elif binding:
             previous = completed_artifact(campaign)
-            if previous and same_input_scope(previous.get("scope_binding", {}), binding):
+            same_scope = previous and same_input_scope(previous.get("scope_binding", {}), binding)
+            if same_scope and policy.get("deep_verification", False) and not previous["independently_verified"]:
+                policy = {**policy, "previous_artifact": str(previous["resolved_directory"]),
+                          "preserved_refinement": previous.get("refinement") if previous.get("operation") == "refine" else None}
+            elif same_scope:
                 print("Current scope already published: " + str(previous["resolved_directory"]), flush=True)
                 active_path = directory / "active-phase.json"
                 try:
@@ -681,6 +736,11 @@ def run(plan, policy, resume, driver, postprocess_only=False):
                     "seed_depth": policy["seed_depth"] if operation == "refine" else 0,
                     "source": str(Path(policy["source_artifact"]).relative_to(campaign)) if policy.get("source_artifact") else None,
                     "executable": policy.get("executable", {}).get("sha256", plan.get("executable_sha256"))}
+        if operation == "publish":
+            identity["deep_verification"] = policy.get("deep_verification", False)
+            identity["publication_verification_recipe"] = PUBLICATION_VERIFICATION_RECIPE
+            identity["previous_artifact"] = (str(Path(policy["previous_artifact"]).relative_to(campaign))
+                                             if policy.get("previous_artifact") else None)
         if operation == "refine":
             identity["collection_strategy"] = COLLECTION_STRATEGY
             identity["collection_inputs"] = policy.get("collection_inputs", [])

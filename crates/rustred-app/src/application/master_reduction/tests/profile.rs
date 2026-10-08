@@ -245,8 +245,12 @@ fn profile_switch_is_fresh_durable_and_omitted_resume_inherits_checkpoint() {
         assert_eq!(report["seed_depth"], 1);
         assert_eq!(report["containing_sector_depth"], 1);
         assert_eq!(
-            load_master_relation_session(&output.0).unwrap().raw_terminals(),
-            load_master_relation_session(&source.0).unwrap().raw_terminals()
+            load_master_relation_session(&output.0)
+                .unwrap()
+                .raw_terminals(),
+            load_master_relation_session(&source.0)
+                .unwrap()
+                .raw_terminals()
         );
         assert_eq!(
             load_master_relation_session(&output.0)

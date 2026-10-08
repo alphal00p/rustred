@@ -14,12 +14,13 @@ pub fn master_refine_published_artifact(
     observer: impl Fn(Value),
 ) -> Result<Value, AppError> {
     if options.operation != MasterReductionOperation::Refine
+        || options.deep_verification.is_some()
         || options.previous_artifact.is_some()
         || options.checkpoint_interval.is_zero()
         || options.threads == 0
     {
         return Err(AppError::input(
-            "artifact refinement requires Refine, positive limits and no previous_artifact",
+            "artifact refinement requires Refine, positive limits and no previous_artifact or deep-verification option",
         ));
     }
     let source_directory = if source.is_dir() {

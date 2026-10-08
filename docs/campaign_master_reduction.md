@@ -2,8 +2,8 @@
 
 A successful saved-owner campaign now publishes a portable symbolic artifact
 automatically, without generating extra master-reduction relation rows.
-Master refinement happens only when explicitly requested. All algebra, cold
-verification, binary payloads and checkpoints live in RustRed; Python is a
+Master refinement happens only when explicitly requested. All algebra, inventory
+extraction, optional independent verification, binary payloads and checkpoints live in RustRed; Python is a
 thin launcher and dashboard.
 
 The common commands perform actual work unless `--dry-run` is supplied:
@@ -11,6 +11,8 @@ The common commands perform actual work unless `--dry-run` is supplied:
 ```bash
 python -B examples/python/saved_campaign.py run --campaign /path/to/campaign
 python -B examples/python/saved_campaign.py inspect --campaign /path/to/campaign
+python -B examples/python/saved_campaign.py publish --campaign /path/to/campaign \
+  --deep-verification
 python -B examples/python/saved_campaign.py extend --campaign /path/to/campaign \
   --rank 1 --max-power-difference 10
 python -B examples/python/saved_campaign.py refine --campaign /path/to/campaign \
@@ -33,12 +35,36 @@ inspection and refinement. `--executable /path/to/rustred` selects another
 current build; the existing phase-one binary stays frozen.
 
 Solve, publication and refinement are distinct milestones. A drained queue
-is admission to a native cold coverage check. Publication packages the
-checked scope, native programs and terminal aliases as `published_unrefined`,
+admits native extraction of the exact saved-scope inventory. Default publication
+trusts the completed saved scope after its native checkpoint/input checks;
+it does not independently replay the dependency graph. Publication packages the
+scope, native programs and terminal aliases as `published_unrefined`,
 without generating ordinary-IBP source rows. Optional refinement searches a
 finite relation set and ends as `completed_nonminimal`: this is neither
 master independence nor a globally minimal basis. No numerical values are
 computed.
+
+`run`, `publish`, and `extend` accept `--deep-verification` to request independent
+dependency-graph replay during publication, and `--no-deep-verification` for the
+fast inventory path. The default preference is off; an explicitly selected
+preference is remembered. Both paths extract the encountered terminal/rule
+inventory in Rust, retain exact symbolic coefficients and package the same
+native application interfaces. Fast publication reports `trusted_saved_scope`
+with verdict `TRUSTED_SAVED_SCOPE`, not `PASS`. Only completed independent replay
+reports `independently_verified`. `inventory.complete` means inventory extraction
+finished and is not, by itself, an independent coverage certificate.
+
+The mode is frozen in each publication checkpoint and contributes to its phase
+identity. A deep request cannot reuse a fast completion as a no-op; it creates
+a publication phase that retains existing finite and collection maps while
+performing the requested replay. A completed deep publication, including a
+legacy publication made before this option existed, can satisfy a later fast
+request without losing its stronger assurance. On native resume, omitting the
+option inherits the checkpoint; changing it explicitly requires a new phase.
+Inspect and dashboard output distinguish inventory census, independent replay,
+and the resulting assurance. Publication after a scope extension uses the
+selected mode for the new scope. Artifact refinement inherits its source
+assurance and never reruns graph verification.
 
 ## Start on an existing completed campaign
 
@@ -60,6 +86,9 @@ binaries and checkpoints; native Rust validates resumed state.
 The low-level launcher retains `--publish-only` and explicit
 `--refine-masters` (`--masters-only`/`--master-reduction` aliases).
 `--master-reduction-executable` selects its independent native binary.
+The production launcher and native `walk-publish` accept the same
+`--deep-verification` / `--no-deep-verification` pair. These publication flags
+are rejected with artifact-only refinement.
 Historical persisted `enabled` policies no longer authorize automatic
 refinement: ordinary run/extend always publishes only.
 
@@ -179,8 +208,8 @@ and explicit `finite_search_restarted_for_*` flags describe whether that new
 search reused or rebuilt its native state.
 
 The current finite exact elimination uses one incremental Symbolica reducer.
-The worker budget parallelizes cold scope reinspection and saved-route
-verification. The dashboard reports measured CPU usage rather than implying all reserved
+The worker budget parallelizes inventory census and, when requested, independent
+scope reinspection and saved-route verification. The dashboard reports measured CPU usage rather than implying all reserved
 workers are busy throughout post-processing.
 
 ## Native terminal collection and application

@@ -1,9 +1,17 @@
 //! Read-only inventory of the native symbolic covers in one saved generation.
 //!
 //! CP6 stores inspection counts, not rule or terminal identities. This census
-//! therefore observes the full native reinspection already performed by the
-//! cold verifier. It never substitutes every residual in an installed payload
+//! therefore classifies committed Apply scopes with the native matcher. Deep
+//! verification optionally observes the full reference inspection instead.
+//! It never substitutes every residual in an installed payload
 //! for terminals actually encountered by that inspection.
+
+mod census;
+mod fast;
+#[cfg(all(test, feature = "cli"))]
+mod fast_tests;
+mod scope;
+pub(super) use fast::run as fast_inventory;
 
 use super::{
     OwnerDomainWalkVerifyOptions, OwnerDomainWalkVerifyReferenceLevers,
@@ -27,6 +35,9 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkInventoryOptions {
     pub verification: OwnerDomainWalkVerifyOptions,
+    /// Independently replay edges, geometric covers and native successors.
+    /// False trusts the authenticated saved scope and runs only its census.
+    pub deep_verification: bool,
     pub max_unique_rules: usize,
     pub max_unique_terminals: usize,
 }
@@ -38,6 +49,7 @@ impl OwnerDomainWalkInventoryOptions {
         verification.require_closure = true;
         Self {
             verification,
+            deep_verification: false,
             max_unique_rules: 1_000_000,
             max_unique_terminals: 1_000_000,
         }
@@ -85,6 +97,7 @@ pub(super) struct Collector {
     state: Mutex<State>,
     max_unique_rules: usize,
     max_unique_terminals: usize,
+    pub(super) deep_verification: bool,
 }
 
 impl Collector {
@@ -93,6 +106,7 @@ impl Collector {
             state: Mutex::new(State::default()),
             max_unique_rules: options.max_unique_rules,
             max_unique_terminals: options.max_unique_terminals,
+            deep_verification: options.deep_verification,
         }
     }
 
@@ -154,6 +168,15 @@ impl Collector {
         state: &mut State,
         piece: &OwnerDomainMatchPiece<N>,
     ) -> Result<(), AppError> {
+        self.record_weighted(state, piece, 1)
+    }
+
+    fn record_weighted<const N: usize>(
+        &self,
+        state: &mut State,
+        piece: &OwnerDomainMatchPiece<N>,
+        multiplicity: u64,
+    ) -> Result<(), AppError> {
         let physical_arity = state
             .family
             .as_ref()
@@ -176,8 +199,8 @@ impl Collector {
                         self.max_unique_rules
                     )));
                 }
-                *state.rules.entry(identity).or_default() += 1;
-                state.selected_rule_events += 1;
+                *state.rules.entry(identity).or_default() += multiplicity;
+                state.selected_rule_events += multiplicity;
             }
             OwnerDomainMatchDisposition::Terminal { .. } => {
                 let key = terminal_key(piece.owner(), piece.lower(), piece.upper(), physical_arity)
@@ -191,9 +214,9 @@ impl Collector {
                     )));
                 }
                 state.terminals.insert(key);
-                state.terminal_events += 1;
+                state.terminal_events += multiplicity;
             }
-            OwnerDomainMatchDisposition::ExactZeroSector => state.zero_events += 1,
+            OwnerDomainMatchDisposition::ExactZeroSector => state.zero_events += multiplicity,
             _ => {}
         }
         Ok(())
@@ -217,6 +240,44 @@ impl Collector {
             terminal_events: state.terminal_events,
             zero_events: state.zero_events,
         })
+    }
+
+    /// One mutable collector per worker: no lock on each native match piece.
+    fn local(&self) -> State {
+        let state = self.state.lock().expect("inventory worker preparation");
+        State {
+            family: state.family.clone(),
+            ..State::default()
+        }
+    }
+
+    fn merge(&self, local: State) {
+        let mut state = self.state.lock().expect("inventory worker merge");
+        state.selected_rule_events += local.selected_rule_events;
+        state.terminal_events += local.terminal_events;
+        state.zero_events += local.zero_events;
+        for (key, count) in local.rules {
+            if !state.rules.contains_key(&key) && state.rules.len() >= self.max_unique_rules {
+                state.error = Some(AppError::limit(
+                    "unique encountered rules exceed inventory limit",
+                ));
+                return;
+            }
+            *state.rules.entry(key).or_default() += count;
+        }
+        for key in local.terminals {
+            if !state.terminals.contains(&key) && state.terminals.len() >= self.max_unique_terminals
+            {
+                state.error = Some(AppError::limit(
+                    "unique encountered terminals exceed inventory limit",
+                ));
+                return;
+            }
+            state.terminals.insert(key);
+        }
+        if state.error.is_none() {
+            state.error = local.error;
+        }
     }
 }
 
@@ -271,7 +332,8 @@ fn terminal_key(
     IntegralKey::try_new(values).map_err(|e| e.to_string())
 }
 
-/// Inventory one captured checkpoint with a full, read-only native replay.
+/// Inventory one captured checkpoint with a native classification census.
+/// Deep independent replay is explicit through `options.deep_verification`.
 /// No campaign file, installed rule, numerical catalog or checkpoint is changed.
 pub fn owner_domain_walk_inventory(
     request: &OwnerDomainWalkRequest,
@@ -304,6 +366,11 @@ pub fn owner_domain_walk_inventory(
 }
 
 impl OwnerDomainWalkInventory {
+    fn complete(&self) -> bool {
+        self.verification["verdict"] == "PASS"
+            || (self.verification["verdict"] == "TRUSTED_SAVED_SCOPE"
+                && self.verification["complete"] == true)
+    }
     pub fn family_owner(&self) -> &Arc<IntegralFamily> {
         &self.family
     }
@@ -315,7 +382,11 @@ impl OwnerDomainWalkInventory {
     pub fn summary(&self) -> Value {
         json!({
             "schema":"rustred.walk-inventory.v1",
-            "complete":self.verification["verdict"]=="PASS",
+            "complete":self.complete(),
+            "verification_mode":if self.verification["authority"] == "trusted_saved_scope" { "inventory" } else { "independent_replay" },
+            "authority":if self.verification["authority"] == "trusted_saved_scope" { "trusted_saved_scope" }
+                else if self.verification["verdict"] == "PASS" { "independently_verified" } else { "unverified" },
+            "independently_verified":self.verification["verdict"]=="PASS",
             "family_fingerprint":self.family.fingerprint(),
             "family_count":1,"cross_family_merged":false,
             "installed":self.installed,
@@ -327,6 +398,7 @@ impl OwnerDomainWalkInventory {
                 "concrete_target_reachability_claim":false,
                 "complete_reinspection":self.verification["reinspection"]["complete"],
                 "validated_inventory":self.verification["verdict"]=="PASS",
+                "complete_inventory":self.complete(),
                 "caveat":"conditional successors, route covers, helper domains and previously inspected retired/quarantined records may overapproximate current required-query reductions; abandoned uninspected records and declared but unencountered payload residuals are excluded",
             },
             "master_minimality_claim":false,"family_closure_claim":false,
@@ -380,9 +452,9 @@ impl OwnerDomainWalkInventory {
                 "inventory normalization cannot be reused after fork; reinspect in a fresh process",
             ));
         }
-        if self.verification["verdict"] != "PASS" {
+        if !self.complete() {
             return Err(AppError::input(
-                "terminal normalization requires a complete validated inventory",
+                "terminal normalization requires a complete inventory of an authenticated saved scope",
             ));
         }
         CandidateTerminalNormalization::from_keys(
@@ -462,6 +534,7 @@ mod tests {
         assert!(page(7, 0, 0).is_err());
         assert!(page(7, 0, 1001).is_err());
         let options = OwnerDomainWalkInventoryOptions::new("unused");
+        assert!(!options.deep_verification);
         assert_eq!(
             options.verification.reinspect,
             OwnerDomainWalkVerifyReinspect::All
@@ -490,6 +563,7 @@ mod tests {
         };
         let run = run("terminal-inventory", &fixture, &[]);
         let mut options = OwnerDomainWalkInventoryOptions::new(run.dir.0.join("checkpoint"));
+        options.deep_verification = true;
         let inspect = |options: &OwnerDomainWalkInventoryOptions| {
             owner_domain_walk_inventory(&run.request, options, &AtomicBool::new(false), |_| {})
                 .unwrap()
@@ -559,6 +633,7 @@ mod tests {
         };
         let run = run("rule-inventory", &fixture, &[]);
         let mut options = OwnerDomainWalkInventoryOptions::new(run.dir.0.join("checkpoint"));
+        options.deep_verification = true;
         let cancellation = AtomicBool::new(false);
         let inventory =
             owner_domain_walk_inventory(&run.request, &options, &cancellation, |_| {}).unwrap();

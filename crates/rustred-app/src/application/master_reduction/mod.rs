@@ -8,6 +8,7 @@ mod refine;
 mod storage;
 #[cfg(test)]
 mod tests;
+mod verification;
 
 use crate::application::atomic_file::write_file_atomically;
 use crate::{
@@ -47,6 +48,10 @@ pub struct MasterReductionOptions {
     pub collection_artifacts: Vec<PathBuf>,
     pub resume: bool,
     pub threads: usize,
+    /// Independently replay the saved dependency graph while extracting the
+    /// publication inventory. New phases default off; resume inherits its mode.
+    /// Refining an existing artifact preserves its assurance without replay.
+    pub deep_verification: Option<bool>,
     pub seed_depth: u32,
     /// Maximum number of nonpositive slots promoted to +1 in an additional
     /// finite ordinary-IBP seed set. These seeds are not new terminals.
@@ -77,6 +82,7 @@ impl MasterReductionOptions {
             collection_artifacts: Vec::new(),
             resume: false,
             threads: 1,
+            deep_verification: None,
             seed_depth: 0,
             containing_sector_depth: 0,
             saved_rule_assistance: false,
@@ -218,6 +224,7 @@ pub fn master_reduce_saved_campaign(
         options.normalization_profile.unwrap_or_default()
     };
     let finite_feedback = collection::feedback_for_phase(options, resumed.as_ref())?;
+    let deep_verification = verification::for_phase(options, resumed.as_ref())?;
     let binding = storage::scope_binding(
         request,
         &options.checkpoint,
@@ -225,6 +232,7 @@ pub fn master_reduce_saved_campaign(
         options.containing_sector_depth,
         options.circuit_symmetry_assistance,
         finite_feedback,
+        deep_verification,
         normalization_profile,
     )?;
     let mut report = if let Some(report) = resumed {
@@ -283,6 +291,7 @@ pub fn master_reduce_saved_campaign(
     report["saved_rule_assistance"] = json!(options.saved_rule_assistance);
     report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);
     collection::record_feedback(&mut report, finite_feedback);
+    verification::record(&mut report, deep_verification);
     report["status"] = json!("running");
     report["scope"] = storage::scope_summary(request)?;
     write_json(&manifest_path, &report)?;
@@ -329,22 +338,36 @@ fn run(
     let mut session = if report["native_state"].is_object() {
         load_master_relation_session(&options.directory)?
     } else {
-        report["stage"] = json!("inventory");
+        let deep_verification = verification::for_phase(options, Some(report))?;
+        report["stage"] = json!(if deep_verification {
+            "independent_graph_replay"
+        } else {
+            "inventory_census"
+        });
         let mut inventory_options = OwnerDomainWalkInventoryOptions::new(&options.checkpoint);
         inventory_options.verification.threads = options.threads;
+        inventory_options.deep_verification = deep_verification;
         let inventory =
             owner_domain_walk_inventory(request, &inventory_options, cancel, |native| {
                 let mut output = event(report, "master_reduction_progress", started);
+                if let Some(stage) = native["event"].as_str() {
+                    if stage.starts_with("inventory_") || stage.starts_with("verify_") {
+                        output["stage"] = json!(stage);
+                    }
+                }
+                output["verification_progress"] = native.clone();
                 output["inventory_event"] = native;
                 observer(output);
             })?;
         let summary = inventory.summary();
         if summary["complete"] != true {
             return Err(AppError::input(
-                "master reduction requires full validated saved-scope inventory",
+                "master reduction requires a complete exact saved-scope inventory",
             ));
         }
         report["inventory"] = summary;
+        report["independently_verified"] = json!(verification::independently_verified(report));
+        report["publication_assurance"] = report["inventory"]["authority"].clone();
         report["raw_terminals"] = json!(inventory.terminal_keys().len());
         if cancel.load(Ordering::Relaxed) {
             return Err(AppError::execution(
@@ -357,7 +380,9 @@ fn run(
             report["inventory"]["verification"]["checkpoint"]["prepared_owner_payload_blake3"]
                 .clone(),
         )
-        .map_err(|_| AppError::input("cold verifier did not return prepared owner identities"))?;
+        .map_err(|_| {
+            AppError::input("inventory extraction did not return prepared owner identities")
+        })?;
         report["inputs"] = storage::package_inputs(request, &options.directory, &digests)?;
         let normalization_profile = profile::from_report(report)?;
         if storage::scope_binding(
@@ -367,6 +392,7 @@ fn run(
             options.containing_sector_depth,
             options.circuit_symmetry_assistance,
             collection::feedback_for_phase(options, Some(report))?,
+            deep_verification,
             normalization_profile,
         )? != report["scope_binding"]
         {
@@ -415,9 +441,7 @@ fn run(
                 .map_err(io)?;
                 report["previous_stage_source"] = json!(previous_report["scope_binding"]);
             } else {
-                previous_session
-                    .extend(inventory.terminal_keys(), depth)
-                    .map_err(io)?;
+                extend_previous_inventory(&mut previous_session, inventory.terminal_keys(), depth)?;
                 report["reused_previous_stage"] = json!(previous_report["scope_binding"]);
             }
             report["finite_search_restarted_for_normalization_profile"] = json!(changes_profile);
@@ -442,6 +466,20 @@ fn run(
         session
     };
     execute_session(options, &mut session, report, cancel, observer, started)
+}
+
+fn extend_previous_inventory(
+    session: &mut TerminalRelationSession,
+    inventory: &std::collections::BTreeSet<rustred::family::IntegralKey>,
+    seed_depth: u32,
+) -> Result<(), AppError> {
+    // An assurance-only republication must preserve the finite cursor exactly.
+    // Even an empty core extension can schedule a row-space rebuild, so only
+    // invoke it when the raw inventory or finite seed depth actually changes.
+    if inventory != session.raw_terminals() || seed_depth != session.statistics().seed_depth {
+        session.extend(inventory, seed_depth).map_err(io)?;
+    }
+    Ok(())
 }
 
 fn execute_session(
@@ -523,6 +561,14 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     // The core owns all algebraic counts and work cursors; this is only their
     // presentation/transport boundary, shared by CLI and notebook consumers.
     let stats = session.statistics();
+    report["independently_verified"] = json!(verification::independently_verified(report));
+    report["publication_assurance"] = json!(if verification::independently_verified(report) {
+        "independently_verified"
+    } else if report["inventory"]["complete"] == true {
+        "trusted_saved_scope"
+    } else {
+        "not_completed"
+    });
     report["stage"] = json!(if report["collection"]["status"] == "preparing" {
         "terminal_collection"
     } else if report["operation"] != "publish"
@@ -577,7 +623,8 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     report["refinement_complete"] =
         json!(stats.complete && report["collection"]["status"] == "completed");
     report["capabilities"] = json!({
-        "saved_scope_coverage_verified": report["inventory"]["complete"] == true,
+        "saved_scope_inventory_complete": report["inventory"]["complete"] == true,
+        "saved_scope_coverage_verified": verification::independently_verified(report),
         "native_terminal_state": true,
         "exact_current_terminal_substitutions": stats.pending_rebuild_rows == 0,
         "collected_terminal_application": report["collection"]["status"] == "completed",

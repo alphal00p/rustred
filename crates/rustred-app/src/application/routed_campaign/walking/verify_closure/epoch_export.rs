@@ -107,7 +107,8 @@ fn read_image<const N: usize>(
         _ => return Err("epoch domain phase".into()),
     };
     let owner = c.u32()?;
-    if N < 32 && owner >> N != 0 {
+    let retained_axes = N.min(wire_arity);
+    if retained_axes < 32 && owner >> retained_axes != 0 {
         return Err("epoch domain owner uses an omitted axis".into());
     }
     let rank = if c.u8()? == 1 {

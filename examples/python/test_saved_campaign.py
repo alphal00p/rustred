@@ -124,6 +124,15 @@ class SavedCampaignTests(unittest.TestCase):
         command = self.invoke("inspect", "--format", "json")
         self.assertEqual(command, [str(self.binary), "artifact-inspect", "--campaign-directory", str(self.campaign), "--format", "json"])
 
+    def test_publication_verification_flags_reach_run_and_publish_only(self):
+        for action in ("run", "publish"):
+            self.assertNotIn("--deep-verification", self.invoke(action))
+            for flag in ("--deep-verification", "--no-deep-verification"):
+                self.assertIn(flag, self.invoke(action, flag))
+        for action in ("refine", "inspect"):
+            with patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                self.invoke(action, "--deep-verification")
+
     def test_extend_dry_run_prints_wrapper_not_unprepared_resume(self):
         helper = SimpleNamespace(PRESERVE_DIFFERENCE=object(), extend=unittest.mock.Mock(return_value={
             "rank": 1, "max_power_difference": 10, "new_required_queries": 116}))
@@ -140,11 +149,12 @@ class SavedCampaignTests(unittest.TestCase):
         helper = SimpleNamespace(PRESERVE_DIFFERENCE=object(), extend=unittest.mock.Mock(return_value={
             "rank": 1, "max_power_difference": 9, "new_required_queries": 67}))
         with patch.object(WRAPPER, "sibling", return_value=helper), patch.object(WRAPPER.sys, "stdout", io.StringIO()):
-            command = self.invoke("extend", "--rank", "1")
+            command = self.invoke("extend", "--rank", "1", "--deep-verification")
         self.assertFalse(helper.extend.call_args.kwargs["dry_run"])
         self.assertIn("--resume", command)
         self.assertIn("--start", command)
         self.assertNotIn("--refine-masters", command)
+        self.assertIn("--deep-verification", command)
 
     def test_paused_phase_reuses_frozen_binary_despite_new_local_build(self):
         phases = WRAPPER.sibling("campaign_phases")

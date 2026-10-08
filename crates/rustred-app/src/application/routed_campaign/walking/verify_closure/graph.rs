@@ -98,6 +98,15 @@ impl Graph {
 
     /// closed[i] iff no unsealed node is reachable from i.
     pub fn closed(&self, sealed: &[bool]) -> Vec<bool> {
+        assert_eq!(sealed.len(), self.nodes());
+        // A fully sealed graph has no possible source of non-closure. Avoid
+        // materializing the reversed edge set merely to discover an empty
+        // starting frontier (hundreds of millions of edges on large saves).
+        // This preserves coinductive closure, including sealed cycles; it is
+        // deliberately not a descent/termination proof.
+        if sealed.iter().all(|&value| value) {
+            return vec![true; self.nodes()];
+        }
         let reverse = self.reversed();
         let mut blocked = vec![false; self.nodes()];
         let mut stack: Vec<u32> = Vec::new();
@@ -218,6 +227,17 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn all_sealed_shortcut_keeps_cycles_and_empty_graph_closed() {
+        let graph = Graph::from_edges(4, &[(0, 1), (1, 0), (2, 2), (3, 1)]).unwrap();
+        assert_eq!(graph.closed(&[true; 4]), vec![true; 4]);
+        assert!(Graph::from_edges(0, &[]).unwrap().closed(&[]).is_empty());
+        assert_eq!(
+            graph.closed(&[true, false, true, true]),
+            [false, false, true, false]
+        );
+    }
 
     #[test]
     fn closure_blocks_every_ancestor_of_an_unsealed_node_and_keeps_sealed_cycles() {

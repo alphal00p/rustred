@@ -1,5 +1,101 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 8 — fast publication: delivery validation
+
+The release executable is frozen at SHA256
+`a28f294bf7cc88a9a0804a07cfc5681f4e146f424f968fc7144b464b8d908797`
+(`target/release/rustred`; evidence copy `TMP/fast-publication-20261008/rustred-delivery`).
+Build command: `nix develop --command cargo build --release --locked -j8 -p
+rustred-app --bin rustred --features capacity-dispatch`, under the workspace
+build lock and CPUs 40–47; 6m36s compilation, excluded from measurements.
+
+Matched same-build publication controls, four workers on CPUs 32–35, nested
+pools one: combined four-loop fast 3.667 s versus deep 15.174 s; scalar five-loop
+R=0,D≤9 fast 141.805 s versus deep 162.047 s. Exact native and collection bytes
+match between modes. Four-loop complete inventory pages match for all 429 rules,
+28 raw terminals and 20 normalized terminals; scalar inventory has 1,180 rules
+and 196 terminals. Source checkpoints unchanged. These are single observations
+on a shared host, not statistical speedup guarantees. The older physical-arity
+binary remains faster on preparation-dominated R0: 82.730 s. Do not hide that
+cross-build difference behind the same-build fast/deep comparison.
+
+`finite_feedback_app` completed the real Python publish/refine/deep-upgrade/
+inspect/repeat/extend lifecycle. Exact previous native/collection bytes and the
+completed finite cursor survive a verification-only upgrade. Genuine rank-2,
+D≤5 extension passes. Independent `finite_feedback_core` and
+`collection_workflow_audit` cross-reviewed the code and mathematical boundaries.
+The eight optional CP5 raw-result binding failures remain a documented separate
+capacity-width issue; strict digests were not weakened. Publication supplies no
+such optional result file, and both real deep publication controls pass.
+
+Additional fixes exposed by cold controls: physical-width G2 residual decoding,
+checked overlay padding, and keeping nonexistent Route coordinates fixed zero.
+These preserve source replay and geometric semantics. The overlay regression's
+first failing test passed a padded key to a physical-arity public API; it was
+corrected to use `[2]` and explicitly test rejection of `[2,0,0,0]`. No production
+source changed after the frozen release. The narrower runtime AnchorView resume-
+width issue remains out of scope; cold publication support is not a promise of
+arbitrary campaign-engine checkpoint upgrades.
+
+Root is completing a read-only THE_ONE fast publication to a scratch directory,
+never touching its production pointers or active refiner. The initial pilot was
+deliberately interrupted after the overlay problem was identified; it is a
+censored failed-version run, not a timing. Final attempt resumes only that
+scratch phase with the corrected binary. Evidence and exact commands remain in
+`TMP/fast-publication-20261008/`; full report:
+`docs/research/fast_publication_2026-10-08.md`.
+
+## October 8 — fast publication: integration and measured kernel results
+
+Default-off verification is wired through Rust, CLI and Python. The fast path
+authenticates checkpoint/request/owner bindings, checks saved-graph readiness,
+and deduplicates exact Apply inspection scopes for a classification-only census.
+It omits Route/RHS successor replay and the deep per-edge/union lattice proof.
+Reports explicitly distinguish `trusted_saved_scope` from independent replay.
+Refined application maps must survive a same-scope verification upgrade.
+Python workflow/dashboard suite: 107 passed. Native build and lifecycle gates
+are in progress; no production checkpoint or running refiner was changed.
+
+Independent exact-lattice optimization: cached interval sums, borrowed owner
+masks, in-place constraint/undo, and allocation only for nonempty output pieces.
+Eight standalone optimized tests pass, including original-algorithm/budget
+parity. Four matched single-core pairs on 49 actual four-loop regions give
+3.54–3.58x predicate speedup; first 2,000 five-loop anchor regions give
+4.26–4.33x. These are **not whole-publication timings**. Evidence and exact
+commands: `TMP/fast-publication-20261008/lattice-measurements.json`.
+Root also moved checkpoint hashing below its buffer, removed a native-record
+JSON-text round trip, and avoided reverse-graph construction when every record
+is sealed. Auditor reviewed these changes separately from its own lattice work.
+
+Validation exposed an existing wire-width bug: the current padded-capacity
+binary rejects old G2 records whose authenticated checkpoint arity differs
+from its compiled capacity. THE_ONE's existing checkpoint has arity 15; the
+current dispatch uses capacity 16. The old four-loop control reproduces it.
+Core is fixing exact wire-width interpretation/padding, with independent audit,
+so existing saved work can be published. Failed baseline attempts are retained
+as failures, not timings. The original frozen checkpoint remains untouched.
+
+## October 8 — fast publication: implementation started
+
+User requests deep verification optional/off by default and low-hanging
+publication optimizations. Plan:`FAST_PUBLICATION_PLAN.md`. Root coordinates
+`finite_feedback_core`(native fast census),`finite_feedback_app`(public mode,
+resume/progress) and`collection_workflow_audit`(lattice optimization, then
+independent audit of other lanes). Lattice's own audit belongs to root/core.
+Starting implementation revision`c0b642c9`; unrelated HEPKit/notebook work
+remains untouched. No tool-managed goal was requested on this turn.
+
+THE_ONE finished its R≤4,D≤9 publication at19:17:21CEST:938raw terminal keys,
+335/335required queries independently verified,PASS,no violations. Total
+publication14135s;load1347s,prepare88s,structuralchecks10332s,reinspection2286s.
+It handled60,115,005domains/596,470,375edges and53,527,607native records.
+This is coinductive dependency coverage, not strict-descent/termination proof.
+Read-only profile evidence:`TMP/the-one-publication-diagnosis-20261008.7j1BTh/`.
+No campaign was signalled/modified. The exact union geometry and copying dominate
+the sampled serial phase; full inventory extraction is currently coupled to
+that optional-in-principle audit. Final measurements must distinguish skipping
+the audit from making the remaining census itself faster.
+
 ## October 8 — finite refinement feedback: delivery complete
 
 Implemented and independently audited only the authorized finite feedback.

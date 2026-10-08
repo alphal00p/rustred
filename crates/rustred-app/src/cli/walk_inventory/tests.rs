@@ -20,12 +20,14 @@ fn parses_exclusive_sources_bounded_pages_and_stdout() {
     assert_eq!(command.page_size, 25);
     assert_eq!(command.output, StreamPath::Stdio);
     assert!(!command.normalize_terminals);
+    assert!(!command.deep_verification);
     let campaign = args(&[
         "--campaign-directory",
         "campaign",
         "--threads",
         "4",
         "--normalize-terminals",
+        "--deep-verification",
         "--rules-start",
         "2",
         "--terminals-start",
@@ -40,6 +42,7 @@ fn parses_exclusive_sources_bounded_pages_and_stdout() {
     ])
     .unwrap();
     assert!(campaign.normalize_terminals && campaign.force);
+    assert!(campaign.deep_verification);
     assert_eq!(campaign.normalized_terminals_start, 1);
     assert_eq!(
         (
@@ -65,11 +68,35 @@ fn parses_exclusive_sources_bounded_pages_and_stdout() {
         args(&["--command", "a", "--force", "--force"]),
         Err(ArgError::DuplicateOption("--force"))
     ));
+    assert!(matches!(
+        args(&[
+            "--command",
+            "a",
+            "--deep-verification",
+            "--deep-verification"
+        ]),
+        Err(ArgError::DuplicateOption("--deep-verification"))
+    ));
 }
 
 #[test]
 fn incomplete_inventory_never_reports_success() {
     assert!(inventory_verdict(&json!({"complete":true,"verification":{"verdict":"PASS"}})).is_ok());
+    assert!(
+        inventory_verdict(&json!({"complete":true,"authority":"trusted_saved_scope",
+        "verification":{"verdict":"TRUSTED_SAVED_SCOPE"}}))
+        .is_ok()
+    );
+    assert!(
+        inventory_verdict(&json!({"complete":false,"authority":"trusted_saved_scope",
+        "verification":{"verdict":"TRUSTED_SAVED_SCOPE"}}))
+        .is_err()
+    );
+    assert!(
+        inventory_verdict(&json!({"complete":true,
+        "verification":{"verdict":"TRUSTED_SAVED_SCOPE"}}))
+        .is_err()
+    );
     for complete in [false, true] {
         let error = inventory_verdict(
             &json!({"complete":complete,"verification":{"verdict":"INCOMPLETE"}}),

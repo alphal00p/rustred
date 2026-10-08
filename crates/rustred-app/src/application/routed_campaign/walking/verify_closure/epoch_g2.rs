@@ -11,10 +11,16 @@ use std::collections::BTreeMap;
 pub(super) struct View<'a> {
     sections: &'a EpochSections,
     anchors: BTreeMap<usize, &'a AnchorRow>,
+    wire_arity: usize,
 }
 
 impl<'a> View<'a> {
     pub fn new(sections: &'a EpochSections) -> Result<Self, String> {
+        let wire_arity = sections.manifest["arity"]
+            .as_u64()
+            .and_then(|arity| usize::try_from(arity).ok())
+            .filter(|&arity| (1..=32).contains(&arity))
+            .ok_or("Epoch wire arity missing or invalid")?;
         let mut anchors = BTreeMap::new();
         let mut previous = None;
         for row in &sections.anchors {
@@ -26,7 +32,11 @@ impl<'a> View<'a> {
             }
             previous = Some(row.0);
         }
-        Ok(Self { sections, anchors })
+        Ok(Self {
+            sections,
+            anchors,
+            wire_arity,
+        })
     }
 
     pub fn position(&self, id: usize) -> u64 {
@@ -41,6 +51,9 @@ impl<'a> View<'a> {
         row: &mut RecordRow,
         domains: &[CompactDomain<N>],
     ) -> Result<(), String> {
+        if !super::super::super::storage::compatible_width(self.wire_arity, N) {
+            return Err("Epoch wire arity is incompatible with domain storage".into());
+        }
         if row.g2_residual_anchors.is_some() {
             return Err("CP5 G2 publication block in Epoch record".into());
         }
@@ -65,7 +78,7 @@ impl<'a> View<'a> {
         let count = u32::from_le_bytes(scope[..4].try_into().expect("4")) as usize;
         // The indexed production planner emits a single D band or full cover.
         // Refuse other scope shapes explicitly rather than guessing a hull.
-        if count > 1 || scope.len() != 4 + count * (18 + 4 * N) {
+        if count > 1 || scope.len() != 4 + count * (18 + 4 * self.wire_arity) {
             return Err("Epoch G2 residual is not a supported D band".into());
         }
         let mut pieces = Vec::<Value>::new();
@@ -86,20 +99,30 @@ impl<'a> View<'a> {
             if lo.is_none() || hi.is_none() || lo > hi {
                 return Err("Epoch residual D interval".into());
             }
-            let lower: Vec<u16> = (0..N)
+            let lower: Vec<u16> = (0..self.wire_arity)
                 .map(|a| u16::from_le_bytes(scope[22 + 2 * a..24 + 2 * a].try_into().expect("2")))
                 .collect();
-            let upper: Vec<u16> = (0..N)
+            let upper: Vec<u16> = (0..self.wire_arity)
                 .map(|a| {
                     u16::from_le_bytes(
-                        scope[22 + 2 * N + 2 * a..24 + 2 * N + 2 * a]
+                        scope[22 + 2 * self.wire_arity + 2 * a..24 + 2 * self.wire_arity + 2 * a]
                             .try_into()
                             .expect("2"),
                     )
                 })
                 .collect();
             let (original_lower, original_upper) = image.raw_bounds();
-            if lower != original_lower.as_slice() || upper != original_upper.as_slice() {
+            // The record and raw scope retain their authenticated wire width.
+            // Only the comparison with the decoded domain uses storage padding;
+            // narrowing must reject every nonzero or unbounded omitted axis.
+            let restored_lower = super::super::super::storage::restore_array::<_, N>(&lower, 0);
+            let restored_upper = super::super::super::storage::restore_array::<_, N>(&upper, 0);
+            if restored_lower.as_ref() != Some(original_lower)
+                || restored_upper.as_ref() != Some(original_upper)
+                || image.owner()[self.wire_arity.min(N)..]
+                    .iter()
+                    .any(|&active| active)
+            {
                 return Err("Epoch residual changes the original coordinate scope".into());
             }
             pieces.push(json!({"d_lo":lo,"d_hi":hi,"lower":lower,"upper":upper}));
@@ -156,3 +179,6 @@ impl<'a> View<'a> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

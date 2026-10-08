@@ -1,5 +1,16 @@
 # RustRed project goal
 
+## October 8 — active: fast publication, optional deep verification
+
+Follow `FAST_PUBLICATION_PLAN.md`. Independent graph/reinspection verification
+must be optional and disabled by default during saved-campaign publication.
+Separate exact inventory extraction from deep auditing; keep checkpoint/request
+bindings and complete-scope checks, accurate encountered keys, honest assurance
+labels and explicit refinement semantics. Remove measured low-hanging lattice
+allocation/union and replay bottlenecks, improve phase progress, validate both
+paths with independent audits and release controls, then commit/push. No live
+campaign changes or numerical-master work are authorized by this request.
+
 ## October 8 — completed: finite refinement feedback
 
 Follow `FINITE_REFINEMENT_FEEDBACK_PLAN.md`: combine retained finite rowspaces

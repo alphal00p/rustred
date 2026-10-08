@@ -55,6 +55,9 @@ def main(argv=None):
         sub.add_argument("--executable", type=Path, help="publisher/refiner/inspector binary (default current optimized build)")
         if action != "inspect":
             sub.add_argument("--dry-run", action="store_true", help="show/validate commands without starting work")
+        if action in ("run", "extend", "publish"):
+            sub.add_argument("--deep-verification", action=argparse.BooleanOptionalAction, default=None,
+                             help="independently replay the saved dependency graph before publication (default saved preference or off)")
         if action == "run":
             sub.add_argument("--resume", action="store_true", help="resume; also selected automatically if a checkpoint exists")
         if action == "extend":
@@ -127,6 +130,8 @@ def main(argv=None):
                     command += ["--master-containing-sector-depth", str(args.containing_sector_depth)]
             elif args.action == "publish":
                 command.append("--publish-only")
+            if args.action in ("run", "extend", "publish") and args.deep_verification is not None:
+                command.append("--deep-verification" if args.deep_verification else "--no-deep-verification")
             command += extra
             if args.dry_run:
                 if args.action == "extend":

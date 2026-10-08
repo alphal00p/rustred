@@ -490,7 +490,7 @@ def render_master_table(frame, width=100, height=24, color=True):
     work = f"{count(completed)} / {count(total)}" if total is not None else count(completed)
     progress = bar(completed, total, frame["elapsed_seconds"]) if total is not None else "total not yet known"
     rows = [
-        (0, row("Stage", master["stage"] or "preparing", "verify and package scoped rules" if publishing else "bounded exact relation search", "36")),
+        (0, row("Stage", master["stage"] or "preparing", "extract and package exact inventory" if publishing else "bounded exact relation search", "36")),
         (1, row("Retained keys", count(master["raw_terminals"]), "phase-one keys, including prior stages")),
         (1, row("Normalized", count(master["normalized_terminals"]), "exact symmetry aliases; not minimal")),
         (0, row("Remaining basis", count(master["remaining_terminals"]), "finite, potentially nonminimal", "32")),
@@ -510,9 +510,27 @@ def render_master_table(frame, width=100, height=24, color=True):
     ]
     if publishing:
         rows = [entry for index, entry in enumerate(rows) if index not in (4, 5, 6, 7)]
-        rows.insert(1, (0, row("Coverage", "verified" if frame["state"] == "published_unrefined" else "checking",
-                              "scoped dependency coverage; not termination", "32")))
+        verified = master.get("independently_verified", False)
+        mode = master.get("publication_verification_mode", "")
+        rows.insert(1, (0, row("Assurance", "deep replay passed" if verified else
+                              "trusted saved scope" if master.get("publication_assurance") == "trusted_saved_scope" else "pending",
+                              "independent graph replay" if mode == "independent_replay" else "exact inventory; deep replay not requested", "32")))
         rows.insert(2, (0, row("Refinement", "not requested", "explicit refine command only", "36")))
+        verification_progress = master.get("verification_progress", {})
+        if verification_progress:
+            deep = mode == "independent_replay"
+            event = verification_progress.get("event", "")
+            done, total = verification_progress.get("completed"), verification_progress.get("total")
+            if done is None:
+                done = verification_progress.get("reinspected")
+            if done is None:
+                done = verification_progress.get("records")
+            if total is None:
+                total = verification_progress.get("selected")
+            label = ("Census progress" if event.startswith("inventory_census") else
+                     "Replay progress" if deep else "Inventory checks")
+            if done is not None or total is not None:
+                rows.insert(3, (0, row(label, count(done) + " / " + count(total), "native work counters")))
     collection = master.get("collection", {})
     if collection.get("finite_feedback_stage"):
         rows.insert(1, (0, row("Finite feedback", collection["finite_feedback_stage"],

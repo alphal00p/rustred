@@ -4,14 +4,14 @@ use rustred::family::{AffineDenominator, IntegralFamily, IntegralKey};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+#[path = "tests/collection_audit.rs"]
+mod collection_audit;
+#[path = "tests/collection.rs"]
+mod collection_tests;
 #[path = "tests/inherited.rs"]
 mod inherited_tests;
 #[path = "tests/profile.rs"]
 mod profile_tests;
-#[path = "tests/collection.rs"]
-mod collection_tests;
-#[path = "tests/collection_audit.rs"]
-mod collection_audit;
 
 struct Scratch(PathBuf);
 impl Scratch {
@@ -274,6 +274,53 @@ fn explicit_refinement_preserves_published_source_and_resumes_in_new_directory()
 }
 
 #[test]
+fn assurance_only_republication_preserves_completed_native_cursor_and_bytes() {
+    let scratch = Scratch::new();
+    let mut native = session();
+    while !native.is_complete() {
+        native.step(&AtomicBool::new(false)).unwrap();
+    }
+    let raw = native.raw_terminals().clone();
+    let before = native.to_native_bytes(BinaryIoLimits::default()).unwrap();
+    let statistics = native.statistics();
+    extend_previous_inventory(&mut native, &raw, statistics.seed_depth).unwrap();
+    assert_eq!(native.statistics(), statistics);
+    assert_eq!(
+        native.to_native_bytes(BinaryIoLimits::default()).unwrap(),
+        before
+    );
+    let report = publish_fixture(&scratch.0, &mut native);
+    assert_eq!(report["status"], "completed_nonminimal");
+    assert_eq!(report["finite_search_complete"], true);
+    assert_eq!(native.statistics(), statistics);
+    assert_eq!(
+        native.to_native_bytes(BinaryIoLimits::default()).unwrap(),
+        before
+    );
+    assert_eq!(
+        load_master_relation_session(&scratch.0)
+            .unwrap()
+            .to_native_bytes(BinaryIoLimits::default())
+            .unwrap(),
+        before
+    );
+}
+
+#[test]
+fn republication_with_deeper_seed_scope_still_extends_native_session() {
+    let mut native = session();
+    while !native.is_complete() {
+        native.step(&AtomicBool::new(false)).unwrap();
+    }
+    let raw = native.raw_terminals().clone();
+    let source_rows = native.statistics().completed_source_rows;
+    extend_previous_inventory(&mut native, &raw, 1).unwrap();
+    assert_eq!(native.statistics().seed_depth, 1);
+    assert_eq!(native.statistics().completed_source_rows, source_rows);
+    assert!(!native.is_complete());
+}
+
+#[test]
 fn publication_of_extended_scope_keeps_previous_exact_rows_without_new_sources() {
     let scratch = Scratch::new();
     let mut native = session();
@@ -283,9 +330,12 @@ fn publication_of_extended_scope_keeps_previous_exact_rows_without_new_sources()
     let key = IntegralKey::try_new([2]).unwrap();
     let old_row = native.apply_terminal(&key).unwrap();
     let old_sources = native.statistics().completed_source_rows;
-    native
-        .extend(&BTreeSet::from([IntegralKey::try_new([3]).unwrap()]), 0)
-        .unwrap();
+    extend_previous_inventory(
+        &mut native,
+        &BTreeSet::from([IntegralKey::try_new([3]).unwrap()]),
+        0,
+    )
+    .unwrap();
     assert!(native.statistics().pending_rebuild_rows > 0);
     let report = publish_fixture(&scratch.0, &mut native);
     assert_eq!(report["status"], "published_unrefined");
@@ -569,7 +619,9 @@ fn circuit_mode_switches_are_durable_even_when_saved_mode_is_unchanged() {
         options.circuit_symmetry_assistance = !circuit;
         assert!(assistance::configure(&options, &mut restored, &mut report).is_err());
         assert_eq!(
-            load_master_relation_session(&source.0).unwrap().statistics(),
+            load_master_relation_session(&source.0)
+                .unwrap()
+                .statistics(),
             original.statistics()
         );
     }
@@ -671,7 +723,9 @@ fn policy_switches_are_resumable_at_the_first_durable_checkpoint() {
             assert_eq!(completed["saved_rule_assistance"], false);
         }
         assert_eq!(
-            load_master_relation_session(&source.0).unwrap().statistics(),
+            load_master_relation_session(&source.0)
+                .unwrap()
+                .statistics(),
             original.statistics()
         );
     }

@@ -187,8 +187,12 @@ use continuation when retaining results is intended.
 
 `walk-inventory` reads an existing campaign without launching or resuming it.
 CP6 saves coverage records and event counts, not the identities of every
-selected rule and terminal. The command therefore cold-loads the saved owners
-and re-inspects the saved domains once. Expect owner preparation time, not
+selected rule and terminal. The command therefore cold-loads the saved owners,
+checks checkpoint bindings, integrity and saved-scope completion, and matches
+the unique committed Apply domains to recover those identities. Successful
+records need no RHS or successor generation; failed or unfinished records use
+local replay to preserve their actual classification prefix. Route records add
+no classification identities. Expect owner preparation and census time, not
 just a quick checkpoint-header read. It generates no new IBPs and changes no
 owner, input, checkpoint or numerical catalog.
 
@@ -218,13 +222,21 @@ on stdout. The command follows the published `active-run.json`, not whichever
 directory happens to sort last. To inspect a specific saved request, use
 `--command PATH/TO/request.json --checkpoint PATH/TO/checkpoints/main` instead.
 
+The default report has `verification_mode: "inventory"`,
+`authority: "trusted_saved_scope"` and `independently_verified: false`.
+`complete` means the requested saved-scope inventory is complete and consistent;
+it does not independently certify every graph edge or union/lattice cover.
+Add `--deep-verification` to run those checks and independent native replay.
+That optional mode reports `verification_mode: "independent_replay"` and can
+earn the verifier's `PASS`; the default fast census never claims that verdict.
+
 The report separates three different counts:
 
 1. `installed`: rules and terminal declarations in the installed owner batches,
    including preferred programs and overlays. Declarations can repeat across
    batches. These counts describe available programs, not their use.
 2. `encountered`: distinct owner/batch/rule identities and integral keys found
-   while re-inspecting the saved symbolic covers. Partial and G2-reused records
+   while matching the saved symbolic covers. Partial and G2-reused records
    contribute their actual inspected residuals, not their entire enclosing
    domain. Previously inspected helper or quarantined history is counted too;
    never-inspected abandoned records are excluded. Conditional successors and
@@ -246,7 +258,8 @@ order or import relations from FORM/FMFT. `rule_page`, `terminal_page` and
 An incomplete or failed census is reported as such and exits nonzero;
 normalization is not presented as the complete campaign basis in that case.
 
-Measured on October7,2026 with the optimized CLI:
+Measured on October7,2026 with the then-default complete cold reinspection
+(equivalent to the current `--deep-verification` authority):
 
 | Saved scope | Installed rules | Encountered rules | Encountered terminals | Normalized representatives |
 | --- | ---: | ---: | ---: | ---: |

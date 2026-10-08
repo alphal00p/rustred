@@ -1,0 +1,63 @@
+# Fast saved-campaign publication and optional deep verification
+
+## Requested outcome
+
+Make independent deep verification optional and disabled by default, and remove
+the measured low-hanging publication bottlenecks. Preserve accurate encountered
+rules/terminal inventories, checkpoint binding, truthful assurance labels and
+the explicit master-refinement workflow. Do not change production artifacts or
+restart campaigns without a separate request.
+
+## Diagnosis
+
+THE_ONE R≤4, D≤9 publication completed with 335/335 queries verified and 938 raw
+terminal candidates. Full publication took 14,135 seconds, including 10,332 s
+serial structural checks and 2,286 s native reinspection. It read 60,115,005 domains
+and 596,470,375 edges. A 15 s low-frequency profile of the serial stage found
+Region::nonempty 31.4%, Region::with 15.56%, Region::minus 4.24%, memmove 15.28%, plus
+substantial allocation overhead. That deep verifier certifies coinductive
+dependency coverage, not strict descent or termination.
+
+## Delegation and implementation
+
+1. `finite_feedback_core`: separate ordinary inventory extraction from the deep
+   graph verifier. Preserve exact encountered inventory; do not replace it with
+   every declared payload terminal. Bind request/owners/checkpoint, require the
+   requested saved scope complete, and report ordinary trusted-scope publication
+   distinctly from independent verification. Optimize unnecessary Route/successor
+   replay and contention if the existing matcher supports a classification-only
+   census. Old checkpoints without stored inventories need an honest census
+   fallback, not invented inventory statistics.
+2. `finite_feedback_app`: Rust/CLI/Python default-off deep-verification option,
+   mode-bound resume and no-op decisions, clear inspector/dashboard assurance and
+   progress fields. Explicit deep must not silently reuse fast-only publication.
+   Refinement remains separately requested and must not trigger graph verification.
+3. `collection_workflow_audit`: remove avoidable allocations/work in exact lattice
+   union checks with differential tests. Afterwards independently audit the other
+   lanes. Its own mathematical optimization is reviewed by root/core, not itself.
+4. Root: coordinate shared files/builds, integrate, profile release controls,
+   verify public lifecycle and unchanged production inputs, document and deliver.
+
+## Acceptance
+
+- Accurate identical encountered rule/terminal sets on small and four-loop
+  controls between ordinary and deep publication; compare bounded five-loop
+  controls and a representative saved THE_ONE checkpoint when practical.
+- Explicit independent-validation status, no misleading PASS/certified claim
+  on the ordinary path, no termination/minimality claims on either path.
+- Corrupt/mismatched/incomplete checkpoints fail safely; cancellation and
+  resume cannot publish partial inventories. Previously completed artifacts
+  remain inspectable during a new attempt.
+- Deep verifier mutation/containment tests remain valid; differential lattice
+  tests include empty cells, unbounded axes, intersections and resource budgets.
+- Default-off/explicit-on CLI and Python tests, inspector progress and resume
+  mode changes. Release before/after measurements exclude compilation and use
+  matching inputs/resources; no fresh full campaign is needed.
+- Separate implementation and independent audit, formatting/focused tests,
+  scoped commit and push. Preserve unrelated HEPKit/notebook changes and all
+  private/untracked campaign/reference material.
+
+An incremental online inventory is desirable but not a prerequisite for the
+first low-risk improvement if adding it would expand into a new checkpoint
+architecture. Record any remaining census/load cost explicitly rather than
+promising instant publication.

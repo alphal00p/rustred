@@ -1,4 +1,4 @@
-//! Read-only inventory of a saved walk. Reinspection recovers identities that
+//! Read-only inventory of a saved walk. Matching recovers identities that
 //! CP6 deliberately does not retain; none of this launches or resumes a walk.
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -23,6 +23,7 @@ pub(crate) struct WalkInventoryArgs {
     checkpoint: Option<PathBuf>,
     output: StreamPath,
     threads: usize,
+    deep_verification: bool,
     normalize_terminals: bool,
     rules_start: usize,
     terminals_start: usize,
@@ -38,6 +39,7 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
         checkpoint: None,
         output: StreamPath::Stdio,
         threads: 1,
+        deep_verification: false,
         normalize_terminals: false,
         rules_start: 0,
         terminals_start: 0,
@@ -54,6 +56,7 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
             "--checkpoint" => "--checkpoint",
             "--output" => "--output",
             "--threads" => "--threads",
+            "--deep-verification" => "--deep-verification",
             "--normalize-terminals" => "--normalize-terminals",
             "--rules-start" => "--rules-start",
             "--terminals-start" => "--terminals-start",
@@ -114,6 +117,7 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
                     })?;
             }
             "--normalize-terminals" => args.normalize_terminals = true,
+            "--deep-verification" => args.deep_verification = true,
             "--force" => args.force = true,
             _ => unreachable!("admitted option"),
         }
@@ -272,6 +276,7 @@ pub(super) fn campaign_summary(campaign: &Path, threads: usize) -> Result<Value,
             checkpoint: None,
             output: StreamPath::Stdio,
             threads,
+            deep_verification: false,
             normalize_terminals: true,
             rules_start: 0,
             terminals_start: 0,
@@ -332,6 +337,7 @@ fn collect_report(args: &WalkInventoryArgs, include_pages: bool) -> Result<Value
     protect_output(&args.output, &protected)?;
     let mut options = OwnerDomainWalkInventoryOptions::new(checkpoint);
     options.verification.threads = args.threads;
+    options.deep_verification = args.deep_verification;
     let cancel = Arc::new(AtomicBool::new(false));
     let _signals = Signals::register(&cancel)?;
     let inventory = owner_domain_walk_inventory(&request, &options, &cancel, |event| {
@@ -360,7 +366,7 @@ fn collect_report(args: &WalkInventoryArgs, include_pages: bool) -> Result<Value
     } else if args.normalize_terminals {
         report["normalization"] = json!({
             "status":"not-run",
-            "reason":"normalization requires a complete validated inventory"
+            "reason":"normalization requires a complete consistent inventory"
         });
     }
     if cancel.load(Ordering::Relaxed) {
@@ -374,13 +380,17 @@ fn collect_report(args: &WalkInventoryArgs, include_pages: bool) -> Result<Value
 }
 
 fn inventory_verdict(report: &Value) -> Result<(), CliError> {
-    if report["complete"] == true && report["verification"]["verdict"] == "PASS" {
+    let verdict = &report["verification"]["verdict"];
+    if report["complete"] == true
+        && (verdict == "PASS"
+            || verdict == "TRUSTED_SAVED_SCOPE" && report["authority"] == "trusted_saved_scope")
+    {
         return Ok(());
     }
     Err(CliError::Verdict {
         incomplete: report["verification"]["verdict"] != "FAIL",
         message: format!(
-            "inventory is not complete and validated: {} (campaign unchanged)",
+            "inventory is incomplete or inconsistent: {} (campaign unchanged)",
             report["verification"]["verdict"]
         ),
     })

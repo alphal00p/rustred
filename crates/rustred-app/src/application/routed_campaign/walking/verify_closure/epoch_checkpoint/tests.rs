@@ -5,6 +5,177 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[test]
+fn cp6_stack_image_matches_checked_domain_restore() {
+    use super::super::super::queue::Domain;
+
+    fn compare<const N: usize>(wire_arity: usize) {
+        let mut fixture = Fixture::new();
+        for case in 0..24 {
+            let mut lower = vec![0; wire_arity];
+            let mut upper = vec![Some(0); wire_arity];
+            lower[0] = [0, 1, 65_534, 65_535][case % 4];
+            upper[0] = [None, Some(0), Some(65_534)][case % 3];
+            if wire_arity > N {
+                match case % 4 {
+                    1 => lower[N] = 1,
+                    2 => upper[N] = Some(1),
+                    3 => upper[N] = None,
+                    _ => (),
+                }
+            }
+            let domain = Domain::<N> {
+                phase: if case % 2 == 0 {
+                    Phase::Apply
+                } else {
+                    Phase::Route
+                },
+                owner: std::array::from_fn(|axis| axis == 0 && case % 2 == 0),
+                lower,
+                upper,
+                rank: (case % 2 == 0).then_some(u32::MAX),
+                powers: DomainPowerBounds {
+                    max_positive_power: (case % 3 == 0).then_some(u64::MAX),
+                    min_power_difference: (case % 3 != 0).then_some(-7),
+                    max_power_difference: match case % 3 {
+                        0 => None,
+                        1 => Some(9),
+                        _ => Some(-8), // Deliberately inverted bounds.
+                    },
+                },
+            };
+            let expected = CompactDomain::restore(&domain);
+            let mut bytes = vec![if case % 2 == 0 { 0 } else { 1 }];
+            bytes.extend(u32::from(domain.owner[0]).to_le_bytes());
+            bytes.push(u8::from(domain.rank.is_some()));
+            bytes.extend(domain.rank.unwrap_or(0).to_le_bytes());
+            for value in &domain.lower {
+                bytes.extend((*value as u16).to_le_bytes());
+            }
+            for value in &domain.upper {
+                bytes.extend(value.map_or(u16::MAX, |v| v as u16).to_le_bytes());
+            }
+            for value in [
+                domain.powers.max_positive_power,
+                domain.powers.min_power_difference.map(|v| v as u64),
+                domain.powers.max_power_difference.map(|v| v as u64),
+            ] {
+                bytes.push(u8::from(value.is_some()));
+                bytes.extend(value.unwrap_or(0).to_le_bytes());
+            }
+            fixture.add(&format!("image-{case}"), 1, bytes);
+            let mut input =
+                Input::open(&fixture.directory, fixture.manifest.files.last().unwrap()).unwrap();
+            let actual = image::<N>(&mut input, wire_arity);
+            assert_eq!(
+                actual.is_ok(),
+                expected.is_ok(),
+                "N={N}, wire={wire_arity}, case={case}"
+            );
+            if let Ok(actual) = actual {
+                assert_eq!(actual, expected.unwrap());
+                input.finish().unwrap();
+            }
+        }
+    }
+
+    compare::<1>(1);
+    compare::<4>(4);
+    #[cfg(feature = "capacity-dispatch")]
+    {
+        compare::<4>(1);
+        compare::<1>(4);
+    }
+}
+
+#[test]
+#[cfg(feature = "capacity-dispatch")]
+fn cp6_preserves_authenticated_wire_width_when_loading_into_capacity() {
+    let mut fixture = Fixture::new();
+    let (raw, epoch, _) = read_raw::<4>(&fixture.directory).unwrap();
+    assert_eq!(epoch.manifest["arity"], 1);
+    assert_eq!(raw.domains[0].raw_bounds(), (&[1, 0, 0, 0], &[1, 0, 0, 0]));
+    assert_eq!(raw.domains[0].owner(), [true, false, false, false]);
+
+    let reference = fixture
+        .manifest
+        .files
+        .iter()
+        .find(|f| f.key == "state-1")
+        .unwrap();
+    let mut bytes = fs::read(fixture.directory.join(&reference.file)).unwrap();
+    // Canonical section header (28 bytes), phase, then the owner mask.
+    bytes[29..33].copy_from_slice(&3u32.to_le_bytes());
+    fixture.replace("state-1", 1, bytes);
+    fixture.publish();
+    assert!(
+        read_raw::<4>(&fixture.directory)
+            .err()
+            .unwrap()
+            .contains("owner high bits")
+    );
+}
+
+#[test]
+fn cp6_buffered_hash_tracks_consumed_bytes_across_mixed_reads() {
+    let mut fixture = Fixture::new();
+    let bytes: Vec<_> = (0..100_003).map(|n| (n % 251) as u8).collect();
+    fixture.add("mixed-reads", 1, bytes.clone());
+    let reference = fixture.manifest.files.last().unwrap();
+    let mut input = Input::open(&fixture.directory, reference).unwrap();
+    assert_eq!(input.read(&mut []).unwrap(), 0);
+    assert_eq!(input.u8().unwrap(), bytes[0]);
+    assert!(input.reader.get_ref().read > input.read);
+    assert!(input.check_digest().is_err()); // Prefetch is not consumption.
+    let mut actual = vec![bytes[0]];
+    for width in [7, 32_763, 1, 40_001, 27_230] {
+        let mut part = vec![0; width];
+        input.read_exact(&mut part).unwrap();
+        actual.extend(part);
+    }
+    assert_eq!(actual, bytes);
+    input.finish().unwrap();
+}
+
+#[test]
+fn cp6_buffered_hash_does_not_accept_unconsumed_trailing_bytes() {
+    let mut fixture = Fixture::new();
+    fixture.add("trailing", 1, vec![3, 5, 7]);
+    let reference = fixture.manifest.files.last().unwrap();
+    let mut input = Input::open(&fixture.directory, reference).unwrap();
+    assert_eq!(input.u8().unwrap(), 3);
+    assert_eq!(input.reader.get_ref().read, 3);
+    assert!(input.finish().is_err());
+}
+
+#[test]
+fn cp6_native_projection_matches_old_text_roundtrip_and_digest() {
+    let mut fixture = Fixture::new();
+    let path = fixture.record();
+    let record = crate::application::routed_campaign::walking::epoch::records::wire::read(
+        &mut File::open(path).unwrap(),
+    )
+    .unwrap()
+    .project()
+    .unwrap();
+    let text = serde_json::to_string(&record).unwrap();
+    for digest in [false, true] {
+        use super::super::record_input::RecordValue;
+        let (direct, direct_digest) = RecordValue::Native(record.clone()).decode(digest).unwrap();
+        let (projected, projected_digest) = RecordValue::Text(text.clone()).decode(digest).unwrap();
+        assert_eq!(direct_digest, projected_digest);
+        assert_eq!(direct.id, projected.id);
+        assert_eq!(direct.record_kind, projected.record_kind);
+        assert_eq!(
+            direct.stats.as_ref().and_then(|s| s.events),
+            projected.stats.as_ref().and_then(|s| s.events)
+        );
+        assert_eq!(direct.lower, projected.lower);
+        assert_eq!(direct.upper, projected.upper);
+        assert_eq!(direct.rank, projected.rank);
+    }
+}
+
+#[test]
 fn cp6_amendment_shape_accepts_declared_required_scope_and_auxiliary_rescue() {
     for role in ["required", "auxiliary"] {
         let row = json!({"id":"appended","domain":17,"role":role,
@@ -489,7 +660,16 @@ fn cp6_consumed_record_bytes_are_authenticated_after_reference_capture() {
     let original = fs::read(&path).unwrap();
     let (raw, epoch, records) = read_raw::<1>(&fixture.directory).unwrap();
     let mut violations = Violations::new(10);
-    let loaded = load_records(raw, Some(epoch), Some(records), false, &mut violations).unwrap();
+    let loaded = load_records(
+        raw,
+        Some(epoch),
+        Some(records),
+        false,
+        &mut violations,
+        &std::sync::atomic::AtomicBool::new(false),
+        &|_| {},
+    )
+    .unwrap();
     assert_eq!(loaded.positions, [0]);
 
     let (raw, epoch, records) = read_raw::<1>(&fixture.directory).unwrap();
@@ -506,10 +686,18 @@ fn cp6_consumed_record_bytes_are_authenticated_after_reference_capture() {
     fs::write(&replacement, &changed).unwrap();
     fs::rename(&replacement, &path).unwrap();
     assert!(
-        load_records(raw, Some(epoch), Some(records), false, &mut violations)
-            .err()
-            .unwrap()
-            .contains("digest")
+        load_records(
+            raw,
+            Some(epoch),
+            Some(records),
+            false,
+            &mut violations,
+            &std::sync::atomic::AtomicBool::new(false),
+            &|_| {}
+        )
+        .err()
+        .unwrap()
+        .contains("digest")
     );
 
     fs::write(&path, &original).unwrap();

@@ -237,7 +237,8 @@ pub(super) fn load<const N: usize>(
     limits: CandidateDomainOverlayLoadLimits,
 ) -> Result<(BoundOwnerOverlay<N>, SourcePortRuleReplayAudit<N>), AppError> {
     let (envelope, record, family) = read_structure(bytes, limits.bundle)?;
-    if record.owner_sector != expected_owner
+    let physical_arity = record.owner_sector.len();
+    if rustred::storage_array::<_, N>(&record.owner_sector, false) != Some(expected_owner)
         || record.base_owner_blake3 != expected_base_owner_blake3
         || record.family_fingerprint != programs.context().family().fingerprint()
     {
@@ -250,7 +251,8 @@ pub(super) fn load<const N: usize>(
     let search = programs
         .bind_owner_search(expected_owner, record.policy.native()?)
         .map_err(|e| AppError::input(e.to_string()))?;
-    if search.owner_root().as_slice() != record.root_sector
+    if rustred::storage_array::<_, N>(&record.root_sector, false).as_ref()
+        != Some(search.owner_root())
         || search.owner_ordering().stable_id().to_string() != record.integral_order
     {
         return Err(AppError::input(
@@ -279,22 +281,37 @@ pub(super) fn load<const N: usize>(
             "partial native family differs from its declared owner family",
         ));
     }
-    let identity = programs.context().coefficient_context().one();
-    let variables = identity.raw().get_variables().as_slice();
+    let storage_variables =
+        super::super::codec::storage_variables::<N>(programs.context().coefficient_context());
+    let variables = storage_variables.as_slice();
     let indices = programs.context().index_variables();
     let requested_cases = record
         .requested_cases
         .iter()
-        .map(|case| rules::restore_case(case, &table, variables, indices, &expected_owner))
+        .map(|case| {
+            // A stored physical case fixes every unused capacity coordinate at
+            // zero, just as restore_rule already does for its own case.
+            let mut padded = case.clone();
+            for axis in physical_arity..N {
+                padded.fixed_axes.push(axis);
+                padded.fixed_values.push(0);
+            }
+            rules::restore_case(&padded, &table, variables, indices, &expected_owner)
+        })
         .collect::<Result<_, _>>()?;
     let restored_rules = record
         .rules
         .iter()
         .map(|rule| rules::restore_rule(rule, &table, variables, indices, &expected_owner))
         .collect::<Result<_, _>>()?;
-    let order = order::bound_policy(&record.integral_order, N, record.permutation.as_deref())?;
+    let order = order::bound_policy(
+        &record.integral_order,
+        physical_arity,
+        record.permutation.as_deref(),
+    )?;
     let solution = SectorDomainSolution {
         order: IntegralOrder::from_persisted_policy(expected_owner, &order)
+            .and_then(|order| order.with_physical_arity(physical_arity))
             .map_err(|e| AppError::input(e.to_string()))?,
         requested_cases,
         max_numerator_rank: record.max_numerator_rank,

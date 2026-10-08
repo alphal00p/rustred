@@ -343,10 +343,18 @@ def normalize_status(status, sequence=None):
                                 "relation_rows", "eliminated_terminals", "completed_work", "total_work",
                                 "seed_depth", "independent_rows", "auxiliary_columns", "nonzeros")),
             **{key: clean(master.get(key, ""), 4096 if key == "artifact" else 300)
-               for key in ("stage", "status", "artifact", "scope_binding")},
+               for key in ("stage", "status", "artifact", "scope_binding", "publication_verification_mode",
+                           "publication_assurance")},
+            "independently_verified": master.get("independently_verified") is True,
             "master_minimality_claim": False,
             "numerical_evaluation": False,
         }
+        progress = mapping(master.get("verification_progress"))
+        if progress:
+            frame["master_reduction"]["verification_progress"] = {
+                "event": clean(progress.get("event", ""), 100),
+                **_numbers(progress, ("completed", "total", "reinspected", "selected", "records", "domains")),
+            }
         collection = mapping(master.get("collection"))
         if collection:
             frame["master_reduction"]["collection"] = {
@@ -356,7 +364,7 @@ def normalize_status(status, sequence=None):
                                         "finite_feedback_equations", "finite_feedback_nonzeros",
                                         "finite_feedback_replay_operations")),
             }
-        frame["scope"] = ("scoped dependency coverage and portable rule package; no master refinement" if operation == "publish" else
+        frame["scope"] = ("exact saved-scope inventory; independent graph replay only when explicitly requested" if operation == "publish" else
                           "bounded exact terminal relations; no minimality or numerical master evaluation claim")
     return frame
 

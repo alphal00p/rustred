@@ -392,11 +392,11 @@ USAGE:
     rustred walk-semantics-version
     rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--result RESULT.json | --no-result] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--reference-levers off|as-run] [--union-sample COUNT[:SEED]] [--mutate KIND] [--certification-scope auto|all-roots|physics-queries] [--max-violations N] [--force]
     rustred walk-rescue-plan --command WALK_ARGV.json [--checkpoint DIR] [--helper-id-prefix TEXT] [--rescue-helpers QUERIES.json] [--max-repeats N] [--rescue-scope class|tainted] [--amendment-output AMENDMENT.json] [--output PLAN.json] [--force]
-    rustred walk-inventory (--campaign-directory DIR | --command WALK_ARGV.json) [--checkpoint DIR] [--threads N] [--normalize-terminals] [--rules-start N] [--terminals-start N] [--normalized-terminals-start N] [--page-size N] [--output REPORT.json] [--force]
+    rustred walk-inventory (--campaign-directory DIR | --command WALK_ARGV.json) [--checkpoint DIR] [--threads N] [--deep-verification] [--normalize-terminals] [--rules-start N] [--terminals-start N] [--normalized-terminals-start N] [--page-size N] [--output REPORT.json] [--force]
     rustred walk-master-reduce --command WALK_ARGV.json --checkpoint DIR --directory DIR [--resume | --previous-artifact DIR] [--seed-depth N] [--threads N] [--events PATH] [--stop-file PATH] [--checkpoint-interval-seconds N]
     rustred master-inspect --artifact DIR [--format auto|table|json]
     rustred artifact-inspect (--campaign-directory DIR | --artifact DIR) [--format auto|table|json] [--threads N]
-    rustred walk-publish --command WALK_ARGV.json --checkpoint DIR --directory OUTPUT [--resume] [--previous-artifact DIR] [--threads N] [--events FILE] [--stop-file FILE]
+    rustred walk-publish --command WALK_ARGV.json --checkpoint DIR --directory OUTPUT [--resume] [--previous-artifact DIR] [--deep-verification | --no-deep-verification] [--threads N] [--events FILE] [--stop-file FILE]
     rustred walk-master-reduce --artifact SOURCE --directory OUTPUT [--resume] [--seed-depth N] [--containing-sector-depth N] [--saved-rule-assistance] [--circuit-symmetry-assistance] [--finite-feedback | --no-finite-feedback] [--normalization-profile conservative|standard] [--collection-artifact PEER (repeatable)] [--threads N] [--events FILE] [--stop-file FILE]
 
 DERIVE OPTIONS:
@@ -899,8 +899,13 @@ re-inspection was partial or none: never a certificate). A gate asserts
 one defect in memory and must FAIL (`alias-chain-detour` is a positive
 control and must PASS).
 
-`walk-inventory` re-inspects a saved CP6 campaign without modifying it or
-generating rules. Choose --campaign-directory (the published active run) or
+`walk-inventory` inventories a saved CP6 campaign without modifying it or
+generating rules. By default it checks saved bindings, integrity and scope
+completion, then matches unique inspected Apply domains to recover identities.
+Its authority is trusted_saved_scope, not an independent closure certificate.
+--deep-verification additionally runs independent graph/geometry checks and
+native replay; only that mode can report PASS and independently_verified.
+Choose --campaign-directory (the published active run) or
 --command (the saved native argv). It separately reports installed rule and
 residual counts, then unique rules and terminal keys observed in the inspected
 domain cover. These conservative covers can contain points not reached by a

@@ -125,6 +125,10 @@ mod bounded;
 #[path = "joint_support_tests.rs"]
 mod joint_support_tests;
 
+#[path = "padding_tests.rs"]
+#[cfg(feature = "capacity-dispatch")]
+mod padding_tests;
+
 #[test]
 fn route_overcover_rank_zero_and_degree_bounded_pinches_subtract_only_lost_support() {
     let reducer = fixture();

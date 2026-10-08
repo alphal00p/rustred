@@ -59,14 +59,42 @@ fn floor(value: Option<i128>, bound: Option<i128>) -> Option<i128> {
 
 /// A box with interval bounds on A, R and D (None: unbounded on that side):
 /// one disjoint piece of `Q minus (T_1 u ... u T_j)` in `covered_by_union`.
-#[derive(Clone, Debug)]
-struct Region {
-    owner: Vec<bool>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Region<'a> {
+    owner: &'a [bool],
     lower: Vec<u64>,
     upper: Vec<Option<u64>>,
+    box_a: BoxSum,
+    box_r: BoxSum,
+    empty_axes: usize,
     a: (Option<i128>, Option<i128>),
     r: (Option<i128>, Option<i128>),
     d: (Option<i128>, Option<i128>),
+}
+
+/// Exact sum of one disjoint group of coordinate intervals. Keeping the
+/// finite upper sum even when another axis is open makes a one-axis split
+/// constant-time; an open upper must never be treated as a finite sum.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct BoxSum {
+    low: i128,
+    finite_high: i128,
+    open: usize,
+}
+
+impl BoxSum {
+    fn high(self) -> Option<i128> {
+        (self.open == 0).then_some(self.finite_high)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Undo {
+    Lower(usize, u64),
+    Upper(usize, Option<u64>),
+    A((Option<i128>, Option<i128>)),
+    R((Option<i128>, Option<i128>)),
+    D((Option<i128>, Option<i128>)),
 }
 
 /// One constraint of a cell, in the order `Region::minus` splits on them.
@@ -80,12 +108,28 @@ enum Bound {
     DHigh(i128),
 }
 
-impl Region {
-    fn of(cell: &Cell) -> Self {
+impl<'a> Region<'a> {
+    fn of(cell: &'a Cell) -> Self {
+        let (mut box_a, mut box_r) = (BoxSum::default(), BoxSum::default());
+        let mut empty_axes = 0;
+        for (axis, &active) in cell.owner.iter().enumerate() {
+            let sum = if active { &mut box_a } else { &mut box_r };
+            let shift = i128::from(active);
+            sum.low += i128::from(cell.lower[axis]) + shift;
+            if let Some(high) = cell.upper[axis] {
+                sum.finite_high += i128::from(high) + shift;
+                empty_axes += usize::from(high < cell.lower[axis]);
+            } else {
+                sum.open += 1;
+            }
+        }
         Self {
-            owner: cell.owner.clone(),
+            owner: &cell.owner,
             lower: cell.lower.clone(),
             upper: cell.upper.clone(),
+            box_a,
+            box_r,
+            empty_axes,
             a: (None, cell.powers.max_positive_power.map(i128::from)),
             r: (None, cell.rank.map(i128::from)),
             d: (
@@ -99,29 +143,13 @@ impl Region {
     /// groups, so (A, R) fills an integer rectangle and D = A - R takes
     /// every integer between its extremes.
     fn nonempty(&self) -> bool {
-        let (mut a_low, mut a_high, mut r_low, mut r_high) =
-            (0i128, Some(0i128), 0i128, Some(0i128));
-        for axis in 0..self.owner.len() {
-            let (low, high) = (
-                i128::from(self.lower[axis]),
-                self.upper[axis].map(i128::from),
-            );
-            if high.is_some_and(|high| high < low) {
-                return false;
-            }
-            let shift = i128::from(self.owner[axis]);
-            let (sum_low, sum_high) = if self.owner[axis] {
-                (&mut a_low, &mut a_high)
-            } else {
-                (&mut r_low, &mut r_high)
-            };
-            *sum_low += low + shift;
-            *sum_high = sum_high.zip(high).map(|(s, h)| s + h + shift);
+        if self.empty_axes != 0 {
+            return false;
         }
-        let a_low = floor(Some(a_low), self.a.0).expect("finite");
-        let a_high = cap(a_high, self.a.1);
-        let r_low = floor(Some(r_low), self.r.0).expect("finite");
-        let r_high = cap(r_high, self.r.1);
+        let a_low = floor(Some(self.box_a.low), self.a.0).expect("finite");
+        let a_high = cap(self.box_a.high(), self.a.1);
+        let r_low = floor(Some(self.box_r.low), self.r.0).expect("finite");
+        let r_high = cap(self.box_r.high(), self.r.1);
         if a_high.is_some_and(|high| high < a_low) || r_high.is_some_and(|high| high < r_low) {
             return false;
         }
@@ -130,67 +158,139 @@ impl Region {
         !matches!((d_low, d_high), (Some(low), Some(high)) if low > high)
     }
 
-    fn with(&self, bound: Bound, negated: bool) -> Option<Self> {
-        let mut region = self.clone();
-        match (bound, negated) {
-            (Bound::AxisLow(axis, low), false) => {
-                region.lower[axis] = region.lower[axis].max(low);
-            }
-            (Bound::AxisLow(axis, low), true) => {
-                let high = low.checked_sub(1)?;
-                region.upper[axis] = Some(region.upper[axis].map_or(high, |u| u.min(high)));
-            }
-            (Bound::AxisHigh(axis, high), false) => {
-                region.upper[axis] = Some(region.upper[axis].map_or(high, |u| u.min(high)));
-            }
-            (Bound::AxisHigh(axis, high), true) => {
-                region.lower[axis] = region.lower[axis].max(high.checked_add(1)?);
-            }
-            (Bound::RHigh(v), false) => region.r.1 = cap(region.r.1, Some(v)),
-            (Bound::RHigh(v), true) => region.r.0 = floor(region.r.0, Some(v + 1)),
-            (Bound::AHigh(v), false) => region.a.1 = cap(region.a.1, Some(v)),
-            (Bound::AHigh(v), true) => region.a.0 = floor(region.a.0, Some(v + 1)),
-            (Bound::DLow(v), false) => region.d.0 = floor(region.d.0, Some(v)),
-            (Bound::DLow(v), true) => region.d.1 = cap(region.d.1, Some(v - 1)),
-            (Bound::DHigh(v), false) => region.d.1 = cap(region.d.1, Some(v)),
-            (Bound::DHigh(v), true) => region.d.0 = floor(region.d.0, Some(v + 1)),
+    fn set_lower(&mut self, axis: usize, low: u64) {
+        self.empty_axes -= usize::from(self.upper[axis].is_some_and(|u| u < self.lower[axis]));
+        let sum = if self.owner[axis] {
+            &mut self.box_a
+        } else {
+            &mut self.box_r
+        };
+        sum.low += i128::from(low) - i128::from(self.lower[axis]);
+        self.lower[axis] = low;
+        self.empty_axes += usize::from(self.upper[axis].is_some_and(|u| u < low));
+    }
+
+    fn set_upper(&mut self, axis: usize, high: Option<u64>) {
+        self.empty_axes -= usize::from(self.upper[axis].is_some_and(|u| u < self.lower[axis]));
+        let sum = if self.owner[axis] {
+            &mut self.box_a
+        } else {
+            &mut self.box_r
+        };
+        let shift = i128::from(self.owner[axis]);
+        if let Some(old) = self.upper[axis] {
+            sum.finite_high -= i128::from(old) + shift;
+        } else {
+            sum.open -= 1;
         }
-        region.nonempty().then_some(region)
+        if let Some(high) = high {
+            sum.finite_high += i128::from(high) + shift;
+        } else {
+            sum.open += 1;
+        }
+        self.upper[axis] = high;
+        self.empty_axes += usize::from(high.is_some_and(|u| u < self.lower[axis]));
+    }
+
+    /// Apply one constraint without allocating. The caller can restore it
+    /// after testing the negated piece, including an empty intersection.
+    fn constrain(&mut self, bound: Bound, negated: bool) -> Option<Undo> {
+        match (bound, negated) {
+            (Bound::AxisLow(axis, low), false) | (Bound::AxisHigh(axis, low), true) => {
+                let low = if negated { low.checked_add(1)? } else { low };
+                let undo = Undo::Lower(axis, self.lower[axis]);
+                self.set_lower(axis, self.lower[axis].max(low));
+                Some(undo)
+            }
+            (Bound::AxisHigh(axis, high), false) | (Bound::AxisLow(axis, high), true) => {
+                let high = if negated { high.checked_sub(1)? } else { high };
+                let undo = Undo::Upper(axis, self.upper[axis]);
+                self.set_upper(axis, Some(self.upper[axis].map_or(high, |u| u.min(high))));
+                Some(undo)
+            }
+            (Bound::RHigh(v), negated) => {
+                let undo = Undo::R(self.r);
+                if negated {
+                    self.r.0 = floor(self.r.0, Some(v + 1));
+                } else {
+                    self.r.1 = cap(self.r.1, Some(v));
+                }
+                Some(undo)
+            }
+            (Bound::AHigh(v), negated) => {
+                let undo = Undo::A(self.a);
+                if negated {
+                    self.a.0 = floor(self.a.0, Some(v + 1));
+                } else {
+                    self.a.1 = cap(self.a.1, Some(v));
+                }
+                Some(undo)
+            }
+            (Bound::DLow(v), negated) => {
+                let undo = Undo::D(self.d);
+                if negated {
+                    self.d.1 = cap(self.d.1, Some(v - 1));
+                } else {
+                    self.d.0 = floor(self.d.0, Some(v));
+                }
+                Some(undo)
+            }
+            (Bound::DHigh(v), negated) => {
+                let undo = Undo::D(self.d);
+                if negated {
+                    self.d.0 = floor(self.d.0, Some(v + 1));
+                } else {
+                    self.d.1 = cap(self.d.1, Some(v));
+                }
+                Some(undo)
+            }
+        }
+    }
+
+    fn undo(&mut self, undo: Undo) {
+        match undo {
+            Undo::Lower(axis, low) => self.set_lower(axis, low),
+            Undo::Upper(axis, high) => self.set_upper(axis, high),
+            Undo::A(a) => self.a = a,
+            Undo::R(r) => self.r = r,
+            Undo::D(d) => self.d = d,
+        }
     }
 
     /// The nonempty disjoint pieces of `self minus target` (same owner).
     fn minus(&self, target: &Cell) -> Vec<Self> {
-        let mut bounds = Vec::new();
-        for axis in 0..target.owner.len() {
-            bounds.push(Bound::AxisLow(axis, target.lower[axis]));
-            if let Some(high) = target.upper[axis] {
-                bounds.push(Bound::AxisHigh(axis, high));
-            }
-        }
-        bounds.extend(target.rank.map(|r| Bound::RHigh(i128::from(r))));
         let powers = &target.powers;
-        bounds.extend(
-            powers
-                .max_positive_power
-                .map(|a| Bound::AHigh(i128::from(a))),
-        );
-        bounds.extend(
-            powers
-                .min_power_difference
-                .map(|d| Bound::DLow(i128::from(d))),
-        );
-        bounds.extend(
-            powers
-                .max_power_difference
-                .map(|d| Bound::DHigh(i128::from(d))),
-        );
+        let bounds = (0..target.owner.len())
+            .flat_map(|axis| {
+                [
+                    Some(Bound::AxisLow(axis, target.lower[axis])),
+                    target.upper[axis].map(|high| Bound::AxisHigh(axis, high)),
+                ]
+            })
+            .chain([
+                target.rank.map(|r| Bound::RHigh(i128::from(r))),
+                powers
+                    .max_positive_power
+                    .map(|a| Bound::AHigh(i128::from(a))),
+                powers
+                    .min_power_difference
+                    .map(|d| Bound::DLow(i128::from(d))),
+                powers
+                    .max_power_difference
+                    .map(|d| Bound::DHigh(i128::from(d))),
+            ])
+            .flatten();
         let mut pieces = Vec::new();
         let mut rest = self.clone();
         for bound in bounds {
-            pieces.extend(rest.with(bound, true));
-            match rest.with(bound, false) {
-                Some(next) => rest = next,
-                None => break,
+            if let Some(undo) = rest.constrain(bound, true) {
+                if rest.nonempty() {
+                    pieces.push(rest.clone());
+                }
+                rest.undo(undo);
+            }
+            if rest.constrain(bound, false).is_none() || !rest.nonempty() {
+                break;
             }
         }
         pieces
@@ -204,7 +304,7 @@ impl Region {
             return None;
         }
         *budget -= 1;
-        if first.owner != self.owner {
+        if first.owner.as_slice() != self.owner {
             // Nonempty cells of different owners are disjoint.
             return self.covered(others, budget);
         }
@@ -525,6 +625,201 @@ impl Cell {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Frozen pre-optimization recurrence: rescan the coordinate intervals and
+    // copy both branches. Keep it separate from the cached interval updates so
+    // that the tests can detect stale caches as well as altered budget usage.
+    fn reference_nonempty(region: &Region<'_>) -> bool {
+        let (mut a_low, mut a_high, mut r_low, mut r_high) =
+            (0i128, Some(0i128), 0i128, Some(0i128));
+        for axis in 0..region.owner.len() {
+            let low = i128::from(region.lower[axis]);
+            let high = region.upper[axis].map(i128::from);
+            if high.is_some_and(|h| h < low) {
+                return false;
+            }
+            let shift = i128::from(region.owner[axis]);
+            let (sum_low, sum_high) = if region.owner[axis] {
+                (&mut a_low, &mut a_high)
+            } else {
+                (&mut r_low, &mut r_high)
+            };
+            *sum_low += low + shift;
+            *sum_high = sum_high.zip(high).map(|(s, h)| s + h + shift);
+        }
+        let a_low = floor(Some(a_low), region.a.0).unwrap();
+        let a_high = cap(a_high, region.a.1);
+        let r_low = floor(Some(r_low), region.r.0).unwrap();
+        let r_high = cap(r_high, region.r.1);
+        if a_high.is_some_and(|h| h < a_low) || r_high.is_some_and(|h| h < r_low) {
+            return false;
+        }
+        let d_low = floor(r_high.map(|r| a_low - r), region.d.0);
+        let d_high = cap(a_high.map(|a| a - r_low), region.d.1);
+        !matches!((d_low, d_high), (Some(low), Some(high)) if low > high)
+    }
+
+    fn reference_with<'a>(region: &Region<'a>, bound: Bound, negated: bool) -> Option<Region<'a>> {
+        let mut next = region.clone();
+        match (bound, negated) {
+            (Bound::AxisLow(axis, low), false) => next.lower[axis] = next.lower[axis].max(low),
+            (Bound::AxisLow(axis, low), true) => {
+                let high = low.checked_sub(1)?;
+                next.upper[axis] = Some(next.upper[axis].map_or(high, |u| u.min(high)));
+            }
+            (Bound::AxisHigh(axis, high), false) => {
+                next.upper[axis] = Some(next.upper[axis].map_or(high, |u| u.min(high)));
+            }
+            (Bound::AxisHigh(axis, high), true) => {
+                next.lower[axis] = next.lower[axis].max(high.checked_add(1)?);
+            }
+            (Bound::RHigh(v), false) => next.r.1 = cap(next.r.1, Some(v)),
+            (Bound::RHigh(v), true) => next.r.0 = floor(next.r.0, Some(v + 1)),
+            (Bound::AHigh(v), false) => next.a.1 = cap(next.a.1, Some(v)),
+            (Bound::AHigh(v), true) => next.a.0 = floor(next.a.0, Some(v + 1)),
+            (Bound::DLow(v), false) => next.d.0 = floor(next.d.0, Some(v)),
+            (Bound::DLow(v), true) => next.d.1 = cap(next.d.1, Some(v - 1)),
+            (Bound::DHigh(v), false) => next.d.1 = cap(next.d.1, Some(v)),
+            (Bound::DHigh(v), true) => next.d.0 = floor(next.d.0, Some(v + 1)),
+        }
+        reference_nonempty(&next).then_some(next)
+    }
+
+    fn reference_covered(region: &Region<'_>, targets: &[&Cell], budget: &mut u64) -> Option<bool> {
+        let Some((first, others)) = targets.split_first() else {
+            return Some(false);
+        };
+        if *budget == 0 {
+            return None;
+        }
+        *budget -= 1;
+        if first.owner.as_slice() != region.owner {
+            return reference_covered(region, others, budget);
+        }
+        let mut bounds = Vec::new();
+        for axis in 0..first.owner.len() {
+            bounds.push(Bound::AxisLow(axis, first.lower[axis]));
+            if let Some(high) = first.upper[axis] {
+                bounds.push(Bound::AxisHigh(axis, high));
+            }
+        }
+        bounds.extend(first.rank.map(|r| Bound::RHigh(i128::from(r))));
+        bounds.extend(
+            first
+                .powers
+                .max_positive_power
+                .map(|v| Bound::AHigh(i128::from(v))),
+        );
+        bounds.extend(
+            first
+                .powers
+                .min_power_difference
+                .map(|v| Bound::DLow(i128::from(v))),
+        );
+        bounds.extend(
+            first
+                .powers
+                .max_power_difference
+                .map(|v| Bound::DHigh(i128::from(v))),
+        );
+        let mut pieces = Vec::new();
+        let mut rest = region.clone();
+        for bound in bounds {
+            pieces.extend(reference_with(&rest, bound, true));
+            match reference_with(&rest, bound, false) {
+                Some(next) => rest = next,
+                None => break,
+            }
+        }
+        for piece in pieces {
+            if !reference_covered(&piece, others, budget)? {
+                return Some(false);
+            }
+        }
+        Some(true)
+    }
+
+    #[test]
+    fn cached_region_intervals_and_undo_match_full_rescans() {
+        let mut rng = Rng(872);
+        for n in [1, 2, 3, 10, 15, 24] {
+            for _ in 0..500 {
+                let owner: Vec<bool> = (0..n).map(|_| rng.below(2) == 1).collect();
+                let cell = random_cell(&mut rng, &owner);
+                let mut region = Region::of(&cell);
+                for _ in 0..30 {
+                    let axis = rng.below(n as u64) as usize;
+                    let value = match rng.below(5) {
+                        0 => u64::MAX,
+                        1 => 0,
+                        _ => rng.below(7),
+                    };
+                    let bound = match rng.below(6) {
+                        0 => Bound::AxisLow(axis, value),
+                        1 => Bound::AxisHigh(axis, value),
+                        2 => Bound::AHigh(i128::from(value)),
+                        3 => Bound::RHigh(i128::from(value)),
+                        4 => Bound::DLow(i128::from(value) - 3),
+                        _ => Bound::DHigh(i128::from(value) - 3),
+                    };
+                    let saved = region.clone();
+                    let negated = rng.below(2) == 1;
+                    let reference = reference_with(&region, bound, negated);
+                    let undo = region.constrain(bound, negated);
+                    assert_eq!(
+                        undo.is_some() && region.nonempty(),
+                        reference.is_some(),
+                        "{saved:?}"
+                    );
+                    assert_eq!(region.nonempty(), reference_nonempty(&region));
+                    if let Some(undo) = undo {
+                        region.undo(undo);
+                    }
+                    assert_eq!(region, saved, "undo must restore every cache and bound");
+                    // Exercise changing open/finite and valid/empty axes too.
+                    region.set_lower(axis, rng.below(7));
+                    region.set_upper(axis, rng.maybe(7));
+                    assert_eq!(region.nonempty(), reference_nonempty(&region));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cached_union_preserves_reference_results_and_region_budgets() {
+        let mut rng = Rng(991);
+        for n in [1, 2, 3, 10, 15, 24] {
+            for _ in 0..800 {
+                let owner: Vec<bool> = (0..n).map(|_| rng.below(2) == 1).collect();
+                let mut query = random_cell(&mut rng, &owner);
+                query.rank = None;
+                query.powers = DomainPowerBounds::default();
+                let axis = rng.below(n as u64) as usize;
+                let cut = query.lower[axis] + rng.below(4);
+                let mut low = query.clone();
+                low.upper[axis] = Some(cut);
+                let mut high = query.clone();
+                high.lower[axis] = cut + 1 + rng.below(2);
+                let mut other = random_cell(&mut rng, &owner);
+                if rng.below(5) == 0 {
+                    other.owner[axis] = !other.owner[axis];
+                }
+                let targets = [other, low, high];
+                let refs: Vec<_> = targets.iter().collect();
+                let region = Region::of(&query);
+                for budget in [0, 1, 2, 3, 7, 31, 4096] {
+                    let (mut actual_budget, mut reference_budget) = (budget, budget);
+                    let actual = region.covered(&refs, &mut actual_budget);
+                    let expected = reference_covered(&region, &refs, &mut reference_budget);
+                    assert_eq!(
+                        (actual, actual_budget),
+                        (expected, reference_budget),
+                        "query={query:?}, targets={targets:?}, initial budget={budget}"
+                    );
+                }
+            }
+        }
+    }
 
     struct Rng(u64);
     impl Rng {

@@ -6,7 +6,7 @@
 //! adopts a new session). No locks, writes, previous-generation fallback,
 //! reconstructed lookup index or engine closure calculation are used here.
 use super::super::checkpoint::RawCheckpoint;
-use super::super::queue::{CompactDomain, Domain, Phase};
+use super::super::queue::{CompactDomain, Phase};
 use super::epoch_export::{AnchorRow, EpochSections};
 use rustred::solver::DomainPowerBounds;
 use serde::{Deserialize, Serialize};
@@ -179,10 +179,33 @@ fn regular(path: &Path) -> io::Result<File> {
 /// Constant-buffer authenticated reader. Length/digest are checked on the
 /// same open file consumed by the decoder, including skipped sections.
 pub(super) struct Input {
-    reader: BufReader<File>,
+    reader: BufReader<HashedFile>,
     reference: FileRef,
     read: u64,
+}
+
+/// Hash file-sized buffer fills rather than every decoded u8/u32. Keep the
+/// physical read count separate from Input's logical cursor: read-ahead must
+/// not make an incompletely consumed section appear fully validated.
+struct HashedFile {
+    file: File,
+    read: u64,
+    limit: u64,
     hash: blake3::Hasher,
+}
+impl Read for HashedFile {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        let n = self.file.read(output)?;
+        self.read = self
+            .read
+            .checked_add(n as u64)
+            .ok_or_else(|| invalid("CP6 length overflow"))?;
+        if self.read > self.limit {
+            return Err(invalid("CP6 file exceeds authenticated length"));
+        }
+        self.hash.update(&output[..n]);
+        Ok(n)
+    }
 }
 impl Read for Input {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
@@ -194,7 +217,6 @@ impl Read for Input {
         if self.read > self.reference.bytes {
             return Err(invalid("CP6 file exceeds authenticated length"));
         }
-        self.hash.update(&output[..n]);
         // Record consumers finish through BufRead::lines rather than finish().
         // Authenticate the very bytes parsed, including an empty sidecar. A
         // zero-length destination is not evidence of EOF.
@@ -215,10 +237,17 @@ impl Input {
             return Err(invalid("CP6 section length differs"));
         }
         Ok(Self {
-            reader: BufReader::with_capacity(32 << 10, file),
+            reader: BufReader::with_capacity(
+                32 << 10,
+                HashedFile {
+                    file,
+                    read: 0,
+                    limit: reference.bytes,
+                    hash: blake3::Hasher::new(),
+                },
+            ),
             reference: reference.clone(),
             read: 0,
-            hash: blake3::Hasher::new(),
         })
     }
     fn read_array<const M: usize>(&mut self) -> io::Result<[u8; M]> {
@@ -248,7 +277,8 @@ impl Input {
     }
     fn check_digest(&self) -> io::Result<()> {
         if self.read != self.reference.bytes
-            || self.hash.finalize().as_bytes() != &self.reference.blake3
+            || self.reader.get_ref().read != self.reference.bytes
+            || self.reader.get_ref().hash.finalize().as_bytes() != &self.reference.blake3
         {
             return Err(invalid("CP6 section length or digest differs"));
         }
@@ -341,13 +371,17 @@ fn rows<T: serde::de::DeserializeOwned>(
     Ok(result)
 }
 fn image<const N: usize>(input: &mut Input, wire_arity: usize) -> io::Result<CompactDomain<N>> {
+    if !super::super::super::storage::compatible_width(wire_arity, N) {
+        return Err(invalid("checkpoint coordinate arity"));
+    }
     let phase = match input.u8()? {
         0 => Phase::Apply,
         1 => Phase::Route,
         _ => return Err(invalid("CP6 domain phase")),
     };
     let mask = input.u32()?;
-    if N < 32 && mask >> N != 0 {
+    let retained_axes = N.min(wire_arity);
+    if retained_axes < 32 && mask >> retained_axes != 0 {
         return Err(invalid("CP6 owner high bits"));
     }
     let rank_flag = input.u8()?;
@@ -355,14 +389,26 @@ fn image<const N: usize>(input: &mut Input, wire_arity: usize) -> io::Result<Com
     if rank_flag > 1 || rank_flag == 0 && rank_word != 0 {
         return Err(invalid("CP6 rank option encoding"));
     }
-    let mut lower = reserve(wire_arity)?;
-    let mut upper = reserve(wire_arity)?;
-    for _ in 0..wire_arity {
-        lower.push(u64::from(input.u16()?));
-    }
-    for _ in 0..wire_arity {
+    // Decode directly into stack storage. A large saved graph has tens of
+    // millions of images; two temporary heap vectors per image add no value.
+    // Consume and validate omitted axes when narrowing a padded wire image.
+    let mut lower = [0u64; N];
+    let mut upper = [Some(0u64); N];
+    for axis in 0..wire_arity {
         let word = input.u16()?;
-        upper.push((word != u16::MAX).then_some(u64::from(word)));
+        if let Some(slot) = lower.get_mut(axis) {
+            *slot = u64::from(word);
+        } else if word != 0 {
+            return Err(invalid("checkpoint domain: domain lower storage padding"));
+        }
+    }
+    for axis in 0..wire_arity {
+        let word = input.u16()?;
+        if let Some(slot) = upper.get_mut(axis) {
+            *slot = (word != u16::MAX).then_some(u64::from(word));
+        } else if word != 0 {
+            return Err(invalid("checkpoint domain: domain upper storage padding"));
+        }
     }
     let mut option = || -> io::Result<Option<u64>> {
         let flag = input.u8()?;
@@ -377,14 +423,17 @@ fn image<const N: usize>(input: &mut Input, wire_arity: usize) -> io::Result<Com
         min_power_difference: option()?.map(|v| v as i64),
         max_power_difference: option()?.map(|v| v as i64),
     };
-    CompactDomain::restore(&Domain {
+    powers
+        .validate()
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    CompactDomain::try_from_parts(
         phase,
-        owner: std::array::from_fn(|i| mask >> i & 1 != 0),
-        lower,
-        upper,
-        rank: (rank_flag == 1).then_some(rank_word),
+        std::array::from_fn(|i| mask >> i & 1 != 0),
+        &lower,
+        &upper,
+        (rank_flag == 1).then_some(rank_word),
         powers,
-    })
+    )
     .map_err(io::Error::other)
 }
 
@@ -746,7 +795,7 @@ fn read_inner<const N: usize>(
             || count > total
             || count > 1 << 18
             || kind > 2
-            || scope_len > 4 + (1 << 18) * (18 + 4 * N)
+            || scope_len > 4 + (1 << 18) * (18 + 4 * manifest.arity)
             || (count as u64)
                 .checked_mul(16)
                 .and_then(|n| n.checked_add(scope_len as u64))
@@ -854,6 +903,7 @@ fn read_inner<const N: usize>(
         .filter(|a| a.len() == 8)
         .ok_or("ledger counts")?;
     let mut normalized = json!({"format":FORMAT,"schema":3,"generation":manifest.generation,
+        "arity":manifest.arity,
         "initial_admission":admission,"total_queries":query_total,"processed_queries":processed,
         "epoch_rolling":rolling,"epoch_cut_size":scalar["epoch_cut_size"],
         "epoch_publication_order":scalar.get("epoch_publication_order").cloned().unwrap_or(json!("oldest-prefix")),

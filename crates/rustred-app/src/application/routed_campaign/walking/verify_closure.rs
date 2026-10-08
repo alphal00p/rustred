@@ -56,6 +56,7 @@ mod finite_replay;
 mod g2_e2e_tests;
 mod graph;
 mod inventory;
+mod record_input;
 pub use inventory::{
     OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
 };
@@ -80,7 +81,6 @@ use rustred::solver::{DomainPowerBounds, RoutedCandidateReducer};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader};
 use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -786,10 +786,27 @@ fn verify_closure_with_progress(
     }
 }
 
+#[cfg(test)]
 fn load<const N: usize>(
     options: &OwnerDomainWalkVerifyOptions,
     digests: bool,
     violations: &mut Violations,
+) -> Result<Loaded<N>, String> {
+    load_with_progress(
+        options,
+        digests,
+        violations,
+        &AtomicBool::new(false),
+        &|_| {},
+    )
+}
+
+fn load_with_progress<const N: usize>(
+    options: &OwnerDomainWalkVerifyOptions,
+    digests: bool,
+    violations: &mut Violations,
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
 ) -> Result<Loaded<N>, String> {
     if options.checkpoint.join(epoch_export::MANIFEST).exists()
         && options.checkpoint.join("latest.json").exists()
@@ -805,7 +822,15 @@ fn load<const N: usize>(
     } else {
         (checkpoint::read_raw::<N>(&options.checkpoint)?, None, None)
     };
-    load_records(raw, epoch, cp6_records, digests, violations)
+    load_records(
+        raw,
+        epoch,
+        cp6_records,
+        digests,
+        violations,
+        cancellation,
+        observer,
+    )
 }
 
 /// Read-only rescue-planner view of one selected immutable generation. Record
@@ -853,6 +878,8 @@ fn load_records<const N: usize>(
     cp6_records: Option<Vec<epoch_checkpoint::RecordRef>>,
     digests: bool,
     violations: &mut Violations,
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
 ) -> Result<Loaded<N>, String> {
     if cp6_records
         .as_ref()
@@ -879,6 +906,8 @@ fn load_records<const N: usize>(
     let mut records = 0usize;
     let mut finite_replay = None;
     let epoch_records = epoch.as_ref().map(epoch_g2::View::new).transpose()?;
+    let started = Instant::now();
+    let mut last = Instant::now();
     for (segment, (path, count)) in raw.records.iter().enumerate() {
         let file: Box<dyn std::io::Read> = if let Some(references) = &cp6_records {
             Box::new(
@@ -891,31 +920,33 @@ fn load_records<const N: usize>(
         } else {
             Box::new(std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?)
         };
-        let file: Box<dyn std::io::Read> = if epoch.is_some() {
-            Box::new(super::epoch::record_store::JsonLines::new(file, *count))
-        } else {
-            file
-        };
+        let mut input = record_input::Records::new(file, epoch.as_ref().map(|_| *count));
         let mut lines = 0usize;
-        for line in BufReader::with_capacity(1 << 20, file).lines() {
-            let line = line.map_err(|e| format!("{}: {e}", path.display()))?;
-            if line.is_empty() {
-                continue;
-            }
+        while let Some(value) = input
+            .next()
+            .map_err(|e| format!("{}: {e}", path.display()))?
+        {
             lines += 1;
+            if lines % 4096 == 0 {
+                if cancellation.load(Ordering::Relaxed) {
+                    return Err("cancelled while reading captured checkpoint records".into());
+                }
+                if last.elapsed() >= Duration::from_secs(10) {
+                    observer(
+                        json!({"event":"verify_load_progress","records":records + lines,
+                        "domains":total,"seconds":started.elapsed().as_secs_f64()}),
+                    );
+                    last = Instant::now();
+                }
+            }
             let parse_error =
                 |e: serde_json::Error| format!("{}: record line {lines}: {e}", path.display());
-            let mut row: RecordRow = if digests {
-                let mut value: Value = serde_json::from_str(&line).map_err(parse_error)?;
-                let digest = result_binding::record_digest(&mut value);
-                let row: RecordRow = serde_json::from_value(value).map_err(parse_error)?;
+            let (mut row, digest) = value.decode(digests).map_err(parse_error)?;
+            if let Some(digest) = digest {
                 if let Some(slot) = record_digests.get_mut(row.id) {
                     *slot = digest;
                 }
-                row
-            } else {
-                serde_json::from_str(&line).map_err(parse_error)?
-            };
+            }
             if let Some(slot) = positions.get_mut(row.id)
                 && *slot == u64::MAX
             {
@@ -2174,8 +2205,15 @@ fn verify<const N: usize>(
         request.matching.max_queries,
         request.matching.max_query_bytes,
     )?;
-    let mut loaded =
-        load::<N>(options, options.result.is_some(), &mut violations).map_err(AppError::input)?;
+    observer(json!({"event":"verify_loading","checkpoint":options.checkpoint}));
+    let mut loaded = load_with_progress::<N>(
+        options,
+        options.result.is_some(),
+        &mut violations,
+        cancellation,
+        observer,
+    )
+    .map_err(AppError::input)?;
     if inventory.is_some() && loaded.finite_replay.is_some() {
         return Err(AppError::input(
             "walk inventory does not yet support finite-replay summary records",
@@ -2304,6 +2342,26 @@ fn verify<const N: usize>(
             "owner payload digests differ from the checkpoint".into()
         });
     }
+    if let Some(collector) = inventory.filter(|collector| !collector.deep_verification) {
+        return inventory::fast_inventory(
+            request,
+            options,
+            selection,
+            &queries,
+            loaded,
+            &reducer,
+            prepared_owners,
+            bound,
+            owners_match,
+            violations,
+            cancellation,
+            observer,
+            collector,
+            started,
+            loaded_seconds,
+            prepare_seconds,
+        );
+    }
     let checks_started = Instant::now();
     let total = loaded.domains.len();
     let edge_records = loaded.raw.edges.len();
@@ -2316,7 +2374,15 @@ fn verify<const N: usize>(
     let flags = &loaded.raw.flags;
     let mut counts = BTreeMap::<&'static str, u64>::new();
     let initial_count = loaded.raw.counters[10];
+    let mut last_check_progress = Instant::now();
     for (id, node) in nodes.iter().enumerate() {
+        if id % 256 == 0 && last_check_progress.elapsed() >= Duration::from_secs(10) {
+            observer(
+                json!({"event":"verify_checks_progress","records":id,"total":nodes.len(),
+                "seconds":checks_started.elapsed().as_secs_f64()}),
+            );
+            last_check_progress = Instant::now();
+        }
         let flag = flags.get(id).copied().unwrap_or(0);
         *counts
             .entry(match node.kind {
