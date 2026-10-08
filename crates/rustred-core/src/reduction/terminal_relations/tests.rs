@@ -301,6 +301,122 @@ fn saved_middle_equations(family: &IntegralFamily) -> Vec<TerminalEquation> {
 }
 
 #[test]
+fn rebuild_only_preserves_assisted_queues_and_never_advances_sources() {
+    let mut session = assisted_tadpole();
+    let equations = saved_middle_equations(session.family_owner());
+    while !session.is_complete() {
+        session
+            .step_with_provider(&AtomicBool::new(false), |target| {
+                Ok(if target == &key(2) {
+                    equations.clone()
+                } else {
+                    vec![]
+                })
+            })
+            .unwrap();
+    }
+    let application = session.apply_terminal(&key(3)).unwrap();
+    let conditions = session.nonzero_conditions().to_vec();
+    session.extend(&BTreeSet::from([key(5)]), 0).unwrap();
+    let before = session.statistics();
+    let assistance = session.assistance.as_ref().unwrap();
+    let pending_before = assistance.pending.clone();
+    let queried_before = assistance.queried.clone();
+    let equations_before = assistance.equations.clone();
+    let equation_cursor_before = assistance.equation_cursor;
+    let rows_before = assistance.completed_rows;
+    assert!(before.pending_rebuild_rows > 0);
+    session.step_rebuild_only(&AtomicBool::new(true)).unwrap();
+    assert_eq!(session.statistics(), before);
+    while session.statistics().pending_rebuild_rows > 0 {
+        session.step_rebuild_only(&AtomicBool::new(false)).unwrap();
+        session = TerminalRelationSession::from_native_bytes(
+            &session.to_native_bytes(Default::default()).unwrap(),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        session.statistics().completed_source_rows,
+        before.completed_source_rows
+    );
+    let after = session.assistance.as_ref().unwrap();
+    assert_eq!(after.pending, pending_before);
+    assert_eq!(after.queried, queried_before);
+    assert_eq!(after.equations, equations_before);
+    assert_eq!(after.equation_cursor, equation_cursor_before);
+    assert_eq!(after.completed_rows, rows_before);
+    assert_eq!(session.nonzero_conditions(), conditions);
+    assert_eq!(session.apply_terminal(&key(3)).unwrap(), application);
+    let bytes = session.to_native_bytes(Default::default()).unwrap();
+    session.step_rebuild_only(&AtomicBool::new(false)).unwrap();
+    assert_eq!(session.to_native_bytes(Default::default()).unwrap(), bytes);
+}
+
+#[test]
+fn rebuild_only_preserves_a_partially_consumed_provider_batch() {
+    let mut session = assisted_tadpole();
+    let equations = saved_middle_equations(session.family_owner());
+    for _ in 0..100 {
+        session
+            .step_with_provider(&AtomicBool::new(false), |target| {
+                Ok(if target == &key(2) {
+                    equations.clone()
+                } else {
+                    vec![]
+                })
+            })
+            .unwrap();
+        if session.statistics().pending_assistance_rows == 2 {
+            break;
+        }
+    }
+    assert_eq!(session.statistics().pending_assistance_rows, 2);
+    session
+        .step_with_provider(&AtomicBool::new(false), |_| {
+            panic!("batch consumption must not query provider")
+        })
+        .unwrap();
+    assert_eq!(session.statistics().pending_assistance_rows, 1);
+    session.extend(&BTreeSet::from([key(5)]), 0).unwrap();
+    let before = session.statistics();
+    let assistance = session.assistance.as_ref().unwrap();
+    assert_eq!(assistance.equation_cursor, 1);
+    let equations_before = assistance.equations.clone();
+    let queried_before = assistance.queried.clone();
+    let pending_before = assistance.pending.clone();
+    let guards = session.nonzero_conditions().to_vec();
+    assert!(before.pending_rebuild_rows > 0);
+    while session.statistics().pending_rebuild_rows > 0 {
+        session.step_rebuild_only(&AtomicBool::new(false)).unwrap();
+        session = TerminalRelationSession::from_native_bytes(
+            &session.to_native_bytes(Default::default()).unwrap(),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    }
+    let after = session.assistance.as_ref().unwrap();
+    assert_eq!(after.equation_cursor, 1);
+    assert_eq!(after.equations, equations_before);
+    assert_eq!(after.pending, pending_before);
+    assert_eq!(after.queried, queried_before);
+    assert_eq!(
+        session.statistics().completed_source_rows,
+        before.completed_source_rows
+    );
+    assert_eq!(
+        session.statistics().completed_assistance_rows,
+        before.completed_assistance_rows
+    );
+    assert_eq!(session.nonzero_conditions(), guards);
+    let bytes = session.to_native_bytes(Default::default()).unwrap();
+    session.step_rebuild_only(&AtomicBool::new(false)).unwrap();
+    assert_eq!(session.to_native_bytes(Default::default()).unwrap(), bytes);
+}
+
+#[test]
 fn assisted_exact_rows_match_larger_ordinary_reference_and_reuse_keys() {
     let mut assisted = assisted_tadpole();
     let equations = saved_middle_equations(assisted.family_owner());

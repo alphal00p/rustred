@@ -13,6 +13,9 @@ fn clean(value: &str, limit: usize) -> String {
 
 fn field(summary: &Value, name: &str) -> String {
     let value = name.split('.').fold(summary, |value, key| &value[key]);
+    if name == "normalization_profile" && value.is_null() {
+        return "conservative-v1 (legacy)".into();
+    }
     match value {
         Value::Number(value) => value.to_string(),
         Value::String(value) => clean(value, 4096),
@@ -52,10 +55,22 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
         ("Query domains", "scope.starting_queries"),
         ("Current scope terminals", "inventory.encountered.terminals"),
         ("Retained source keys", "raw_terminals"),
+        ("Normalization profile", "normalization_profile"),
         ("Normalized terminal keys", "normalized_terminals"),
         ("Remaining basis keys", "remaining_terminals"),
         ("Eliminated terminal keys", "eliminated_terminals"),
         ("Ordinary IBP rows", "relation_rows"),
+        ("Saved-rule assistance", "saved_rule_assistance"),
+        ("Circuit assistance", "circuit_symmetry_assistance"),
+        (
+            "Inherited saved authority",
+            "inherited_equation_authority.saved_rule_assistance",
+        ),
+        (
+            "Inherited circuit rows",
+            "inherited_equation_authority.circuit_symmetry_assistance",
+        ),
+        ("Assisted equation rows", "completed_assistance_rows"),
         ("Independent sparse rows", "independent_rows"),
         ("Auxiliary columns", "auxiliary_columns"),
         ("Sparse nonzeros", "nonzeros"),
@@ -69,6 +84,8 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
     for (label, name) in fields {
         if (name.starts_with("requested_scope.") && summary["requested_scope"].is_null())
             || (name == "source_checkpoint" && summary[name].is_null())
+            || (name.starts_with("inherited_equation_authority.")
+                && summary["inherited_equation_authority"].is_null())
         {
             continue;
         }
@@ -138,6 +155,7 @@ mod tests {
         assert!(plain.contains("49"));
         assert!(plain.contains("nonminimal"));
         assert!(plain.contains("not reported"));
+        assert!(plain.contains("conservative-v1 (legacy)"));
         assert!(!plain.contains('\u{001b}'));
         assert!(render_master_table(&summary, true, 80).contains("\x1b[1;36m"));
     }

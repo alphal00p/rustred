@@ -397,7 +397,7 @@ USAGE:
     rustred master-inspect --artifact DIR [--format auto|table|json]
     rustred artifact-inspect (--campaign-directory DIR | --artifact DIR) [--format auto|table|json] [--threads N]
     rustred walk-publish --command WALK_ARGV.json --checkpoint DIR --directory OUTPUT [--resume] [--previous-artifact DIR] [--threads N] [--events FILE] [--stop-file FILE]
-    rustred walk-master-reduce --artifact SOURCE --directory OUTPUT [--resume] [--seed-depth N] [--containing-sector-depth N] [--saved-rule-assistance] [--circuit-symmetry-assistance] [--threads N] [--events FILE] [--stop-file FILE]
+    rustred walk-master-reduce --artifact SOURCE --directory OUTPUT [--resume] [--seed-depth N] [--containing-sector-depth N] [--saved-rule-assistance] [--circuit-symmetry-assistance] [--normalization-profile conservative|standard] [--threads N] [--events FILE] [--stop-file FILE]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]

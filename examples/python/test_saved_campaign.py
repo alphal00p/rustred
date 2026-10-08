@@ -58,6 +58,17 @@ class SavedCampaignTests(unittest.TestCase):
         self.assertNotIn("--master-containing-sector-depth", command)
         self.assertNotIn("--master-circuit-symmetry-assistance", command)
         self.assertNotIn("--no-master-circuit-symmetry-assistance", command)
+        self.assertNotIn("--master-normalization-profile", command)
+
+    def test_normalization_profile_is_optional_explicit_refinement_only(self):
+        for profile in ("conservative", "standard"):
+            command = self.invoke("refine", "--normalization-profile", profile)
+            self.assertEqual(command[command.index("--master-normalization-profile") + 1], profile)
+            self.assertIn("--refine-masters", command)
+        for action, profile in (("publish", "standard"), ("inspect", "standard"), ("refine", "unlimited")):
+            with self.subTest(action=action, profile=profile), patch.object(WRAPPER.sys, "stderr", io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    self.invoke(action, "--normalization-profile", profile)
 
     def test_containing_sector_depth_is_refine_only_and_forwarded(self):
         for depth in (0, 1, 2):

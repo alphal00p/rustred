@@ -42,6 +42,18 @@ pub fn master_refine_published_artifact(
         ));
     }
     let source_metadata = serde_json::to_vec(&source_report).map_err(io)?;
+    let source_profile = profile::from_report(&source_report)?;
+    let latest = options.directory.join("latest.json");
+    let resumed = if options.resume {
+        Some(read_json(&latest)?)
+    } else {
+        None
+    };
+    let normalization_profile = if let Some(report) = &resumed {
+        profile::for_resume(options.normalization_profile, report)?
+    } else {
+        options.normalization_profile.unwrap_or(source_profile)
+    };
     let mut hash = blake3::Hasher::new();
     hash.update(b"rustred-published-refinement-v1");
     hash.update(&source_metadata);
@@ -56,11 +68,10 @@ pub fn master_refine_published_artifact(
     if options.circuit_symmetry_assistance {
         hash.update(b"circuit-symmetry-assistance-v1");
     }
+    normalization_profile.hash(&mut hash);
     let binding = hash.finalize().to_hex().to_string();
     let started = Instant::now();
-    let latest = options.directory.join("latest.json");
-    let (mut report, mut session) = if options.resume {
-        let report = read_json(&latest)?;
+    let (mut report, mut session) = if let Some(report) = resumed {
         if report["schema"] != SCHEMA || report["refinement_binding"] != binding {
             return Err(AppError::input(
                 "refinement checkpoint has a different source or requested seed depth",
@@ -76,7 +87,16 @@ pub fn master_refine_published_artifact(
             ));
         }
         let mut session = load_master_reduction(source)?;
-        if options.seed_depth > session.statistics().seed_depth {
+        let changes_profile = normalization_profile != source_profile;
+        if changes_profile {
+            session = TerminalRelationSession::new(
+                session.family_owner().clone(),
+                session.raw_terminals().clone(),
+                options.seed_depth.max(session.statistics().seed_depth),
+                normalization_profile.relation_limits(),
+            )
+            .map_err(io)?;
+        } else if options.seed_depth > session.statistics().seed_depth {
             session
                 .extend(&BTreeSet::new(), options.seed_depth)
                 .map_err(io)?;
@@ -97,6 +117,8 @@ pub fn master_refine_published_artifact(
         });
         report["operation"] = json!("refine");
         report["seed_depth"] = json!(session.statistics().seed_depth);
+        profile::record(&mut report, normalization_profile);
+        report["finite_search_restarted_for_normalization_profile"] = json!(changes_profile);
         assistance::configure(options, &mut session, &mut report)?;
         save(
             options,

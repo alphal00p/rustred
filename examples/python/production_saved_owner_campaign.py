@@ -1075,6 +1075,8 @@ def main(argv=None):
                         help="phase-two ordinary-IBP seed depth (default 0); may increase with exact previous-row reuse")
     parser.add_argument("--master-containing-sector-depth", type=int,
                         help="only with --refine-masters: promote up to N inactive indices for extra ordinary IBP sources (default saved preference or 0)")
+    parser.add_argument("--master-normalization-profile", choices=("conservative", "standard"),
+                        help="only with --refine-masters: finite normalization budget (default saved preference, then source profile)")
     parser.add_argument("--master-saved-rule-assistance", action=argparse.BooleanOptionalAction, default=None,
                         help="only with --refine-masters: add saved-rule/routing equations; omitted resumes the saved preference")
     parser.add_argument("--master-circuit-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
@@ -1204,7 +1206,8 @@ def main(argv=None):
                                             args.master_reduction_executable,
                                             saved_rule_assistance=args.master_saved_rule_assistance,
                                             containing_sector_depth=args.master_containing_sector_depth,
-                                            circuit_symmetry_assistance=args.master_circuit_symmetry_assistance)
+                                            circuit_symmetry_assistance=args.master_circuit_symmetry_assistance,
+                                            normalization_profile=args.master_normalization_profile)
     except (OSError, ValueError, TypeError) as error:
         parser.error(str(error))
     if (args.epoch_inspector_lookup is not None or args.epoch_rolling or args.epoch_dispatch is not None

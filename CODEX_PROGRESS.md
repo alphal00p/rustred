@@ -1,5 +1,99 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 8 — terminal-compression delivery
+
+The distinct-strategy investigation now has a completed positive result:
+**829 → 651 → 608** on the frozen five-loop R≤2,D≤9 publication. The first
+step is exact normalization under an explicit broader preparation profile;
+the second is finite ordinary IBPs plus verified weighted circuit equations.
+Ordinary IBPs without circuit equations stop at613. This removes221labels
+(26.7%), not a proof that608independent numerical masters are necessary.
+
+Final optimized binary:
+`TMP/terminal-compression-20261008/rustred-standard-profile-v2`, SHA256
+`31f0fc8704c397187a722fb861eca7a32d55c3354ebd854f319b5c09bc3555c3`.
+Build: `nix develop --command cargo build --release --locked -p rustred-app
+--bin rustred --features capacity-dispatch`. The final public CLI pair took
+24.354s ordinary and29.650s circuit; separate cold validation15.839/16.019s.
+Both native outputs are byte-identical to the first integrated build, whose
+all829exact coefficient maps independently match the frozen research pilots.
+Source packages are unchanged. Full packaged four-loop catalogue controls
+also improve74→65family-local entries; no Vakint files were rewritten.
+
+Delivered: persisted conservative/standard normalization profiles, independent
+saved-rule/circuit flags and containing-sector seeds, profile-aware inspection,
+rebuild-only assisted publication for rank/scope extension, preserved guards
+and pending provider batches, and explicit restart semantics for changed
+policies. Native application uses Symbolica exclusively for algebra.
+Independent implementation and mathematical audits found no remaining blockers.
+Final checks pass:420candidate,20finite-session,34app/CLI/inspection,
+99Python and1diagnostic-census tests. The new stage-label test's initial
+fixture used an already queried key; corrected to a new key without weakening
+assertions, with the failed log retained. The v2 production binary is unchanged.
+The final real-SIGINT/resume/profile-mismatch controls pass; pretty inspection
+shows the effective profile and provider modes.
+
+Negative results remain documented: containing-sector seeds and one-dot
+lowering did not improve these controls; broad saved-rule assistance was
+expensive and its paused821count is not a completed result. Factorization
+censuses show no useful unequal-dot isolated factors. Modular prefiltering and
+sparse dimensional/subgraph sources are deferred, not silently claimed tested.
+No further speculative implementation is planned in this delivery.
+
+Evidence and precise boundaries:
+`docs/research/terminal_compression_experiments_2026-10-08.md` and
+`TMP/terminal-compression-20261008/`. The user's production campaign was
+observed running again on CPUs64–95; this task neither launched nor modified
+it. All measurements above refer to the frozen829-key scope, not a newly
+extended production scope. The sections below are chronological history.
+
+## October 8 — integration checkpoint and independently repeated compression
+
+First tested strategy milestone committed as `a84a0a1b`. Its push was rejected
+because remote main advanced; fetched and merged `origin/main` (`9cf14d3a`,
+shared storage-capacity dispatch) in `59000c2f`. Kept physical integral arity
+separate from padded storage in the new saved-equation APIs, with two dedicated
+regressions. The merged capacity-dispatch candidate suite passed all420tests
+(4min compilation,3.83s test execution), and `59000c2f` is now pushed to main.
+The Python normalization-profile slice separately passes99focused tests;
+its native profile/publication integration is still being finished.
+Unrelated HEPKit/notebook changes remain untouched and unstaged.
+
+The larger-normalization-budget results were independently repeated using the
+frozen core driver: ordinary **829 → 651 → 613**, circuit-assisted **829 → 651
+→ 608**. GNU time measured 55.70/66.66 seconds wall, 55.35/66.13 CPU-seconds,
+374.6/520.0 MiB peak RSS. Those totals include exhaustive exact warm/cold
+application comparisons for all 829 original keys (32.565/38.857 seconds).
+The solver/checkpoint phases alone took 18.627/22.937 seconds. All runs
+completed; these are finite nonminimal refinements, not independence proofs.
+Evidence: `TMP/terminal-compression-20261008/five-loop-wide-{ordinary,circuit}-measured.*`.
+
+Responsibilities: `terminal_saved_identity_impl` implements pinned, persisted
+normalization profiles, then assisted-state reuse during publish-only scope
+extension; `terminal_integration_auditor` implements Python profile steering and
+tests the merged capacity baseline; `terminal_session_assist_impl` independently
+audits profiles/publication and measures remaining factorization opportunities.
+Root integrates, verifies and records evidence. No process or artifact in the
+user's campaign has been modified by these experiments.
+
+Additional full packaged-catalogue controls are complete: H22→19, FG16→15,
+BMW17→15, X19→16 (sum74→65family-local outputs). Standard ordinary and circuit
+modes have identical final sets and pass exact warm/cold checks for all74input
+keys. These are isolated sessions built from existing codec-migrated native
+programs and verified family fingerprints, not changed Vakint packages or a
+global independent-master count. Native load/prep/search/cold-check wall times
+range0.67–2.57s per parent, with loading dominant. Detailed boundaries and
+negative circuit increment are in the research report. The wider608census
+does not expose useful unequal-dot tadpole-factor pairs; that lane stays parked.
+
+Backlog: profile integration **active**; assisted publish-only reuse **pending**;
+merged native/Python validation **active**; exact circuit relations **delivered**;
+containing-sector and one-dot-lowering policies **measured negative** on these
+controls; wider normalization **measured positive**, not yet a public-CLI result;
+general dimensional shifts and modular row filtering **deferred** until evidence
+warrants their additional implementation cost. The separate user's refinement
+was observed paused, not stopped by this task.
+
 ## October 8 — active: distinct terminal-compression strategies
 
 **Latest larger gain (public API pilot, integration next):** the conservative

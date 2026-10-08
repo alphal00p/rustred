@@ -1,6 +1,6 @@
 # Terminal-compression experiments — 8 October 2026
 
-Work in progress. No unrestricted closure, minimality, or master-independence
+Completed experimental delivery. No unrestricted closure, minimality, or master-independence
 claim is made. These experiments do not modify the user's live campaign.
 
 ## Inputs and authority
@@ -81,6 +81,17 @@ factorization or reflection identities. Connected-component and more general
 weighted numerator symmetries remain under investigation using existing
 verified momentum-map/transport machinery.
 
+A corrected component diagnostic distinguishes a numerator living inside one
+factor from one genuinely connecting two factors. On the reduced608-key list,
+there are35disconnected-U candidates, with only3cross-component numerator
+proposals (one rank-one and two rank-two). There are30coloop candidates, but
+still no dotted isolated scalar factors or existing lowered-key pairs. U
+factorization alone is not an admitted momentum-factorization identity. This
+census therefore supplies no evidence of a large remaining gain from the
+narrow tadpole-factor recurrence; broader component equations are parked
+pending an exact momentum-map example. The earlier uncorrected diagnostic
+overcounted component merges and is not used to support conclusions.
+
 ### Targeted containing-sector cancellation equations
 
 Implemented a separate finite source-selection policy. For each raw terminal,
@@ -104,15 +115,17 @@ Native/Python controls are integrated. Frozen optimized executable SHA256
 | up to2 | 3248 | 19 | 1.114 | 1.089 | 42.5 |
 | up to4 | 4832 | 19 | 1.972 | 1.945 | 61.8 |
 
-Both results cold-resume in a fresh process to identical native states and
+All results cold-resume in a fresh process to identical native states and
 counts; source files remain unchanged. A separate real-SIGINT depth4 control
 paused at3896source rows and resumed to a byte-identical final native state.
 An attempted in-place policy change was rejected without changing checkpoint
 files. Thus these selections do not improve
 the four-loop control's compression. The five-loop one-slot-promotion run adds
 4845seeds (141850ordinary equations in total), and completed with829remaining
-after about669.5s. Thus it too is a negative compression result at this finite
-source selection. Independent cold-resume verification is finishing separately.
+after670.469s (664.268CPU-seconds, sampled peak2438.2MiB). Thus it too is a
+negative compression result at this finite source selection. Independent
+cold-resume verification completed in3.468s with unchanged native identity
+and source-file hashes.
 
 ### Weighted circuit equations
 
@@ -219,12 +232,32 @@ seed inventory; they are not equal-row-budget comparisons. Four-loop standard
 budget controls, with and without circuit equations, remain19. No independent
 or minimal master-basis claim follows.
 
+An independent repeat completed both modes using that same frozen driver,
+with disjoint CPU affinity and single-threaded inner pools. External GNU time
+includes process startup/shutdown and exhaustive coefficient-by-coefficient
+warm/cold application checks on all829raw keys:
+
+| Standard-budget core mode | Remaining | Wall s | CPU s | Peak RSS MiB | Preparation s | Search/checkpoint s | Cold verification s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Ordinary depth0 |613|55.70|55.35|374.6|4.346|18.627|32.565|
+| Circuit + ordinary depth0 |608|66.66|66.13|520.0|4.621|22.937|38.857|
+
+These are completed, reproducible count reductions, not statistical speed
+claims. The circuit increment after broader normalization removes only five
+additional labels; most of the improvement comes from actually admitting the
+existing exact parametric normalization. Evidence:
+`five-loop-wide-{ordinary,circuit}-measured.{log,time,rrbin}` under the experiment
+directory. No numerical values or independence claims are attached to the
+remaining608labels.
+
 Integration must preserve the normalization policy used by each artifact:
 the current native decoder regenerates the saved finite normalization plan.
 Widening a global default silently would therefore invalidate valid old
 checkpoints. Explicit persisted resource profiles and a fresh finite search
-when changing profile are the planned application boundary; core defaults
-remain unchanged during these experiments.
+when changing profile are now implemented at the application boundary; core
+defaults remain unchanged. Omitted native profile selection inherits the
+source on a new refinement or the checkpoint on resume; the Python wrapper
+also remembers an explicit preference. Both transition directions are tested.
 
 ### Deferred performance aid
 
@@ -238,6 +271,44 @@ dimensional-shift expansion remains deferred; reopen only for a sparse subgraph
 case with concrete evidence.
 
 ## Validation and remaining work
+
+### Complete packaged four-loop terminal inventories
+
+The small58-query control is not the complete packaged four-loop inventory.
+A separate control loaded the four actual parent programs and their normalized
+catalogue key lists, checked their family fingerprints, and started finite
+depth-zero terminal sessions. Both modes below used the standard normalization
+budget and checked every original key's exact warm/cold coefficient map and
+remaining-only output.
+
+| Parent | Input catalogue keys | Ordinary remaining | Circuit remaining | Ordinary wall s | Circuit wall s | Peak RSS MiB (ordinary/circuit) |
+|---|---:|---:|---:|---:|---:|---:|
+| H |22|19|19|1.590|1.532|483.0 / 486.0|
+| FG |16|15|15|0.672|0.684|204.0 / 207.0|
+| BMW |17|15|15|0.983|1.021|366.0 / 366.0|
+| X |19|16|16|2.520|2.567|1032.0 / 1032.0|
+| Sum of family-local counts |74|65|65||||
+
+These sums are not a global independent-master count: different parents use
+different coordinate systems. Nine further exact relations are found without
+regenerating their parametric rules; circuit equations add no further reduction
+in these controls. Timing includes native candidate loading (dominant),
+preparation, elimination and cold checks, not compilation. The thin research
+driver uses opt-level1 and links frozen optimized app/core libraries; it is not
+a production CLI timing comparison. CPU affinity48–51, one inner worker.
+
+The original reference files have an older Symbolica codec. These tests use
+their existing migrated V6 copies under
+`TMP/vakint-codec-migration-20261005/raw-new/four_loop/`, with exact family
+fingerprint agreement against the original normalization JSON. X exceeds the
+default aggregate input-entry cap; all final comparisons use the same explicit
+4,000,000-entry trusted-input admission limit. No solver limit, equation or
+physical domain was changed. Evidence:
+`catalog-{h,fg,bmw,x}-wide-{ordinary,circuit}-measured.*` under the experiment
+directory. No Vakint asset, numerical catalogue or production campaign was
+rewritten; packaging these smaller lists needs a separate host validation.
+
+### Integrated application controls
 
 The integrated application release
 `3156153f950cd11ac44daf5a0e810f96c4840f16735975b498739db8703154b5`
@@ -256,8 +327,8 @@ The CLI boundary includes package loading, refinement and publication, but
 not the core driver's exhaustive application of all829raw inputs. Focused
 native app/CLI tests24/24 and Python integration tests91/91 passed, along with
 the418candidate tests,18finite-session tests and60normalization tests noted
-above. The larger-normalization-budget driver result608 remains a separate
-pilot until its explicit persisted policy is integrated and tested.
+above. The larger-normalization-budget result608 was subsequently reproduced
+through the public CLI as described below.
 
 At the first slice, 418 candidate-reduction tests and18 app/CLI master tests
 passed, together with Python lifecycle tests and12 finite-session tests.
@@ -265,9 +336,65 @@ The containing-sector slice adds six passing core tests (18 total). Separate
 agents implemented and reviewed guards, weighted coefficients, aggregate
 budgets, checkpoint transitions and Python mode isolation.
 
-Still required: integration of the explicit normalization budget policy,
-combined-strategy follow-up where evidence warrants it, and a coherent tested
-commit/push. An assisted refinement cannot yet be imported by publish-only
-scope extension; that path rejects rather than silently discarding its rows.
-The source and refined package remain usable. This limitation must be resolved
-before recommending the assisted workflow for progressive production scopes.
+### Persisted profiles and scope extension
+
+The first integrated standard-profile release
+`04b004eadfc169b94d0e8cf7df521a46816c2c51a2996550dbdb22a90d7fd8b7`
+completed the public CLI comparison: ordinary829→651→613 in23.588s wall,
+23.401CPU-seconds and302.4MiB sampled peak; circuit829→651→608 in28.301s,
+28.092CPU-seconds and446.7MiB. Independent fresh-process cold-resumes took
+15.133/15.430s. Broader normalization has a material one-time cold-validation
+cost; it is not repeated per integral in the loaded session. Compilation
+(optimized capacity-dispatch,4m29s) is excluded. The small four-loop control
+remains19 in0.330/0.355s. Every source-directory hash remained unchanged.
+
+An independent reader compared the written app states against the frozen
+standard-profile core pilots. All829exact coefficient maps, family/raw/remaining
+key sets and recorded condition sets agree. Ordinary native bytes also agree;
+circuit byte identity is not claimed. Evidence: `integrated-exact-parity-summary.json`.
+
+The app now imports assisted refinements during publish-only scope extension
+without invoking either ordinary sources or an equation provider. A narrow
+core rebuild-only step preserves already admitted rows, original conditions,
+pending equation batches/cursors and frozen provider authority. New inventory
+work stays pending for a later explicit refinement. Changing profile/provider
+policy then deliberately starts a fresh search when required by its binding.
+Both mathematical and implementation audits found no blockers. Separate tests
+exercise a partially consumed provider batch across replay and cold loading.
+
+The final build adds only operation-aware phase labeling, so publication does
+not display inactive provider work as its current action. The production
+campaign and Vakint assets remain untouched. These artifacts contain exact
+symbolic terminal substitutions, not numerical master values.
+
+Final frozen executable:
+`31f0fc8704c397187a722fb861eca7a32d55c3354ebd854f319b5c09bc3555c3`,
+`TMP/terminal-compression-20261008/rustred-standard-profile-v2`. A repeat with
+this build reproduced613/608 in24.354/29.650s wall,24.152/29.426CPU-seconds,
+302.5/446.4MiB sampled peak. Separate cold-resumes took15.839/16.019s.
+Its native outputs are byte-identical to the first integrated profile build
+for both modes on both controls, transferring the independent exact-map
+comparison above. The small four-loop control stays19. Evidence:
+`{four,five}-loop-standard-v2/summary.json`.
+
+Independent real-SIGINT tests on the final executable preserve a standard
+profile checkpoint, reject an opposite-profile resume without file changes,
+resume with omitted profile to exactly the uninterrupted native state, and
+cold-load it successfully. A fresh opposite-profile phase and source-profile
+inheritance also pass. Pretty inspection displays the profile and active versus
+inherited providers. Evidence: `profile-resume-adzat9gh/summary.json` and
+`pretty-inspect.txt`. This real signal test pauses at the first durable native
+checkpoint; separate native tests cover partial source rows and a partially
+consumed equation batch.
+
+Final validation:420candidate tests on the merged capacity-dispatch baseline,
+20finite-session tests,34app/CLI/inspection tests,99Python integration tests,
+and the corrected diagnostic census regression pass. The earlier circuit and
+normalization suites passed6and60tests respectively. A new dashboard test
+initially chose an already queried source key, contrary to its setup assertion;
+changing that fixture to a genuinely new key made the unchanged assertions pass.
+The failed log is retained separately from the successful final run.
+
+This completes the implemented-and-measured strategy comparison. The optional
+modular saved-row filter and broader subgraph/dimensional identities remain
+explicit future work, not requirements for using the delivered exact refinements.

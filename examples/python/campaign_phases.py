@@ -22,6 +22,7 @@ import time
 
 SCHEMA = "rustred.campaign-phases.v1"
 MAX_JSON_BYTES = 16 * 1024 * 1024
+NORMALIZATION_PROFILES = {"conservative": "conservative-v1", "standard": "standard-v1"}
 
 
 def read_json(path):
@@ -44,7 +45,7 @@ def digest(path):
 
 
 def configuration(campaign, enabled=False, seed_depth=None, executable=None, saved_rule_assistance=None,
-                  containing_sector_depth=None, circuit_symmetry_assistance=None):
+                  containing_sector_depth=None, circuit_symmetry_assistance=None, normalization_profile=None):
     """Read-only configuration. Only this invocation can request refinement.
 
     Historical ``enabled`` policies retain executable/search preferences, never
@@ -52,6 +53,9 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
     """
     path = Path(campaign) / "master-reduction" / "policy.json"
     existing = read_json(path) if path.is_file() else None
+    if normalization_profile is not None and (not isinstance(normalization_profile, str)
+                                               or normalization_profile not in NORMALIZATION_PROFILES):
+        raise ValueError("master normalization profile must be conservative or standard")
     if seed_depth is not None and (type(seed_depth) is not int or seed_depth < 0):
         raise ValueError("master seed depth must be nonnegative")
     if saved_rule_assistance is not None and type(saved_rule_assistance) is not bool:
@@ -65,6 +69,7 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                 or type(existing.get("seed_depth")) is not int or existing["seed_depth"] < 0
                 or type(existing.get("saved_rule_assistance", False)) is not bool
                 or type(existing.get("circuit_symmetry_assistance", False)) is not bool
+                or existing.get("normalization_profile") not in (None, *NORMALIZATION_PROFILES)
                 or type(existing.get("containing_sector_depth", 0)) is not int
                 or existing.get("containing_sector_depth", 0) < 0):
             raise ValueError("invalid persisted master-reduction policy")
@@ -81,6 +86,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master circuit-symmetry assistance requires explicit --refine-masters")
     if containing_sector_depth is not None and not enabled:
         raise ValueError("master containing-sector depth requires explicit --refine-masters")
+    if normalization_profile is not None and not enabled:
+        raise ValueError("master normalization profile requires explicit --refine-masters")
     policy = {**(existing or {}), "schema": SCHEMA, "enabled": True,
             "operation": "refine" if enabled else "publish",
             "seed_depth": (existing or {}).get("seed_depth", 0) if seed_depth is None else seed_depth,
@@ -92,6 +99,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                                         if containing_sector_depth is None else containing_sector_depth),
             "terminal_policy": "bounded exact search; finite nonminimal basis permitted",
             "master_minimality_claim": False}
+    if normalization_profile is not None:
+        policy["normalization_profile"] = normalization_profile
     if executable is not None:
         executable = Path(executable).resolve()
         if not executable.is_file() or not os.access(executable, os.X_OK):
@@ -177,7 +186,25 @@ def completed_artifact(campaign):
         raise ValueError("artifact pointer must remain relative inside the campaign")
     if not (directory / "artifact.json").is_file():
         raise ValueError("saved artifact pointer has no completed native artifact")
-    return {**record, "resolved_directory": directory}
+    native = read_json(directory / "artifact.json")
+    profile = normalization_metadata(native)
+    for summary in (record, record.get("refinement", {})):
+        if summary.get("normalization_profile", profile["normalization_profile"]) != profile["normalization_profile"]:
+            raise ValueError("saved artifact pointer normalization profile differs from native artifact")
+        if "normalization_limits" in summary and summary["normalization_limits"] != profile.get("normalization_limits"):
+            raise ValueError("saved artifact pointer normalization limits differ from native artifact")
+    return {**record, **profile, "resolved_directory": directory}
+
+
+def normalization_metadata(report):
+    """Read launch policy, not mathematical proof: native authenticates limits."""
+    profile = report.get("normalization_profile", "conservative-v1")
+    if profile not in NORMALIZATION_PROFILES.values():
+        raise ValueError("unknown native normalization profile")
+    if "normalization_limits" in report and "normalization_profile" not in report:
+        raise ValueError("native normalization limits have no versioned profile")
+    return {"normalization_profile": profile,
+            **({"normalization_limits": report["normalization_limits"]} if "normalization_limits" in report else {})}
 
 
 def publish_pointer(campaign, directory, binding, operation, driver, refinement=None):
@@ -190,6 +217,7 @@ def publish_pointer(campaign, directory, binding, operation, driver, refinement=
         "scope_binding": binding, "operation": operation,
         "status": "published_unrefined" if operation == "publish" else "completed_nonminimal",
         "completed_unix_time": time.time(), "master_minimality_claim": False,
+        **normalization_metadata(read_json(Path(directory) / "artifact.json")),
         **({"refinement": refinement} if refinement is not None else {})})
 
 
@@ -313,7 +341,14 @@ def phase_two(plan, policy, request, binding, directory, driver):
             command.append("--saved-rule-assistance")
         if policy.get("circuit_symmetry_assistance", False):
             command.append("--circuit-symmetry-assistance")
+        profile = policy.get("effective_normalization_profile", "conservative-v1")
+        if profile != "conservative-v1" or policy.get("normalization_profile") is not None:
+            command += ["--normalization-profile", profile.removesuffix("-v1")]
     if (directory / "latest.json").is_file():
+        if not publishing:
+            pinned = normalization_metadata(read_json(directory / "latest.json"))["normalization_profile"]
+            if pinned != profile:
+                raise ValueError("cannot change normalization profile on resume; start a new phase directory")
         command.append("--resume")
     elif publishing:
         previous_path = directory.parent.parent / "completed-phase.json"
@@ -344,6 +379,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
                       "scope_binding": binding, "phase": phase, "operation": operation})
     driver.write_json(directory.parent.parent / "active-phase.json", {
         "schema": SCHEMA, "phase": phase, "operation": operation, "scope_binding": binding["key"],
+        **({"normalization_profile": profile} if not publishing else {}),
         "directory": str(directory), "run_directory": str(attempt), "request": str(request)})
     presenter = dashboard.Presenter()
     stream = telemetry.TelemetryStream(attempt / "telemetry.jsonl")
@@ -355,6 +391,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                                                     policy.get("containing_sector_depth", 0)) if not publishing else 0),
               "saved_rule_assistance": not publishing and policy.get("saved_rule_assistance", False),
               "circuit_symmetry_assistance": not publishing and policy.get("circuit_symmetry_assistance", False)}
+    if not publishing:
+        latest["normalization_profile"] = profile
     checkpoint = {}
 
     def observe(event):
@@ -451,6 +489,9 @@ def phase_two(plan, policy, request, binding, directory, driver):
         if status == 0:
             if not (directory / "artifact.json").is_file():
                 raise ValueError("native success did not produce its completed artifact.json")
+            native_profile = normalization_metadata(read_json(directory / "artifact.json"))
+            if not publishing and native_profile["normalization_profile"] != profile:
+                raise ValueError("native artifact normalization profile differs from requested refinement")
             current = scope_binding(plan["campaign_directory"], plan["checkpoint_directory"])
             if not same_input_scope(current, binding):
                 raise ValueError("campaign scope changed during postprocessing; artifact retained but latest pointer not updated")
@@ -459,6 +500,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 and previous.get("operation") == "refine"
             if not keep_refined:
                 refinement = None if publishing else {
+                        **native_profile,
                         "seed_depth": latest["seed_depth"],
                         "containing_sector_depth": latest["containing_sector_depth"],
                         "circuit_symmetry_assistance": policy.get("circuit_symmetry_assistance", False),
@@ -479,7 +521,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                                 else "--no-master-saved-rule-assistance ")
                                 + ("--master-circuit-symmetry-assistance "
                                    if policy.get("circuit_symmetry_assistance", False)
-                                   else "--no-master-circuit-symmetry-assistance ")) if not publishing else ""
+                                   else "--no-master-circuit-symmetry-assistance ")
+                                + "--master-normalization-profile " + profile.removesuffix("-v1") + " ") if not publishing else ""
             print(f"Resume with: {sys.executable} {Path(driver.__file__).resolve()} --campaign-directory "
                   f"{plan['campaign_directory']} --resume {refinement_flags}--start", flush=True)
             if not paused:
@@ -514,14 +557,19 @@ def run(plan, policy, resume, driver, postprocess_only=False):
             if not previous or not binding or not same_input_scope(previous.get("scope_binding", {}), binding):
                 raise ValueError("refine requires a completed artifact for the current scope; run or publish it first")
             refinement = previous.get("refinement", {})
+            effective_profile = (NORMALIZATION_PROFILES[policy["normalization_profile"]]
+                                 if policy.get("normalization_profile") is not None
+                                 else previous["normalization_profile"])
             if (previous.get("operation") == "refine"
                     and refinement.get("seed_depth", -1) >= policy["seed_depth"]
                     and refinement.get("containing_sector_depth", 0) >= policy.get("containing_sector_depth", 0)
                     and refinement.get("circuit_symmetry_assistance", False) == policy.get("circuit_symmetry_assistance", False)
+                    and previous["normalization_profile"] == effective_profile
                     and refinement.get("saved_rule_assistance", False) == policy.get("saved_rule_assistance", False)):
                 print("Requested refinement already completed: " + str(previous["resolved_directory"]), flush=True)
                 return 0
             policy = {**policy, "source_artifact": str(previous["resolved_directory"]),
+                      "effective_normalization_profile": effective_profile,
                       "effective_seed_depth": max(policy["seed_depth"], refinement.get("seed_depth", 0)),
                       "effective_containing_sector_depth": max(policy.get("containing_sector_depth", 0),
                                                                refinement.get("containing_sector_depth", 0))}
@@ -566,6 +614,9 @@ def run(plan, policy, resume, driver, postprocess_only=False):
             identity["saved_rule_assistance"] = True
         if operation == "refine" and policy.get("circuit_symmetry_assistance", False):
             identity["circuit_symmetry_assistance"] = True
+        if operation == "refine" and policy["effective_normalization_profile"] != "conservative-v1":
+            # Legacy conservative phases keep their original checkpoint path.
+            identity["normalization_profile"] = policy["effective_normalization_profile"]
         if operation == "refine" and policy.get("containing_sector_depth", 0):
             # Zero retains ordinary legacy paths; different source strategies
             # must not resume one another's native cursors.

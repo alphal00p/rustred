@@ -21,6 +21,8 @@ python -B examples/python/saved_campaign.py refine --campaign /path/to/campaign 
   --seed-depth 0 --containing-sector-depth 1
 python -B examples/python/saved_campaign.py refine --campaign /path/to/campaign \
   --seed-depth 0 --circuit-symmetry-assistance
+python -B examples/python/saved_campaign.py refine --campaign /path/to/campaign \
+  --normalization-profile standard --circuit-symmetry-assistance
 ```
 
 Inputs must already be staged. `run` automatically resumes an existing
@@ -127,12 +129,53 @@ saved candidate-rule authority; combining providers preserves that authority
 distinction. Already completed containing-sector and signed-L1 depths are
 retained when a provider-mode change starts a new finite search.
 
-Current experimental limitation: publishing a larger scope cannot yet import
-an assisted refinement's native state. It reports an explicit error rather
-than silently dropping those relations. The original publication and assisted
-result remain intact; ordinary-refinement scope reuse is unchanged. Use
-isolated native artifact refinement for comparisons until assisted
-rebuild-only publication is available.
+`refine --normalization-profile conservative|standard` selects a versioned
+finite-normalization resource policy, independently of either equation
+provider and of both seed depths. `conservative-v1` preserves the historical
+preparation limits; `standard-v1` uses the general Symanzik preparation
+allowances. A larger allowance can admit exact aliases that were previously
+skipped at a resource limit. It does not change the alias proof or certify
+candidate rules, numerical values, independence, or master minimality.
+
+The Python wrapper resolves an explicit profile first, then a remembered
+refinement preference, then the source artifact's effective profile. Legacy
+artifacts without profile metadata mean `conservative-v1`. Either direction
+of profile change starts a separately bound finite phase, preserving inherited
+signed-L1 and containing-sector depths and leaving the source package intact.
+Standard phases have a distinct checkpoint identity; legacy conservative
+identities remain unchanged. An in-place resume cannot change its pinned
+effective profile. Repeating `refine` without the option resumes the saved
+choice, including a paused standard refinement of a conservative source.
+
+The low-level launcher spells this `--master-normalization-profile` and
+requires `--refine-masters`. Run, extension and publication never activate a
+remembered refinement profile. Native publication inherits a previous
+artifact's recorded profile when importing its basis. Reports and artifact
+pointers retain the effective version ID and native limits snapshot; cold
+load uses that recorded policy before replaying normalization proofs. Direct
+native `walk-master-reduce --normalization-profile standard` is optional:
+omission inherits the source on a new phase or the checkpoint on resume.
+This inheritance concerns the profile, not equation-provider booleans: a new
+direct native refinement needs explicit assistance flags to keep those modes.
+The Python wrapper remembers the explicitly chosen assistance preferences.
+Changing provider modes deliberately starts a fresh finite search and may
+therefore retain more terminals than a previous assisted result.
+
+Publication of a larger scope can import existing assisted relations after
+the same native family/program checks. It reindexes and replays only already
+stored rows: no new ordinary IBP sources or equation providers run. Pending
+assistance stays pending for a later explicit refinement. The inherited
+provider binding and relation authority remain recorded separately from the
+disabled active-provider flags; publication never relabels candidate-derived
+rows as independently certified ordinary IBPs. The imported profile is pinned,
+and the prior source package remains unchanged.
+After extending the inventory, a later circuit-assisted refinement prepares
+equations for the new finite key set and starts a fresh search if its provider
+binding changed. Publication itself still preserves the old admitted relations.
+In JSON reports, inherited `reused_previous_stage`/`previous_stage_source`
+fields describe publication ancestry. The current refinement's `source_artifact`
+and explicit `finite_search_restarted_for_*` flags describe whether that new
+search reused or rebuilt its native state.
 
 The current finite exact elimination uses one incremental Symbolica reducer.
 The worker budget parallelizes cold scope reinspection and saved-route

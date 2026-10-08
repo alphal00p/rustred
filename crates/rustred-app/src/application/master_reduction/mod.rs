@@ -1,6 +1,8 @@
 //! Optional finite, resumable master-candidate reduction after a saved walk.
 //! CP6 coverage and finite IBP row-span identities remain distinct authorities.
 mod assistance;
+mod inherited;
+mod profile;
 mod refine;
 mod storage;
 #[cfg(test)]
@@ -18,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use storage::{io, read_json, write_json};
 
+pub use profile::MasterNormalizationProfile;
 pub use refine::master_refine_published_artifact;
 
 const SCHEMA: &str = "rustred.master-reduction.v1";
@@ -48,6 +51,9 @@ pub struct MasterReductionOptions {
     /// Add verified circuit-symmetry equations for raw and normalized terminals.
     /// Does not load or certify saved candidate rules.
     pub circuit_symmetry_assistance: bool,
+    /// Omitted on a new refinement inherits its source; omitted on resume
+    /// inherits the checkpoint. Explicit changes require a new phase.
+    pub normalization_profile: Option<MasterNormalizationProfile>,
     pub checkpoint_interval: Duration,
     pub operation: MasterReductionOperation,
 }
@@ -64,6 +70,7 @@ impl MasterReductionOptions {
             containing_sector_depth: 0,
             saved_rule_assistance: false,
             circuit_symmetry_assistance: false,
+            normalization_profile: None,
             checkpoint_interval: Duration::from_secs(3600),
             operation: MasterReductionOperation::Refine,
         }
@@ -120,8 +127,12 @@ pub fn load_master_reduction(path: &Path) -> Result<TerminalRelationSession, App
     if Some(blake3::hash(&bytes).to_hex().as_str()) != report["native_state"]["blake3"].as_str() {
         return Err(AppError::input("native master state digest mismatch"));
     }
-    TerminalRelationSession::from_native_bytes(&bytes, TerminalRelationLimits::default(), limits)
-        .map_err(io)
+    TerminalRelationSession::from_native_bytes(
+        &bytes,
+        profile::from_report(&report)?.relation_limits(),
+        limits,
+    )
+    .map_err(io)
 }
 
 pub fn master_reduce_saved_campaign(
@@ -146,16 +157,29 @@ pub fn master_reduce_saved_campaign(
     }
     let _lock = storage::WriterLock::acquire(&options.directory)?;
     let started = Instant::now();
+    let manifest_path = options.directory.join("latest.json");
+    let resumed = if options.resume {
+        Some(read_json(&manifest_path)?)
+    } else {
+        None
+    };
+    let normalization_profile = if let Some(report) = &resumed {
+        profile::for_resume(options.normalization_profile, report)?
+    } else if let Some(previous) = &options.previous_artifact {
+        let inherited = profile::from_report(&master_reduction_inspect(previous)?)?;
+        profile::for_import(options.normalization_profile, inherited, options.operation)?
+    } else {
+        options.normalization_profile.unwrap_or_default()
+    };
     let binding = storage::scope_binding(
         request,
         &options.checkpoint,
         options.seed_depth,
         options.containing_sector_depth,
         options.circuit_symmetry_assistance,
+        normalization_profile,
     )?;
-    let manifest_path = options.directory.join("latest.json");
-    let mut report = if options.resume {
-        let report = read_json(&manifest_path)?;
+    let mut report = if let Some(report) = resumed {
         if report["schema"] != SCHEMA || report["scope_binding"] != binding {
             return Err(AppError::input(
                 "master checkpoint belongs to a different scope or seed depth; start a new phase directory",
@@ -178,7 +202,7 @@ pub fn master_reduce_saved_campaign(
         if manifest_path.exists() {
             return Err(AppError::input("master checkpoint exists; use --resume"));
         }
-        json!({"schema":SCHEMA,"phase":"Master reduction","stage":"inventory","status":"running",
+        let mut report = json!({"schema":SCHEMA,"phase":"Master reduction","stage":"inventory","status":"running",
             "scope_binding":binding,"seed_depth":options.seed_depth,"checkpoint":{"generation":0},
             "scope":{"queries":"inputs/queries.json","amendments":"inputs/amendments.json"},
             "raw_terminals":null,"normalized_terminals":null,"remaining_terminals":null,
@@ -186,7 +210,9 @@ pub fn master_reduce_saved_campaign(
             "minimality_claim":false,"family_closure_claim":false,"global_termination_claim":false,
             "completion_policy":"finite signed-L1 ordinary-IBP search; retain unresolved auxiliaries",
             "application":"exact terminal substitutions; routed saved-owner coefficient back-substitution is a separate interface",
-            "numerical_master_values_included":false})
+            "numerical_master_values_included":false});
+        profile::record(&mut report, normalization_profile);
+        report
     };
     if report["status"] == "completed_nonminimal"
         || (options.operation == MasterReductionOperation::Publish
@@ -282,12 +308,14 @@ fn run(
         )
         .map_err(|_| AppError::input("cold verifier did not return prepared owner identities"))?;
         report["inputs"] = storage::package_inputs(request, &options.directory, &digests)?;
+        let normalization_profile = profile::from_report(report)?;
         if storage::scope_binding(
             request,
             &options.checkpoint,
             options.seed_depth,
             options.containing_sector_depth,
             options.circuit_symmetry_assistance,
+            normalization_profile,
         )? != report["scope_binding"]
         {
             return Err(AppError::input(
@@ -312,15 +340,34 @@ fn run(
             {
                 return Err(AppError::input("previous stage family mismatch"));
             }
-            previous_session
-                .extend(
-                    inventory.terminal_keys(),
-                    options
-                        .seed_depth
-                        .max(previous_session.statistics().seed_depth),
+            let depth = options
+                .seed_depth
+                .max(previous_session.statistics().seed_depth);
+            let changes_profile = normalization_profile != profile::from_report(&previous_report)?;
+            if !changes_profile && options.operation == MasterReductionOperation::Publish {
+                inherited::capture(&previous_session, &previous_report, report)?;
+            }
+            if changes_profile {
+                let raw = previous_session
+                    .raw_terminals()
+                    .union(inventory.terminal_keys())
+                    .cloned()
+                    .collect();
+                previous_session = TerminalRelationSession::new(
+                    previous_session.family_owner().clone(),
+                    raw,
+                    depth,
+                    normalization_profile.relation_limits(),
                 )
                 .map_err(io)?;
-            report["reused_previous_stage"] = json!(previous_report["scope_binding"]);
+                report["previous_stage_source"] = json!(previous_report["scope_binding"]);
+            } else {
+                previous_session
+                    .extend(inventory.terminal_keys(), depth)
+                    .map_err(io)?;
+                report["reused_previous_stage"] = json!(previous_report["scope_binding"]);
+            }
+            report["finite_search_restarted_for_normalization_profile"] = json!(changes_profile);
             report["containing_sector_depth"] = json!(
                 previous_report["containing_sector_depth"]
                     .as_u64()
@@ -332,7 +379,7 @@ fn run(
                 inventory.family_owner().clone(),
                 inventory.terminal_keys().clone(),
                 options.seed_depth,
-                TerminalRelationLimits::default(),
+                normalization_profile.relation_limits(),
             )
             .map_err(io)?
         };
@@ -362,7 +409,9 @@ fn execute_session(
         {
             break;
         }
-        if let Some(provider) = &mut provider {
+        if options.operation == MasterReductionOperation::Publish {
+            session.step_rebuild_only(cancel).map_err(io)?;
+        } else if let Some(provider) = &mut provider {
             session.step_with_provider(cancel, provider).map_err(io)?;
         } else {
             session.step(cancel).map_err(io)?;
@@ -415,8 +464,8 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     // The core owns all algebraic counts and work cursors; this is only their
     // presentation/transport boundary, shared by CLI and notebook consumers.
     let stats = session.statistics();
-    report["stage"] = json!(if stats.pending_assistance_keys > 0
-        || stats.pending_assistance_rows > 0
+    report["stage"] = json!(if report["operation"] != "publish"
+        && (stats.pending_assistance_keys > 0 || stats.pending_assistance_rows > 0)
     {
         "assisted_equations"
     } else if stats.pending_rebuild_rows > 0 {

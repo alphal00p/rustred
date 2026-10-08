@@ -60,6 +60,8 @@ def main(argv=None):
             bounds.add_argument("--max-power-difference", type=int, help="new D=A-R ceiling; omitted preserves current ceiling")
             bounds.add_argument("--unbounded-power-difference", action="store_true", help="remove only the additional stage ceiling")
         if action == "refine":
+            sub.add_argument("--normalization-profile", choices=("conservative", "standard"),
+                             help="finite normalization budget (default saved preference, then source artifact profile)")
             sub.add_argument("--seed-depth", type=int, help="finite IBP search depth, unrelated to input rank (default saved preference or 0)")
             sub.add_argument("--containing-sector-depth", type=int,
                              help="promote up to N inactive indices to +1 for extra IBP sources (default saved preference or 0)")
@@ -95,6 +97,8 @@ def main(argv=None):
                 command += ["--executable", str(executable)]
             if args.action == "refine":
                 command.append("--refine-masters")
+                if args.normalization_profile is not None:
+                    command += ["--master-normalization-profile", args.normalization_profile]
                 if args.saved_rule_assistance is not None:
                     command.append("--master-saved-rule-assistance" if args.saved_rule_assistance
                                    else "--no-master-saved-rule-assistance")

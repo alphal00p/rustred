@@ -299,6 +299,20 @@ impl TerminalRelationSession {
         self.step_ordinary(cancel)
     }
 
+    /// Replay at most one already-proved basis row after an inventory extension.
+    /// This never consumes ordinary sources, queries an equation provider, or
+    /// marks pending assistance as queried. It is safe for publication-only
+    /// reuse of assisted sessions without preparing their original providers.
+    pub fn step_rebuild_only(
+        &mut self,
+        cancel: &AtomicBool,
+    ) -> Result<TerminalRelationStats, TerminalRelationError> {
+        if self.rebuild_cursor == self.rebuild.len() {
+            return Ok(self.statistics());
+        }
+        self.step_ordinary(cancel)
+    }
+
     fn step_ordinary(
         &mut self,
         cancel: &AtomicBool,

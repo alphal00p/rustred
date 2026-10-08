@@ -26,6 +26,7 @@ pub(crate) struct MasterArgs {
     pub containing_sector_depth: u32,
     pub saved_rule_assistance: bool,
     pub circuit_symmetry_assistance: bool,
+    pub normalization_profile: Option<crate::MasterNormalizationProfile>,
     pub checkpoint_interval_seconds: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,6 +51,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
         containing_sector_depth: 0,
         saved_rule_assistance: false,
         circuit_symmetry_assistance: false,
+        normalization_profile: None,
         checkpoint_interval_seconds: 3600,
     };
     let mut seen = BTreeSet::new();
@@ -69,6 +71,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--containing-sector-depth" => "--containing-sector-depth",
             "--saved-rule-assistance" => "--saved-rule-assistance",
             "--circuit-symmetry-assistance" => "--circuit-symmetry-assistance",
+            "--normalization-profile" => "--normalization-profile",
             "--checkpoint-interval-seconds" => "--checkpoint-interval-seconds",
             _ => return Err(ArgError::UnknownOption(option)),
         };
@@ -79,6 +82,20 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--resume" => result.resume = true,
             "--saved-rule-assistance" => result.saved_rule_assistance = true,
             "--circuit-symmetry-assistance" => result.circuit_symmetry_assistance = true,
+            "--normalization-profile" => {
+                let value = next_utf8_value(&mut args, option)?;
+                result.normalization_profile = Some(match value.as_str() {
+                    "conservative" => crate::MasterNormalizationProfile::ConservativeV1,
+                    "standard" => crate::MasterNormalizationProfile::StandardV1,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option,
+                            value,
+                            expected: "conservative or standard",
+                        });
+                    }
+                });
+            }
             "--threads" => {
                 result.threads =
                     parse_positive_integer(option, next_utf8_value(&mut args, option)?)?
@@ -293,6 +310,7 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     options.containing_sector_depth = args.containing_sector_depth;
     options.saved_rule_assistance = args.saved_rule_assistance;
     options.circuit_symmetry_assistance = args.circuit_symmetry_assistance;
+    options.normalization_profile = args.normalization_profile;
     options.checkpoint_interval = Duration::from_secs(args.checkpoint_interval_seconds);
     let cancel = Arc::new(AtomicBool::new(false));
     let finished = Arc::new(AtomicBool::new(false));
@@ -403,6 +421,54 @@ fn prospective_path(path: &Path) -> Result<PathBuf, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn normalization_profile_is_optional_explicit_and_validated() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        let Command::WalkMasterReduce(default) =
+            parse(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(default.normalization_profile, None);
+        for (name, expected) in [
+            (
+                "conservative",
+                crate::MasterNormalizationProfile::ConservativeV1,
+            ),
+            ("standard", crate::MasterNormalizationProfile::StandardV1),
+        ] {
+            let Command::WalkMasterReduce(parsed) = parse(
+                base.into_iter()
+                    .chain(["--normalization-profile", name])
+                    .map(OsString::from),
+            )
+            .unwrap() else {
+                panic!()
+            };
+            assert_eq!(parsed.normalization_profile, Some(expected));
+        }
+        assert!(
+            parse(
+                base.into_iter()
+                    .chain(["--normalization-profile", "unbounded"])
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+        assert!(
+            parse(
+                base.into_iter()
+                    .chain([
+                        "--normalization-profile",
+                        "standard",
+                        "--normalization-profile",
+                        "standard"
+                    ])
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+    }
     #[test]
     fn circuit_assistance_is_explicit_independent_and_refine_only() {
         let base = ["--artifact", "source", "--directory", "out"];

@@ -140,6 +140,37 @@ class PhaseTests(unittest.TestCase):
                 self.assertTrue(configure.call_args.args[1])
                 self.assertEqual(configure.call_args.kwargs["circuit_symmetry_assistance"], value)
 
+    def test_normalization_preference_is_optional_refine_only_and_switches_both_ways(self):
+        self.assertNotIn("normalization_profile", self.policy)
+        for profile in ("standard", "conservative"):
+            policy = PHASES.configuration(self.campaign, enabled=True, normalization_profile=profile)
+            self.write("master-reduction/policy.json", policy)
+            self.assertEqual(PHASES.configuration(self.campaign, enabled=True)["normalization_profile"], profile)
+            self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
+            with self.assertRaisesRegex(ValueError, "explicit"):
+                PHASES.configuration(self.campaign, normalization_profile=profile)
+        for invalid in ("standard-v1", "unlimited", True, []):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "profile"):
+                PHASES.configuration(self.campaign, enabled=True, normalization_profile=invalid)
+            self.write("master-reduction/policy.json", {**self.policy, "normalization_profile": invalid})
+            with self.assertRaisesRegex(ValueError, "invalid persisted"):
+                PHASES.configuration(self.campaign, enabled=True)
+
+    def test_production_normalization_profile_is_refine_only_and_forwarded(self):
+        for profile in ("conservative", "standard"):
+            with patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure:
+                with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters",
+                                     "--master-normalization-profile", profile])
+                self.assertEqual(configure.call_args.kwargs["normalization_profile"], profile)
+        for options in (("--master-normalization-profile", "standard"),
+                        ("--publish-only", "--master-normalization-profile", "conservative"),
+                        ("--refine-masters", "--master-normalization-profile", "unknown")):
+            with self.subTest(options=options), patch.object(PRODUCTION.sys, "stderr", io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    PRODUCTION.main(["--campaign-directory", str(self.campaign), *options])
+        self.assertFalse((self.campaign / "master-reduction").exists())
+
     def test_containing_sector_preference_is_explicit_monotone_and_legacy_compatible(self):
         self.assertEqual(self.policy["containing_sector_depth"], 0)
         legacy = {key: value for key, value in self.policy.items() if key != "containing_sector_depth"}
@@ -241,9 +272,11 @@ class PhaseTests(unittest.TestCase):
         second.assert_not_called()
 
     def publish_fixture(self, operation="publish", depth=0, saved_rule_assistance=False, containing_sector_depth=0,
-                        circuit_symmetry_assistance=False):
+                        circuit_symmetry_assistance=False, normalization_profile=None):
         path = self.campaign / "master-reduction/scopes/published"
-        self.write("master-reduction/scopes/published/artifact.json", {"status": "published_unrefined"})
+        self.write("master-reduction/scopes/published/artifact.json", {"status": "published_unrefined",
+                   **({"normalization_profile": normalization_profile, "normalization_limits": {"fixture": True}}
+                      if normalization_profile is not None else {})})
         PHASES.publish_pointer(self.campaign, path, self.binding(), operation, self.driver,
                                {"seed_depth": depth, "saved_rule_assistance": saved_rule_assistance,
                                 "circuit_symmetry_assistance": circuit_symmetry_assistance,
@@ -311,6 +344,74 @@ class PhaseTests(unittest.TestCase):
                     self.assertEqual(second.call_args.args[1]["source_artifact"], str(source))
                     self.assertEqual(second.call_args.args[1]["saved_rule_assistance"], not previous_mode)
                 first.assert_not_called()
+
+    def test_standard_profile_has_distinct_phase_and_omitted_repeat_uses_saved_preference(self):
+        source = self.publish_fixture()
+        original = (source / "artifact.json").read_bytes()
+        with patch.object(PHASES, "phase_one") as first, patch.object(PHASES, "phase_two", return_value=4) as second:
+            PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True), True, self.driver, postprocess_only=True)
+            conservative = second.call_args.args[4]
+            self.assertEqual(second.call_args.args[1]["effective_normalization_profile"], "conservative-v1")
+            self.assertNotIn("normalization_profile", PHASES.read_json(conservative / "steering-binding.json"))
+            standard = PHASES.configuration(self.campaign, enabled=True, normalization_profile="standard")
+            PHASES.run(self.plan, standard, True, self.driver, postprocess_only=True)
+            standard_directory = second.call_args.args[4]
+            self.assertNotEqual(standard_directory, conservative)
+            self.assertEqual(PHASES.read_json(standard_directory / "steering-binding.json")["normalization_profile"], "standard-v1")
+            (standard_directory / "latest.json").write_text('{"normalization_profile":"standard-v1"}')
+            PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True), True, self.driver, postprocess_only=True)
+            self.assertEqual(second.call_args.args[4], standard_directory)
+            self.assertEqual(second.call_args.args[1]["effective_normalization_profile"], "standard-v1")
+        first.assert_not_called()
+        self.assertEqual((source / "artifact.json").read_bytes(), original)
+
+    def test_source_profile_inheritance_and_explicit_switch_preserve_effective_depths(self):
+        for source_profile, requested in (("standard-v1", "conservative"), ("conservative-v1", "standard")):
+            with self.subTest(source_profile=source_profile):
+                source = self.publish_fixture("refine", depth=2, containing_sector_depth=2,
+                                              normalization_profile=source_profile)
+                original = (source / "artifact.json").read_bytes()
+                # Old pointer metadata can omit the profile; native metadata remains authoritative.
+                pointer = PHASES.read_json(self.campaign / "artifacts/latest.json")
+                pointer.pop("normalization_profile")
+                pointer.pop("normalization_limits")
+                self.write("artifacts/latest.json", pointer)
+                with patch.object(PHASES, "phase_two", return_value=4) as second:
+                    self.assertEqual(PHASES.run(self.plan, {**self.policy, "operation": "refine"}, True,
+                                               self.driver, postprocess_only=True), 0)
+                    second.assert_not_called()
+                    changed = PHASES.configuration(self.campaign, enabled=True, normalization_profile=requested)
+                    self.assertEqual(PHASES.run(self.plan, changed, True, self.driver, postprocess_only=True), 4)
+                    launched = second.call_args.args[1]
+                    self.assertEqual(launched["effective_normalization_profile"], requested + "-v1")
+                    self.assertEqual(launched["effective_seed_depth"], 2)
+                    self.assertEqual(launched["effective_containing_sector_depth"], 2)
+                    remembered = PHASES.configuration(self.campaign, enabled=True)
+                    PHASES.run(self.plan, remembered, True, self.driver, postprocess_only=True)
+                    self.assertEqual(second.call_args.args[1]["effective_normalization_profile"], requested + "-v1")
+                self.assertEqual((source / "artifact.json").read_bytes(), original)
+
+    def test_profile_and_both_provider_flags_have_independent_phase_bindings(self):
+        self.publish_fixture()
+        directories = set()
+        for profile in ("conservative", "standard"):
+            for saved, circuit in ((False, False), (True, False), (False, True), (True, True)):
+                policy = PHASES.configuration(self.campaign, enabled=True, normalization_profile=profile,
+                                              saved_rule_assistance=saved, circuit_symmetry_assistance=circuit)
+                with patch.object(PHASES, "phase_two", return_value=4) as second:
+                    PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+                    directories.add(second.call_args.args[4])
+        self.assertEqual(len(directories), 8)
+
+    def test_pointer_profile_and_limits_must_agree_with_native_artifact(self):
+        self.publish_fixture(normalization_profile="standard-v1")
+        pointer = PHASES.read_json(self.campaign / "artifacts/latest.json")
+        self.assertEqual(pointer["normalization_profile"], "standard-v1")
+        self.assertEqual(pointer["normalization_limits"], {"fixture": True})
+        for mismatch in ({"normalization_profile": "conservative-v1"}, {"normalization_limits": {}}):
+            self.write("artifacts/latest.json", {**pointer, **mismatch})
+            with self.assertRaisesRegex(ValueError, "differ.* from native"):
+                PHASES.completed_artifact(self.campaign)
 
     def test_containing_sector_search_isolated_checkpoint_and_inherited_effective_depth(self):
         source = self.publish_fixture()
@@ -448,7 +549,10 @@ class PhaseTests(unittest.TestCase):
 
     def test_publication_does_not_enable_saved_refinement_preference(self):
         self._scratch_native_pause_resume("publish", saved_rule_assistance=True, containing_sector_depth=1,
-                                          circuit_symmetry_assistance=True)
+                                          circuit_symmetry_assistance=True, normalization_profile="standard")
+
+    def test_standard_profile_refinement_is_pinned_across_pause_and_resume(self):
+        self._scratch_native_pause_resume("refine", normalization_profile="standard")
 
     def test_circuit_refinement_forwards_mode_and_resumes(self):
         self._scratch_native_pause_resume("refine", circuit_symmetry_assistance=True)
@@ -462,18 +566,24 @@ class PhaseTests(unittest.TestCase):
 
     def _scratch_native_pause_resume(self, operation, saved_rule_assistance=False,
                                     containing_sector_depth=0, inherited_containing_depth=0,
-                                    circuit_symmetry_assistance=False):
+                                    circuit_symmetry_assistance=False, normalization_profile=None):
         # Fake native protocol only; this proves process/checkpoint orchestration,
         # not mathematical correctness or a successful native Rust solve.
         binary = self.campaign / "fake-native"
         binary.write_text(f"#!{sys.executable}\nexpected_assistance = {saved_rule_assistance and operation == 'refine'}\n"
                           f"expected_circuit = {circuit_symmetry_assistance and operation == 'refine'}\n"
+                          f"expected_profile = {repr(normalization_profile if operation == 'refine' else None)}\n"
                           f"expected_containing_depth = {containing_sector_depth if operation == 'refine' else 0}\n" + '''import json, pathlib, sys, time
 args = sys.argv
 refine = args[1] == 'walk-master-reduce'
 assert ('--seed-depth' in args) == refine
 assert ('--saved-rule-assistance' in args) == expected_assistance
 assert ('--circuit-symmetry-assistance' in args) == expected_circuit
+assert ('--normalization-profile' in args) == (expected_profile is not None)
+if expected_profile is not None:
+    assert args[args.index('--normalization-profile') + 1] == expected_profile
+profile = (expected_profile or 'conservative') + '-v1'
+metadata = {'normalization_profile': profile, 'normalization_limits': {'fixture': True}}
 assert ('--containing-sector-depth' in args) == bool(expected_containing_depth)
 if expected_containing_depth:
     assert int(args[args.index('--containing-sector-depth') + 1]) == expected_containing_depth
@@ -486,14 +596,14 @@ assert all(__import__('os').environ[x] == '1' for x in ['RAYON_NUM_THREADS','OMP
 def event(status):
     with events.open('a') as out:
         out.write(json.dumps({'event':'master_reduction_progress','phase':'Master reduction',
-            'stage':'elimination','status':status,'remaining_terminals':3,'artifact':str(directory),
+            'stage':'elimination','status':status,'remaining_terminals':3,'artifact':str(directory), **metadata,
             'checkpoint':{'state':'saved','generation':1,'directory':str(directory),'bytes':20}})+'\\n')
 if '--resume' not in args:
     while not stop.exists(): time.sleep(.01)
-    (directory/'latest.json').write_text('{}')
+    (directory/'latest.json').write_text(json.dumps(metadata))
     event('paused')
     sys.exit(4)
-(directory/'artifact.json').write_text('{}')
+(directory/'artifact.json').write_text(json.dumps(metadata))
 event('completed_nonminimal' if refine else 'published_unrefined')
 ''')
         binary.chmod(0o700)
@@ -509,6 +619,9 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                          "circuit_symmetry_assistance": circuit_symmetry_assistance,
                          "containing_sector_depth": containing_sector_depth,
                          "effective_containing_sector_depth": max(containing_sector_depth, inherited_containing_depth)}
+        if normalization_profile is not None:
+            native_policy["normalization_profile"] = normalization_profile
+            native_policy["effective_normalization_profile"] = normalization_profile + "-v1"
         if operation == "refine":
             native_policy["source_artifact"] = str(self.publish_fixture())
         binding = self.binding()
@@ -525,6 +638,14 @@ event('completed_nonminimal' if refine else 'published_unrefined')
             self.assertTrue((directory / "latest.json").exists())
             if operation == "refine":
                 self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["status"], "published_unrefined")
+                if normalization_profile == "standard":
+                    paused_pointer = (self.campaign / "artifacts/latest.json").read_bytes()
+                    with self.assertRaisesRegex(ValueError, "cannot change normalization profile on resume"):
+                        PHASES.phase_two(plan, {**native_policy, "effective_normalization_profile": "conservative-v1"},
+                                         self.campaign / "runs/first/request.json", binding, directory, driver)
+                    self.assertEqual((self.campaign / "artifacts/latest.json").read_bytes(), paused_pointer)
+                    # Effective policy remains pinned when the requested option is omitted on resume.
+                    native_policy.pop("normalization_profile")
             self.assertEqual(PHASES.phase_two(plan, native_policy, self.campaign / "runs/first/request.json", binding, directory, driver), 0)
         self.assertTrue((directory / "artifact.json").exists())
         pointer = PHASES.read_json(self.campaign / "master-reduction/active-phase.json")
@@ -536,6 +657,8 @@ event('completed_nonminimal' if refine else 'published_unrefined')
         self.assertEqual(status["master_reduction"]["remaining_terminals"], 3)
         self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["status"], expected)
         if operation == "refine":
+            self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["normalization_profile"],
+                             (normalization_profile or "conservative") + "-v1")
             self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["circuit_symmetry_assistance"],
                              circuit_symmetry_assistance)
             self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["saved_rule_assistance"],

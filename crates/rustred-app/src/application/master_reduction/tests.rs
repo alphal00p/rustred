@@ -4,6 +4,11 @@ use rustred::family::{AffineDenominator, IntegralFamily, IntegralKey};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+#[path = "tests/inherited.rs"]
+mod inherited_tests;
+#[path = "tests/profile.rs"]
+mod profile_tests;
+
 struct Scratch(PathBuf);
 impl Scratch {
     fn new() -> Self {
@@ -709,6 +714,29 @@ fn publication_rejects_assisted_import_without_discarding_existing_refinements()
     assert_eq!(native.nonzero_conditions(), conditions);
     assert!(native.assistance_binding().is_some());
     assert_ne!(report["finite_search_restarted_for_policy"], true);
+}
+
+#[test]
+fn publication_stage_reports_replay_not_frozen_assistance_work() {
+    let scratch = Scratch::new();
+    let mut report = completed_policy_fixture(&scratch.0, true);
+    let mut native = load_master_reduction(&scratch.0).unwrap();
+    native
+        .extend(&BTreeSet::from([IntegralKey::try_new([5]).unwrap()]), 0)
+        .unwrap();
+    assert!(native.statistics().pending_assistance_keys > 0);
+    assert!(native.statistics().pending_rebuild_rows > 0);
+    update_stats(&mut report, &native);
+    assert_eq!(report["stage"], "assisted_equations");
+    report["operation"] = json!("publish");
+    update_stats(&mut report, &native);
+    assert_eq!(report["stage"], "elimination");
+    while native.statistics().pending_rebuild_rows > 0 {
+        native.step_rebuild_only(&AtomicBool::new(false)).unwrap();
+    }
+    update_stats(&mut report, &native);
+    assert_eq!(report["stage"], "relations");
+    assert!(native.statistics().pending_assistance_keys > 0);
 }
 
 #[test]

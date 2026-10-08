@@ -5,7 +5,7 @@ use crate::application::routed_campaign::{
 };
 use rustred::reduction::terminal_normalization::TerminalCircuitEquations;
 
-fn expected_binding(
+pub(super) fn expected_binding(
     options: &MasterReductionOptions,
     session: &TerminalRelationSession,
     report: &Value,
@@ -35,6 +35,7 @@ fn expected_binding(
                 hash.update(&power.to_le_bytes());
             }
         }
+        profile::from_report(report)?.hash(&mut hash);
         parts.push(format!(
             "circuit-symmetry-assistance-v1:{}",
             hash.finalize().to_hex()
@@ -50,17 +51,29 @@ pub(super) fn configure(
     session: &mut TerminalRelationSession,
     report: &mut Value,
 ) -> Result<(), AppError> {
-    if options.operation == MasterReductionOperation::Publish
-        && session.assistance_binding().is_some()
-    {
-        return Err(AppError::input(
-            "publication cannot discard equation-assisted refinements; use a separate refinement phase to change the policy",
-        ));
+    if options.operation == MasterReductionOperation::Publish {
+        if session.assistance_binding().is_some() {
+            inherited::validate(session, report)?;
+            report["finite_search_restarted_for_policy"] = json!(false);
+            report["saved_rule_assistance"] = json!(false);
+            report["circuit_symmetry_assistance"] = json!(false);
+            report["relation_authority"] = json!(inherited::authority(report)?);
+            return Ok(());
+        }
+        if report.get("inherited_equation_authority").is_some() {
+            return Err(AppError::input(
+                "inherited equation authority has no native binding",
+            ));
+        }
     }
     if options.resume && report["native_state"].is_object() {
         return validate(options, session, report);
     }
     let binding = expected_binding(options, session, report)?;
+    report
+        .as_object_mut()
+        .expect("report object")
+        .remove("inherited_equation_authority");
     let changes_policy = session.assistance_binding() != binding.as_deref();
     report["finite_search_restarted_for_policy"] = json!(false);
     report
@@ -76,7 +89,7 @@ pub(super) fn configure(
             session.family_owner().clone(),
             session.raw_terminals().clone(),
             session.statistics().seed_depth.max(options.seed_depth),
-            TerminalRelationLimits::default(),
+            profile::from_report(report)?.relation_limits(),
         )
         .map_err(io)?;
         report["finite_search_restarted_for_policy"] = json!(true);
@@ -104,19 +117,26 @@ pub(super) fn configure(
     }
     report["saved_rule_assistance"] = json!(options.saved_rule_assistance);
     report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);
-    report["relation_authority"] = json!(match (
+    report["relation_authority"] = json!(authority(
         options.saved_rule_assistance,
         options.circuit_symmetry_assistance
-    ) {
-        (true, true) =>
-            "exact consequences of ordinary IBPs, verified circuit symmetries/routes and supplied candidate rules; candidate source provenance is not replay-certified",
-        (true, false) =>
-            "exact consequences of ordinary IBPs, verified routes and supplied candidate rules; candidate source provenance is not replay-certified",
-        (false, true) =>
-            "finite ordinary IBPs and independently verified circuit change-of-variable equations with exact normalization; no candidate-rule authority used",
-        (false, false) => "finite ordinary IBP equations with exact normalization",
-    });
+    ));
     Ok(())
+}
+
+pub(super) fn authority(saved: bool, circuit: bool) -> &'static str {
+    match (saved, circuit) {
+        (true, true) => {
+            "exact consequences of ordinary IBPs, verified circuit symmetries/routes and supplied candidate rules; candidate source provenance is not replay-certified"
+        }
+        (true, false) => {
+            "exact consequences of ordinary IBPs, verified routes and supplied candidate rules; candidate source provenance is not replay-certified"
+        }
+        (false, true) => {
+            "finite ordinary IBPs and independently verified circuit change-of-variable equations with exact normalization; no candidate-rule authority used"
+        }
+        (false, false) => "finite ordinary IBP equations with exact normalization",
+    }
 }
 
 /// Resume never repairs or resets a mismatched persisted policy implicitly.
@@ -125,6 +145,24 @@ pub(super) fn validate(
     session: &TerminalRelationSession,
     report: &Value,
 ) -> Result<(), AppError> {
+    profile::for_resume(options.normalization_profile, report)?;
+    if options.operation == MasterReductionOperation::Publish
+        && (session.assistance_binding().is_some()
+            || report.get("inherited_equation_authority").is_some())
+    {
+        if options.saved_rule_assistance
+            || options.circuit_symmetry_assistance
+            || report["saved_rule_assistance"].as_bool().unwrap_or(false)
+            || report["circuit_symmetry_assistance"]
+                .as_bool()
+                .unwrap_or(false)
+        {
+            return Err(AppError::input(
+                "publication cannot request new equation providers",
+            ));
+        }
+        return inherited::validate(session, report);
+    }
     let binding = expected_binding(options, session, report)?;
     if report["saved_rule_assistance"].as_bool().unwrap_or(false) != options.saved_rule_assistance
         || report["circuit_symmetry_assistance"]
@@ -173,7 +211,10 @@ pub(super) fn prepare(
         let prepared = TerminalCircuitEquations::prepare(
             session.family_owner().clone(),
             &keys,
-            Default::default(),
+            rustred::reduction::terminal_normalization::TerminalCircuitLimits {
+                normalization: profile::from_report(report)?.normalization_limits(),
+                ..Default::default()
+            },
         )
         .map_err(io)?;
         let stats = prepared.statistics();

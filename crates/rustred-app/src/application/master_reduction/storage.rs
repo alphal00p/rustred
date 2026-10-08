@@ -55,6 +55,7 @@ pub(super) fn scope_binding(
     depth: u32,
     containing_sector_depth: u32,
     circuit_symmetry_assistance: bool,
+    normalization_profile: super::MasterNormalizationProfile,
 ) -> Result<String, AppError> {
     let mut hash = blake3::Hasher::new();
     hash.update(b"rustred-master-scope-v1");
@@ -68,6 +69,7 @@ pub(super) fn scope_binding(
     if circuit_symmetry_assistance {
         hash.update(b"circuit-symmetry-assistance-v1");
     }
+    normalization_profile.hash(&mut hash);
     for amendment in &request.amendments {
         hash.update(amendment.digest().as_bytes());
     }
