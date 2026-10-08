@@ -2,6 +2,18 @@
 
 ## October 8 — measured terminal compression
 
+Status: **implemented, independently audited, measured and pushed** through
+`c4faa0d6` on main. The frozen829-key five-loop publication reduces to608
+with standard-profile normalization, ordinary IBPs and verified circuit
+equations; the four packaged parent inventories reduce74→65family-local
+labels. Exact cold application checks, interrupted resume and assisted
+publication reuse pass. No minimality, numerical-master evaluation, or newly
+extended production-scope closure is claimed. Negative experiments and
+deferred avenues are recorded in
+`docs/research/terminal_compression_experiments_2026-10-08.md`.
+This completes this terminal-compression delivery, not the broader five-loop
+physics programme described in historical goals below.
+
 Implement and experimentally validate the most promising methods from the
 829-terminal literature/code study: saved-rule-assisted terminal-targeted
 Laporta reduction, weighted symmetry and lower-loop/factorization reuse, and

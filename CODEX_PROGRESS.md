@@ -2,6 +2,12 @@
 
 ## October 8 — terminal-compression delivery
 
+Code and measured integration milestone committed and pushed to main as
+`c4faa0d6`, following the first strategy milestone `a84a0a1b` and capacity
+merge `59000c2f`. All task-owned implementation changes are committed;
+unrelated HEPKit/notebook/reference work remains untouched. No further
+implementation, benchmark or audit jobs from this delivery are running.
+
 The distinct-strategy investigation now has a completed positive result:
 **829 → 651 → 608** on the frozen five-loop R≤2,D≤9 publication. The first
 step is exact normalization under an explicit broader preparation profile;
