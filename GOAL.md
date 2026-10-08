@@ -1,5 +1,19 @@
 # RustRed project goal
 
+## October 8 — active: saved-campaign collection integration
+
+Authoritative plan: `SAVED_CAMPAIGN_COLLECTION_INTEGRATION_PLAN.md`.
+Integrate the new exact cross-family alias and diagonal ordinary-IBP collection
+APIs into `examples/python/saved_campaign.py refine`, including persisted
+artifact application, cold loading, checkpoint/resume, inspection and scope
+extension. The previous library-only delivery does not fulfill this goal.
+Keep Python thin and all mathematical work generic Rust plus Symbolica.
+Preserve guards, source provenance, mass factors and unsupported terminals;
+validate the four-/five-loop frozen controls through the actual public path.
+Delegate implementation and independent audit, benchmark release costs,
+document and push tested milestones. Do not modify running campaigns or
+unrelated work, and do not claim minimality or additional family closure.
+
 ## October 8 — geometry/oracle-guided compression and campaign feedback
 
 Delivery status: implemented generic prepare-once cross-family alias and
@@ -12,7 +26,7 @@ Vakint package update, minimality or broader five-loop closure is claimed.
 Generation-time source prioritization remains an explicitly untested follow-up.
 See `docs/research/cross_family_terminal_collection_2026-10-08.md`.
 
-The newest directive is authoritative in
+The preceding library delivery followed
 `CRITICAL_GEOMETRY_TERMINAL_PLAN.md`: use offline Vakint/FMFT projections and
 critical-point/critical-syzygy/magic-relation research to identify and implement
 cost-effective generic terminal relations, first on four loops and then the

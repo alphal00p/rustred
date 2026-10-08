@@ -1,5 +1,49 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 8 — active follow-up: saved-campaign collection integration
+
+User requests a tool-managed goal to make the new library methods available
+through the ordinary `saved_campaign.py refine` command. Goal assigned and
+plan saved in `SAVED_CAMPAIGN_COLLECTION_INTEGRATION_PLAN.md`; `GOAL.md` updated.
+Starting milestone is main `4326583e` (core implementation `01a6388f`).
+Read-only call-path inspection confirms that the app still uses the existing
+`TerminalRelationSession` pipeline and neither new collection plan is invoked
+by saved refinement. No claim that rebuilding enables the new approaches.
+Implementation, native persistence/application, interruption/resume, scope
+extension, inspection, public-workflow controls and independent audit are
+pending. Existing HEPKit/notebook/reference changes remain unrelated and
+untouched; no user campaign was run or modified.
+
+Integration started with separate agents `collection_native_integration`
+(core native collection/composition), `collection_workflow_integration`
+(app/CLI/Python orchestration), and `collection_workflow_audit` (independent
+mathematics/code review). Root owns integration resources and real workflow
+acceptance. Inspection found that saved campaigns currently publish one routed
+family, whereas the65→20control consists of four distinct family sessions.
+Chosen design: preserve finite per-family search cursors; persist a separate
+core collection over them with family-qualified composed outputs. A repeatable
+`--collection-artifact` option can supply additional portable publications;
+ordinary one-family `refine` still invokes applicable collection by default.
+The public artifact loader must expose the composed map, with the raw search
+cursor explicitly named separately—never report20while silently applying65.
+
+The collection phase checkpoints before preparation and publishes atomically
+after it; cancellation cannot mark an unfinished postprocess complete.
+Scope-extension publication rebinds inherited valid substitutions without
+generating new sources, with newly unmatched outputs retained. Explicit refine
+then regenerates the collection for its full current inventory. The native
+codec must cold-validate once, not re-prove each application. Saved predecessor
+relations remain generic rational-function identities: the old session does
+not certify every exceptional-dimension pivot, and the wrapper must not upgrade
+that authority. New collection guards and inherited documented conditions
+remain explicit. No custom algebra kernel or numerical-master search planned.
+
+Acceptance inventory: all74original four-loop packaged keys and all829frozen
+five-loop keys, not only their65/608 remaining representatives. Public-script
+controls, cold application, repeat-refine, interruption/resume, scope extension
+and inspection remain required before goal completion. Original production is
+currently a new user-launched rank-ladder process; it is not a test target.
+
 ## October 8 — exact cross-family collection: final production controls
 
 Delivery commit `01a6388f` is pushed to `origin/main`. All task-owned code and
