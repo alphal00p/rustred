@@ -28,6 +28,9 @@ pub enum BinaryProgramKind {
     /// Resumable finite terminal relations over exact symbolic parameters.
     /// Never a minimal-master or unrestricted-family closure certificate.
     TerminalRelations = 7,
+    /// Composed finite terminal maps and replayable vacuum collection proofs.
+    /// Inherits generic-parameter session authority, never family closure.
+    TerminalCollection = 8,
 }
 
 /// Structural sections shared by independently admitted program payloads.
@@ -140,6 +143,7 @@ pub fn inspect_program(
         5 => BinaryProgramKind::BoundedCertified,
         6 => BinaryProgramKind::DomainRules,
         7 => BinaryProgramKind::TerminalRelations,
+        8 => BinaryProgramKind::TerminalCollection,
         _ => return Err(BinaryIoError::Invalid("unsupported binary program kind")),
     };
     if cursor.take(1)?[0] != WIRE_LENGTH_BYTES {

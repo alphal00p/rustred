@@ -279,6 +279,8 @@ class PhaseTests(unittest.TestCase):
                       if normalization_profile is not None else {})})
         PHASES.publish_pointer(self.campaign, path, self.binding(), operation, self.driver,
                                {"seed_depth": depth, "saved_rule_assistance": saved_rule_assistance,
+                                "collection_strategy": PHASES.COLLECTION_STRATEGY,
+                                "collection_inputs": [],
                                 "circuit_symmetry_assistance": circuit_symmetry_assistance,
                                 "containing_sector_depth": containing_sector_depth}
                                if operation == "refine" else None)
@@ -303,7 +305,7 @@ class PhaseTests(unittest.TestCase):
         second.assert_not_called()
         self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["operation"], "refine")
 
-    def test_assistance_mode_has_a_distinct_checkpoint_and_keeps_legacy_ordinary_identity(self):
+    def test_assistance_mode_has_a_distinct_collection_checkpoint_identity(self):
         source = self.publish_fixture()
         source_bytes = (source / "artifact.json").read_bytes()
         ordinary = PHASES.configuration(self.campaign, enabled=True)
@@ -311,6 +313,7 @@ class PhaseTests(unittest.TestCase):
             PHASES.run(self.plan, ordinary, True, self.driver, postprocess_only=True)
             old_directory = second.call_args.args[4]
             legacy_identity = {"scope": self.binding()["key"], "operation": "refine", "seed_depth": 0,
+                               "collection_strategy": PHASES.COLLECTION_STRATEGY, "collection_inputs": [],
                                "source": str(source.relative_to(self.campaign)), "executable": None}
             expected = hashlib.sha256(json.dumps(legacy_identity, sort_keys=True).encode()).hexdigest()
             self.assertEqual(old_directory.name, expected)
@@ -345,6 +348,30 @@ class PhaseTests(unittest.TestCase):
                     self.assertEqual(second.call_args.args[1]["saved_rule_assistance"], not previous_mode)
                 first.assert_not_called()
 
+    def test_completed_old_refinement_does_not_skip_new_collection_stage(self):
+        self.publish_fixture("refine", 0)
+        pointer = PHASES.read_json(self.campaign / "artifacts/latest.json")
+        pointer["refinement"].pop("collection_strategy")
+        self.write("artifacts/latest.json", pointer)
+        policy = PHASES.configuration(self.campaign, enabled=True)
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            self.assertEqual(PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True), 4)
+        native.assert_called_once()
+
+    def test_collection_peer_inputs_require_refine_and_are_content_bound(self):
+        self.publish_fixture()
+        peer = self.campaign / "peer-artifact"
+        self.write("peer-artifact/artifact.json", {"native_state": {"blake3": "first"}})
+        with self.assertRaisesRegex(ValueError, "explicit"):
+            PHASES.configuration(self.campaign, collection_artifacts=[peer])
+        policy = PHASES.configuration(self.campaign, enabled=True, collection_artifacts=[peer])
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+            first_directory = native.call_args.args[4]
+            self.assertEqual(native.call_args.args[1]["collection_artifacts"], [str(peer)])
+            self.write("peer-artifact/artifact.json", {"native_state": {"blake3": "changed"}})
+            PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+            self.assertNotEqual(native.call_args.args[4], first_directory)
     def test_standard_profile_has_distinct_phase_and_omitted_repeat_uses_saved_preference(self):
         source = self.publish_fixture()
         original = (source / "artifact.json").read_bytes()

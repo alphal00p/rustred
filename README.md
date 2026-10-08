@@ -332,6 +332,16 @@ values. These packages preserve native programs, routing and terminal relations
 for later Vakint integration; the saved-campaign engine does not yet provide
 general coefficient back-substitution through its dependency traces.
 
+Explicit `refine` also collects compatible scalar/dotted unit-mass vacuum
+terminals using exact full-U aliases and native diagonal ordinary IBPs. This
+runs in Rust automatically after the finite search; numerator-bearing and
+unsupported keys are retained. To collect across separately published families,
+repeat `--collection-artifact /path/to/peer-package`. The result owns its native
+member sessions and composed application maps, so it does not depend on those
+peer paths afterwards. Inspection distinguishes the primary campaign from the
+combined collection; fewer terminal labels imply neither new coverage nor a
+minimal master basis. See [collection and application](docs/campaign_master_reduction.md#native-terminal-collection-and-application).
+
 Generated candidate programs now use a shared Symbolica-native binary
 coefficient dictionary and native family geometry, rather than coefficient
 strings in TOML. The original family input remains provenance, not a loading

@@ -8,6 +8,10 @@ use std::sync::Arc;
 mod inherited_tests;
 #[path = "tests/profile.rs"]
 mod profile_tests;
+#[path = "tests/collection.rs"]
+mod collection_tests;
+#[path = "tests/collection_audit.rs"]
+mod collection_audit;
 
 struct Scratch(PathBuf);
 impl Scratch {
@@ -75,7 +79,7 @@ fn master_checkpoint_resume_preserves_rows_and_exact_application() {
         &|_| {},
     )
     .unwrap();
-    let mut restored = load_master_reduction(&scratch.0).unwrap();
+    let mut restored = load_master_relation_session(&scratch.0).unwrap();
     assert_eq!(restored.statistics(), original.statistics());
     for candidate in [&mut original, &mut restored] {
         while !candidate.is_complete() {
@@ -122,7 +126,7 @@ fn master_final_publication_is_idempotent_and_portable() {
         "completed_nonminimal"
     );
     assert_eq!(
-        load_master_reduction(&moved.0).unwrap().statistics(),
+        load_master_relation_session(&moved.0).unwrap().statistics(),
         native.statistics()
     );
     let state = moved
@@ -131,7 +135,7 @@ fn master_final_publication_is_idempotent_and_portable() {
     let mut bytes = std::fs::read(&state).unwrap();
     *bytes.last_mut().unwrap() ^= 1;
     std::fs::write(state, bytes).unwrap();
-    assert!(load_master_reduction(&moved.0).is_err());
+    assert!(load_master_relation_session(&moved.0).is_err());
 }
 
 #[test]
@@ -211,7 +215,7 @@ fn publication_processes_no_source_rows_and_cold_applies_normalization() {
         false
     );
     assert!(!native.is_complete());
-    let restored = load_master_reduction(&scratch.0).unwrap();
+    let restored = load_master_relation_session(&scratch.0).unwrap();
     let key = IntegralKey::try_new([2]).unwrap();
     assert_eq!(
         restored.apply_terminal(&key).unwrap(),
@@ -246,7 +250,7 @@ fn explicit_refinement_preserves_published_source_and_resumes_in_new_directory()
     );
     assert_eq!(master_reduction_inspect(&source.0).unwrap(), report);
     assert_eq!(
-        load_master_reduction(&source.0)
+        load_master_relation_session(&source.0)
             .unwrap()
             .statistics()
             .completed_source_rows,
@@ -288,7 +292,7 @@ fn publication_of_extended_scope_keeps_previous_exact_rows_without_new_sources()
     assert_eq!(native.statistics().completed_source_rows, old_sources);
     assert_eq!(native.statistics().pending_rebuild_rows, 0);
     assert_eq!(
-        load_master_reduction(&scratch.0)
+        load_master_relation_session(&scratch.0)
             .unwrap()
             .apply_terminal(&key)
             .unwrap(),
@@ -335,7 +339,7 @@ fn refinement_rejects_mutated_portable_scope_without_publishing() {
         );
         assert!(!output.0.join("artifact.json").exists());
         assert_eq!(
-            load_master_reduction(&source.0)
+            load_master_relation_session(&source.0)
                 .unwrap()
                 .statistics()
                 .completed_source_rows,
@@ -501,7 +505,7 @@ fn circuit_only_prepares_without_candidate_inputs_and_resumes_exact_rows() {
     )
     .unwrap();
     let original = native.statistics();
-    let mut restored = load_master_reduction(&scratch.0).unwrap();
+    let mut restored = load_master_relation_session(&scratch.0).unwrap();
     options.resume = true;
     assistance::configure(&options, &mut restored, &mut report).unwrap();
     assert_eq!(restored.statistics(), original);
@@ -534,7 +538,7 @@ fn circuit_mode_switches_are_durable_even_when_saved_mode_is_unchanged() {
     ] {
         let source = Scratch::new();
         completed_equation_policy_fixture(&source.0, old_saved, old_circuit);
-        let original = load_master_reduction(&source.0).unwrap();
+        let original = load_master_relation_session(&source.0).unwrap();
         let output = Scratch::new();
         let mut options = MasterReductionOptions::new("unused", &output.0);
         options.saved_rule_assistance = saved;
@@ -553,7 +557,7 @@ fn circuit_mode_switches_are_durable_even_when_saved_mode_is_unchanged() {
         }));
         assert!(interrupted.is_err());
         let mut report = master_reduction_inspect(&output.0).unwrap();
-        let mut restored = load_master_reduction(&output.0).unwrap();
+        let mut restored = load_master_relation_session(&output.0).unwrap();
         assert_eq!(report["finite_search_restarted_for_policy"], true);
         assert_eq!(report["saved_rule_assistance"], saved);
         assert_eq!(report["circuit_symmetry_assistance"], circuit);
@@ -565,7 +569,7 @@ fn circuit_mode_switches_are_durable_even_when_saved_mode_is_unchanged() {
         options.circuit_symmetry_assistance = !circuit;
         assert!(assistance::configure(&options, &mut restored, &mut report).is_err());
         assert_eq!(
-            load_master_reduction(&source.0).unwrap().statistics(),
+            load_master_relation_session(&source.0).unwrap().statistics(),
             original.statistics()
         );
     }
@@ -610,7 +614,7 @@ fn policy_switches_are_resumable_at_the_first_durable_checkpoint() {
     for assisted in [false, true] {
         let source = Scratch::new();
         completed_policy_fixture(&source.0, !assisted);
-        let original = load_master_reduction(&source.0).unwrap();
+        let original = load_master_relation_session(&source.0).unwrap();
         assert!(original.statistics().completed_source_rows > 0);
         let output = Scratch::new();
         let mut options = MasterReductionOptions::new("unused", &output.0);
@@ -632,7 +636,7 @@ fn policy_switches_are_resumable_at_the_first_durable_checkpoint() {
         }));
         assert!(interrupted.is_err());
         let mut report = master_reduction_inspect(&output.0).unwrap();
-        let mut resumed = load_master_reduction(&output.0).unwrap();
+        let mut resumed = load_master_relation_session(&output.0).unwrap();
         assert_eq!(report["checkpoint"]["generation"], 1);
         assert_eq!(report["saved_rule_assistance"], assisted);
         assert_eq!(report["finite_search_restarted_for_policy"], true);
@@ -667,7 +671,7 @@ fn policy_switches_are_resumable_at_the_first_durable_checkpoint() {
             assert_eq!(completed["saved_rule_assistance"], false);
         }
         assert_eq!(
-            load_master_reduction(&source.0).unwrap().statistics(),
+            load_master_relation_session(&source.0).unwrap().statistics(),
             original.statistics()
         );
     }
@@ -678,7 +682,7 @@ fn resume_rejects_policy_and_binding_mismatches_without_resetting_native_work() 
     for assisted in [false, true] {
         let scratch = Scratch::new();
         let mut report = completed_policy_fixture(&scratch.0, assisted);
-        let mut native = load_master_reduction(&scratch.0).unwrap();
+        let mut native = load_master_relation_session(&scratch.0).unwrap();
         let before = native.statistics();
         let mut options = MasterReductionOptions::new("unused", &scratch.0);
         options.resume = true;
@@ -702,7 +706,7 @@ fn resume_rejects_policy_and_binding_mismatches_without_resetting_native_work() 
 fn publication_rejects_assisted_import_without_discarding_existing_refinements() {
     let scratch = Scratch::new();
     let mut report = completed_policy_fixture(&scratch.0, true);
-    let mut native = load_master_reduction(&scratch.0).unwrap();
+    let mut native = load_master_relation_session(&scratch.0).unwrap();
     let before = native.statistics();
     let rules = native.terminal_rules();
     let conditions = native.nonzero_conditions().to_vec();
@@ -720,7 +724,7 @@ fn publication_rejects_assisted_import_without_discarding_existing_refinements()
 fn publication_stage_reports_replay_not_frozen_assistance_work() {
     let scratch = Scratch::new();
     let mut report = completed_policy_fixture(&scratch.0, true);
-    let mut native = load_master_reduction(&scratch.0).unwrap();
+    let mut native = load_master_relation_session(&scratch.0).unwrap();
     native
         .extend(&BTreeSet::from([IntegralKey::try_new([5]).unwrap()]), 0)
         .unwrap();
@@ -761,7 +765,7 @@ fn containing_sector_policy_is_durable_and_resume_cannot_change_it() {
         &|_| {},
     )
     .unwrap();
-    let mut restored = load_master_reduction(&scratch.0).unwrap();
+    let mut restored = load_master_relation_session(&scratch.0).unwrap();
     options.resume = true;
     assistance::configure(&options, &mut restored, &mut report).unwrap();
     let before = restored.statistics();

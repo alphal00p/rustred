@@ -33,7 +33,10 @@ def native_executable(campaign, supplied=None):
         active_path = campaign / "master-reduction/active-phase.json"
         active = phases.read_json(active_path) if active_path.is_file() else {}
         active_directory = Path(active.get("directory", ""))
-        resumable_phase = active.get("operation") in ("publish", "refine") and (active_directory / "latest.json").is_file()
+        latest = active_directory / "latest.json"
+        resumable_phase = (active.get("operation") in ("publish", "refine") and latest.is_file()
+                           and phases.read_json(latest).get("status") not in
+                           ("completed_nonminimal", "published_unrefined"))
         if frozen and (resumable_phase or not path.is_file()):
             # A later cargo build must not silently fork a paused native row
             # cursor. An explicit --executable remains an intentional upgrade.
@@ -60,6 +63,8 @@ def main(argv=None):
             bounds.add_argument("--max-power-difference", type=int, help="new D=A-R ceiling; omitted preserves current ceiling")
             bounds.add_argument("--unbounded-power-difference", action="store_true", help="remove only the additional stage ceiling")
         if action == "refine":
+            sub.add_argument("--collection-artifact", type=Path, action="append", default=[],
+                             help="also collect terminals from a compatible published artifact (repeatable; native preparation remains in Rust)")
             sub.add_argument("--normalization-profile", choices=("conservative", "standard"),
                              help="finite normalization budget (default saved preference, then source artifact profile)")
             sub.add_argument("--seed-depth", type=int, help="finite IBP search depth, unrelated to input rank (default saved preference or 0)")
@@ -97,6 +102,8 @@ def main(argv=None):
                 command += ["--executable", str(executable)]
             if args.action == "refine":
                 command.append("--refine-masters")
+                for artifact in args.collection_artifact:
+                    command += ["--master-collection-artifact", str(artifact.resolve())]
                 if args.normalization_profile is not None:
                     command += ["--master-normalization-profile", args.normalization_profile]
                 if args.saved_rule_assistance is not None:

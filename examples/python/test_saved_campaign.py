@@ -60,6 +60,13 @@ class SavedCampaignTests(unittest.TestCase):
         self.assertNotIn("--no-master-circuit-symmetry-assistance", command)
         self.assertNotIn("--master-normalization-profile", command)
 
+    def test_collection_peers_are_repeatable_and_only_refine(self):
+        first, second = self.campaign / "first", self.campaign / "second"
+        command = self.invoke("refine", "--collection-artifact", str(first), "--collection-artifact", str(second))
+        self.assertEqual([command[i + 1] for i, value in enumerate(command) if value == "--master-collection-artifact"], [str(first), str(second)])
+        with patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+            self.invoke("publish", "--collection-artifact", str(first))
+
     def test_normalization_profile_is_optional_explicit_refinement_only(self):
         for profile in ("conservative", "standard"):
             command = self.invoke("refine", "--normalization-profile", profile)
@@ -147,6 +154,17 @@ class SavedCampaignTests(unittest.TestCase):
         (root / "active-phase.json").write_text(json.dumps({"operation": "refine", "directory": str(phase)}))
         self.assertEqual(WRAPPER.native_executable(self.campaign), native)
         self.assertEqual(WRAPPER.native_executable(self.campaign, self.binary), self.binary)
+
+    def test_completed_phase_does_not_pin_an_obsolete_refinement_binary(self):
+        self.test_paused_phase_reuses_frozen_binary_despite_new_local_build()
+        latest = self.campaign / "master-reduction/scopes/paused/latest.json"
+        latest.write_text(json.dumps({"status": "completed_nonminimal"}))
+        # Simulate an existing repository build without changing real binaries.
+        original_is_file = Path.is_file
+        current = ROOT / "target/release/rustred"
+        with patch.object(Path, "is_file", lambda path: True if path == current else original_is_file(path)), \
+                patch.object(WRAPPER.os, "access", return_value=True):
+            self.assertEqual(WRAPPER.native_executable(self.campaign), current)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # RustRed project goal
 
-## October 8 — active: saved-campaign collection integration
+## October 8 — completed: saved-campaign collection integration
 
 Authoritative plan: `SAVED_CAMPAIGN_COLLECTION_INTEGRATION_PLAN.md`.
 Integrate the new exact cross-family alias and diagonal ordinary-IBP collection
@@ -14,7 +14,16 @@ Delegate implementation and independent audit, benchmark release costs,
 document and push tested milestones. Do not modify running campaigns or
 unrelated work, and do not claim minimality or additional family closure.
 
-## October 8 — geometry/oracle-guided compression and campaign feedback
+Implementation and acceptance are complete: the normal `refine` command now
+runs native collection, publishes application-aware v2 artifacts and retains
+valid maps across interruptions and scope extensions. The frozen four-loop
+65→20 and five-loop 608→607 controls pass, including independent application
+checks of every original key. The public Python lifecycle and generic padded-
+arity publication regression pass. See
+`docs/research/saved_campaign_terminal_collection_2026-10-08.md` for timings,
+exact scope and limitations. No live campaign or Vakint package was changed.
+
+## October 8 — preceding library milestone: geometry/oracle-guided compression
 
 Delivery status: implemented generic prepare-once cross-family alias and
 diagonal ordinary-IBP collection APIs. Final optimized controls give65→22→20

@@ -23,6 +23,7 @@ import time
 SCHEMA = "rustred.campaign-phases.v1"
 MAX_JSON_BYTES = 16 * 1024 * 1024
 NORMALIZATION_PROFILES = {"conservative": "conservative-v1", "standard": "standard-v1"}
+COLLECTION_STRATEGY = "full-u-diagonal-v1"
 
 
 def read_json(path):
@@ -45,7 +46,8 @@ def digest(path):
 
 
 def configuration(campaign, enabled=False, seed_depth=None, executable=None, saved_rule_assistance=None,
-                  containing_sector_depth=None, circuit_symmetry_assistance=None, normalization_profile=None):
+                  containing_sector_depth=None, circuit_symmetry_assistance=None, normalization_profile=None,
+                  collection_artifacts=None):
     """Read-only configuration. Only this invocation can request refinement.
 
     Historical ``enabled`` policies retain executable/search preferences, never
@@ -88,6 +90,12 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master containing-sector depth requires explicit --refine-masters")
     if normalization_profile is not None and not enabled:
         raise ValueError("master normalization profile requires explicit --refine-masters")
+    if collection_artifacts is not None and not enabled:
+        raise ValueError("master collection artifacts require explicit --refine-masters")
+    members = ((existing or {}).get("collection_artifacts", []) if collection_artifacts is None
+               else [str(Path(path).resolve()) for path in collection_artifacts])
+    if not isinstance(members, list) or any(not isinstance(path, str) for path in members):
+        raise ValueError("invalid persisted master collection artifacts")
     policy = {**(existing or {}), "schema": SCHEMA, "enabled": True,
             "operation": "refine" if enabled else "publish",
             "seed_depth": (existing or {}).get("seed_depth", 0) if seed_depth is None else seed_depth,
@@ -99,6 +107,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                                         if containing_sector_depth is None else containing_sector_depth),
             "terminal_policy": "bounded exact search; finite nonminimal basis permitted",
             "master_minimality_claim": False}
+    policy["collection_strategy"] = COLLECTION_STRATEGY
+    policy["collection_artifacts"] = members
     if normalization_profile is not None:
         policy["normalization_profile"] = normalization_profile
     if executable is not None:
@@ -335,6 +345,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                "--threads", str(plan["requested_workers"])]
     if not publishing:
         command += ["--seed-depth", str(policy["seed_depth"])]
+        for member in policy.get("collection_artifacts", []):
+            command += ["--collection-artifact", member]
         if policy.get("containing_sector_depth", 0):
             command += ["--containing-sector-depth", str(policy["containing_sector_depth"])]
         if policy.get("saved_rule_assistance", False):
@@ -501,12 +513,23 @@ def phase_two(plan, policy, request, binding, directory, driver):
             if not keep_refined:
                 refinement = None if publishing else {
                         **native_profile,
+                        "collection_strategy": COLLECTION_STRATEGY,
+                        "collection_inputs": policy.get("collection_inputs", []),
                         "seed_depth": latest["seed_depth"],
                         "containing_sector_depth": latest["containing_sector_depth"],
                         "circuit_symmetry_assistance": policy.get("circuit_symmetry_assistance", False),
                         "saved_rule_assistance": policy.get("saved_rule_assistance", False), "source_artifact": str(
                             Path(policy["source_artifact"]).relative_to(Path(plan["campaign_directory"])))}
                 publish_pointer(plan["campaign_directory"], directory, binding, operation, driver, refinement)
+                if not publishing:
+                    # Peers are now native members of the portable publication.
+                    # Future plain refinement inherits those copies and never
+                    # requires the original external source directories again.
+                    policy_path = Path(plan["campaign_directory"]) / "master-reduction/policy.json"
+                    if policy_path.is_file():
+                        stored_policy = read_json(policy_path)
+                        stored_policy["collection_artifacts"] = []
+                        driver.write_json(policy_path, stored_policy)
             driver.write_json(directory.parent.parent / "completed-phase.json", {
                 "schema": SCHEMA, "directory": str(directory), "scope_binding": binding,
                 "completed_unix_time": time.time(), "master_minimality_claim": False})
@@ -560,7 +583,30 @@ def run(plan, policy, resume, driver, postprocess_only=False):
             effective_profile = (NORMALIZATION_PROFILES[policy["normalization_profile"]]
                                  if policy.get("normalization_profile") is not None
                                  else previous["normalization_profile"])
+            # Cheap launch identity only. Rust authenticates every native member
+            # and snapshots it into the portable output package.
+            collection_inputs = []
+            missing_collection_input = False
+            for path in policy.get("collection_artifacts", []):
+                member = Path(path)
+                manifest = member / "artifact.json" if member.is_dir() else member
+                if not manifest.exists():
+                    missing_collection_input = True
+                    break
+                collection_inputs.append({"manifest_sha256": digest(manifest)})
+            if missing_collection_input:
+                active = read_json(directory / "active-phase.json")
+                phase_directory = Path(active["directory"])
+                native = read_json(phase_directory / "latest.json")
+                if (active.get("operation") != "refine"
+                        or native.get("collection_requested_paths") != policy.get("collection_artifacts", [])):
+                    raise ValueError("missing collection input has not been snapshotted into the paused phase")
+                collection_inputs = read_json(phase_directory / "steering-binding.json")["collection_inputs"]
+            collection_inputs.sort(key=lambda value: value["manifest_sha256"])
+            policy = {**policy, "collection_inputs": collection_inputs}
             if (previous.get("operation") == "refine"
+                    and refinement.get("collection_strategy") == COLLECTION_STRATEGY
+                    and (not collection_inputs or refinement.get("collection_inputs", []) == collection_inputs)
                     and refinement.get("seed_depth", -1) >= policy["seed_depth"]
                     and refinement.get("containing_sector_depth", 0) >= policy.get("containing_sector_depth", 0)
                     and refinement.get("circuit_symmetry_assistance", False) == policy.get("circuit_symmetry_assistance", False)
@@ -608,6 +654,9 @@ def run(plan, policy, resume, driver, postprocess_only=False):
                     "seed_depth": policy["seed_depth"] if operation == "refine" else 0,
                     "source": str(Path(policy["source_artifact"]).relative_to(campaign)) if policy.get("source_artifact") else None,
                     "executable": policy.get("executable", {}).get("sha256", plan.get("executable_sha256"))}
+        if operation == "refine":
+            identity["collection_strategy"] = COLLECTION_STRATEGY
+            identity["collection_inputs"] = policy.get("collection_inputs", [])
         if operation == "refine" and policy.get("saved_rule_assistance", False):
             # Preserve legacy ordinary checkpoint paths. Assisted work has a
             # distinct identity and can never resume an ordinary row cursor.

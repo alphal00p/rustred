@@ -266,6 +266,26 @@ impl TerminalRelationSession {
                 "integral is not in the original terminal inventory",
             ));
         }
+        let solved = self.solved_terminal_rows()?;
+        self.apply_terminal_to_solved(target, &solved)
+    }
+
+    /// Materialize all finite output maps with one triangular substitution.
+    /// This is equivalent to calling `apply_terminal` for every raw key, but
+    /// shares the exact solved basis and avoids quadratic repeated work.
+    pub fn apply_all_terminals(
+        &self,
+    ) -> Result<BTreeMap<IntegralKey, TerminalRelationRow>, TerminalRelationError> {
+        let solved = self.solved_terminal_rows()?;
+        self.raw
+            .iter()
+            .map(|key| Ok((key.clone(), self.apply_terminal_to_solved(key, &solved)?)))
+            .collect()
+    }
+
+    fn solved_terminal_rows(
+        &self,
+    ) -> Result<BTreeMap<IntegralKey, TerminalRelationRow>, TerminalRelationError> {
         if self.rebuild_cursor < self.rebuild.len() {
             return Err(invalid("terminal basis is being rebuilt"));
         }
@@ -296,6 +316,15 @@ impl TerminalRelationSession {
             }
             solved.insert(key.clone(), row);
         }
+        Ok(solved)
+    }
+
+    fn apply_terminal_to_solved(
+        &self,
+        target: &IntegralKey,
+        solved: &BTreeMap<IntegralKey, TerminalRelationRow>,
+    ) -> Result<TerminalRelationRow, TerminalRelationError> {
+        let context = self.family.coefficient_context();
         let normalized = self.normalized_row(&BTreeMap::from([(target.clone(), context.one())]))?;
         let mut result = TerminalRelationRow::new();
         for (key, value) in normalized {

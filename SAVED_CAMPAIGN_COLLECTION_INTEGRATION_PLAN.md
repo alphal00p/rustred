@@ -9,9 +9,11 @@ applicable, with no separate Rust driver:
 python -B examples/python/saved_campaign.py refine --campaign "$RUSTRED_CAMPAIGN"
 ```
 
-The library-only milestone is complete; this user-facing integration is not.
-The tool-managed goal is active. This directive supersedes stopping at the
-previous library delivery, without reopening unrelated campaign optimizations.
+Status: implemented and acceptance-tested. Native/public-workflow controls,
+independent audit, interruption/resume and real scope-extension checks pass;
+see `docs/research/saved_campaign_terminal_collection_2026-10-08.md` and
+`CODEX_PROGRESS.md`. This directive superseded stopping at the previous
+library delivery, without reopening unrelated campaign optimizations.
 
 ## Implementation sequence
 

@@ -150,7 +150,7 @@ fn standard_profile_replays_a_genuinely_different_normalization_plan() {
             &|_| {},
         )
         .unwrap();
-        let restored = load_master_reduction(&scratch.0).unwrap();
+        let restored = load_master_relation_session(&scratch.0).unwrap();
         assert_eq!(
             restored.normalization().terms(),
             native.normalization().terms()
@@ -163,7 +163,7 @@ fn standard_profile_replays_a_genuinely_different_normalization_plan() {
         let mut wrong = report.clone();
         profile::record(&mut wrong, opposite);
         write_json(&scratch.0.join("latest.json"), &wrong).unwrap();
-        assert!(load_master_reduction(&scratch.0).is_err());
+        assert!(load_master_relation_session(&scratch.0).is_err());
         if selected == ConservativeV1 {
             report
                 .as_object_mut()
@@ -175,7 +175,7 @@ fn standard_profile_replays_a_genuinely_different_normalization_plan() {
                 .remove("normalization_limits");
             write_json(&scratch.0.join("latest.json"), &report).unwrap();
             assert_eq!(
-                load_master_reduction(&scratch.0)
+                load_master_relation_session(&scratch.0)
                     .unwrap()
                     .normalization()
                     .terms(),
@@ -245,11 +245,11 @@ fn profile_switch_is_fresh_durable_and_omitted_resume_inherits_checkpoint() {
         assert_eq!(report["seed_depth"], 1);
         assert_eq!(report["containing_sector_depth"], 1);
         assert_eq!(
-            load_master_reduction(&output.0).unwrap().raw_terminals(),
-            load_master_reduction(&source.0).unwrap().raw_terminals()
+            load_master_relation_session(&output.0).unwrap().raw_terminals(),
+            load_master_relation_session(&source.0).unwrap().raw_terminals()
         );
         assert_eq!(
-            load_master_reduction(&output.0)
+            load_master_relation_session(&output.0)
                 .unwrap()
                 .statistics()
                 .completed_source_rows,

@@ -62,6 +62,7 @@ pub enum VacuumCollectionError {
         limit: usize,
     },
     Algebra(String),
+    Binary(String),
     ReplayFailed,
 }
 impl std::fmt::Display for VacuumCollectionError {
@@ -91,6 +92,7 @@ impl std::fmt::Display for VacuumCollectionError {
                 "vacuum collection {resource}: {requested} exceeds {limit}"
             ),
             Self::Algebra(e) => write!(f, "vacuum collection algebra: {e}"),
+            Self::Binary(e) => write!(f, "vacuum collection binary: {e}"),
             Self::ReplayFailed => {
                 f.write_str("vacuum collection: exact source replay or triangularity failed")
             }

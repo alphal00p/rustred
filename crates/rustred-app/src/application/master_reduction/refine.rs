@@ -31,6 +31,19 @@ pub fn master_refine_published_artifact(
     // Resolve before acquiring a lock: even creating a child or lock in the
     // source would violate its immutability.
     storage::reject_overlapping_directories(&source_directory, &options.directory)?;
+    for peer in &options.collection_artifacts {
+        if peer.exists() {
+            let peer_directory = if peer.is_dir() {
+                peer.as_path()
+            } else {
+                peer.parent().unwrap_or(Path::new("."))
+            };
+            storage::reject_overlapping_directories(
+                &peer_directory.canonicalize().map_err(io)?,
+                &options.directory,
+            )?;
+        }
+    }
     let _lock = storage::WriterLock::acquire(&options.directory)?;
     let source_report = master_reduction_inspect(source)?;
     if !matches!(
@@ -69,6 +82,9 @@ pub fn master_refine_published_artifact(
         hash.update(b"circuit-symmetry-assistance-v1");
     }
     normalization_profile.hash(&mut hash);
+    let collection_identity = collection::input_identity(options, resumed.as_ref())?;
+    hash.update(collection::STRATEGY.as_bytes());
+    hash.update(&serde_json::to_vec(&collection_identity).map_err(io)?);
     let binding = hash.finalize().to_hex().to_string();
     let started = Instant::now();
     let (mut report, mut session) = if let Some(report) = resumed {
@@ -77,7 +93,7 @@ pub fn master_refine_published_artifact(
                 "refinement checkpoint has a different source or requested seed depth",
             ));
         }
-        let session = load_master_reduction(&options.directory)?;
+        let session = load_master_relation_session(&options.directory)?;
         assistance::validate(options, &session, &report)?;
         (report, session)
     } else {
@@ -86,7 +102,7 @@ pub fn master_refine_published_artifact(
                 "refinement checkpoint exists; use --resume",
             ));
         }
-        let mut session = load_master_reduction(source)?;
+        let mut session = load_master_relation_session(source)?;
         let changes_profile = normalization_profile != source_profile;
         if changes_profile {
             session = TerminalRelationSession::new(
@@ -103,6 +119,7 @@ pub fn master_refine_published_artifact(
         }
         storage::clone_inputs(&source_directory, &options.directory, &source_report)?;
         let mut report = source_report.clone();
+        report["schema"] = json!(SCHEMA);
         report
             .as_object_mut()
             .ok_or_else(|| AppError::input("artifact report is not an object"))?
@@ -110,6 +127,8 @@ pub fn master_refine_published_artifact(
         report["checkpoint"] = json!({"generation":0});
         report["native_state"] = Value::Null;
         report["refinement_binding"] = json!(binding);
+        report["collection_input_identity"] = collection_identity;
+        report["collection_requested_paths"] = json!(options.collection_artifacts);
         report["source_artifact"] = json!({
             "manifest_blake3":blake3::hash(&source_metadata).to_hex().to_string(),
             "native_state_blake3":source_report["native_state"]["blake3"],
@@ -119,6 +138,8 @@ pub fn master_refine_published_artifact(
         report["seed_depth"] = json!(session.statistics().seed_depth);
         profile::record(&mut report, normalization_profile);
         report["finite_search_restarted_for_normalization_profile"] = json!(changes_profile);
+        collection::inherit(source, &options.directory, &mut report)?;
+        collection::add_members(options, &session, &mut report)?;
         assistance::configure(options, &mut session, &mut report)?;
         save(
             options,
@@ -130,7 +151,8 @@ pub fn master_refine_published_artifact(
         )?;
         (report, session)
     };
-    if report["status"] == "completed_nonminimal" {
+    if report["status"] == "completed_nonminimal" && report["collection"]["status"] == "completed" {
+        let _ = load_master_reduction(&options.directory)?;
         if !session.is_complete() {
             return Err(AppError::input(
                 "completed refinement manifest has unfinished native state",

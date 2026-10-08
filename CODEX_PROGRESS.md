@@ -1,5 +1,105 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 8 — saved-campaign collection integration: delivery acceptance
+
+All required integration gates pass. Final focused results: 39 core terminal-
+relation tests, 4 native-envelope tests, 41 app workflow/parser tests, 2 table
+tests, 58 Python steering tests, and 5 inventory tests (including the physical-
+arity regression), all zero failures on their final runs. Independent agents
+approved mathematical/native composition, public lifecycle and the narrow
+capacity-dispatch fix. The release binary and actual Python lifecycle are
+verified; exact native controls and resume/application checks are documented
+in `docs/research/saved_campaign_terminal_collection_2026-10-08.md`.
+
+Root is committing/pushing only task-owned code, tests and docs. No native
+outputs, temporary evidence, license, reference material, live campaign,
+unrelated HEPKit changes or notebook work is included. Follow-up research on
+further terminal reduction and generation-time use of these identities remains
+outside this completed integration objective.
+
+### October 8 — integration implementation and first validation
+
+The new native collection/composition layer passed its first 36 focused
+terminal-relation tests; the app library compiles. Python steering passed
+56 focused tests. Logs are under `TMP/collection-workflow-20261008/`.
+These are initial checks, not completed release/public-workflow acceptance.
+Independent review additionally caught a mass-restoration admission hole for
+negative powers of denominators carrying a second scale; the core lane is
+adding a fail-closed regression. Previously proved collection identities must
+also survive a changed local basis after scope extension, so explicit refine
+will retain old proof layers before adding new exact identities.
+
+The Python launcher now distinguishes a paused phase from a completed one:
+completed old phases must not silently pin an obsolete frozen executable.
+Publication and application use a portable native collection payload and
+explicit family-qualified maps. A separate `terminal_collection` checkpoint
+boundary prevents a completed finite source cursor from being mistaken for
+completed whole refinement. Input copies for the four-loop public CLI control
+have been made from the four immutable native sessions (74 raw keys, 65 local
+remaining); these finite-session fixtures assert no campaign coverage.
+Root is preparing real public-script interruption/extension/inspection checks
+on a scratch campaign, never on the user's running rank-ladder campaign.
+
+The updated core passed 39 focused tests and four native-envelope tests;
+the final physical alternative-basis regression is queued for a clean rerun.
+The independent auditor approves layered exact proofs and the deliberately
+nonminimal protected-output policy. Application lifecycle tests are compiling;
+Python now passes 58 steering tests. Source is frozen for these gates.
+The additional-peer option imports finite cursors, not peers' separate
+collection overlays; primary prior collection proofs are preserved. This
+explicit limitation is documented rather than claiming a universal artifact
+knowledge merge. Native collection uses bounded resource recipes and returns
+typed limits, never truncates a map or claims unsupported coverage.
+
+Final core rerun covers the auditor's physical alternative-basis example:
+39/39 pass, plus 4/4 envelope tests. First app run passed 39/40 tests, including
+all eight new lifecycle/audit checks. Its one old inherited-publication fixture
+cloned a manifest without the newly required native sidecar; the fixture now
+uses the same collection inheritance service as production, with assertions
+unchanged. The final app rerun also tests the necessary manifest-v2 boundary:
+new collected publications must not be accepted by old consumers that would
+silently ignore collection maps. Narrow v1 finite-session input ingestion is
+retained; collected v1 masquerading and v1 in-place checkpoints are rejected.
+Release build is queued behind that test compile, log `release-build.log`;
+no release measurement or full public-workflow success is claimed yet.
+
+Release/public-native acceptance now succeeded on the unchanged frozen inputs:
+four-family collection 74 raw → 65 finite outputs → 22 aliases → 20 remaining,
+0.901 s process wall / 0.128 s collection preparation; five-loop 829 raw →
+651 normalized → 608 finite outputs → 607 remaining, 20.242 s process wall /
+2.319 s preparation. The 253 numerator free keys remain unchanged. Independent
+public-loader verification checked all 74/829 maps, source hashes, guards,
+master-only output and homogeneity; 65 four-loop raw maps additionally match
+the exact FMFT census, while the other nine have exact predecessor-composition
+checks. No new numerical five-loop oracle or minimality claim.
+
+All 41 final app tests pass (including schema v2, legacy source ingestion and
+assisted inheritance), plus 58 Python and two table tests. A real native SIGINT
+during collection saved cleanly; resumed five-loop maps, cursor content and
+150,098-byte collection payload exactly match continuous execution. Receipts:
+`{four,five}-application-audit.json`, `five-resume-comparison.json`.
+
+The fresh Python lifecycle control exposed a separate existing capacity-
+dispatch bug: inventory exported storage-width N=16 indices for a K=10 family.
+The fix validates inactive zero padding, then projects terminal keys and owner
+masks to physical arity; core arity validation stays strict. Independent audit
+approved it. Focused inventory tests and the final release rebuild are running;
+the same scratch campaign will resume publication to verify the real public
+run → refine → repeat → widen → publish → refine → inspect chain. This remains
+the last acceptance gate before committing the implementation.
+
+The final optimized build now passes that complete public Python chain.
+R≤1,D≤4 publication succeeded, plain explicit refinement collected and published,
+unchanged repeat was a no-op; R≤2,D≤5 amendment made inspection flag the old
+scope stale, extension publication retained the old collection without new
+ordinary source rows, and subsequent explicit refine/inspection completed.
+Receipt `workflow-validation.json`; each command has a timing/argv receipt.
+CLI SHA256 `b4130da7a7853fd087b3fa0c75d7554ebb80f0652c5b085c40fa6dc947a65ba3`.
+The final inventory-focused regression gate also passed, 5/5 tests in 11.09 s.
+All implementation and independent audit lanes are frozen with no remaining
+integration blocker. Unrelated HEPKit/notebook edits and all campaign/reference
+material remain excluded from this milestone.
+
 ## October 8 — active follow-up: saved-campaign collection integration
 
 User requests a tool-managed goal to make the new library methods available
@@ -19,13 +119,13 @@ Integration started with separate agents `collection_native_integration`
 (app/CLI/Python orchestration), and `collection_workflow_audit` (independent
 mathematics/code review). Root owns integration resources and real workflow
 acceptance. Inspection found that saved campaigns currently publish one routed
-family, whereas the65→20control consists of four distinct family sessions.
+family, whereas the 65→20 control consists of four distinct family sessions.
 Chosen design: preserve finite per-family search cursors; persist a separate
 core collection over them with family-qualified composed outputs. A repeatable
 `--collection-artifact` option can supply additional portable publications;
 ordinary one-family `refine` still invokes applicable collection by default.
 The public artifact loader must expose the composed map, with the raw search
-cursor explicitly named separately—never report20while silently applying65.
+cursor explicitly named separately—never report 20 while silently applying 65.
 
 The collection phase checkpoints before preparation and publishes atomically
 after it; cancellation cannot mark an unfinished postprocess complete.
@@ -38,8 +138,8 @@ not certify every exceptional-dimension pivot, and the wrapper must not upgrade
 that authority. New collection guards and inherited documented conditions
 remain explicit. No custom algebra kernel or numerical-master search planned.
 
-Acceptance inventory: all74original four-loop packaged keys and all829frozen
-five-loop keys, not only their65/608 remaining representatives. Public-script
+Acceptance inventory: all 74 original four-loop packaged keys and all 829 frozen
+five-loop keys, not only their 65/608 remaining representatives. Public-script
 controls, cold application, repeat-refine, interruption/resume, scope extension
 and inspection remain required before goal completion. Original production is
 currently a new user-launched rank-ladder process; it is not a test target.

@@ -10,6 +10,7 @@ mod audit_tests;
 mod elimination;
 mod model;
 mod prepare;
+mod saved;
 #[cfg(test)]
 mod tests;
 
@@ -18,6 +19,7 @@ pub use model::{
     VacuumCollectionStatistics, VacuumDiagonalCollectionLimits, VacuumDiagonalCollectionPlan,
     VacuumDiagonalSource, VacuumOrdinarySource,
 };
+pub use saved::{TerminalCollectionLimits, TerminalCollectionPlan, TerminalCollectionStatistics};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

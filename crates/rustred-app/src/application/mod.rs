@@ -18,7 +18,7 @@ mod input;
 mod lowering;
 pub(crate) mod memory;
 mod master_reduction;
-pub use master_reduction::{MasterNormalizationProfile, MasterReductionOperation, MasterReductionOptions, master_reduce_saved_campaign, master_refine_published_artifact, master_reduction_inspect, load_master_reduction};
+pub use master_reduction::{MasterNormalizationProfile, MasterReductionOperation, MasterReductionOptions, MasterReductionArtifact, master_reduce_saved_campaign, master_refine_published_artifact, master_reduction_inspect, load_master_reduction, load_master_relation_session};
 mod model;
 mod options;
 mod producer;

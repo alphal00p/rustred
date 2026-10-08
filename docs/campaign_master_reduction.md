@@ -108,7 +108,8 @@ not independently replay their source derivations. The resulting count is a
 finite symbolic spanning list, with generic-parameter conditions; it is not a
 claim of independent or numerical masters.
 
-The default remains ordinary refinement. Once explicitly chosen, the mode is
+The default finite source search remains ordinary refinement; the native
+terminal collection described below follows it automatically. Once explicitly chosen, the mode is
 remembered for subsequent explicit `refine` resumes. Use
 `refine --no-saved-rule-assistance --no-circuit-symmetry-assistance` for an
 ordinary-source comparison; each flag independently disables its provider.
@@ -181,6 +182,84 @@ The current finite exact elimination uses one incremental Symbolica reducer.
 The worker budget parallelizes cold scope reinspection and saved-route
 verification. The dashboard reports measured CPU usage rather than implying all reserved
 workers are busy throughout post-processing.
+
+## Native terminal collection and application
+
+The ordinary public `refine` command runs the exact `full-u-diagonal-v1`
+collection after its finite source search. No separate Rust driver or opt-in
+switch is needed. It first composes the finite local maps, then removes exact
+full-U parameter-permutation aliases across compatible families and finds
+additional relations from native diagonal ordinary-IBP sums. It retains all
+auxiliary columns and independently replays the newly generated source
+identities. Neither numerical master values nor oracle equations enter this
+stage. Unsupported keys, including numerator-bearing keys in this scalar
+collection lane, remain in the output rather than being discarded.
+
+One saved campaign does not automatically contain all separate parent-family
+inventories. Supply additional published packages explicitly when useful:
+
+```bash
+python -B examples/python/saved_campaign.py refine --campaign "$CAMPAIGN" \
+  --collection-artifact /path/to/second-package \
+  --collection-artifact /path/to/third-package
+```
+
+The equivalent native argument is repeatable `walk-master-reduce
+--collection-artifact`. Compatible groups have the same loop count, exact
+dimension and coefficient variable map; there is no topology-name dispatch.
+The package copies participating native sessions and records family-qualified
+keys. It subsequently cold-loads, resumes and refines without the original
+peer directories. Supplying conflicting sessions for the same family fails
+explicitly rather than silently replacing an inventory. Peers contribute
+finite terminal identities, not coverage of additional campaign queries.
+The primary artifact's previous collection proof layers are retained.
+Additional peers currently contribute their finite search sessions, not their
+own composed collection overlays; those overlays are not merged or guaranteed
+to yield the same terminal count in the new collection. The original peer
+packages remain unchanged, and their pending finite searches are not advanced.
+Completion means the primary requested search and collection finished, not
+that every peer's optional search was exhausted.
+
+Counts have distinct meanings: primary raw/normalized/remaining counters refer
+to the primary campaign; the `collection` record reports combined raw keys,
+precollection remaining keys, alias classes and final remaining outputs.
+The measured four-family inventory is 74 raw keys → 65 local outputs → 22
+global aliases → 20 after diagonal identities. These numbers are input-specific,
+not promised for arbitrary scopes. With inherited multi-layer proofs, alias
+statistics describe retained proof work rather than a fresh unique census.
+
+The portable Symbolica-native `TerminalCollection` payload contains the
+composed maps, inherited conditions/provider bindings and exact source evidence.
+New publications use manifest schema `rustred.master-reduction.v2`, so an old
+consumer cannot silently ignore the collected application. Existing v1
+publications remain admissible as refinement inputs, not as v2 checkpoints.
+`rustred_app::load_master_reduction(path)` returns `MasterReductionArtifact`;
+use its `apply_terminal(family, key)` for the collected, guarded, family-qualified
+result. Its `collection()` exposes the retained output set and checked
+common-mass restoration exponent. Cold loading validates once; application is
+a flat lookup. `load_master_relation_session` and `primary_session()` expose
+the underlying finite search cursor, **not** the full collected application.
+
+Source sessions remain generic rational-function identities with their existing
+authority. Collection does not invent certificates for every exceptional
+dimension or upgrade saved candidate equations to source-proved IBPs. Explicit
+new guards and inherited conditions remain attached. For compatible common-mass
+vacuum terms the coefficient receives `(m²)^(sum(output)-sum(input))`;
+unsupported additional scales are rejected by the homogeneity helper.
+
+The `terminal_collection` phase has a checkpoint before preparation and atomic
+publication afterwards. Ctrl+C preserves the completed finite search; resume
+finishes or validates collection without rerunning campaign closure. An
+unchanged completed refinement is a no-op. A later scope extension rebinds
+already proved maps without new diagonal discovery; explicit refinement can
+then add identities for new outputs. Retained output names are protected as
+identity terminals when a later local basis differs, keeping one-pass maps
+flat and avoiding mixed-basis cycles. This conservative policy can leave a
+nonminimal basis; minimizing that basis is a separate task.
+
+A completed old phase no longer forces the wrapper to reuse its old executable.
+The current optimized binary is selected; paused phases retain their frozen
+cursor binary unless deliberately replaced with `--executable`.
 
 ## Stop, resume and enlarge the input scope
 

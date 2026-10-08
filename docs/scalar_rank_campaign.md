@@ -381,8 +381,13 @@ colour. Redirected automatic output is JSON. The table distinguishes installed
 rule records from observed-cover rules, the current scope's terminals from the
 retained search inventory, normalized candidates and the remaining nonminimal
 basis. It also displays starting R/D caps (within the recorded domains), search
-depth and checkpoint state. Native Rust callers can cold-load the relation
-session with `load_master_reduction` and apply exact terminal substitutions.
+depth and checkpoint state. Native Rust callers cold-load the composed
+`MasterReductionArtifact` with `load_master_reduction` and call
+`apply_terminal(family, key)` for exact collected substitutions. The explicitly
+named `load_master_relation_session` exposes only the finite search cursor,
+without the cross-family collection layer. See the
+[collection contract](campaign_master_reduction.md#native-terminal-collection-and-application)
+for peer inputs, native persistence, retained guards and scope-extension reuse.
 No numerical evaluation or assertion of master minimality is implied.
 
 ## Reading the corrected monitor

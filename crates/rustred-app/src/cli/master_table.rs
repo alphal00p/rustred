@@ -54,11 +54,25 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
         ("Requested D cap", "requested_scope.max_starting_d"),
         ("Query domains", "scope.starting_queries"),
         ("Current scope terminals", "inventory.encountered.terminals"),
-        ("Retained source keys", "raw_terminals"),
+        ("Primary source keys", "raw_terminals"),
         ("Normalization profile", "normalization_profile"),
-        ("Normalized terminal keys", "normalized_terminals"),
-        ("Remaining basis keys", "remaining_terminals"),
-        ("Eliminated terminal keys", "eliminated_terminals"),
+        ("Primary normalized keys", "normalized_terminals"),
+        ("Primary output basis keys", "remaining_terminals"),
+        ("Primary before collection", "finite_remaining_terminals"),
+        ("Collection strategy", "collection.strategy"),
+        ("Collection families", "collection.families"),
+        ("All-family source keys", "collection.raw_terminals"),
+        ("All-family normalized", "collection.normalized_terminals"),
+        ("All-family before collect", "collection.before_collection"),
+        ("Full-U alias classes", "collection.global_alias_classes"),
+        (
+            "Stored diagonal identities",
+            "collection.terminal_equations",
+        ),
+        ("Retained proof layers", "collection.proof_layers"),
+        ("All-family basis keys", "collection.remaining_terminals"),
+        ("Unchanged pass-through", "collection.passthrough_terminals"),
+        ("Primary eliminated keys", "eliminated_terminals"),
         ("Ordinary IBP rows", "relation_rows"),
         ("Saved-rule assistance", "saved_rule_assistance"),
         ("Circuit assistance", "circuit_symmetry_assistance"),
@@ -83,13 +97,18 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
     ];
     for (label, name) in fields {
         if (name.starts_with("requested_scope.") && summary["requested_scope"].is_null())
+            || (name.starts_with("collection.") && summary["collection"].is_null())
             || (name == "source_checkpoint" && summary[name].is_null())
             || (name.starts_with("inherited_equation_authority.")
                 && summary["inherited_equation_authority"].is_null())
         {
             continue;
         }
-        let label = if summary["artifact"].is_null() && label.starts_with("Published") {
+        let label = if name == "collection.global_alias_classes"
+            && summary["collection"]["proof_layers"].as_u64().unwrap_or(0) > 1
+        {
+            "Historical alias classes"
+        } else if summary["artifact"].is_null() && label.starts_with("Published") {
             if label == "Published R cap" {
                 "Inventoried R cap"
             } else {

@@ -15,6 +15,12 @@ pub struct VacuumIntegralKey {
     pub(super) key: IntegralKey,
 }
 impl VacuumIntegralKey {
+    pub(crate) fn from_family(family: &IntegralFamily, key: IntegralKey) -> Self {
+        Self {
+            family: family.fingerprint_owner(),
+            key,
+        }
+    }
     pub fn family_fingerprint(&self) -> &str {
         &self.family
     }

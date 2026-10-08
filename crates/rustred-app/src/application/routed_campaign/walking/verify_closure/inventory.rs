@@ -105,17 +105,24 @@ impl Collector {
             return Err(AppError::execution("inventory owner preparation repeated"));
         }
         state.family = Some(Arc::clone(programs.context().family_owner()));
+        let physical_arity = programs.context().family().denominator_count();
         let mut rules = 0usize;
         let mut terminal_records = 0usize;
         let batches = programs
             .installed_inventory()
             .map(|(owner, batch, batch_rules, batch_terminals)| {
+                let owner =
+                    physical_owner(owner, physical_arity).map_err(AppError::internal_invariant)?;
+                let owner: String = owner
+                    .iter()
+                    .map(|&active| if active { '1' } else { '0' })
+                    .collect();
                 rules += batch_rules;
                 terminal_records += batch_terminals;
-                json!({"owner":super::mask(owner),"batch":batch,
-                    "rules":batch_rules,"declared_terminals":batch_terminals})
+                Ok(json!({"owner":owner,"batch":batch,
+                    "rules":batch_rules,"declared_terminals":batch_terminals}))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, AppError>>()?;
         state.installed = json!({
             "owners":programs.owner_count(),"batches":batches.len(),
             "rules":rules,"declared_terminal_records":terminal_records,
@@ -147,10 +154,17 @@ impl Collector {
         state: &mut State,
         piece: &OwnerDomainMatchPiece<N>,
     ) -> Result<(), AppError> {
+        let physical_arity = state
+            .family
+            .as_ref()
+            .ok_or_else(|| AppError::internal_invariant("inventory family was not prepared"))?
+            .denominator_count();
+        let owner =
+            physical_owner(piece.owner(), physical_arity).map_err(AppError::internal_invariant)?;
         match piece.disposition() {
             OwnerDomainMatchDisposition::SelectedRule { batch, rule } => {
                 let identity = RuleIdentity {
-                    owner: piece.owner().to_vec(),
+                    owner: owner.to_vec(),
                     batch,
                     rule,
                 };
@@ -166,7 +180,7 @@ impl Collector {
                 state.selected_rule_events += 1;
             }
             OwnerDomainMatchDisposition::Terminal { .. } => {
-                let key = terminal_key(piece.owner(), piece.lower(), piece.upper())
+                let key = terminal_key(piece.owner(), piece.lower(), piece.upper(), physical_arity)
                     .map_err(AppError::internal_invariant)?;
                 if !state.terminals.contains(&key)
                     && state.terminals.len() >= self.max_unique_terminals
@@ -206,20 +220,41 @@ impl Collector {
     }
 }
 
+/// The solver may share a larger fixed-capacity buffer. Only authenticated
+/// inactive padding can be removed at this public physical-coordinate boundary.
+fn physical_owner(owner: &[bool], physical_arity: usize) -> Result<&[bool], String> {
+    if physical_arity == 0 || physical_arity > owner.len() {
+        return Err("inventory physical arity exceeds its storage or is empty".into());
+    }
+    if owner[physical_arity..].iter().any(|&active| active) {
+        return Err("inventory owner has an active padding coordinate".into());
+    }
+    Ok(&owner[..physical_arity])
+}
+
 /// A terminal classification fixes *every* exponent. Recovering the integral
 /// is a checked coordinate conversion, not a search or symbolic evaluation.
 fn terminal_key(
     owner: &[bool],
     lower: &[u64],
     upper: &[Option<u64>],
+    physical_arity: usize,
 ) -> Result<IntegralKey, String> {
     if owner.len() != lower.len() || owner.len() != upper.len() {
         return Err("terminal classification arity mismatch".into());
     }
+    let owner = physical_owner(owner, physical_arity)?;
+    if lower[physical_arity..].iter().any(|&value| value != 0)
+        || upper[physical_arity..]
+            .iter()
+            .any(|&value| value != Some(0))
+    {
+        return Err("terminal classification has nonzero or open padding".into());
+    }
     let values = owner
         .iter()
-        .zip(lower)
-        .zip(upper)
+        .zip(&lower[..physical_arity])
+        .zip(&upper[..physical_arity])
         .map(|((&positive, &value), &upper)| {
             if upper != Some(value) {
                 return Err("terminal classification is not a singleton".to_owned());
@@ -379,23 +414,44 @@ mod tests {
             terminal_key(
                 &[true, false, false],
                 &[2, 0, 5],
-                &[Some(2), Some(0), Some(5)]
+                &[Some(2), Some(0), Some(5)],
+                3,
             )
             .unwrap()
             .powers(),
             &[3, 0, -5]
         );
-        assert!(terminal_key(&[true], &[0], &[None]).is_err());
-        assert!(terminal_key(&[true], &[0], &[Some(1)]).is_err());
-        assert!(terminal_key(&[true], &[i64::MAX as u64], &[Some(i64::MAX as u64)]).is_err());
+        assert!(terminal_key(&[true], &[0], &[None], 1).is_err());
+        assert!(terminal_key(&[true], &[0], &[Some(1)], 1).is_err());
+        assert!(terminal_key(&[true], &[i64::MAX as u64], &[Some(i64::MAX as u64)], 1).is_err());
         assert_eq!(
-            terminal_key(&[false], &[1u64 << 63], &[Some(1u64 << 63)])
+            terminal_key(&[false], &[1u64 << 63], &[Some(1u64 << 63)], 1)
                 .unwrap()
                 .powers(),
             &[i64::MIN]
         );
-        assert!(terminal_key(&[false], &[u64::MAX], &[Some(u64::MAX)]).is_err());
-        assert!(terminal_key(&[false], &[], &[]).is_err());
+        assert!(terminal_key(&[false], &[u64::MAX], &[Some(u64::MAX)], 1).is_err());
+        assert!(terminal_key(&[false], &[], &[], 1).is_err());
+    }
+
+    #[test]
+    fn capacity_terminal_keys_and_owner_masks_project_only_zero_padding() {
+        let owner = [true, false, false, false];
+        let lower = [2, 5, 0, 0];
+        let upper = [Some(2), Some(5), Some(0), Some(0)];
+        assert_eq!(physical_owner(&owner, 2).unwrap(), &[true, false]);
+        assert_eq!(
+            terminal_key(&owner, &lower, &upper, 2).unwrap().powers(),
+            &[3, -5]
+        );
+        assert!(physical_owner(&[true, false, true, false], 2).is_err());
+        assert!(terminal_key(&[true, false, true, false], &lower, &upper, 2).is_err());
+        assert!(terminal_key(&owner, &[2, 5, 1, 0], &upper, 2).is_err());
+        assert!(terminal_key(&owner, &lower, &[Some(2), Some(5), None, Some(0)], 2).is_err());
+        assert!(terminal_key(&owner, &lower, &[Some(2), Some(5), Some(1), Some(0)], 2).is_err());
+        assert!(terminal_key(&owner, &lower, &upper, 0).is_err());
+        assert!(terminal_key(&owner, &lower, &upper, 5).is_err());
+        assert!(physical_owner(&owner, 5).is_err());
     }
 
     #[test]
@@ -443,6 +499,20 @@ mod tests {
         assert_eq!(summary["verification"]["verdict"], "PASS", "{summary}");
         assert_eq!(summary["encountered"]["terminals"], 1);
         assert_eq!(summary["encountered"]["rules"], 0);
+        assert!(
+            inventory
+                .terminal_keys()
+                .iter()
+                .all(|key| key.powers().len() == inventory.family_owner().denominator_count())
+        );
+        assert!(
+            summary["installed"]["batch_inventory"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|batch| batch["owner"].as_str().unwrap().len()
+                    == inventory.family_owner().denominator_count())
+        );
         assert!(summary["installed"]["rules"].as_u64().unwrap() > 0);
         assert!(
             summary["installed"]["owner_qualified_unique_declared_terminals"]

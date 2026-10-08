@@ -1,5 +1,5 @@
 mod application;
-pub use application::{MasterNormalizationProfile, MasterReductionOperation, MasterReductionOptions, master_reduce_saved_campaign, master_refine_published_artifact, master_reduction_inspect, load_master_reduction};
+pub use application::{MasterNormalizationProfile, MasterReductionOperation, MasterReductionOptions, MasterReductionArtifact, master_reduce_saved_campaign, master_refine_published_artifact, master_reduction_inspect, load_master_reduction, load_master_relation_session};
 pub use application::{
     CandidateArtifact, CandidateArtifactPage, CandidateGenerationEvents, CandidateGenerationJob,
     CandidateGenerationSession, CandidateGenerationSnapshot, CandidateGenerationState,

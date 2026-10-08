@@ -1,6 +1,7 @@
 //! Optional finite, resumable master-candidate reduction after a saved walk.
 //! CP6 coverage and finite IBP row-span identities remain distinct authorities.
 mod assistance;
+mod collection;
 mod inherited;
 mod profile;
 mod refine;
@@ -20,10 +21,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use storage::{io, read_json, write_json};
 
+pub use collection::{MasterReductionArtifact, load_master_reduction};
 pub use profile::MasterNormalizationProfile;
 pub use refine::master_refine_published_artifact;
 
-const SCHEMA: &str = "rustred.master-reduction.v1";
+const SCHEMA: &str = "rustred.master-reduction.v2";
+const LEGACY_SOURCE_SCHEMA: &str = "rustred.master-reduction.v1";
 
 /// Publication packages existing knowledge without searching for new IBPs.
 /// Refinement explicitly drains a bounded ordinary-source search.
@@ -39,6 +42,9 @@ pub struct MasterReductionOptions {
     pub checkpoint: PathBuf,
     pub directory: PathBuf,
     pub previous_artifact: Option<PathBuf>,
+    /// Additional immutable publications whose terminal inventories are
+    /// collected with the primary family during explicit refinement.
+    pub collection_artifacts: Vec<PathBuf>,
     pub resume: bool,
     pub threads: usize,
     pub seed_depth: u32,
@@ -64,6 +70,7 @@ impl MasterReductionOptions {
             checkpoint: checkpoint.into(),
             directory: directory.into(),
             previous_artifact: None,
+            collection_artifacts: Vec::new(),
             resume: false,
             threads: 1,
             seed_depth: 0,
@@ -92,8 +99,18 @@ pub fn master_reduction_inspect(path: &Path) -> Result<Value, AppError> {
         path.to_path_buf()
     };
     let report = read_json(&manifest)?;
-    if report["schema"] != SCHEMA {
+    if report["schema"] != SCHEMA && report["schema"] != LEGACY_SOURCE_SCHEMA {
         return Err(AppError::input("not a master-reduction package"));
+    }
+    // Legacy finite publications remain readable as refinement inputs. New
+    // collection packages must not be relabelled as a format whose consumers
+    // would silently apply only the pre-collection session.
+    if report["schema"] == LEGACY_SOURCE_SCHEMA
+        && (!report["collection_state"].is_null() || !report["collection"].is_null())
+    {
+        return Err(AppError::input(
+            "terminal collections require master-reduction schema v2",
+        ));
     }
     let parent = manifest.parent().unwrap_or(Path::new("."));
     if let Some(name) = report["native_state"]["file"].as_str() {
@@ -106,12 +123,29 @@ pub fn master_reduction_inspect(path: &Path) -> Result<Value, AppError> {
             ));
         }
     }
+    if report["collection"]["status"] == "completed" && !report["collection_state"].is_object() {
+        return Err(AppError::input(
+            "completed terminal collection has no native state",
+        ));
+    }
+    if let Some(name) = report["collection_state"]["file"].as_str() {
+        let state = storage::safe_child(parent, name)?;
+        if std::fs::metadata(state).map_err(io)?.len()
+            != report["collection_state"]["bytes"]
+                .as_u64()
+                .unwrap_or(u64::MAX)
+        {
+            return Err(AppError::input(
+                "native collection state size differs from manifest",
+            ));
+        }
+    }
     Ok(report)
 }
 
 /// Cold-load the self-contained native finite relations. This validates its
 /// digest and Symbolica/native structure; it does not certify saved owner rules.
-pub fn load_master_reduction(path: &Path) -> Result<TerminalRelationSession, AppError> {
+pub fn load_master_relation_session(path: &Path) -> Result<TerminalRelationSession, AppError> {
     let report = master_reduction_inspect(path)?;
     let directory = if path.is_dir() {
         path
@@ -141,6 +175,11 @@ pub fn master_reduce_saved_campaign(
     cancellation: &AtomicBool,
     observer: impl Fn(Value),
 ) -> Result<Value, AppError> {
+    if !options.collection_artifacts.is_empty() {
+        return Err(AppError::input(
+            "additional collection artifacts require refinement from a published artifact",
+        ));
+    }
     if options.threads == 0 || options.checkpoint_interval.is_zero() {
         return Err(AppError::input(
             "threads and checkpoint interval must be positive",
@@ -148,7 +187,8 @@ pub fn master_reduce_saved_campaign(
     }
     if (options.saved_rule_assistance
         || options.circuit_symmetry_assistance
-        || options.containing_sector_depth != 0)
+        || options.containing_sector_depth != 0
+        || !options.collection_artifacts.is_empty())
         && options.operation != MasterReductionOperation::Refine
     {
         return Err(AppError::input(
@@ -214,11 +254,13 @@ pub fn master_reduce_saved_campaign(
         profile::record(&mut report, normalization_profile);
         report
     };
-    if report["status"] == "completed_nonminimal"
+    if (report["status"] == "completed_nonminimal" && report["collection"]["status"] == "completed")
         || (options.operation == MasterReductionOperation::Publish
-            && report["status"] == "published_unrefined")
+            && report["status"] == "published_unrefined"
+            && report["collection"]["status"] == "completed")
     {
-        let session = load_master_reduction(&options.directory)?;
+        let session = load_master_relation_session(&options.directory)?;
+        let _ = load_master_reduction(&options.directory)?;
         assistance::validate(options, &session, &report)?;
         if report["status"] == "completed_nonminimal" && !session.is_complete() {
             return Err(AppError::input(
@@ -276,7 +318,7 @@ fn run(
     report: &mut Value,
 ) -> Result<(), AppError> {
     let mut session = if report["native_state"].is_object() {
-        load_master_reduction(&options.directory)?
+        load_master_relation_session(&options.directory)?
     } else {
         report["stage"] = json!("inventory");
         let mut inventory_options = OwnerDomainWalkInventoryOptions::new(&options.checkpoint);
@@ -334,7 +376,8 @@ fn run(
                     "previous stage is unpublished or has different saved rules/routes",
                 ));
             }
-            let mut previous_session = load_master_reduction(previous)?;
+            let mut previous_session = load_master_relation_session(previous)?;
+            collection::inherit(previous, &options.directory, report)?;
             if previous_session.family_owner().fingerprint()
                 != inventory.family_owner().fingerprint()
             {
@@ -383,6 +426,7 @@ fn run(
             )
             .map_err(io)?
         };
+        collection::add_members(options, &session, report)?;
         assistance::configure(options, &mut session, report)?;
         save(options, &session, report, "running", started, observer)?;
         session
@@ -430,6 +474,11 @@ fn execute_session(
         save(options, &session, report, "paused", started, observer)?;
         return Ok(());
     }
+    collection::complete(options, session, report, cancel, observer, started)?;
+    if cancel.load(Ordering::Relaxed) {
+        save(options, session, report, "paused", started, observer)?;
+        return Ok(());
+    }
     save(
         options,
         &session,
@@ -464,7 +513,9 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     // The core owns all algebraic counts and work cursors; this is only their
     // presentation/transport boundary, shared by CLI and notebook consumers.
     let stats = session.statistics();
-    report["stage"] = json!(if report["operation"] != "publish"
+    report["stage"] = json!(if report["collection"]["status"] == "preparing" {
+        "terminal_collection"
+    } else if report["operation"] != "publish"
         && (stats.pending_assistance_keys > 0 || stats.pending_assistance_rows > 0)
     {
         "assisted_equations"
@@ -495,20 +546,31 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     report["completed_seeds"] = json!(stats.completed_seeds);
     report["seeds"] = json!(stats.seeds);
     report["raw_terminals"] = json!(session.raw_terminals().len());
-    report["remaining_terminals"] = json!(stats.remaining_terminals);
-    report["eliminated_terminals"] =
-        json!(initially_normalized.saturating_sub(stats.remaining_terminals));
+    report["finite_remaining_terminals"] = json!(stats.remaining_terminals);
+    report["remaining_terminals"] = report["collection"]["primary_remaining_terminals"]
+        .as_u64()
+        .map_or_else(|| json!(stats.remaining_terminals), |count| json!(count));
+    report["eliminated_terminals"] = json!(
+        initially_normalized.saturating_sub(
+            report["remaining_terminals"]
+                .as_u64()
+                .unwrap_or(stats.remaining_terminals as u64) as usize
+        )
+    );
     report["terminal_relations"] = json!(stats.terminal_relations);
     report["seed_depth"] = json!(stats.seed_depth);
     report["completed_assistance_keys"] = json!(stats.completed_assistance_keys);
     report["pending_assistance_keys"] = json!(stats.pending_assistance_keys);
     report["completed_assistance_rows"] = json!(stats.completed_assistance_rows);
     report["pending_assistance_rows"] = json!(stats.pending_assistance_rows);
-    report["refinement_complete"] = json!(stats.complete);
+    report["finite_search_complete"] = json!(stats.complete);
+    report["refinement_complete"] =
+        json!(stats.complete && report["collection"]["status"] == "completed");
     report["capabilities"] = json!({
         "saved_scope_coverage_verified": report["inventory"]["complete"] == true,
         "native_terminal_state": true,
         "exact_current_terminal_substitutions": stats.pending_rebuild_rows == 0,
+        "collected_terminal_application": report["collection"]["status"] == "completed",
         "routed_coefficient_application": false,
         "numerical_master_values": false,
         "minimality_proved": false
@@ -524,6 +586,7 @@ fn save(
     observer: &impl Fn(Value),
 ) -> Result<(), AppError> {
     let save_start = Instant::now();
+    report["schema"] = json!(SCHEMA);
     let generation = report["checkpoint"]["generation"]
         .as_u64()
         .unwrap_or(0)

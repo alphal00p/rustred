@@ -1,5 +1,10 @@
 # Cross-family terminal collection: four-loop evidence, 2026-10-08
 
+The subsequent [saved-campaign integration](saved_campaign_terminal_collection_2026-10-08.md)
+now supplies native collection publication, cold application and the ordinary
+`saved_campaign.py refine` command. The library-only scope statements below
+describe the preceding experimental milestone, not the current public interface.
+
 ## Result and scope
 
 The complete packaged four-loop output inventories currently give this finite,

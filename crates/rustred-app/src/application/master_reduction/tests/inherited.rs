@@ -117,7 +117,7 @@ fn publication_preserves_assisted_rows_guards_and_pending_work_without_providers
             &|_| {},
         )
         .unwrap();
-        let mut loaded = load_master_reduction(&output.0).unwrap();
+        let mut loaded = load_master_relation_session(&output.0).unwrap();
         publishing.resume = true;
         assistance::validate(&publishing, &loaded, &published).unwrap();
         execute_session(
@@ -151,7 +151,7 @@ fn publication_preserves_assisted_rows_guards_and_pending_work_without_providers
         assert_eq!(published["status"], "published_unrefined");
         assert_eq!(profile::from_report(&published).unwrap(), selected);
         assert_eq!(
-            load_master_reduction(&source.0)
+            load_master_relation_session(&source.0)
                 .unwrap()
                 .to_native_bytes(Default::default())
                 .unwrap(),
@@ -181,6 +181,7 @@ fn publication_preserves_assisted_rows_guards_and_pending_work_without_providers
         next["checkpoint"] = json!({"generation":0});
         next["native_state"] = Value::Null;
         inherited::capture(&loaded, &published, &mut next).unwrap();
+        collection::inherit(&output.0, &repeated.0, &mut next).unwrap();
         loaded
             .extend(&BTreeSet::from([IntegralKey::try_new([7]).unwrap()]), 0)
             .unwrap();
@@ -233,7 +234,7 @@ fn publication_preserves_assisted_rows_guards_and_pending_work_without_providers
             refined_report["finite_search_restarted_for_policy"],
             circuit
         );
-        let refined_native = load_master_reduction(&refined.0).unwrap();
+        let refined_native = load_master_relation_session(&refined.0).unwrap();
         assert_eq!(refined_native.raw_terminals(), loaded.raw_terminals());
         assert_eq!(
             refined_native.statistics().completed_source_rows,

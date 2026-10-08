@@ -18,6 +18,7 @@ pub(crate) struct MasterArgs {
     pub checkpoint: PathBuf,
     pub directory: PathBuf,
     pub previous_artifact: Option<PathBuf>,
+    pub collection_artifacts: Vec<PathBuf>,
     pub events: Option<PathBuf>,
     pub stop_file: Option<PathBuf>,
     pub resume: bool,
@@ -43,6 +44,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
         checkpoint: PathBuf::new(),
         directory: PathBuf::new(),
         previous_artifact: None,
+        collection_artifacts: Vec::new(),
         events: None,
         stop_file: None,
         resume: false,
@@ -63,6 +65,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--checkpoint" => "--checkpoint",
             "--directory" => "--directory",
             "--previous-artifact" => "--previous-artifact",
+            "--collection-artifact" => "--collection-artifact",
             "--events" => "--events",
             "--stop-file" => "--stop-file",
             "--resume" => "--resume",
@@ -75,7 +78,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--checkpoint-interval-seconds" => "--checkpoint-interval-seconds",
             _ => return Err(ArgError::UnknownOption(option)),
         };
-        if !seen.insert(option) {
+        if !seen.insert(option) && option != "--collection-artifact" {
             return Err(ArgError::DuplicateOption(option));
         }
         match option {
@@ -141,6 +144,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
                     "--checkpoint" => result.checkpoint = path,
                     "--directory" => result.directory = path,
                     "--previous-artifact" => result.previous_artifact = Some(path),
+                    "--collection-artifact" => result.collection_artifacts.push(path),
                     "--events" => result.events = Some(path),
                     "--stop-file" => result.stop_file = Some(path),
                     _ => unreachable!(),
@@ -163,6 +167,11 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--artifact already supplies the previous state",
         ));
     }
+    if !result.collection_artifacts.is_empty() && result.artifact.is_none() {
+        return Err(ArgError::InvalidCombination(
+            "--collection-artifact requires a published --artifact source",
+        ));
+    }
     if result.resume && result.previous_artifact.is_some() {
         return Err(ArgError::InvalidCombination(
             "--resume and --previous-artifact cannot be combined",
@@ -183,6 +192,7 @@ pub(super) fn parse_publish(args: impl Iterator<Item = OsString>) -> Result<Comm
     if args.saved_rule_assistance
         || args.circuit_symmetry_assistance
         || args.containing_sector_depth != 0
+        || !args.collection_artifacts.is_empty()
     {
         return Err(ArgError::InvalidCombination(
             "additional terminal-search strategies require refinement and cannot be used with walk-publish",
@@ -275,6 +285,11 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     if let Some(previous) = &args.previous_artifact {
         protected.push(artifact_directory(previous)?);
     }
+    for peer in &args.collection_artifacts {
+        if peer.exists() {
+            protected.push(artifact_directory(peer)?);
+        }
+    }
     let proposed_directory = prospective_path(&args.directory)?;
     for source in &protected {
         let source = prospective_path(source)?;
@@ -305,6 +320,7 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     options.operation = args.operation;
     options.resume = args.resume;
     options.previous_artifact = args.previous_artifact;
+    options.collection_artifacts = args.collection_artifacts;
     options.threads = args.threads;
     options.seed_depth = args.seed_depth;
     options.containing_sector_depth = args.containing_sector_depth;
@@ -711,6 +727,48 @@ mod tests {
             ),
             Err(ArgError::DuplicateOption("--saved-rule-assistance"))
         ));
+    }
+
+    #[test]
+    fn collection_peers_are_repeatable_only_with_a_published_source() {
+        let Command::WalkMasterReduce(args) = parse(
+            [
+                "--artifact",
+                "source",
+                "--directory",
+                "out",
+                "--collection-artifact",
+                "peer-a",
+                "--collection-artifact",
+                "peer-b",
+            ]
+            .map(OsString::from)
+            .into_iter(),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(
+            args.collection_artifacts,
+            vec![PathBuf::from("peer-a"), PathBuf::from("peer-b")]
+        );
+        assert!(
+            parse(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--collection-artifact",
+                    "peer"
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
     }
 
     #[test]
