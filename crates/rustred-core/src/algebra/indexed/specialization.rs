@@ -39,6 +39,7 @@ impl IndexedCoefficientContext {
     ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
         self.validate_polynomial_with_limits(value, limits.exact_algebra)?;
         self.validate_index_arity(assignment)?;
+        let assignment = &assignment[..self.index_count()];
         let preflight =
             self.preflight_specialize_polynomial_raw(value.raw(), assignment, limits)?;
         self.execute_specialize_polynomial_raw(value.raw(), assignment, limits, preflight)
@@ -56,6 +57,7 @@ impl IndexedCoefficientContext {
     ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
         self.validate_polynomial_context(value)?;
         self.validate_index_arity(assignment)?;
+        let assignment = &assignment[..self.index_count()];
         let preflight =
             self.preflight_specialize_polynomial_raw(value.raw(), assignment, limits)?;
         self.execute_specialize_polynomial_raw(value.raw(), assignment, limits, preflight)
@@ -77,6 +79,7 @@ impl IndexedCoefficientContext {
     ) -> Result<(Coefficient, Option<CoefficientPolynomial>), IndexedAlgebraError> {
         self.validate_with_limits(value, limits.exact_algebra)?;
         self.validate_index_arity(assignment)?;
+        let assignment = &assignment[..self.index_count()];
         self.specialize_authenticated(value, assignment, limits)
     }
 
@@ -95,6 +98,7 @@ impl IndexedCoefficientContext {
     ) -> Result<(Coefficient, Option<CoefficientPolynomial>), IndexedAlgebraError> {
         self.bind_sealed(value)?;
         self.validate_index_arity(assignment)?;
+        let assignment = &assignment[..self.index_count()];
         self.specialize_authenticated(value, assignment, limits)
     }
 

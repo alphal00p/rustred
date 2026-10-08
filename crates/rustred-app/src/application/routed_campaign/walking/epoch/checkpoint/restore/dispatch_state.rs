@@ -7,7 +7,7 @@ use super::super::super::state::JobMeta;
 use super::super::{
     Reservations, SEQUENCE_COUNTER_LIMIT, SESSION_LIMIT, Section, SectionReceipt, invalid,
 };
-use super::{CheckedRead, open_section};
+use super::{CheckedRead, open_section_with_arity};
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::path::Path;
@@ -73,6 +73,16 @@ pub(super) fn read<const N: usize>(
     count: u64,
     binding: Binding<'_>,
 ) -> io::Result<SavedDispatch> {
+    read_with_arity::<N>(directory, receipt, count, binding, N)
+}
+
+pub(super) fn read_with_arity<const N: usize>(
+    directory: &Path,
+    receipt: &SectionReceipt,
+    count: u64,
+    binding: Binding<'_>,
+    wire_arity: usize,
+) -> io::Result<SavedDispatch> {
     if receipt.section != Section::Dispatch
         || binding.nodes.len() >= u32::MAX as usize
         || binding.nodes.len() != binding.ledger.words().len()
@@ -84,7 +94,7 @@ pub(super) fn read<const N: usize>(
     {
         return Err(invalid("epoch dispatch/ledger binding differs"));
     }
-    let mut reader = open_section::<N>(directory, receipt, count)?;
+    let (mut reader, _) = open_section_with_arity::<N>(directory, receipt, count, wire_arity)?;
     // Six scalars and three counts occupy72 bytes. Each Reserved descriptor
     // costs4 bytes, with16 more per in-flight item. Infer F from actual bytes
     // before allocating queues; huge forged counts cannot cause a reserve.

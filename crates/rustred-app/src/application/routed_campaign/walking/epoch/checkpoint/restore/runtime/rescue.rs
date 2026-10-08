@@ -151,10 +151,13 @@ pub(super) fn apply<const N: usize>(
             check_stop(&mut stop)?;
             let domain = crate::application::routed_campaign::walking::rescue::domain::<N>(
                 query,
-                reducer
-                    .programs()
-                    .owner_sectors()
-                    .any(|owner| owner.as_slice() == query.owner.as_slice()),
+                reducer.programs().owner_sectors().any(|owner| {
+                    owner.as_slice()
+                        == rustred::storage_array::<_, N>(&query.owner, false)
+                            .as_ref()
+                            .map(|owner| owner.as_slice())
+                            .unwrap_or(&[])
+                }),
                 identity.route_domain_overcover(),
                 reducer.domain_routing_requires_source_conditions(),
             )

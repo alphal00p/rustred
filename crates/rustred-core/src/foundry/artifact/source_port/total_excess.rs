@@ -144,7 +144,12 @@ impl<const N: usize> SourcePortAudit<N> {
         }
         let entry = EntryScope::try_new(
             family,
-            &self.root_sector,
+            &Mask::try_new(
+                self.root_sector.active_bits()[..family.denominator_count()]
+                    .iter()
+                    .copied(),
+            )
+            .map_err(error)?,
             EntryDegreeBound::MaxTotalExcessDegree(max_entry_total_excess_degree),
         )
         .map_err(error)?;
@@ -200,7 +205,9 @@ impl<const N: usize> SourcePortAudit<N> {
             .map(|(sector, (permutation, solution))| {
                 let corner = sector.map(i64::from);
                 Ok((
-                    ordering.complexity_key(&corner).map_err(error)?,
+                    ordering
+                        .complexity_key(&corner[..family.denominator_count()])
+                        .map_err(error)?,
                     sector,
                     permutation,
                     solution,
@@ -472,11 +479,29 @@ pub(in crate::foundry::artifact) fn visit_successor_degrees(
             // source key. No comparator allowance is discounted.
             budget.observation.telemetry_overflow |=
                 increment(&mut budget.observation.child_key_builds, 1);
-            let child_key = ordering.complexity_key(&child_corner).map_err(error)?;
+            let child_key = ordering
+                .complexity_key(
+                    &child_corner[..ordering
+                        .program()
+                        .map(|program| program.arity())
+                        .or_else(|| ordering.coordinate_priority_arity())
+                        .unwrap_or(child_corner.len())],
+                )
+                .map_err(error)?;
             if source_key.is_none() {
                 budget.observation.telemetry_overflow |=
                     increment(&mut budget.observation.source_key_builds, 1);
-                source_key = Some(ordering.complexity_key(&source_corner).map_err(error)?);
+                source_key = Some(
+                    ordering
+                        .complexity_key(
+                            &source_corner[..ordering
+                                .program()
+                                .map(|program| program.arity())
+                                .or_else(|| ordering.coordinate_priority_arity())
+                                .unwrap_or(source_corner.len())],
+                        )
+                        .map_err(error)?,
+                );
             }
             let lower = child_key.cmp(source_key.as_ref().expect("source key initialized"))
                 == Ordering::Less;

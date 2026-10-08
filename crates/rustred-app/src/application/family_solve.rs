@@ -157,12 +157,12 @@ fn dispatch_solve(
 ) -> Result<(usize, usize, usize, usize, Duration), AppError> {
     macro_rules! arms {
         ($($n:literal),* $(,)?) => {
-            match arity {
+            match rustred::campaign_storage_arity(arity ){
                 $(
                 $n => {
                 let typed: Vec<[bool; $n]> = sectors
                     .iter()
-                    .map(|sector| <[bool; $n]>::try_from(sector.as_slice()).expect("validated sector arity"))
+                    .map(|sector| rustred::storage_array::<_, $n>(sector, false).expect("validated sector arity"))
                     .collect();
                 let summary = solve_family::<$n>(family, &typed, workers, SectorConfig::default(), SectorSolveOptions::default())
                     .map_err(|error| AppError::execution(error.to_string()))?;

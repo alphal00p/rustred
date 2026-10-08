@@ -139,6 +139,76 @@ fn saved_identity_matches_the_existing_one_step_application() {
     assert_eq!(row.terms.len(), application.terms().len() + 1);
 }
 
+#[test]
+#[cfg(feature = "capacity-dispatch")]
+fn padded_capacity_identities_and_evaluator_keep_physical_keys_and_guards() {
+    let family = Arc::new(crate::solver::tests::sunset());
+    let sector = [true, true, true, false];
+    let mut owner_input = input(
+        sector,
+        None,
+        vec![rule(&family, [2, 2, 1, 0], &[([1, 2, 1, 0], 2)])],
+        &[],
+    );
+    owner_input.saved_root = sector;
+    let mut owners = CandidateOwnerPrograms::<4>::try_new(
+        context(family.clone(), None, Default::default()),
+        [owner_input],
+    )
+    .unwrap();
+    let ctx = owners.context.coefficient_context().clone();
+    let owner = Arc::get_mut(owners.owners.get_mut(&sector).unwrap()).unwrap();
+    let prepared = &mut Arc::get_mut(&mut owner.batches[0]).unwrap().rules[0];
+    prepared.rhs[0].denominator = polynomial(&ctx, "d-4");
+    prepared.exceptions = vec![vec![polynomial(&ctx, "n0-2"), polynomial(&ctx, "d-5")]];
+    let target = key([2, 2, 1]);
+    let rows = owners.applicable_identities(&target).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].owner, vec![true; 3]);
+    assert_eq!(
+        rows[0].terms,
+        BTreeMap::from([
+            (target.clone(), family.coefficient_context().one()),
+            (key([1, 2, 1]), family.coefficient_context().integer(-2)),
+        ])
+    );
+    for condition in ["d-4", "d-5"] {
+        assert!(
+            rows[0]
+                .nonzero_conditions
+                .contains(&family.coefficient_context().coefficient_fixture(condition))
+        );
+    }
+    let owner = &owners.owners[&sector];
+    let batch = &owner.batches[0];
+    let evaluator = CandidateEvaluator {
+        context: owners.context.coefficient_context(),
+        root_sector: owner.root,
+        ordering: &owner.ordering,
+        rules: &batch.rules,
+        whole_piece_alternatives: &batch.whole_piece_alternatives,
+        source_conditions: &owners.context.shared.source_conditions,
+        zero_sectors: &owners.context.shared.zero_sectors,
+        limits: owners.context.limits,
+    };
+    evaluator.validate_target(&target).unwrap();
+    assert_eq!(
+        evaluator
+            .apply(&target, &mut Default::default(), &mut Default::default())
+            .unwrap(),
+        BTreeMap::from([(key([1, 2, 1]), family.coefficient_context().integer(2))])
+    );
+    assert!(matches!(
+        owners.applicable_identities(&key([2, 2, 1, 0])),
+        Err(CandidateReductionError::Application(
+            ReductionError::WrongArity {
+                expected: 3,
+                actual: 4
+            }
+        ))
+    ));
+}
+
 fn polynomial(
     context: &IndexedCoefficientContext,
     expression: &str,

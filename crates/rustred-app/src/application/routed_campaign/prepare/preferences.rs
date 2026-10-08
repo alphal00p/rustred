@@ -64,7 +64,7 @@ pub(super) fn read<const N: usize>(
         payloads.push(Payload {
             digest: *blake3::hash(&bytes).as_bytes(),
             bytes,
-            owner: mask(&record.owner_mask, N)?,
+            owner: mask(&record.owner_mask, selection.physical_arity())?,
         });
     }
     Ok(Some(payloads))

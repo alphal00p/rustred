@@ -6,7 +6,7 @@ use crate::solver::CandidateOwnerRoute;
 use crate::solver::candidate_reduction::owner_test_support::*;
 use std::sync::Arc;
 
-fn weighted_route(limits: ReductionLimits) -> RoutedCandidateReducer<3> {
+fn weighted_route<const N: usize>(limits: ReductionLimits) -> RoutedCandidateReducer<N> {
     let family = Arc::new(crate::solver::tests::sunset());
     let c = family.coefficient_context();
     let map = symmetry::verify(
@@ -30,17 +30,26 @@ fn weighted_route(limits: ReductionLimits) -> RoutedCandidateReducer<3> {
         Default::default(),
     )
     .unwrap();
+    let pad = |powers: [i16; 3]| crate::storage_array::<_, N>(&powers, 0).unwrap();
     let owners = programs(
         family.clone(),
         None,
         vec![input(
-            [false, true, false],
+            crate::storage_array(&[false, true, false], false).unwrap(),
             None,
             vec![
-                rule(&family, [-1, 1, 0], &[([0, 1, 0], 1), ([0, 1, 0], 1)]),
-                rule(&family, [0, 1, -1], &[([0, 1, 0], 1), ([0, 1, 0], 1)]),
+                rule(
+                    &family,
+                    pad([-1, 1, 0]),
+                    &[(pad([0, 1, 0]), 1), (pad([0, 1, 0]), 1)],
+                ),
+                rule(
+                    &family,
+                    pad([0, 1, -1]),
+                    &[(pad([0, 1, 0]), 1), (pad([0, 1, 0]), 1)],
+                ),
             ],
-            &[[0, 1, 0]],
+            &[pad([0, 1, 0])],
         )],
         limits,
     );
@@ -58,7 +67,7 @@ fn weighted_route(limits: ReductionLimits) -> RoutedCandidateReducer<3> {
 #[test]
 fn weighted_endpoint_identities_share_rule_and_coalescing_budgets() {
     let target = key([1, 0, -1]);
-    let admitted = weighted_route(ReductionLimits {
+    let admitted = weighted_route::<3>(ReductionLimits {
         max_rule_applications: 2,
         max_coalescing_additions: 2,
         ..Default::default()
@@ -69,7 +78,7 @@ fn weighted_endpoint_identities_share_rule_and_coalescing_budgets() {
         3
     );
 
-    let rule_limited = weighted_route(ReductionLimits {
+    let rule_limited = weighted_route::<3>(ReductionLimits {
         max_rule_applications: 1,
         ..Default::default()
     });
@@ -83,7 +92,7 @@ fn weighted_endpoint_identities_share_rule_and_coalescing_budgets() {
         ))
     ));
 
-    let addition_limited = weighted_route(ReductionLimits {
+    let addition_limited = weighted_route::<3>(ReductionLimits {
         max_coalescing_additions: 1,
         ..Default::default()
     });
@@ -93,6 +102,32 @@ fn weighted_endpoint_identities_share_rule_and_coalescing_budgets() {
             CandidateReductionError::Application(ReductionError::CoalescingAdditionLimit {
                 requested: 2,
                 limit: 1
+            })
+        ))
+    ));
+}
+
+#[test]
+#[cfg(feature = "capacity-dispatch")]
+fn padded_capacity_routing_equations_equal_exact_arity_rows() {
+    let exact = weighted_route::<3>(Default::default());
+    let padded = weighted_route::<4>(Default::default());
+    for target in [key([1, 0, -1]), key([-1, 1, 0])] {
+        let expected = exact.terminal_identity_equations(&target).unwrap();
+        let actual = padded.terminal_identity_equations(&target).unwrap();
+        assert_eq!(actual.len(), expected.len());
+        for (left, right) in actual.iter().zip(&expected) {
+            assert_eq!(left.terms, right.terms);
+            assert_eq!(left.nonzero_conditions, right.nonzero_conditions);
+            assert!(left.terms.keys().all(|key| key.powers().len() == 3));
+        }
+    }
+    assert!(matches!(
+        padded.terminal_identity_equations(&key([1, 0, -1, 0])),
+        Err(CandidateRoutedError::Candidate(
+            CandidateReductionError::Application(ReductionError::WrongArity {
+                expected: 3,
+                actual: 4
             })
         ))
     ));

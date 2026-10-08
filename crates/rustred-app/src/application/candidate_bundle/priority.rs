@@ -100,15 +100,16 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
         ));
     }
     let base = codec::read(base_owner_bytes, bundle_limits)?;
+    let physical_arity = base.root_sector.len();
     if base.sectors.len() != 1
-        || base.root_sector.len() != N
+        || !rustred::fits_storage(physical_arity, N)
         || proposal.root_sector.active_bits() != base.root_sector
         || proposal.sector.active_bits() != base.sectors[0].sector
         || proposal.ordering != order::saved_policy(&base.records)?
         || base
             .permutation
             .as_ref()
-            .is_some_and(|p| p.iter().copied().ne(0..N))
+            .is_some_and(|p| p.iter().copied().ne(0..physical_arity))
     {
         return Err(error(
             "priority proposal must match one unpermuted saved owner/root/order",
@@ -122,16 +123,16 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
             bundle_limits.binary_limits(),
         )
         .map_err(error)?;
-    if family.fingerprint() != base.family_fingerprint || family.denominator_count() != N {
+    if family.fingerprint() != base.family_fingerprint
+        || family.denominator_count() != physical_arity
+    {
         return Err(error("priority owner family fingerprint or arity mismatch"));
     }
     let generator = ParametricIbpGenerator::try_new(&family).map_err(error)?;
     let context = generator.context();
-    let sector: [bool; N] = base.sectors[0]
-        .sector
-        .as_slice()
-        .try_into()
-        .map_err(error)?;
+    let sector: [bool; N] = rustred::storage_array(&base.sectors[0].sector, false)
+        .ok_or_else(|| error("priority owner sector arity"))?;
+    let variables = codec::storage_variables::<N>(context);
     let boundary_limit = proof_limits
         .cell
         .max_guards
@@ -150,7 +151,7 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
     let mut rhs = Vec::with_capacity(proposal.rhs.len());
     let mut runtime_denominators = Vec::new();
     for (shift, coefficient) in &proposal.rhs {
-        if shift.values().len() != N {
+        if shift.values().len() != physical_arity {
             return Err(error("priority RHS shift arity mismatch"));
         }
         let (coefficient, _) = context
@@ -174,7 +175,7 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
         }
         rhs.push(Term {
             integral: Integral::new(powers),
-            coefficient: coefficient.raw().clone(),
+            coefficient: grow_coefficient(coefficient.raw(), &variables)?,
         });
     }
     if rhs.is_empty() {
@@ -197,7 +198,12 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
     let mut exceptions = extract_exceptions(&candidate, &indices, &sector).map_err(error)?;
     boundary_cuts.check_existing(&exceptions.branches, boundary_limit)?;
     for boundary in boundary_cuts.polynomials(context, &sector, algebra.exact_algebra)? {
-        exceptions.branches.push(vec![boundary.raw().clone()]);
+        exceptions.branches.push(vec![
+            boundary
+                .raw()
+                .rearrange_with_growth(&variables)
+                .map_err(error)?,
+        ]);
     }
     let rule = SectorRule {
         dispatch_policy: RuleDispatchPolicy::Partition, // Equation-only transport below.
@@ -218,7 +224,20 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
             return Err(error("priority base contains duplicate coefficient IDs"));
         }
     }
-    let inserted = codec::rules::rule_record(&rule, &mut table)?;
+    let solution = rustred::solver::SectorSolution {
+        order: rustred::solver::IntegralOrder::new(sector, [false; N])
+            .with_physical_arity(physical_arity)
+            .map_err(error)?,
+        max_numerator_rank: None,
+        finite_case_policy: rustred::solver::FiniteCasePolicy::default(),
+        rules: vec![rule],
+        finite_residuals: Vec::new(),
+        stats: rustred::solver::SectorStats::default(),
+    };
+    let inserted = codec::physical_sector_record(physical_arity, sector, &solution, &mut table)?
+        .rules
+        .remove(0);
+    let rule = &solution.rules[0];
     let mut records = base.records.clone();
     records.sectors[0].rules.insert(0, inserted.clone());
     for policy in &mut records.rule_dispatch {
@@ -266,7 +285,6 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
             return Err(error("priority owner changed a suffix coefficient"));
         }
     }
-    let variables = context.one().raw().get_variables().clone();
     let restored = codec::rules::restore_rule::<N>(
         &roundtrip.sectors[0].rules[0],
         &roundtrip.coefficients,
@@ -291,18 +309,38 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
     })
 }
 
+fn grow_coefficient(
+    value: &rustred::algebra::Coefficient,
+    variables: &[PolyVariable],
+) -> Result<rustred::algebra::Coefficient, AppError> {
+    use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
+    Ok(rustred::algebra::Coefficient::from_num_den(
+        value
+            .numerator
+            .rearrange_with_growth(variables)
+            .map_err(error)?,
+        value
+            .denominator
+            .rearrange_with_growth(variables)
+            .map_err(error)?,
+        &Z,
+        true,
+    ))
+}
+
 fn representable_case<const N: usize>(
     proposal: &OriginalSourceCombinationRequest,
     sector: &[bool; N],
     boundary_limit: usize,
 ) -> Result<(CoordinateCase<N>, lower_cuts::LowerCuts), AppError> {
-    if proposal.lower.len() != N || proposal.upper.len() != N || proposal.fixed.len() > N {
+    let n = proposal.lower.len();
+    if !rustred::fits_storage(n, N) || proposal.upper.len() != n || proposal.fixed.len() > n {
         return Err(error("priority coordinate-domain arity mismatch"));
     }
-    let mut fixed = [None; N];
+    let mut fixed = std::array::from_fn(|axis| (axis >= n).then_some(0));
     for restriction in &proposal.fixed {
         let axis = restriction.position();
-        if axis >= N || fixed[axis].is_some() {
+        if axis >= n || fixed[axis].is_some() {
             return Err(error(
                 "priority fixed coordinate is duplicate or out of range",
             ));
@@ -322,8 +360,9 @@ fn representable_case<const N: usize>(
         fixed[axis] = Some(i16::try_from(value).map_err(error)?);
     }
     let boundary_cuts = lower_cuts::LowerCuts::new(
-        &proposal.lower,
-        &proposal.upper,
+        &rustred::storage_array::<_, N>(&proposal.lower, 0).expect("validated priority arity"),
+        &rustred::storage_array::<_, N>(&proposal.upper, Some(0))
+            .expect("validated priority arity"),
         &fixed,
         sector,
         boundary_limit,

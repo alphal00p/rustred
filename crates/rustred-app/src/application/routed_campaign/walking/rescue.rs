@@ -315,11 +315,8 @@ pub(super) fn domain<const N: usize>(
     route_domain_overcover: bool,
     source_conditions: bool,
 ) -> Result<Domain<N>, String> {
-    let owner: [bool; N] = query
-        .owner
-        .as_slice()
-        .try_into()
-        .map_err(|_| "amended query arity".to_owned())?;
+    let owner = rustred::storage_array(&query.owner, false)
+        .ok_or_else(|| "amended query arity".to_owned())?;
     let phase = if installed {
         Phase::Apply
     } else if route_domain_overcover && !source_conditions {
@@ -333,8 +330,12 @@ pub(super) fn domain<const N: usize>(
     Ok(Domain {
         phase,
         owner,
-        lower: query.lower.clone(),
-        upper: query.upper.clone(),
+        lower: rustred::storage_array::<_, N>(&query.lower, 0)
+            .expect("validated query arity")
+            .to_vec(),
+        upper: rustred::storage_array::<_, N>(&query.upper, Some(0))
+            .expect("validated query arity")
+            .to_vec(),
         rank: query.rank,
         powers: query.powers,
     })
@@ -475,10 +476,13 @@ pub(super) fn apply<const N: usize>(
         let first_domain = state.queue.domains.len();
         let (mut fresh, mut reused) = (0usize, 0usize);
         for query in &amendment.queries {
-            let installed = reducer
-                .programs()
-                .owner_sectors()
-                .any(|owner| owner.as_slice() == query.owner.as_slice());
+            let installed = reducer.programs().owner_sectors().any(|owner| {
+                owner.as_slice()
+                    == rustred::storage_array::<_, N>(&query.owner, false)
+                        .as_ref()
+                        .map(|owner| owner.as_slice())
+                        .unwrap_or(&[])
+            });
             let domain = domain::<N>(query, installed, route_domain_overcover, source_conditions)?;
             let (id, new) = state
                 .queue

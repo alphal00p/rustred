@@ -31,6 +31,7 @@ impl IndexedCoefficientContext {
     ) -> Result<IndexedCoefficient, IndexedAlgebraError> {
         self.validate_with_limits(value, limits.exact_algebra)?;
         self.validate_index_arity(shift)?;
+        let shift = &shift[..self.index_count()];
         self.translate_coefficient_validated(value, shift, limits)
     }
 
@@ -48,6 +49,7 @@ impl IndexedCoefficientContext {
     ) -> Result<IndexedCoefficient, IndexedAlgebraError> {
         self.bind_sealed(value)?;
         self.validate_index_arity(shift)?;
+        let shift = &shift[..self.index_count()];
         self.translate_coefficient_validated(value, shift, limits)
     }
 
@@ -104,6 +106,7 @@ impl IndexedCoefficientContext {
     ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
         self.validate_polynomial_with_limits(value, limits.exact_algebra)?;
         self.validate_index_arity(shift)?;
+        let shift = &shift[..self.index_count()];
         Ok(IndexedPolynomial {
             raw: self.translate_polynomial_raw(&value.raw, shift, limits)?,
             context: self.seal(),
@@ -121,6 +124,7 @@ impl IndexedCoefficientContext {
     ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
         self.validate_polynomial_context(value)?;
         self.validate_index_arity(shift)?;
+        let shift = &shift[..self.index_count()];
         Ok(IndexedPolynomial {
             raw: self.translate_polynomial_raw(&value.raw, shift, limits)?,
             context: self.seal(),

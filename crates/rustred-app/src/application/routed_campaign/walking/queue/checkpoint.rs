@@ -19,9 +19,11 @@ pub(super) mod owner {
     pub fn deserialize<'de, D: Deserializer<'de>, const N: usize>(
         d: D,
     ) -> Result<[bool; N], D::Error> {
-        Vec::<bool>::deserialize(d)?
-            .try_into()
-            .map_err(|_| serde::de::Error::custom("checkpoint owner arity"))
+        crate::application::routed_campaign::storage::restore_array(
+            &Vec::<bool>::deserialize(d)?,
+            false,
+        )
+        .ok_or_else(|| serde::de::Error::custom("checkpoint owner arity"))
     }
 }
 pub(super) mod powers {

@@ -91,7 +91,7 @@ pub fn load_generated_candidate_bundle<const N: usize>(
     reduction_limits: ReductionLimits,
 ) -> Result<(IntegralFamily, CandidateReducer<N>), AppError> {
     let bundle = codec::read(bytes, input_limits)?;
-    if !(1..=16).contains(&N) || bundle.root_sector.len() != N {
+    if !(1..=16).contains(&N) || !rustred::fits_storage(bundle.root_sector.len(), N) {
         return Err(AppError::input("candidate bundle/reducer arity mismatch"));
     }
     let family = reconstruct_family::<N>(&bundle, input_limits)?;
@@ -134,7 +134,9 @@ fn reconstruct_family<const N: usize>(
             input_limits.binary_limits(),
         )
         .map_err(codec::binary_error)?;
-    if family.fingerprint() != bundle.family_fingerprint || family.denominator_count() != N {
+    if family.fingerprint() != bundle.family_fingerprint
+        || !rustred::fits_storage(family.denominator_count(), N)
+    {
         return Err(AppError::input(
             "candidate family binding differs from reconstructed family",
         ));
@@ -155,7 +157,12 @@ fn finish_reducer<const N: usize>(
         .map_err(|error| AppError::execution(error.to_string()))?;
     let mut certificates = Vec::with_capacity(prepared.zeros.len());
     for sector in prepared.zeros.iter() {
-        let mask = Mask::try_new(*sector).map_err(|error| AppError::input(error.to_string()))?;
+        let mask = Mask::try_new(
+            sector[..prepared.family.denominator_count()]
+                .iter()
+                .copied(),
+        )
+        .map_err(|error| AppError::input(error.to_string()))?;
         match analyzer
             .analyze(&mask)
             .map_err(|error| AppError::execution(error.to_string()))?

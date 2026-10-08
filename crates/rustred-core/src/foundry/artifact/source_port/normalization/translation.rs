@@ -40,7 +40,7 @@ impl OriginalSourceCorpus {
                 "selected original sources require normalized generator weights",
             ));
         }
-        if self.context.index_count() != N
+        if !crate::arity::fits_storage(self.context.index_count(), N)
             || generator.context().fingerprint() != self.context.fingerprint()
         {
             return Err(error(
@@ -67,11 +67,16 @@ impl OriginalSourceCorpus {
                 .ok_or_else(|| error("selected source request has no original generator RowId"))?;
             let request = TranslatedSourceRequest::new(
                 original.ordinal,
-                IntegralShift::try_new(contribution.offset).map_err(error)?,
+                IntegralShift::try_new(
+                    contribution.offset[..self.context.index_count()]
+                        .iter()
+                        .copied(),
+                )
+                .map_err(error)?,
             );
             let weight = self
                 .context
-                .admit_native_result_with_limits(
+                .admit_storage_result_with_limits(
                     contribution.weight.clone(),
                     translation_limits.relation.arithmetic.exact_algebra,
                 )

@@ -102,18 +102,22 @@ fn prepare_inner<const N: usize, F: Borrow<IntegralFamily>>(
     root: &[bool],
     permutation: Option<&[usize]>,
 ) -> Result<Prepared<N, F>, AppError> {
-    let root: [bool; N] = root
-        .try_into()
-        .map_err(|_| AppError::input("candidate root has wrong arity"))?;
-    validate_permutation(N, permutation)?;
-    let permutation = permutation.map(|p| p.try_into().expect("validated permutation"));
+    let arity = family.borrow().denominator_count();
+    if root.len() != arity {
+        return Err(AppError::input("candidate root has wrong arity"));
+    }
+    let root = rustred::storage_array::<_, N>(root, false)
+        .ok_or_else(|| AppError::input("candidate root exceeds storage capacity"))?;
+    validate_permutation(arity, permutation)?;
+    let permutation = permutation.map(|p| std::array::from_fn(|i| p.get(i).copied().unwrap_or(i)));
     let analyzer = zero::Analyzer::try_unrestricted(family.borrow())
         .map_err(|error| AppError::execution(error.to_string()))?;
     let mut zeros = Vec::new();
     let mut sectors = Vec::new();
-    for bits in 0..(1usize << N) {
+    for bits in 0..(1usize << arity) {
         let sector = std::array::from_fn(|axis| bits & (1 << axis) != 0);
-        let mask = Mask::try_new(sector).map_err(|e| AppError::execution(e.to_string()))?;
+        let mask = Mask::try_new(sector[..arity].iter().copied())
+            .map_err(|e| AppError::execution(e.to_string()))?;
         match analyzer
             .analyze(&mask)
             .map_err(|e| AppError::execution(e.to_string()))?
@@ -137,7 +141,7 @@ fn prepare_inner<const N: usize, F: Borrow<IntegralFamily>>(
     }
     drop(analyzer);
     sectors.sort_unstable();
-    let sources = SourceSystem::from_family(family.borrow())
+    let sources = SourceSystem::from_family_with_capacity(family.borrow(), true)
         .map_err(|e| AppError::execution(e.to_string()))?;
     Ok(Prepared {
         family,

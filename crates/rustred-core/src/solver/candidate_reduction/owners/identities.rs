@@ -36,14 +36,16 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         request: &mut ReductionRequest,
         statistics: &mut ReductionStatistics,
     ) -> Result<Vec<CandidateIntegralIdentity>, CandidateReductionError> {
-        if target.powers().len() != N {
+        let arity = self.context.coefficient_context().index_count();
+        if target.powers().len() != arity {
             return Err(ReductionError::WrongArity {
-                expected: N,
+                expected: arity,
                 actual: target.powers().len(),
             }
             .into());
         }
-        let sector = std::array::from_fn(|axis| target.powers()[axis] > 0);
+        let sector =
+            std::array::from_fn(|axis| target.powers().get(axis).copied().unwrap_or(0) > 0);
         let Some(owner) = self.owners.get(&sector) else {
             return Ok(Vec::new());
         };
@@ -67,7 +69,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                     identities.push(CandidateIntegralIdentity {
                         terms,
                         nonzero_conditions,
-                        owner: sector.to_vec(),
+                        owner: sector[..arity].to_vec(),
                         batch: batch_ordinal,
                         rule: rule.ordinal,
                     });

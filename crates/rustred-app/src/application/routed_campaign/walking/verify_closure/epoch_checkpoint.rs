@@ -340,7 +340,7 @@ fn rows<T: serde::de::DeserializeOwned>(
     buffered.into_inner().finish()?;
     Ok(result)
 }
-fn image<const N: usize>(input: &mut Input) -> io::Result<CompactDomain<N>> {
+fn image<const N: usize>(input: &mut Input, wire_arity: usize) -> io::Result<CompactDomain<N>> {
     let phase = match input.u8()? {
         0 => Phase::Apply,
         1 => Phase::Route,
@@ -355,12 +355,12 @@ fn image<const N: usize>(input: &mut Input) -> io::Result<CompactDomain<N>> {
     if rank_flag > 1 || rank_flag == 0 && rank_word != 0 {
         return Err(invalid("CP6 rank option encoding"));
     }
-    let mut lower = reserve(N)?;
-    let mut upper = reserve(N)?;
-    for _ in 0..N {
+    let mut lower = reserve(wire_arity)?;
+    let mut upper = reserve(wire_arity)?;
+    for _ in 0..wire_arity {
         lower.push(u64::from(input.u16()?));
     }
-    for _ in 0..N {
+    for _ in 0..wire_arity {
         let word = input.u16()?;
         upper.push((word != u16::MAX).then_some(u64::from(word)));
     }
@@ -421,7 +421,7 @@ fn read_inner<const N: usize>(
     if manifest.format != FORMAT
         || manifest.schema != 3
         || manifest.generation == 0
-        || manifest.arity != N
+        || !super::super::super::storage::compatible_width(manifest.arity, N)
         || manifest.walk_semantics_version != 4
         || !manifest.resumable
         || manifest.files.len()
@@ -589,17 +589,19 @@ fn read_inner<const N: usize>(
     input_inventory(&inputs, &input_frontiers)?;
     let section = |n: u32| -> Result<(Input, usize), String> {
         let mut input = Input::open(directory, file(&format!("state-{n}"))?).map_err(io)?;
-        let count = input.header(N, n).map_err(io)?;
+        let count = input.header(manifest.arity, n).map_err(io)?;
         Ok((input, count))
     };
     let (mut domains_input, n) = section(1)?;
-    domains_input.fixed(n, 37 + 4 * N).map_err(io)?;
+    domains_input
+        .fixed(n, 37 + 4 * manifest.arity)
+        .map_err(io)?;
     if n != total {
         return Err("domain watermark differs".into());
     }
     let mut domains = reserve(n).map_err(io)?;
     for _ in 0..n {
-        domains.push(image(&mut domains_input).map_err(io)?);
+        domains.push(image(&mut domains_input, manifest.arity).map_err(io)?);
     }
     domains_input.finish().map_err(io)?;
     let (mut nodes_input, n) = section(2)?;

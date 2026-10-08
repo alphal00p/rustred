@@ -7,6 +7,7 @@ mod guarded;
 mod input;
 mod matching;
 mod prepare;
+mod storage;
 mod terminal_equations;
 pub(in crate::application) use terminal_equations::{
     TerminalEquationProvider, prepare_terminal_equations,
@@ -121,6 +122,10 @@ pub fn routed_campaign_with_progress(
     rustred::campaign::ParallelExecution::preflight_requested_core_budget(request.workers)
         .map_err(|e| AppError::input(e.to_string()))?;
     let (selection, n, limits) = input::Selection::parse(&request.selection_json)?;
+    let observer = |mut event| {
+        storage::project(&mut event, n);
+        observer(event);
+    };
     let targets = input::targets(
         &request.targets_csv,
         n,
@@ -132,14 +137,16 @@ pub fn routed_campaign_with_progress(
         "reduction_limits":format!("{:?}", request.reduction_limits),
         "shared_dependency_queue":true, "family_closure_claim":false, "ibp_generation":false}),
     );
-    macro_rules! dispatch { ($($n:literal),*) => { match n {
+    macro_rules! dispatch { ($($n:literal),*) => { match rustred::campaign_storage_arity(n ){
         $($n => run::<$n>(&request, &selection, limits, targets, cancellation, &observer),)*
         _ => Err(crate::AppError::input("campaign arity is not compiled")),
     }} }
-    {
+    let mut result = {
         crate::ensure_runtime_arity(n)?;
         rustred::with_app_runtime_arities!(dispatch)
-    }
+    }?;
+    storage::project(&mut result.document, n);
+    Ok(result)
 }
 
 fn run<const N: usize>(
@@ -154,7 +161,9 @@ fn run<const N: usize>(
     let entry_domain = request
         .entry_domains_json
         .as_deref()
-        .map(entry::RequestedEntryDomain::<N>::parse)
+        .map(|text| {
+            entry::RequestedEntryDomain::<N>::parse_with_arity(text, selection.physical_arity())
+        })
         .transpose()?;
     if let Some(domain) = &entry_domain {
         for target in &targets {

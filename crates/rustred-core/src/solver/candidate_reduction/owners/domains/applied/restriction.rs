@@ -109,10 +109,46 @@ pub(in crate::solver::candidate_reduction::owners::domains) fn coefficient<const
     limits: IndexedAlgebraLimits,
     budget: &mut Budget<'_>,
 ) -> Result<IndexedCoefficient, OwnerAppliedFailure> {
+    if !crate::arity::fits_storage(context.index_count(), N)
+        || fixed
+            .iter()
+            .any(|(axis, value)| *axis >= N || *axis >= context.index_count() && *value != 0)
+    {
+        return Err(OwnerAppliedFailure::Algebra(
+            crate::algebra::IndexedAlgebraError::WrongContext,
+        ));
+    }
+    let fixed: Vec<_> = fixed
+        .iter()
+        .copied()
+        .filter(|(axis, _)| *axis < context.index_count())
+        .collect();
     let restricted;
     let value = if let Some(case) = affine {
-        let (nt, nb) = preflight(case, &value.raw().numerator, limits, budget)?;
-        let (dt, db) = preflight(case, &value.raw().denominator, limits, budget)?;
+        use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
+        let variables = case.equations()[0].variables();
+        let numerator = value
+            .raw()
+            .numerator
+            .rearrange_with_growth(variables)
+            .map_err(|_| {
+                OwnerAppliedFailure::Algebra(crate::algebra::IndexedAlgebraError::WrongContext)
+            })?;
+        let denominator = value
+            .raw()
+            .denominator
+            .rearrange_with_growth(variables)
+            .map_err(|_| {
+                OwnerAppliedFailure::Algebra(crate::algebra::IndexedAlgebraError::WrongContext)
+            })?;
+        let storage_value = crate::algebra::Coefficient::from_num_den(
+            numerator,
+            denominator,
+            &symbolica::prelude::Z,
+            true,
+        );
+        let (nt, nb) = preflight(case, &storage_value.numerator, limits, budget)?;
+        let (dt, db) = preflight(case, &storage_value.denominator, limits, budget)?;
         budget.check(
             nt.checked_add(dt)
                 .and_then(|n| n.checked_mul(nb.max(db)))
@@ -121,21 +157,21 @@ pub(in crate::solver::candidate_reduction::owners::domains) fn coefficient<const
             "affine joint prospective total bits",
         )?;
         budget.native()?;
-        let raw = catch_unwind(AssertUnwindSafe(|| case.restrict_coefficient(value.raw())))
-            .map_err(|_| {
-                OwnerAppliedFailure::AffineRestriction(AffineGeometryError::NativeAlgebra)
-            })?
-            .map_err(OwnerAppliedFailure::AffineRestriction)?;
+        let raw = catch_unwind(AssertUnwindSafe(|| {
+            case.restrict_coefficient(&storage_value)
+        }))
+        .map_err(|_| OwnerAppliedFailure::AffineRestriction(AffineGeometryError::NativeAlgebra))?
+        .map_err(OwnerAppliedFailure::AffineRestriction)?;
         budget.cancelled()?;
         restricted = context
-            .admit_native_result_with_limits(raw, limits.exact_algebra)
+            .admit_storage_result_with_limits(raw, limits.exact_algebra)
             .map_err(OwnerAppliedFailure::Algebra)?;
         &restricted
     } else {
         value
     };
     context
-        .specialize_fixed_indices_sealed(value, fixed, limits)
+        .specialize_fixed_indices_sealed(value, &fixed, limits)
         .map(|(value, _)| value)
         .map_err(OwnerAppliedFailure::Algebra)
 }
@@ -150,24 +186,44 @@ pub(in crate::solver::candidate_reduction::owners::domains) fn polynomial<const 
     limits: IndexedAlgebraLimits,
     budget: &mut Budget<'_>,
 ) -> Result<IndexedPolynomial, OwnerAppliedFailure> {
+    if !crate::arity::fits_storage(context.index_count(), N)
+        || fixed
+            .iter()
+            .any(|(axis, value)| *axis >= N || *axis >= context.index_count() && *value != 0)
+    {
+        return Err(OwnerAppliedFailure::Algebra(
+            crate::algebra::IndexedAlgebraError::WrongContext,
+        ));
+    }
+    let fixed: Vec<_> = fixed
+        .iter()
+        .copied()
+        .filter(|(axis, _)| *axis < context.index_count())
+        .collect();
     let restricted;
     let value = if let Some(case) = affine {
-        preflight(case, value.raw(), limits, budget)?;
+        let storage_value = value
+            .raw()
+            .rearrange_with_growth(case.equations()[0].variables())
+            .map_err(|_| {
+                OwnerAppliedFailure::Algebra(crate::algebra::IndexedAlgebraError::WrongContext)
+            })?;
+        preflight(case, &storage_value, limits, budget)?;
         budget.native()?;
-        let raw = catch_unwind(AssertUnwindSafe(|| case.restrict_equation(value.raw())))
+        let raw = catch_unwind(AssertUnwindSafe(|| case.restrict_equation(&storage_value)))
             .map_err(|_| {
                 OwnerAppliedFailure::AffineRestriction(AffineGeometryError::NativeAlgebra)
             })?
             .map_err(OwnerAppliedFailure::AffineRestriction)?;
         budget.cancelled()?;
         restricted = context
-            .admit_native_polynomial_result_with_limits(raw, limits.exact_algebra)
+            .admit_storage_polynomial_result_with_limits(raw, limits.exact_algebra)
             .map_err(OwnerAppliedFailure::Algebra)?;
         &restricted
     } else {
         value
     };
     context
-        .specialize_fixed_polynomial_sealed(value, fixed, limits)
+        .specialize_fixed_polynomial_sealed(value, &fixed, limits)
         .map_err(OwnerAppliedFailure::Algebra)
 }

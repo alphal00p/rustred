@@ -22,14 +22,16 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         &self,
         target: &IntegralKey,
     ) -> Result<Vec<CandidateRoutedIdentity>, CandidateRoutedError> {
-        if target.powers().len() != N {
+        let arity = self.programs.context.coefficient_context().index_count();
+        if target.powers().len() != arity {
             return Err(ReductionError::WrongArity {
-                expected: N,
+                expected: arity,
                 actual: target.powers().len(),
             }
             .into());
         }
-        let sector = std::array::from_fn(|axis| target.powers()[axis] > 0);
+        let sector =
+            std::array::from_fn(|axis| target.powers().get(axis).copied().unwrap_or(0) > 0);
         let mut request = ReductionRequest::default();
         let mut statistics = ReductionStatistics::default();
         let saved_rows =

@@ -83,7 +83,7 @@ impl<const N: usize> Traversal<N> {
 }
 
 fn support<const N: usize>(key: &IntegralKey) -> [bool; N] {
-    std::array::from_fn(|i| key.powers()[i] > 0)
+    std::array::from_fn(|i| key.powers().get(i).copied().unwrap_or(0) > 0)
 }
 fn count<const N: usize>(mask: &[bool; N]) -> usize {
     mask.iter().filter(|&&x| x).count()
@@ -271,8 +271,14 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                                 Ok(())
                             },
                         )?;
-                        let owner_support =
-                            std::array::from_fn(|i| route.owner_sector.active_bits()[i]);
+                        let owner_support = std::array::from_fn(|i| {
+                            route
+                                .owner_sector
+                                .active_bits()
+                                .get(i)
+                                .copied()
+                                .unwrap_or(false)
+                        });
                         for endpoint in mapped.terms().iter().rev() {
                             let child = endpoint.key();
                             base.validate_target(child)?;

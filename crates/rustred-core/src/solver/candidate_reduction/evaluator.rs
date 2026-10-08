@@ -35,9 +35,9 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
         target: &IntegralKey,
         nonzero: &mut impl FnMut(&CoefficientPolynomial),
     ) -> Result<(), CandidateReductionError> {
-        if target.powers().len() != N {
+        if target.powers().len() != self.context.index_count() {
             return Err(ReductionError::WrongArity {
-                expected: N,
+                expected: self.context.index_count(),
                 actual: target.powers().len(),
             }
             .into());
@@ -70,8 +70,9 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
     }
 
     pub(super) fn is_zero(&self, target: &IntegralKey) -> bool {
-        self.zero_sectors
-            .contains(&std::array::from_fn(|i| target.powers()[i] > 0))
+        self.zero_sectors.contains(&std::array::from_fn(|i| {
+            target.powers().get(i).copied().unwrap_or(0) > 0
+        }))
     }
 
     pub(super) fn apply(
@@ -302,7 +303,8 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
                     rule: rule.ordinal,
                 })?;
         }
-        let child = IntegralKey::try_new(child).map_err(ReductionError::IntegralKey)?;
+        let child = IntegralKey::try_new(child[..self.context.index_count()].iter().copied())
+            .map_err(ReductionError::IntegralKey)?;
         self.validate_target_with_conditions(&child, nonzero)?;
         if self.is_zero(&child) {
             return Ok(None);

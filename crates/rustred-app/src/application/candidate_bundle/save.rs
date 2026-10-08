@@ -29,21 +29,24 @@ pub fn encode_generated_candidate_sector<const N: usize>(
     sector: [bool; N],
     solution: &SectorSolution<N>,
 ) -> Result<Vec<u8>, AppError> {
-    if !(1..=16).contains(&N) || family.denominator_count() != N {
+    if !(1..=16).contains(&N) || !rustred::fits_storage(family.denominator_count(), N) {
         return Err(AppError::input(
             "candidate export family/sector arity mismatch",
         ));
     }
     policy::validate_request_scope(request)?;
-    let root = preparation::root(N, &request.nonpositive_indices)?;
-    preparation::validate_permutation(N, request.permutation.as_deref())?;
+    let root = preparation::root(family.denominator_count(), &request.nonpositive_indices)?;
+    preparation::validate_permutation(family.denominator_count(), request.permutation.as_deref())?;
     if super::selection::canonical_masks(
         &root,
         request.selected_sectors.as_deref(),
         request.bundle_limits.max_collection_entries,
     )?
-    .is_some_and(|selected| selected.binary_search(&sector.to_vec()).is_err())
-    {
+    .is_some_and(|selected| {
+        selected
+            .binary_search(&sector[..family.denominator_count()].to_vec())
+            .is_err()
+    }) {
         return Err(AppError::input(
             "candidate export sector was not explicitly selected",
         ));
@@ -83,7 +86,7 @@ pub(super) fn encode_sector<const N: usize>(
             "candidate sector finite-case policy differs from its request",
         ));
     }
-    let mathematical_order = super::order::request_policy(request, N)?;
+    let mathematical_order = super::order::request_policy(request, family.denominator_count())?;
     if solution.order.sector() != &sector
         || solution
             .order
@@ -96,7 +99,12 @@ pub(super) fn encode_sector<const N: usize>(
         ));
     }
     let mut coefficients = CoefficientTableBuilder::new(request.bundle_limits.binary_limits());
-    let sector = codec::sector_record(sector, solution, &mut coefficients)?;
+    let sector = codec::physical_sector_record(
+        family.denominator_count(),
+        sector,
+        solution,
+        &mut coefficients,
+    )?;
     let program = program_record(request, family, root, vec![sector])?;
     let family =
         NativeFamilyRecord::from_family(family, &mut coefficients).map_err(codec::binary_error)?;

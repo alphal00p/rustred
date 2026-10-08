@@ -71,7 +71,7 @@ fn fixed<const N: usize>(
     section: Section,
 ) -> io::Result<FixedSection<N>> {
     let file = file(manifest, &format!("state-{}", section as u32))?;
-    FixedSection::open(
+    FixedSection::open_with_arity(
         directory,
         &SectionReceipt {
             generation: manifest.generation,
@@ -82,6 +82,7 @@ fn fixed<const N: usize>(
             },
         },
         file.count,
+        manifest.arity,
     )
 }
 
@@ -171,7 +172,8 @@ pub(super) fn read_manifest<const N: usize>(
     lockstep_b: usize,
     manifest: Manifest,
 ) -> io::Result<Provisional<N>> {
-    if N > 32 || manifest.arity != N {
+    if N > 32 || !crate::application::routed_campaign::storage::compatible_width(manifest.arity, N)
+    {
         return Err(invalid("epoch private manifest arity differs"));
     }
     let meta = file(&manifest, "meta")?;
@@ -263,7 +265,7 @@ pub(super) fn read_manifest<const N: usize>(
     }
     let closure_flags = fixed::<N>(directory, &manifest, Section::ClosureFlags)?.flags(true)?;
     let anchor_file = file(&manifest, "state-6")?;
-    let anchors = auxiliary::anchors::<N>(
+    let anchors = auxiliary::anchors_with_arity::<N>(
         directory,
         &SectionReceipt {
             generation: manifest.generation,
@@ -277,11 +279,12 @@ pub(super) fn read_manifest<const N: usize>(
         scalars.watermark,
         scalars.p0,
         scalars.k,
+        manifest.arity,
     )?;
     let frontier_counts =
         fixed::<N>(directory, &manifest, Section::Frontiers)?.frontiers(scalars.watermark)?;
     let dispatch_file = file(&manifest, "state-7")?;
-    let dispatch = dispatch_state::read::<N>(
+    let dispatch = dispatch_state::read_with_arity::<N>(
         directory,
         &SectionReceipt {
             generation: manifest.generation,
@@ -300,6 +303,7 @@ pub(super) fn read_manifest<const N: usize>(
             lockstep_b: scalars.lockstep_b,
             adaptive: scalars.adaptive_dispatch.as_ref(),
         },
+        manifest.arity,
     )?;
     let orthants = file(&manifest, "orthants")?;
     let store = lookup::rebuild(

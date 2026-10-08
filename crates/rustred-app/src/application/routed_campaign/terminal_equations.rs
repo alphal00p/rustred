@@ -17,7 +17,7 @@ pub(in crate::application) fn prepare_terminal_equations(
     observer: &impl Fn(Value),
 ) -> Result<TerminalEquationProvider, AppError> {
     let (selection, n, limits) = Selection::parse(&request.selection_json)?;
-    macro_rules! dispatch { ($($n:literal),*) => { match n {
+    macro_rules! dispatch { ($($n:literal),*) => { match rustred::campaign_storage_arity(n) {
         $($n => prepare_provider::<$n>(request, &selection, limits,
             family_fingerprint, expected_digests, cancel, observer),)*
         _ => Err(AppError::input("terminal equation arity is not compiled")),

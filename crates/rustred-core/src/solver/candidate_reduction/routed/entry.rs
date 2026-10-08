@@ -145,13 +145,14 @@ impl<const N: usize> FiniteRootAdmission<N> {
     /// Validate only an initial root, never a routing image or IBP descendant.
     /// Existing source-condition checks are separate and still mandatory.
     pub fn validate_entry(&self, target: &IntegralKey) -> Result<(), RootAdmissionError> {
-        if target.powers().len() != N {
+        if !crate::fits_storage(target.powers().len(), N) {
             return Err(RootAdmissionError::WrongTargetArity {
                 expected: N,
                 actual: target.powers().len(),
             });
         }
-        let support = std::array::from_fn(|axis| target.powers()[axis] > 0);
+        let support =
+            std::array::from_fn(|axis| target.powers().get(axis).copied().unwrap_or(0) > 0);
         let first = self
             .regions
             .partition_point(|region| region.owner() < &support);
@@ -165,7 +166,7 @@ impl<const N: usize> FiniteRootAdmission<N> {
         // Chart conversion only; native summaries handle all A/R/D arithmetic.
         // unsigned_abs handles i64::MIN and n-1 is safe for positive n.
         let lower: [u64; N] = std::array::from_fn(|axis| {
-            let n = target.powers()[axis];
+            let n = target.powers().get(axis).copied().unwrap_or(0);
             if n > 0 {
                 (n as u64) - 1
             } else {

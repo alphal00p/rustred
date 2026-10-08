@@ -54,7 +54,7 @@ pub(super) fn resolve<const N: usize>(
         .map_err(|_| OwnerDomainMatchFailure::AllocationFailure {
             resource: "fixed index scratch",
         })?;
-    for axis in 0..N {
+    for axis in 0..context.index_count() {
         if cell.upper()[axis] == Some(cell.lower()[axis]) {
             let value = if owner[axis] {
                 i128::from(cell.lower()[axis]) + 1

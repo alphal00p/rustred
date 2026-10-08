@@ -17,9 +17,11 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         let fingerprint = programs.context.family.fingerprint();
         let mut selected = BTreeMap::new();
         for route in routes {
-            if route.owner_sector.arity() != N
-                || route.transport.source_root().arity() != N
-                || route.transport.target_root().arity() != N
+            if route.owner_sector.arity() != programs.context.family.denominator_count()
+                || route.transport.source_root().arity()
+                    != programs.context.family.denominator_count()
+                || route.transport.target_root().arity()
+                    != programs.context.family.denominator_count()
                 || route.transport.source_family_fingerprint() != fingerprint
                 || route.transport.target_family().fingerprint() != fingerprint
                 || !route
@@ -37,8 +39,23 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                     "route target differs from its declared owner".into(),
                 ));
             }
-            let owner = std::array::from_fn(|i| route.owner_sector.active_bits()[i]);
-            let source = std::array::from_fn(|i| route.transport.source_root().active_bits()[i]);
+            let owner = std::array::from_fn(|i| {
+                route
+                    .owner_sector
+                    .active_bits()
+                    .get(i)
+                    .copied()
+                    .unwrap_or(false)
+            });
+            let source = std::array::from_fn(|i| {
+                route
+                    .transport
+                    .source_root()
+                    .active_bits()
+                    .get(i)
+                    .copied()
+                    .unwrap_or(false)
+            });
             if !programs.owners.contains_key(&owner) {
                 return Err(CandidateRoutedError::InvalidInput(
                     "route target owner is absent".into(),

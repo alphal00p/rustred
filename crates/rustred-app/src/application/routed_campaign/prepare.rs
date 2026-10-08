@@ -72,7 +72,7 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
             return Err(AppError::input("owner changed during bounded read"));
         }
         bytes.push(payload);
-        masks.push(mask(&owner.mask, N)?);
+        masks.push(mask(&owner.mask, owner.mask.len())?);
     }
     let Some(overlay_payloads) = overlays::read(request, selection, cancellation, observer)? else {
         return Ok(None);

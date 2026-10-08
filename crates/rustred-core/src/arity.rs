@@ -43,3 +43,45 @@ pub fn compiled_runtime_arities() -> &'static [usize] {
 pub fn compiled_runtime_capacities() -> &'static [usize] {
     COMPILED_RUNTIME_CAPACITIES
 }
+
+/// Storage width used by application algorithms for a physical input arity.
+/// Admission of the physical arity remains separate from storage selection.
+pub fn campaign_storage_arity(arity: usize) -> usize {
+    compiled_runtime_capacities()
+        .iter()
+        .copied()
+        .find(|&capacity| capacity >= arity)
+        .unwrap_or(arity)
+}
+
+/// Whether an explicitly typed application buffer can hold physical axes.
+pub fn fits_storage(physical: usize, storage: usize) -> bool {
+    physical > 0
+        && (physical == storage
+            || cfg!(feature = "capacity-dispatch")
+                && physical < storage
+                && campaign_storage_arity(physical) == storage)
+}
+
+/// Preserve physical coordinates and initialize every inactive storage slot.
+pub fn storage_array<T: Copy, const N: usize>(values: &[T], padding: T) -> Option<[T; N]> {
+    fits_storage(values.len(), N)
+        .then(|| std::array::from_fn(|i| values.get(i).copied().unwrap_or(padding)))
+}
+
+#[cfg(test)]
+mod campaign_storage_tests {
+    #[test]
+    fn application_dispatch_exposes_only_compiled_storage_widths() {
+        macro_rules! registry { ($($width:literal),*) => {{ const WIDTHS: &[usize] = &[$($width),*]; WIDTHS }}; }
+        let application = with_app_runtime_arities!(registry);
+        let expected: Vec<_> = super::compiled_runtime_capacities()
+            .iter()
+            .copied()
+            .filter(|width| *width <= 16)
+            .collect();
+        assert_eq!(application, expected);
+        #[cfg(feature = "capacity-dispatch")]
+        assert!(application.iter().all(|width| [4, 8, 16].contains(width)));
+    }
+}

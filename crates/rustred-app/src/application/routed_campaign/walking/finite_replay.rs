@@ -175,7 +175,7 @@ pub(super) fn original_initial<const N: usize>(
 ) -> Result<Option<Domain<N>>, String> {
     let queries = matching::input::parse(
         &request.matching.queries_json,
-        N,
+        reducer.programs().context().family().denominator_count(),
         request.matching.max_queries,
         request.matching.max_query_bytes,
     )
@@ -183,10 +183,13 @@ pub(super) fn original_initial<const N: usize>(
     let Some(query) = queries.first() else {
         return Err("missing original finite replay query".into());
     };
-    let installed = reducer
-        .programs()
-        .owner_sectors()
-        .any(|owner| owner.as_slice() == query.owner);
+    let installed = reducer.programs().owner_sectors().any(|owner| {
+        owner.as_slice()
+            == rustred::storage_array::<_, N>(&query.owner, false)
+                .as_ref()
+                .map(|owner| owner.as_slice())
+                .unwrap_or(&[])
+    });
     let phase = if installed || !request.route_domain_overcover {
         super::queue::Phase::Apply
     } else if !reducer.domain_routing_requires_source_conditions() {
@@ -196,19 +199,22 @@ pub(super) fn original_initial<const N: usize>(
     };
     Ok(Some(Domain {
         phase,
-        owner: query
-            .owner
-            .as_slice()
-            .try_into()
-            .map_err(|_| "finite replay original arity")?,
-        lower: query.lower.clone(),
-        upper: query.upper.clone(),
+        owner: rustred::storage_array(&query.owner, false).ok_or("finite replay original arity")?,
+        lower: rustred::storage_array::<_, N>(&query.lower, 0)
+            .ok_or("finite replay original arity")?
+            .to_vec(),
+        upper: rustred::storage_array::<_, N>(&query.upper, Some(0))
+            .ok_or("finite replay original arity")?
+            .to_vec(),
         rank: query.rank,
         powers: query.powers,
     }))
 }
 
-fn point<const N: usize>(domain: &Domain<N>) -> Result<Option<IntegralKey>, String> {
+fn point<const N: usize>(
+    domain: &Domain<N>,
+    physical_arity: usize,
+) -> Result<Option<IntegralKey>, String> {
     if domain.lower.len() != N || domain.upper.len() != N {
         return Err("finite replay domain arity".into());
     }
@@ -220,7 +226,7 @@ fn point<const N: usize>(domain: &Domain<N>) -> Result<Option<IntegralKey>, Stri
     {
         return Ok(None);
     }
-    let powers = (0..N)
+    let powers = (0..physical_arity)
         .map(|axis| {
             let coordinate =
                 i64::try_from(domain.lower[axis]).map_err(|_| "finite replay coordinate range")?;
@@ -322,7 +328,13 @@ pub(super) fn run<const N: usize>(
         .min(reducer.limits().max_input_targets)
         .min(reducer.limits().max_unique_nodes)
         .min(reducer.programs().context().limits().max_pending_frames);
-    let prepared = match enumeration::prepare(domain, recipe.limits, seed_cap, cancel) {
+    let prepared = match enumeration::prepare_with_arity(
+        domain,
+        reducer.programs().context().family().denominator_count(),
+        recipe.limits,
+        seed_cap,
+        cancel,
+    ) {
         Ok(prepared) => prepared,
         Err(failure) => {
             let mut outcome = failure.outcome(cancel);

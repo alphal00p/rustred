@@ -482,9 +482,14 @@ fn integral_record<const N: usize>(value: &Integral<N>) -> IntegralRecord {
 }
 
 fn integral<const N: usize>(value: &IntegralRecord) -> Result<Integral<N>, AppError> {
-    validate_integral(value, N)?;
+    validate_integral(value, value.values.len())?;
+    if !rustred::fits_storage(value.values.len(), N) {
+        return Err(AppError::input(
+            "candidate integral exceeds storage capacity",
+        ));
+    }
     let mut powers = [Power::default(); N];
-    for (axis, power) in powers.iter_mut().enumerate() {
+    for (axis, power) in powers.iter_mut().take(value.values.len()).enumerate() {
         *power = Power::new(value.symbolic[axis], value.values[axis])
             .map_err(|error| AppError::input(error.to_string()))?;
     }
@@ -511,10 +516,87 @@ pub(super) fn sector_record<const N: usize>(
     })
 }
 
+pub(super) fn physical_sector_record<const N: usize>(
+    arity: usize,
+    sector: [bool; N],
+    solution: &SectorSolution<N>,
+    table: &mut CoefficientTableBuilder,
+) -> Result<SectorRecord, AppError> {
+    if !rustred::fits_storage(arity, N) || sector[arity..].iter().any(|&v| v) {
+        return Err(AppError::input("candidate sector uses a padding axis"));
+    }
+    let mut record = sector_record(sector, solution, table)?;
+    record.sector.truncate(arity);
+    let project = |integral: &mut IntegralRecord| -> Result<(), AppError> {
+        if integral.symbolic[arity..].iter().any(|&v| v)
+            || integral.values[arity..].iter().any(|&v| v != 0)
+        {
+            return Err(AppError::input("candidate integral uses a padding axis"));
+        }
+        integral.symbolic.truncate(arity);
+        integral.values.truncate(arity);
+        Ok(())
+    };
+    for integral in &mut record.finite_residuals {
+        project(integral)?;
+    }
+    for rule in &mut record.rules {
+        project(&mut rule.target)?;
+        for term in &mut rule.rhs {
+            project(&mut term.integral)?;
+        }
+        for source in &mut rule.sources {
+            project(&mut source.integral)?;
+            if source.shifts[arity..].iter().any(|&v| v != 0) {
+                return Err(AppError::input("candidate seed shifts a padding axis"));
+            }
+            source.shifts.truncate(arity);
+        }
+        let mut fixed = Vec::new();
+        for (&axis, &value) in rule.case.fixed_axes.iter().zip(&rule.case.fixed_values) {
+            if axis < arity {
+                fixed.push((axis, value));
+            } else if value != 0 {
+                return Err(AppError::input("candidate case uses a padding axis"));
+            }
+        }
+        rule.case.fixed_axes = fixed.iter().map(|&(axis, _)| axis).collect();
+        rule.case.fixed_values = fixed.into_iter().map(|(_, value)| value).collect();
+    }
+    Ok(record)
+}
+
 fn intern_coefficient(
     table: &mut CoefficientTableBuilder,
     value: &Coefficient,
 ) -> Result<u32, AppError> {
+    if cfg!(feature = "capacity-dispatch")
+        && value
+            .get_variables()
+            .iter()
+            .any(|v| matches!(v, symbolica::poly::PolyVariable::Temporary(_)))
+    {
+        let variables = value
+            .get_variables()
+            .iter()
+            .filter(|v| !matches!(v, symbolica::poly::PolyVariable::Temporary(_)))
+            .cloned()
+            .collect::<Vec<_>>();
+        use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
+        let value = Coefficient::from_num_den(
+            value
+                .numerator
+                .rearrange_with_growth(&variables)
+                .map_err(AppError::input)?,
+            value
+                .denominator
+                .rearrange_with_growth(&variables)
+                .map_err(AppError::input)?,
+            &symbolica::domains::integer::Z,
+            true,
+        );
+        return Ok(table.intern(&value).map_err(binary_error)?.index() as u32);
+    }
     Ok(table.intern(value).map_err(binary_error)?.index() as u32)
 }
 
@@ -523,6 +605,24 @@ fn intern_polynomial(
     value: &CoefficientPolynomial,
 ) -> Result<u32, AppError> {
     intern_coefficient(table, &Coefficient::from(value.clone()))
+}
+
+/// Capacity variables extend the authenticated physical context only with unused temporary axes.
+pub(super) fn storage_variables<const N: usize>(
+    context: &IndexedCoefficientContext,
+) -> Vec<symbolica::poly::PolyVariable> {
+    let identity = context.one();
+    let mut storage_variables = identity.raw().get_variables().as_ref().clone();
+    let mut temporary = 0;
+    while storage_variables.len() < identity.raw().get_variables().len() + N - context.index_count()
+    {
+        let variable = symbolica::poly::PolyVariable::Temporary(temporary);
+        temporary += 1;
+        if !storage_variables.contains(&variable) {
+            storage_variables.push(variable);
+        }
+    }
+    storage_variables
 }
 
 /// Rebuild ordinary transport values only. This performs no source replay and
@@ -538,21 +638,18 @@ pub(super) fn solutions<const N: usize>(
     let mathematical_order = super::order::saved_policy(bundle)?;
     let max_numerator_rank = generation_policy.max_numerator_rank;
     let finite_case_policy = generation_policy.finite_case_policy;
-    if bundle.root_sector.len() != N {
+    if !rustred::fits_storage(bundle.root_sector.len(), N) {
         return Err(AppError::input("candidate reconstruction arity"));
     }
-    let identity = context.one();
-    let variables = identity.raw().get_variables().as_slice();
+    let storage_variables = storage_variables::<N>(context);
+    let variables = storage_variables.as_slice();
     bundle
         .sectors
         .iter()
         .enumerate()
         .map(|(sector_ordinal, record)| {
-            let sector: [bool; N] = record
-                .sector
-                .as_slice()
-                .try_into()
-                .expect("validated arity");
+            let sector: [bool; N] =
+                rustred::storage_array(&record.sector, false).expect("validated arity");
             let rules = record
                 .rules
                 .iter()
@@ -576,6 +673,7 @@ pub(super) fn solutions<const N: usize>(
                 .collect::<Result<Vec<_>, _>>()?;
             let order =
                 rustred::solver::IntegralOrder::from_persisted_policy(sector, &mathematical_order)
+                    .and_then(|order| order.with_physical_arity(context.index_count()))
                     .map_err(|error| AppError::input(error.to_string()))?;
             Ok((
                 sector,

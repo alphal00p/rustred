@@ -210,6 +210,16 @@ pub(super) fn prepare<const N: usize>(
     native_seed_cap: usize,
     cancel: &AtomicBool,
 ) -> Result<Prepared<N>, Failure> {
+    prepare_with_arity(domain, N, limits, native_seed_cap, cancel)
+}
+
+pub(super) fn prepare_with_arity<const N: usize>(
+    domain: &Domain<N>,
+    physical_arity: usize,
+    limits: OwnerDomainWalkFiniteReplayLimits,
+    native_seed_cap: usize,
+    cancel: &AtomicBool,
+) -> Result<Prepared<N>, Failure> {
     let mut work = Work::default();
     check(cancel, &work)?;
     let summary = DomainPowerSummary::try_new(
@@ -270,7 +280,7 @@ pub(super) fn prepare<const N: usize>(
         let full = DomainPowerSummary::try_new(
             domain.owner,
             &[0; N],
-            &[None; N],
+            &std::array::from_fn::<_, N, _>(|axis| (axis >= physical_arity).then_some(0)),
             domain.rank,
             domain.powers,
         )
@@ -283,7 +293,7 @@ pub(super) fn prepare<const N: usize>(
         }
         Some(
             FiniteEntryDomain::new(
-                domain.owner.to_vec(),
+                domain.owner[..physical_arity].to_vec(),
                 EntryPowerBudget {
                     max_positive_power,
                     max_numerator_rank,
@@ -320,7 +330,7 @@ pub(super) fn prepare<const N: usize>(
             &mut work,
         )?
     } else {
-        let point = super::point(domain)
+        let point = super::point(domain, physical_arity)
             .map_err(|error| hard(&work, error))?
             .ok_or_else(|| hard(&work, "singleton shape changed during admission"))?;
         collect(

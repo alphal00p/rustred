@@ -31,15 +31,16 @@ impl<const N: usize> CandidateReducer<N> {
         .validate_target(target)
     }
     pub(super) fn is_zero(&self, target: &IntegralKey) -> bool {
-        self.zero_sectors
-            .contains(&std::array::from_fn(|i| target.powers()[i] > 0))
+        self.zero_sectors.contains(&std::array::from_fn(|i| {
+            target.powers().get(i).copied().unwrap_or(0) > 0
+        }))
     }
     pub(super) fn apply_candidate(
         &mut self,
         target: &IntegralKey,
         request: &mut ReductionRequest,
     ) -> Result<BTreeMap<IntegralKey, Coefficient>, CandidateReductionError> {
-        let sector = std::array::from_fn(|i| target.powers()[i] > 0);
+        let sector = std::array::from_fn(|i| target.powers().get(i).copied().unwrap_or(0) > 0);
         let Some(rules) = self.rules.get(&sector) else {
             return Err(CandidateReductionError::Uncovered {
                 target: target.clone(),

@@ -33,13 +33,17 @@ pub(super) fn apply<const N: usize, F>(
     selected: Option<&[Vec<bool>]>,
     max_entries: usize,
 ) -> Result<Option<Vec<Vec<bool>>>, AppError> {
-    let selected = canonical_masks(&prepared.root, selected, max_entries)?;
+    let selected = canonical_masks(
+        &prepared.root[..prepared.sources.active_arity()],
+        selected,
+        max_entries,
+    )?;
     let Some(selected) = selected else {
         return Ok(None);
     };
     let mut sectors = Vec::with_capacity(selected.len());
     for sector in &selected {
-        let sector: [bool; N] = sector.as_slice().try_into().expect("validated arity");
+        let sector: [bool; N] = rustred::storage_array(&sector, false).expect("validated arity");
         if prepared.sectors.binary_search(&sector).is_err() {
             return Err(AppError::input(
                 "selected_sectors mask is proved zero, not a nonzero generation job",

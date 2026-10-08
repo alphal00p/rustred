@@ -273,7 +273,7 @@ fn dispatch_close(
 ) -> Result<Installed, AppError> {
     macro_rules! arms {
         ($($n:literal),* $(,)?) => {
-            match family.denominator_count() {
+            match rustred::campaign_storage_arity(family.denominator_count() ){
                 $($n => close::<$n>(family, request, root_sector, start, observe),)*
                 _ => Err(crate::AppError::input("campaign arity is not compiled")),
             }

@@ -177,12 +177,13 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         stats: &mut CandidateDomainRouteStats,
     ) -> Result<(), CandidateDomainRouteFailure> {
         cancelled(cancellation)?;
-        let lower: [u64; N] = lower.try_into().map_err(|_| {
+        let lower: [u64; N] = crate::arity::storage_array(lower, 0).ok_or_else(|| {
             CandidateDomainRouteFailure::InvalidDomain("source lower-bound arity differs")
         })?;
-        let upper: [Option<u64>; N] = upper.try_into().map_err(|_| {
-            CandidateDomainRouteFailure::InvalidDomain("source upper-bound arity differs")
-        })?;
+        let upper: [Option<u64>; N] =
+            crate::arity::storage_array(upper, Some(0)).ok_or_else(|| {
+                CandidateDomainRouteFailure::InvalidDomain("source upper-bound arity differs")
+            })?;
         if lower
             .iter()
             .zip(upper)
@@ -285,7 +286,14 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             ));
         }
         let positive_upper = projection.as_ref().and_then(|p| p.positive_upper);
-        let root: [bool; N] = std::array::from_fn(|axis| route.owner_sector.active_bits()[axis]);
+        let root: [bool; N] = std::array::from_fn(|axis| {
+            route
+                .owner_sector
+                .active_bits()
+                .get(axis)
+                .copied()
+                .unwrap_or(false)
+        });
         let count = root.iter().filter(|&&b| b).count();
         if count != source.iter().filter(|&&b| b).count() {
             return Err(CandidateDomainRouteFailure::InvalidAdmittedRoute(
@@ -293,12 +301,13 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             ));
         }
         let active_target = route.transport.active_target_axes();
-        if active_target.len() != N {
+        if !crate::arity::fits_storage(active_target.len(), N) {
             return Err(CandidateDomainRouteFailure::InvalidAdmittedRoute(
                 "active-map arity differs",
             ));
         }
-        let mut target_upper = [None; N];
+        let mut target_upper =
+            std::array::from_fn(|axis| (axis >= active_target.len()).then_some(0));
         let mut target_lower_cost = [0_u64; N];
         let mut seen = [false; N];
         for (axis, &target) in active_target.iter().enumerate() {

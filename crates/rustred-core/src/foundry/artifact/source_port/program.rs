@@ -207,6 +207,13 @@ impl<const N: usize> CheckedProgram<N> {
 
         let generator = ParametricIbpGenerator::try_new(&self.family).map_err(error)?;
         let context = self.original_sources.context().clone();
+        let physical_arity = context.index_count();
+        let physical_root = Mask::try_new(
+            self.root_sector.active_bits()[..physical_arity]
+                .iter()
+                .copied(),
+        )
+        .map_err(error)?;
         let mut rule_cells = Vec::new();
         let mut masters = BTreeSet::new();
         let sector_count = self.sectors.len();
@@ -253,7 +260,10 @@ impl<const N: usize> CheckedProgram<N> {
                 rule_cells.extend(cells);
             }
             for terminal in sector.terminals {
-                masters.insert(IntegralKey::try_new(terminal).map_err(error)?);
+                masters.insert(
+                    IntegralKey::try_new(terminal[..physical_arity].iter().copied())
+                        .map_err(error)?,
+                );
             }
             observe(SourcePortInstallEvent::LoweredSector {
                 sector: sector.sector,
@@ -267,7 +277,7 @@ impl<const N: usize> CheckedProgram<N> {
             .iter()
             .map(|sector| {
                 Ok(ZeroSectorTerminal::new(
-                    Mask::try_new(*sector).map_err(error)?,
+                    Mask::try_new(sector[..physical_arity].iter().copied()).map_err(error)?,
                     ZeroTerminalProof::LeePomeranskyRankDeficiency,
                 ))
             })
@@ -275,9 +285,9 @@ impl<const N: usize> CheckedProgram<N> {
         let candidate = ClosingArtifactCandidate {
             schema: ArtifactSchemaVersion::CURRENT,
             algorithm_id: SOURCE_PORT_ALGORITHM_ID,
-            arity: N,
+            arity: physical_arity,
             ordering: self.ordering,
-            supported_root_power_bounds: super::scope::root_bounds(&self.root_sector)
+            supported_root_power_bounds: super::scope::root_bounds(&physical_root)
                 .map_err(error)?,
             family: self.family,
             context,
@@ -307,7 +317,7 @@ impl<const N: usize> CheckedProgram<N> {
             CheckedProgramScope::TotalExcess(report) => {
                 let entry = super::scope::EntryScope::try_new(
                     &candidate.family,
-                    &self.root_sector,
+                    &physical_root,
                     super::scope::EntryDegreeBound::MaxTotalExcessDegree(
                         report.max_entry_total_excess_degree(),
                     ),
@@ -316,7 +326,13 @@ impl<const N: usize> CheckedProgram<N> {
                 let degrees = report
                     .successor_degrees()
                     .iter()
-                    .map(|(sector, degree)| Ok((Mask::try_new(*sector).map_err(error)?, *degree)))
+                    .map(|(sector, degree)| {
+                        Ok((
+                            Mask::try_new(sector[..physical_arity].iter().copied())
+                                .map_err(error)?,
+                            *degree,
+                        ))
+                    })
                     .collect::<Result<Vec<_>, SourcePortAuditError>>()?;
                 install_source_port_through_total_excess_with_observer(
                     candidate,

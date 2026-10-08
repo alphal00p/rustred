@@ -106,7 +106,7 @@ fn generate_request(
         elapsed: started.elapsed(),
     });
     macro_rules! dispatch {
-        ($($n:literal),*) => { match n {
+        ($($n:literal),*) => { match rustred::campaign_storage_arity(n ){
             $($n => generate::<$n>(family, request, &root, started, observe, cancellation),)*
             _ => Err(crate::AppError::input("campaign arity is not compiled")),
         } };
@@ -136,11 +136,11 @@ fn generate<const N: usize>(
     )?;
     if let Some(strategy) = &request.discovery_strategy {
         strategy.validate(
-            N,
+            prepared.family.denominator_count(),
             &prepared
                 .sectors
                 .iter()
-                .map(|s| s.to_vec())
+                .map(|s| s[..prepared.family.denominator_count()].to_vec())
                 .collect::<Vec<_>>(),
             request.bundle_limits.max_collection_entries,
         )?;
@@ -177,7 +177,11 @@ fn generate<const N: usize>(
                 &request,
                 prepared.family.fingerprint(),
                 root,
-                prepared.sectors.iter().map(|s| s.to_vec()).collect(),
+                prepared
+                    .sectors
+                    .iter()
+                    .map(|s| s[..prepared.family.denominator_count()].to_vec())
+                    .collect(),
             )?;
             CheckpointStore::open(options, manifest, request.bundle_limits)
         })
@@ -187,8 +191,8 @@ fn generate<const N: usize>(
             .pending()?
             .into_iter()
             .map(|(ordinal, sector)| {
-                sector
-                    .try_into()
+                rustred::storage_array(&sector, false)
+                    .ok_or(())
                     .map(|sector| (ordinal, sector))
                     .map_err(|_| AppError::internal_invariant("checkpoint pending sector arity"))
             })
@@ -236,7 +240,7 @@ fn generate<const N: usize>(
             .as_ref()
             .map(|strategy| {
                 jobs.iter()
-                    .map(|s| strategy.source_for(s))
+                    .map(|s| strategy.source_for(&s[..prepared.family.denominator_count()]))
                     .collect::<Result<Vec<_>, _>>()
             })
             .transpose()?;
@@ -369,7 +373,14 @@ fn generate<const N: usize>(
             .into_iter()
             .map(|(solution, _)| solution)
             .flatten()
-            .map(|(sector, solution)| codec::sector_record(sector, &solution, &mut coefficients))
+            .map(|(sector, solution)| {
+                codec::physical_sector_record(
+                    prepared.family.denominator_count(),
+                    sector,
+                    &solution,
+                    &mut coefficients,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?
     };
     let assembled_at = started.elapsed();
@@ -442,7 +453,7 @@ fn generate<const N: usize>(
         status: STATUS,
         workload: "prepare-solve-save; no source replay or closure certification",
         family_fingerprint: prepared.family.fingerprint(),
-        arity: N,
+        arity: prepared.family.denominator_count(),
         root_sector: root,
         generation_scope: if selected_sectors.is_some() {
             "selected-sectors"
@@ -456,9 +467,12 @@ fn generate<const N: usize>(
         finite_residuals,
         workers: request.n_cores,
         exact_backend: request.exact_backend.as_str(),
-        integral_order: super::order::request_policy(&request, N)?
-            .stable_id()
-            .to_string(),
+        integral_order: super::order::request_policy(
+            &request,
+            prepared.family.denominator_count(),
+        )?
+        .stable_id()
+        .to_string(),
         discovery_strategy: request.discovery_strategy.as_ref(),
         rule_selection,
         numerical_depth: request.numerical_depth,

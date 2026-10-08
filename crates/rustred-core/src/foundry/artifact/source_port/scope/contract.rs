@@ -161,7 +161,16 @@ impl EntryScope {
         cell: &LatticeBox,
     ) -> Result<bool, ArtifactError> {
         self.validate_sector(sector)?;
-        self.check_arity(cell.arity())?;
+        if !crate::arity::fits_storage(self.root.arity(), cell.arity())
+            || cell.lower()[self.root.arity()..]
+                .iter()
+                .any(|value| *value != 0)
+            || cell.upper()[self.root.arity()..]
+                .iter()
+                .any(|value| *value != Some(0))
+        {
+            return Err(invalid("entry geometry has invalid padding"));
+        }
         self.bound.intersects_local_box(sector, cell)
     }
 
@@ -169,7 +178,13 @@ impl EntryScope {
         &self,
         sector: &[bool],
     ) -> Result<(), ArtifactError> {
-        self.check_arity(sector.len())?;
+        if !crate::arity::fits_storage(self.root.arity(), sector.len())
+            || sector[self.root.arity()..].iter().any(|active| *active)
+        {
+            return Err(invalid(
+                "proof-envelope sector has invalid storage coordinates",
+            ));
+        }
         if sector
             .iter()
             .zip(self.root.active_bits())

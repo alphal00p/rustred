@@ -306,7 +306,7 @@ impl<'a, const N: usize> Shared<'a, N> {
     }
     fn validate_node(node: &Work<N>) -> Result<(), Failure> {
         let key = node.target();
-        if key.powers().len() != N {
+        if !crate::fits_storage(key.powers().len(), N) {
             return Err(CandidateRoutedError::InvalidInput(
                 "scheduled work has the wrong integral arity".into(),
             )

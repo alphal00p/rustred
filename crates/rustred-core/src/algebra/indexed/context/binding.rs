@@ -113,7 +113,10 @@ impl IndexedCoefficientContext {
     }
 
     pub(crate) fn validate_index_arity(&self, shift: &[i64]) -> Result<(), IndexedAlgebraError> {
-        if shift.len() == self.index_count() {
+        if shift.len() == self.index_count()
+            || crate::fits_storage(self.index_count(), shift.len())
+                && shift[self.index_count()..].iter().all(|&power| power == 0)
+        {
             Ok(())
         } else {
             Err(IndexedAlgebraError::WrongIndexArity {

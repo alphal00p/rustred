@@ -414,3 +414,36 @@ fn checked_priority_rejects_mutated_source_product_root_and_resource_limits() {
         encode_checked_priority_owner::<1>(&bytes, proposal, Default::default(), limits).is_err()
     );
 }
+
+#[test]
+#[cfg(feature = "capacity-dispatch")]
+fn capacity_priority_export_preserves_physical_proof_and_transport() {
+    let (bytes, family) = base();
+    let (_, proposal) = request(&family);
+    let physical = encode_checked_priority_owner::<1>(
+        &bytes,
+        proposal.clone(),
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    let padded = encode_checked_priority_owner::<4>(
+        &bytes,
+        proposal,
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    let physical = codec::read(physical.bytes(), Default::default()).unwrap();
+    let padded = codec::read(padded.bytes(), Default::default()).unwrap();
+    assert_eq!(physical.records, padded.records);
+    assert_eq!(physical.family, padded.family);
+    assert_eq!(physical.coefficients.len(), padded.coefficients.len());
+    for i in 0..physical.coefficients.len() {
+        let id = CoefficientId::try_from_index(i).unwrap();
+        assert_eq!(
+            physical.coefficients.coefficient(id).unwrap(),
+            padded.coefficients.coefficient(id).unwrap()
+        );
+    }
+}

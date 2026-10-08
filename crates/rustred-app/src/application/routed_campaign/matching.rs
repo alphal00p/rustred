@@ -134,6 +134,7 @@ pub fn owner_domain_match_with_progress(
     let with_allowances = |mut event: Value| {
         event["requested_max_queries"] = json!(request.max_queries);
         event["requested_max_query_bytes"] = json!(request.max_query_bytes);
+        super::storage::project(&mut event, arity);
         observer(event);
     };
     with_allowances(
@@ -144,7 +145,7 @@ pub fn owner_domain_match_with_progress(
         "max_bounded_refinement_cells":request.match_limits.max_bounded_refinement_cells,
         "ibp_generation":false, "rhs_successors_expanded":false}),
     );
-    macro_rules! dispatch { ($($n:literal),*) => { match arity {
+    macro_rules! dispatch { ($($n:literal),*) => { match rustred::campaign_storage_arity(arity ){
         $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &with_allowances),)*
         _ => Err(crate::AppError::input("campaign arity is not compiled")),
     }} }
@@ -152,6 +153,7 @@ pub fn owner_domain_match_with_progress(
         crate::ensure_runtime_arity(arity)?;
         rustred::with_app_runtime_arities!(dispatch)
     }?;
+    super::storage::project(&mut result.document, arity);
     result.document["requested_max_queries"] = json!(request.max_queries);
     result.document["requested_max_query_bytes"] = json!(request.max_query_bytes);
     Ok(result)
@@ -248,7 +250,8 @@ fn run<const N: usize>(
             "id":query.id, "completed_queries":completed_queries, "processed_queries":records.len(), "query_count":queries.len(),
             "retained_pieces":retained, "counts":counts.json()}),
         );
-        let owner: [bool; N] = query.owner.as_slice().try_into().expect("validated arity");
+        let owner: [bool; N] =
+            rustred::storage_array(&query.owner, false).expect("validated arity");
         let mut pieces = Vec::new();
         let mut summary_limit = false;
         let mut unresolved = false;

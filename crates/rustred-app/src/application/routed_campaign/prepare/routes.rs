@@ -143,8 +143,8 @@ fn verify<const N: usize>(
     if !route.requires_transport {
         return Ok(None);
     }
-    let source = mask(&route.source_mask, N)?;
-    let target = mask(&route.owner_mask, N)?;
+    let source = mask(&route.source_mask, family.denominator_count())?;
+    let target = mask(&route.owner_mask, family.denominator_count())?;
     let inverse = matrix(&route.owner_to_representative)?
         .inv()
         .map_err(|e| AppError::input(format!("native route inverse: {e:?}")))?;

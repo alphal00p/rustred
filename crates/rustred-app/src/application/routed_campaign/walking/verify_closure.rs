@@ -776,7 +776,7 @@ fn verify_closure_with_progress(
         ));
     }
     let (selection, arity, limits) = input::Selection::parse(&request.matching.selection_json)?;
-    macro_rules! dispatch { ($($n:literal),*) => { match arity {
+    macro_rules! dispatch { ($($n:literal),*) => { match rustred::campaign_storage_arity(arity ){
         $($n => verify::<$n>(request, options, &selection, limits, cancellation, &observer, inventory),)*
         _ => Err(AppError::input("unsupported owner arity")),
     }} }
@@ -996,10 +996,22 @@ fn record_node<const N: usize>(
         "Route" => Some(Phase::Route),
         _ => None,
     };
+    let owner = row
+        .owner
+        .chars()
+        .map(|c| match c {
+            '0' => Some(false),
+            '1' => Some(true),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>();
+    let owner = owner.and_then(|owner| super::super::storage::restore_array::<_, N>(&owner, false));
+    let lower = super::super::storage::restore_array::<_, N>(&row.lower, 0);
+    let upper = super::super::storage::restore_array::<_, N>(&row.upper, Some(0));
     if phase != Some(domain.phase)
-        || row.owner != mask(&domain.owner)
-        || row.lower != domain.lower
-        || row.upper != domain.upper
+        || owner != Some(domain.owner)
+        || lower.as_ref().map(|v| v.as_slice()) != Some(domain.lower.as_slice())
+        || upper.as_ref().map(|v| v.as_slice()) != Some(domain.upper.as_slice())
         || row.rank != domain.rank
         || row.power_bounds.bounds() != domain.powers
     {
@@ -2158,7 +2170,7 @@ fn verify<const N: usize>(
     let mut violations = Violations::new(options.max_violations);
     let queries = matching::input::parse(
         &request.matching.queries_json,
-        N,
+        selection.physical_arity(),
         request.matching.max_queries,
         request.matching.max_query_bytes,
     )?;
@@ -2464,7 +2476,7 @@ fn verify<const N: usize>(
     let amended = match request
         .amendments
         .iter()
-        .map(|a| super::rescue::parse(a, N))
+        .map(|a| super::rescue::parse(a, selection.physical_arity()))
         .collect::<Result<Vec<_>, _>>()
     {
         Ok(parsed) => parsed,
@@ -2555,10 +2567,13 @@ fn verify<const N: usize>(
         // Derive phase from the immutable request and independently prepared
         // owner registry, never from the record being authenticated. Initial
         // queries and amendments have different missing-owner admission rules.
-        let installed = reducer
-            .programs()
-            .owner_sectors()
-            .any(|owner| owner.as_slice() == query.owner.as_slice());
+        let installed = reducer.programs().owner_sectors().any(|owner| {
+            owner.as_slice()
+                == rustred::storage_array::<_, N>(&query.owner, false)
+                    .as_ref()
+                    .map(|owner| owner.as_slice())
+                    .unwrap_or(&[])
+        });
         let phase = query_root_phase(
             installed,
             request.route_domain_overcover,
@@ -2620,7 +2635,7 @@ fn verify<const N: usize>(
             if !query_root_matches(
                 &loaded.domains[record],
                 phase,
-                &query_cell(query),
+                &query_cell::<N>(query),
                 false,
                 &containment,
             ) {
@@ -2641,7 +2656,7 @@ fn verify<const N: usize>(
             root_of_query.push(None);
             continue;
         };
-        let query_cell = query_cell(query);
+        let query_cell = query_cell::<N>(query);
         let first = *admitting.entry(record).or_insert(index) == index;
         let ok = query_root_matches(
             &loaded.domains[record],
@@ -2787,7 +2802,7 @@ fn verify<const N: usize>(
                 }
                 continue;
             }
-            let cell = query_cell(query);
+            let cell = query_cell::<N>(query);
             let own = root_of_query[index];
             let phase = own.map_or(Phase::Apply, |r| loaded.domains[r].phase());
             let via = root_of_query.iter().enumerate().find_map(|(input, root)| {
@@ -3051,11 +3066,17 @@ fn memory_status() -> Value {
     json!({"rss_bytes": field("VmRSS:"), "peak_rss_bytes": field("VmHWM:")})
 }
 
-fn query_cell(query: &matching::input::Query) -> Cell {
+fn query_cell<const N: usize>(query: &matching::input::Query) -> Cell {
     Cell {
-        owner: query.owner.clone(),
-        lower: query.lower.clone(),
-        upper: query.upper.clone(),
+        owner: rustred::storage_array::<_, N>(&query.owner, false)
+            .expect("admitted arity")
+            .to_vec(),
+        lower: rustred::storage_array::<_, N>(&query.lower, 0)
+            .expect("admitted arity")
+            .to_vec(),
+        upper: rustred::storage_array::<_, N>(&query.upper, Some(0))
+            .expect("admitted arity")
+            .to_vec(),
         rank: query.rank,
         powers: query.powers,
     }
@@ -3552,7 +3573,7 @@ fn plan_mutation<const N: usize>(
             }),
         M::RemappedQuery => {
             for (index, query) in queries.iter().enumerate() {
-                let inner = query_cell(query);
+                let inner = query_cell::<N>(query);
                 let current = ctx
                     .loaded
                     .raw

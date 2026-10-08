@@ -317,7 +317,11 @@ impl<const N: usize> SourcePortAudit<N> {
         family: &IntegralFamily,
         zero_sectors: Arc<[[bool; N]]>,
     ) -> Result<Self, SourcePortAuditError> {
-        Self::try_new_with_root_sector(family, zero_sectors, [true; N])
+        Self::try_new_with_root_sector(
+            family,
+            zero_sectors,
+            std::array::from_fn(|axis| axis < family.denominator_count()),
+        )
     }
 
     /// Certify every subsector of a caller-declared maximal root sector.
@@ -331,6 +335,13 @@ impl<const N: usize> SourcePortAudit<N> {
         zero_sectors: Arc<[[bool; N]]>,
         root_sector: [bool; N],
     ) -> Result<Self, SourcePortAuditError> {
+        if !crate::arity::fits_storage(family.denominator_count(), N)
+            || root_sector[family.denominator_count()..]
+                .iter()
+                .any(|active| *active)
+        {
+            return Err(error("root sector has invalid storage coordinates"));
+        }
         let root_sector = Mask::try_new(root_sector).map_err(error)?;
         scope::sector_count(&root_sector).map_err(error)?;
         if family.external_count() != 0 || family.power_shifts().iter().any(|x| !x.is_zero()) {
@@ -366,11 +377,20 @@ impl<const N: usize> SourcePortAudit<N> {
         let mut seen = BTreeSet::new();
         let mut zero_certificates = Vec::with_capacity(zero_sectors.len());
         for &sector in zero_sectors.iter() {
+            if sector[family.denominator_count()..]
+                .iter()
+                .any(|active| *active)
+            {
+                return Err(error("claimed zero sector uses a padding axis"));
+            }
             if !seen.insert(sector) {
                 return Err(error("duplicate claimed zero sector"));
             }
             match analyzer
-                .analyze(&Mask::try_new(sector).map_err(error)?)
+                .analyze(
+                    &Mask::try_new(sector[..family.denominator_count()].iter().copied())
+                        .map_err(error)?,
+                )
                 .map_err(error)?
             {
                 zero::Decision::ProvedZero(certificate) => zero_certificates.push(certificate),
@@ -685,6 +705,13 @@ impl<const N: usize> SourcePortAudit<N> {
                 }
             }
         }
+        if solution.finite_residuals.iter().any(|terminal| {
+            terminal.powers()[self.sources.active_arity()..]
+                .iter()
+                .any(|power| power.is_symbolic() || power.value() != 0)
+        }) {
+            return Err(error("finite terminal uses a padding axis"));
+        }
         let terminal_boxes = geometry::terminal_boxes(&solution.finite_residuals, &sector)?;
         let terminals = solution
             .finite_residuals
@@ -715,8 +742,9 @@ impl<const N: usize> SourcePortAudit<N> {
                 ..Default::default()
             };
             let checked = match max_total_excess_degree {
-                Some(degree) => predicate_cover::certify_predicate_cover_up_to_degree(
+                Some(degree) => predicate_cover::certify_predicate_cover_up_to_degree_with_arity(
                     &sector,
+                    self.sources.active_arity(),
                     owners,
                     &terminal_boxes,
                     scope::EntryDegreeBound::MaxTotalExcessDegree(degree),
@@ -725,12 +753,20 @@ impl<const N: usize> SourcePortAudit<N> {
                         ..limits
                     },
                 ),
-                None => predicate_cover::certify_predicate_cover(
-                    &sector,
-                    owners,
-                    &terminal_boxes,
-                    limits,
-                ),
+                None => {
+                    let required = crate::foundry::completion::LatticeBox::try_new(
+                        [0; N],
+                        (0..N).map(|axis| (axis >= self.sources.active_arity()).then_some(0)),
+                    )
+                    .map_err(error)?;
+                    predicate_cover::certify_predicate_cover_within(
+                        &sector,
+                        owners,
+                        &terminal_boxes,
+                        &[required],
+                        limits,
+                    )
+                }
             };
             match checked {
                 Ok(_) => Ok((0, 0, None)),

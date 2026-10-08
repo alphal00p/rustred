@@ -70,7 +70,10 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             }
             input
                 .ordering
-                .compare(&[0; N], &[0; N])
+                .compare(
+                    &vec![0; context.coefficient_context().index_count()],
+                    &vec![0; context.coefficient_context().index_count()],
+                )
                 .map_err(ReductionError::Ordering)?;
             let mut prepared = prepare_records(
                 &context.shared,

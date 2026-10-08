@@ -197,7 +197,7 @@ impl<const N: usize> RoutedFeedbackSession<N> {
         rustred::campaign::ParallelExecution::preflight_requested_core_budget(request.workers)
             .map_err(|e| AppError::input(e.to_string()))?;
         let (selection, n, limits) = input::Selection::parse(&request.selection_json)?;
-        if N != n {
+        if !rustred::fits_storage(n, N) {
             return Err(AppError::input("feedback session arity differs from input"));
         }
         let targets = input::targets(
@@ -208,7 +208,7 @@ impl<const N: usize> RoutedFeedbackSession<N> {
         let entry_domain = request
             .entry_domains_json
             .as_deref()
-            .map(entry::RequestedEntryDomain::<N>::parse)
+            .map(|text| entry::RequestedEntryDomain::<N>::parse_with_arity(text, n))
             .transpose()?;
         options.validate_receipt(
             entry_domain

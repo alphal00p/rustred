@@ -118,8 +118,9 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             cancelled(cancellation)?;
             if N == 0
                 || N > 4096
-                || lower.len() != N
-                || upper.len() != N
+                || lower.len() != upper.len()
+                || !crate::fits_storage(lower.len(), N)
+                || owner[lower.len()..].iter().any(|&v| v)
                 || lower
                     .iter()
                     .zip(upper)
@@ -127,6 +128,11 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             {
                 return Err(OwnerGuardedFailure::InvalidInput("guarded owner/box shape"));
             }
+            let lower_storage = crate::storage_array::<_, N>(lower, 0).expect("validated bounds");
+            let upper_storage =
+                crate::storage_array::<_, N>(upper, Some(0)).expect("validated bounds");
+            let lower = &lower_storage[..];
+            let upper = &upper_storage[..];
             let prepared = self
                 .owners
                 .get(&owner)
