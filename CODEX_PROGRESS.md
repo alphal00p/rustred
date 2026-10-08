@@ -6,13 +6,75 @@ Active plan: `CRITICAL_GEOMETRY_TERMINAL_PLAN.md`; tool-managed goal created.
 Starting main milestone `093fa066` contains the completed829->608five-loop and
 74->65family-local four-loop refinement. User requests deeper, cost-conscious
 compression and evaluation of the same relation types during campaigns.
-Initial lanes: Vakint/FMFT exact projection/census; critical geometry and
-Symbolica API investigation; independent mathematical/code audit and campaign
-insertion study. No new performance or compression result yet. All experiments
+Initial lanes: `terminal_saved_identity_impl` owns Vakint/FMFT exact projection
+and census; `terminal_session_assist_impl` owns critical geometry and Symbolica
+API investigation; `terminal_integration_auditor` independently audits authority
+and campaign insertion. Plan independently audited and pushed as `61f926a4`.
+All experiments
 use immutable copied inputs; unrelated HEPKit/notebook work and the user's
-running campaign remain untouched. Next executable step: reconcile projected
-four-loop terminals with the19-symbol FMFT basis and preregister targeted
-relation experiments before implementing their generic providers.
+running campaign remain untouched.
+
+First evidence: oracle comparison maps the65 remaining four-loop family-local
+keys to22 distinct exact FMFT expressions in0.392s; this is an offline diagnostic,
+not65->22 newly proved autonomous RustRed reductions. Evidence:
+`TMP/critical-geometry-20261008/oracle/census.json`. Cross-family exact-U
+equivalence is the first implementation candidate; fresh representative FMFT
+checks and classification of the remaining three formal redundancies are active.
+
+Root preregistered finite circuit-support expansion: keep identical ordinary
+seeds/rows, but prepare existing independently verified circuit transports also
+for their structural output keys, not only raw/canonical terminals. No recursive
+provider RHS traversal or terminal-role changes. Auditor approves its authority
+boundary with a fresh provider binding. Initial FG pair completes at15 in both
+modes: no compression gain, expanded preparation0.548s versus0.046s. Full4L
+controls and a frozen5L test are now complete: all four-loop remaining counts
+are unchanged (H19,FG15,BMW15,X16). Broad source-support preparation is rejected
+for these controls: total driver time rises from0.21–0.45s to0.72–0.96s. The
+five-loop baseline independently reproduces608; expanded preparation stops at
+the existing4M aggregate transport-endpoint limit (requested4,100,827), before
+the search, after21.74s with943MiB peakRSS. This is a resource-censored negative
+experiment, not a completed unsuccessful reduction. Do not raise the limit
+without a selective mechanism. Full evidence and commands are in
+`docs/research/terminal_circuit_source_support_2026-10-08.md`.
+Driver/evidence: `TMP/critical-geometry-20261008/circuit_source_support.rs`.
+The wrapper uses opt-level1 linked to frozen optimized engine libraries; report
+this boundary explicitly. An initial timing wrapper failed because `/usr/bin/time`
+does not exist; use `/run/current-system/sw/bin/time`; no solver ran in that failed
+attempt.
+
+Geometry lane found an existing native `sector::masters::MasterCounter`, so no
+duplicate critical-point engine is needed. First bounded diagnostic examines
+the actual7/8-propagator mixed-relation sectors, not all exponentially many
+faces of every parent. Modular counts stay discovery-only. Campaign audit:
+terminal postcomposition has a cheap existing coefficient-application seam,
+whereas routed reachability discards coefficients and keeps raw obligations;
+output compression alone must not be advertised as faster campaign traversal.
+
+Fresh offline Vakint/FMFT oracle controls:7/7 generic-d catalogue projections
+reproduced exactly. Cross-parent census has22 distinct expressions of formal
+rank19; independence of these formal symbols is not being proved. Geometry
+diagnostics on two actual mixed dotted sectors returnCounted(2), with two
+samples agreeing, in0.506s/6.071s. No nonisolated signal justifies a magic-sector
+search there; park that lane and prioritize exact cross-familyU aliases plus
+ordinary dot-Euler rows. The new core collection is being implemented by
+`terminal_saved_identity_impl` and independently audited by
+`terminal_integration_auditor`; no FMFT coefficients enter production authority.
+
+Root current-build application repeat passes all4fresh processes and20warm
+checks (independently audited): H first apply3.351->2.728s; X16.896->13.053s.
+These re-test existing weighted normalization, not the new cross-family work.
+Rule and cached-integral counts are identical, while output coefficients and
+cache payload shrink. Whole-process times4.94->4.40s and20.09->16.35s include
+load/preparation; opt-level1 wrapper against optimized libraries, shared host,
+single observations. Details and campaign-versus-application boundary:
+`docs/research/terminal_application_feedback_2026-10-08.md`.
+
+Current backlog: cross-family full-U implementation active (focused tests and
+optimized core build); generic diagonal-source/global-column pilot active;
+broad circuit-support expansion rejected unless selective evidence reopens it;
+critical geometry diagnostic delivered, further magic search deferred for
+this shortlist. Geometry note:
+`docs/research/critical_geometry_terminal_diagnostics_2026-10-08.md`.
 
 ## October 8 — terminal-compression delivery
 
