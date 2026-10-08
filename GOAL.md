@@ -1,5 +1,20 @@
 # RustRed project goal
 
+## October 8 — active: geometry/oracle-guided compression and campaign feedback
+
+The newest directive is authoritative in
+`CRITICAL_GEOMETRY_TERMINAL_PLAN.md`: use offline Vakint/FMFT projections and
+critical-point/critical-syzygy/magic-relation research to identify and implement
+cost-effective generic terminal relations, first on four loops and then the
+frozen five-loop inventory. Investigate whether the same exact relations can
+economically improve the campaign itself. Aim for substantially fewer practical
+terminals, not exact minimality. Root coordinates independent oracle, geometry,
+implementation and audit lanes. Preserve all guards, auxiliary terms, generic
+dimension and provenance; use Symbolica for algebra and never infer identities
+from counts or sampling. No running campaign may be changed or signalled.
+Document and push tested milestones; historical stopping instructions for the
+previous delivery do not stop this new goal.
+
 ## October 8 — measured terminal compression
 
 Status: **implemented, independently audited, measured and pushed** through

@@ -1,5 +1,19 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 8 — new goal: geometry/oracle-guided relations
+
+Active plan: `CRITICAL_GEOMETRY_TERMINAL_PLAN.md`; tool-managed goal created.
+Starting main milestone `093fa066` contains the completed829->608five-loop and
+74->65family-local four-loop refinement. User requests deeper, cost-conscious
+compression and evaluation of the same relation types during campaigns.
+Initial lanes: Vakint/FMFT exact projection/census; critical geometry and
+Symbolica API investigation; independent mathematical/code audit and campaign
+insertion study. No new performance or compression result yet. All experiments
+use immutable copied inputs; unrelated HEPKit/notebook work and the user's
+running campaign remain untouched. Next executable step: reconcile projected
+four-loop terminals with the19-symbol FMFT basis and preregister targeted
+relation experiments before implementing their generic providers.
+
 ## October 8 — terminal-compression delivery
 
 Code and measured integration milestone committed and pushed to main as
