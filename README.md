@@ -342,6 +342,15 @@ peer paths afterwards. Inspection distinguishes the primary campaign from the
 combined collection; fewer terminal labels imply neither new coverage nor a
 minimal master basis. See [collection and application](docs/campaign_master_reduction.md#native-terminal-collection-and-application).
 
+New explicit refinements also combine the retained finite rowspaces, including
+unresolved auxiliary integrals, to expose additional exact cancellations. This
+finite feedback adds no source seeds and does not run during `extend` or ordinary
+publication; those operations retain its already proved substitutions. Use
+`refine --no-finite-feedback` to disable new feedback discovery. On the frozen
+five-loop inventory it reduces 607 candidate masters to 601, with a one-off
+refinement cost of 34.76 s versus 21.39 s; the four-loop combined count stays 20.
+See the [measured impact and limitations](docs/research/finite_refinement_feedback_2026-10-08.md).
+
 Generated candidate programs now use a shared Symbolica-native binary
 coefficient dictionary and native family geometry, rather than coefficient
 strings in TOML. The original family input remains provenance, not a loading

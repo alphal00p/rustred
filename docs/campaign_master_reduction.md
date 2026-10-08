@@ -185,15 +185,31 @@ workers are busy throughout post-processing.
 
 ## Native terminal collection and application
 
-The ordinary public `refine` command runs the exact `full-u-diagonal-v1`
-collection after its finite source search. No separate Rust driver or opt-in
-switch is needed. It first composes the finite local maps, then removes exact
-full-U parameter-permutation aliases across compatible families and finds
-additional relations from native diagonal ordinary-IBP sums. It retains all
-auxiliary columns and independently replays the newly generated source
-identities. Neither numerical master values nor oracle equations enter this
-stage. Unsupported keys, including numerator-bearing keys in this scalar
-collection lane, remain in the output rather than being discarded.
+The ordinary public `refine` command runs exact terminal collection after its
+finite source search. It composes the finite local maps, removes exact full-U
+parameter-permutation aliases across compatible families and finds additional
+relations from native diagonal ordinary-IBP sums. New refinements also enable
+the `finite-row-feedback-v1` recipe: a combined exact elimination of retained
+finite rows with family-qualified columns, including full-U aliases of eligible
+auxiliary columns. This can expose cancellations that separate family searches
+cannot see. Feedback adds no source seeds. Unsupported columns, including
+numerator columns in the scalar alias lane, remain in the equations and can
+disappear only through exact elimination. Neither numerical master values nor
+oracle equations enter this stage; newly generated diagonal source identities
+retain independent source replay and finite rows retain their existing authority.
+
+Use `refine --no-finite-feedback` for the matched baseline, or
+`refine --finite-feedback` to enable it explicitly. The wrapper remembers this
+preference; the default for a new preference is on. The native
+`walk-master-reduce` command accepts the same pair of flags. For a matched
+comparison, refine the same immutable source into separate output directories.
+Disabling discovery on an already refined source retains its proved feedback
+maps. Mode and recipe are recorded in each phase snapshot and in the wrapper's
+launch identity; changing either cannot reuse stale completion or resume a
+different native phase. An omitted native flag on resume inherits its snapshot.
+The `terminal-collection-limits-v2` snapshot pins separate diagonal and retained
+finite-row bounds together with the selected normalization profile; earlier
+collection limit recipes remain readable for existing source publications.
 
 One saved campaign does not automatically contain all separate parent-family
 inventories. Supply additional published packages explicitly when useful:
@@ -223,6 +239,18 @@ that every peer's optional search was exhausted.
 Counts have distinct meanings: primary raw/normalized/remaining counters refer
 to the primary campaign; the `collection` record reports combined raw keys,
 precollection remaining keys, alias classes and final remaining outputs.
+Its `finite_feedback_stage` reports pending/completed/disabled discovery, and
+`finite_feedback_rows`, `finite_feedback_columns`,
+`finite_feedback_auxiliary_columns`, `finite_feedback_aliases`, and
+`finite_feedback_equations`, `finite_feedback_nonzeros`, and
+`finite_feedback_replay_operations` report retained feedback proof work. Nonzeros
+count the retained forward sparse factors, not peak scratch memory. These counts
+are cumulative over retained proof layers, including on a later publication
+that does not discover new equations.
+`passthrough_terminals` counts outputs outside the groups covered by retained
+collection layers. A feedback layer can cover numerator columns without
+eliminating them, so a decrease in this counter is not a count of eliminated
+numerators. Inspect the actual remaining family-qualified keys to count them.
 The measured four-family inventory is 74 raw keys → 65 local outputs → 22
 global aliases → 20 after diagonal identities. These numbers are input-specific,
 not promised for arbitrary scopes. With inherited multi-layer proofs, alias
@@ -251,7 +279,7 @@ The `terminal_collection` phase has a checkpoint before preparation and atomic
 publication afterwards. Ctrl+C preserves the completed finite search; resume
 finishes or validates collection without rerunning campaign closure. An
 unchanged completed refinement is a no-op. A later scope extension rebinds
-already proved maps without new diagonal discovery; explicit refinement can
+already proved maps without new diagonal or finite-feedback discovery; explicit refinement can
 then add identities for new outputs. Retained output names are protected as
 identity terminals when a later local basis differs, keeping one-pass maps
 flat and avoiding mixed-basis cycles. This conservative policy can leave a
@@ -260,6 +288,10 @@ nonminimal basis; minimizing that basis is a separate task.
 A completed old phase no longer forces the wrapper to reuse its old executable.
 The current optimized binary is selected; paused phases retain their frozen
 cursor binary unless deliberately replaced with `--executable`.
+A paused wrapper phase created before finite-feedback flags existed keeps its
+old executable. To start an upgraded refinement with the new recipe, pass
+`--executable /absolute/path/to/current/rustred`; the new phase has a distinct
+configuration identity and leaves the old checkpoint intact.
 
 ## Stop, resume and enlarge the input scope
 

@@ -1,5 +1,26 @@
 # RustRed project goal
 
+## October 8 — completed: finite refinement feedback
+
+Follow `FINITE_REFINEMENT_FEEDBACK_PLAN.md`: combine retained finite rowspaces
+and exact cross-family identifications during explicit `refine` only, including
+unresolved auxiliary columns so useful cancellations are not hidden. Preserve
+all conditions, provenance and unsupported terms, native cold validation and
+saved-workflow lifecycle. Do not change the main campaign solver or add new
+source seeds. Benchmark on/off on copied four-/five-loop inventories and report
+both successes and negative results. Root coordinates separate implementation
+and independent audit lanes; no live campaign changes are permitted.
+
+Delivered generic retained-row feedback through explicit `refine`, native proof
+persistence, cold application and saved-workflow flags/checkpoints. Independent
+audits and exact map checks pass. Matched release controls show no further
+four-loop compression (combined20), and frozen five-loop607→601 for21.389→34.757s.
+All253numerator outputs remain. Ctrl+C/resume reproduces the uninterrupted
+payload exactly; extension retains maps without new discovery. See
+`docs/research/finite_refinement_feedback_2026-10-08.md`. No campaign-walker
+feedback, new source seeds, numerical evaluations or live production changes
+are included in this completed delivery.
+
 ## October 8 — completed: saved-campaign collection integration
 
 Authoritative plan: `SAVED_CAMPAIGN_COLLECTION_INTEGRATION_PLAN.md`.

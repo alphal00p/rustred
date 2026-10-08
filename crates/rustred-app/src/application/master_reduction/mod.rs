@@ -57,6 +57,10 @@ pub struct MasterReductionOptions {
     /// Add verified circuit-symmetry equations for raw and normalized terminals.
     /// Does not load or certify saved candidate rules.
     pub circuit_symmetry_assistance: bool,
+    /// Re-eliminate retained family-qualified finite rows after full-U aliases.
+    /// New refinements default to enabled; omitted on resume uses the snapshot.
+    /// Publication only transports previously proved maps.
+    pub finite_feedback: Option<bool>,
     /// Omitted on a new refinement inherits its source; omitted on resume
     /// inherits the checkpoint. Explicit changes require a new phase.
     pub normalization_profile: Option<MasterNormalizationProfile>,
@@ -77,6 +81,7 @@ impl MasterReductionOptions {
             containing_sector_depth: 0,
             saved_rule_assistance: false,
             circuit_symmetry_assistance: false,
+            finite_feedback: None,
             normalization_profile: None,
             checkpoint_interval: Duration::from_secs(3600),
             operation: MasterReductionOperation::Refine,
@@ -187,6 +192,7 @@ pub fn master_reduce_saved_campaign(
     }
     if (options.saved_rule_assistance
         || options.circuit_symmetry_assistance
+        || options.finite_feedback.is_some()
         || options.containing_sector_depth != 0
         || !options.collection_artifacts.is_empty())
         && options.operation != MasterReductionOperation::Refine
@@ -211,12 +217,14 @@ pub fn master_reduce_saved_campaign(
     } else {
         options.normalization_profile.unwrap_or_default()
     };
+    let finite_feedback = collection::feedback_for_phase(options, resumed.as_ref())?;
     let binding = storage::scope_binding(
         request,
         &options.checkpoint,
         options.seed_depth,
         options.containing_sector_depth,
         options.circuit_symmetry_assistance,
+        finite_feedback,
         normalization_profile,
     )?;
     let mut report = if let Some(report) = resumed {
@@ -274,6 +282,7 @@ pub fn master_reduce_saved_campaign(
     report["operation"] = json!(operation_name(options.operation));
     report["saved_rule_assistance"] = json!(options.saved_rule_assistance);
     report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);
+    collection::record_feedback(&mut report, finite_feedback);
     report["status"] = json!("running");
     report["scope"] = storage::scope_summary(request)?;
     write_json(&manifest_path, &report)?;
@@ -357,6 +366,7 @@ fn run(
             options.seed_depth,
             options.containing_sector_depth,
             options.circuit_symmetry_assistance,
+            collection::feedback_for_phase(options, Some(report))?,
             normalization_profile,
         )? != report["scope_binding"]
         {

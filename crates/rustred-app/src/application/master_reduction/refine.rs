@@ -67,6 +67,7 @@ pub fn master_refine_published_artifact(
     } else {
         options.normalization_profile.unwrap_or(source_profile)
     };
+    let finite_feedback = collection::feedback_for_phase(options, resumed.as_ref())?;
     let mut hash = blake3::Hasher::new();
     hash.update(b"rustred-published-refinement-v1");
     hash.update(&source_metadata);
@@ -84,6 +85,9 @@ pub fn master_refine_published_artifact(
     normalization_profile.hash(&mut hash);
     let collection_identity = collection::input_identity(options, resumed.as_ref())?;
     hash.update(collection::STRATEGY.as_bytes());
+    if finite_feedback {
+        hash.update(collection::FEEDBACK_RECIPE.as_bytes());
+    }
     hash.update(&serde_json::to_vec(&collection_identity).map_err(io)?);
     let binding = hash.finalize().to_hex().to_string();
     let started = Instant::now();
@@ -135,6 +139,7 @@ pub fn master_refine_published_artifact(
             "scope_binding":source_report["scope_binding"]
         });
         report["operation"] = json!("refine");
+        collection::record_feedback(&mut report, finite_feedback);
         report["seed_depth"] = json!(session.statistics().seed_depth);
         profile::record(&mut report, normalization_profile);
         report["finite_search_restarted_for_normalization_profile"] = json!(changes_profile);

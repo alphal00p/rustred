@@ -55,6 +55,7 @@ pub(super) fn scope_binding(
     depth: u32,
     containing_sector_depth: u32,
     circuit_symmetry_assistance: bool,
+    finite_feedback: bool,
     normalization_profile: super::MasterNormalizationProfile,
 ) -> Result<String, AppError> {
     let mut hash = blake3::Hasher::new();
@@ -68,6 +69,9 @@ pub(super) fn scope_binding(
     }
     if circuit_symmetry_assistance {
         hash.update(b"circuit-symmetry-assistance-v1");
+    }
+    if finite_feedback {
+        hash.update(super::collection::FEEDBACK_RECIPE.as_bytes());
     }
     normalization_profile.hash(&mut hash);
     for amendment in &request.amendments {

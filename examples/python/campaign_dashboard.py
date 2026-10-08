@@ -513,6 +513,17 @@ def render_master_table(frame, width=100, height=24, color=True):
         rows.insert(1, (0, row("Coverage", "verified" if frame["state"] == "published_unrefined" else "checking",
                               "scoped dependency coverage; not termination", "32")))
         rows.insert(2, (0, row("Refinement", "not requested", "explicit refine command only", "36")))
+    collection = master.get("collection", {})
+    if collection.get("finite_feedback_stage"):
+        rows.insert(1, (0, row("Finite feedback", collection["finite_feedback_stage"],
+                              "retained finite rows; no new seeds", "36")))
+        rows.insert(2, (1, row("Feedback equations", count(collection.get("finite_feedback_equations")),
+                              count(collection.get("finite_feedback_rows")) + " retained source rows")))
+        rows.insert(3, (1, row("Feedback columns", count(collection.get("finite_feedback_columns")),
+                              count(collection.get("finite_feedback_auxiliary_columns")) + " auxiliary; "
+                              + count(collection.get("finite_feedback_aliases")) + " full-U aliases")))
+        rows.insert(4, (1, row("Feedback nonzeros", count(collection.get("finite_feedback_nonzeros")),
+                              count(collection.get("finite_feedback_replay_operations")) + " replay operations")))
     if master["artifact"]:
         rows.insert(0, (0, full("Artifact " + master["artifact"], "32")))
     if frame["stop_reason"]:

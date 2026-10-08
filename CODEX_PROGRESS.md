@@ -1,5 +1,90 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 8 — finite refinement feedback: delivery complete
+
+Implemented and independently audited only the authorized finite feedback.
+No symbolic-walker changes, extra source seeds, live campaign mutation, Vakint
+update or numerical-master work. The exact maps are reusable across `extend`;
+new discovery occurs only in an explicit `refine`. Default on for new explicit
+refinements; `--no-finite-feedback` retains the cheaper baseline and never
+deletes previously proved identities. Completed plan:
+`FINITE_REFINEMENT_FEEDBACK_PLAN.md`; full results/commands/limitations:
+`docs/research/finite_refinement_feedback_2026-10-08.md`.
+
+Final gates:48core,34app,10CLI,2table,64Python workflow/wrapper and33dashboard
+tests pass. Independent verifier checked every74four-loop and829five-loop
+raw application map exactly;65four-loop maps additionally agree with FMFT.
+Numerator auxiliaries, guard/source tampering, extension and native replay
+are covered. Actual Python publish/refine/repeat/inspect/amend/extend/refine
+workflow passes. A real SIGINT during collection saved safely in9.29s; resume
+produced the same601-output native collection bytes as the uninterrupted run.
+The initial scratch resume mistakenly reused a create-new event-log filename;
+after correcting the harness, the complete interruption test passes. Native
+resume needed no implementation fix. Evidence:
+`TMP/finite-feedback-20261008/interruption-receipt.json`.
+
+Two clean matched pairs with one physical core52, identical frozen inputs and
+all nested pools1 give full-process medians:
+H0.214→0.277s(19→19),FG0.137→0.196s(15→15),BMW0.150→0.202s(15→15),
+X0.240→0.309s(16→16),combined4L0.846→1.136s(20→20),
+frozen5L21.389→34.757s(**607→601**). Six fewer candidates for13.37s extra:
+a modest algebraic improvement, not a speedup. The253numerator outputs remain
+unchanged; all six removed keys are scalar/dotted. Native collection payload
+0.150→6.291MB; peakRSS339→798MiB. The first pre-clean timing was contaminated
+by our own lifecycle job on52 and excluded; clean matrix rerun sequentially.
+No speedup/closure claim follows from these finite inventories.
+
+Release build passed in4m37s, recorded separately. Binary
+`target/release/rustred` SHA256
+`f24853278c7b1379a8d4d98e22126d2adee64f89a989e72bd59934c650d69595`.
+Evidence:`TMP/finite-feedback-20261008/clean-*`,
+`TMP/finite-feedback-audit-20261008/{four,five,five-details}.json`.
+Source/native hashes unchanged. The two full five-loop payloads and resumed
+payload match. Implementation owners:`finite_feedback_core`,
+`finite_feedback_app`; independent final audit:`collection_workflow_audit`;
+root coordinated release tests, measurements, lifecycle and delivery.
+No further experiments or unrequested optimization started. Unrelated
+HEPKit/notebook changes remain excluded from this task's commit.
+
+### Starting state and decisions retained
+
+User authorized finite feedback implementation and impact tests only.
+Plan: `FINITE_REFINEMENT_FEEDBACK_PLAN.md`; starting main `a08a173b`.
+Core implementation: `finite_feedback_core`; public integration:
+`finite_feedback_app`; independent audit: `collection_workflow_audit`.
+Root owns integration and matched copied-artifact release measurements.
+The proposed useful intervention combines retained auxiliary-containing rows,
+not merely repeated substitution of already-known terminal-only equations.
+Main symbolic campaign traversal and live rank-ladder state are out of scope.
+Initially pending: core design, native proof persistence, public flags/lifecycle tests,
+release on/off controls per four-loop parent/combined and frozen five-loop.
+Existing unrelated HEPKit/notebook modifications remain untouched.
+
+Baseline replay completed on physical CPU52 with all nested pools capped at
+one: H19 (0.292s), FG15 (0.130s), BMW15 (0.144s), X16 (0.228s), combined20
+(0.832s), frozen five-loop607 (20.125s). These are retained finite inventories,
+not new family solves; the combined primary H count remains19 while combined
+unique output is20. Source manifest/native hashes were unchanged. Commands and
+wall/CPU/RSS receipts: `TMP/finite-feedback-20261008/prior-*.receipt.json` and
+`.time`; frozen baseline binary SHA256
+`b4130da7a7853fd087b3fa0c75d7554ebb80f0652c5b085c40fa6dc947a65ba3`.
+The release matched comparison will additionally use the same new binary with
+feedback off/on in alternating order; no speedup inference from this baseline.
+
+Implementation now uses a separate finite-feedback stage, Symbolica native
+forward elimination and target-block-only back substitution with complete-row
+provenance replay. Local native column order is retained where compatible with
+aliasing to avoid needlessly destroying triangular sparsity. Auxiliary columns
+are retained; exact support-wide aliases connect families without adding seeds.
+Native proof snapshots survive cold load/rebind; legacy no-feedback payloads
+are accepted as inputs. Discovery is separately toggled and immutable per
+checkpoint. The independent audit found no mathematical/code blocker; focused
+tests cover a physical shared-auxiliary cancellation, source/guard tampering,
+numerator auxiliaries and extension. Initial core44passed; final expanded
+core/app tests and optimized build were then pending. Python workflow63/dashboard33
+tests passed. These initial checks alone were not evidence of campaign-scale
+improvement; final matched measurements and limits are recorded above.
+
 ## October 8 — saved-campaign collection integration: delivery acceptance
 
 All required integration gates pass. Final focused results: 39 core terminal-

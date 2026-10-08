@@ -47,9 +47,46 @@ pub(super) fn finish(
     mut p: Prepared,
     limits: VacuumDiagonalCollectionLimits,
 ) -> Result<VacuumDiagonalCollectionPlan> {
+    let sources = std::mem::take(&mut p.sources);
+    let mut result = finish_rows(p, limits, false, None)?;
+    result.statistics.corner_seeds = sources.len();
+    Ok(VacuumDiagonalCollectionPlan {
+        families: result.families,
+        raw: result.raw,
+        remaining: result.remaining,
+        aliases: result.aliases,
+        sources,
+        equations: result.equations,
+        reductions: result.reductions,
+        conditions: result.conditions,
+        statistics: result.statistics,
+    })
+}
+
+/// Exact finite rowspace result. Source authority belongs to the caller:
+/// diagonal ordinary sums and inherited finite session rows share this native
+/// elimination/replay kernel without claiming the same source provenance.
+#[derive(Clone, Debug)]
+pub(super) struct Eliminated {
+    pub families: BTreeMap<String, Arc<IntegralFamily>>,
+    pub raw: BTreeSet<VacuumIntegralKey>,
+    pub remaining: BTreeSet<VacuumIntegralKey>,
+    pub aliases: VacuumFamilyAliasPlan,
+    pub equations: Vec<VacuumCollectionEquation>,
+    pub reductions: BTreeMap<String, BTreeMap<IntegralKey, GuardedVacuumReduction>>,
+    pub conditions: Arc<Vec<Coefficient>>,
+    pub statistics: VacuumCollectionStatistics,
+}
+
+pub(super) fn finish_rows(
+    mut p: Prepared,
+    limits: VacuumDiagonalCollectionLimits,
+    terminal_only_back_substitution: bool,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<Eliminated> {
     let conditions = Arc::new(p.conditions.clone());
     if p.raw.is_empty() {
-        return Ok(VacuumDiagonalCollectionPlan {
+        return Ok(Eliminated {
             reductions: p
                 .families
                 .keys()
@@ -60,7 +97,6 @@ pub(super) fn finish(
             raw: p.raw,
             remaining: BTreeSet::new(),
             aliases: p.aliases,
-            sources: p.sources,
             equations: Vec::new(),
             conditions,
             statistics: Default::default(),
@@ -101,6 +137,9 @@ pub(super) fn finish(
     checked_matrix(&sources, context, limits)?;
     let mut reducer = SparseRowReducer::new(width, field.clone(), LuLMode::Full);
     for row in 0..sources.nrows() as usize {
+        if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed)) {
+            return Err(VacuumCollectionError::Cancelled);
+        }
         check(
             "prospective reducer nonzeros",
             reducer
@@ -147,11 +186,33 @@ pub(super) fn finish(
     // phase boundaries, not by rescanning every preceding row per insertion.
     checked_matrix(reducer.u(), context, limits)?;
     checked_matrix(reducer.l(), context, limits)?;
-    check(
-        "prospective back substitution nonzeros",
-        (reducer.u().nrows() as usize).saturating_mul(width as usize),
-        limits.max_reducer_nonzeros,
-    )?;
+    let reducer_nonzeros = reducer.u().nvalues().saturating_add(reducer.l().nvalues());
+    if terminal_only_back_substitution {
+        // Auxiliary pivots precede every protected target. Forward elimination
+        // has already canceled them from every terminal-pivot row; their RREF
+        // is irrelevant to terminal consequences and can be vastly denser.
+        let mut terminal = Matrix::new(0, width, RationalPolynomialField::new(Z));
+        let mut pivots = vec![None; width as usize];
+        for row in 0..reducer.u().nrows() as usize {
+            let entries: Vec<_> = native_row(reducer.u(), row).collect();
+            if let Some(&(pivot, _)) = entries.first() {
+                if pivot >= p.auxiliary_count as u32 && pivot < physical {
+                    pivots[pivot as usize] = Some(terminal.nrows());
+                    terminal.add_row(
+                        entries.iter().map(|(_, v)| (*v).clone()).collect(),
+                        entries.iter().map(|(i, _)| *i).collect(),
+                    );
+                }
+            }
+        }
+        reducer = SparseRowReducer::from_upper_triangular_matrix(terminal, pivots);
+    } else {
+        check(
+            "prospective back substitution nonzeros",
+            (reducer.u().nrows() as usize).saturating_mul(width as usize),
+            limits.max_reducer_nonzeros,
+        )?;
+    }
     reducer.back_substitute();
     let u = reducer.u();
     checked_matrix(u, context, limits)?;
@@ -300,13 +361,13 @@ pub(super) fn finish(
         terminal_equations: equations.len(),
         remaining_terminals: remaining.len(),
         replay_operations,
+        reducer_nonzeros,
     };
-    Ok(VacuumDiagonalCollectionPlan {
+    Ok(Eliminated {
         families: p.families,
         raw: p.raw,
         remaining,
         aliases: p.aliases,
-        sources: p.sources,
         equations,
         reductions,
         conditions,

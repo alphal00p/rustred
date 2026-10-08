@@ -4,15 +4,54 @@ use super::*;
 use rustred::family::{IntegralFamily, IntegralKey};
 use rustred::reduction::terminal_relations::collection::{
     GuardedVacuumReduction, TerminalCollectionLimits, TerminalCollectionPlan,
+    VacuumDiagonalCollectionLimits,
 };
 use std::collections::BTreeMap;
 
 pub(super) const STRATEGY: &str = "full-u-diagonal-v1";
+pub(super) const FEEDBACK_RECIPE: &str = "finite-row-feedback-v1";
+
+pub(super) fn feedback_for_phase(
+    options: &MasterReductionOptions,
+    resumed: Option<&Value>,
+) -> Result<bool, AppError> {
+    if options.operation == MasterReductionOperation::Publish {
+        return Ok(false);
+    }
+    let Some(report) = resumed else {
+        return Ok(options.finite_feedback.unwrap_or(true));
+    };
+    let recorded = match report.get("finite_feedback") {
+        None => false, // Existing checkpoints predate finite feedback.
+        Some(Value::Bool(value)) if report["finite_feedback_recipe"] == FEEDBACK_RECIPE => *value,
+        _ => {
+            return Err(AppError::input(
+                "invalid finite feedback configuration snapshot",
+            ));
+        }
+    };
+    if options
+        .finite_feedback
+        .is_some_and(|requested| requested != recorded)
+    {
+        return Err(AppError::input(
+            "cannot change finite feedback on resume; start a new refinement phase",
+        ));
+    }
+    Ok(recorded)
+}
+
+pub(super) fn record_feedback(report: &mut Value, enabled: bool) {
+    report["finite_feedback"] = json!(enabled);
+    report["finite_feedback_recipe"] = json!(FEEDBACK_RECIPE);
+}
 
 fn limits(report: &Value) -> Result<TerminalCollectionLimits, AppError> {
     let recipe = &report["collection_limits"];
     let selected = if recipe.is_object() {
-        if recipe["recipe"] != "terminal-collection-limits-v1" {
+        if recipe["recipe"] != "terminal-collection-limits-v1"
+            && recipe["recipe"] != "terminal-collection-limits-v2"
+        {
             return Err(AppError::input(
                 "unknown terminal collection resource recipe",
             ));
@@ -39,7 +78,12 @@ fn limits(report: &Value) -> Result<TerminalCollectionLimits, AppError> {
     };
     let mut limits = TerminalCollectionLimits::default();
     limits.diagonal.aliases.parametric = selected.normalization_limits().parametric;
-    if recipe.is_object() && recipe["bounds"] != limit_snapshot(limits) {
+    limits.finite_feedback.aliases.parametric = selected.normalization_limits().parametric;
+    let mut expected = limit_snapshot(limits);
+    if recipe["recipe"] == "terminal-collection-limits-v1" {
+        expected.as_object_mut().unwrap().remove("finite_feedback");
+    }
+    if recipe.is_object() && recipe["bounds"] != expected {
         return Err(AppError::input(
             "terminal collection limits differ from their versioned recipe",
         ));
@@ -48,9 +92,13 @@ fn limits(report: &Value) -> Result<TerminalCollectionLimits, AppError> {
 }
 
 fn limit_snapshot(limits: TerminalCollectionLimits) -> Value {
-    let d = limits.diagonal;
     json!({"max_composed_terms":limits.max_composed_terms,"max_proof_layers":limits.max_proof_layers,
-        "diagonal":{"max_corner_seeds":d.max_corner_seeds,"max_source_rows":d.max_source_rows,
+        "diagonal":budget_snapshot(limits.diagonal),
+        "finite_feedback":budget_snapshot(limits.finite_feedback)})
+}
+
+fn budget_snapshot(d: VacuumDiagonalCollectionLimits) -> Value {
+    json!({"max_corner_seeds":d.max_corner_seeds,"max_source_rows":d.max_source_rows,
         "max_source_terms":d.max_source_terms,"max_columns":d.max_columns,
         "max_reducer_nonzeros":d.max_reducer_nonzeros,"max_replay_operations":d.max_replay_operations,
         "max_flat_map_terms":d.max_flat_map_terms,"max_conditions":d.max_conditions,
@@ -60,7 +108,7 @@ fn limit_snapshot(limits: TerminalCollectionLimits) -> Value {
         "max_specialization_integer_bits":d.algebra.max_specialization_integer_bits,
         "exact":{"max_exponent":d.algebra.exact_algebra.max_exponent,
         "max_polynomial_terms":d.algebra.exact_algebra.max_polynomial_terms,
-        "max_term_operations":d.algebra.exact_algebra.max_term_operations}}}})
+        "max_term_operations":d.algebra.exact_algebra.max_term_operations}}})
 }
 
 fn record_limits(report: &mut Value) -> Result<(), AppError> {
@@ -86,7 +134,7 @@ fn record_limits(report: &mut Value) -> Result<(), AppError> {
         MasterNormalizationProfile::ConservativeV1
     };
     let mut recipe =
-        json!({"recipe":"terminal-collection-limits-v1","bounds":limit_snapshot(value)});
+        json!({"recipe":"terminal-collection-limits-v2","bounds":limit_snapshot(value)});
     profile::record(&mut recipe, selected);
     report["collection_limits"] = recipe;
     Ok(())
@@ -422,8 +470,11 @@ pub(super) fn complete(
     }
     // Save the full source-search cursor before the bounded indivisible
     // collection prepare. A cancellation never loses completed finite work.
+    let finite_feedback = feedback_for_phase(options, Some(report))?;
     report["stage"] = json!("terminal_collection");
-    report["collection"] = json!({"strategy":STRATEGY,"status":"preparing"});
+    report["collection"] = json!({"strategy":STRATEGY,"status":"preparing",
+        "finite_feedback_stage":if finite_feedback { "pending" } else { "disabled" },
+        "finite_feedback_enabled":finite_feedback,"finite_feedback_recipe":FEEDBACK_RECIPE});
     record_limits(report)?;
     save(options, primary, report, "running", started, observer)?;
     report["stage"] = json!("terminal_collection");
@@ -452,11 +503,17 @@ pub(super) fn complete(
             BinaryIoLimits::default(),
         )
         .map_err(io)?;
-        if options.operation == MasterReductionOperation::Refine {
+        if finite_feedback {
+            old.refine_with_finite_feedback_cancellable(&sessions, limits, cancel)
+                .map_err(io)?
+        } else if options.operation == MasterReductionOperation::Refine {
             old.refine(&sessions, limits).map_err(io)?
         } else {
             old.rebind(&sessions, limits).map_err(io)?
         }
+    } else if finite_feedback {
+        TerminalCollectionPlan::prepare_with_finite_feedback_cancellable(&sessions, limits, cancel)
+            .map_err(io)?
     } else if options.operation == MasterReductionOperation::Refine {
         TerminalCollectionPlan::prepare(&sessions, limits).map_err(io)?
     } else {
@@ -474,6 +531,17 @@ pub(super) fn complete(
         "before_collection":statistics.precollection_remaining,
         "global_alias_classes":statistics.global_alias_classes,
         "terminal_equations":statistics.terminal_equations,
+        "finite_feedback_enabled":finite_feedback,
+        "finite_feedback_stage":if finite_feedback { "completed" } else { "disabled" },
+        "finite_feedback_recipe":FEEDBACK_RECIPE,
+        "finite_feedback_rows":statistics.finite_feedback_rows,
+        "finite_feedback_columns":statistics.finite_feedback_columns,
+        "finite_feedback_auxiliary_columns":statistics.finite_feedback_auxiliary_columns,
+        "finite_feedback_aliases":statistics.finite_feedback_aliases,
+        "finite_feedback_equations":statistics.finite_feedback_equations,
+        "finite_feedback_nonzeros":statistics.finite_feedback_nonzeros,
+        "finite_feedback_replay_operations":statistics.finite_feedback_replay_operations,
+        "finite_feedback_count_meaning":"cumulative retained proof layers; disabled discovery preserves prior feedback maps",
         "passthrough_terminals":statistics.passthrough_terminals,
         "groups":statistics.collection_groups,
         "proof_layers":statistics.proof_layers,

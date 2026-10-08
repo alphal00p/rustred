@@ -43,6 +43,105 @@ struct Record {
     proofs: Vec<ProofRecord>,
     layer_ends: Vec<u64>,
     maps: Vec<(Key, NativeRow, Vec<u32>)>,
+    feedbacks: Vec<FeedbackRecord>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
+struct FeedbackRecord {
+    after_layer: u64,
+    local: Vec<(u32, Option<String>, Vec<u32>, Vec<LocalRow>, Vec<Vec<i64>>)>,
+    inputs: Vec<Key>,
+    equations: Vec<(NativeRow, Vec<(u64, u32)>, Vec<u32>)>,
+}
+// Existing published sidecars remain valid baseline input for explicit refine.
+#[derive(bincode::Encode, bincode::Decode)]
+struct LegacyRecord {
+    schema: u32,
+    families: Vec<(String, NativeFamilyRecord)>,
+    predecessors: Vec<PredecessorRecord>,
+    proofs: Vec<ProofRecord>,
+    layer_ends: Vec<u64>,
+    maps: Vec<(Key, NativeRow, Vec<u32>)>,
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+    use crate::family::AffineDenominator;
+
+    #[test]
+    fn schema_one_diagonal_sidecar_remains_valid_refinement_input() {
+        let context = CoefficientContext::new(["d"]);
+        let family = Arc::new(
+            IntegralFamily::new(
+                "feedback-legacy-schema",
+                vec!["q".into()],
+                vec![],
+                context.clone(),
+                context.parameter("d").unwrap(),
+                vec![AffineDenominator::new(
+                    context.integer(-1),
+                    vec![context.one()],
+                )],
+                vec![],
+                vec![context.zero()],
+            )
+            .unwrap(),
+        );
+        let session = TerminalRelationSession::new(
+            family,
+            BTreeSet::from([
+                IntegralKey::try_new([1]).unwrap(),
+                IntegralKey::try_new([2]).unwrap(),
+            ]),
+            0,
+            Default::default(),
+        )
+        .unwrap();
+        let plan = TerminalCollectionPlan::prepare(&[&session], Default::default()).unwrap();
+        let (record, table) = record(&plan, Default::default()).unwrap();
+        let legacy = LegacyRecord {
+            schema: 1,
+            families: record.families,
+            predecessors: record.predecessors,
+            proofs: record.proofs,
+            layer_ends: record.layer_ends,
+            maps: record.maps,
+        };
+        let structural = bincode::encode_to_vec(legacy, bincode::config::standard()).unwrap();
+        let table = table.native.finish().unwrap();
+        let bytes = encode_program(
+            BinaryProgramKind::TerminalCollection,
+            &[
+                BinarySection {
+                    tag: SectionTag::SYMBOLICA_STATE,
+                    bytes: &table.state,
+                },
+                BinarySection {
+                    tag: SectionTag::COEFFICIENTS,
+                    bytes: &table.atoms,
+                },
+                BinarySection {
+                    tag: SectionTag::PROGRAM,
+                    bytes: &structural,
+                },
+            ],
+            Default::default(),
+        )
+        .unwrap();
+        let loaded = TerminalCollectionPlan::from_native_bytes(
+            &bytes,
+            &[&session],
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+        assert_eq!(loaded.statistics(), plan.statistics());
+        let refined = loaded
+            .refine_with_finite_feedback(&[&session], Default::default())
+            .unwrap();
+        assert_eq!(refined.remaining_terminals(), plan.remaining_terminals());
+        assert_eq!(refined.proofs().len(), plan.proofs().len());
+    }
 }
 fn binary(e: impl std::fmt::Display) -> VacuumCollectionError {
     VacuumCollectionError::Binary(e.to_string())
@@ -216,14 +315,75 @@ fn record(plan: &TerminalCollectionPlan, io: BinaryIoLimits) -> Result<(Record, 
             ));
         }
     }
+    let feedbacks = plan
+        .feedbacks
+        .iter()
+        .map(|feedback| {
+            let local = feedback
+                .local
+                .iter()
+                .map(|(id, source)| {
+                    Ok((
+                        ids[id.as_str()],
+                        source.binding.clone(),
+                        table.conditions(&source.conditions)?,
+                        source
+                            .rows
+                            .iter()
+                            .map(|row| table.local(row))
+                            .collect::<Result<_>>()?,
+                        source
+                            .columns
+                            .iter()
+                            .map(|key| key.powers().to_vec())
+                            .collect(),
+                    ))
+                })
+                .collect::<Result<_>>()?;
+            let inputs = feedback
+                .result
+                .raw
+                .iter()
+                .map(|key| {
+                    (
+                        ids[key.family_fingerprint()],
+                        key.integral().powers().to_vec(),
+                    )
+                })
+                .collect();
+            let equations = feedback
+                .result
+                .equations
+                .iter()
+                .map(|equation| {
+                    Ok((
+                        table.row(equation.terms(), &ids)?,
+                        equation
+                            .source_weights()
+                            .iter()
+                            .map(|(source, value)| Ok((*source as u64, table.value(value)?)))
+                            .collect::<Result<_>>()?,
+                        table.conditions(equation.nonzero_conditions())?,
+                    ))
+                })
+                .collect::<Result<_>>()?;
+            Ok(FeedbackRecord {
+                after_layer: feedback.after_layer as u64,
+                local,
+                inputs,
+                equations,
+            })
+        })
+        .collect::<Result<_>>()?;
     Ok((
         Record {
-            schema: 1,
+            schema: 2,
             families,
             predecessors,
             proofs,
             layer_ends: plan.layer_ends.iter().map(|&n| n as u64).collect(),
             maps,
+            feedbacks,
         },
         table,
     ))
@@ -281,12 +441,37 @@ pub(super) fn decode(
         bytes.len(),
         io.max_program_bytes.min(MAX_RECORD_BYTES),
     )?;
-    let (stored, used): (Record, usize) = bincode::decode_from_slice(
-        bytes,
-        bincode::config::standard().with_limit::<MAX_RECORD_BYTES>(),
-    )
-    .map_err(binary)?;
-    if used != bytes.len() || stored.schema != 1 {
+    let (schema, _): (u32, usize) =
+        bincode::decode_from_slice(bytes, bincode::config::standard()).map_err(binary)?;
+    let (stored, used) = if schema == 1 {
+        let (legacy, used): (LegacyRecord, usize) = bincode::decode_from_slice(
+            bytes,
+            bincode::config::standard().with_limit::<MAX_RECORD_BYTES>(),
+        )
+        .map_err(binary)?;
+        if legacy.schema != 1 {
+            return Err(binary("unsupported collection schema"));
+        }
+        (
+            Record {
+                schema: 2,
+                families: legacy.families,
+                predecessors: legacy.predecessors,
+                proofs: legacy.proofs,
+                layer_ends: legacy.layer_ends,
+                maps: legacy.maps,
+                feedbacks: Vec::new(),
+            },
+            used,
+        )
+    } else {
+        bincode::decode_from_slice::<Record, _>(
+            bytes,
+            bincode::config::standard().with_limit::<MAX_RECORD_BYTES>(),
+        )
+        .map_err(binary)?
+    };
+    if used != bytes.len() || stored.schema != 2 {
         return Err(binary("unsupported or trailing collection records"));
     }
     TerminalCollectionPlan::validate_sessions(sessions, limits)?;
@@ -365,15 +550,6 @@ pub(super) fn decode(
             limits.diagonal,
         )?));
     }
-    let plan = TerminalCollectionPlan::compose(sessions, proofs, layer_ends, limits)?;
-    let (expected, table) = record(&plan, io)?;
-    if stored != expected {
-        return Err(binary(
-            "stored maps, provenance, guards or session binding failed exact replay",
-        ));
-    }
-    // First-occurrence IDs are deterministic. Compare every native coefficient
-    // after state-aware import rather than comparing process-dependent bytes.
     let actual = DecodedCoefficientTable::import_generated(
         envelope
             .section(SectionTag::SYMBOLICA_STATE)
@@ -382,6 +558,143 @@ pub(super) fn decode(
         io,
     )
     .map_err(binary)?;
+    check(
+        "finite feedback layers",
+        stored.feedbacks.len(),
+        limits.max_proof_layers,
+    )?;
+    let all_families: BTreeMap<_, _> = families
+        .iter()
+        .map(|(id, f)| ((*id).to_owned(), Arc::clone(f)))
+        .collect();
+    let coefficient = |family: &IntegralFamily, id: u32| -> Result<Coefficient> {
+        let value = actual
+            .coefficient(CoefficientId::try_from_index(id as usize).map_err(binary)?)
+            .map_err(binary)?;
+        family
+            .coefficient_context()
+            .validate_with_limits(value, limits.finite_feedback.algebra.exact_algebra)
+            .map_err(algebra)?;
+        Ok(value.clone())
+    };
+    let mut feedbacks = Vec::new();
+    for feedback in &stored.feedbacks {
+        let after_layer = usize::try_from(feedback.after_layer).map_err(binary)?;
+        if after_layer > layer_ends.len() {
+            return Err(binary("invalid feedback layer position"));
+        }
+        let mut local = BTreeMap::new();
+        let mut total_rows = 0usize;
+        let mut total_terms = 0usize;
+        for (id, binding, guards, stored_rows, column_order) in &feedback.local {
+            let family = owner(*id)?;
+            total_rows = total_rows.saturating_add(stored_rows.len());
+            check(
+                "finite feedback source rows",
+                total_rows,
+                limits.finite_feedback.max_source_rows,
+            )?;
+            check(
+                "finite feedback source guards",
+                guards.len(),
+                limits.finite_feedback.max_conditions,
+            )?;
+            let conditions = guards
+                .iter()
+                .map(|&id| coefficient(&family, id))
+                .collect::<Result<Vec<_>>>()?;
+            let mut rows = Vec::new();
+            for row in stored_rows {
+                total_terms = total_terms.saturating_add(row.len());
+                check(
+                    "finite feedback source terms",
+                    total_terms,
+                    limits.finite_feedback.max_source_terms,
+                )?;
+                let mut terms = BTreeMap::new();
+                for (powers, id) in row {
+                    if powers.len() != family.denominator_count() {
+                        return Err(VacuumCollectionError::WrongArity);
+                    }
+                    let key = IntegralKey::try_new(powers.clone()).map_err(binary)?;
+                    let value = coefficient(&family, *id)?;
+                    if value.is_zero() || terms.insert(key, value).is_some() {
+                        return Err(binary("noncanonical feedback source row"));
+                    }
+                }
+                rows.push(terms);
+            }
+            check(
+                "finite feedback ordered columns",
+                column_order.len(),
+                limits.finite_feedback.max_columns,
+            )?;
+            let columns = column_order
+                .iter()
+                .map(|powers| {
+                    if powers.len() != family.denominator_count() {
+                        return Err(VacuumCollectionError::WrongArity);
+                    }
+                    IntegralKey::try_new(powers.clone()).map_err(binary)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if columns.iter().collect::<BTreeSet<_>>().len() != columns.len() {
+                return Err(binary("duplicate feedback column"));
+            }
+            if local
+                .insert(
+                    family.fingerprint().to_owned(),
+                    feedback::LocalRows {
+                        binding: binding.clone(),
+                        conditions,
+                        rows,
+                        columns,
+                    },
+                )
+                .is_some()
+            {
+                return Err(binary("duplicate feedback source family"));
+            }
+        }
+        check(
+            "finite feedback targets",
+            feedback.inputs.len(),
+            limits.finite_feedback.max_columns,
+        )?;
+        let mut inputs = BTreeSet::new();
+        for (id, powers) in &feedback.inputs {
+            let family = owner(*id)?;
+            if powers.len() != family.denominator_count() {
+                return Err(VacuumCollectionError::WrongArity);
+            }
+            let key = IntegralKey::try_new(powers.clone()).map_err(binary)?;
+            if !inputs.insert(VacuumIntegralKey::from_family(&family, key)) {
+                return Err(binary("duplicate feedback input"));
+            }
+        }
+        let restored = Arc::new(feedback::FiniteFeedback::replay(
+            after_layer,
+            local,
+            inputs,
+            &all_families,
+            &proofs,
+            &layer_ends,
+            &feedbacks,
+            limits,
+            None,
+        )?);
+        feedback::authenticate(std::slice::from_ref(&restored), sessions, limits)?;
+        feedbacks.push(restored);
+    }
+    let plan = TerminalCollectionPlan::compose(sessions, proofs, layer_ends, feedbacks, limits)?;
+    let (expected, table) = record(&plan, io)?;
+    if stored != expected {
+        return Err(binary(
+            "stored maps, provenance, guards or session binding failed exact replay",
+        ));
+    }
+    // First-occurrence IDs are deterministic. Compare every native coefficient
+    // after state-aware import rather than comparing process-dependent bytes.
     let expected = table.native.finish().map_err(binary)?;
     let expected = DecodedCoefficientTable::import_generated(&expected.state, &expected.atoms, io)
         .map_err(binary)?;

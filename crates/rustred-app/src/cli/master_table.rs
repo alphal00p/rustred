@@ -70,7 +70,31 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
             "collection.terminal_equations",
         ),
         ("Retained proof layers", "collection.proof_layers"),
+        ("Finite feedback discovery", "finite_feedback"),
+        ("Finite feedback stage", "collection.finite_feedback_stage"),
+        ("Feedback source rows", "collection.finite_feedback_rows"),
+        ("Feedback columns", "collection.finite_feedback_columns"),
+        (
+            "Feedback auxiliary cols",
+            "collection.finite_feedback_auxiliary_columns",
+        ),
+        (
+            "Feedback full-U aliases",
+            "collection.finite_feedback_aliases",
+        ),
+        (
+            "Feedback identities",
+            "collection.finite_feedback_equations",
+        ),
         ("All-family basis keys", "collection.remaining_terminals"),
+        (
+            "Feedback sparse nonzeros",
+            "collection.finite_feedback_nonzeros",
+        ),
+        (
+            "Feedback replay work",
+            "collection.finite_feedback_replay_operations",
+        ),
         ("Unchanged pass-through", "collection.passthrough_terminals"),
         ("Primary eliminated keys", "eliminated_terminals"),
         ("Ordinary IBP rows", "relation_rows"),

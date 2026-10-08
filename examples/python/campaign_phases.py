@@ -24,6 +24,7 @@ SCHEMA = "rustred.campaign-phases.v1"
 MAX_JSON_BYTES = 16 * 1024 * 1024
 NORMALIZATION_PROFILES = {"conservative": "conservative-v1", "standard": "standard-v1"}
 COLLECTION_STRATEGY = "full-u-diagonal-v1"
+FINITE_FEEDBACK_RECIPE = "finite-row-feedback-v1"
 
 
 def read_json(path):
@@ -47,7 +48,7 @@ def digest(path):
 
 def configuration(campaign, enabled=False, seed_depth=None, executable=None, saved_rule_assistance=None,
                   containing_sector_depth=None, circuit_symmetry_assistance=None, normalization_profile=None,
-                  collection_artifacts=None):
+                  collection_artifacts=None, finite_feedback=None):
     """Read-only configuration. Only this invocation can request refinement.
 
     Historical ``enabled`` policies retain executable/search preferences, never
@@ -64,6 +65,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master saved-rule assistance must be boolean")
     if circuit_symmetry_assistance is not None and type(circuit_symmetry_assistance) is not bool:
         raise ValueError("master circuit-symmetry assistance must be boolean")
+    if finite_feedback is not None and type(finite_feedback) is not bool:
+        raise ValueError("master finite feedback must be boolean")
     if containing_sector_depth is not None and (type(containing_sector_depth) is not int or containing_sector_depth < 0):
         raise ValueError("master containing-sector depth must be nonnegative")
     if existing is not None:
@@ -71,6 +74,7 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                 or type(existing.get("seed_depth")) is not int or existing["seed_depth"] < 0
                 or type(existing.get("saved_rule_assistance", False)) is not bool
                 or type(existing.get("circuit_symmetry_assistance", False)) is not bool
+                or type(existing.get("finite_feedback", True)) is not bool
                 or existing.get("normalization_profile") not in (None, *NORMALIZATION_PROFILES)
                 or type(existing.get("containing_sector_depth", 0)) is not int
                 or existing.get("containing_sector_depth", 0) < 0):
@@ -86,6 +90,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master saved-rule assistance requires explicit --refine-masters")
     if circuit_symmetry_assistance is not None and not enabled:
         raise ValueError("master circuit-symmetry assistance requires explicit --refine-masters")
+    if finite_feedback is not None and not enabled:
+        raise ValueError("master finite feedback requires explicit --refine-masters")
     if containing_sector_depth is not None and not enabled:
         raise ValueError("master containing-sector depth requires explicit --refine-masters")
     if normalization_profile is not None and not enabled:
@@ -103,11 +109,14 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                                       if saved_rule_assistance is None else saved_rule_assistance),
             "circuit_symmetry_assistance": ((existing or {}).get("circuit_symmetry_assistance", False)
                                             if circuit_symmetry_assistance is None else circuit_symmetry_assistance),
+            "finite_feedback": ((existing or {}).get("finite_feedback", True)
+                                if finite_feedback is None else finite_feedback),
             "containing_sector_depth": ((existing or {}).get("containing_sector_depth", 0)
                                         if containing_sector_depth is None else containing_sector_depth),
             "terminal_policy": "bounded exact search; finite nonminimal basis permitted",
             "master_minimality_claim": False}
     policy["collection_strategy"] = COLLECTION_STRATEGY
+    policy["finite_feedback_recipe"] = FINITE_FEEDBACK_RECIPE
     policy["collection_artifacts"] = members
     if normalization_profile is not None:
         policy["normalization_profile"] = normalization_profile
@@ -345,6 +354,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
                "--threads", str(plan["requested_workers"])]
     if not publishing:
         command += ["--seed-depth", str(policy["seed_depth"])]
+        command.append("--finite-feedback" if policy.get("finite_feedback", True) else "--no-finite-feedback")
         for member in policy.get("collection_artifacts", []):
             command += ["--collection-artifact", member]
         if policy.get("containing_sector_depth", 0):
@@ -358,9 +368,14 @@ def phase_two(plan, policy, request, binding, directory, driver):
             command += ["--normalization-profile", profile.removesuffix("-v1")]
     if (directory / "latest.json").is_file():
         if not publishing:
-            pinned = normalization_metadata(read_json(directory / "latest.json"))["normalization_profile"]
+            snapshot = read_json(directory / "latest.json")
+            pinned = normalization_metadata(snapshot)["normalization_profile"]
             if pinned != profile:
                 raise ValueError("cannot change normalization profile on resume; start a new phase directory")
+            if (snapshot.get("finite_feedback", False) != policy.get("finite_feedback", True)
+                    or (snapshot.get("finite_feedback", False)
+                        and snapshot.get("finite_feedback_recipe") != FINITE_FEEDBACK_RECIPE)):
+                raise ValueError("cannot change finite feedback on resume; start a new phase directory")
         command.append("--resume")
     elif publishing:
         previous_path = directory.parent.parent / "completed-phase.json"
@@ -403,6 +418,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
                                                     policy.get("containing_sector_depth", 0)) if not publishing else 0),
               "saved_rule_assistance": not publishing and policy.get("saved_rule_assistance", False),
               "circuit_symmetry_assistance": not publishing and policy.get("circuit_symmetry_assistance", False)}
+    latest["finite_feedback"] = not publishing and policy.get("finite_feedback", True)
     if not publishing:
         latest["normalization_profile"] = profile
     checkpoint = {}
@@ -501,9 +517,13 @@ def phase_two(plan, policy, request, binding, directory, driver):
         if status == 0:
             if not (directory / "artifact.json").is_file():
                 raise ValueError("native success did not produce its completed artifact.json")
-            native_profile = normalization_metadata(read_json(directory / "artifact.json"))
+            native_artifact = read_json(directory / "artifact.json")
+            native_profile = normalization_metadata(native_artifact)
             if not publishing and native_profile["normalization_profile"] != profile:
                 raise ValueError("native artifact normalization profile differs from requested refinement")
+            if not publishing and (native_artifact.get("finite_feedback") != policy.get("finite_feedback", True)
+                                   or native_artifact.get("finite_feedback_recipe") != FINITE_FEEDBACK_RECIPE):
+                raise ValueError("native artifact finite feedback recipe differs from requested refinement")
             current = scope_binding(plan["campaign_directory"], plan["checkpoint_directory"])
             if not same_input_scope(current, binding):
                 raise ValueError("campaign scope changed during postprocessing; artifact retained but latest pointer not updated")
@@ -514,6 +534,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 refinement = None if publishing else {
                         **native_profile,
                         "collection_strategy": COLLECTION_STRATEGY,
+                        "finite_feedback": policy.get("finite_feedback", True),
+                        "finite_feedback_recipe": FINITE_FEEDBACK_RECIPE,
                         "collection_inputs": policy.get("collection_inputs", []),
                         "seed_depth": latest["seed_depth"],
                         "containing_sector_depth": latest["containing_sector_depth"],
@@ -545,6 +567,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                                 + ("--master-circuit-symmetry-assistance "
                                    if policy.get("circuit_symmetry_assistance", False)
                                    else "--no-master-circuit-symmetry-assistance ")
+                                + ("--master-finite-feedback " if policy.get("finite_feedback", True)
+                                   else "--no-master-finite-feedback ")
                                 + "--master-normalization-profile " + profile.removesuffix("-v1") + " ") if not publishing else ""
             print(f"Resume with: {sys.executable} {Path(driver.__file__).resolve()} --campaign-directory "
                   f"{plan['campaign_directory']} --resume {refinement_flags}--start", flush=True)
@@ -606,6 +630,9 @@ def run(plan, policy, resume, driver, postprocess_only=False):
             policy = {**policy, "collection_inputs": collection_inputs}
             if (previous.get("operation") == "refine"
                     and refinement.get("collection_strategy") == COLLECTION_STRATEGY
+                    and refinement.get("finite_feedback", False) == policy.get("finite_feedback", True)
+                    and (not policy.get("finite_feedback", True)
+                         or refinement.get("finite_feedback_recipe") == FINITE_FEEDBACK_RECIPE)
                     and (not collection_inputs or refinement.get("collection_inputs", []) == collection_inputs)
                     and refinement.get("seed_depth", -1) >= policy["seed_depth"]
                     and refinement.get("containing_sector_depth", 0) >= policy.get("containing_sector_depth", 0)
@@ -657,6 +684,8 @@ def run(plan, policy, resume, driver, postprocess_only=False):
         if operation == "refine":
             identity["collection_strategy"] = COLLECTION_STRATEGY
             identity["collection_inputs"] = policy.get("collection_inputs", [])
+            identity["finite_feedback"] = policy.get("finite_feedback", True)
+            identity["finite_feedback_recipe"] = FINITE_FEEDBACK_RECIPE
         if operation == "refine" and policy.get("saved_rule_assistance", False):
             # Preserve legacy ordinary checkpoint paths. Assisted work has a
             # distinct identity and can never resume an ordinary row cursor.

@@ -110,6 +110,15 @@ class SavedCampaignTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     self.invoke(action, "--circuit-symmetry-assistance")
 
+    def test_finite_feedback_mode_is_forwarded_only_by_explicit_refinement(self):
+        self.assertNotIn("--master-finite-feedback", self.invoke("refine"))
+        for supplied, forwarded in (("--finite-feedback", "--master-finite-feedback"),
+                                    ("--no-finite-feedback", "--no-master-finite-feedback")):
+            self.assertIn(forwarded, self.invoke("refine", supplied))
+            for action in ("publish", "inspect"):
+                with patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    self.invoke(action, supplied)
+
     def test_publish_is_only_postprocess_and_inspect_calls_native(self):
         self.assertIn("--publish-only", self.invoke("publish"))
         command = self.invoke("inspect", "--format", "json")

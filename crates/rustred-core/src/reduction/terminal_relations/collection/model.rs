@@ -44,6 +44,7 @@ impl Default for VacuumDiagonalCollectionLimits {
 
 #[derive(Debug)]
 pub enum VacuumCollectionError {
+    Cancelled,
     Alias(VacuumFamilyAliasError),
     Source(TerminalRelationError),
     Unsupported {
@@ -68,6 +69,9 @@ pub enum VacuumCollectionError {
 impl std::fmt::Display for VacuumCollectionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Cancelled => {
+                f.write_str("finite terminal feedback cancelled at a complete row boundary")
+            }
             Self::Alias(e) => e.fmt(f),
             Self::Source(e) => e.fmt(f),
             Self::Unsupported { family, reason } => {
@@ -193,6 +197,7 @@ pub struct VacuumCollectionStatistics {
     pub terminal_equations: usize,
     pub remaining_terminals: usize,
     pub replay_operations: usize,
+    pub reducer_nonzeros: usize,
 }
 /// Immutable finite collection. Preparation retains its original native
 /// sources and exact aliases; application is a checked flat-map lookup.

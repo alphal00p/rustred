@@ -8,6 +8,7 @@
 #[cfg(test)]
 mod audit_tests;
 mod codec;
+mod feedback;
 #[cfg(test)]
 mod tests;
 
@@ -18,6 +19,9 @@ use crate::reduction::terminal_relations::{TerminalRelationRow, TerminalRelation
 #[derive(Clone, Copy, Debug)]
 pub struct TerminalCollectionLimits {
     pub diagonal: VacuumDiagonalCollectionLimits,
+    /// Retained finite sessions have a larger support than diagonal discovery.
+    /// These are checked retained-matrix bounds, not a peak-memory guarantee.
+    pub finite_feedback: VacuumDiagonalCollectionLimits,
     /// Bound on the composed maps, independent of diagonal discovery limits.
     pub max_composed_terms: usize,
     pub max_proof_layers: usize,
@@ -26,6 +30,21 @@ impl Default for TerminalCollectionLimits {
     fn default() -> Self {
         Self {
             diagonal: Default::default(),
+            finite_feedback: VacuumDiagonalCollectionLimits {
+                max_source_rows: 1_000_000,
+                max_source_terms: 16_000_000,
+                max_columns: 1_000_000,
+                max_reducer_nonzeros: 32_000_000,
+                max_replay_operations: 32_000_000,
+                max_flat_map_terms: 1_000_000,
+                max_conditions: 1_000_000,
+                max_coefficient_terms: 32_000_000,
+                aliases: crate::reduction::terminal_normalization::VacuumFamilyAliasLimits {
+                    max_terminals: 1_000_000,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
             max_composed_terms: 1_000_000,
             max_proof_layers: 64,
         }
@@ -47,6 +66,14 @@ pub struct TerminalCollectionStatistics {
     pub remaining_terminals: usize,
     pub collection_groups: usize,
     pub proof_layers: usize,
+    /// Cumulative retained local rows in explicit finite feedback layers.
+    pub finite_feedback_rows: usize,
+    pub finite_feedback_columns: usize,
+    pub finite_feedback_auxiliary_columns: usize,
+    pub finite_feedback_aliases: usize,
+    pub finite_feedback_equations: usize,
+    pub finite_feedback_nonzeros: usize,
+    pub finite_feedback_replay_operations: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -70,6 +97,7 @@ pub struct TerminalCollectionPlan {
     /// Exclusive end of each ordered layer in `proofs`. Within a layer every
     /// family/key has at most one replacement; layers compose sequentially.
     layer_ends: Vec<usize>,
+    feedbacks: Vec<Arc<feedback::FiniteFeedback>>,
     reductions: BTreeMap<String, BTreeMap<IntegralKey, GuardedVacuumReduction>>,
     raw: BTreeSet<VacuumIntegralKey>,
     remaining: BTreeSet<VacuumIntegralKey>,
@@ -83,7 +111,7 @@ impl TerminalCollectionPlan {
         sessions: &[&TerminalRelationSession],
         limits: TerminalCollectionLimits,
     ) -> Result<Self> {
-        Self::compose(sessions, Vec::new(), Vec::new(), limits)
+        Self::compose(sessions, Vec::new(), Vec::new(), Vec::new(), limits)
     }
 
     /// Discover aliases/diagonal identities only for eligible scalar vacuum
@@ -105,7 +133,7 @@ impl TerminalCollectionPlan {
         } else {
             vec![proofs.len()]
         };
-        Self::compose(sessions, proofs, layer_ends, limits)
+        Self::compose(sessions, proofs, layer_ends, Vec::new(), limits)
     }
 
     fn prepare_proofs(
@@ -168,10 +196,12 @@ impl TerminalCollectionPlan {
         sessions: &[&TerminalRelationSession],
         limits: TerminalCollectionLimits,
     ) -> Result<Self> {
+        feedback::authenticate(&self.feedbacks, sessions, limits)?;
         Self::compose(
             sessions,
             self.proofs.clone(),
             self.layer_ends.clone(),
+            self.feedbacks.clone(),
             limits,
         )
     }
@@ -213,7 +243,13 @@ impl TerminalCollectionPlan {
         // history boundary; a changed result must still satisfy that boundary.
         let mut trial_limits = limits;
         trial_limits.max_proof_layers = trial_limits.max_proof_layers.saturating_add(1);
-        let candidate = Self::compose(sessions, proofs, ends, trial_limits)?;
+        let candidate = Self::compose(
+            sessions,
+            proofs,
+            ends,
+            rebound.feedbacks.clone(),
+            trial_limits,
+        )?;
         let unchanged = rebound.reductions.iter().all(|(family, rows)| {
             rows.iter()
                 .all(|(key, row)| candidate.reductions[family][key].terms() == row.terms())
@@ -252,6 +288,7 @@ impl TerminalCollectionPlan {
         sessions: &[&TerminalRelationSession],
         proofs: Vec<Arc<VacuumDiagonalCollectionPlan>>,
         layer_ends: Vec<usize>,
+        feedbacks: Vec<Arc<feedback::FiniteFeedback>>,
         limits: TerminalCollectionLimits,
     ) -> Result<Self> {
         Self::validate_sessions(sessions, limits)?;
@@ -263,6 +300,18 @@ impl TerminalCollectionPlan {
         if layer_ends.last().copied().unwrap_or(0) != proofs.len()
             || layer_ends.windows(2).any(|pair| pair[0] >= pair[1])
             || layer_ends.first() == Some(&0)
+        {
+            return Err(VacuumCollectionError::ReplayFailed);
+        }
+        check(
+            "finite feedback layers",
+            feedbacks.len(),
+            limits.max_proof_layers,
+        )?;
+        if feedbacks.iter().any(|f| f.after_layer > layer_ends.len())
+            || feedbacks
+                .windows(2)
+                .any(|f| f[0].after_layer > f[1].after_layer)
         {
             return Err(VacuumCollectionError::ReplayFailed);
         }
@@ -282,7 +331,7 @@ impl TerminalCollectionPlan {
             ..Default::default()
         };
         let mut start = 0;
-        for &end in &layer_ends {
+        for (layer_index, &end) in layer_ends.iter().enumerate() {
             let mut layer = BTreeMap::new();
             for proof in &proofs[start..end] {
                 for family in proof.families() {
@@ -304,7 +353,28 @@ impl TerminalCollectionPlan {
                 }
             }
             inherited.push(layer);
+            for feedback in feedbacks
+                .iter()
+                .filter(|f| f.after_layer == layer_index + 1)
+            {
+                inherited.push(feedback.layer());
+            }
             start = end;
+        }
+        for feedback in feedbacks.iter().filter(|f| f.after_layer == 0).rev() {
+            inherited.insert(0, feedback.layer());
+        }
+        for feedback in &feedbacks {
+            statistics.finite_feedback_rows +=
+                feedback.local.values().map(|s| s.rows.len()).sum::<usize>();
+            statistics.finite_feedback_columns += feedback.result.statistics.columns;
+            statistics.finite_feedback_auxiliary_columns +=
+                feedback.result.statistics.auxiliary_columns;
+            statistics.finite_feedback_aliases += feedback.result.aliases.aliases().len();
+            statistics.finite_feedback_equations += feedback.result.equations.len();
+            statistics.finite_feedback_nonzeros += feedback.result.statistics.reducer_nonzeros;
+            statistics.finite_feedback_replay_operations +=
+                feedback.result.statistics.replay_operations;
         }
         let mut raw = BTreeSet::new();
         let mut remaining = BTreeSet::new();
@@ -330,6 +400,19 @@ impl TerminalCollectionPlan {
                     condition.polynomial().clone().into(),
                     limits.diagonal.max_conditions,
                 )?;
+            }
+            // Authentication of retained feedback can use a newer local basis.
+            // Its entire compatible source-domain remains part of application
+            // authority, including guards from other participating families.
+            if !feedbacks.is_empty() {
+                for other in sessions
+                    .iter()
+                    .filter(|other| feedback::compatible(family, other.family_owner()))
+                {
+                    for condition in feedback::session_conditions(other, limits)? {
+                        retain(&mut conditions, condition, limits.diagonal.max_conditions)?;
+                    }
+                }
             }
             // Legacy sparse sessions normalized intermediate pivots in place:
             // these retained denominators do NOT recover canceled historical
@@ -466,6 +549,7 @@ impl TerminalCollectionPlan {
             predecessors,
             proofs,
             layer_ends,
+            feedbacks,
             reductions,
             raw,
             remaining,

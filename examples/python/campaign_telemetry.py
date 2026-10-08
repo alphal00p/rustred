@@ -347,6 +347,15 @@ def normalize_status(status, sequence=None):
             "master_minimality_claim": False,
             "numerical_evaluation": False,
         }
+        collection = mapping(master.get("collection"))
+        if collection:
+            frame["master_reduction"]["collection"] = {
+                "finite_feedback_stage": clean(collection.get("finite_feedback_stage", ""), 300),
+                **_numbers(collection, ("finite_feedback_rows", "finite_feedback_columns",
+                                        "finite_feedback_auxiliary_columns", "finite_feedback_aliases",
+                                        "finite_feedback_equations", "finite_feedback_nonzeros",
+                                        "finite_feedback_replay_operations")),
+            }
         frame["scope"] = ("scoped dependency coverage and portable rule package; no master refinement" if operation == "publish" else
                           "bounded exact terminal relations; no minimality or numerical master evaluation claim")
     return frame

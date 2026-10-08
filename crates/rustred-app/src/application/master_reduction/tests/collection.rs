@@ -89,16 +89,29 @@ fn collection_boundary_interrupt_resumes_without_losing_finite_work() {
     .unwrap();
     assert_eq!(report["status"], "paused");
     assert_eq!(report["finite_search_complete"], true);
+    assert_eq!(report["finite_feedback"], true);
+    assert_eq!(
+        report["finite_feedback_recipe"],
+        collection::FEEDBACK_RECIPE
+    );
     assert_eq!(report["refinement_complete"], false);
     let finite = load_master_relation_session(&output.0).unwrap();
     assert!(finite.is_complete());
     let completed_rows = finite.statistics().completed_source_rows;
     options.resume = true;
+    options.finite_feedback = Some(false);
+    assert!(
+        master_refine_published_artifact(&source.0, &options, &AtomicBool::new(false), |_| {},)
+            .is_err()
+    );
+    options.finite_feedback = None;
     let resumed =
         master_refine_published_artifact(&source.0, &options, &AtomicBool::new(false), |_| {})
             .unwrap();
     assert_eq!(resumed["status"], "completed_nonminimal");
     assert_eq!(resumed["collection"]["status"], "completed");
+    assert_eq!(resumed["collection"]["finite_feedback_stage"], "completed");
+    assert!(resumed["collection"]["finite_feedback_rows"].is_u64());
     assert_eq!(
         load_master_relation_session(&output.0)
             .unwrap()
@@ -261,9 +274,85 @@ fn extension_keeps_collected_peer_maps_without_new_diagonal_search() {
         loaded.collection().statistics().terminal_equations,
         prior.collection().statistics().terminal_equations
     );
+    assert_eq!(report["collection"]["finite_feedback_enabled"], false);
+    assert_eq!(
+        loaded.collection().statistics().finite_feedback_rows,
+        prior.collection().statistics().finite_feedback_rows
+    );
+    assert_eq!(
+        loaded.collection().statistics().finite_feedback_equations,
+        prior.collection().statistics().finite_feedback_equations
+    );
     assert!(
         loaded
             .apply_terminal(current.family_owner(), &IntegralKey::try_new([4]).unwrap())
             .is_ok()
     );
+}
+
+#[test]
+fn disabled_feedback_has_a_bound_baseline_and_repeated_resume_is_a_noop() {
+    let source = Scratch::new();
+    let output = Scratch::new();
+    publish_fixture(&source.0, &mut session());
+    let mut options = MasterReductionOptions::new("unused", &output.0);
+    options.finite_feedback = Some(false);
+    let baseline =
+        master_refine_published_artifact(&source.0, &options, &AtomicBool::new(false), |_| {})
+            .unwrap();
+    assert_eq!(baseline["finite_feedback"], false);
+    assert_eq!(baseline["collection"]["finite_feedback_equations"], 0);
+    assert_eq!(baseline["collection"]["finite_feedback_stage"], "disabled");
+    options.resume = true;
+    options.finite_feedback = None;
+    let repeated =
+        master_refine_published_artifact(&source.0, &options, &AtomicBool::new(false), |_| {})
+            .unwrap();
+    assert_eq!(repeated["checkpoint"], baseline["checkpoint"]);
+    assert_eq!(repeated["collection_state"], baseline["collection_state"]);
+    options.finite_feedback = Some(true);
+    assert!(
+        master_refine_published_artifact(&source.0, &options, &AtomicBool::new(false), |_| {},)
+            .is_err()
+    );
+    let upgraded = Scratch::new();
+    options.directory = upgraded.0.clone();
+    options.resume = false;
+    let upgraded =
+        master_refine_published_artifact(&source.0, &options, &AtomicBool::new(false), |_| {})
+            .unwrap();
+    assert_ne!(
+        upgraded["refinement_binding"],
+        baseline["refinement_binding"]
+    );
+    assert_eq!(upgraded["finite_feedback"], true);
+}
+
+#[test]
+fn feedback_resource_snapshot_rejects_changes_and_legacy_baseline_remains_readable() {
+    let source = Scratch::new();
+    let output = Scratch::new();
+    publish_fixture(&source.0, &mut session());
+    let mut options = MasterReductionOptions::new("unused", &output.0);
+    options.finite_feedback = Some(false);
+    let report =
+        master_refine_published_artifact(&source.0, &options, &AtomicBool::new(false), |_| {})
+            .unwrap();
+    assert_eq!(
+        report["collection_limits"]["recipe"],
+        "terminal-collection-limits-v2"
+    );
+    assert!(report["collection_limits"]["bounds"]["finite_feedback"].is_object());
+    let mut changed = report.clone();
+    changed["collection_limits"]["bounds"]["finite_feedback"]["max_source_rows"] = json!(1);
+    write_json(&output.0.join("latest.json"), &changed).unwrap();
+    assert!(load_master_reduction(&output.0).is_err());
+    let mut legacy = report;
+    legacy["collection_limits"]["recipe"] = json!("terminal-collection-limits-v1");
+    legacy["collection_limits"]["bounds"]
+        .as_object_mut()
+        .unwrap()
+        .remove("finite_feedback");
+    write_json(&output.0.join("latest.json"), &legacy).unwrap();
+    assert!(load_master_reduction(&output.0).is_ok());
 }

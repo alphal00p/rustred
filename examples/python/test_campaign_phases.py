@@ -140,6 +140,27 @@ class PhaseTests(unittest.TestCase):
                 self.assertTrue(configure.call_args.args[1])
                 self.assertEqual(configure.call_args.kwargs["circuit_symmetry_assistance"], value)
 
+    def test_finite_feedback_defaults_on_and_persists_explicit_baseline(self):
+        self.assertTrue(PHASES.configuration(self.campaign, enabled=True)["finite_feedback"])
+        baseline = PHASES.configuration(self.campaign, enabled=True, finite_feedback=False)
+        self.write("master-reduction/policy.json", baseline)
+        self.assertFalse(PHASES.configuration(self.campaign, enabled=True)["finite_feedback"])
+        self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
+        self.assertTrue(PHASES.configuration(self.campaign, enabled=True, finite_feedback=True)["finite_feedback"])
+        for mode in (True, False):
+            with self.assertRaisesRegex(ValueError, "explicit"):
+                PHASES.configuration(self.campaign, finite_feedback=mode)
+        for invalid in ("true", 1):
+            with self.assertRaisesRegex(ValueError, "boolean"):
+                PHASES.configuration(self.campaign, enabled=True, finite_feedback=invalid)
+
+    def test_production_finite_feedback_flags_reach_configuration(self):
+        for flag, value in (("--master-finite-feedback", True), ("--no-master-finite-feedback", False)):
+            with patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure:
+                with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters", flag])
+                self.assertEqual(configure.call_args.kwargs["finite_feedback"], value)
+
     def test_normalization_preference_is_optional_refine_only_and_switches_both_ways(self):
         self.assertNotIn("normalization_profile", self.policy)
         for profile in ("standard", "conservative"):
@@ -272,7 +293,7 @@ class PhaseTests(unittest.TestCase):
         second.assert_not_called()
 
     def publish_fixture(self, operation="publish", depth=0, saved_rule_assistance=False, containing_sector_depth=0,
-                        circuit_symmetry_assistance=False, normalization_profile=None):
+                        circuit_symmetry_assistance=False, normalization_profile=None, finite_feedback=True):
         path = self.campaign / "master-reduction/scopes/published"
         self.write("master-reduction/scopes/published/artifact.json", {"status": "published_unrefined",
                    **({"normalization_profile": normalization_profile, "normalization_limits": {"fixture": True}}
@@ -280,6 +301,8 @@ class PhaseTests(unittest.TestCase):
         PHASES.publish_pointer(self.campaign, path, self.binding(), operation, self.driver,
                                {"seed_depth": depth, "saved_rule_assistance": saved_rule_assistance,
                                 "collection_strategy": PHASES.COLLECTION_STRATEGY,
+                                "finite_feedback": finite_feedback,
+                                "finite_feedback_recipe": PHASES.FINITE_FEEDBACK_RECIPE,
                                 "collection_inputs": [],
                                 "circuit_symmetry_assistance": circuit_symmetry_assistance,
                                 "containing_sector_depth": containing_sector_depth}
@@ -314,6 +337,7 @@ class PhaseTests(unittest.TestCase):
             old_directory = second.call_args.args[4]
             legacy_identity = {"scope": self.binding()["key"], "operation": "refine", "seed_depth": 0,
                                "collection_strategy": PHASES.COLLECTION_STRATEGY, "collection_inputs": [],
+                               "finite_feedback": True, "finite_feedback_recipe": PHASES.FINITE_FEEDBACK_RECIPE,
                                "source": str(source.relative_to(self.campaign)), "executable": None}
             expected = hashlib.sha256(json.dumps(legacy_identity, sort_keys=True).encode()).hexdigest()
             self.assertEqual(old_directory.name, expected)
@@ -357,6 +381,37 @@ class PhaseTests(unittest.TestCase):
         with patch.object(PHASES, "phase_two", return_value=4) as native:
             self.assertEqual(PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True), 4)
         native.assert_called_once()
+
+    def test_feedback_recipe_and_mode_prevent_stale_refinement_reuse(self):
+        for previous_mode in (False, True):
+            self.publish_fixture("refine", finite_feedback=previous_mode)
+            same = PHASES.configuration(self.campaign, enabled=True, finite_feedback=previous_mode)
+            changed = PHASES.configuration(self.campaign, enabled=True, finite_feedback=not previous_mode)
+            with patch.object(PHASES, "phase_two", return_value=4) as native:
+                self.assertEqual(PHASES.run(self.plan, same, True, self.driver, postprocess_only=True), 0)
+                native.assert_not_called()
+                self.assertEqual(PHASES.run(self.plan, changed, True, self.driver, postprocess_only=True), 4)
+                self.assertEqual(native.call_args.args[1]["finite_feedback"], not previous_mode)
+        pointer = PHASES.read_json(self.campaign / "artifacts/latest.json")
+        pointer["refinement"]["finite_feedback_recipe"] = "obsolete"
+        self.write("artifacts/latest.json", pointer)
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            self.assertEqual(PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True, finite_feedback=True),
+                                       True, self.driver, postprocess_only=True), 4)
+        native.assert_called_once()
+
+    def test_feedback_mode_has_distinct_checkpoint_and_repeat_resumes_it(self):
+        self.publish_fixture()
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True), True, self.driver)
+            enabled = native.call_args.args[4]
+            baseline = PHASES.configuration(self.campaign, enabled=True, finite_feedback=False)
+            PHASES.run(self.plan, baseline, True, self.driver)
+            disabled = native.call_args.args[4]
+            self.assertNotEqual(enabled, disabled)
+            PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True), True, self.driver)
+            self.assertEqual(native.call_args.args[4], disabled)
+            self.assertFalse(PHASES.read_json(disabled / "steering-binding.json")["finite_feedback"])
 
     def test_collection_peer_inputs_require_refine_and_are_content_bound(self):
         self.publish_fixture()
@@ -606,11 +661,13 @@ refine = args[1] == 'walk-master-reduce'
 assert ('--seed-depth' in args) == refine
 assert ('--saved-rule-assistance' in args) == expected_assistance
 assert ('--circuit-symmetry-assistance' in args) == expected_circuit
+assert ('--finite-feedback' in args) == refine
 assert ('--normalization-profile' in args) == (expected_profile is not None)
 if expected_profile is not None:
     assert args[args.index('--normalization-profile') + 1] == expected_profile
 profile = (expected_profile or 'conservative') + '-v1'
 metadata = {'normalization_profile': profile, 'normalization_limits': {'fixture': True}}
+metadata.update(finite_feedback=refine, finite_feedback_recipe='finite-row-feedback-v1')
 assert ('--containing-sector-depth' in args) == bool(expected_containing_depth)
 if expected_containing_depth:
     assert int(args[args.index('--containing-sector-depth') + 1]) == expected_containing_depth
@@ -665,6 +722,9 @@ event('completed_nonminimal' if refine else 'published_unrefined')
             self.assertTrue((directory / "latest.json").exists())
             if operation == "refine":
                 self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["status"], "published_unrefined")
+                with self.assertRaisesRegex(ValueError, "cannot change finite feedback on resume"):
+                    PHASES.phase_two(plan, {**native_policy, "finite_feedback": False},
+                                     self.campaign / "runs/first/request.json", binding, directory, driver)
                 if normalization_profile == "standard":
                     paused_pointer = (self.campaign / "artifacts/latest.json").read_bytes()
                     with self.assertRaisesRegex(ValueError, "cannot change normalization profile on resume"):
@@ -695,6 +755,20 @@ event('completed_nonminimal' if refine else 'published_unrefined')
 
 
 class MasterDashboardTests(unittest.TestCase):
+    def test_feedback_native_counts_survive_telemetry_and_table(self):
+        frame = TELEMETRY.normalize_status({"state": "running", "master_reduction": {
+            "stage": "terminal_collection", "collection": {
+                "finite_feedback_stage": "completed", "finite_feedback_rows": 17,
+                "finite_feedback_columns": 12, "finite_feedback_auxiliary_columns": 8,
+                "finite_feedback_aliases": 3, "finite_feedback_equations": 2}}})
+        collection = frame["master_reduction"]["collection"]
+        self.assertEqual(collection["finite_feedback_equations"], 2)
+        self.assertEqual(collection["finite_feedback_auxiliary_columns"], 8)
+        shown = "\n".join(DASHBOARD.render_table(frame, 150, 40, False))
+        self.assertIn("Finite feedback", shown)
+        self.assertIn("17 retained source rows", shown)
+        self.assertIn("8 auxiliary; 3 full-U aliases", shown)
+
     def frame(self):
         return TELEMETRY.normalize_status({
             "state": "running", "elapsed_seconds": 150, "workers": 32,

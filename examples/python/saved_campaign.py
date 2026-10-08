@@ -74,6 +74,8 @@ def main(argv=None):
                              help="include applicable saved-rule and routing equations (default saved refinement preference or off)")
             sub.add_argument("--circuit-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
                              help="include native circuit-reflection equations (default saved refinement preference or off)")
+            sub.add_argument("--finite-feedback", action=argparse.BooleanOptionalAction, default=None,
+                             help="combine retained finite rows after full-U aliases (default saved preference or on)")
         if action == "inspect":
             sub.add_argument("--format", choices=("auto", "table", "json"), default="auto")
     args, extra = parser.parse_known_args(argv)
@@ -112,6 +114,9 @@ def main(argv=None):
                 if args.circuit_symmetry_assistance is not None:
                     command.append("--master-circuit-symmetry-assistance" if args.circuit_symmetry_assistance
                                    else "--no-master-circuit-symmetry-assistance")
+                if args.finite_feedback is not None:
+                    command.append("--master-finite-feedback" if args.finite_feedback
+                                   else "--no-master-finite-feedback")
                 if args.seed_depth is not None:
                     if args.seed_depth < 0:
                         raise ValueError("seed depth must be nonnegative")
