@@ -75,3 +75,21 @@ cleanup. Keep Symbolica's existing context-cloning operations; no CAS kernel,
 rule changes, new reconstruction or wider solver work. Core implements;
 the separate auditor reviews ownership/cleanup/aliasing and tests. Validate
 release cache controls and saved-campaign controls before rerunning THE_ONE.
+
+## Completion receipt
+
+Implementation pushed in `e39b072f` and `d68b3eea`; optimized release built and
+independently audited. The corrected full THE_ONE scratch publication completes
+successfully in 1,508.13 s on 16 workers with 50.39 GiB peak RSS. It enumerates
+13,105,672 unique Apply scopes and reproduces all 938 raw terminal keys, their
+normalization payload, 6,851 encountered-rule count and classification-event
+counts. Native bytes outside the seed-order vector are identical to the old
+publication. Individual encountered rule IDs were not saved by the old artifact
+and are not claimed to have been compared. Production inputs/pointers unchanged.
+
+Final four-loop fast/deep controls take 2.429/8.158 s; scalar five-loop controls
+137.128/137.481 s. Exact output and Python publish/refine/upgrade/extend lifecycle
+checks pass. Large-input loading/preparation and the remaining census are still
+real costs: no incremental inventory architecture was added. The full comparison,
+measurement boundaries, audits and known unrelated test failures are recorded
+in `docs/research/fast_publication_2026-10-08.md`.

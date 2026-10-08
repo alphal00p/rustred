@@ -211,8 +211,92 @@ exactly. The fresh full Python lifecycle passes again; initial, refined,
 deep-upgraded and extended native/collection payloads match the preceding
 lifecycle byte-for-byte. Evidence: `matched-controls-summary-cache.json`,
 `workflow-cache-validation.json`, and the cache comparison receipts in the
-publication evidence directory. Whole THE_ONE timing is pending the corrected
-full-size test.
+publication evidence directory. The corrected full-size test completed; its
+result is recorded below.
+
+The corrected full-size census received one independent ten-second, 99 Hz
+CPU profile on CPUs 96–111 (16 workers): 13,938 samples, no lost samples.
+`clone_thread_owned` fell from 95.30% to 6.21% of sampled CPU; bounded cache
+cleanup was 3.69%, and domain-geometry projection was the largest remaining
+symbol at 19.56%. Early measured ten-second intervals processed 15,363 then
+18,494 scopes/s. Sampling overhead was not measured separately. This confirms
+the cache hotspot was removed, but these early intervals alone establish
+neither full publication time nor final inventory equality. Evidence:
+`the-one-cache-census.profile-summary.json` and its flat sampling report.
+
+The full-size scratch command uses the existing completed generation-16
+checkpoint read-only; publication output is separate from the campaign:
+
+```bash
+# Run inside the repository's Nix development shell, with the license inherited.
+export RAYON_NUM_THREADS=1 OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1
+export OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 BLIS_NUM_THREADS=1
+export RUST_MIN_STACK=67108864
+taskset -c 96-111 time -v \
+  -o TMP/fast-publication-20261008/the-one-cache.time \
+  TMP/fast-publication-20261008/rustred-cache-delivery walk-publish \
+  --command campaigns/five-loop-rank-ladder-THE-ONE/runs/20261008T064842.577006Z/request.json \
+  --checkpoint campaigns/five-loop-rank-ladder-THE-ONE/checkpoints/main \
+  --directory TMP/fast-publication-20261008/the-one-fast \
+  --resume --threads 16 \
+  --events TMP/fast-publication-20261008/the-one-cache.events.jsonl
+```
+
+Here `--resume` continues only the scratch publication phase, not campaign
+generation. Its previously interrupted census was not saved incrementally and
+is recomputed. The older deep measurement used 32 workers; this new 16-worker
+measurement is an operational comparison, not a controlled paired speedup.
+
+## Completed THE_ONE publication
+
+The final run exited successfully and published the full saved R≤4,D≤9 scope.
+It took **25m08.13s** wall time, **8,685.22 s** CPU and **50.39 GiB** peak RSS.
+No swapping was recorded for this process. Sixteen census workers were pinned
+to CPUs 96–111. Compilation is excluded; files were already in the host page
+cache (zero filesystem input blocks reported). The shared host's load average
+was approximately 80, so this is not an isolated benchmark.
+
+| Phase | Time |
+|---|---:|
+| Checkpoint loading/authentication | 795.710 s |
+| Owner preparation | 138.679 s |
+| Saved graph readiness checks | 26.155 s |
+| Exact encountered inventory census | 451.528 s |
+| Other setup, teardown and publication | 96.058 s |
+| **Whole process** | **1,508.130 s** |
+
+The census processed all 13,105,672 unique Apply scopes, skipping 33,504,137
+Route records and 6,917,731 full-cover records. The old deep publication took
+14,135 s with 32 workers, or about 9.37 times this observed wall time. This
+combines the intentionally lighter assurance mode and implementation changes;
+it is **not** an equal-work/equal-resource speedup or a claim that publication
+is constant-time. Peak memory is higher than the earlier roughly 38 GiB run.
+Loading remains the largest cost; no online incremental census was added.
+
+Independent output comparison confirms:
+
+- Exactly the same 938 raw terminal keys, normalization payload and seed set.
+- The same 6,851 encountered-rule count, 46,447,607 rule classification events,
+  170,914 terminal events and zero zero-sector events.
+- Identical installed inventory and family/program/query/amendment bindings.
+- All native `.rrbin` bytes outside the serialized seed vector are identical.
+  That vector differs only in order: the original carried append-ordered seeds
+  from preceding stages, whereas the new scratch publication starts sorted.
+
+The old artifact does not retain individual encountered rule IDs, so the
+full-size rule comparison is count-based, not an exact-ID equality claim.
+The small four-loop controls above do compare full rule pages. The scratch
+binary-prefix decoder used for terminal/seed comparison was independently
+audited against the Rust codec and a native four-loop page; it is not a new
+algebra authenticator. The publication's normal native writer and checkpoint
+authentication still ran. Exact output comparison is documented in
+`the-one-original-fast-comparison.json` beside `the-one-cache.time` and events.
+
+Assurance correctly reports `TRUSTED_SAVED_SCOPE` and
+`independently_verified: false`; the older deep artifact reports `PASS`.
+Both retain their finite starting scope, and neither establishes master
+independence or unrestricted family closure. The user's production artifact,
+checkpoint and running refinement were not replaced or interrupted.
 
 ## Usage
 

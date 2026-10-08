@@ -1,5 +1,51 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 8 — fast publication delivered; full THE_ONE gate passed
+
+Root-owned scratch publication exited 0 and published an unrefined artifact in
+**25m08.13s**, 8,685.22 CPU s, 50.39 GiB peak RSS. Binary SHA256
+`0dd497fb2585a0fa7dfdd50f3c37f8457277bf443edfd2e41210024b970e8748`,
+16 workers on CPUs 96–111. Stage times: load 795.710 s, prepare 138.679 s,
+saved-graph checks 26.155 s, census 451.528 s; other setup/finalization 96.058 s.
+All 13,105,672 unique Apply scopes processed. Old deep publication took
+14,135 s with 32 workers; unequal builds/modes/workers and shared-host conditions
+make this an operational comparison, not a controlled paired speedup.
+
+`finite_feedback_app` independently compared the old/new artifacts;
+`collection_workflow_audit` separately audited its bounded structural decoder.
+Exact 938 raw terminal keys, normalization payload and seed inventory match.
+Native bytes outside the seed vector are identical; legacy append order versus
+fresh sorted order explains the whole-file difference. Same 6,851 encountered
+rules, 46,447,607 rule events, 170,914 terminal events, installed inventory and
+family/input/queries/amendment bindings. Old metadata lacks encountered rule IDs,
+so no exact rule-ID comparison is claimed. Assurance intentionally changes
+from independent `PASS` to `TRUSTED_SAVED_SCOPE`. New publication also includes
+the current collection payload. Source campaign/checkpoint/pointers untouched.
+
+Evidence: `TMP/fast-publication-20261008/the-one-cache.{time,events.jsonl}`,
+`the-one-original-fast-comparison.json`, and scratch `the-one-fast/artifact.json`.
+Implementation commits `e39b072f`, `d68b3eea` are pushed. Final report and all
+validation limitations: `docs/research/fast_publication_2026-10-08.md`.
+No remaining feature work for this request. Default publication skips deep
+verification; explicit `--deep-verification` opts in and `--no-deep-verification`
+clears an earlier remembered opt-in. The separate runtime AnchorView capacity
+resume issue is not covered by this publication-only compatibility delivery.
+
+## October 8 — corrected full-size census: hotspot removed
+
+Optional-verification/cache implementation is pushed through `d68b3eea`.
+Root's scratch-only full THE_ONE run has loaded/prepared generation 16 and
+passed saved-graph readiness for 60,115,005 domains/596,470,375 edges. It is
+enumerating 13,105,672 distinct Apply scopes. `finite_feedback_core` took one
+10 s, 99 Hz profile: 13,938 samples, no loss; `clone_thread_owned` is now 6.21%
+of sampled CPU versus 95.30% before, bounded cache cleanup 3.69%, geometry
+projection 19.56%. Early interval rates 15,363 then 18,494 scopes/s; do not
+extrapolate a completed timing. Evidence under
+`TMP/fast-publication-20261008/the-one-cache-census.*`.
+`finite_feedback_app` independently checks the resulting inventory against
+the original rank-4 publication. No source changes or production mutation;
+root recorded successful completion in the final receipt above.
+
 ## October 8 — full-size gate exposed a second publication bottleneck
 
 The initial optional-verification implementation is pushed as `e39b072f`.

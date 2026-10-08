@@ -1,6 +1,6 @@
 # RustRed project goal
 
-## October 8 — active: fast publication, optional deep verification
+## October 8 — completed: fast publication, optional deep verification
 
 Follow `FAST_PUBLICATION_PLAN.md`. Independent graph/reinspection verification
 must be optional and disabled by default during saved-campaign publication.
@@ -10,6 +10,16 @@ labels and explicit refinement semantics. Remove measured low-hanging lattice
 allocation/union and replay bottlenecks, improve phase progress, validate both
 paths with independent audits and release controls, then commit/push. No live
 campaign changes or numerical-master work are authorized by this request.
+
+Delivered and independently audited: default-off deep verification, exact
+encountered inventory extraction, buffered checkpoint loading, reduced lattice
+allocation and indexed/idempotent Symbolica context reuse. The full THE_ONE
+generation-16 publication completes in 25m08s (16 workers), versus the earlier
+3h55m35s deep publication (32 workers). Exact 938-terminal inventory and all
+encountered counts match; this is an operational comparison, not a matched
+statistical speedup. Four-loop/scalar and public lifecycle controls pass.
+Existing optional CP5 result-binding failures remain documented separately.
+See `docs/research/fast_publication_2026-10-08.md`. Production is unchanged.
 
 ## October 8 — completed: finite refinement feedback
 
