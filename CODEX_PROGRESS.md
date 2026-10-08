@@ -11,9 +11,10 @@ capacity-dispatch fix. The release binary and actual Python lifecycle are
 verified; exact native controls and resume/application checks are documented
 in `docs/research/saved_campaign_terminal_collection_2026-10-08.md`.
 
-Root is committing/pushing only task-owned code, tests and docs. No native
-outputs, temporary evidence, license, reference material, live campaign,
-unrelated HEPKit changes or notebook work is included. Follow-up research on
+Implementation milestone `fb172bf2` is committed and pushed to `origin/main`
+under the requested ValentinHirschi identity. Only task-owned code, tests and
+docs are included: no native outputs, temporary evidence, license, reference
+material, live campaign, unrelated HEPKit changes or notebook work. Follow-up research on
 further terminal reduction and generation-time use of these identities remains
 outside this completed integration objective.
 
