@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-10-09T11:05:11.452516+00:00",
+  "binary": "/tmp/rustred-fermi-target/debug/deps/rustred-ccf220c8ef774846",
+  "binary_sha256": "88c3800a1792864f324872a13e62e19e8f3763a6c69b8c812cb9ca07dca5a38a",
+  "platform": {
+    "system": "Linux",
+    "release": "6.18.45",
+    "machine": "x86_64",
+    "python": "3.11.15 (main, Mar  3 2026, 00:52:57) [GCC 15.3.0]",
+    "logical_cpu_count": 384
+  },
+  "configuration": {
+    "shells": [
+      1,
+      2
+    ],
+    "repeats": 1,
+    "timeout_seconds": 600.0,
+    "reference_filter": null,
+    "test_threads": 1,
+    "fresh_process_per_sample": true
+  },
+  "environment": {
+    "inherits_parent": true,
+    "removed_before_each_case": [
+      "RUSTRED_REFERENCE_SHELLS",
+      "RUSTRED_REFERENCE_FILTER",
+      "RUSTRED_REFERENCE_REQUIRE_CLOSURE"
+    ],
+    "selected_inherited_values": {}
+  },
+  "interpretation": "Process completion is not a claim of equation validation or family closure. Read captured harness output for verified/unresolved reductions. Peak RSS is wait4 ru_maxrss for the test process, not summed concurrent tree memory. Completed-process summaries exclude timeout, interruption and failed runs.",
+  "samples": [
+    {
+      "command": [
+        "/tmp/rustred-fermi-target/debug/deps/rustred-ccf220c8ef774846",
+        "solver::guarded::reference_conversion",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "cwd": "/common/dev/rustred_fermi",
+      "started_at": "2026-10-09T11:05:11.453432+00:00",
+      "timeout_seconds": 600.0,
+      "timed_out": false,
+      "interrupted": false,
+      "exit_code": 0,
+      "peak_rss_bytes": 38072320,
+      "child_user_cpu_seconds": 0.005606,
+      "child_system_cpu_seconds": 0.012164,
+      "peak_rss_raw": 37180,
+      "peak_rss_raw_unit": "KiB",
+      "process_outcome": "completed",
+      "wall_seconds": 0.01997965667396784,
+      "finished_at": "2026-10-09T11:05:11.473426+00:00",
+      "stdout": "\nrunning 2 tests\ntest solver::guarded::reference_conversion::euclidean_energy_moments_keep_phases_and_differentiated_fermi_surfaces ... ok\ntest solver::guarded::reference_conversion::pasted_sunset_relation_matches_independent_double_cut_and_native_surface_conversion ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 3095 filtered out; finished in 0.01s\n\n",
+      "stderr": "pasted D5 conversion: max_cut_power=3 max_energy_power=4 sigma_cases=30 exact_check_us=4278\npasted D4/R1: build_us=972 discovery_us=1193 replay_us=202 apply_us=419 generated_rules=1 unresolved_domains=0 tested_targets=2 applied=2\n",
+      "case": "reference_conversion",
+      "shells": null,
+      "repeat": 1,
+      "environment_overrides": {},
+      "libtest_counts": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "/tmp/rustred-fermi-target/debug/deps/rustred-ccf220c8ef774846",
+        "solver::guarded::reference_validation::bounded_supplied_reference_probe_reports_outcomes",
+        "--exact",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "cwd": "/common/dev/rustred_fermi",
+      "started_at": "2026-10-09T11:05:11.474344+00:00",
+      "timeout_seconds": 600.0,
+      "timed_out": false,
+      "interrupted": false,
+      "exit_code": 0,
+      "peak_rss_bytes": 94593024,
+      "child_user_cpu_seconds": 6.967237,
+      "child_system_cpu_seconds": 0.101273,
+      "peak_rss_raw": 92376,
+      "peak_rss_raw_unit": "KiB",
+      "process_outcome": "completed",
+      "wall_seconds": 7.120335604995489,
+      "finished_at": "2026-10-09T11:05:18.594695+00:00",
+      "stdout": "\nrunning 1 test\ntest solver::guarded::reference_validation::bounded_supplied_reference_probe_reports_outcomes ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3096 filtered out; finished in 7.11s\n\n",
+      "stderr": "reference source construction: 29.469218ms\nreference R2a-zero: exact routing/scaleless proof 200.841\u00b5s\nreference R2b-zero: exact routing/scaleless proof 13.49\u00b5s\nreference R3a-zero: exact routing/scaleless proof 9.58\u00b5s\nreference R3b-zero: exact routing/scaleless proof 8.78\u00b5s\nreference R5-negative-index: seeds=56 rows=601 columns=439 rank=232 generation=181.002163ms modular=10.501686ms modular_pass=true\nreference R5-negative-index: exact_trace_rows=3 modular_weight_support=2 weight_backsolve=106.631\u00b5s\nreference R5-negative-index: exact_stage=modular-weight-support equations=3/3 weight_rank=2/2 elapsed=185.21\u00b5s\nreference R5-negative-index: exact_stage=modular-weight-support exact_pass=true trace_rows=2 nonzero_weights=2 equations=3/3 residual_columns=0 transpose=81.7\u00b5s elimination=215.451\u00b5s weights=9.43\u00b5s multiply_back=57.56\u00b5s total=365.911\u00b5s\nreference R6-three-fermionic-contours: seeds=387 rows=4021 columns=3647 rank=2238 generation=1.507539659s modular=207.913374ms modular_pass=false\nreference R7-two-fermionic-contours: seeds=619 rows=6701 columns=3687 rank=2732 generation=3.407843389s modular=1.70567033s modular_pass=false\nreference outcomes: verified=[\"R2a-zero\", \"R2b-zero\", \"R3a-zero\", \"R3b-zero\", \"R5-negative-index\"] unresolved=[\"R6-three-fermionic-contours\", \"R7-two-fermionic-contours\"] total=7.102294504s\n",
+      "case": "bounded_reference_shells_1",
+      "shells": 1,
+      "repeat": 1,
+      "environment_overrides": {
+        "RUSTRED_REFERENCE_SHELLS": "1"
+      },
+      "libtest_counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "/tmp/rustred-fermi-target/debug/deps/rustred-ccf220c8ef774846",
+        "solver::guarded::reference_validation::bounded_supplied_reference_probe_reports_outcomes",
+        "--exact",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "cwd": "/common/dev/rustred_fermi",
+      "started_at": "2026-10-09T11:05:18.595891+00:00",
+      "timeout_seconds": 600.0,
+      "timed_out": false,
+      "interrupted": false,
+      "exit_code": 0,
+      "peak_rss_bytes": 560025600,
+      "child_user_cpu_seconds": 91.530788,
+      "child_system_cpu_seconds": 0.9366549999999999,
+      "peak_rss_raw": 546900,
+      "peak_rss_raw_unit": "KiB",
+      "process_outcome": "completed",
+      "wall_seconds": 93.19666720600799,
+      "finished_at": "2026-10-09T11:06:51.792575+00:00",
+      "stdout": "\nrunning 1 test\ntest solver::guarded::reference_validation::bounded_supplied_reference_probe_reports_outcomes ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3096 filtered out; finished in 93.18s\n\n",
+      "stderr": "reference source construction: 28.690736ms\nreference R2a-zero: exact routing/scaleless proof 160.651\u00b5s\nreference R2b-zero: exact routing/scaleless proof 19.51\u00b5s\nreference R3a-zero: exact routing/scaleless proof 10\u00b5s\nreference R3b-zero: exact routing/scaleless proof 8.94\u00b5s\nreference R5-negative-index: seeds=417 rows=3305 columns=1527 rank=922 generation=1.16286375s modular=79.043734ms modular_pass=true\nreference R5-negative-index: exact_trace_rows=3 modular_weight_support=2 weight_backsolve=303.812\u00b5s\nreference R5-negative-index: exact_stage=modular-weight-support equations=3/3 weight_rank=2/2 elapsed=257.941\u00b5s\nreference R5-negative-index: exact_stage=modular-weight-support exact_pass=true trace_rows=2 nonzero_weights=2 equations=3/3 residual_columns=0 transpose=151.43\u00b5s elimination=219.381\u00b5s weights=8.31\u00b5s multiply_back=59.49\u00b5s total=440.421\u00b5s\nreference R6-three-fermionic-contours: seeds=3571 rows=30313 columns=14160 rank=10620 generation=14.003471503s modular=5.559538791s modular_pass=true\nreference R6-three-fermionic-contours: exact_trace_rows=2231 modular_weight_support=745 weight_backsolve=16.607465ms\nreference R6-three-fermionic-contours: exact_stage=modular-weight-support equations=512/1099 weight_rank=371/745 elapsed=28.138794ms\nreference R6-three-fermionic-contours: exact_stage=modular-weight-support equations=1024/1099 weight_rank=717/745 elapsed=90.970804ms\nreference R6-three-fermionic-contours: exact_stage=modular-weight-support equations=1093/1099 weight_rank=745/745 elapsed=158.467679ms\nreference R6-three-fermionic-contours: exact_stage=modular-weight-support exact_pass=true trace_rows=745 nonzero_weights=745 equations=1093/1099 residual_columns=0 transpose=19.667626ms elimination=138.961034ms weights=52.052034ms multiply_back=110.540479ms total=321.891944ms\nreference R7-two-fermionic-contours: seeds=4428 rows=47350 columns=12632 rank=10311 generation=27.713513949s modular=30.165802938s modular_pass=true\nreference R7-two-fermionic-contours: exact_trace_rows=4109 modular_weight_support=2209 weight_backsolve=101.397598ms\nreference R7-two-fermionic-contours: exact_stage=modular-weight-support equations=512/2928 weight_rank=397/2209 elapsed=87.188672ms\nreference R7-two-fermionic-contours: exact_stage=modular-weight-support equations=1024/2928 weight_rank=788/2209 elapsed=104.223558ms\nreference R7-two-fermionic-contours: exact_stage=modular-weight-support equations=1536/2928 weight_rank=1179/2209 elapsed=140.258009ms\nreference R7-two-fermionic-contours: exact_stage=modular-weight-support equations=2048/2928 weight_rank=1534/2209 elapsed=219.604723ms\nreference R7-two-fermionic-contours: exact_stage=modular-weight-support equations=2560/2928 weight_rank=1942/2209 elapsed=914.757344ms\nreference R7-two-fermionic-contours: exact_stage=modular-weight-support equations=2926/2928 weight_rank=2209/2209 elapsed=9.84524872s\nreference R7-two-fermionic-contours: exact_stage=modular-weight-support exact_pass=true trace_rows=2209 nonzero_weights=2209 equations=2926/2928 residual_columns=0 transpose=75.616153ms elimination=9.769828508s weights=2.507330251s multiply_back=952.000279ms total=13.316778011s\nreference outcomes: verified=[\"R2a-zero\", \"R2b-zero\", \"R3a-zero\", \"R3b-zero\", \"R5-negative-index\", \"R6-three-fermionic-contours\", \"R7-two-fermionic-contours\"] unresolved=[] total=93.137460519s\n",
+      "case": "bounded_reference_shells_2",
+      "shells": 2,
+      "repeat": 1,
+      "environment_overrides": {
+        "RUSTRED_REFERENCE_SHELLS": "2"
+      },
+      "libtest_counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      }
+    }
+  ],
+  "summary": [
+    {
+      "case": "reference_conversion",
+      "samples": 1,
+      "completed_processes": 1,
+      "process_outcomes": [
+        "completed"
+      ],
+      "completed_wall_seconds": {
+        "min": 0.01997965667396784,
+        "median": 0.01997965667396784,
+        "max": 0.01997965667396784
+      },
+      "completed_peak_rss_bytes": {
+        "min": 38072320,
+        "median": 38072320,
+        "max": 38072320
+      }
+    },
+    {
+      "case": "bounded_reference_shells_1",
+      "samples": 1,
+      "completed_processes": 1,
+      "process_outcomes": [
+        "completed"
+      ],
+      "completed_wall_seconds": {
+        "min": 7.120335604995489,
+        "median": 7.120335604995489,
+        "max": 7.120335604995489
+      },
+      "completed_peak_rss_bytes": {
+        "min": 94593024,
+        "median": 94593024,
+        "max": 94593024
+      }
+    },
+    {
+      "case": "bounded_reference_shells_2",
+      "samples": 1,
+      "completed_processes": 1,
+      "process_outcomes": [
+        "completed"
+      ],
+      "completed_wall_seconds": {
+        "min": 93.19666720600799,
+        "median": 93.19666720600799,
+        "max": 93.19666720600799
+      },
+      "completed_peak_rss_bytes": {
+        "min": 560025600,
+        "median": 560025600,
+        "max": 560025600
+      }
+    }
+  ],
+  "complete": true,
+  "finished_at": "2026-10-09T11:06:51.793888+00:00"
+}

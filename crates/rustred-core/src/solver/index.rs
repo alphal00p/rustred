@@ -155,6 +155,7 @@ pub struct IntegralOrder<const N: usize> {
     deltas: [bool; N],
     permutation: Option<[usize; N]>,
     program: Option<rustred_order::CompiledOrder>,
+    roles: Option<[super::guarded::IndexRole; N]>,
 }
 
 impl<const N: usize> IntegralOrder<N> {
@@ -165,6 +166,7 @@ impl<const N: usize> IntegralOrder<N> {
             deltas,
             permutation: None,
             program: None,
+            roles: None,
         }
     }
 
@@ -172,6 +174,11 @@ impl<const N: usize> IntegralOrder<N> {
         if !crate::fits_storage(arity, N)
             || self.sector[arity..].iter().any(|&v| v)
             || self.deltas[arity..].iter().any(|&v| v)
+            || self.roles.as_ref().is_some_and(|roles| {
+                roles[arity..]
+                    .iter()
+                    .any(|role| *role != super::guarded::IndexRole::Ordinary)
+            })
         {
             return Err(SolverError::InvalidInput(
                 "order uses a padding coordinate".into(),
@@ -183,6 +190,48 @@ impl<const N: usize> IntegralOrder<N> {
 
     pub fn physical_arity(&self) -> usize {
         self.physical_arity
+    }
+
+    /// Keep occupation degree separate from the ordinary physical order.
+    ///
+    /// Roles determine the required-cut mask. Ordinary and cut coordinates
+    /// retain every existing priority; occupation total degree and then its
+    /// coordinate lexicographic order break only physical-order ties. Thus an
+    /// occupation can be raised when the physical part strictly decreases.
+    pub fn with_roles(
+        mut self,
+        roles: [super::guarded::IndexRole; N],
+    ) -> Result<Self, SolverError> {
+        use super::guarded::IndexRole;
+        if self.program.is_some() {
+            return Err(SolverError::InvalidInput(
+                "coordinate roles cannot be combined with a legacy integral-order program".into(),
+            ));
+        }
+        if roles[self.physical_arity..]
+            .iter()
+            .any(|role| *role != IndexRole::Ordinary)
+        {
+            return Err(SolverError::InvalidInput(
+                "padding coordinates cannot have cut or occupation roles".into(),
+            ));
+        }
+        if roles
+            .iter()
+            .zip(&self.sector)
+            .any(|(role, active)| *role == IndexRole::RequiredCut && !*active)
+        {
+            return Err(SolverError::InvalidInput(
+                "required-cut coordinates must have an active ordering sector".into(),
+            ));
+        }
+        self.deltas = roles.map(|role| role == IndexRole::RequiredCut);
+        self.roles = Some(roles);
+        Ok(self)
+    }
+
+    pub const fn roles(&self) -> Option<&[super::guarded::IndexRole; N]> {
+        self.roles.as_ref()
     }
 
     /// Set the coordinate order of the final denominator/numerator tie breaks.
@@ -222,6 +271,7 @@ impl<const N: usize> IntegralOrder<N> {
         if !crate::fits_storage(program.arity(), N)
             || self.deltas.iter().any(|&cut| cut)
             || self.permutation.is_some()
+            || self.roles.is_some()
         {
             return Err(SolverError::InvalidInput("integral-order program requires matching arity, no cuts and no legacy tie permutation".into()));
         }
@@ -240,6 +290,12 @@ impl<const N: usize> IntegralOrder<N> {
         if self.sector.iter().skip(K).any(|&v| v)
             || self.deltas.iter().skip(K).any(|&v| v)
             || self.program.as_ref().is_some_and(|p| p.arity() > K)
+            || self.roles.as_ref().is_some_and(|roles| {
+                roles
+                    .iter()
+                    .skip(K)
+                    .any(|role| *role != super::guarded::IndexRole::Ordinary)
+            })
         {
             return Err(SolverError::InvalidInput(
                 "cannot discard an ordering coordinate".into(),
@@ -263,12 +319,25 @@ impl<const N: usize> IntegralOrder<N> {
         }
         order.program = self.program.clone();
         order.physical_arity = self.physical_arity;
+        order.roles = self.roles.as_ref().map(|roles| {
+            std::array::from_fn(|axis| {
+                roles
+                    .get(axis)
+                    .copied()
+                    .unwrap_or(super::guarded::IndexRole::Ordinary)
+            })
+        });
         Ok(order)
     }
 
     /// The exact uncut mathematical order carried into replay and persistence.
     /// Legacy cut search is still available, but cannot masquerade as uncut.
     pub fn persisted_policy(&self) -> Result<crate::sector::OrderingPolicy, SolverError> {
+        if self.roles.is_some() {
+            return Err(SolverError::InvalidInput(
+                "guarded coordinate roles require guarded-source persistence metadata".into(),
+            ));
+        }
         if self.deltas.iter().any(|&cut| cut) {
             return Err(SolverError::InvalidInput(
                 "cut integral order has no supported persisted uncut policy".into(),
@@ -373,6 +442,7 @@ impl<const N: usize> IntegralOrder<N> {
         let mut delta_order = Ordering::Equal;
         let (mut absolute_left, mut absolute_right) = (0i64, 0i64);
         let (mut numerator_left, mut numerator_right) = (0i64, 0i64);
+        let (mut occupation_left, mut occupation_right) = (0i64, 0i64);
 
         for index in 0..N {
             let (left_power, right_power) = (left[index], right[index]);
@@ -385,6 +455,13 @@ impl<const N: usize> IntegralOrder<N> {
                 i64::from(left_power.value()),
                 i64::from(right_power.value()),
             );
+            if self.is_occupation(index) {
+                // Symbolic values are displacements; their common base cancels.
+                // Numeric occupation admissibility is checked by the domain.
+                occupation_left += l;
+                occupation_right += r;
+                continue;
+            }
             if left_power.is_symbolic() {
                 if self.sector[index] {
                     absolute_left += l;
@@ -428,14 +505,48 @@ impl<const N: usize> IntegralOrder<N> {
             return aggregate;
         }
 
-        // Dispatch once, preserving the ordinary contiguous loop for the
-        // identity lane instead of testing for an override per coordinate.
-        match &self.permutation {
-            Some(permutation) => {
+        // Occupation axes do not participate in physical tie breaks.
+        let physical_ties = match (&self.roles, &self.permutation) {
+            (None, Some(permutation)) => {
                 self.compare_coordinate_ties(left, right, permutation.iter().copied())
             }
-            None => self.compare_coordinate_ties(left, right, 0..N),
+            (None, None) => self.compare_coordinate_ties(left, right, 0..N),
+            (Some(_), Some(permutation)) => self.compare_coordinate_ties(
+                left,
+                right,
+                permutation
+                    .iter()
+                    .copied()
+                    .filter(|&axis| !self.is_occupation(axis)),
+            ),
+            (Some(_), None) => self.compare_coordinate_ties(
+                left,
+                right,
+                (0..N).filter(|&axis| !self.is_occupation(axis)),
+            ),
+        };
+        if physical_ties != Ordering::Equal {
+            return physical_ties;
         }
+        let occupation_degree = occupation_right.cmp(&occupation_left);
+        if occupation_degree != Ordering::Equal {
+            return occupation_degree;
+        }
+        for axis in 0..N {
+            if self.is_occupation(axis) {
+                let order = right[axis].value().cmp(&left[axis].value());
+                if order != Ordering::Equal {
+                    return order;
+                }
+            }
+        }
+        Ordering::Equal
+    }
+
+    fn is_occupation(&self, axis: usize) -> bool {
+        self.roles
+            .as_ref()
+            .is_some_and(|roles| roles[axis] == super::guarded::IndexRole::Occupation)
     }
 
     fn compare_coordinate_ties(
@@ -566,6 +677,78 @@ mod tests {
             cut.compare(&symbolic([-1, 9]).unwrap(), &symbolic([-2, -9]).unwrap()),
             Ordering::Less
         );
+    }
+
+    #[test]
+    fn occupation_order_preserves_bulk_to_surface_physical_descent() {
+        use super::super::guarded::IndexRole::{Occupation, Ordinary, RequiredCut};
+        let order = IntegralOrder::new([true, true, false, false], [false; 4])
+            .with_roles([RequiredCut, Ordinary, Ordinary, Occupation])
+            .unwrap();
+        assert_eq!(order.deltas(), &[true, false, false, false]);
+        let numeric = Integral::<4>::numeric;
+        for (hard, easy) in [
+            ([1, 2, 0, 0], [1, 1, 0, 1]),    // bulk IBP may produce a surface
+            ([2, 1, 0, 0], [1, 9, -9, 10]),  // raised cuts keep their priority
+            ([1, 1, -2, 0], [1, 1, -1, 20]), // polynomial numerator descent
+            ([1, 1, 0, 2], [1, 1, 0, 1]),    // surface derivative descent
+            ([1, 1, 0, 1], [1, 1, 0, 0]),    // surface cannot be erased as a cut
+        ] {
+            assert_eq!(
+                order.compare(&numeric(hard).unwrap(), &numeric(easy).unwrap()),
+                Ordering::Less
+            );
+            assert_eq!(
+                order.compare(&numeric(easy).unwrap(), &numeric(hard).unwrap()),
+                Ordering::Greater
+            );
+        }
+        assert!(order.persisted_policy().is_err());
+        let bulk = IntegralOrder::new([true, false], [false; 2])
+            .with_roles([Ordinary, Occupation])
+            .unwrap();
+        let surface = IntegralOrder::new([true, true], [false; 2])
+            .with_roles([Ordinary, Occupation])
+            .unwrap();
+        // Occupation shifts are graded in b even on the theta boundary.
+        let hard = Integral::symbolic([0, 1]).unwrap();
+        let easy = Integral::symbolic([0, 0]).unwrap();
+        assert_eq!(bulk.compare(&hard, &easy), Ordering::Less);
+        assert_eq!(surface.compare(&hard, &easy), Ordering::Less);
+        assert!(
+            IntegralOrder::new([false], [false])
+                .with_roles([RequiredCut])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn role_order_uses_physical_ties_before_occupation_and_support_grade_before_lex() {
+        use super::super::guarded::IndexRole::{Occupation, Ordinary};
+        let order = IntegralOrder::new([true; 4], [false; 4])
+            .with_roles([Ordinary, Ordinary, Occupation, Occupation])
+            .unwrap();
+        let numeric = Integral::<4>::numeric;
+        for (hard, easy) in [
+            ([1, 2, 0, 0], [2, 1, 9, 9]), // legacy physical tie-break first
+            ([1, 1, 1, 2], [1, 1, 2, 0]), // occupation total before lex
+            ([1, 1, 2, 0], [1, 1, 1, 1]), // larger earlier b is harder
+        ] {
+            assert_eq!(
+                order.compare(&numeric(hard).unwrap(), &numeric(easy).unwrap()),
+                Ordering::Less
+            );
+        }
+        // Adding Ordinary roles does not change the existing comparison.
+        let plain = IntegralOrder::new([true, false], [false; 2]);
+        let typed = plain.clone().with_roles([Ordinary; 2]).unwrap();
+        for a in -2..3 {
+            for b in -2..3 {
+                let left = Integral::numeric([a, b]).unwrap();
+                let right = Integral::numeric([b, a]).unwrap();
+                assert_eq!(plain.compare(&left, &right), typed.compare(&left, &right));
+            }
+        }
     }
 
     #[test]

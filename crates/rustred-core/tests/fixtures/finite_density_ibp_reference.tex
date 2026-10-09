@@ -1,0 +1,258 @@
+\section{IBP relations}
+In the following we use $d=D-1$. 
+Note that we can write different $\mathcal{D}$'s in terms of the scalar topologies $\mathcal{D}_i$ introduced e.g. in ref. [0912.1856]:
+
+\begin{equation}
+\begin{split}
+\mathcal{D}_1^{(\alpha,\beta,\gamma)}
+\begin{pmatrix}
+\sigma_1 & \sigma_2 & \sigma_3 & \sigma_4 &  \sigma_5 & \sigma_6 \\
+a_1 & a_2 & a_3 & a_4 & a_5 & a_6  \\
+\end{pmatrix}
+ & \equiv \int_{P_{\sigma_1}}\int_{Q_{\sigma_2}} \int_{R_{\sigma_3}}\frac{(P^0)^\alpha (Q^0)^\beta (R^0)^\gamma }{[P^{2}]^{a_1}[Q^{2}]^{a_2}[R^2]^{a_3}[(P-Q)^{2}]^{a_4}[(P-R)^{2}]^{a_5}[(Q-R)^{2}]^{a_6}} 
+\end{split}
+\end{equation}
+
+\begin{equation}
+\begin{split}
+\mathcal{D}_4^{(\alpha,\beta)}
+\begin{pmatrix}
+\sigma_1 & \sigma_2 & \sigma_3 \\
+a_1 & a_2 & a_3  \\
+\end{pmatrix}
+ & \equiv \int_{P_{\sigma_1},Q_{\sigma_2}} \frac{(P^0)^\alpha (Q^0)^\beta }{[P^{2}]^{a_1}[Q^{2}]^{a_2}[(P-Q)^{2}]^{a_3}}
+\end{split}
+\end{equation}
+\begin{equation}
+\begin{split}
+\mathcal{D}_5^{(\alpha)}
+&\begin{pmatrix}
+\sigma_1 \\
+a_1 \\
+\end{pmatrix}
+\equiv \int_{P_{\sigma_1}}  \frac{(P^0)^\alpha}{[P^{2}]^{a_1}}
+\end{split}
+\end{equation}
+
+
+\begin{equation}
+\mathcal{D}_4^{(0,0)}
+\begin{pmatrix}
++ & + & B \\
+1 & 1 & 1  \\
+\end{pmatrix} = -\frac{2}{(d-2)(d-3)}\mathcal{D}_5^{(1)}
+\begin{pmatrix}
++ \\
+2  \\
+\end{pmatrix}^2
+\end{equation}
+
+\begin{equation}
+\mathcal{D}
+\begin{pmatrix}
++ & + & + & B & B & B \\
+1 & 0 & 0 & 1 & 1 & 1  \\
+\end{pmatrix} = 
+\mathcal{D}
+\begin{pmatrix}
++ & + & + & B & B & B \\
+0 & 0 & 1 & 1 & 1 & 1  \\
+\end{pmatrix} = 0
+\end{equation}
+
+\begin{equation}
+\mathcal{D}
+\begin{pmatrix}
++ & + & + & B & B & B \\
+1 & 0 & 1 & 1 & 1 & 0  \\
+\end{pmatrix} = 
+\mathcal{D}
+\begin{pmatrix}
++ & + & + & B & B & B \\
+1 & 0 & 1 & 0 & 1 & 1  \\
+\end{pmatrix} = 0
+\end{equation}
+
+\begin{equation}
+\begin{split}
+\mathcal{D}&
+\begin{pmatrix}
++ & + & + & B & B & B \\
+1 & 1 & 1 & 1 & 0 & 0  \\
+\end{pmatrix} = 
+\mathcal{D}
+\begin{pmatrix}
++ & + & + & B & B & B \\
+1 & 1 & 1 & 0 & 1 & 0  \\
+\end{pmatrix} =
+\mathcal{D}
+\begin{pmatrix}
++ & + & B & B & + & + \\
+1 & 1 & 1 & 0 & 1 & 0  \\
+\end{pmatrix} \\
+=\mathcal{D}&
+\begin{pmatrix}
++ & + & B & B & + & + \\
+1 & 1 & 0 & 1 & 0 & 1  \\
+\end{pmatrix} =
+-\frac{2}{(d-2)(d-3)}
+\Biggl[\mathcal{D}_5^{(1)}
+\begin{pmatrix}
++ \\
+2  \\
+\end{pmatrix}\Biggr]^2
+\mathcal{D}_5^{(0)}
+\begin{pmatrix}
++ \\
+1  \\
+\end{pmatrix}
+\end{split}
+\end{equation}
+
+\begin{equation}
+\mathcal{D}
+\begin{pmatrix}
++ & + & + & B & B & B \\
+1 & -1 & 1 & 1 & 1 & 1  \\
+\end{pmatrix} = 
+-\frac{1}{2}\mathcal{D}
+\begin{pmatrix}
+B & B & + & B & + & + \\
+1 & 1 & 0 & 0 & 1 & 1  \\
+\end{pmatrix}
+\end{equation}
+
+\begin{equation}
+\begin{split}
+&\mathcal{D}
+\begin{pmatrix}
++ & + & + & B & B & B \\
+1 & 1 & 1 & 1 & 1 & -1  \\
+\end{pmatrix} = 
+\frac{1}{4}\left(\frac{1}{d-2}-\frac{2}{d-4}-5\right)\mathcal{D}_1^{(0,0,0)}
+\begin{pmatrix}
+B & B & + & B & - & - \\
+1 & 1 & 0 & 0 & 1 & 1  \\
+\end{pmatrix} \\
+&-\frac{d-3}{(d-2)(d-4)}\mathcal{D}_1^{(0,2,0)}
+\begin{pmatrix}
+B & B & + & B & - & - \\
+2 & 1 & 0 & 0 & 1 & 1  \\
+\end{pmatrix} 
++\frac{d-5}{(d-2)(d-4)}\mathcal{D}_1^{(0,2,0)}
+\begin{pmatrix}
++ & + & + & B & B & B \\
+2 & 1 & 0 & 0 & 1 & 1  \\
+\end{pmatrix} \\
+&+\left(\frac{2}{d-4}+\frac{8}{d-3}-\frac{22}{d-2}\right)\mathcal{D}_1^{(1,1,0)}
+\begin{pmatrix}
+B & B & + & B & - & - \\
+2 & 1 & 0 & 0 & 1 & 1  \\
+\end{pmatrix} \\
+&-\left(\frac{2}{d-4}+\frac{4}{d-3}-\frac{8}{d-2}\right)\mathcal{D}_1^{(2,0,0)}
+\begin{pmatrix}
+B & B & + & B & - & - \\
+2 & 1 & 0 & 0 & 1 & 1  \\
+\end{pmatrix} \\
+&-\frac{8}{(d-3)(d-2)}\mathcal{D}_1^{(3,1,0)}
+\begin{pmatrix}
+B & B & + & B & - & - \\
+2 & 2 & 0 & 0 & 1 & 1  \\
+\end{pmatrix}
+-\frac{32}{(d-3)(d-2)}\mathcal{D}_1^{(3,1,0)}
+\begin{pmatrix}
+B & B & + & B & - & - \\
+3 & 1 & 0 & 0 & 1 & 1  \\
+\end{pmatrix} \\
+&+\frac{16}{(d-3)(d-2)}\mathcal{D}_1^{(4,0,0)}
+\begin{pmatrix}
+B & B & + & B & - & - \\
+3 & 1 & 0 & 0 & 1 & 1  \\
+\end{pmatrix}
++\frac{d-1}{(d-3)(d-2)}\mathcal{D}_5^{(0)}
+\begin{pmatrix}
++ \\
+2 \\
+\end{pmatrix}
+\mathcal{D}_5^{(0)}
+\begin{pmatrix}
++ \\
+1 \\
+\end{pmatrix}^2
+\end{split}
+\end{equation}
+
+\begin{equation}
+\begin{split}
+&\mathcal{D}
+\begin{pmatrix}
++ & + & B & B & + & + \\
+1 & 1 & -1 & 1 & 1 & 1  \\
+\end{pmatrix} = 
+\frac{1}{2}\left(\frac{2}{d-4}+\frac{2}{d-3}+\frac{9}{d-2}-7\right)\mathcal{D}_1^{(0,0,0)}
+\begin{pmatrix}
++ & + & B & B & + & + \\
+1 & 1 & 0 & 0 & 1 & 1  \\
+\end{pmatrix} \\
+&-\frac{4}{(d-4)(d-2)}\mathcal{D}_1^{(0,2,0)}
+\begin{pmatrix}
++ & + & B & B & + & + \\
+2 & 1 & 0 & 0 & 1 & 1  \\
+\end{pmatrix} \\
+&+4\left(\frac{1}{d-4}+\frac{4}{d-3}-\frac{11}{d-2}\right)\mathcal{D}_1^{(1,1,0)}
+\begin{pmatrix}
++ & + & B & B & + & + \\
+2 & 1 & 0 & 0 & 1 & 1  \\
+\end{pmatrix} \\
+&-\frac{16}{(d-3)(d-2)}\mathcal{D}_1^{(3,1,0)}
+\begin{pmatrix}
++ & + & B & B & + & + \\
+2 & 2 & 0 & 0 & 1 & 1  \\
+\end{pmatrix} 
+-\frac{64}{(d-3)(d-2)}\mathcal{D}_1^{(3,1,0)}
+\begin{pmatrix}
++ & + & B & B & + & + \\
+3 & 1 & 0 & 0 & 1 & 1  \\
+\end{pmatrix} \\
+&+\frac{32}{(d-3)(d-2)}\mathcal{D}_1^{(4,0,0)}
+\begin{pmatrix}
++ & + & B & B & + & + \\
+3 & 1 & 0 & 0 & 1 & 1  \\
+\end{pmatrix} \\
+&+\frac{4}{(d-4)(d-3)}\mathcal{D}_5^{(0)}
+\begin{pmatrix}
++ \\
+2 \\
+\end{pmatrix} 
+\mathcal{D}_5^{(0)}
+\begin{pmatrix}
++ \\
+1 \\
+\end{pmatrix}^2
+-\frac{4}{(d-3)(d-2)}\mathcal{D}_5^{(1)}
+\begin{pmatrix}
++ \\
+2 \\
+\end{pmatrix}^2
+\mathcal{D}_5^{(0)}
+\begin{pmatrix}
++ \\
+1 \\
+\end{pmatrix} \\
+&+\frac{8}{(d-4)(d-3)(d-2)}\mathcal{D}_5^{(1)}
+\begin{pmatrix}
++ \\
+2 \\
+\end{pmatrix} 
+\mathcal{D}_5^{(0)}
+\begin{pmatrix}
++ \\
+2 \\
+\end{pmatrix}
+\mathcal{D}_5^{(1)}
+\begin{pmatrix}
++ \\
+1 \\
+\end{pmatrix}
+\end{split}
+\end{equation}

@@ -29,6 +29,7 @@ pub struct Seeds<const N: usize> {
     depth: i16,
     first: bool,
     done: bool,
+    cross_sign: [bool; N],
 }
 
 impl<const N: usize> Seeds<N> {
@@ -54,7 +55,15 @@ impl<const N: usize> Seeds<N> {
             depth: 0,
             first: true,
             done: false,
+            cross_sign: [false; N],
         }
+    }
+
+    /// Distribution coordinates may cross the bulk/surface boundary while
+    /// their source-domain guard supplies the actual admissibility test.
+    pub(super) fn with_crossing(mut self, cross_sign: [bool; N]) -> Self {
+        self.cross_sign = cross_sign;
+        self
     }
 
     /// The L1 displacement of the most recently emitted seed.
@@ -103,7 +112,7 @@ impl<const N: usize> Seeds<N> {
         for active in 0..self.active_count {
             let index = self.active[active];
             let initial = self.initial[index];
-            if !initial.is_symbolic() {
+            if !initial.is_symbolic() && !self.cross_sign[index] {
                 let delta = if self.positive[active] {
                     self.absolute[active]
                 } else {

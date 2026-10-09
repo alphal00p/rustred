@@ -127,6 +127,60 @@ pub struct SectorSolver<'a, const N: usize> {
 }
 
 impl<'a, const N: usize> SectorSolver<'a, N> {
+    /// Guarded source rows retain their original ordinals. Mixing them in the
+    /// unconditional polynomial preconditioner would erase their domains.
+    pub(super) fn new_guarded(
+        system: &'a SourceSystem<N>,
+        sector: [bool; N],
+        roles: [super::guarded::IndexRole; N],
+    ) -> Result<Self, SolverError> {
+        let config = SectorConfig {
+            deltas: roles.map(|role| role == super::guarded::IndexRole::RequiredCut),
+            ..Default::default()
+        };
+        let (order, mut basis) = Self::prepare(system, sector, &config)?;
+        let order = order.with_roles(roles)?;
+        for row in &mut basis {
+            row.sort_unstable_by(|a, b| order.compare(&a.integral, &b.integral));
+        }
+        Ok(Self {
+            system,
+            basis,
+            order,
+            config,
+        })
+    }
+
+    pub(super) fn solve_guarded_case(
+        &self,
+        case: Case<N>,
+        options: SearchOptions,
+        scope: &super::guarded::GuardedSearchScope<'_, N>,
+    ) -> Result<RuleCandidate<N>, SolverError> {
+        self.validate_search(&case, options)?;
+        let start = Instant::now();
+        let mut work = RuleTrialStats::default();
+        let result = self.search_attempt_inner(
+            case,
+            options,
+            None,
+            None,
+            false,
+            &mut work,
+            |_| {},
+            Some(scope),
+        );
+        match result {
+            Ok(mut candidate) => {
+                work.search.elapsed = start.elapsed();
+                candidate.stats = work.search;
+                Ok(candidate)
+            }
+            Err(TrialSearchError::Solver(error)) => Err(error),
+            Err(TrialSearchError::Limit(_)) => unreachable!("no rule portfolio limits"),
+        }
+    }
+
     pub fn new(
         system: &'a SourceSystem<N>,
         sector: [bool; N],
@@ -427,6 +481,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             account_trace,
             &mut work,
             observe,
+            None,
         );
         work.search.elapsed = start.elapsed();
         if let Ok(candidate) = &mut result {
@@ -444,6 +499,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         account_trace: bool,
         work: &mut RuleTrialStats,
         mut observe: impl FnMut(SearchEvent<N>),
+        guarded: Option<&super::guarded::GuardedSearchScope<'_, N>>,
     ) -> Result<RuleCandidate<N>, TrialSearchError> {
         let stats = &mut work.search;
         let mut probe = None;
@@ -451,6 +507,14 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut original_sources = Vec::new();
         let initial = case.integral();
         let mut seeds = Seeds::new(initial, *self.order.sector(), self.seed_frozen());
+        if let Some(scope) = guarded {
+            seeds = seeds.with_crossing(
+                scope
+                    .problem
+                    .roles
+                    .map(|role| role == super::guarded::IndexRole::Occupation),
+            );
+        }
         // A coupled affine chart can determine the sign of a symbolic power
         // only after its equations are solved together with the sector.  The
         // rectangular zero-sector census cannot make that inference: pruning
@@ -494,15 +558,22 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 if account_trace {
                     stats.rows += 1;
                 }
-                let row = instantiate(
-                    source,
-                    &seed,
-                    &self.system.indices,
-                    self.system.fixed(),
-                    &self.order,
-                    discovery_zero_sectors,
-                    case.affine(),
-                )?;
+                let row = if let Some(scope) = guarded {
+                    let Some(row) = scope.instantiate(ordinal, source, &seed, &self.order)? else {
+                        continue;
+                    };
+                    row
+                } else {
+                    instantiate(
+                        source,
+                        &seed,
+                        &self.system.indices,
+                        self.system.fixed(),
+                        &self.order,
+                        discovery_zero_sectors,
+                        case.affine(),
+                    )?
+                };
                 if !account_trace {
                     stats.rows += 1;
                 }

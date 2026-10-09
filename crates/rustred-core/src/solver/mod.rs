@@ -17,6 +17,7 @@ mod error;
 mod exception;
 mod execution;
 mod geometry;
+pub mod guarded;
 mod index;
 mod instantiate;
 mod numeric;
