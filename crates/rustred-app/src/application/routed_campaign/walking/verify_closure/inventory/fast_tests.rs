@@ -94,6 +94,11 @@ fn fast_inventory_matches_deep_partial_and_g2_residuals() {
         );
         let fast = compare(&run, true);
         assert_eq!(fast.summary()["complete"], true);
+        assert!(
+            fast.write_census(run.dir.0.join("cp5-census.bin"))
+                .unwrap()
+                .is_none()
+        );
         fast.normalize_terminals(Default::default()).unwrap();
     }
 }
@@ -159,6 +164,11 @@ fn fast_inventory_preserves_failed_prefixes_and_cell_refinement_classifications(
             run("inventory-fast-prefix", &fixture, &extra)
         };
         let fast = compare(&run, !failed);
+        assert!(
+            fast.write_census(run.dir.0.join("unsafe-census.bin"))
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(
             fast.summary()["verification"]["inventory_census"]["failed_record_replays"]
                 .as_u64()
@@ -240,6 +250,11 @@ fn fast_cp6_rescue_trusts_required_scope_and_excludes_abandoned_helpers() {
     };
     let fast = compare(&run, true);
     assert_eq!(fast.summary()["complete"], true);
+    assert!(
+        fast.write_census(run.dir.0.join("rescue-census.bin"))
+            .unwrap()
+            .is_none()
+    );
     let mut options = OwnerDomainWalkInventoryOptions::new(run.dir.0.join("checkpoint"));
     options.verification.certification_scope = OwnerDomainWalkVerifyScope::AllRoots;
     let all = owner_domain_walk_inventory(&run.request, &options, &AtomicBool::new(false), |_| {})

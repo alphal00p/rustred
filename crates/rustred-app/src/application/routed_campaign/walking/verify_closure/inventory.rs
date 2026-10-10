@@ -6,6 +6,9 @@
 //! It never substitutes every residual in an installed payload
 //! for terminals actually encountered by that inspection.
 
+mod cache;
+#[cfg(all(test, feature = "cli"))]
+mod cache_tests;
 mod census;
 mod fast;
 #[cfg(all(test, feature = "cli"))]
@@ -40,6 +43,16 @@ pub struct OwnerDomainWalkInventoryOptions {
     pub deep_verification: bool,
     pub max_unique_rules: usize,
     pub max_unique_terminals: usize,
+    /// Optional digest-bound raw census from a completed predecessor artifact.
+    /// A missing or incompatible cache is a full-census miss, never a verdict.
+    pub previous_census: Option<OwnerDomainWalkCensusSource>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OwnerDomainWalkCensusSource {
+    pub path: PathBuf,
+    pub expected_blake3: String,
+    pub bytes: u64,
 }
 
 impl OwnerDomainWalkInventoryOptions {
@@ -52,6 +65,7 @@ impl OwnerDomainWalkInventoryOptions {
             deep_verification: false,
             max_unique_rules: 1_000_000,
             max_unique_terminals: 1_000_000,
+            previous_census: None,
         }
     }
 }
@@ -72,9 +86,10 @@ pub struct OwnerDomainWalkInventory {
     selected_rule_events: u64,
     terminal_events: u64,
     zero_events: u64,
+    census_identity: Option<cache::Identity>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 struct RuleIdentity {
     owner: Vec<bool>,
     batch: usize,
@@ -98,6 +113,8 @@ pub(super) struct Collector {
     max_unique_rules: usize,
     max_unique_terminals: usize,
     pub(super) deep_verification: bool,
+    previous_census: Option<OwnerDomainWalkCensusSource>,
+    census_identity: Mutex<Option<cache::Identity>>,
 }
 
 impl Collector {
@@ -107,6 +124,8 @@ impl Collector {
             max_unique_rules: options.max_unique_rules,
             max_unique_terminals: options.max_unique_terminals,
             deep_verification: options.deep_verification,
+            previous_census: options.previous_census.clone(),
+            census_identity: Mutex::new(None),
         }
     }
 
@@ -239,6 +258,10 @@ impl Collector {
             selected_rule_events: state.selected_rule_events,
             terminal_events: state.terminal_events,
             zero_events: state.zero_events,
+            census_identity: self
+                .census_identity
+                .into_inner()
+                .expect("inventory census identity"),
         })
     }
 

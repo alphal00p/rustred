@@ -653,14 +653,107 @@ fn cp6_input_reads_selected_immutable_reference_even_if_latest_changes() {
 }
 
 #[test]
+fn cp6_parallel_loader_reuses_decoder_across_authenticated_and_empty_segments() {
+    use super::super::{Violations, load_records, load_records_with_workers};
+    use crate::application::routed_campaign::walking::epoch::records::wire;
+    let mut fixture = Fixture::new();
+    let first = fixture.record();
+    let mut second = wire::read(&mut File::open(first).unwrap()).unwrap();
+    second.authority.id = 1;
+    second.authority.image.lower[0] = 2;
+    second.authority.image.upper[0] = 2;
+    let second_image =
+        CompactDomain::try_from_domain(&second.authority.image.domain::<1>().unwrap()).unwrap();
+    let mut bytes = Vec::new();
+    wire::append(&second, &mut bytes).unwrap();
+    let empty_path = fixture.directory.join("empty.bin");
+    let second_path = fixture.directory.join("second.bin");
+    fs::write(&empty_path, []).unwrap();
+    fs::write(&second_path, &bytes).unwrap();
+    let capture = || {
+        let (mut raw, mut epoch, mut references) = read_raw::<1>(&fixture.directory).unwrap();
+        raw.domains.push(second_image);
+        raw.flags.push(raw.flags[0]);
+        epoch.ledger.push(1);
+        for (path, count, data) in [
+            (&empty_path, 0, &[][..]),
+            (&second_path, 1, bytes.as_slice()),
+        ] {
+            raw.records.push((path.clone(), count));
+            references.push(RecordRef(FileRef {
+                key: "records".into(),
+                file: path.file_name().unwrap().to_str().unwrap().into(),
+                count: count as u64,
+                bytes: data.len() as u64,
+                blake3: *blake3::hash(data).as_bytes(),
+            }));
+        }
+        (raw, epoch, references)
+    };
+    for digests in [false, true] {
+        let (raw, epoch, records) = capture();
+        let mut violations = Violations::new(10);
+        let serial = load_records(
+            raw,
+            Some(epoch),
+            Some(records),
+            digests,
+            &mut violations,
+            &std::sync::atomic::AtomicBool::new(false),
+            &|_| {},
+        )
+        .unwrap();
+        assert!(violations.is_empty());
+        let (raw, epoch, records) = capture();
+        let parallel = load_records_with_workers(
+            raw,
+            Some(epoch),
+            Some(records),
+            digests,
+            &mut violations,
+            &std::sync::atomic::AtomicBool::new(false),
+            &|_| {},
+            4,
+        )
+        .unwrap();
+        assert!(violations.is_empty());
+        assert_eq!(parallel.domains, serial.domains);
+        assert_eq!(parallel.nodes, serial.nodes);
+        assert_eq!(parallel.digests, serial.digests);
+        assert_eq!(parallel.positions, serial.positions);
+        assert_eq!(parallel.positions, [0, 1]);
+        assert!(parallel.residuals.is_empty() && parallel.g2.is_empty());
+    }
+    let (raw, epoch, records) = capture();
+    second.diagnostics.seconds = 1.0;
+    let mut changed = Vec::new();
+    wire::append(&second, &mut changed).unwrap();
+    assert_eq!(changed.len(), bytes.len());
+    fs::write(second_path, changed).unwrap();
+    let error = load_records_with_workers(
+        raw,
+        Some(epoch),
+        Some(records),
+        false,
+        &mut Violations::new(10),
+        &std::sync::atomic::AtomicBool::new(false),
+        &|_| {},
+        4,
+    )
+    .err()
+    .unwrap();
+    assert!(error.contains("digest"), "{error}");
+}
+
+#[test]
 fn cp6_consumed_record_bytes_are_authenticated_after_reference_capture() {
-    use super::super::{Violations, load_records};
+    use super::super::{Violations, load_records_with_workers};
     let mut fixture = Fixture::new();
     let path = fixture.record();
     let original = fs::read(&path).unwrap();
     let (raw, epoch, records) = read_raw::<1>(&fixture.directory).unwrap();
     let mut violations = Violations::new(10);
-    let loaded = load_records(
+    let loaded = load_records_with_workers(
         raw,
         Some(epoch),
         Some(records),
@@ -668,6 +761,7 @@ fn cp6_consumed_record_bytes_are_authenticated_after_reference_capture() {
         &mut violations,
         &std::sync::atomic::AtomicBool::new(false),
         &|_| {},
+        4,
     )
     .unwrap();
     assert_eq!(loaded.positions, [0]);
@@ -686,14 +780,15 @@ fn cp6_consumed_record_bytes_are_authenticated_after_reference_capture() {
     fs::write(&replacement, &changed).unwrap();
     fs::rename(&replacement, &path).unwrap();
     assert!(
-        load_records(
+        load_records_with_workers(
             raw,
             Some(epoch),
             Some(records),
             false,
             &mut violations,
             &std::sync::atomic::AtomicBool::new(false),
-            &|_| {}
+            &|_| {},
+            4,
         )
         .err()
         .unwrap()

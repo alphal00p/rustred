@@ -124,6 +124,7 @@ pub fn master_refine_published_artifact(
         }
         storage::clone_inputs(&source_directory, &options.directory, &source_report)?;
         let mut report = source_report.clone();
+        census_cache::inherit(&source_directory, &options.directory, &mut report)?;
         report["schema"] = json!(SCHEMA);
         report
             .as_object_mut()

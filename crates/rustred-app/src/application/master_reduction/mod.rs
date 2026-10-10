@@ -1,6 +1,7 @@
 //! Optional finite, resumable master-candidate reduction after a saved walk.
 //! CP6 coverage and finite IBP row-span identities remain distinct authorities.
 mod assistance;
+mod census_cache;
 mod collection;
 mod inherited;
 mod profile;
@@ -347,6 +348,15 @@ fn run(
         let mut inventory_options = OwnerDomainWalkInventoryOptions::new(&options.checkpoint);
         inventory_options.verification.threads = options.threads;
         inventory_options.deep_verification = deep_verification;
+        if !deep_verification {
+            inventory_options.previous_census = census_cache::current(&options.directory, report)
+                .or_else(|| {
+                    options
+                        .previous_artifact
+                        .as_deref()
+                        .and_then(census_cache::previous)
+                });
+        }
         let inventory =
             owner_domain_walk_inventory(request, &inventory_options, cancel, |native| {
                 let mut output = event(report, "master_reduction_progress", started);
@@ -365,10 +375,15 @@ fn run(
                 "master reduction requires a complete exact saved-scope inventory",
             ));
         }
+        census_cache::save(&inventory, &options.directory, report)?;
         report["inventory"] = summary;
         report["independently_verified"] = json!(verification::independently_verified(report));
         report["publication_assurance"] = report["inventory"]["authority"].clone();
         report["raw_terminals"] = json!(inventory.terminal_keys().len());
+        // Preserve completed census work even when cancellation occurs during
+        // the subsequent native master preparation. This metadata is not a
+        // published artifact or an independent closure certificate.
+        write_json(&options.directory.join("latest.json"), report)?;
         if cancel.load(Ordering::Relaxed) {
             return Err(AppError::execution(
                 "paused before native master preparation",

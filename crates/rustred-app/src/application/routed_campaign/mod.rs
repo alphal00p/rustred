@@ -49,7 +49,8 @@ pub use walking::{
     owner_domain_walk_with_progress,
 };
 pub use walking::{
-    OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
+    OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
+    owner_domain_walk_inventory,
 };
 #[cfg(test)]
 mod tests;

@@ -13,9 +13,9 @@ mod inherited_tests;
 #[path = "tests/profile.rs"]
 mod profile_tests;
 
-struct Scratch(PathBuf);
+pub(super) struct Scratch(pub(super) PathBuf);
 impl Scratch {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
             "rustred-master-test-{}-{}",

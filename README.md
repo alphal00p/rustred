@@ -335,6 +335,19 @@ verification can upgrade an existing publication without discarding its master
 refinements. The explicit mode is remembered; use `--no-deep-verification` to
 return to ordinary publication on subsequent rank extensions.
 
+Completed ordinary publications also save an optional binary **raw census
+cache**. A subsequent publication can reuse the compatible immutable record
+prefix instead of rematching its old Apply scopes; it still authenticates the
+current checkpoint and checks its recorded graph and requested scope. Cache
+absence, incompatibility or corruption triggers the full census. Refinement
+preserves this raw cache separately from the reduced master basis. Deep
+verification does not use it to skip proof checks. An older artifact has no
+cache, so the first publication with the new executable bootstraps it.
+
+CP6 record projection during publication uses a bounded, ordered worker pool
+within the requested thread budget. This accelerates loading rather than
+eliminating it; neither optimization regenerates IBPs or changes coverage.
+
 Checkpoint **restore** is separate from publication's optional deep verification:
 it validates the saved execution state before continuing the worklist. Its
 dashboard reports the restore stage and completed/total work; independent exact

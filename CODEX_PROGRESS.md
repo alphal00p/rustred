@@ -1,5 +1,62 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 11 — incremental publication work started
+
+User authorizes faster subsequent rank publications while current rank-6
+publication finishes untouched. Plan: `PUBLICATION_INCREMENTAL_PLAN.md`.
+Native reuse: `restore_parallel_fix`; bootstrap decoding:
+`restore_capacity_fix`; independent audit: `rank6_restore_audit`; root integrates,
+tests and measures. Implementation delivered; final validation in progress.
+Read-only evidence: THE_ONE generation 35 resolves 469/469 required queries,
+140,465,585/140,465,585 saved domains closed, zero pending/frontiers. Its publisher
+uses `--no-deep-verification`, but serially reads 73.06 GB / 140,465,585 records.
+The previous artifact had only about 0.5% fewer domains and took 3,125.9 seconds;
+previous-artifact reuse currently occurs too late to avoid the repeated census.
+Production PID 669657 and its output remain exclusively production-owned.
+
+Implementation decision: retain current full authentication/record parity/graph
+readiness, cache only the small raw census aggregate of a compatible immutable
+record prefix, and accelerate mandatory bootstrap decoding with an ordered
+bounded worker pool. Do not add a second O(domains) checkpoint. THE_ONE's six
+amendments are scope extensions with zero quarantine/error/abandoned counts,
+so this history is eligible. Independent source audit confirms unchanged G2
+normalization plus record/domain parity authenticates the old inspected scopes.
+Root integrated optional-cache packaging and portable propagation through
+refinement; missing/corrupt/unwritable caches cannot become proof authority.
+Initial optimized build completed in 3m13s (`2bf1f0f7…`). Matched four-loop
+publication: old 2.543 s, new bootstrap 2.278 s, new cached 1.879 s; full native
+terminal-session/collection payloads byte-identical, encountered counts and
+assurance identical. Cache is 10,243 bytes for 26,025 records. This small
+same-scope result is not a large-campaign or rank-extension speedup claim.
+Actual rank-6 production publication independently finished successfully in
+48m37s using the previous build. Its output remains untouched.
+Scalar five-loop matched publication also passes exact bytes/counts/assurance:
+old/cold/warm 138.437/133.776/132.364 s, dominated by unchanged owner preparation;
+census 0.912/0.972/0.161 s. Actual-record probes (628,236 records) select bounded
+4,096-record batches; 16-worker decoding takes about 2.2 s versus 4.6–5.0 s
+serially. These are component measurements, not a full-publication speedup.
+
+User then requests wind-down without further optimization. Implementation is
+frozen; the extra full-size benchmark was deliberately not started. Final release
+build `15a4d181…43ad` completed in 3m12s and is frozen at
+`TMP/publication-incremental-20261011/rustred-publication-fast`.
+Final four-loop old/cold/warm 2.673/2.180/1.878 s, exact payload parity passes.
+Public Python publication→refinement→deep upgrade→rank extension→inspection
+lifecycle passes on a fresh scratch four-loop campaign with retained exact
+feedback. Independent final source audit has no blocker. Final native release
+regressions: 85 passed (including durable census pause/error/resume); Python
+steering/phase regressions: 74 passed. Final test executable rebuilt in 6m35s.
+All owned builds and controls have finished. Implementation complete; clean
+task-scoped commit/push is the handoff, with no further optimization scheduled.
+Normal saved-campaign commands accept the frozen executable through
+`--executable`; no campaign restart or rule regeneration is required. Existing
+artifacts bootstrap a cache on their first new publication; only later compatible
+publications reuse it. Production THE_ONE and unrelated worktree changes remain
+untouched. Full-size accelerated publication remains intentionally unmeasured.
+Detailed evidence/commands:
+`docs/research/incremental_publication_2026-10-11.md` and
+`TMP/publication-incremental-20261011/`.
+
 ## October 10 — rank-6 restore repair: final validation and delivery
 
 User reports THE_ONE `extend --rank 6` in restore for 5h47 and authorizes a fix.

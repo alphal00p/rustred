@@ -7,7 +7,8 @@ pub use application::{
 };
 pub use application::{EntryPowerBudget, FiniteEntryDomain, entry_domain_plan};
 pub use application::{
-    OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
+    OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
+    owner_domain_walk_inventory,
 };
 /// Native family entry for embedded hosts; no source-text round trip.
 pub use rustred::family::IntegralFamily as NativeIntegralFamily;

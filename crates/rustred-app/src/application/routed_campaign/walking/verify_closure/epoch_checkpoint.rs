@@ -903,6 +903,7 @@ fn read_inner<const N: usize>(
         .filter(|a| a.len() == 8)
         .ok_or("ledger counts")?;
     let mut normalized = json!({"format":FORMAT,"schema":3,"generation":manifest.generation,
+        "record_segments":segments,
         "arity":manifest.arity,
         "initial_admission":admission,"total_queries":query_total,"processed_queries":processed,
         "epoch_rolling":rolling,"epoch_cut_size":scalar["epoch_cut_size"],

@@ -58,7 +58,8 @@ mod graph;
 mod inventory;
 mod record_input;
 pub use inventory::{
-    OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions, owner_domain_walk_inventory,
+    OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
+    owner_domain_walk_inventory,
 };
 pub(super) mod lattice;
 mod result_binding;
@@ -412,6 +413,7 @@ enum Kind {
 }
 
 #[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 struct Node {
     kind: Kind,
     error: bool,
@@ -445,6 +447,7 @@ impl Node {
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 struct PowersRow {
     max_positive_power: Option<u64>,
     min_power_difference: Option<i64>,
@@ -460,18 +463,21 @@ impl PowersRow {
     }
 }
 #[derive(Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 struct OverlapRow {
     anchor_id: usize,
     cut: i64,
     residual_power_bounds: PowersRow,
 }
 #[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 struct G2AnchorRow {
     id: usize,
     stamp: u64,
     kind: String,
 }
 #[derive(Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 struct G2RecordRow {
     merge_stamp: Option<u64>,
     snapshot_stamp: u64,
@@ -487,11 +493,13 @@ struct G2Info {
     anchors: Vec<G2AnchorRow>,
 }
 #[derive(Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 struct StatsRow {
     events: Option<u64>,
     successors: Option<u64>,
 }
 #[derive(Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 struct RecordRow {
     id: usize,
     /// Absent only on a plain native record of a walk without a delegation
@@ -822,7 +830,7 @@ fn load_with_progress<const N: usize>(
     } else {
         (checkpoint::read_raw::<N>(&options.checkpoint)?, None, None)
     };
-    load_records(
+    load_records_with_workers(
         raw,
         epoch,
         cp6_records,
@@ -830,6 +838,7 @@ fn load_with_progress<const N: usize>(
         violations,
         cancellation,
         observer,
+        options.threads,
     )
 }
 
@@ -872,7 +881,29 @@ pub(super) fn rescue_checkpoint<const N: usize>(
     }
 }
 
+#[cfg(test)]
 fn load_records<const N: usize>(
+    raw: checkpoint::RawCheckpoint<N>,
+    epoch: Option<epoch_export::EpochSections>,
+    cp6_records: Option<Vec<epoch_checkpoint::RecordRef>>,
+    digests: bool,
+    violations: &mut Violations,
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
+) -> Result<Loaded<N>, String> {
+    load_records_with_workers(
+        raw,
+        epoch,
+        cp6_records,
+        digests,
+        violations,
+        cancellation,
+        observer,
+        1,
+    )
+}
+
+fn load_records_with_workers<const N: usize>(
     mut raw: checkpoint::RawCheckpoint<N>,
     epoch: Option<epoch_export::EpochSections>,
     cp6_records: Option<Vec<epoch_checkpoint::RecordRef>>,
@@ -880,6 +911,7 @@ fn load_records<const N: usize>(
     violations: &mut Violations,
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
+    workers: usize,
 ) -> Result<Loaded<N>, String> {
     if cp6_records
         .as_ref()
@@ -906,6 +938,7 @@ fn load_records<const N: usize>(
     let mut records = 0usize;
     let mut finite_replay = None;
     let epoch_records = epoch.as_ref().map(epoch_g2::View::new).transpose()?;
+    let mut decoder = record_input::Decoder::new(workers, epoch.is_some())?;
     let started = Instant::now();
     let mut last = Instant::now();
     for (segment, (path, count)) in raw.records.iter().enumerate() {
@@ -922,10 +955,7 @@ fn load_records<const N: usize>(
         };
         let mut input = record_input::Records::new(file, epoch.as_ref().map(|_| *count));
         let mut lines = 0usize;
-        while let Some(value) = input
-            .next()
-            .map_err(|e| format!("{}: {e}", path.display()))?
-        {
+        while let Some(value) = decoder.next(&mut input, digests, cancellation) {
             lines += 1;
             if lines % 4096 == 0 {
                 if cancellation.load(Ordering::Relaxed) {
@@ -939,9 +969,15 @@ fn load_records<const N: usize>(
                     last = Instant::now();
                 }
             }
-            let parse_error =
-                |e: serde_json::Error| format!("{}: record line {lines}: {e}", path.display());
-            let (mut row, digest) = value.decode(digests).map_err(parse_error)?;
+            let (mut row, digest) = value.map_err(|error| match error {
+                record_input::Error::Input(e) => format!("{}: {e}", path.display()),
+                record_input::Error::Decode(e) => {
+                    format!("{}: record line {lines}: {e}", path.display())
+                }
+                record_input::Error::Cancelled => {
+                    "cancelled while reading captured checkpoint records".into()
+                }
+            })?;
             if let Some(digest) = digest {
                 if let Some(slot) = record_digests.get_mut(row.id) {
                     *slot = digest;
@@ -1012,7 +1048,7 @@ fn record_node<const N: usize>(
     violations: &mut Violations,
 ) {
     let id = row.id;
-    let Some(domain) = domains.get(id).map(CompactDomain::expand) else {
+    let Some(domain) = domains.get(id) else {
         violations.add("structure", || {
             format!("record {id} beyond the saved domains")
         });
@@ -1027,24 +1063,21 @@ fn record_node<const N: usize>(
         "Route" => Some(Phase::Route),
         _ => None,
     };
-    let owner = row
-        .owner
-        .chars()
-        .map(|c| match c {
-            '0' => Some(false),
-            '1' => Some(true),
-            _ => None,
-        })
-        .collect::<Option<Vec<_>>>();
-    let owner = owner.and_then(|owner| super::super::storage::restore_array::<_, N>(&owner, false));
+    // The canonical arena already exposes exact coordinates; expanding a
+    // heap-owned Domain and a temporary owner vector for every record is
+    // unnecessary. ASCII validation preserves the former 0/1-only check.
+    let owner = super::super::storage::restore_array::<_, N>(row.owner.as_bytes(), b'0');
+    let owner = owner
+        .filter(|owner| owner.iter().all(|&b| matches!(b, b'0' | b'1')))
+        .map(|owner| owner.map(|b| b == b'1'));
     let lower = super::super::storage::restore_array::<_, N>(&row.lower, 0);
     let upper = super::super::storage::restore_array::<_, N>(&row.upper, Some(0));
-    if phase != Some(domain.phase)
-        || owner != Some(domain.owner)
-        || lower.as_ref().map(|v| v.as_slice()) != Some(domain.lower.as_slice())
-        || upper.as_ref().map(|v| v.as_slice()) != Some(domain.upper.as_slice())
-        || row.rank != domain.rank
-        || row.power_bounds.bounds() != domain.powers
+    if phase != Some(domain.phase())
+        || owner != Some(domain.owner())
+        || lower.is_none_or(|values| (0..N).any(|axis| values[axis] != domain.lower(axis)))
+        || upper.is_none_or(|values| (0..N).any(|axis| values[axis] != domain.upper(axis)))
+        || row.rank != domain.rank()
+        || row.power_bounds.bounds() != domain.powers()
     {
         violations.add("domain_parity", || {
             format!("record {id} image differs from the saved domain")

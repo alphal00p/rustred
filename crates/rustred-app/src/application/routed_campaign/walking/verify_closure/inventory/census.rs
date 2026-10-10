@@ -13,14 +13,21 @@ pub(super) struct Summary {
     route_records_skipped: usize,
     full_cover_records_skipped: usize,
     failed_record_replays: usize,
+    reused_records: usize,
+    reused_apply_records: usize,
+    cache_status: String,
 }
 impl Summary {
     pub fn json(&self) -> Value {
         json!({"complete":self.complete,"seconds":self.seconds,
-            "unique_apply_scopes":self.jobs,"completed":self.completed,
+            "unique_apply_scopes":if self.reused_records == 0 { Some(self.jobs) } else { None },
+            "new_unique_apply_scopes":self.jobs,"completed":self.completed,
             "apply_records":self.apply_records,"route_records_skipped":self.route_records_skipped,
             "full_cover_records_skipped":self.full_cover_records_skipped,
             "failed_record_replays":self.failed_record_replays,
+            "reused_records":self.reused_records,"reused_apply_records":self.reused_apply_records,
+            "cache_status":self.cache_status,
+            "global_distinct_scope_count_available":self.reused_records == 0,
             "classification_event_counts":"weighted by identical saved inspection scopes; identity sets deduplicated",
             "matcher":"native ordered power-bounded owner matcher under the saved request",
             "rhs_and_successors":"omitted for completed records; replayed only for failed/interrupted records to preserve their classification prefix"})
@@ -62,11 +69,24 @@ pub(super) fn run<const N: usize>(
 ) -> Result<Summary, AppError> {
     let started = Instant::now();
     let mut result = Summary::default();
+    let reuse = cache::prepare(request, loaded, collector, cancellation);
+    result.apply_records = reuse.counts.apply;
+    result.route_records_skipped = reuse.counts.route;
+    result.full_cover_records_skipped = reuse.counts.full_cover;
+    result.reused_records = reuse.domains;
+    result.reused_apply_records = reuse.counts.apply;
+    result.cache_status = reuse.status;
+    observer(
+        json!({"event":"inventory_census_cache", "status":result.cache_status,
+        "reused_records":reuse.domains,"reused_apply_records":reuse.counts.apply,
+        "record_authentication_and_structure":"fresh current checkpoint checks",
+        "census_authority":"derived raw census; not an independent closure certificate"}),
+    );
     let mut jobs = Vec::<Job<N>>::new();
     // The digest only selects candidates: every hit compares the entire exact
     // compact image. A collision never merges different integral domains.
     let mut seen = HashMap::<u64, Vec<usize>>::new();
-    for (id, node) in loaded.nodes.iter().enumerate() {
+    for (id, node) in loaded.nodes.iter().enumerate().skip(reuse.domains) {
         if id % 4096 == 0 && cancellation.load(Ordering::Relaxed) {
             return Ok(result);
         }
@@ -102,6 +122,7 @@ pub(super) fn run<const N: usize>(
     observer(
         json!({"event":"inventory_census_started","total":jobs.len(),
         "apply_records":result.apply_records,"route_records_skipped":result.route_records_skipped,
+        "reused_records":result.reused_records,"reused_apply_records":result.reused_apply_records,
         "failed_record_replays":result.failed_record_replays}),
     );
     let next = AtomicUsize::new(0);
@@ -170,6 +191,19 @@ pub(super) fn run<const N: usize>(
         && !cancellation.load(Ordering::Relaxed)
         && !failed.load(Ordering::Relaxed);
     result.seconds = started.elapsed().as_secs_f64();
+    if result.complete
+        && let Some(mut identity) = reuse.output
+    {
+        identity.counts = cache::Counts {
+            apply: result.apply_records,
+            route: result.route_records_skipped,
+            full_cover: result.full_cover_records_skipped,
+        };
+        *collector
+            .census_identity
+            .lock()
+            .expect("inventory completed census") = Some(identity);
+    }
     observer(
         json!({"event":"inventory_census_finished", "completed":result.completed,
         "total":result.jobs,"seconds":result.seconds,"complete":result.complete}),
