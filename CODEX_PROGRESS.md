@@ -1,5 +1,74 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 10 — rank-6 restore repair: final validation and delivery
+
+User reports THE_ONE `extend --rank 6` in restore for 5h47 and authorizes a fix.
+Read-only observation identifies PID 2011971, frozen solver `54302272…`, one
+busy core and about 51 GiB RSS. Generation 33 has 139,772,626 domains,
+1,405,075,888 edges, 22,659,469 anchor records. CPU profile (10 s, 99 Hz,
+901 samples, no loss) confirms exact lattice-union validation, allocations and
+copying. This is NOT the newly optional publication verifier: runtime restore
+still serially revalidates anchor geometry using the old kernel.
+
+Plan `RESTORE_PERFORMANCE_PLAN.md`: independent exact parallel restore checks
+and progress/cancellation (`restore_parallel_fix`), physical-to-capacity restore
+compatibility (`restore_capacity_fix`), independent audit (`rank6_restore_audit`).
+Root coordinates and verifies. Current production process/checkpoint untouched;
+no restart or completion estimate is claimed. Evidence:
+`TMP/rank6-restore-diagnosis-20261010/live*.perf.data`.
+
+Initial validation: 145 optimized restore tests, 5 cold G2 capacity tests,
+8 lattice tests and 164 Python monitoring/upgrade/steering tests pass. A later
+audit tightened interruption diagnostics to distinguish proven pre-adoption
+cancellation from interrupted OS I/O; the final test rerun is pending.
+Actual copied four-loop resume caught an additional optional-orthant index
+history width mismatch despite the synthetic capacity tests. Capacity agent
+is fixing historical-width validation without relaxing the runtime containment
+predicate. The launcher's upgrade preview also still rejected CP6 (it handled
+only CP5); parallel agent is extending the existing guarded upgrade path using
+the native CP6 semantics probe. These failures are retained in the evidence;
+the initial binary `fe376f07…` is NOT a recommended production upgrade.
+
+The capacity/CP6 upgrade repair then compiled as `596b01ae…` and passed all six
+actual copied-checkpoint controls (four-loop and scalar five-loop, 1/4/32 workers),
+with identical source/resaved metadata and retained record/edge digests. Native
+148-test restore suite passed on rerun; its first pass had one pre-existing
+escrow timing assertion failure, followed by five successful focused repeats
+without edits. Python monitoring/upgrade/steering: 182 tests passed.
+
+A bounded full-size prototype probe was censored after 900 seconds plus stop
+grace, still in serial lookup reconstruction, without reaching anchor checks.
+Source/private authorities remained unchanged. This is not a speedup result.
+Independent audits found a redundant retirement scan on every insertion into
+fresh restore indexes. Capacity agent is adding a restore-only insertion path;
+parallel agent profiles the second private large probe and audit agent checks
+old/new layout and authority parity. No production state or process changed.
+
+That profile now confirms the redundant path on the real checkpoint: 978 CPU
+samples, zero loss; 96.46% inclusive in lookup rebuild, 76.05% in
+`index_survivor`, 69.09% in `index_prepared`, including reverse-retirement
+scanning (overlapping percentages, not additive). Restore-only insertion and
+two equivalence/operation-count regressions are implemented and independently
+audited. Final release build/tests queued; no full-size speedup claim yet.
+
+Final delivery build `814745116dd52749a6eb2272774503afc762d806823924cf4c35b8e732745ce7`
+is frozen at `TMP/rank6-restore-diagnosis-20261010/rustred-restore-fast-index-20261010`.
+150 optimized restore tests + 5 cold G2 + 8 lattice + 1 generic index regression
+pass; 182 Python tests pass. All six final 1/4/32-worker actual checkpoint controls
+preserve exact source/resaved metadata, counts and digests. Sealed records are
+byte-identical; per-case resaved manifests match across workers and the preceding
+build. Independent source and receipt audits pass.
+
+The final full-size private probe rebuilt lookup in about 104 s, whereas its
+pre-index-fix comparison remained there beyond 15 minutes. Exact anchor checks
+then used 30.82 measured cores during an 8.02 s sample, approximately 87,784
+anchors/s, RSS 62.20 GB. This is not a completed whole-restore timing or an ETA.
+Bounded probes, exact commands, limitations, audit findings and safe upgrade
+instructions: `docs/research/parallel_restore_2026-10-10.md`. Final small receipts:
+`TMP/rank6-restore-diagnosis-20261010/native-resume-benchmarks/prepared-2gvif66t/`.
+Only the user should stop/restart production; use `run --resume
+--upgrade-executable`, not a second rank-6 extension. Pending scope is preserved.
+
 ## October 8 — fast publication delivered; full THE_ONE gate passed
 
 Root-owned scratch publication exited 0 and published an unrefined artifact in

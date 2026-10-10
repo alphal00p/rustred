@@ -432,7 +432,7 @@ impl<const N: usize> super::Queue<N> {
 /// Test-replay instrumentation only; no additional production per-group work.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Default)]
-pub(super) struct FilterWork {
+pub(in super::super) struct FilterWork {
     pub groups_visited: usize,
     pub groups_rejected: usize,
     pub blocks_visited: usize,
@@ -1157,7 +1157,7 @@ impl<const N: usize> AggregateIndex<N> {
     }
 
     #[cfg(test)]
-    pub(super) fn work(&self) -> FilterWork {
+    pub(in super::super) fn work(&self) -> FilterWork {
         FilterWork {
             groups_visited: self.work.groups_visited.load(Ordering::Relaxed),
             groups_rejected: self.work.groups_rejected.load(Ordering::Relaxed),

@@ -87,14 +87,46 @@ fn g2_physical_wire_scope_expands_to_capacity_without_padding_saved_json() {
     assert_eq!(domains[1].raw_bounds().1[15], 0);
     assert!(!domains[1].owner()[15]);
 
-    // A capacity-width record cannot replace the original wire-width claim.
+    // A record has its own authenticated width: a later narrow resave can
+    // retain earlier capacity-width segments with exactly fixed-zero padding.
     let (_, mut wrong, _) = fixture::<16>(16);
+    View::new(&sections)
+        .unwrap()
+        .normalize(&mut wrong, &domains)
+        .unwrap();
+    let (_, mut wrong, _) = fixture::<16>(16);
+    wrong.g2.as_mut().unwrap()["residual"][0]["upper"][15] = json!(u16::MAX);
     assert!(
         View::new(&sections)
             .unwrap()
             .normalize(&mut wrong, &domains)
             .is_err()
     );
+}
+
+#[test]
+#[cfg(feature = "capacity-dispatch")]
+fn g2_widened_checkpoint_accepts_original_narrow_record_without_rewriting_it() {
+    let (sections, _, domains) = fixture::<16>(16);
+    let (_, mut row, _) = fixture::<16>(15);
+    let original = row.g2.clone();
+    View::new(&sections)
+        .unwrap()
+        .normalize(&mut row, &domains)
+        .unwrap();
+    assert_eq!(row.g2, original);
+    for field in ["lower", "upper"] {
+        let (mut sections, _, domains) = fixture::<16>(16);
+        let (_, mut row, _) = fixture::<16>(15);
+        let offset = 22 + usize::from(field == "upper") * 32 + 30;
+        sections.anchors[0].4[offset..offset + 2].copy_from_slice(&1u16.to_le_bytes());
+        assert!(
+            View::new(&sections)
+                .unwrap()
+                .normalize(&mut row, &domains)
+                .is_err()
+        );
+    }
 }
 
 #[test]

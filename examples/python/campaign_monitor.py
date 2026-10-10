@@ -317,6 +317,7 @@ def progress_summary(event: dict, observed_at: float | None, now: float) -> dict
         "native_stop_reason": counters.get("stop_reason", outer.get("stop_reason")),
         "owner": counters.get("owner"),
         "progress_age_seconds": age,
+        "restore_progress": counters.get("restore_progress", outer.get("restore_progress")),
         "descendant_closure": closure,
         "query_admission": counters.get("query_admission", outer.get("query_admission")),
         "encountered_numerator_rank": counters.get("encountered_numerator_rank"),

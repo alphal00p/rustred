@@ -32,6 +32,33 @@ def scan(at, discovered, closed, sequence):
 
 
 class CompletedScanTests(unittest.TestCase):
+    def test_restore_substage_progress_survives_native_heartbeat_and_rendering(self):
+        native = {"event": "epoch_restore_progress", "phase": "restore",
+                  "restore_progress": {"stage": "anchor_coverage", "completed": 1200,
+                                       "total": 4000, "worker_limit": 8}}
+        for event in (native, {"event": "heartbeat", "progress": native,
+                               "progress_age_seconds": 2}):
+            progress = MONITOR.progress_summary(event, None, 0)
+            frame = TELEMETRY.normalize_status({"progress": progress})
+            self.assertEqual(frame["restore_progress"], native["restore_progress"])
+            plain = "\n".join(DASHBOARD.plain_summary(frame))
+            self.assertIn("Restore: anchor coverage · 1,200 / 4,000 · worker cap 8", plain)
+            self.assertIn("checkpoint work, not new domains", plain)
+            for width in (80, 160):
+                lines = DASHBOARD.render_table(frame, width=width, height=24, color=False)
+                self.assertTrue(all(DASHBOARD.cell_width(line) == width for line in lines))
+                self.assertIn("Restore: anchor coverage", "\n".join(lines))
+        frame = TELEMETRY.normalize_status({"progress": {**native, "phase": "inspect"}})
+        self.assertEqual(frame["restore_progress"], {})
+        self.assertIsNone(DASHBOARD.restore_line(frame))
+
+    def test_restore_unknown_stage_total_is_not_reported_as_zero(self):
+        frame = TELEMETRY.normalize_status({"progress": {"phase": "restore",
+            "restore_progress": {"stage": "domains", "worker_limit": 1}}})
+        self.assertIn("Restore: domains · in progress", DASHBOARD.restore_line(frame))
+        self.assertNotIn("0 / 0", DASHBOARD.restore_line(frame))
+        self.assertIsNone(DASHBOARD.restore_line(TELEMETRY.normalize_status({})))
+
     def test_extended_required_scope_does_not_relabel_base_closure_as_stage_closure(self):
         status = self.status()
         status["progress"]["query_admission"] = {

@@ -94,6 +94,55 @@ fn assert_summary(result: &crate::OwnerDomainWalkResult, drained: bool) {
 }
 
 #[test]
+fn public_restore_cancellation_reports_unchanged_checkpoint_without_save_claim() {
+    let mut fixture = Fixture::new();
+    options(&mut fixture, true, 4);
+    fixture.save(3, 2);
+    let paths = [publication::LATEST, "epoch-session.bin"];
+    let before: Vec<_> = paths
+        .iter()
+        .map(|path| fs::read(fixture.directory.0.join(path)).unwrap())
+        .collect();
+    let cancel = AtomicBool::new(false);
+    let events = RefCell::new(Vec::new());
+    let error = public::run(
+        &fixture.request,
+        &fixture.reducer,
+        &fixture.owners,
+        &fixture.queries,
+        16,
+        Instant::now(),
+        0.0,
+        &cancel,
+        &|event| {
+            if event["event"] == "epoch_restore_progress"
+                && event["restore_progress"]["stage"] == "anchor_coverage"
+            {
+                cancel.store(true, Ordering::Release);
+            }
+            events.borrow_mut().push(event);
+        },
+    )
+    .err()
+    .expect("cancelled restore must return cancellation");
+    assert_eq!(error.kind(), crate::AppErrorKind::Cancelled);
+    let events = events.borrow();
+    let stopped = events.last().unwrap();
+    assert_eq!(stopped["event"], "epoch_restore_interrupted");
+    assert_eq!(stopped["checkpoint_unchanged"], true);
+    assert_eq!(stopped["session_adopted"], false);
+    assert_eq!(stopped["saved_this_invocation"], false);
+    assert!(
+        !events
+            .iter()
+            .any(|event| event["event"] == "checkpoint_saved")
+    );
+    for (path, before) in paths.iter().zip(before) {
+        assert_eq!(fs::read(fixture.directory.0.join(path)).unwrap(), before);
+    }
+}
+
+#[test]
 fn public_snapshot_lookup_matches_all_miss_with_real_hits_and_misses() {
     const TEST: &str = "public CP6 lookup control W1/W2 differential";
     if !crate::test_gates::workers_or_skip(TEST, 2)

@@ -1,7 +1,7 @@
 //! Initial D-band anchor decoding reuses the existing codec one bounded
 //! record at a time. Full anchor/ledger/edge/geometry validation is separate.
 use super::super::super::anchors::{
-    ANCHORS_VERSION, AnchorKind, AnchorMap, Lent, MAX_ANCHORS, MAX_RESIDUAL_PIECES,
+    ANCHORS_VERSION, AnchorKind, AnchorMap, AnchorScope, Lent, MAX_ANCHORS, MAX_RESIDUAL_PIECES,
 };
 use super::super::{Section, SectionReceipt, invalid};
 use super::open_section_with_arity;
@@ -80,7 +80,7 @@ pub(super) fn anchors_with_arity<const N: usize>(
         // Counts/kind are bounded before entering the shared generic codec;
         // it checks canonical reserved bytes, stamps and exact consumption.
         let mut decoded = AnchorMap::decode(&scratch, wire_arity).map_err(io::Error::other)?;
-        let record = decoded
+        let mut record = decoded
             .pop()
             .ok_or_else(|| invalid("missing epoch anchor record"))?;
         if !decoded.is_empty()
@@ -98,6 +98,29 @@ pub(super) fn anchors_with_arity<const N: usize>(
             return Err(invalid(
                 "epoch initial anchor order, range, version or provenance",
             ));
+        }
+        // Authenticate the original wire representation, but keep every
+        // runtime residual in the same coordinate space as the domain store.
+        // A capacity-only axis is fixed at zero, including its upper bound.
+        if wire_arity != N {
+            if let AnchorScope::Residual(pieces) = &mut record.scope {
+                for piece in pieces {
+                    piece.lower =
+                        crate::application::routed_campaign::storage::restore_array::<_, N>(
+                            &piece.lower,
+                            0,
+                        )
+                        .ok_or_else(|| invalid("epoch anchor lower storage padding"))?
+                        .to_vec();
+                    piece.upper =
+                        crate::application::routed_campaign::storage::restore_array::<_, N>(
+                            &piece.upper,
+                            0,
+                        )
+                        .ok_or_else(|| invalid("epoch anchor upper storage padding"))?
+                        .to_vec();
+                }
+            }
         }
         previous = Some(record.node);
         anchors.try_reserve(1).map_err(io::Error::other)?;

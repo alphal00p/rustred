@@ -4,7 +4,7 @@ use super::super::super::{
     metadata::{Admission, Identity},
     publication, stop,
 };
-use super::{Restored, admission, controller, open};
+use super::{Restored, admission, controller, open_with_control};
 use crate::AppError;
 use crate::application::routed_campaign::walking::finite_replay::Account;
 use crate::application::routed_campaign::{
@@ -449,11 +449,49 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         "epoch_inspector_lookup":request.epoch_inspector_lookup.name(),"family_closure_claim":false}),
     );
     let mut restored = if options.resume {
-        open(options.directory.clone(), &identity, reducer, b)
+        let observe_restore = |update: super::super::progress::Update| {
+            emit(
+                observer,
+                cancellation,
+                &failed,
+                json!({
+                    "event":"epoch_restore_progress", "operation":"owner_domain_walk",
+                    "phase":"restore", "family_closure_claim":false,
+                    "restore_progress":{"stage":update.stage,"completed":update.completed,
+                        "total":update.total,"worker_limit":update.worker_limit}
+                }),
+            );
+        };
+        let cancelled =
+            || stop::requested(cancellation, request.epoch_stop_file.as_deref()).is_some();
+        open_with_control(
+            options.directory.clone(),
+            &identity,
+            reducer,
+            b,
+            &super::super::progress::Control {
+                workers: WorkerBudget::for_request(request).requested,
+                cancelled: &cancelled,
+                observer: &observe_restore,
+            },
+        )
     } else {
         admission::fresh(options.directory.clone(), &identity)
     }
-    .map_err(|error| AppError::input(error.to_string()))?;
+    .map_err(|error| {
+        if options.resume && super::super::progress::is_cancelled(&error) {
+            emit(observer, cancellation, &failed, json!({
+                "event":"epoch_restore_interrupted", "operation":"owner_domain_walk",
+                "phase":"restore_interrupted", "family_closure_claim":false,
+                "checkpoint_unchanged":true, "session_adopted":false,
+                "saved_this_invocation":false,
+                "operational_stop":stop::requested(cancellation, request.epoch_stop_file.as_deref()),
+            }));
+            AppError::new(crate::AppErrorKind::Cancelled, error.to_string())
+        } else {
+            AppError::input(error.to_string())
+        }
+    })?;
     let b = if options.resume && request.epoch_rolling {
         restored.window
     } else {

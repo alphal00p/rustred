@@ -10,6 +10,8 @@ use super::super::super::store::{Store, bucket_key};
 use super::super::super::verify::{Container, QueryImage, VerifyCounters, verify};
 use super::super::invalid;
 use super::EdgeStore;
+use super::progress::Control;
+use crate::application::routed_campaign::walking::queue::CompactDomain;
 use std::collections::BTreeMap;
 use std::io;
 
@@ -51,7 +53,15 @@ fn merged(entry: Entry6) -> bool {
 }
 
 pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
+    validate_with_control(view, &Control::serial())
+}
+
+pub(super) fn validate_with_control<const N: usize>(
+    view: View<'_, N>,
+    control: &Control<'_>,
+) -> io::Result<()> {
     let count = view.store.len();
+    control.stage("cross_state", 0, count)?;
     if count >= u32::MAX as usize
         || view.p0 as usize > count
         || view.k >= EPOCH_LIMIT
@@ -71,6 +81,9 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
     let mut frontier_sum = view.input_frontiers as u64;
     let mut verify_counters = VerifyCounters::default();
     for (id, &flags) in view.nodes.iter().enumerate() {
+        if id != 0 && id % 65_536 == 0 {
+            control.stage("cross_state", id, count)?;
+        }
         let id = id as u32;
         let current = entry(view.ledger, id)?;
         let sealed = matches!(current, Entry6::Native { .. } | Entry6::Alias { .. });
@@ -184,45 +197,9 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
                     "epoch anchor dispatch version is not before its merge",
                 ));
             }
-            let same_bucket = |a: u32, b: u32| {
-                (a as usize) < count
-                    && (b as usize) < count
-                    && bucket_key(&domains[a as usize]) == bucket_key(&domains[b as usize])
-            };
-            let record_of = |node| {
-                view.anchors
-                    .get(node)
-                    .map(|record| (record.kind, record.d_band().map(|(_, cut)| cut)))
-            };
-            let cut_of = |node| {
-                view.anchors
-                    .get(node)
-                    .and_then(AnchorRecord::d_band)
-                    .map(|(_, cut)| cut)
-            };
-            let cover = |record: &AnchorRecord| {
-                union_cover(&domains[id as usize], domains, record, &cut_of)
-            };
-            let eligible =
-                |id, _v0| super::super::super::g2::eligible(domains, view.ledger, view.anchors, id);
-            record
-                .validate(
-                    &AnchorView {
-                        p0: view.p0,
-                        published_len: count,
-                        arity: N,
-                        ledger: view.ledger,
-                        same_bucket: &same_bucket,
-                        record_of: &record_of,
-                        edges_of: None,
-                        merged_view: Some(&eligible),
-                        cover: &cover,
-                    },
-                    epoch,
-                )
-                .map_err(|_| invalid("epoch anchor geometry or provenance"))?;
         }
     }
+    control.stage("cross_state", count, count)?;
     if view.frontier_counts.len() as u64 != view.ledger.counts().get(Tag::NativeFrontier)
         || view
             .anchors
@@ -260,11 +237,26 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
     {
         return Err(invalid("epoch ledger-derived walk counters differ"));
     }
+    // Immutable proof inputs can be shared. All ledger/node/counter bookkeeping
+    // above and mutable edge scratch below remain on the caller thread.
+    control.parallel("anchor_coverage", view.anchors.len(), &|index| {
+        validate_anchor(
+            domains,
+            view.ledger,
+            view.anchors,
+            view.p0,
+            &view.anchors.records()[index],
+        )
+    })?;
     // Input obligations and sparse C4 counts form only a lower bound on the
     // aggregate: C2 error prefixes may contribute too. Bodies prove the remainder.
     let result = (|| {
+        control.stage("edge_runs", 0, view.edges.runs() as usize)?;
         let mut previous_epoch = 0;
-        for (source, targets) in view.edges.run_iter() {
+        for (index, (source, targets)) in view.edges.run_iter().enumerate() {
+            if index != 0 && index % 65_536 == 0 {
+                control.stage("edge_runs", index, view.edges.runs() as usize)?;
+            }
             let flags = view
                 .nodes
                 .get_mut(source as usize)
@@ -310,10 +302,18 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
             }
         }
         for (id, &flag) in view.nodes.iter().enumerate() {
+            if id % 65_536 == 0 {
+                control.check()?;
+            }
             if (flag & RUN_SEEN != 0) != merged(entry(view.ledger, id as u32)?) {
                 return Err(invalid("epoch merged ledger entry has no unique run"));
             }
         }
+        control.stage(
+            "edge_runs",
+            view.edges.runs() as usize,
+            view.edges.runs() as usize,
+        )?;
         Ok(())
     })();
     // Every ordinary error path clears scratch, even though failed provisional
@@ -322,9 +322,71 @@ pub(super) fn validate<const N: usize>(view: View<'_, N>) -> io::Result<()> {
         *flag &= !RUN_SEEN;
     }
     result?;
+    control.stage("records_digest", 0, view.edges.runs() as usize)?;
     view.edges
         .restore_records_digest(view.ledger, view.records_digest)
-        .map_err(io::Error::other)
+        .map_err(io::Error::other)?;
+    control.stage(
+        "records_digest",
+        view.edges.runs() as usize,
+        view.edges.runs() as usize,
+    )
+}
+
+/// Exactly the original restore proof, evaluated independently for each record.
+/// The serial pass already proved the node range and merged epoch; retain checked
+/// lookups here so this helper remains fail-closed when exercised independently.
+fn validate_anchor<const N: usize>(
+    domains: &[CompactDomain<N>],
+    ledger: &Ledger6,
+    anchors: &AnchorMap,
+    p0: u32,
+    record: &AnchorRecord,
+) -> io::Result<()> {
+    let node = domains
+        .get(record.node as usize)
+        .ok_or_else(|| invalid("epoch anchor node outside store"))?;
+    let epoch = match entry(ledger, record.node)? {
+        Entry6::Native { epoch, .. }
+        | Entry6::NativeFrontier { epoch }
+        | Entry6::NativeError { epoch, .. }
+        | Entry6::Abandoned { epoch } => epoch,
+        _ => return Err(invalid("epoch anchor belongs to an unmerged source")),
+    };
+    let same_bucket = |a: u32, b: u32| {
+        (a as usize) < domains.len()
+            && (b as usize) < domains.len()
+            && bucket_key(&domains[a as usize]) == bucket_key(&domains[b as usize])
+    };
+    let record_of = |node| {
+        anchors
+            .get(node)
+            .map(|record| (record.kind, record.d_band().map(|(_, cut)| cut)))
+    };
+    let cut_of = |node| {
+        anchors
+            .get(node)
+            .and_then(AnchorRecord::d_band)
+            .map(|(_, cut)| cut)
+    };
+    let cover = |record: &AnchorRecord| union_cover(node, domains, record, &cut_of);
+    let eligible = |id, _v0| super::super::super::g2::eligible(domains, ledger, anchors, id);
+    record
+        .validate(
+            &AnchorView {
+                p0,
+                published_len: domains.len(),
+                arity: N,
+                ledger,
+                same_bucket: &same_bucket,
+                record_of: &record_of,
+                edges_of: None,
+                merged_view: Some(&eligible),
+                cover: &cover,
+            },
+            epoch,
+        )
+        .map_err(|_| invalid("epoch anchor geometry or provenance"))
 }
 
 #[cfg(test)]

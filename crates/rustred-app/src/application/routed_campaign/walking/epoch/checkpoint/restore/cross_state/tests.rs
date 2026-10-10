@@ -62,21 +62,34 @@ fn check_inputs(
     closure: Option<&[u8]>,
     input_frontiers: usize,
 ) -> io::Result<()> {
-    validate(View {
-        store: &state.store,
-        ledger: &state.ledger,
-        nodes: &mut state.nodes,
-        live: &state.live,
-        edges: &mut state.edges,
-        anchors: &state.anchors,
-        frontier_counts: &state.frontier_counts,
-        closure_flags: closure,
-        walk: &state.counters,
-        k: state.k,
-        p0: state.p0,
-        input_frontiers,
-        records_digest: digest,
-    })
+    check_control(state, digest, closure, input_frontiers, &Control::serial())
+}
+
+fn check_control(
+    state: &mut EpochState<2>,
+    digest: &str,
+    closure: Option<&[u8]>,
+    input_frontiers: usize,
+    control: &Control<'_>,
+) -> io::Result<()> {
+    validate_with_control(
+        View {
+            store: &state.store,
+            ledger: &state.ledger,
+            nodes: &mut state.nodes,
+            live: &state.live,
+            edges: &mut state.edges,
+            anchors: &state.anchors,
+            frontier_counts: &state.frontier_counts,
+            closure_flags: closure,
+            walk: &state.counters,
+            k: state.k,
+            p0: state.p0,
+            input_frontiers,
+            records_digest: digest,
+        },
+        control,
+    )
 }
 
 #[test]
@@ -293,47 +306,105 @@ fn alias_is_forward_unprotected_retired_contained_and_has_exact_run() {
 }
 
 fn anchor_fixture(cut: i64) -> EpochState<2> {
+    anchor_fixture_many(&[cut])
+}
+
+fn anchor_fixture_many(cuts: &[i64]) -> EpochState<2> {
     use super::super::super::super::anchors::{AnchorRef, AnchorScope, Lent};
-    let mut state = state(2);
+    let mut state = state(cuts.len() + 1);
     state.p0 = 1;
     state.k = 1;
-    state.ledger.apply(1, Transition::T2Reserve).unwrap();
-    state
-        .ledger
-        .apply(
-            1,
-            Transition::T4Native {
-                epoch: 1,
-                residual: false,
-                dband: true,
-            },
-        )
-        .unwrap();
-    state.nodes[1] = NODE_SEALED | NODE_INSPECTED | NODE_ANCHORED;
-    state
-        .anchors
-        .push(AnchorRecord {
-            node: 1,
-            kind: AnchorKind::InitialDBand,
-            dispatch_version: 0,
-            scope: AnchorScope::DBandCut(cut),
-            anchors: vec![AnchorRef {
-                anchor: 0,
-                stamp: None,
-                lent: Lent::Full,
-            }],
-        })
-        .unwrap();
-    state.edges.append_run(1, &[0], false).unwrap();
-    state.edges.fold_record(1, Tag::Native as u8, 1);
+    for (index, &cut) in cuts.iter().enumerate() {
+        let id = index as u32 + 1;
+        state.ledger.apply(id, Transition::T2Reserve).unwrap();
+        state
+            .ledger
+            .apply(
+                id,
+                Transition::T4Native {
+                    epoch: 1,
+                    residual: false,
+                    dband: true,
+                },
+            )
+            .unwrap();
+        state.nodes[id as usize] = NODE_SEALED | NODE_INSPECTED | NODE_ANCHORED;
+        state
+            .anchors
+            .push(AnchorRecord {
+                node: id,
+                kind: AnchorKind::InitialDBand,
+                dispatch_version: 0,
+                scope: AnchorScope::DBandCut(cut),
+                anchors: vec![AnchorRef {
+                    anchor: 0,
+                    stamp: None,
+                    lent: Lent::Full,
+                }],
+            })
+            .unwrap();
+        state.edges.append_run(id, &[0], false).unwrap();
+        state.edges.fold_record(id, Tag::Native as u8, 1);
+    }
     state.counters = WalkCounters {
-        natives: 1,
-        completed: 1,
-        partials: 1,
+        natives: cuts.len() as u64,
+        completed: cuts.len() as u64,
+        partials: cuts.len() as u64,
         merges: 1,
         ..Default::default()
     };
     state
+}
+
+#[test]
+fn exact_anchor_validation_matches_serial_for_multiple_chunks_and_corruption() {
+    use std::cell::RefCell;
+    for bad in [None, Some(0), Some(96)] {
+        let mut cuts = [i64::MAX; 97];
+        if let Some(index) = bad {
+            cuts[index] = -100;
+        }
+        let mut results = Vec::new();
+        for workers in [1, 4] {
+            let mut state = anchor_fixture_many(&cuts);
+            let digest = state.edges.records_digest();
+            let flags = state.nodes.clone();
+            let updates = RefCell::new(Vec::new());
+            let result = check_control(
+                &mut state,
+                &digest,
+                None,
+                0,
+                &Control {
+                    workers,
+                    cancelled: &|| false,
+                    observer: &|update| updates.borrow_mut().push(update),
+                },
+            );
+            assert_eq!(state.nodes, flags);
+            if bad.is_none() {
+                result.as_ref().unwrap();
+                assert!(
+                    updates
+                        .borrow()
+                        .iter()
+                        .any(|update| update.stage == "anchor_coverage"
+                            && update.completed == 97
+                            && update.total == 97)
+                );
+            } else {
+                assert!(
+                    result
+                        .as_ref()
+                        .unwrap_err()
+                        .to_string()
+                        .contains("geometry or provenance")
+                );
+            }
+            results.push(result.map_err(|error| (error.kind(), error.to_string())));
+        }
+        assert_eq!(results[0], results[1]);
+    }
 }
 
 #[test]
@@ -370,4 +441,31 @@ fn initial_anchor_reuses_exact_cover_and_requires_its_borrowed_run_edge() {
         },
     );
     assert!(check(&mut state, &digest, None).is_err());
+}
+
+#[test]
+fn cancellation_after_edge_validation_clears_unpublished_scratch_flags() {
+    use std::cell::Cell;
+    let mut state = anchor_fixture_many(&[i64::MAX; 3]);
+    let digest = state.edges.records_digest();
+    let flags = state.nodes.clone();
+    let cancel = Cell::new(false);
+    let error = check_control(
+        &mut state,
+        &digest,
+        None,
+        0,
+        &Control {
+            workers: 4,
+            cancelled: &|| cancel.get(),
+            observer: &|update| {
+                if update.stage == "edge_runs" && update.completed == update.total {
+                    cancel.set(true);
+                }
+            },
+        },
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    assert_eq!(state.nodes, flags);
 }

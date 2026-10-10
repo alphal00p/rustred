@@ -721,6 +721,25 @@ impl<const N: usize> Store<N> {
         query: &Query<N>,
         retire: &[u32],
     ) -> Result<u64, &'static str> {
+        let (bucket, insertion) = self.prepare_survivor(id, query)?;
+        Ok(self.index_prepared(id, query, retire, bucket, insertion))
+    }
+
+    /// Rebuild one persisted live ID into a fresh lookup index. The restore
+    /// caller starts with empty indexes and inserts each live ID once in ID
+    /// order, without deletions. Thus no empty rows need retirement's
+    /// compaction, and an empty retire set would only scan existing entries.
+    pub fn index_restored(&mut self, id: u32, query: &Query<N>) -> Result<(), &'static str> {
+        let (bucket, insertion) = self.prepare_survivor(id, query)?;
+        self.insert_prepared(id, query, bucket, insertion);
+        Ok(())
+    }
+
+    fn prepare_survivor(
+        &mut self,
+        id: u32,
+        query: &Query<N>,
+    ) -> Result<(u32, Insertion<N>), &'static str> {
         let image = self.domains[id as usize];
         let bucket = self.bucket_of[&bucket_key(&image)];
         let signature = Signature::of(&query.core);
@@ -728,7 +747,7 @@ impl<const N: usize> Store<N> {
         let insertion = self.buckets[bucket as usize]
             .index
             .prepare(signature, coordinates)?;
-        Ok(self.index_prepared(id, query, retire, bucket, insertion))
+        Ok((bucket, insertion))
     }
 
     fn index_prepared(
@@ -739,15 +758,23 @@ impl<const N: usize> Store<N> {
         bucket: u32,
         insertion: Insertion<N>,
     ) -> u64 {
-        let image = self.domains[id as usize];
-        let bucket = &mut self.buckets[bucket as usize];
         let coordinates = Coordinates::of(&query.core);
         let probe = Probe::new(coordinates, query.word, query.lanes, true);
         let mut visitor = PreparedRetire {
             set: retire,
             retired: 0,
         };
-        let removed = bucket.index.retire(&insertion, &probe, &mut visitor) as u64;
+        let removed = self.buckets[bucket as usize]
+            .index
+            .retire(&insertion, &probe, &mut visitor) as u64;
+        self.insert_prepared(id, query, bucket, insertion);
+        removed
+    }
+
+    fn insert_prepared(&mut self, id: u32, query: &Query<N>, bucket: u32, insertion: Insertion<N>) {
+        let image = self.domains[id as usize];
+        let bucket = &mut self.buckets[bucket as usize];
+        let coordinates = Coordinates::of(&query.core);
         let (word, lanes) = query.image();
         bucket.index.insert(
             insertion,
@@ -765,7 +792,6 @@ impl<const N: usize> Store<N> {
         {
             bucket.orthant = Some(id);
         }
-        removed
     }
 
     pub fn storage_json(&self) -> serde_json::Value {

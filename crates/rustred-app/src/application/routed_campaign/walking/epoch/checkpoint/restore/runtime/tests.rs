@@ -209,6 +209,113 @@ fn resave(fixture: &Fixture, restored: &mut Restored<1>) {
 }
 
 #[test]
+fn restore_cancellation_never_falls_back_or_adopts_a_session() {
+    use std::cell::{Cell, RefCell};
+    let fixture = Fixture::new();
+    fixture.save(3, 2);
+    let mut restored = fixture.open().unwrap();
+    resave(&fixture, &mut restored);
+    drop(restored);
+    let paths = [
+        publication::LATEST,
+        publication::PREVIOUS,
+        "epoch-session.bin",
+    ];
+    let before: Vec<_> = paths
+        .iter()
+        .map(|path| fs::read(fixture.directory.0.join(path)).unwrap())
+        .collect();
+    for stage in [
+        "metadata",
+        "anchor_coverage",
+        "records",
+        "roots",
+        "closure",
+        "session",
+    ] {
+        let cancel = Cell::new(false);
+        let updates = RefCell::new(Vec::new());
+        let error = open_with_control(
+            fixture.directory.0.clone(),
+            &fixture.identity(),
+            &fixture.reducer,
+            16,
+            &Control {
+                workers: 4,
+                cancelled: &|| cancel.get(),
+                observer: &|update| {
+                    updates.borrow_mut().push(update);
+                    if update.stage == stage {
+                        cancel.set(true);
+                    }
+                },
+            },
+        )
+        .err()
+        .expect("cancelled restore must not become runnable");
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted, "{stage}: {error}");
+        assert!(!error.to_string().contains("previous refused"));
+        assert_eq!(
+            updates
+                .borrow()
+                .iter()
+                .filter(|update| update.stage == "manifest" && update.completed == 0)
+                .count(),
+            1
+        );
+        for (path, before) in paths.iter().zip(&before) {
+            assert_eq!(
+                &fs::read(fixture.directory.0.join(path)).unwrap(),
+                before,
+                "{stage}: {path}"
+            );
+        }
+    }
+    // All cancelled attempts release the store lock without consuming a session.
+    let resumed = fixture.open().unwrap();
+    assert_eq!(resumed.dispatch.checkpoint_snapshot().session, 3);
+}
+
+#[test]
+fn cancellation_while_decoding_previous_preserves_the_pre_adoption_marker() {
+    use std::cell::Cell;
+    let fixture = Fixture::new();
+    fixture.save(3, 2);
+    let mut restored = fixture.open().unwrap();
+    resave(&fixture, &mut restored);
+    drop(restored);
+    fs::write(
+        fixture.directory.0.join(publication::LATEST),
+        b"torn manifest",
+    )
+    .unwrap();
+    let session_path = fixture.directory.0.join("epoch-session.bin");
+    let session = fs::read(&session_path).unwrap();
+    let cancel = Cell::new(false);
+    let error = open_with_control(
+        fixture.directory.0.clone(),
+        &fixture.identity(),
+        &fixture.reducer,
+        16,
+        &Control {
+            workers: 4,
+            cancelled: &|| cancel.get(),
+            observer: &|update| {
+                if update.stage == "metadata" {
+                    cancel.set(true);
+                }
+            },
+        },
+    )
+    .err()
+    .expect("previous decode should cancel before adoption");
+    assert!(progress::is_cancelled(&error));
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    assert!(!error.to_string().contains("previous refused"));
+    assert_eq!(fs::read(session_path).unwrap(), session);
+}
+
+#[test]
 fn rolling_custom_policy_cut_and_window_bind_resume_before_session_adoption() {
     let mut fixture = Fixture::new();
     fixture.request.epoch_rolling = true;

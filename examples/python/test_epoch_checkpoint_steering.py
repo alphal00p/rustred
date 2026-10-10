@@ -109,7 +109,7 @@ class EpochCheckpointSteeringTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "differs from frozen"):
                 PRODUCTION.frozen_policy(root, args, Path("/frozen/native"), inputs, 2, len(text))
 
-    def test_cp6_cannot_enter_executable_upgrade_protocol(self):
+    def test_old_cp6_schema_cannot_enter_executable_upgrade_protocol(self):
         with tempfile.TemporaryDirectory() as temporary:
             checkpoint = Path(temporary)
             (checkpoint / "latest.json").write_text(json.dumps({"manifest": {

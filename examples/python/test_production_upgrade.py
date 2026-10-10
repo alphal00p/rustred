@@ -92,7 +92,7 @@ class ExecutableUpgradeTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def prepare(self, campaign, executable):
+    def prepare(self, campaign, executable, *, publication_policy=None, checkpoint_manifest=None):
         """A frozen campaign (one worker) with a saved CP5 state manifest."""
         inputs = campaign / "inputs"
         inputs.mkdir(parents=True)
@@ -105,11 +105,12 @@ class ExecutableUpgradeTests(unittest.TestCase):
         (inputs / "input-receipt.json").write_text(json.dumps({
             "selection_sha256": PRODUCTION.digest(inputs / "selection.json"),
             "queries_sha256": PRODUCTION.digest(inputs / "queries.json"), "owners": []}))
-        status, _, errors, _ = run(campaign, "--executable", str(executable), "--workers", "1")
+        options = () if publication_policy is None else ("--publication-policy", publication_policy)
+        status, _, errors, _ = run(campaign, "--executable", str(executable), "--workers", "1", *options)
         self.assertEqual(status, 0, errors)
         checkpoint = campaign / "checkpoints" / "main"
         checkpoint.mkdir(parents=True)
-        (checkpoint / "latest.json").write_text(json.dumps(manifest()))
+        (checkpoint / "latest.json").write_text(json.dumps(manifest() if checkpoint_manifest is None else checkpoint_manifest))
         (checkpoint / "checkpoint.lock").touch()
         return campaign
 
@@ -270,8 +271,8 @@ class ExecutableUpgradeTests(unittest.TestCase):
                     observed.append(snapshot(campaign))
                     return result
 
-                def probe(executable):
-                    return real_probe(executable) if second_probe is None or not observed else second_probe
+                def probe(executable, checkpoint_format=PRODUCTION.CHECKPOINT_FORMAT):
+                    return real_probe(executable, checkpoint_format) if second_probe is None or not observed else second_probe
 
                 with patch.object(PRODUCTION, "plan_executable_upgrade", planned), \
                         patch.object(PRODUCTION, "probe_walk_semantics", probe):

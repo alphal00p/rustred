@@ -335,6 +335,19 @@ verification can upgrade an existing publication without discarding its master
 refinements. The explicit mode is remembered; use `--no-deep-verification` to
 return to ordinary publication on subsequent rank extensions.
 
+Checkpoint **restore** is separate from publication's optional deep verification:
+it validates the saved execution state before continuing the worklist. Its
+dashboard reports the restore stage and completed/total work; independent exact
+anchor checks share immutable data across the configured worker budget. Other
+restore stages can still be serial. A saved campaign keeps its frozen solver
+even after a new build. To deliberately upgrade a stopped campaign without
+adding another rank extension:
+
+```bash
+python -B examples/python/saved_campaign.py run --campaign "$CAMPAIGN" --resume \
+  --upgrade-executable "$PWD/target/release/rustred"
+```
+
 Inspection uses an aligned coloured table on a terminal, or JSON in a pipeline;
 it distinguishes published bounds from newly requested bounds. Refinement is
 a finite exact Laporta-style search with its own interruption/resume checkpoint.

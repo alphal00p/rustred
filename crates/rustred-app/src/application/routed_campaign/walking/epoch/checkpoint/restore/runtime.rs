@@ -7,7 +7,12 @@ use super::super::{
     metadata::{Admission, AdmissionFailure, Identity},
     publication,
 };
-use super::{assembly, dispatch_state::SavedDispatch, roots::Roots};
+use super::{
+    assembly,
+    dispatch_state::SavedDispatch,
+    progress::{self, Control},
+    roots::Roots,
+};
 use crate::application::routed_campaign::walking::{
     descendant_closure::Tracker, epoch::record_store::Sidecar,
 };
@@ -76,13 +81,20 @@ fn decoded<const N: usize>(
     identity: &Identity<'_>,
     reducer: &RoutedCandidateReducer<N>,
     lockstep_b: usize,
+    control: &Control<'_>,
 ) -> io::Result<(assembly::Provisional<N>, Roots, Tracker)> {
+    control.stage("manifest", 0, 1)?;
     let manifest = publication::read_manifest(&directory.join(pointer))?;
-    let mut decoded = assembly::read_manifest(directory, identity, lockstep_b, manifest)?;
+    control.stage("manifest", 1, 1)?;
+    let mut decoded =
+        assembly::read_manifest_with_control(directory, identity, lockstep_b, manifest, control)?;
+    control.stage("roots", 0, 1)?;
     let roots = decoded.read_roots(directory, identity, reducer)?;
+    control.stage("roots", 1, 1)?;
     // No second node/edge vector: transfer owned flags and stream the already
     // authenticated immutable run log directly into the final runtime CSR.
     let available = decoded.scalars.closure.unavailable.is_none();
+    control.stage("closure", 0, decoded.store.len())?;
     let counters = std::mem::replace(&mut decoded.scalars.closure, Tracker::new(0).counters());
     let mut tracker = Tracker::from_owned_parts(
         counters,
@@ -93,6 +105,7 @@ fn decoded<const N: usize>(
     tracker
         .restore(decoded.store.len(), decoded.scalars.p0 as usize)
         .map_err(io::Error::other)?;
+    control.stage("closure", decoded.store.len(), decoded.store.len())?;
     Ok((decoded, roots, tracker))
 }
 
@@ -104,6 +117,17 @@ pub(super) fn open<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
     lockstep_b: usize,
 ) -> io::Result<Restored<N>> {
+    open_with_control(directory, identity, reducer, lockstep_b, &Control::serial())
+}
+
+pub(super) fn open_with_control<const N: usize>(
+    directory: PathBuf,
+    identity: &Identity<'_>,
+    reducer: &RoutedCandidateReducer<N>,
+    lockstep_b: usize,
+    control: &Control<'_>,
+) -> io::Result<Restored<N>> {
+    control.check()?;
     if identity.finite_replay_enabled() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -118,22 +142,33 @@ pub(super) fn open<const N: usize>(
         identity,
         reducer,
         lockstep_b,
+        control,
     ) {
         Ok(parts) => parts,
-        Err(error) if error.kind() == io::ErrorKind::InvalidInput => return Err(error),
+        Err(error)
+            if error.kind() == io::ErrorKind::InvalidInput || progress::operational(&error) =>
+        {
+            return Err(error);
+        }
         Err(latest) => {
+            control.check()?;
             let parts = decoded(
                 publisher.directory(),
                 publication::PREVIOUS,
                 identity,
                 reducer,
                 lockstep_b,
+                control,
             )
             .map_err(|previous| {
-                io::Error::new(
-                    previous.kind(),
-                    format!("epoch latest refused: {latest}; previous refused: {previous}"),
-                )
+                if progress::operational(&previous) {
+                    previous
+                } else {
+                    io::Error::new(
+                        previous.kind(),
+                        format!("epoch latest refused: {latest}; previous refused: {previous}"),
+                    )
+                }
             })?;
             warnings.push(format!(
                 "epoch latest refused: {latest}; using validated previous generation"
@@ -192,7 +227,9 @@ pub(super) fn open<const N: usize>(
         poisoned: false,
     };
     if scalars.g2 == "union" && matches!(scalars.initial_admission, Admission::Complete) {
+        control.stage("g2", 0, state.watermark() as usize)?;
         super::super::super::g2::enable(&mut state);
+        control.stage("g2", state.watermark() as usize, state.watermark() as usize)?;
     }
     if matches!(scalars.initial_admission, Admission::InProgress) {
         Dispatch::validate_admission(
@@ -219,6 +256,7 @@ pub(super) fn open<const N: usize>(
     identity.epoch_base_window(window)?;
     // Last fallible authority operation before making a Dispatch. Session
     // exhaustion/failure issues no jobs; a later assembly error burns it safely.
+    control.stage("session", 0, 1)?;
     let session = publisher.adopt(manifest, session)?;
     let (dispatch, replay) = Dispatch::restored(
         session,

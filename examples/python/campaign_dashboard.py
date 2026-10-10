@@ -63,6 +63,18 @@ def extended_scope_line(frame, compact=False):
             "base-root bar is not enlarged-scope closure; cold verification required")
 
 
+def restore_line(frame):
+    restore = frame.get("restore_progress", {})
+    if not restore.get("stage"):
+        return None
+    stage = clean(restore["stage"]).replace("_", " ")
+    completed, total = restore.get("completed"), restore.get("total")
+    counts = (f"{count(completed)} / {count(total)}"
+              if number(total) is not None else "in progress")
+    return (f"Restore: {stage} · {counts} · worker cap {count(restore.get('worker_limit'))}"
+            " · checkpoint work, not new domains")
+
+
 def scan_observation_lines(frame):
     """Retained completed-scan evidence, separately from the trailing-hour rate."""
     ratio = frame["rates"].get("discovery_per_recursive_closure_scans", {})
@@ -236,8 +248,10 @@ def dashboard(status: dict) -> list[str]:
     swap_rate = number(resources.get("host_swap_in_bytes_per_second"))
     if swap_rate is not None:
         host_text += f" · host swap-in {swap_rate / 1e6:.1f} MB/s"
+    restoring = restore_line(TELEMETRY.normalize_status(status))
     return [
         f"RustRed · {state} · {duration(status.get('elapsed_seconds'))}{stale}",
+        *([restoring] if restoring else []),
         f"CPU {bar(cpu, status.get('workers'))} {cpu_text} / {count(status.get('workers'))} total reserved",
         f"Workers {count(progress.get('active_native_slots'))} native active, {count(progress.get('backpressured_native_slots'))} blocked"
         + (f" · {count(progress['finished_native_awaiting_publication'])} finished waiting"
@@ -451,6 +465,8 @@ def render_table(frame, width=100, height=24, color=True):
     ]
     if extended_scope_line(frame):
         rows.insert(1, (-1, full(extended_scope_line(frame, compact=width < 100), "33")))
+    if restore_line(frame):
+        rows.insert(0, (-3, full(restore_line(frame), "1;36")))
     if alarm:
         rows.insert(0, (-3, full(alarm, "1;31")))
     fixed = [border("╭", "╮"), full(title, "1;36"), border("├", "┤")]
@@ -600,6 +616,7 @@ def plain_summary(frame):
     if number(checkpoint["duration_seconds"]) is not None:
         checkpoint_text += f" · {checkpoint['duration_seconds']:.2f}s"
     return [f"RustRed · {clean(frame['state']).upper()} · {duration(frame['elapsed_seconds'])}",
+            *([restore_line(frame)] if restore_line(frame) else []),
             *([extended_scope_line(frame)] if extended_scope_line(frame) else []),
             f"Rate {rate} per hour · pending {growth_text} per completion",
             f"Recursive closure {_rate(_closure_rate(frame)['per_second'])} "

@@ -129,6 +129,43 @@ fn variable_residual_and_full_cover_anchors_roundtrip_with_bounded_counts() {
     let file = receipt(&directory.0, Section::Anchors, &original);
     let decoded = anchors::<2>(&directory.0, &file, 2, 4, 1, 3).unwrap();
     assert_eq!(decoded.records(), state.anchors.records());
+    #[cfg(feature = "capacity-dispatch")]
+    {
+        let widened = anchors_with_arity::<4>(&directory.0, &file, 2, 4, 1, 3, 2).unwrap();
+        let AnchorScope::Residual(pieces) = &widened.get(2).unwrap().scope else {
+            panic!("residual");
+        };
+        assert_eq!(pieces[0].lower, [0, 0, 0, 0]);
+        assert_eq!(pieces[0].upper, [u16::MAX, u16::MAX, 0, 0]);
+        // Model the next checkpoint's capacity-width section while retaining
+        // the original residual coordinates exactly in the real axes.
+        let mut header = original[..28].to_vec();
+        header[12..16].copy_from_slice(&4u32.to_le_bytes());
+        let mut bytes = header.clone();
+        bytes.extend(widened.encode().unwrap());
+        let file = receipt(&directory.0, Section::Anchors, &bytes);
+        let narrowed = anchors_with_arity::<2>(&directory.0, &file, 2, 4, 1, 3, 4).unwrap();
+        assert_eq!(narrowed.records(), state.anchors.records());
+        for (lower, value) in [(true, 1), (false, 1), (false, u16::MAX)] {
+            let mut changed = AnchorMap::default();
+            for mut record in widened.records().iter().cloned() {
+                if let AnchorScope::Residual(pieces) = &mut record.scope {
+                    if let Some(piece) = pieces.first_mut() {
+                        if lower {
+                            piece.lower[3] = value;
+                        } else {
+                            piece.upper[3] = value;
+                        }
+                    }
+                }
+                changed.push(record).unwrap();
+            }
+            let mut bytes = header.clone();
+            bytes.extend(changed.encode().unwrap());
+            let file = receipt(&directory.0, Section::Anchors, &bytes);
+            assert!(anchors_with_arity::<2>(&directory.0, &file, 2, 4, 1, 3, 4).is_err());
+        }
+    }
     for (at, value) in [(46, u32::MAX), (50, u32::MAX), (78, u32::MAX)] {
         let mut bad = original.clone();
         bad[at..at + 4].copy_from_slice(&value.to_le_bytes());

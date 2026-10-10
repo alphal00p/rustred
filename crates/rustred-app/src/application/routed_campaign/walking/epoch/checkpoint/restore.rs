@@ -20,11 +20,15 @@ mod auxiliary;
 mod cross_state;
 mod dispatch_state;
 mod lookup;
+mod progress;
 mod record_body;
 mod record_segments;
 mod roots;
 mod runtime;
 pub(in crate::application::routed_campaign::walking::epoch) use runtime::run;
+
+#[cfg(all(test, feature = "capacity-dispatch"))]
+mod capacity_tests;
 
 fn open_section<const N: usize>(
     directory: &Path,

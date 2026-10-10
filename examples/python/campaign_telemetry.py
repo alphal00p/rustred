@@ -288,6 +288,11 @@ def normalize_status(status, sequence=None):
         "elapsed_seconds": number(status.get("elapsed_seconds")),
         "state": clean(status.get("state", "starting"), 100),
         "phase": clean(progress.get("phase", "starting"), 100),
+        "restore_progress": {
+            "stage": clean(mapping(progress.get("restore_progress")).get("stage", ""), 100),
+            **_numbers(mapping(progress.get("restore_progress")),
+                       ("completed", "total", "worker_limit")),
+        } if progress.get("phase") == "restore" else {},
         "stop_reason": clean(status.get("stop_reason") or status.get("native_stop_reason") or
                              progress.get("native_stop_reason") or "", 300),
         "run_directory": clean(status.get("run_directory", "")),

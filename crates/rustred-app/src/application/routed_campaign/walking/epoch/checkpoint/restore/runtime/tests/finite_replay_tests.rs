@@ -54,7 +54,8 @@ fn finite_replay_private_runtime_resume_is_refused_without_changing_cold_read_au
             publication::LATEST,
             &f.identity(),
             &f.reducer,
-            16
+            16,
+            &Control::serial(),
         )
         .is_ok()
     );

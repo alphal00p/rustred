@@ -72,6 +72,16 @@ impl<'a> View<'a> {
         }
         let (_, kind, dispatch, refs, scope) =
             record.ok_or("Epoch G2 record has no raw anchor row")?;
+        // A resumed checkpoint can store wider runtime anchors while retaining
+        // immutable, authenticated record segments at their original width.
+        // Compare at that record's own width, without rewriting its JSON/hash.
+        let record_arity = row.owner.len();
+        if row.lower.len() != record_arity
+            || row.upper.len() != record_arity
+            || !super::super::super::storage::compatible_width(record_arity, self.wire_arity)
+        {
+            return Err("Epoch record coordinate width differs".into());
+        }
         if !matches!(kind, 1 | 2) || scope.len() < 4 {
             return Err("Epoch G2 kind or scope differs".into());
         }
@@ -125,6 +135,8 @@ impl<'a> View<'a> {
             {
                 return Err("Epoch residual changes the original coordinate scope".into());
             }
+            let lower = record_coordinates(lower, record_arity)?;
+            let upper = record_coordinates(upper, record_arity)?;
             pieces.push(json!({"d_lo":lo,"d_hi":hi,"lower":lower,"upper":upper}));
             let whole = image.expand().powers;
             Some(PowersRow {
@@ -178,6 +190,19 @@ impl<'a> View<'a> {
         });
         Ok(())
     }
+}
+
+/// Padding is always a fixed-zero nonexistent coordinate, never an open bound.
+fn record_coordinates(mut coordinates: Vec<u16>, arity: usize) -> Result<Vec<u16>, String> {
+    if !super::super::super::storage::compatible_width(coordinates.len(), arity)
+        || coordinates
+            .get(arity..)
+            .is_some_and(|tail| tail.iter().any(|&x| x != 0))
+    {
+        return Err("Epoch residual record padding is not fixed zero".into());
+    }
+    coordinates.resize(arity, 0);
+    Ok(coordinates)
 }
 
 #[cfg(test)]

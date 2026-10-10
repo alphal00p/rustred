@@ -14,7 +14,7 @@ campaigns default to stop: save and stop at the first frontier, exit 4);
 only the RAM options may be overridden per resume.
 --resume --upgrade-executable NEW moves a paused campaign onto a
 performance-only binary: NEW's `walk-semantics-version` probe must equal the
-saved CP5 checkpoint's walk semantics version, unless bin/executable.json
+saved CP5 or CP6 checkpoint's walk semantics version, unless bin/executable.json
 history already lists NEW for that version (a rollback, which needs no
 probe). Without --start this is a read-only dry run. With --start it refuses
 a live run, freezes NEW beside the kept old binary, rewrites only the
@@ -97,6 +97,8 @@ ENTRY_PLAN_RECEIPT_NAME = "entry-plan-receipt.json"
 CHECKPOINT_FORMAT = "RUSTRED-WALK-CP5"
 CHECKPOINT_SCHEMA = 5
 CHECKPOINT_KINDS = ("state", "bootstrap")
+EPOCH_CHECKPOINT_FORMAT = "RUSTRED-WALK-CP6"
+EPOCH_CHECKPOINT_SCHEMA = 3
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024  # native OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES
 MAX_RECEIPT_BYTES = 1024 * 1024
 PROBE_COMMAND = "walk-semantics-version"
@@ -234,15 +236,40 @@ def natural(value):
 
 
 def checkpoint_identity(checkpoint):
-    """Resume binding of the latest native manifest (bounded, read-only)."""
+    """Launcher metadata from the latest native manifest (bounded, read-only).
+
+    Native resume authenticates the envelope, sections and request binding;
+    reading this metadata is not checkpoint verification.
+    """
     path = checkpoint / "latest.json"
     if not path.is_file():
         raise ValueError(f"executable upgrade requires a saved native checkpoint: {path} is missing")
     manifest = read_bounded_json(path, MAX_MANIFEST_BYTES, "checkpoint manifest")
+    if "manifest" in manifest:
+        envelope, manifest = manifest, manifest["manifest"]
+        digest_bytes = envelope.get("blake3")
+        if (set(envelope) != {"manifest", "blake3"} or not isinstance(manifest, dict)
+                or not isinstance(digest_bytes, list) or len(digest_bytes) != 32
+                or any(not natural(value) or value > 255 for value in digest_bytes)):
+            raise ValueError("CP6 checkpoint must have a manifest/blake3 envelope")
+        if (manifest.get("format") != EPOCH_CHECKPOINT_FORMAT
+                or manifest.get("schema") != EPOCH_CHECKPOINT_SCHEMA
+                or not natural(manifest.get("schema"))):
+            raise ValueError(f"CP6 checkpoint manifest must be {EPOCH_CHECKPOINT_FORMAT} "
+                             f"schema {EPOCH_CHECKPOINT_SCHEMA}")
+        if manifest.get("resumable") is not True:
+            raise ValueError("CP6 checkpoint manifest is not resumable")
+        if not natural(manifest.get("generation")) or manifest["generation"] == 0:
+            raise ValueError("CP6 checkpoint manifest has no positive generation")
+        if not natural(manifest.get("walk_semantics_version")):
+            raise ValueError("checkpoint manifest has no walk_semantics_version")
+        return {"manifest": str(path), "format": manifest["format"], "schema": manifest["schema"],
+                "kind": "epoch", "generation": manifest["generation"],
+                "walk_semantics_version": manifest["walk_semantics_version"]}
     if manifest.get("format") != CHECKPOINT_FORMAT or manifest.get("schema") != CHECKPOINT_SCHEMA \
             or not natural(manifest.get("schema")):
         raise ValueError(f"checkpoint manifest is not {CHECKPOINT_FORMAT} schema {CHECKPOINT_SCHEMA}; "
-                         "only CP5 campaigns can change executable")
+                         "only CP5 campaigns or enveloped CP6 campaigns can change executable")
     if manifest.get("kind") not in CHECKPOINT_KINDS:
         raise ValueError("checkpoint manifest kind must be state or bootstrap")
     if not natural(manifest.get("walk_semantics_version")):
@@ -254,7 +281,7 @@ def checkpoint_identity(checkpoint):
             "executable_first_blake3": manifest.get("executable_first")}
 
 
-def probe_walk_semantics(executable):
+def probe_walk_semantics(executable, checkpoint_format=CHECKPOINT_FORMAT):
     """Run `EXECUTABLE walk-semantics-version` with a timeout and bounded output."""
     environment = dict(os.environ, SYMBOLICA_HIDE_BANNER="1")
     try:
@@ -304,6 +331,12 @@ def probe_walk_semantics(executable):
         probe = json.loads(lines[0]) if len(lines) == 1 else None
     except ValueError:
         probe = None
+    if checkpoint_format == EPOCH_CHECKPOINT_FORMAT:
+        epoch = probe.get("epoch_checkpoint") if isinstance(probe, dict) else None
+        if not isinstance(epoch, dict) or epoch.get("resumable") is not True:
+            raise ValueError(f"{PROBE_COMMAND} probe has no resumable epoch_checkpoint identity")
+        probe = {"walk_semantics_version": epoch.get("walk_semantics_version"),
+                 "checkpoint_format": epoch.get("format"), "checkpoint_schema": epoch.get("schema")}
     if (not isinstance(probe, dict) or not natural(probe.get("walk_semantics_version"))
             or not isinstance(probe.get("checkpoint_format"), str) or not natural(probe.get("checkpoint_schema"))):
         raise ValueError(f"{PROBE_COMMAND} probe must print one JSON object with walk_semantics_version, "
@@ -519,10 +552,13 @@ def receipt_history(receipt):
     return history
 
 
-def history_vouches(receipt, sha256, walk_semantics_version):
+def history_vouches(receipt, sha256, checkpoint):
     """Whether this campaign's history records sha256 under the checkpoint's semantics version."""
     return any(row.get("sha256") == sha256 and natural(row.get("walk_semantics_version"))
-               and row["walk_semantics_version"] == walk_semantics_version for row in receipt_history(receipt))
+               and row["walk_semantics_version"] == checkpoint["walk_semantics_version"]
+               and row.get("checkpoint_format", CHECKPOINT_FORMAT) == checkpoint["format"]
+               and row.get("checkpoint_schema", CHECKPOINT_SCHEMA) == checkpoint["schema"]
+               for row in receipt_history(receipt))
 
 
 def plan_executable_upgrade(campaign, checkpoint, source, frozen, frozen_hash):
@@ -544,10 +580,10 @@ def plan_executable_upgrade(campaign, checkpoint, source, frozen, frozen_hash):
         raise ValueError("--upgrade-executable names the already frozen executable; plain --resume suffices")
     saved = checkpoint_identity(checkpoint)
     receipt = read_bounded_json(campaign / "bin" / "executable.json", MAX_RECEIPT_BYTES, "executable receipt")
-    if history_vouches(receipt, new_hash, saved["walk_semantics_version"]):
+    if history_vouches(receipt, new_hash, saved):
         reason, probe, evidence = ROLLBACK_REASON, None, "executable_history"
     else:
-        reason, probe, evidence = UPGRADE_REASON, probe_walk_semantics(source), "probe"
+        reason, probe, evidence = UPGRADE_REASON, probe_walk_semantics(source, saved["format"]), "probe"
         if (probe["checkpoint_format"], probe["checkpoint_schema"]) != (saved["format"], saved["schema"]):
             raise ValueError(f"new executable resumes {probe['checkpoint_format']} schema "
                              f"{probe['checkpoint_schema']}, but the checkpoint is {saved['format']} "
@@ -600,16 +636,19 @@ def apply_executable_upgrade(campaign, checkpoint, upgrade, source):
     receipt_path, steering_path = directory / "executable.json", directory / "steering.json"
 
     def same_probe(path):
-        if probe_walk_semantics(path) != upgrade["new"]["probe"]:
+        if probe_walk_semantics(path, upgrade["checkpoint"]["format"]) != upgrade["new"]["probe"]:
             raise ValueError("frozen copy of the new executable reports a different walk semantics probe")
 
     with checkpoint_lock(checkpoint):
-        if checkpoint_identity(checkpoint)["walk_semantics_version"] != upgrade["walk_semantics_version"]:
+        saved = checkpoint_identity(checkpoint)
+        if saved["walk_semantics_version"] != upgrade["walk_semantics_version"]:
             raise ValueError("checkpoint walk semantics version changed during the upgrade")
+        if any(saved[key] != upgrade["checkpoint"][key] for key in ("format", "schema")):
+            raise ValueError("checkpoint format/schema changed during the upgrade")
         previous = read_bounded_json(receipt_path, MAX_RECEIPT_BYTES, "executable receipt")
         if previous.get("sha256") != upgrade["frozen"]["sha256"] or (
                 upgrade["new"]["probe"] is None
-                and not history_vouches(previous, upgrade["new"]["sha256"], upgrade["walk_semantics_version"])):
+                and not history_vouches(previous, upgrade["new"]["sha256"], saved)):
             raise ValueError("frozen executable receipt changed during the upgrade")
         if str((directory / ("rustred-" + upgrade["new"]["sha256"])).resolve()) != upgrade["new"]["path"]:
             raise ValueError("campaign bin directory moved since validation")
@@ -628,8 +667,12 @@ def apply_executable_upgrade(campaign, checkpoint, upgrade, source):
         replaced = {key: value for key, value in previous.items() if key != "history"}
         replaced.update(replaced_unix_time=now, walk_semantics_version=upgrade["walk_semantics_version"],
                         reason=upgrade["reason"])
+        identity_fields = ({"checkpoint_format": saved["format"], "checkpoint_schema": saved["schema"]}
+                           if saved["format"] == EPOCH_CHECKPOINT_FORMAT else {})
+        replaced.update(identity_fields)
         write_json(receipt_path, {"sha256": new_hash, "file": target.name, "source": upgrade["new"]["source"],
                                   "walk_semantics_version": upgrade["walk_semantics_version"],
+                                  **identity_fields,
                                   "history": [*receipt_history(previous), replaced]})
 
 
@@ -1360,7 +1403,7 @@ def main(argv=None):
             "resumable": True, "terminal_output": "checkpoint_only",
             "completion_report": "not_evaluated; raw cold reinspection required",
             "executable_policy": "launcher_frozen_binary; native_metadata_does_not_hash_executable",
-            "executable_upgrade_supported": False}
+            "executable_upgrade_supported": True}
     if liveness is not None:
         plan["ram_guard_liveness"] = dict(liveness, limit=args.max_zero_progress_ram_stops)
     plan["memory_admission_preview"] = memory_admission_preview(options)

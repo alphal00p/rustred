@@ -6,6 +6,7 @@ use super::super::super::anchors::AnchorMap;
 use super::super::metadata::{Identity, OwnedScalars};
 use super::super::publication::{self, FileRef, Manifest};
 use super::super::{Digest, Section, SectionReceipt, invalid};
+use super::progress::Control;
 use super::{
     CheckedRead, EdgeStore, FixedSection, Ledger6, Store, auxiliary, cross_state, dispatch_state,
     lookup, record_body, roots,
@@ -172,6 +173,23 @@ pub(super) fn read_manifest<const N: usize>(
     lockstep_b: usize,
     manifest: Manifest,
 ) -> io::Result<Provisional<N>> {
+    read_manifest_with_control(
+        directory,
+        identity,
+        lockstep_b,
+        manifest,
+        &Control::serial(),
+    )
+}
+
+pub(super) fn read_manifest_with_control<const N: usize>(
+    directory: &Path,
+    identity: &Identity<'_>,
+    lockstep_b: usize,
+    manifest: Manifest,
+    control: &Control<'_>,
+) -> io::Result<Provisional<N>> {
+    control.stage("metadata", 0, 1)?;
     if N > 32 || !crate::application::routed_campaign::storage::compatible_width(manifest.arity, N)
     {
         return Err(invalid("epoch private manifest arity differs"));
@@ -203,9 +221,13 @@ pub(super) fn read_manifest<const N: usize>(
     }
     inventories(&manifest, &scalars)?;
     owners(directory, file(&manifest, "owners")?, identity)?;
+    control.stage("metadata", 1, 1)?;
     let rescue_active = !scalars.amendments.is_empty();
+    control.stage("domains", 0, scalars.watermark as usize)?;
     let mut store =
         fixed::<N>(directory, &manifest, Section::Domains)?.domains_with_rescue(rescue_active)?;
+    control.stage("domains", store.len(), store.len())?;
+    control.stage("rescue", 0, 1)?;
     let rescue = if rescue_active {
         let entry = file(&manifest, "rescue")?;
         if entry.count != u64::from(scalars.watermark)
@@ -233,10 +255,19 @@ pub(super) fn read_manifest<const N: usize>(
         }
         None
     };
+    control.stage("rescue", 1, 1)?;
+    control.stage("nodes", 0, store.len())?;
     let mut nodes = fixed::<N>(directory, &manifest, Section::Nodes)?.flags(false)?;
+    control.stage("nodes", nodes.len(), nodes.len())?;
+    control.stage("live", 0, store.len().div_ceil(64))?;
     let live = fixed::<N>(directory, &manifest, Section::Live)?.live(scalars.watermark)?;
+    control.stage("live", live.len(), live.len())?;
+    control.stage("ledger", 0, store.len())?;
     let ledger = fixed::<N>(directory, &manifest, Section::Ledger)?.ledger()?;
     for id in 0..scalars.watermark {
+        if id % 65_536 == 0 {
+            control.check()?;
+        }
         let marked = rescue
             .as_ref()
             .is_some_and(|r| super::super::super::rescue::contains(&r.abandoned, id));
@@ -255,6 +286,8 @@ pub(super) fn read_manifest<const N: usize>(
     if ledger.counts().0 != scalars.ledger_counts {
         return Err(invalid("epoch scalar ledger tag counts differ"));
     }
+    control.stage("ledger", store.len(), store.len())?;
+    control.stage("edges", 0, scalars.edge_runs as usize)?;
     let mut edges = fixed::<N>(directory, &manifest, Section::Edges)?.edges(scalars.watermark)?;
     if edges.runs() != scalars.edge_runs
         || edges.edges() != scalars.edges
@@ -263,8 +296,12 @@ pub(super) fn read_manifest<const N: usize>(
     {
         return Err(invalid("epoch scalar edge inventory/digest differs"));
     }
+    control.stage("edges", edges.runs() as usize, edges.runs() as usize)?;
+    control.stage("closure_flags", 0, store.len())?;
     let closure_flags = fixed::<N>(directory, &manifest, Section::ClosureFlags)?.flags(true)?;
+    control.stage("closure_flags", closure_flags.len(), closure_flags.len())?;
     let anchor_file = file(&manifest, "state-6")?;
+    control.stage("anchors_decode", 0, anchor_file.count as usize)?;
     let anchors = auxiliary::anchors_with_arity::<N>(
         directory,
         &SectionReceipt {
@@ -281,6 +318,8 @@ pub(super) fn read_manifest<const N: usize>(
         scalars.k,
         manifest.arity,
     )?;
+    control.stage("anchors_decode", anchors.len(), anchors.len())?;
+    control.stage("dispatch", 0, 1)?;
     let frontier_counts =
         fixed::<N>(directory, &manifest, Section::Frontiers)?.frontiers(scalars.watermark)?;
     let dispatch_file = file(&manifest, "state-7")?;
@@ -305,8 +344,10 @@ pub(super) fn read_manifest<const N: usize>(
         },
         manifest.arity,
     )?;
+    control.stage("dispatch", 1, 1)?;
     let orthants = file(&manifest, "orthants")?;
-    let store = lookup::rebuild(
+    control.stage("lookup", 0, store.len())?;
+    let store = lookup::rebuild_with_arity(
         directory,
         manifest.generation,
         &Digest {
@@ -316,26 +357,32 @@ pub(super) fn read_manifest<const N: usize>(
         orthants.count,
         store,
         &live,
+        manifest.arity,
     )?;
-    cross_state::validate(cross_state::View {
-        store: &store,
-        ledger: &ledger,
-        nodes: &mut nodes,
-        live: &live,
-        edges: &mut edges,
-        anchors: &anchors,
-        frontier_counts: &frontier_counts,
-        closure_flags: scalars
-            .closure
-            .unavailable
-            .is_none()
-            .then_some(closure_flags.as_slice()),
-        walk: &scalars.walk,
-        k: scalars.k,
-        p0: scalars.p0,
-        input_frontiers: scalars.input_frontiers,
-        records_digest: &scalars.records_digest,
-    })?;
+    control.stage("lookup", store.len(), store.len())?;
+    cross_state::validate_with_control(
+        cross_state::View {
+            store: &store,
+            ledger: &ledger,
+            nodes: &mut nodes,
+            live: &live,
+            edges: &mut edges,
+            anchors: &anchors,
+            frontier_counts: &frontier_counts,
+            closure_flags: scalars
+                .closure
+                .unavailable
+                .is_none()
+                .then_some(closure_flags.as_slice()),
+            walk: &scalars.walk,
+            k: scalars.k,
+            p0: scalars.p0,
+            input_frontiers: scalars.input_frontiers,
+            records_digest: &scalars.records_digest,
+        },
+        control,
+    )?;
+    control.stage("records", 0, edges.runs() as usize)?;
     let record_segments = record_body::read(
         directory,
         file(&manifest, "record-segments")?,
@@ -351,6 +398,7 @@ pub(super) fn read_manifest<const N: usize>(
             input_frontiers: scalars.input_frontiers,
         },
     )?;
+    control.stage("records", edges.runs() as usize, edges.runs() as usize)?;
     Ok(Provisional {
         manifest,
         scalars,

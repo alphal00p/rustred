@@ -3,6 +3,21 @@ use super::*;
 use crate::application::routed_campaign::walking::epoch::records::typed::{
     Authority, Body, Image, Scope,
 };
+use crate::application::routed_campaign::{storage::restore_array, walking::queue::CompactDomain};
+
+fn same_image<const N: usize>(record: &Image, image: &CompactDomain<N>) -> bool {
+    let (lower, upper) = image.raw_bounds();
+    record.route == (image.phase() == Phase::Route)
+        && record.rank == image.rank()
+        && record.powers.native() == image.powers()
+        && restore_array::<_, N>(&record.owner, false) == Some(image.owner())
+        && restore_array::<_, N>(&record.lower, 0).as_ref() == Some(lower)
+        && restore_array::<_, N>(&record.upper, 0).as_ref() == Some(upper)
+}
+
+fn same_coordinates<const N: usize>(record: &[u16], runtime: &[u16]) -> bool {
+    restore_array::<_, N>(record, 0).is_some_and(|coordinates| coordinates.as_slice() == runtime)
+}
 
 pub(super) fn validate<const N: usize>(
     record: Authority,
@@ -17,7 +32,10 @@ pub(super) fn validate<const N: usize>(
         .domains
         .get(source as usize)
         .ok_or_else(|| invalid("epoch record ID range"))?;
-    if record.id != source || record.image != Image::of(image) {
+    // Sealed record segments retain their original width across later saves.
+    // Normalize only comparisons: original authority bytes and their digest
+    // remain unchanged, and every omitted capacity axis must be fixed at zero.
+    if record.id != source || !same_image(&record.image, image) {
         return Err(invalid("epoch record canonical geometry differs"));
     }
     if record.merge_epoch > view.k || record.merge_epoch < totals.merge_epoch {
@@ -124,7 +142,10 @@ pub(super) fn validate<const N: usize>(
                 })
                 || pieces.len() != expected.len()
                 || pieces.iter().zip(expected).any(|(a, b)| {
-                    a.d_lo != b.d_lo || a.d_hi != b.d_hi || a.lower != b.lower || a.upper != b.upper
+                    a.d_lo != b.d_lo
+                        || a.d_hi != b.d_hi
+                        || !same_coordinates::<N>(&a.lower, &b.lower)
+                        || !same_coordinates::<N>(&a.upper, &b.upper)
                 })
             {
                 return Err(invalid("epoch G2 record scope differs from anchor"));
@@ -227,4 +248,55 @@ pub(super) fn validate<const N: usize>(
     add(&mut totals.known_reuse, observation.known_reuse)?;
     add(&mut totals.job_duplicates, observation.job_duplicates)?;
     Ok(())
+}
+
+#[cfg(all(test, feature = "capacity-dispatch"))]
+mod tests {
+    use super::*;
+    use crate::application::routed_campaign::walking::queue::Domain;
+
+    fn image<const N: usize>() -> CompactDomain<N> {
+        let domain = Domain {
+            phase: Phase::Apply,
+            owner: std::array::from_fn(|axis| axis == 0),
+            lower: vec![0; N],
+            upper: (0..N)
+                .map(|axis| Some(if axis == 0 { 12 } else { 0 }))
+                .collect(),
+            rank: Some(100),
+            powers: Default::default(),
+        };
+        CompactDomain::try_from_domain(&domain).unwrap()
+    }
+
+    #[test]
+    fn record_geometry_supports_physical_and_capacity_widths_only_with_zero_padding() {
+        let physical = image::<3>();
+        let capacity = image::<4>();
+        assert!(same_image(&Image::of(&physical), &capacity));
+        assert!(same_image(&Image::of(&capacity), &physical));
+        assert!(!same_image(&Image::of(&image::<1>()), &image::<8>()));
+        for mutation in 0..4 {
+            let mut changed = Image::of(&capacity);
+            match mutation {
+                0 => changed.owner[3] = true,
+                1 => changed.lower[3] = 1,
+                2 => changed.upper[3] = 1,
+                3 => changed.upper[3] = u16::MAX,
+                _ => unreachable!(),
+            }
+            assert!(!same_image(&changed, &physical), "mutation {mutation}");
+        }
+    }
+
+    #[test]
+    fn record_residual_comparison_rejects_nonzero_and_open_padding_in_either_direction() {
+        assert!(same_coordinates::<4>(&[12, 3, 0], &[12, 3, 0, 0]));
+        assert!(same_coordinates::<3>(&[12, 3, 0, 0], &[12, 3, 0]));
+        for tail in [1, u16::MAX] {
+            assert!(!same_coordinates::<4>(&[12, 3, 0], &[12, 3, 0, tail]));
+            assert!(!same_coordinates::<3>(&[12, 3, 0, tail], &[12, 3, 0]));
+        }
+        assert!(!same_coordinates::<8>(&[12], &[12, 0, 0, 0, 0, 0, 0, 0]));
+    }
 }
