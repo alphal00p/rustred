@@ -165,12 +165,39 @@ demonstrates actual use of the 31 configured proof workers, not a lifetime
 `ps` percentage. Anchor difficulty varies; no full-restore ETA follows from
 this sample, and later record validation/loading was not timed to completion.
 
+The final probe intentionally stopped after its two-minute anchor sample:
+10,533,503 of 22,659,469 checks had been reported by the last progress event.
+Stop was requested at 818.432 s; the process exited cooperatively with code 8
+at 843.011 s, including teardown, without a force-kill. The native event
+reported `checkpoint_unchanged: true`, `session_adopted: false`, and
+`saved_this_invocation: false`. Private `latest.json` and `epoch-session.bin`
+SHA256 values exactly match their pre-run snapshot. Source latest/immutable
+inventory likewise remained unchanged. No complete restore, fresh generation,
+or rank-6 solve is claimed. The generic CLI cancellation envelope has status
+`preparation_error`; the typed error and exit code identify the intentional
+pre-adoption cancellation. Harness saved-count comparisons are inapplicable
+when no new campaign result is produced.
+
+Evidence: `native-resume-benchmarks/prepared-1rte4nt6/the_one-w32/`
+(`measurement.json`, `events.jsonl`, `snapshot.json`, `result.json`).
+
+The pre-index-fix comparison (`prepared-ucbv0xq0`) remained in lookup when its
+1700-second process limit fired: over 19.5 minutes in lookup alone. After the
+60-second cooperative grace it required terminating only its owned private
+child; exit −9, 1767.985 s total. Source inventory and private latest/session
+hashes are unchanged. This is a resource-censored observation, not a completed
+timing. All private diagnostic children have now exited; production was left
+running throughout.
+
 Final focused validation: **150 optimized restore tests**, **5 cold G2
 capacity tests**, **8 lattice tests**, **1 generic empty-row retirement
 regression**, and **182 Python monitoring/upgrade/steering tests** pass.
 The six actual checkpoint resume/resave controls above also pass. The final
 CP6 upgrade preview matches generation 33 and leaves `applied: false`,
 `launch_requested: false`; it correctly reports the existing live invocation.
+
+Implementation and initial delivery documentation are committed and pushed as
+`0e87d5ad` on `main` with the requested ValentinHirschi identity.
 
 ## Restart procedure
 

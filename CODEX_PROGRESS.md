@@ -7,8 +7,8 @@ Read-only observation identifies PID 2011971, frozen solver `54302272…`, one
 busy core and about 51 GiB RSS. Generation 33 has 139,772,626 domains,
 1,405,075,888 edges, 22,659,469 anchor records. CPU profile (10 s, 99 Hz,
 901 samples, no loss) confirms exact lattice-union validation, allocations and
-copying. This is NOT the newly optional publication verifier: runtime restore
-still serially revalidates anchor geometry using the old kernel.
+copying. This is NOT the newly optional publication verifier: the running old
+solver still serially revalidates anchor geometry using the old kernel.
 
 Plan `RESTORE_PERFORMANCE_PLAN.md`: independent exact parallel restore checks
 and progress/cancellation (`restore_parallel_fix`), physical-to-capacity restore
@@ -20,13 +20,13 @@ no restart or completion estimate is claimed. Evidence:
 Initial validation: 145 optimized restore tests, 5 cold G2 capacity tests,
 8 lattice tests and 164 Python monitoring/upgrade/steering tests pass. A later
 audit tightened interruption diagnostics to distinguish proven pre-adoption
-cancellation from interrupted OS I/O; the final test rerun is pending.
+cancellation from interrupted OS I/O; final reruns are recorded below.
 Actual copied four-loop resume caught an additional optional-orthant index
-history width mismatch despite the synthetic capacity tests. Capacity agent
-is fixing historical-width validation without relaxing the runtime containment
-predicate. The launcher's upgrade preview also still rejected CP6 (it handled
-only CP5); parallel agent is extending the existing guarded upgrade path using
-the native CP6 semantics probe. These failures are retained in the evidence;
+history width mismatch despite the synthetic capacity tests. This led to
+historical-width validation without relaxing the runtime containment predicate.
+The launcher's initial upgrade preview also rejected CP6 (it handled only CP5);
+the guarded upgrade path was extended using the native CP6 semantics probe.
+These failures are retained in the evidence;
 the initial binary `fe376f07…` is NOT a recommended production upgrade.
 
 The capacity/CP6 upgrade repair then compiled as `596b01ae…` and passed all six
@@ -40,16 +40,16 @@ A bounded full-size prototype probe was censored after 900 seconds plus stop
 grace, still in serial lookup reconstruction, without reaching anchor checks.
 Source/private authorities remained unchanged. This is not a speedup result.
 Independent audits found a redundant retirement scan on every insertion into
-fresh restore indexes. Capacity agent is adding a restore-only insertion path;
-parallel agent profiles the second private large probe and audit agent checks
-old/new layout and authority parity. No production state or process changed.
+fresh restore indexes. This led to a restore-only insertion path, a second
+private large profile and an independent old/new layout/authority parity audit.
+No production state or process changed.
 
 That profile now confirms the redundant path on the real checkpoint: 978 CPU
 samples, zero loss; 96.46% inclusive in lookup rebuild, 76.05% in
 `index_survivor`, 69.09% in `index_prepared`, including reverse-retirement
 scanning (overlapping percentages, not additive). Restore-only insertion and
-two equivalence/operation-count regressions are implemented and independently
-audited. Final release build/tests queued; no full-size speedup claim yet.
+two equivalence/operation-count regressions were implemented and independently
+audited before the final release build/tests below.
 
 Final delivery build `814745116dd52749a6eb2272774503afc762d806823924cf4c35b8e732745ce7`
 is frozen at `TMP/rank6-restore-diagnosis-20261010/rustred-restore-fast-index-20261010`.
@@ -68,6 +68,18 @@ instructions: `docs/research/parallel_restore_2026-10-10.md`. Final small receip
 `TMP/rank6-restore-diagnosis-20261010/native-resume-benchmarks/prepared-2gvif66t/`.
 Only the user should stop/restart production; use `run --resume
 --upgrade-executable`, not a second rank-6 extension. Pending scope is preserved.
+
+Code/tests/docs pushed as `0e87d5ad` on `main`. Final full-size private probe
+cooperatively stopped (exit 8) at 843.011 s after its requested two-minute anchor
+sample; last reported 10,533,503/22,659,469 checks. Private latest/session hashes
+and source inventory are unchanged, no writer session adopted, no new generation
+claimed. This validates bounded execution and cancellation, not complete restore
+or rank-6 closure. See the report for exact receipts and remaining serial costs.
+The pre-index-fix comparison was censored at 1700 s, still in lookup after
+over 19.5 minutes there, then its private child was killed after the stop grace
+(1767.985 s total). Its checkpoint/source are unchanged. All owned diagnostics
+have exited. Production remains untouched; no further implementation is pending
+for this repair. An unrestricted end-to-end restore time remains unmeasured.
 
 ## October 8 — fast publication delivered; full THE_ONE gate passed
 
