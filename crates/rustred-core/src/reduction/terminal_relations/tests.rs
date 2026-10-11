@@ -149,6 +149,37 @@ fn refused_scope_extension_keeps_old_checkpoint_usable() {
 }
 
 #[test]
+fn column_budget_can_be_raised_or_removed_without_losing_proved_rows() {
+    let mut session = TerminalRelationSession::new(
+        tadpole(), BTreeSet::from([key(1), key(2)]), 0,
+        TerminalRelationLimits { max_columns: 2, ..Default::default() },
+    ).unwrap();
+    let before = session.to_native_bytes(Default::default()).unwrap();
+    assert!(session.set_max_columns(Some(1)).is_err());
+    assert!(session.set_max_columns(Some(0)).is_err());
+    assert_eq!(session.to_native_bytes(Default::default()).unwrap(), before);
+    assert!(session.extend(&BTreeSet::from([key(3)]), 0).is_err());
+    session.set_max_columns(Some(3)).unwrap();
+    session.extend(&BTreeSet::from([key(3)]), 0).unwrap();
+    let cancel = AtomicBool::new(false);
+    while session.statistics().pending_rebuild_rows != 0 {
+        session.step_rebuild_only(&cancel).unwrap();
+    }
+    assert!(session.extend(&BTreeSet::from([key(4)]), 0).is_err());
+    session.set_max_columns(None).unwrap();
+    session.extend(&BTreeSet::from([key(4)]), 0).unwrap();
+    while !session.is_complete() {
+        session.step(&cancel).unwrap();
+    }
+    let mut reference = TerminalRelationSession::new(
+        tadpole(), BTreeSet::from([key(1), key(2), key(3), key(4)]), 0,
+        Default::default(),
+    ).unwrap();
+    while !reference.is_complete() { reference.step(&cancel).unwrap(); }
+    assert_eq!(session.apply_all_terminals().unwrap(), reference.apply_all_terminals().unwrap());
+}
+
+#[test]
 fn four_loop_circuit_dots_obey_exact_homogeneity_after_column_equivalence() {
     let loops = 4;
     let c = CoefficientContext::new(["d"]);

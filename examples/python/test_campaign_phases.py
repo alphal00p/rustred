@@ -71,6 +71,7 @@ class PhaseTests(unittest.TestCase):
 
     def test_default_publishes_and_legacy_opt_in_never_automatically_refines(self):
         self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
+
         self.write("master-reduction/policy.json", {**self.policy, "operation": "refine"})
         self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
         deeper = PHASES.configuration(self.campaign, enabled=True, seed_depth=1)
@@ -83,6 +84,18 @@ class PhaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "explicit"):
             PHASES.configuration(self.campaign, seed_depth=1)
         self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
+
+    def test_relation_column_budget_is_optional_operational_and_removable(self):
+        self.assertIsNone(self.policy["max_relation_columns"])
+        finite = PHASES.configuration(self.campaign, enabled=True, max_relation_columns=40)
+        self.write("master-reduction/policy.json", finite)
+        self.assertEqual(PHASES.configuration(self.campaign, enabled=True)["max_relation_columns"], 40)
+        self.assertEqual(PHASES.configuration(self.campaign, enabled=True, max_relation_columns=0)["max_relation_columns"], 0)
+        for bad in (-1, True, "100"):
+            with self.assertRaises(ValueError):
+                PHASES.configuration(self.campaign, enabled=True, max_relation_columns=bad)
+        with self.assertRaisesRegex(ValueError, "explicit"):
+            PHASES.configuration(self.campaign, max_relation_columns=40)
 
     def test_publication_verification_defaults_fast_and_rejects_refinement_flag(self):
         self.assertFalse(self.policy["deep_verification"])
@@ -341,6 +354,125 @@ class PhaseTests(unittest.TestCase):
         pointer = PHASES.read_json(self.campaign / "artifacts/latest.json")
         self.assertEqual(pointer["operation"], "publish")  # Paused refinement preserves usable output.
         self.assertFalse(Path(pointer["directory"]).is_absolute())
+
+    def stopped_refinement_fixture(self, status="failed"):
+        source = self.publish_fixture()
+        policy = PHASES.configuration(self.campaign, enabled=True)
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+        phase = native.call_args.args[4]
+        self.write(str((phase / "latest.json").relative_to(self.campaign)), {
+            "status": status, "operation": "refine", "seed_depth": 0,
+            "finite_feedback": True, "finite_feedback_recipe": PHASES.FINITE_FEEDBACK_RECIPE,
+            "inventory": {"complete": True}, "completed_source_rows": 7,
+            "last_error": "retained failure", "native_state": {"cursor": 7}})
+        self.write("master-reduction/active-phase.json", {
+            "operation": "refine", "directory": str(phase), "run_directory": str(phase / "runs/stopped"),
+            "request": str(self.campaign / "runs/first/request.json"), "scope_binding": self.binding()["key"]})
+        return source, phase
+
+    def test_unrefined_publication_is_not_labeled_as_a_partial_refinement(self):
+        source = self.publish_fixture()
+        native = PHASES.read_json(source / "artifact.json")
+        native.update(finite_search_complete=False, refinement_complete=False)
+        self.write(str((source / "artifact.json").relative_to(self.campaign)), native)
+        PHASES.publish_pointer(self.campaign, source, self.binding(), "publish", self.driver)
+        pointer = PHASES.completed_artifact(self.campaign)
+        self.assertEqual(pointer["status"], "published_unrefined")
+        self.assertNotIn("partial_refinement_source", pointer)
+
+    def test_budget_and_executable_changes_resume_the_original_finite_cursor(self):
+        source, phase = self.stopped_refinement_fixture()
+        policy = PHASES.configuration(self.campaign, enabled=True, max_relation_columns=0)
+        policy["executable"] = {"sha256": "changed-build"}
+        with patch.object(PHASES, "freeze_master_executable"), patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+        self.assertEqual(native.call_args.args[4], phase)
+        self.assertEqual(native.call_args.args[1]["source_artifact"], str(source))
+        self.assertEqual(native.call_args.args[1]["max_relation_columns"], 0)
+
+    def test_finalize_requires_stopped_current_scope_without_starting_a_solve(self):
+        _, phase = self.stopped_refinement_fixture("running")
+        policy = {**self.policy, "operation": "finalize-refinement"}
+        with patch.object(PHASES, "phase_one") as solve, patch.object(PHASES, "phase_two") as native:
+            with self.assertRaisesRegex(ValueError, "stopped paused or failed"):
+                PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+            solve.assert_not_called()
+            native.assert_not_called()
+        self.write("amendments/amendment-0001.json", {"rank": 1})
+        with patch.object(PHASES, "phase_one") as solve, patch.object(PHASES, "phase_two") as native:
+            with self.assertRaisesRegex(ValueError, "completed current input scope"):
+                PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+            solve.assert_not_called()
+            native.assert_not_called()
+        self.assertTrue((phase / "latest.json").is_file())
+
+    def test_partial_export_retains_cursor_updates_both_pointers_and_resumes_same_refinement(self):
+        source, phase = self.stopped_refinement_fixture()
+        source_manifest = (phase / "latest.json").read_bytes()
+        active_path = self.campaign / "master-reduction/active-phase.json"
+        active = active_path.read_bytes()
+        with self.assertRaisesRegex(ValueError, "finalize-refinement"):
+            PHASES.require_retained_refinement(self.campaign)
+        binary = self.campaign / "fake-export"
+        binary.write_text(f"#!{sys.executable}\n" + '''import json, pathlib, sys
+args = sys.argv
+assert args[1] == 'walk-finalize-refinement'
+assert '--artifact' not in args and '--seed-depth' not in args and '--command' not in args
+directory = pathlib.Path(args[args.index('--directory') + 1])
+source = pathlib.Path(args[args.index('--refinement') + 1])
+report = {'status':'published_unrefined', 'operation':'publish',
+          'inventory':{'complete':True,'independently_verified':False},
+          'finite_search_complete':False, 'refinement_complete':False,
+          'partial_refinement_source':{'checkpoint':7, 'last_error':'retained failure'}}
+(directory/'artifact.json').write_text(json.dumps(report))
+(directory/'latest.json').write_text(json.dumps(report))
+''')
+        binary.chmod(0o700)
+        cpu = sorted(os.sched_getaffinity(0))[0]
+        plan = {**self.plan, "steering_policy": {"command_arguments": ["--executable", str(binary)]},
+                "requested_workers": 1, "cpus": str(cpu), "checkpoint_interval_seconds": 3600,
+                "supervisor_ram_policy": {"max_memory_bytes": 2_000_000_000,
+                    "ram_guard_margin_percent": 5, "host_memory_reserve_bytes": 1_000_000,
+                    "swap_growth_stop_bytes_per_second": 0, "swap_growth_stop_seconds": 120}}
+        driver = SimpleNamespace(**vars(PRODUCTION))
+        policy = {**self.policy, "operation": "finalize-refinement"}
+        with patch.object(PHASES.sys, "stdout", io.StringIO()), patch.object(PHASES.sys, "stderr", io.StringIO()):
+            self.assertEqual(PHASES.run(plan, policy, True, driver, postprocess_only=True), 0)
+        pointer = PHASES.completed_artifact(self.campaign)
+        self.assertEqual(pointer["status"], "published_partial_refinement")
+        self.assertFalse(pointer["finite_search_complete"])
+        self.assertFalse(pointer["refinement_complete"])
+        self.assertFalse(pointer["master_minimality_claim"])
+        self.assertEqual(active_path.read_bytes(), active)
+        self.assertEqual((phase / "latest.json").read_bytes(), source_manifest)
+        completed = self.campaign / "master-reduction/completed-phase.json"
+        self.assertEqual(PHASES.read_json(completed)["directory"], str(pointer["resolved_directory"]))
+        PHASES.require_retained_refinement(self.campaign)
+        # An interrupted pointer update is repairable without another export.
+        completed.unlink()
+        with self.assertRaisesRegex(ValueError, "finalize-refinement"):
+            PHASES.require_retained_refinement(self.campaign)
+        with patch.object(PHASES, "phase_two") as native:
+            self.assertEqual(PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True), 0)
+            native.assert_not_called()
+        PHASES.require_retained_refinement(self.campaign)
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True), True,
+                       self.driver, postprocess_only=True)
+            self.assertEqual(native.call_args.args[4], phase)
+            self.assertEqual(native.call_args.args[1]["source_artifact"], str(source))
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True, seed_depth=1), True,
+                       self.driver, postprocess_only=True)
+            self.assertNotEqual(native.call_args.args[4], phase)
+            self.assertEqual(native.call_args.args[1]["source_artifact"], str(pointer["resolved_directory"]))
+        # New rows after finalization need another explicit export before extension.
+        latest = PHASES.read_json(phase / "latest.json")
+        latest["completed_source_rows"] += 1
+        self.write(str((phase / "latest.json").relative_to(self.campaign)), latest)
+        with self.assertRaisesRegex(ValueError, "finalize-refinement"):
+            PHASES.require_retained_refinement(self.campaign)
 
     def test_default_resume_preserves_same_scope_refined_artifact_without_rerun(self):
         self.publish_fixture("refine", 1)
@@ -689,6 +821,9 @@ class PhaseTests(unittest.TestCase):
     def test_assisted_refinement_forwards_mode_and_resumes_its_checkpoint(self):
         self._scratch_native_pause_resume("refine", saved_rule_assistance=True)
 
+    def test_explicit_unlimited_column_budget_reaches_native_resume(self):
+        self._scratch_native_pause_resume("refine", max_relation_columns=0)
+
     def test_publication_does_not_enable_saved_refinement_preference(self):
         self._scratch_native_pause_resume("publish", saved_rule_assistance=True, containing_sector_depth=1,
                                           circuit_symmetry_assistance=True, normalization_profile="standard")
@@ -709,7 +844,7 @@ class PhaseTests(unittest.TestCase):
     def _scratch_native_pause_resume(self, operation, saved_rule_assistance=False,
                                     containing_sector_depth=0, inherited_containing_depth=0,
                                     circuit_symmetry_assistance=False, normalization_profile=None,
-                                    deep_verification=False, preserve_refined=False):
+                                    deep_verification=False, preserve_refined=False, max_relation_columns=None):
         # Fake native protocol only; this proves process/checkpoint orchestration,
         # not mathematical correctness or a successful native Rust solve.
         binary = self.campaign / "fake-native"
@@ -718,6 +853,7 @@ class PhaseTests(unittest.TestCase):
                           f"expected_profile = {repr(normalization_profile if operation == 'refine' else None)}\n"
                           f"expected_deep = {deep_verification}\n"
                           f"expected_previous = {preserve_refined}\n"
+                          f"expected_column_budget = {max_relation_columns!r}\n"
                           f"expected_containing_depth = {containing_sector_depth if operation == 'refine' else 0}\n" + '''import json, pathlib, sys, time
 args = sys.argv
 refine = args[1] == 'walk-master-reduce'
@@ -725,6 +861,9 @@ assert ('--seed-depth' in args) == refine
 assert ('--saved-rule-assistance' in args) == expected_assistance
 assert ('--circuit-symmetry-assistance' in args) == expected_circuit
 assert ('--finite-feedback' in args) == refine
+assert ('--max-relation-columns' in args) == (refine and expected_column_budget is not None)
+if expected_column_budget is not None:
+    assert int(args[args.index('--max-relation-columns') + 1]) == expected_column_budget
 assert ('--deep-verification' in args) == (not refine and expected_deep)
 assert ('--no-deep-verification' in args) == (not refine and not expected_deep)
 assert ('--previous-artifact' in args) == (expected_previous and '--resume' not in args)
@@ -767,6 +906,7 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                     "swap_growth_stop_bytes_per_second": 0, "swap_growth_stop_seconds": 120}}
         driver = SimpleNamespace(**vars(PRODUCTION))
         native_policy = {**self.policy, "operation": operation, "saved_rule_assistance": saved_rule_assistance,
+                         "max_relation_columns": max_relation_columns,
                          "deep_verification": deep_verification,
                          "circuit_symmetry_assistance": circuit_symmetry_assistance,
                          "containing_sector_depth": containing_sector_depth,
@@ -909,6 +1049,33 @@ class MasterDashboardTests(unittest.TestCase):
         self.assertIn("not requested", shown)
         self.assertNotIn("ROOT CLOSURE", shown)
         self.assertNotIn("Relation work", shown)
+
+    def test_partial_publication_frames_keep_unfinished_refinement_visible(self):
+        for native in (
+                {"operation": "finalize-refinement", "stage": "rebinding retained refinement"},
+                {"operation": "publish", "stage": "collection", "finite_search_complete": False,
+                 "partial_refinement_source": {"status": "failed"}}):
+            frame = TELEMETRY.normalize_status({"state": "running", "master_reduction": native})
+            self.assertEqual(frame["phase"], "Partial refinement publication")
+            self.assertTrue(frame["master_reduction"]["partial_refinement"])
+            for width, height in ((80, 24), (150, 32), (35, 12)):
+                rows = DASHBOARD.render_table(frame, width, height, False)
+                self.assertLessEqual(len(rows), height)
+                self.assertTrue(all(DASHBOARD.cell_width(row) == width for row in rows))
+            shown = "\n".join(DASHBOARD.render_table(frame, 150, 32, False)
+                              + DASHBOARD.plain_summary(frame))
+            self.assertIn("partial retained", shown)
+            self.assertIn("finite search unfinished", shown)
+            self.assertNotIn("not requested", shown)
+            self.assertNotIn("bounded", shown)
+            self.assertNotIn("Relation work", shown)
+        # Starting another explicit search from a partial artifact is still a
+        # refinement run, not a partial-publication operation.
+        frame = TELEMETRY.normalize_status({"master_reduction": {
+            "operation": "refine", "finite_search_complete": False,
+            "partial_refinement_source": {"status": "failed"}}})
+        self.assertFalse(frame["master_reduction"]["partial_refinement"])
+        self.assertEqual(frame["phase"], "Master refinement")
 
     def test_deep_publication_only_reports_success_from_native_assurance(self):
         frame = TELEMETRY.normalize_status({"state": "published_unrefined", "master_reduction": {

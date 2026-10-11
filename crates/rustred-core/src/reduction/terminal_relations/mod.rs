@@ -258,6 +258,21 @@ impl TerminalRelationSession {
             && self.seed_cursor == self.seeds.len()
             && self.assistance.as_ref().is_none_or(|a| a.is_complete())
     }
+    /// Change an operational column budget without restarting the exact row
+    /// space or finite source cursor. `None` removes this optional budget;
+    /// native representation and binary-input bounds still apply.
+    pub fn set_max_columns(
+        &mut self,
+        maximum: Option<usize>,
+    ) -> Result<(), TerminalRelationError> {
+        let maximum = maximum.unwrap_or(usize::MAX);
+        if maximum == 0 {
+            return Err(invalid("column budget must be positive or absent"));
+        }
+        check("columns", self.columns.len(), maximum)?;
+        self.limits.max_columns = maximum;
+        Ok(())
+    }
     pub fn statistics(&self) -> TerminalRelationStats {
         TerminalRelationStats {
             raw_terminals: self.raw.len(),

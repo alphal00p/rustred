@@ -51,6 +51,7 @@ fn limits(report: &Value) -> Result<TerminalCollectionLimits, AppError> {
     let selected = if recipe.is_object() {
         if recipe["recipe"] != "terminal-collection-limits-v1"
             && recipe["recipe"] != "terminal-collection-limits-v2"
+            && recipe["recipe"] != "terminal-collection-limits-v3"
         {
             return Err(AppError::input(
                 "unknown terminal collection resource recipe",
@@ -79,6 +80,26 @@ fn limits(report: &Value) -> Result<TerminalCollectionLimits, AppError> {
     let mut limits = TerminalCollectionLimits::default();
     limits.diagonal.aliases.parametric = selected.normalization_limits().parametric;
     limits.finite_feedback.aliases.parametric = selected.normalization_limits().parametric;
+    if !recipe.is_object() || recipe["recipe"] == "terminal-collection-limits-v3" {
+        // Composition carries guards from the full retained row space, even
+        // when no diagonal discovery runs. Keep those aggregate outputs RAM-
+        // governed too; the diagonal source-search budgets remain unchanged.
+        limits.max_composed_terms = usize::MAX;
+        limits.diagonal.max_conditions = usize::MAX;
+        // Feedback consumes the retained finite row space. Do not reintroduce
+        // the removed million-column cap one phase after ordinary elimination.
+        // The supervisor guards RAM; exact operation and binary limits remain.
+        let feedback = &mut limits.finite_feedback;
+        feedback.max_source_rows = usize::MAX;
+        feedback.max_source_terms = usize::MAX;
+        feedback.max_columns = usize::MAX;
+        feedback.max_reducer_nonzeros = usize::MAX;
+        feedback.max_replay_operations = usize::MAX;
+        feedback.max_coefficient_terms = usize::MAX;
+        feedback.max_flat_map_terms = usize::MAX;
+        feedback.max_conditions = usize::MAX;
+        feedback.aliases.max_terminals = usize::MAX;
+    }
     let mut expected = limit_snapshot(limits);
     if recipe["recipe"] == "terminal-collection-limits-v1" {
         expected.as_object_mut().unwrap().remove("finite_feedback");
@@ -95,6 +116,16 @@ fn limit_snapshot(limits: TerminalCollectionLimits) -> Value {
     json!({"max_composed_terms":limits.max_composed_terms,"max_proof_layers":limits.max_proof_layers,
         "diagonal":budget_snapshot(limits.diagonal),
         "finite_feedback":budget_snapshot(limits.finite_feedback)})
+}
+
+fn collection_io_limits() -> BinaryIoLimits {
+    let mut limits = BinaryIoLimits::default();
+    // Collection maps carry a u32 atom ID for every retained guard occurrence.
+    // A valid finite matrix can have >8M such references while staying well
+    // inside the existing 1GiB payload budget. Tie their allowance to that
+    // structural storage budget; keep byte, atom and algebra checks intact.
+    limits.max_collection_entries = limits.max_program_bytes / std::mem::size_of::<u32>();
+    limits
 }
 
 fn budget_snapshot(d: VacuumDiagonalCollectionLimits) -> Value {
@@ -134,10 +165,67 @@ fn record_limits(report: &mut Value) -> Result<(), AppError> {
         MasterNormalizationProfile::ConservativeV1
     };
     let mut recipe =
-        json!({"recipe":"terminal-collection-limits-v2","bounds":limit_snapshot(value)});
+        json!({"recipe":"terminal-collection-limits-v3","bounds":limit_snapshot(value)});
     profile::record(&mut recipe, selected);
     report["collection_limits"] = recipe;
     Ok(())
+}
+
+#[cfg(test)]
+mod resource_recipe_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_recipes_keep_their_bounds_and_new_feedback_has_no_count_ceiling() {
+        let mut old = TerminalCollectionLimits::default();
+        let profile = MasterNormalizationProfile::ConservativeV1;
+        old.diagonal.aliases.parametric = profile.normalization_limits().parametric;
+        old.finite_feedback.aliases.parametric = profile.normalization_limits().parametric;
+        let mut recipe = json!({
+            "recipe":"terminal-collection-limits-v2", "bounds":limit_snapshot(old)
+        });
+        profile::record(&mut recipe, profile);
+        let decoded = limits(&json!({"collection_limits":recipe})).unwrap();
+        assert_eq!(
+            decoded.finite_feedback.max_columns,
+            old.finite_feedback.max_columns
+        );
+        let mut report = json!({});
+        profile::record(&mut report, profile);
+        record_limits(&mut report).unwrap();
+        let current = limits(&report).unwrap();
+        assert_eq!(current.finite_feedback.max_columns, usize::MAX);
+        assert_eq!(current.finite_feedback.max_source_rows, usize::MAX);
+        assert_eq!(current.diagonal.max_columns, old.diagonal.max_columns);
+        assert_eq!(current.diagonal.max_conditions, usize::MAX);
+        assert_eq!(current.max_composed_terms, usize::MAX);
+        assert_eq!(
+            current.diagonal.max_source_rows,
+            old.diagonal.max_source_rows
+        );
+        assert_eq!(
+            current
+                .finite_feedback
+                .algebra
+                .exact_algebra
+                .max_polynomial_terms,
+            old.finite_feedback
+                .algebra
+                .exact_algebra
+                .max_polynomial_terms
+        );
+        report["collection_limits"]["recipe"] = json!("terminal-collection-limits-v2");
+        assert!(limits(&report).is_err());
+        let wire = collection_io_limits();
+        assert_eq!(
+            wire.max_program_bytes,
+            BinaryIoLimits::default().max_program_bytes
+        );
+        assert_eq!(
+            wire.max_collection_entries * std::mem::size_of::<u32>(),
+            wire.max_program_bytes
+        );
+    }
 }
 
 /// Application-aware publication. `primary_session()` is the finite search
@@ -181,7 +269,7 @@ pub fn load_master_reduction(path: &Path) -> Result<MasterReductionArtifact, App
             &bytes,
             &sessions,
             limits(&report)?,
-            BinaryIoLimits::default(),
+            collection_io_limits(),
         )
         .map_err(io)?
     } else {
@@ -321,6 +409,28 @@ pub(super) fn inherit(source: &Path, output: &Path, report: &mut Value) -> Resul
         )?];
         inputs.extend(members);
         report["inherited_collection"] = json!({"native_state":state,"sessions":inputs,"collection_limits":source_report["collection_limits"]});
+    } else if source_report["inherited_collection"].is_object() {
+        // An unfinished refinement has not rebound its inherited maps yet.
+        // Preserve their frozen sessions too when publishing its durable work;
+        // the current primary cursor is not the proof's original input.
+        let capsule = &source_report["inherited_collection"];
+        let sessions = capsule["sessions"]
+            .as_array()
+            .ok_or_else(|| AppError::input("inherited collection sessions missing"))?
+            .iter()
+            .map(|member| copy_member(source, output, member))
+            .collect::<Result<Vec<_>, _>>()?;
+        let state = write_state(
+            output,
+            &read_state(source, &capsule["native_state"])?,
+            "collection-inherited",
+        )?;
+        report["inherited_collection"] = json!({"native_state":state,"sessions":sessions,"collection_limits":capsule["collection_limits"]});
+    } else {
+        report
+            .as_object_mut()
+            .unwrap()
+            .remove("inherited_collection");
     }
     report["collection_state"] = Value::Null;
     report.as_object_mut().unwrap().remove("collection_limits");
@@ -496,11 +606,16 @@ pub(super) fn complete(
             .map(|member| load_member(&options.directory, member))
             .collect::<Result<Vec<_>, _>>()?;
         let prior_refs = prior.iter().collect::<Vec<_>>();
+        let prior_limits = self::limits(&json!({
+            "collection_limits": capsule["collection_limits"],
+            "normalization_profile": report["normalization_profile"],
+            "normalization_limits": report["normalization_limits"],
+        }))?;
         let old = TerminalCollectionPlan::from_native_bytes(
             &read_state(&options.directory, &capsule["native_state"])?,
             &prior_refs,
-            limits,
-            BinaryIoLimits::default(),
+            prior_limits,
+            collection_io_limits(),
         )
         .map_err(io)?;
         if finite_feedback {
@@ -520,9 +635,7 @@ pub(super) fn complete(
         TerminalCollectionPlan::from_sessions(&sessions, limits).map_err(io)?
     };
     let elapsed = timer.elapsed().as_secs_f64();
-    let bytes = plan
-        .to_native_bytes(BinaryIoLimits::default())
-        .map_err(io)?;
+    let bytes = plan.to_native_bytes(collection_io_limits()).map_err(io)?;
     report["collection_state"] = write_state(&options.directory, &bytes, "collection")?;
     let statistics = plan.statistics();
     report["collection"] = json!({"strategy":STRATEGY,"status":"completed","preparation_seconds":elapsed,

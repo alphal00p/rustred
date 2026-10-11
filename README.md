@@ -321,6 +321,8 @@ python -B examples/python/saved_campaign.py inspect --campaign "$CAMPAIGN"
 python -B examples/python/saved_campaign.py extend --campaign "$CAMPAIGN" --rank 1
 # Optional, only when wanted:
 python -B examples/python/saved_campaign.py refine --campaign "$CAMPAIGN" --seed-depth 0
+# After a refinement pauses or fails, retain its proved maps before extending:
+python -B examples/python/saved_campaign.py finalize-refinement --campaign "$CAMPAIGN"
 # Optional independent graph/geometry reinspection (potentially expensive):
 python -B examples/python/saved_campaign.py publish --campaign "$CAMPAIGN" --deep-verification
 ```
@@ -369,6 +371,27 @@ is unfinished. Remaining masters are a nonminimal candidate basis, not numerical
 values. These packages preserve native programs, routing and terminal relations
 for later Vakint integration; the saved-campaign engine does not yet provide
 general coefficient back-substitution through its dependency traces.
+
+`finalize-refinement` publishes a separate artifact from a stopped refinement's
+durable exact rows and previously proved collection maps. It finishes any
+pending row reindexing and preserves guards, provenance and saved-scope
+assurance. The finite search stays incomplete, and its original checkpoint is
+retained for a later explicit `refine`. Extension requires this step when an
+unfinished current-scope refinement has not yet been retained, so later
+publication carries its proved substitutions forward without new Laporta work.
+Only checkpointed progress is retained; unsaved live progress is not exported.
+
+The application relation search has no preset aggregate seed, source-row,
+column or nonzero count ceiling by default; campaign RAM guards remain active,
+alongside normalization, exact-operation and binary-input bounds. Use
+`refine --max-relation-columns N` for an optional column budget, or `0` to remove
+it. Omission retains the saved budget or the unlimited default. To resume the
+same finite cursor using the current executable after a column-budget stop:
+
+```bash
+python -B examples/python/saved_campaign.py refine --campaign "$CAMPAIGN" \
+  --executable "$PWD/target/release/rustred" --max-relation-columns 0
+```
 
 Explicit `refine` also collects compatible scalar/dotted unit-mass vacuum
 terminals using exact full-U aliases and native diagonal ordinary IBPs. This

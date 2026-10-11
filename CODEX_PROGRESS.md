@@ -1,5 +1,56 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 11 — retain stopped refinement and remove arbitrary count ceiling
+
+User requests both the `1000001 exceeds 1000000` repair and preservation of
+proved finite refinements in later solves, without new discovery during extend.
+Plan: `REFINEMENT_RETENTION_PLAN.md`. Source baseline: main `0890579f`.
+Implementation: root (operational budgets/collection recipe); agents
+`refinement_partial_export` (native immutable export), `refinement_steering`
+(CLI/Python workflow); independent audit: `refinement_budget_audit`.
+
+Read-only diagnosis of THE_ONE: the failed search reached 481,131/600,250
+source rows and 999,953 columns in its last live event, using only 3.15 GB peak
+RSS against a 600 GB ceiling. Its durable generation-2 state contains 273,492
+completed rows, 575,189 columns and 31 eliminations (939 → 908); the later live
+34 eliminations were not saved. The 114.9 GB inventory figure is inherited
+publication metadata, not refinement RSS. No evidence of a memory runaway;
+the stopping cause was the hard-coded count limit.
+
+Implemented an optional operational column cap, changeable on resume without
+changing mathematical search identity; default application aggregate counters
+are RAM-governed. Native structural/serialization and checked Symbolica index
+limits remain. Collection recipe v3 prevents a second million-column cap in
+retained-row feedback; old recipes are authenticated with their original bounds.
+Explicit `finalize-refinement` exports durable exact work from a stopped search,
+with source guards, pending cursors and inherited collection maps intact. It
+does not complete new IBP sources or claim a finished refinement. An extension
+must not silently discard compatible unretained work. Production THE_ONE is
+currently solving its next extension and remains untouched.
+
+Validation complete: 89 native optimized regressions (21 core, 48 application,
+16 CLI/master-table, 4 artifact inspection) and 129 Python regressions passed.
+Independent final audit found no remaining blocker. Actual failed-state export
+on a private copy retained all 31 durable eliminations (939 → 908), with native
+state byte-identical to the source, unchanged cursors and incomplete-search flags.
+Source hashes were unchanged after export and cold reload. Two independent
+exports produced identical native and collection payloads. Measured export:
+73.992 s wall, 62.870 s user + 10.441 s system CPU, 12.495 GB peak RSS;
+fresh-process cold reload: 68.856 s. This is retention cost, not a solve-speedup
+claim; no new source search or full 600,250-row rerun was performed.
+
+Final optimized executable: `TMP/refinement-retention-20261011/rustred-refinement-retention`
+(also `target/release/rustred`), SHA-256
+`fe3f1d9167e931d9179240a61202f0c6340252b93aae9a484133d0cfe1a46050`.
+Evidence and exact native command: `TMP/refinement-retention-20261011/` and
+`docs/research/refinement_retention_2026-10-11.md`. High-level next command for
+a stopped refinement of the current scope is
+`python -B examples/python/saved_campaign.py finalize-refinement --campaign "$RUSTRED_CAMPAIGN" --executable "$PWD/target/release/rustred"`.
+An already superseded older scope is not silently rolled back or injected into
+the running next-rank campaign. Implementation and audit are delivered; the
+remaining handoff is the task-scoped commit/push. Production and unrelated
+changes remain untouched. No further optimization is scheduled for this task.
+
 ## October 11 — incremental publication work started
 
 User authorizes faster subsequent rank publications while current rank-6

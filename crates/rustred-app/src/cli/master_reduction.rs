@@ -14,6 +14,7 @@ use std::time::Duration;
 pub(crate) struct MasterArgs {
     pub command: PathBuf,
     pub artifact: Option<PathBuf>,
+    pub partial_refinement: Option<PathBuf>,
     pub operation: crate::MasterReductionOperation,
     pub checkpoint: PathBuf,
     pub directory: PathBuf,
@@ -30,6 +31,7 @@ pub(crate) struct MasterArgs {
     pub circuit_symmetry_assistance: bool,
     pub finite_feedback: Option<bool>,
     pub normalization_profile: Option<crate::MasterNormalizationProfile>,
+    pub max_relation_columns: Option<usize>,
     pub checkpoint_interval_seconds: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,6 +44,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
     let mut result = MasterArgs {
         command: PathBuf::new(),
         artifact: None,
+        partial_refinement: None,
         operation: crate::MasterReductionOperation::Refine,
         checkpoint: PathBuf::new(),
         directory: PathBuf::new(),
@@ -58,6 +61,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
         circuit_symmetry_assistance: false,
         finite_feedback: None,
         normalization_profile: None,
+        max_relation_columns: None,
         checkpoint_interval_seconds: 3600,
     };
     let mut seen = BTreeSet::new();
@@ -83,6 +87,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--finite-feedback" => "--finite-feedback",
             "--no-finite-feedback" => "--no-finite-feedback",
             "--normalization-profile" => "--normalization-profile",
+            "--max-relation-columns" => "--max-relation-columns",
             "--checkpoint-interval-seconds" => "--checkpoint-interval-seconds",
             _ => return Err(ArgError::UnknownOption(option)),
         };
@@ -126,6 +131,15 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--threads" => {
                 result.threads =
                     parse_positive_integer(option, next_utf8_value(&mut args, option)?)?
+            }
+            "--max-relation-columns" => {
+                let value = next_utf8_value(&mut args, option)?;
+                let limit: usize = value.parse().map_err(|_| ArgError::InvalidValue {
+                    option,
+                    value,
+                    expected: "a nonnegative integer (0 means unlimited)",
+                })?;
+                result.max_relation_columns = Some(limit);
             }
             "--seed-depth" => {
                 let value = next_utf8_value(&mut args, option)?;
@@ -223,11 +237,57 @@ pub(super) fn parse_publish(args: impl Iterator<Item = OsString>) -> Result<Comm
         || args.finite_feedback.is_some()
         || args.containing_sector_depth != 0
         || !args.collection_artifacts.is_empty()
+        || args.max_relation_columns.is_some()
     {
         return Err(ArgError::InvalidCombination(
             "additional terminal-search strategies require refinement and cannot be used with walk-publish",
         ));
     }
+    args.operation = crate::MasterReductionOperation::Publish;
+    Ok(Command::WalkMasterReduce(args))
+}
+
+pub(super) fn parse_finalize(
+    mut args: impl Iterator<Item = OsString>,
+) -> Result<Command, ArgError> {
+    // Keep export controls separate from the search recipe: this command may
+    // materialize proved maps, but must never start another finite search.
+    let mut forwarded = Vec::new();
+    while let Some(option) = args.next() {
+        let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
+        match option.as_str() {
+            "--resume" => forwarded.push(OsString::from(option)),
+            "--refinement"
+            | "--directory"
+            | "--threads"
+            | "--events"
+            | "--stop-file"
+            | "--checkpoint-interval-seconds" => {
+                let value = next_value(
+                    &mut args,
+                    match option.as_str() {
+                        "--refinement" => "--refinement",
+                        "--directory" => "--directory",
+                        "--threads" => "--threads",
+                        "--events" => "--events",
+                        "--stop-file" => "--stop-file",
+                        _ => "--checkpoint-interval-seconds",
+                    },
+                )?;
+                forwarded.push(OsString::from(if option == "--refinement" {
+                    "--artifact"
+                } else {
+                    &option
+                }));
+                forwarded.push(value);
+            }
+            _ => return Err(ArgError::UnknownOption(option)),
+        }
+    }
+    let Command::WalkMasterReduce(mut args) = parse(forwarded.into_iter())? else {
+        unreachable!()
+    };
+    args.partial_refinement = args.artifact.take();
     args.operation = crate::MasterReductionOperation::Publish;
     Ok(Command::WalkMasterReduce(args))
 }
@@ -291,7 +351,8 @@ pub(super) fn inspect(args: MasterInspectArgs) -> Result<(), CliError> {
 
 pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     super::routed::preflight_inner_pools()?;
-    let (request, mut protected) = if let Some(source) = &args.artifact {
+    let source = args.artifact.as_ref().or(args.partial_refinement.as_ref());
+    let (request, mut protected) = if let Some(source) = source {
         (None, vec![artifact_directory(source)?])
     } else {
         let file =
@@ -309,7 +370,7 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
         let request = super::owner_match::walk_request_from_argv(argv).map_err(CliError::Input)?;
         (Some(request), protected)
     };
-    if args.artifact.is_none() {
+    if source.is_none() {
         protected.extend([args.command.clone(), args.checkpoint.clone()]);
     }
     if let Some(previous) = &args.previous_artifact {
@@ -341,11 +402,15 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     }
     // The phase directory must never be an original input/checkpoint or its
     // ancestor. Explicit paths avoid accidental writes to production state.
-    std::fs::create_dir_all(&args.directory).map_err(|e| CliError::OutputIo(e.to_string()))?;
-    let directory = args
-        .directory
-        .canonicalize()
-        .map_err(|e| CliError::InputIo(e.to_string()))?;
+    let directory = if args.partial_refinement.is_some() {
+        // Native export acquires the source lock before creating its output.
+        prospective_path(&args.directory)?
+    } else {
+        std::fs::create_dir_all(&args.directory).map_err(|e| CliError::OutputIo(e.to_string()))?;
+        args.directory
+            .canonicalize()
+            .map_err(|e| CliError::InputIo(e.to_string()))?
+    };
     let mut options = crate::MasterReductionOptions::new(&args.checkpoint, &directory);
     options.operation = args.operation;
     options.resume = args.resume;
@@ -359,6 +424,7 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     options.circuit_symmetry_assistance = args.circuit_symmetry_assistance;
     options.finite_feedback = args.finite_feedback;
     options.normalization_profile = args.normalization_profile;
+    options.max_relation_columns = args.max_relation_columns;
     options.checkpoint_interval = Duration::from_secs(args.checkpoint_interval_seconds);
     let cancel = Arc::new(AtomicBool::new(false));
     let finished = Arc::new(AtomicBool::new(false));
@@ -407,7 +473,9 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
                 let _ = writeln!(std::io::stderr().lock(), "{event}");
             }
         };
-        let result = if let Some(source) = &args.artifact {
+        let result = if let Some(source) = &args.partial_refinement {
+            crate::master_publish_partial_refinement(source, &options, &cancel, observe)
+        } else if let Some(source) = &args.artifact {
             crate::master_refine_published_artifact(source, &options, &cancel, observe)
         } else {
             crate::master_reduce_saved_campaign(
@@ -469,6 +537,67 @@ fn prospective_path(path: &Path) -> Result<PathBuf, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partial_publication_has_no_search_controls() {
+        let Command::WalkMasterReduce(args) = parse_finalize(
+            ["--refinement", "stopped", "--directory", "out", "--resume"]
+                .map(OsString::from)
+                .into_iter(),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(args.operation, crate::MasterReductionOperation::Publish);
+        assert_eq!(args.partial_refinement, Some(PathBuf::from("stopped")));
+        assert!(args.artifact.is_none());
+        assert!(args.resume);
+        for option in [
+            "--seed-depth",
+            "--max-relation-columns",
+            "--saved-rule-assistance",
+            "--artifact",
+        ] {
+            assert!(
+                parse_finalize(
+                    ["--refinement", "stopped", "--directory", "out", option, "1"]
+                        .map(OsString::from)
+                        .into_iter()
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn relation_column_budget_distinguishes_omission_finite_and_explicit_unlimited() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        let Command::WalkMasterReduce(default) =
+            parse(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(default.max_relation_columns, None);
+        for (limit, expected) in [("0", Some(0)), ("2000000", Some(2_000_000))] {
+            let Command::WalkMasterReduce(args) = parse(
+                base.into_iter()
+                    .chain(["--max-relation-columns", limit])
+                    .map(OsString::from),
+            )
+            .unwrap() else {
+                panic!()
+            };
+            assert_eq!(args.max_relation_columns, expected);
+        }
+        assert!(
+            parse(
+                base.into_iter()
+                    .chain(["--max-relation-columns", "-1"])
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+    }
     #[test]
     fn normalization_profile_is_optional_explicit_and_validated() {
         let base = ["--artifact", "source", "--directory", "out"];

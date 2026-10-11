@@ -49,7 +49,7 @@ def native_executable(campaign, supplied=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     commands = parser.add_subparsers(dest="action", required=True)
-    for action in ("run", "extend", "inspect", "refine", "publish"):
+    for action in ("run", "extend", "inspect", "refine", "finalize-refinement", "publish"):
         sub = commands.add_parser(action, allow_abbrev=False)
         sub.add_argument("--campaign", type=Path, required=True)
         sub.add_argument("--executable", type=Path, help="publisher/refiner/inspector binary (default current optimized build)")
@@ -66,6 +66,8 @@ def main(argv=None):
             bounds.add_argument("--max-power-difference", type=int, help="new D=A-R ceiling; omitted preserves current ceiling")
             bounds.add_argument("--unbounded-power-difference", action="store_true", help="remove only the additional stage ceiling")
         if action == "refine":
+            sub.add_argument("--max-relation-columns", type=int,
+                             help="operational column budget; 0 removes the limit (default saved preference or unlimited); may change on resume")
             sub.add_argument("--collection-artifact", type=Path, action="append", default=[],
                              help="also collect terminals from a compatible published artifact (repeatable; native preparation remains in Rust)")
             sub.add_argument("--normalization-profile", choices=("conservative", "standard"),
@@ -107,6 +109,10 @@ def main(argv=None):
                 command += ["--executable", str(executable)]
             if args.action == "refine":
                 command.append("--refine-masters")
+                if args.max_relation_columns is not None:
+                    if args.max_relation_columns < 0:
+                        raise ValueError("max relation columns must be nonnegative (0 means unlimited)")
+                    command += ["--master-max-relation-columns", str(args.max_relation_columns)]
                 for artifact in args.collection_artifact:
                     command += ["--master-collection-artifact", str(artifact.resolve())]
                 if args.normalization_profile is not None:
@@ -128,6 +134,8 @@ def main(argv=None):
                     if args.containing_sector_depth < 0:
                         raise ValueError("containing-sector depth must be nonnegative")
                     command += ["--master-containing-sector-depth", str(args.containing_sector_depth)]
+            elif args.action == "finalize-refinement":
+                command.append("--finalize-refinement")
             elif args.action == "publish":
                 command.append("--publish-only")
             if args.action in ("run", "extend", "publish") and args.deep_verification is not None:

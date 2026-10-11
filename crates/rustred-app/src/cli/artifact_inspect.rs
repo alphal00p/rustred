@@ -282,15 +282,7 @@ pub(super) fn run(args: InspectArgs) -> Result<(), CliError> {
             json!("explicit artifact; not necessarily latest campaign result");
         report
     };
-    if report["refinement_status"].is_null() {
-        report["refinement_status"] = json!(if report["status"] == "published_unrefined" {
-            "not requested"
-        } else if report["status"] == "completed_nonminimal" {
-            "finite search completed; nonminimal"
-        } else {
-            "unfinished"
-        });
-    }
+    summarize_refinement(&mut report);
     let tty = std::io::stdout().is_terminal();
     if args.format == "json" || args.format == "auto" && !tty {
         println!(
@@ -311,9 +303,37 @@ pub(super) fn run(args: InspectArgs) -> Result<(), CliError> {
     Ok(())
 }
 
+fn summarize_refinement(report: &mut Value) {
+    if report["partial_refinement_source"].is_object() && report["finite_search_complete"] == false
+    {
+        report["refinement_status"] = json!("partial retained; search unfinished");
+    } else if report["refinement_status"].is_null() {
+        report["refinement_status"] = json!(if report["status"] == "published_unrefined" {
+            "not requested"
+        } else if report["status"] == "completed_nonminimal" {
+            "finite search completed; nonminimal"
+        } else {
+            "unfinished"
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partial_refinement_summary_preserves_unfinished_search() {
+        let mut report = json!({"status":"published_unrefined", "finite_search_complete":false});
+        summarize_refinement(&mut report);
+        assert_eq!(report["refinement_status"], "not requested");
+        report["partial_refinement_source"] = json!({"status":"failed"});
+        summarize_refinement(&mut report);
+        assert_eq!(
+            report["refinement_status"],
+            "partial retained; search unfinished"
+        );
+    }
 
     #[test]
     fn artifact_inspect_requires_one_source_and_valid_format() {

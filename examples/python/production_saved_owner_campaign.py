@@ -1114,6 +1114,10 @@ def main(argv=None):
                             help="explicit refinement only: require the current completed artifact; never start a solve")
     postprocess.add_argument("--publish-only", action="store_true",
                             help="publish an already completed current checkpoint; never start a solve")
+    postprocess.add_argument("--finalize-refinement", action="store_true",
+                            help="publish proved maps from the stopped current refinement without finishing its finite search")
+    parser.add_argument("--master-max-relation-columns", type=int,
+                        help="only with --refine-masters: operational column budget; 0 removes it; may change on resume")
     parser.add_argument("--master-seed-depth", type=int,
                         help="phase-two ordinary-IBP seed depth (default 0); may increase with exact previous-row reuse")
     parser.add_argument("--master-containing-sector-depth", type=int,
@@ -1259,7 +1263,12 @@ def main(argv=None):
                                             normalization_profile=args.master_normalization_profile,
                                             collection_artifacts=args.master_collection_artifact,
                                             finite_feedback=args.master_finite_feedback,
-                                            deep_verification=args.deep_verification)
+                                            deep_verification=args.deep_verification,
+                                            max_relation_columns=args.master_max_relation_columns)
+        if args.finalize_refinement:
+            if args.deep_verification is not None:
+                raise ValueError("deep verification applies to publication, not finalize-refinement")
+            phase_policy["operation"] = "finalize-refinement"
     except (OSError, ValueError, TypeError) as error:
         parser.error(str(error))
     if (args.epoch_inspector_lookup is not None or args.epoch_rolling or args.epoch_dispatch is not None
@@ -1449,7 +1458,7 @@ def main(argv=None):
             from types import SimpleNamespace
             driver = SimpleNamespace(**globals())
             return phases.run(plan, phase_policy, args.resume, driver,
-                              postprocess_only=args.publish_only or args.refine_masters)
+                              postprocess_only=args.publish_only or args.refine_masters or args.finalize_refinement)
         except (OSError, ValueError, TypeError) as error:
             parser.error(str(error))
     write_json(campaign / "active-run.json", plan)

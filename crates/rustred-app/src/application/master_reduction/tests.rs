@@ -12,6 +12,8 @@ mod collection_tests;
 mod inherited_tests;
 #[path = "tests/profile.rs"]
 mod profile_tests;
+#[path = "tests/resource_budget.rs"]
+mod resource_budget_tests;
 
 pub(super) struct Scratch(pub(super) PathBuf);
 impl Scratch {
@@ -827,3 +829,5 @@ fn containing_sector_policy_is_durable_and_resume_cannot_change_it() {
     assert!(assistance::configure(&options, &mut restored, &mut report).is_err());
     assert_eq!(restored.statistics(), before);
 }
+#[path = "tests/partial.rs"]
+mod partial_tests;

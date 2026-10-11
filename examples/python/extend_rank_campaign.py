@@ -266,6 +266,7 @@ def extend(campaign, rank, *, max_power_difference=PRESERVE_DIFFERENCE, dry_run=
     with PRODUCTION.checkpoint_lock(checkpoint), PRODUCTION.existing_phase_lock(campaign):
         if PRODUCTION.campaign_run_liveness(campaign):
             raise ValueError("campaign started while acquiring checkpoint lock; wait for an orderly exit")
+        PRODUCTION.PHASES.require_retained_refinement(campaign)
         path, raw, receipt = plan(campaign, rank, max_power_difference=max_power_difference)
         if not dry_run:
             directory = path.parent

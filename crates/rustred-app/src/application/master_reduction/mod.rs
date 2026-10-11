@@ -1,9 +1,11 @@
 //! Optional finite, resumable master-candidate reduction after a saved walk.
 //! CP6 coverage and finite IBP row-span identities remain distinct authorities.
 mod assistance;
+mod budget;
 mod census_cache;
 mod collection;
 mod inherited;
+mod partial;
 mod profile;
 mod refine;
 mod storage;
@@ -24,6 +26,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use storage::{io, read_json, write_json};
 
 pub use collection::{MasterReductionArtifact, load_master_reduction};
+pub use partial::master_publish_partial_refinement;
 pub use profile::MasterNormalizationProfile;
 pub use refine::master_refine_published_artifact;
 
@@ -70,6 +73,10 @@ pub struct MasterReductionOptions {
     /// Omitted on a new refinement inherits its source; omitted on resume
     /// inherits the checkpoint. Explicit changes require a new phase.
     pub normalization_profile: Option<MasterNormalizationProfile>,
+    /// Optional operational column cap for finite refinement. Omitted on resume
+    /// inherits its snapshot; zero explicitly removes the cap. New phases have
+    /// no application-level column cap and use the supervisor's RAM guard.
+    pub max_relation_columns: Option<usize>,
     pub checkpoint_interval: Duration,
     pub operation: MasterReductionOperation,
 }
@@ -90,6 +97,7 @@ impl MasterReductionOptions {
             circuit_symmetry_assistance: false,
             finite_feedback: None,
             normalization_profile: None,
+            max_relation_columns: None,
             checkpoint_interval: Duration::from_secs(3600),
             operation: MasterReductionOperation::Refine,
         }
@@ -428,6 +436,11 @@ fn run(
                 ));
             }
             let mut previous_session = load_master_relation_session(previous)?;
+            if previous_report["finite_search_complete"] == false {
+                if let Some(provenance) = previous_report.get("partial_refinement_source") {
+                    report["partial_refinement_source"] = provenance.clone();
+                }
+            }
             collection::inherit(previous, &options.directory, report)?;
             if previous_session.family_owner().fingerprint()
                 != inventory.family_owner().fingerprint()
@@ -505,7 +518,11 @@ fn execute_session(
     observer: &impl Fn(Value),
     started: Instant,
 ) -> Result<(), AppError> {
+    budget::configure(options, session, report)?;
     let mut provider = assistance::prepare(options, session, report, cancel, observer, started)?;
+    // Changing an equation-provider policy can replace the native session.
+    budget::configure(options, session, report)?;
+    write_json(&options.directory.join("latest.json"), report)?;
     let mut last_checkpoint = Instant::now();
     let mut last_event = Instant::now();
     while !session.is_complete() && !cancel.load(Ordering::Relaxed) {

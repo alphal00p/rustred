@@ -49,7 +49,8 @@ def digest(path):
 
 def configuration(campaign, enabled=False, seed_depth=None, executable=None, saved_rule_assistance=None,
                   containing_sector_depth=None, circuit_symmetry_assistance=None, normalization_profile=None,
-                  collection_artifacts=None, finite_feedback=None, deep_verification=None):
+                  collection_artifacts=None, finite_feedback=None, deep_verification=None,
+                  max_relation_columns=None):
     """Read-only configuration. Only this invocation can request refinement.
 
     Historical ``enabled`` policies retain executable/search preferences, never
@@ -57,6 +58,10 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
     """
     path = Path(campaign) / "master-reduction" / "policy.json"
     existing = read_json(path) if path.is_file() else None
+    if max_relation_columns is not None and (type(max_relation_columns) is not int or max_relation_columns < 0):
+        raise ValueError("master max relation columns must be nonnegative (0 means unlimited)")
+    if max_relation_columns is not None and not enabled:
+        raise ValueError("master max relation columns requires explicit --refine-masters")
     if normalization_profile is not None and (not isinstance(normalization_profile, str)
                                                or normalization_profile not in NORMALIZATION_PROFILES):
         raise ValueError("master normalization profile must be conservative or standard")
@@ -85,6 +90,9 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                 or type(existing.get("containing_sector_depth", 0)) is not int
                 or existing.get("containing_sector_depth", 0) < 0):
             raise ValueError("invalid persisted master-reduction policy")
+        cap = existing.get("max_relation_columns")
+        if cap is not None and (type(cap) is not int or cap < 0):
+            raise ValueError("invalid persisted master relation column budget")
         if enabled and seed_depth is not None and seed_depth < existing["seed_depth"]:
             raise ValueError("cannot lower the previous master seed depth")
         if (enabled and containing_sector_depth is not None
@@ -110,6 +118,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("invalid persisted master collection artifacts")
     policy = {**(existing or {}), "schema": SCHEMA, "enabled": True,
             "operation": "refine" if enabled else "publish",
+            "max_relation_columns": ((existing or {}).get("max_relation_columns")
+                                     if max_relation_columns is None else max_relation_columns),
             "seed_depth": (existing or {}).get("seed_depth", 0) if seed_depth is None else seed_depth,
             "saved_rule_assistance": ((existing or {}).get("saved_rule_assistance", False)
                                       if saved_rule_assistance is None else saved_rule_assistance),
@@ -201,6 +211,92 @@ def same_input_scope(left, right):
     return all(left.get("components", {}).get(key) == right.get("components", {}).get(key) for key in fields)
 
 
+def unfinished_refinement(campaign, binding):
+    """Locate the current scope's retained finite cursor without altering it."""
+    campaign = Path(campaign).resolve()
+    path = campaign / "master-reduction/active-phase.json"
+    if not path.is_file():
+        return None
+    active = read_json(path)
+    if active.get("operation") != "refine":
+        return None
+    source = Path(active["directory"]).resolve()
+    if not source.is_relative_to(campaign / "master-reduction/scopes"):
+        raise ValueError("refinement checkpoint must remain inside the campaign scopes directory")
+    if not (source / "latest.json").is_file():
+        return None
+    native = read_json(source / "latest.json")
+    if native.get("status") in ("completed_nonminimal", "published_unrefined"):
+        return None
+    steering = read_json(source / "steering-binding.json")
+    if not same_input_scope(steering.get("scope_binding", {}), binding):
+        return None
+    return {"directory": source, "native": native, "steering": steering, "active": active,
+            "manifest_sha256": digest(source / "latest.json")}
+
+
+def require_retained_refinement(campaign):
+    """Called while extension holds both the checkpoint and dispatcher locks."""
+    campaign = Path(campaign)
+    binding = scope_binding(campaign, campaign / "checkpoints/main")
+    pending = unfinished_refinement(campaign, binding)
+    if pending is None:
+        return
+    previous = completed_artifact(campaign)
+    retained = (previous or {}).get("refinement", {})
+    if (previous and same_input_scope(previous.get("scope_binding", {}), binding)
+            and retained.get("source_directory") == str(pending["directory"].relative_to(campaign.resolve()))
+            and retained.get("source_manifest_sha256") == pending["manifest_sha256"]):
+        completed_path = campaign / "master-reduction/completed-phase.json"
+        if completed_path.is_file():
+            completed = read_json(completed_path)
+            if (Path(completed.get("directory", "")).resolve() == previous["resolved_directory"]
+                    and same_input_scope(completed.get("scope_binding", {}), binding)):
+                return
+    raise ValueError("current scope has unfinished refinement; retain its proved maps before extending: "
+                     f"saved_campaign.py finalize-refinement --campaign {campaign}")
+
+
+def finalize_refinement(plan, policy, binding, request, driver):
+    campaign = Path(plan["campaign_directory"])
+    pending = unfinished_refinement(campaign, binding)
+    if pending is None:
+        raise ValueError("no unfinished refinement checkpoint for the current scope")
+    if pending["native"].get("status") not in ("paused", "failed"):
+        raise ValueError("finalize-refinement requires a stopped paused or failed native refinement checkpoint")
+    source, steering, native = pending["directory"], pending["steering"], pending["native"]
+    refinement = {
+        "source_directory": str(source.relative_to(campaign)),
+        "source_manifest_sha256": pending["manifest_sha256"],
+        "source_artifact": steering["source"],
+        "collection_strategy": COLLECTION_STRATEGY,
+        "collection_inputs": steering.get("collection_inputs", []),
+        "finite_feedback": native.get("finite_feedback", steering.get("finite_feedback", False)),
+        "finite_feedback_recipe": native.get("finite_feedback_recipe", FINITE_FEEDBACK_RECIPE),
+        "seed_depth": native.get("seed_depth", steering.get("seed_depth", 0)),
+        "containing_sector_depth": native.get("containing_sector_depth", steering.get("containing_sector_depth", 0)),
+        "saved_rule_assistance": steering.get("saved_rule_assistance", False),
+        "circuit_symmetry_assistance": steering.get("circuit_symmetry_assistance", False)}
+    key = hashlib.sha256(json.dumps({"partial_refinement": str(source),
+                                    "source_manifest_sha256": pending["manifest_sha256"]},
+                                   sort_keys=True).encode()).hexdigest()
+    target = campaign / "master-reduction/scopes" / key
+    previous = completed_artifact(campaign)
+    if (previous and previous["resolved_directory"] == target
+            and same_input_scope(previous.get("scope_binding", {}), binding)
+            and previous.get("refinement", {}).get("source_manifest_sha256") == pending["manifest_sha256"]):
+        # Repair the second pointer after an interrupted pointer update without
+        # replaying the export or changing the retained source cursor.
+        driver.write_json(campaign / "master-reduction/completed-phase.json", {
+            "schema": SCHEMA, "directory": str(target), "scope_binding": binding,
+            "finite_search_complete": False, "refinement_complete": False,
+            "completed_unix_time": time.time(), "master_minimality_claim": False})
+        print("Proved refinement maps already published; finite search remains incomplete.", flush=True)
+        return 0
+    return phase_two(plan, {**policy, "partial_source": str(source), "partial_refinement": refinement},
+                     request, binding, target, driver)
+
+
 def completed_artifact(campaign):
     path = Path(campaign) / "artifacts/latest.json"
     if not path.is_file():
@@ -260,14 +356,19 @@ def publish_pointer(campaign, directory, binding, operation, driver, refinement=
     # Called under the dispatcher lock, only after native success. An interrupted
     # refinement leaves the last valid publication visible and untouched.
     (Path(campaign) / "artifacts").mkdir(exist_ok=True)
+    native = read_json(Path(directory) / "artifact.json")
+    partial = (native.get("finite_search_complete") is False
+               and isinstance(native.get("partial_refinement_source"), dict))
     driver.write_json(Path(campaign) / "artifacts/latest.json", {
         "schema": "rustred.saved-artifact-pointer.v1",
         "directory": str(Path(directory).resolve().relative_to(Path(campaign).resolve())),
         "scope_binding": binding, "operation": operation,
-        "status": "published_unrefined" if operation == "publish" else "completed_nonminimal",
+        "status": "published_partial_refinement" if partial else
+                  "published_unrefined" if operation == "publish" else "completed_nonminimal",
         "completed_unix_time": time.time(), "master_minimality_claim": False,
-        **normalization_metadata(read_json(Path(directory) / "artifact.json")),
-        **verification_metadata(read_json(Path(directory) / "artifact.json")),
+        **normalization_metadata(native), **verification_metadata(native),
+        **({"finite_search_complete": False, "refinement_complete": False,
+            "partial_refinement_source": native.get("partial_refinement_source")} if partial else {}),
         **({"refinement": refinement} if refinement is not None else {})})
 
 
@@ -363,8 +464,9 @@ def phase_one(command):
 def phase_two(plan, policy, request, binding, directory, driver):
     """Native publication or explicit refinement, never Python algebra."""
     operation = policy.get("operation", "publish")
-    publishing = operation == "publish"
-    phase = "Artifact publication" if publishing else "Master refinement"
+    finalizing = operation == "finalize-refinement"
+    publishing = operation != "refine"
+    phase = "Partial refinement publication" if finalizing else "Artifact publication" if publishing else "Master refinement"
     supervisor = driver.SUPERVISOR
     telemetry, dashboard = supervisor.MONITOR.TELEMETRY, supervisor.MONITOR.DASHBOARD
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
@@ -374,8 +476,11 @@ def phase_two(plan, policy, request, binding, directory, driver):
     executable = driver.steering_executable(plan["steering_policy"])[1]
     if policy.get("executable"):
         executable = Path(plan["campaign_directory"]) / "master-reduction" / policy["executable"]["path"]
-    command = [str(executable), "walk-publish" if publishing else "walk-master-reduce"]
-    if publishing:
+    command = [str(executable), "walk-finalize-refinement" if finalizing else
+               "walk-publish" if publishing else "walk-master-reduce"]
+    if finalizing:
+        command += ["--refinement", str(policy["partial_source"])]
+    elif publishing:
         command += ["--command", str(request), "--checkpoint", plan["checkpoint_directory"]]
         command.append("--deep-verification" if policy.get("deep_verification", False) else "--no-deep-verification")
     else:
@@ -386,6 +491,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                "--threads", str(plan["requested_workers"])]
     if not publishing:
         command += ["--seed-depth", str(policy["seed_depth"])]
+        if policy.get("max_relation_columns") is not None:
+            command += ["--max-relation-columns", str(policy["max_relation_columns"])]
         command.append("--finite-feedback" if policy.get("finite_feedback", True) else "--no-finite-feedback")
         for member in policy.get("collection_artifacts", []):
             command += ["--collection-artifact", member]
@@ -400,7 +507,9 @@ def phase_two(plan, policy, request, binding, directory, driver):
             command += ["--normalization-profile", profile.removesuffix("-v1")]
     if (directory / "latest.json").is_file():
         snapshot = read_json(directory / "latest.json")
-        if publishing:
+        if finalizing:
+            pass  # Native authenticates the retained source generation.
+        elif publishing:
             if snapshot.get("deep_verification", True) != policy.get("deep_verification", False):
                 raise ValueError("cannot change deep verification on resume; start a new publication phase")
         else:
@@ -412,7 +521,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
                         and snapshot.get("finite_feedback_recipe") != FINITE_FEEDBACK_RECIPE)):
                 raise ValueError("cannot change finite feedback on resume; start a new phase directory")
         command.append("--resume")
-    elif publishing:
+    elif publishing and not finalizing:
         previous_path = directory.parent.parent / "completed-phase.json"
         if policy.get("previous_artifact"):
             command += ["--previous-artifact", policy["previous_artifact"]]
@@ -441,16 +550,18 @@ def phase_two(plan, policy, request, binding, directory, driver):
         environment.pop(name, None)
     driver.write_json(attempt / "request.json", {"command": command, "cpus": sorted(cpus),
                       "scope_binding": binding, "phase": phase, "operation": operation})
-    driver.write_json(directory.parent.parent / "active-phase.json", {
-        "schema": SCHEMA, "phase": phase, "operation": operation, "scope_binding": binding["key"],
-        **({"normalization_profile": profile} if not publishing else {}),
-        **({"deep_verification": policy.get("deep_verification", False)} if publishing else {}),
-        "directory": str(directory), "run_directory": str(attempt), "request": str(request)})
+    if not finalizing:
+        driver.write_json(directory.parent.parent / "active-phase.json", {
+            "schema": SCHEMA, "phase": phase, "operation": operation, "scope_binding": binding["key"],
+            **({"normalization_profile": profile} if not publishing else {}),
+            **({"deep_verification": policy.get("deep_verification", False)} if publishing else {}),
+            "directory": str(directory), "run_directory": str(attempt), "request": str(request)})
     presenter = dashboard.Presenter()
     stream = telemetry.TelemetryStream(attempt / "telemetry.jsonl")
     tail = supervisor.MONITOR.EventTail(events)
     latest = {"phase": phase, "operation": operation,
-              "stage": ("independent_graph_replay" if policy.get("deep_verification", False) else "inventory_census")
+              "stage": "rebinding retained refinement" if finalizing else
+                       ("independent_graph_replay" if policy.get("deep_verification", False) else "inventory_census")
                        if publishing else "loading published artifact", "status": "running",
               "seed_depth": policy.get("effective_seed_depth", policy["seed_depth"]), "scope_binding": binding["key"],
               "containing_sector_depth": (policy.get("effective_containing_sector_depth",
@@ -460,7 +571,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
     latest["finite_feedback"] = not publishing and policy.get("finite_feedback", True)
     if not publishing:
         latest["normalization_profile"] = profile
-    else:
+    elif not finalizing:
         latest["deep_verification"] = policy.get("deep_verification", False)
         latest["publication_verification_mode"] = "independent_replay" if latest["deep_verification"] else "inventory"
     checkpoint = {}
@@ -551,7 +662,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
         # The CLI also uses exit 4 for input errors. Only the native event
         # attesting a cooperative pause justifies displaying a resumable pause.
         paused = status == 4 and latest.get("status") == "paused"
-        finished_state = "published_unrefined" if publishing else "completed_nonminimal"
+        finished_state = "published_partial_refinement" if finalizing else "published_unrefined" if publishing else "completed_nonminimal"
         publish(finished_state if status == 0 else "paused" if paused else "failed", force=True)
         driver.write_json(attempt / "supervisor-result.json", {"exit_status": status, "stop_reason": stop_reason,
                           "phase": phase, "operation": operation, "scope_binding": binding["key"],
@@ -562,7 +673,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
             native_artifact = read_json(directory / "artifact.json")
             native_profile = normalization_metadata(native_artifact)
             native_assurance = verification_metadata(native_artifact)
-            if publishing and (native_assurance["deep_verification"] != policy.get("deep_verification", False)
+            if publishing and not finalizing and (native_assurance["deep_verification"] != policy.get("deep_verification", False)
                                or (policy.get("deep_verification", False) and not native_assurance["independently_verified"])):
                 raise ValueError("native artifact verification assurance differs from requested publication")
             if not publishing and native_profile["normalization_profile"] != profile:
@@ -570,11 +681,17 @@ def phase_two(plan, policy, request, binding, directory, driver):
             if not publishing and (native_artifact.get("finite_feedback") != policy.get("finite_feedback", True)
                                    or native_artifact.get("finite_feedback_recipe") != FINITE_FEEDBACK_RECIPE):
                 raise ValueError("native artifact finite feedback recipe differs from requested refinement")
+            if finalizing and (native_artifact.get("finite_search_complete") is not False
+                               or native_artifact.get("refinement_complete") is not False
+                               or not native_artifact.get("partial_refinement_source")):
+                raise ValueError("native partial export must attest incomplete refinement and its source")
+            if finalizing and digest(Path(policy["partial_source"]) / "latest.json") != policy["partial_refinement"]["source_manifest_sha256"]:
+                raise ValueError("refinement source changed during partial export; artifact retained but pointer not updated")
             current = scope_binding(plan["campaign_directory"], plan["checkpoint_directory"])
             if not same_input_scope(current, binding):
                 raise ValueError("campaign scope changed during postprocessing; artifact retained but latest pointer not updated")
             previous = completed_artifact(plan["campaign_directory"])
-            keep_refined = publishing and previous and same_input_scope(previous.get("scope_binding", {}), binding) \
+            keep_refined = publishing and not finalizing and previous and same_input_scope(previous.get("scope_binding", {}), binding) \
                 and previous.get("operation") == "refine" and not policy.get("previous_artifact")
             if not keep_refined:
                 refinement = None if publishing else {
@@ -589,6 +706,10 @@ def phase_two(plan, policy, request, binding, directory, driver):
                         "saved_rule_assistance": policy.get("saved_rule_assistance", False), "source_artifact": str(
                             Path(policy["source_artifact"]).relative_to(Path(plan["campaign_directory"])))}
                 pointer_operation = operation
+                if finalizing:
+                    refinement = {**policy["partial_refinement"], **native_profile,
+                                  "finite_search_complete": False, "refinement_complete": False}
+                    pointer_operation = "refine"
                 if publishing and policy.get("preserved_refinement"):
                     refinement = policy["preserved_refinement"]
                     pointer_operation = "refine"
@@ -604,8 +725,10 @@ def phase_two(plan, policy, request, binding, directory, driver):
                         driver.write_json(policy_path, stored_policy)
             driver.write_json(directory.parent.parent / "completed-phase.json", {
                 "schema": SCHEMA, "directory": str(directory), "scope_binding": binding,
+                **({"finite_search_complete": False, "refinement_complete": False} if finalizing else {}),
                 "completed_unix_time": time.time(), "master_minimality_claim": False})
-            print("Scoped artifact published; master refinement was not requested." if publishing else
+            print("Proved refinement maps published; finite search remains incomplete and its cursor is retained." if finalizing else
+                  "Scoped artifact published; master refinement was not requested." if publishing else
                   "Explicit master refinement completed (bounded search, not a minimality proof).", flush=True)
             if latest.get("artifact"):
                 print("Symbolic artifact: " + str(latest["artifact"]), flush=True)
@@ -621,8 +744,11 @@ def phase_two(plan, policy, request, binding, directory, driver):
                                    else "--no-master-finite-feedback ")
                                 + "--master-normalization-profile " + profile.removesuffix("-v1") + " ") if not publishing else (
                                     "--deep-verification " if policy.get("deep_verification", False) else "--no-deep-verification ")
-            print(f"Resume with: {sys.executable} {Path(driver.__file__).resolve()} --campaign-directory "
-                  f"{plan['campaign_directory']} --resume {refinement_flags}--start", flush=True)
+            if finalizing:
+                print(f"Resume export with: saved_campaign.py finalize-refinement --campaign {plan['campaign_directory']}", flush=True)
+            else:
+                print(f"Resume with: {sys.executable} {Path(driver.__file__).resolve()} --campaign-directory "
+                      f"{plan['campaign_directory']} --resume {refinement_flags}--start", flush=True)
             if not paused:
                 print(f"Native error details: {attempt / 'stderr.log'}", file=sys.stderr)
         return status if status >= 0 else 128 - status
@@ -650,6 +776,10 @@ def run(plan, policy, resume, driver, postprocess_only=False):
             binding = scope_binding(campaign, checkpoint) if (checkpoint / "latest.json").is_file() else None
             request = completed_request(campaign, checkpoint, binding, driver) if (resume or postprocess_only) and binding else None
         operation = policy.get("operation", "publish")
+        if operation == "finalize-refinement":
+            if not binding or request is None:
+                raise ValueError("finalize-refinement requires the completed current input scope")
+            return finalize_refinement(plan, policy, binding, request, driver)
         if operation == "refine":
             previous = completed_artifact(campaign)
             if not previous or not binding or not same_input_scope(previous.get("scope_binding", {}), binding):
@@ -680,6 +810,7 @@ def run(plan, policy, resume, driver, postprocess_only=False):
             collection_inputs.sort(key=lambda value: value["manifest_sha256"])
             policy = {**policy, "collection_inputs": collection_inputs}
             if (previous.get("operation") == "refine"
+                    and previous.get("finite_search_complete", True)
                     and refinement.get("collection_strategy") == COLLECTION_STRATEGY
                     and refinement.get("finite_feedback", False) == policy.get("finite_feedback", True)
                     and (not policy.get("finite_feedback", True)
@@ -761,6 +892,23 @@ def run(plan, policy, resume, driver, postprocess_only=False):
             identity["containing_sector_depth"] = policy["containing_sector_depth"]
         phase_key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         target = directory / "scopes" / phase_key
+        if operation == "refine":
+            pending = unfinished_refinement(campaign, binding)
+            if pending:
+                saved_identity = {key: value for key, value in pending["steering"].items()
+                                  if key not in ("scope_binding", "executable")}
+                candidate_identity = dict(identity)
+                if refinement.get("source_directory") == str(pending["directory"].relative_to(campaign)):
+                    candidate_identity["source"] = pending["steering"]["source"]
+                requested_identity = {key: value for key, value in candidate_identity.items() if key != "executable"}
+                if saved_identity == requested_identity:
+                    # Executable and resource budgets are operational choices.
+                    # Native resume authenticates the mathematical checkpoint.
+                    target = pending["directory"]
+                    identity = candidate_identity
+                    policy = {**policy, "source_artifact": str(campaign / identity["source"])}
+                # A changed search recipe starts from the latest partial artifact
+                # so its already proved maps survive the new finite search.
         target.mkdir(parents=True, exist_ok=True)
         driver.write_json(target / "steering-binding.json", {"scope_binding": binding, **identity})
         return phase_two(plan, policy, request, binding, target, driver)

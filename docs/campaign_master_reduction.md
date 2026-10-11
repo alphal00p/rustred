@@ -25,13 +25,15 @@ python -B examples/python/saved_campaign.py refine --campaign /path/to/campaign 
   --seed-depth 0 --circuit-symmetry-assistance
 python -B examples/python/saved_campaign.py refine --campaign /path/to/campaign \
   --normalization-profile standard --circuit-symmetry-assistance
+# After a refinement pauses or fails, retain its durable proved substitutions:
+python -B examples/python/saved_campaign.py finalize-refinement --campaign /path/to/campaign
 ```
 
 Inputs must already be staged. `run` automatically resumes an existing
 checkpoint. Extra run options go to the production launcher, for example
 `--workers 32` for fresh steering or a RAM override for this invocation.
 The wrapper defaults to the current `target/release/rustred` for publication,
-inspection and refinement. `--executable /path/to/rustred` selects another
+inspection, refinement and partial finalization. `--executable /path/to/rustred` selects another
 current build; the existing phase-one binary stays frozen.
 
 Solve, publication and refinement are distinct milestones. A drained queue
@@ -212,6 +214,18 @@ The worker budget parallelizes inventory census and, when requested, independent
 scope reinspection and saved-route verification. The dashboard reports measured CPU usage rather than implying all reserved
 workers are busy throughout post-processing.
 
+The application defaults to no preset aggregate seed, source-row, column or
+nonzero count ceiling for this finite relation search. The campaign supervisor's
+RAM ceiling and cooperative save-and-stop guard remain in force. Normalization,
+individual exact operations, native representation and binary input still have
+their own bounds. An optional `refine --max-relation-columns N` sets an
+operational column budget; `--max-relation-columns 0` removes it. Omission keeps
+the saved preference, or uses the unlimited default when none was recorded.
+Changing this budget can resume the same native cursor and retained rows; it
+does not change the mathematical search identity or restart elimination. The
+native `walk-master-reduce` spelling is also `--max-relation-columns`; the
+production launcher uses `--master-max-relation-columns`.
+
 ## Native terminal collection and application
 
 The ordinary public `refine` command runs exact terminal collection after its
@@ -236,9 +250,11 @@ Disabling discovery on an already refined source retains its proved feedback
 maps. Mode and recipe are recorded in each phase snapshot and in the wrapper's
 launch identity; changing either cannot reuse stale completion or resume a
 different native phase. An omitted native flag on resume inherits its snapshot.
-The `terminal-collection-limits-v2` snapshot pins separate diagonal and retained
-finite-row bounds together with the selected normalization profile; earlier
-collection limit recipes remain readable for existing source publications.
+New `terminal-collection-limits-v3` snapshots retain the selected normalization
+profile and exact-operation limits while removing preset aggregate retained-row
+feedback ceilings. RAM protection remains the supervisor's responsibility.
+Earlier v1/v2 limit recipes remain readable with their recorded bounds for
+existing source publications.
 
 One saved campaign does not automatically contain all separate parent-family
 inventories. Supply additional published packages explicitly when useful:
@@ -315,12 +331,12 @@ flat and avoiding mixed-basis cycles. This conservative policy can leave a
 nonminimal basis; minimizing that basis is a separate task.
 
 A completed old phase no longer forces the wrapper to reuse its old executable.
-The current optimized binary is selected; paused phases retain their frozen
-cursor binary unless deliberately replaced with `--executable`.
-A paused wrapper phase created before finite-feedback flags existed keeps its
-old executable. To start an upgraded refinement with the new recipe, pass
-`--executable /absolute/path/to/current/rustred`; the new phase has a distinct
-configuration identity and leaves the old checkpoint intact.
+The wrapper selects the current optimized binary; `--executable` can select it
+explicitly for a paused or failed phase. With the same source and mathematical
+recipe, native resume preserves the original exact rows and finite cursor even
+when the executable or operational column budget changes. Changing the actual
+search recipe, such as the provider modes or normalization profile, retains its
+existing requirement for a distinct phase.
 
 ## Stop, resume and enlarge the input scope
 
@@ -332,6 +348,9 @@ directory and an operation-specific resume command:
 python -B examples/python/saved_campaign.py run --campaign /absolute/path/to/campaign
 # To resume a manually requested refinement instead:
 python -B examples/python/saved_campaign.py refine --campaign /absolute/path/to/campaign
+# To resume with the current executable and remove a previous column budget:
+python -B examples/python/saved_campaign.py refine --campaign /absolute/path/to/campaign \
+  --executable "$PWD/target/release/rustred" --max-relation-columns 0
 ```
 
 If the original CP6 manifest, amendment chain and source documents are
@@ -341,20 +360,70 @@ atomic row before saving; an abrupt failure may require repeating work since
 the last durable checkpoint. The phase-one worklist is not rerun just to resume
 phase two.
 
+To retain the exact substitutions already proved by a paused or failed
+refinement before extending the campaign, explicitly finalize its durable
+snapshot:
+
+```bash
+python -B examples/python/saved_campaign.py finalize-refinement \
+  --campaign /absolute/path/to/campaign --executable "$PWD/target/release/rustred"
+python -B examples/python/saved_campaign.py extend \
+  --campaign /absolute/path/to/campaign --rank 1 --max-power-difference 10
+```
+
+The refinement must have stopped and saved native state; an active writer or a
+`running` manifest is rejected. Rust locks the source and publishes a separate
+portable artifact from its durable checkpoint. Pending reindexing of proved
+rows is completed, and previously proved collection maps are rebound. No new
+ordinary source rows, assisted equations or collection feedback are searched.
+The artifact preserves exact coefficients, guards, source authority and the
+original saved-scope assurance. Progress reported after the last saved
+checkpoint cannot be retained by this operation.
+
+Native status remains `published_unrefined`, with `finite_search_complete=false`
+and `refinement_complete=false`; the campaign pointer labels it
+`published_partial_refinement`. Successful publication does not complete the
+failed search or assert master minimality. `partial_refinement_source` records
+the source manifest/native identities, saved cursor and original failure.
+The original refinement checkpoint remains unchanged and can still be resumed
+by the explicit `refine` command with the same recipe. Repeating
+`finalize-refinement` resumes an interrupted export or reuses the same completed
+snapshot. If the source advances and stops again, finalize that newer durable
+snapshot before extending.
+
+The standalone native equivalent is:
+
+```bash
+target/release/rustred walk-finalize-refinement \
+  --refinement /absolute/path/to/stopped-refinement \
+  --directory /absolute/path/to/new-publication
+```
+
+Use `--resume` to continue this native export in its existing output directory.
+Source and output must be distinct and non-nested. The high-level command
+requires the stopped refinement to belong to the current completed scope. It
+does not silently select older abandoned phases after a scope has already been
+extended: those require explicit native export followed by authenticated
+publication against the newer completed scope. A stopped phase whose finite
+source search already finished should instead resume refinement to finish its
+collection.
+
 Rank or power-difference extensions change the requested scope. The current
 `extend` helper always uses publisher-aware steering rather than an older
 frozen Python snapshot. Phase one discharges new obligations, then publication
 gets a new scope directory. Refinement does not run automatically. Native
-Rust may reuse exact rows from a prior completed artifact only after
+Rust may reuse exact rows from a prior published artifact only after
 authenticating its family and rule-program binding. This is reuse of proven
-relations, not a claim that the old scope already covered the new one. An
-earlier paused refinement remains saved but is not automatically imported by
-an extension: do not count its partial rows as reused. The original domain
-ledger remains reusable independently.
+relations, not a claim that the old scope already covered the new one. Extension
+refuses to modify the input scope while its unfinished refinement snapshot has
+not been retained by `finalize-refinement`. Once published, those partial exact
+rows and collection maps are imported by the normal publication path without
+new Laporta work. The original domain ledger remains reusable independently.
 
 Every completed scope has an inspectable artifact. The atomic relative
 `artifacts/latest.json` pointer selects the latest completed package; earlier
-packages stay available. A failed/paused refinement does not replace it.
+packages stay available. A failed/paused refinement does not replace it unless
+its proved work is explicitly published with `finalize-refinement`.
 An unchanged default run preserves an already refined artifact. Extending R/D
 does not make the old package cover the new scope; inspection labels that
 distinction. `--max-power-difference` bounds D=A−R (A is the sum of positive
@@ -370,8 +439,10 @@ checkpoint is then resumable.
 
 ## Monitoring and artifact inspection
 
-TTY output is an overwriting colored table. Publication shows scoped coverage
-and packaging, with refinement explicitly not requested. Manual refinement
+TTY output is an overwriting colored table. Ordinary publication shows scoped
+coverage and packaging, with new refinement explicitly not requested. Partial
+finalization instead shows retained exact maps with finite search unfinished.
+Manual refinement
 reports source and normalized terminal counts, remaining basis size, relation work, sparse-system counters,
 observed/reserved cores, RAM and checkpoint status. Unknown native counters
 remain unknown. Non-TTY output is throttled structured JSON carrying the same

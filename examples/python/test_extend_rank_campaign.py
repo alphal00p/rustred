@@ -78,6 +78,15 @@ class RankContinuationTests(unittest.TestCase):
         self.assertEqual(preview["amendment_sha256"], receipt["amendment_sha256"])
         self.assertEqual(EXTEND.extend(self.campaign, 1), receipt)  # pending stage idempotent
 
+    def test_extension_requires_partial_refinement_retention_before_amendment_write(self):
+        before = snapshot(self.campaign)
+        with patch.object(EXTEND.PRODUCTION.PHASES, "require_retained_refinement",
+                          side_effect=ValueError("run finalize-refinement")) as guard:
+            with self.assertRaisesRegex(ValueError, "finalize-refinement"):
+                EXTEND.extend(self.campaign, 1)
+            guard.assert_called_once_with(self.campaign)
+        self.assertEqual(snapshot(self.campaign), before)
+
     def test_two_stages_rederive_original_geometry_with_monotone_caps(self):
         EXTEND.extend(self.campaign, 1)
         first = self.record(1)

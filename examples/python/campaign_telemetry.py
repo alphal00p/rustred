@@ -341,9 +341,13 @@ def normalize_status(status, sequence=None):
     master = mapping(status.get("master_reduction"))
     if master:
         operation = master.get("operation", "refine")
-        frame["phase"] = "Artifact publication" if operation == "publish" else "Master refinement"
+        partial = (operation == "finalize-refinement"
+                   or (operation == "publish" and isinstance(master.get("partial_refinement_source"), dict)
+                       and master.get("finite_search_complete") is False))
+        frame["phase"] = "Partial refinement publication" if partial else "Artifact publication" if operation == "publish" else "Master refinement"
         frame["master_reduction"] = {
             "operation": operation,
+            "partial_refinement": partial,
             **_numbers(master, ("raw_terminals", "normalized_terminals", "remaining_terminals",
                                 "relation_rows", "eliminated_terminals", "completed_work", "total_work",
                                 "seed_depth", "independent_rows", "auxiliary_columns", "nonzeros")),
@@ -369,7 +373,8 @@ def normalize_status(status, sequence=None):
                                         "finite_feedback_equations", "finite_feedback_nonzeros",
                                         "finite_feedback_replay_operations")),
             }
-        frame["scope"] = ("exact saved-scope inventory; independent graph replay only when explicitly requested" if operation == "publish" else
+        frame["scope"] = ("retained exact maps; finite search unfinished; no minimality claim" if partial else
+                          "exact saved-scope inventory; independent graph replay only when explicitly requested" if operation == "publish" else
                           "bounded exact terminal relations; no minimality or numerical master evaluation claim")
     return frame
 

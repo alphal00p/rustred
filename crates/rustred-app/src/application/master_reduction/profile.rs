@@ -55,6 +55,13 @@ impl MasterNormalizationProfile {
 
     pub(super) fn relation_limits(self) -> TerminalRelationLimits {
         TerminalRelationLimits {
+            // Campaigns have a live RAM guard. A preset column count is not a
+            // memory budget and used to stop otherwise healthy refinements.
+            // Callers can impose an explicit resumable operational cap.
+            max_columns: usize::MAX,
+            max_seeds: usize::MAX,
+            max_rows: usize::MAX,
+            max_nonzeros: usize::MAX,
             normalization: self.normalization_limits(),
             ..Default::default()
         }

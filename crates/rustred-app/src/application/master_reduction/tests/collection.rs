@@ -340,7 +340,7 @@ fn feedback_resource_snapshot_rejects_changes_and_legacy_baseline_remains_readab
             .unwrap();
     assert_eq!(
         report["collection_limits"]["recipe"],
-        "terminal-collection-limits-v2"
+        "terminal-collection-limits-v3"
     );
     assert!(report["collection_limits"]["bounds"]["finite_feedback"].is_object());
     let mut changed = report.clone();
@@ -349,6 +349,11 @@ fn feedback_resource_snapshot_rejects_changes_and_legacy_baseline_remains_readab
     assert!(load_master_reduction(&output.0).is_err());
     let mut legacy = report;
     legacy["collection_limits"]["recipe"] = json!("terminal-collection-limits-v1");
+    let old =
+        rustred::reduction::terminal_relations::collection::TerminalCollectionLimits::default();
+    legacy["collection_limits"]["bounds"]["max_composed_terms"] = json!(old.max_composed_terms);
+    legacy["collection_limits"]["bounds"]["diagonal"]["max_conditions"] =
+        json!(old.diagonal.max_conditions);
     legacy["collection_limits"]["bounds"]
         .as_object_mut()
         .unwrap()

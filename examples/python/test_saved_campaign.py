@@ -60,6 +60,24 @@ class SavedCampaignTests(unittest.TestCase):
         self.assertNotIn("--no-master-circuit-symmetry-assistance", command)
         self.assertNotIn("--master-normalization-profile", command)
 
+    def test_refinement_column_budget_can_be_changed_or_removed(self):
+        self.assertNotIn("--master-max-relation-columns", self.invoke("refine"))
+        for limit in (0, 100, 2_000_000):
+            command = self.invoke("refine", "--max-relation-columns", str(limit))
+            self.assertEqual(command[command.index("--master-max-relation-columns") + 1], str(limit))
+        for action, value in (("refine", "-1"), ("publish", "100"), ("finalize-refinement", "100")):
+            with patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                self.invoke(action, "--max-relation-columns", value)
+
+    def test_finalize_refinement_is_explicit_postprocess_without_search_flags(self):
+        command = self.invoke("finalize-refinement")
+        self.assertIn("--finalize-refinement", command)
+        self.assertIn("--resume", command)
+        self.assertIn("--start", command)
+        self.assertNotIn("--refine-masters", command)
+        with patch.object(WRAPPER.sys, "stdout", io.StringIO()):
+            self.assertIsNone(self.invoke("finalize-refinement", "--dry-run"))
+
     def test_collection_peers_are_repeatable_and_only_refine(self):
         first, second = self.campaign / "first", self.campaign / "second"
         command = self.invoke("refine", "--collection-artifact", str(first), "--collection-artifact", str(second))

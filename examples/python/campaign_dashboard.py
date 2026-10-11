@@ -485,7 +485,8 @@ def render_master_table(frame, width=100, height=24, color=True):
     width, height = max(20, min(160, width)), max(8, height)
     inner = width - 4
     master, resource, checkpoint = frame["master_reduction"], frame["resources"], frame["checkpoint"]
-    publishing = master.get("operation") == "publish"
+    partial = master.get("partial_refinement", False)
+    publishing = master.get("operation") in ("publish", "finalize-refinement")
     label_width, value_width = (19, 18) if width >= 74 else (10, 8)
     detail_width = inner - label_width - value_width - 6
     border = lambda left, right: _paint(left + "─" * (width - 2) + right, "2;36", color)
@@ -506,7 +507,8 @@ def render_master_table(frame, width=100, height=24, color=True):
     work = f"{count(completed)} / {count(total)}" if total is not None else count(completed)
     progress = bar(completed, total, frame["elapsed_seconds"]) if total is not None else "total not yet known"
     rows = [
-        (0, row("Stage", master["stage"] or "preparing", "extract and package exact inventory" if publishing else "bounded exact relation search", "36")),
+        (0, row("Stage", master["stage"] or "preparing", "package retained exact maps" if partial else
+                "extract and package exact inventory" if publishing else "bounded exact relation search", "36")),
         (1, row("Retained keys", count(master["raw_terminals"]), "phase-one keys, including prior stages")),
         (1, row("Normalized", count(master["normalized_terminals"]), "exact symmetry aliases; not minimal")),
         (0, row("Remaining basis", count(master["remaining_terminals"]), "finite, potentially nonminimal", "32")),
@@ -530,8 +532,9 @@ def render_master_table(frame, width=100, height=24, color=True):
         mode = master.get("publication_verification_mode", "")
         rows.insert(1, (0, row("Assurance", "deep replay passed" if verified else
                               "trusted saved scope" if master.get("publication_assurance") == "trusted_saved_scope" else "pending",
-                              "independent graph replay" if mode == "independent_replay" else "exact inventory; deep replay not requested", "32")))
-        rows.insert(2, (0, row("Refinement", "not requested", "explicit refine command only", "36")))
+                              "inherited saved assurance" if partial else "independent graph replay" if mode == "independent_replay" else "exact inventory; deep replay not requested", "32")))
+        rows.insert(2, (0, row("Refinement", "partial retained" if partial else "not requested",
+                              "finite search unfinished" if partial else "explicit refine command only", "36")))
         verification_progress = master.get("verification_progress", {})
         if verification_progress:
             deep = mode == "independent_replay"
@@ -569,7 +572,8 @@ def render_master_table(frame, width=100, height=24, color=True):
              border("├", "┤")]
     if detail_width >= 12 and height >= 20:
         fixed += [row("METRIC", "VALUE", "DETAIL", "1"), border("├", "┤")]
-    footer = [border("├", "┤"), full("Portable scoped artifact · unrefined terminals · no numerical values" if publishing else
+    footer = [border("├", "┤"), full("Retained exact maps · finite search unfinished · no minimality claim" if partial else
+              "Portable scoped artifact · unrefined terminals · no numerical values" if publishing else
               "Exact bounded search · nonminimal basis allowed · no numerical values", "2"), border("╰", "╯")]
     if height < 14:
         footer = [border("╰", "╯")]
@@ -595,6 +599,7 @@ def plain_summary(frame):
                 f"Stage {master['stage']} · {count(master['remaining_terminals'])} remaining terminals (nonminimal)",
                 f"Relations {count(master['relation_rows'])} · {count(master['eliminated_terminals'])} eliminated",
                 f"Checkpoint {frame['checkpoint']['state']} · {frame['checkpoint']['directory']}",
+                "Retained exact maps; finite search unfinished; no minimality claim" if master.get("partial_refinement") else
                 "Exact bounded search; no numerical master values or minimality claim"]
     rates, snapshot = frame["rates"], frame["closure_snapshot"]
     completed = rates["local_completion"]["per_second"]

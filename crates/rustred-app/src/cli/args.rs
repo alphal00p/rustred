@@ -295,6 +295,7 @@ pub(crate) fn parse_args(
         "walk-rescue-plan" => super::walk_rescue::parse(arguments),
         "walk-inventory" => super::walk_inventory::parse(arguments),
         "walk-master-reduce" => super::master_reduction::parse(arguments),
+        "walk-finalize-refinement" => super::master_reduction::parse_finalize(arguments),
         "walk-publish" => super::master_reduction::parse_publish(arguments),
         "master-inspect" => super::master_reduction::parse_inspect(arguments),
         "artifact-inspect" => super::artifact_inspect::parse(arguments),
@@ -397,7 +398,8 @@ USAGE:
     rustred master-inspect --artifact DIR [--format auto|table|json]
     rustred artifact-inspect (--campaign-directory DIR | --artifact DIR) [--format auto|table|json] [--threads N]
     rustred walk-publish --command WALK_ARGV.json --checkpoint DIR --directory OUTPUT [--resume] [--previous-artifact DIR] [--deep-verification | --no-deep-verification] [--threads N] [--events FILE] [--stop-file FILE]
-    rustred walk-master-reduce --artifact SOURCE --directory OUTPUT [--resume] [--seed-depth N] [--containing-sector-depth N] [--saved-rule-assistance] [--circuit-symmetry-assistance] [--finite-feedback | --no-finite-feedback] [--normalization-profile conservative|standard] [--collection-artifact PEER (repeatable)] [--threads N] [--events FILE] [--stop-file FILE]
+    rustred walk-master-reduce --artifact SOURCE --directory OUTPUT [--resume] [--seed-depth N] [--containing-sector-depth N] [--saved-rule-assistance] [--circuit-symmetry-assistance] [--finite-feedback | --no-finite-feedback] [--normalization-profile conservative|standard] [--max-relation-columns N (0: unlimited; omitted: saved/default)] [--collection-artifact PEER (repeatable)] [--threads N] [--events FILE] [--stop-file FILE]
+    rustred walk-finalize-refinement --refinement STOPPED_PHASE --directory OUTPUT [--resume] [--threads N] [--events FILE] [--stop-file FILE]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]
