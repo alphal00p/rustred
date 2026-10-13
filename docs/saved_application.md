@@ -105,6 +105,23 @@ uncovered rules, invalid coefficients and cycles produce errors; they are not
 converted into new terminal declarations. Descendants of an admitted request
 follow saved rules and are not clipped to starting-domain bounds.
 
+`FamilyScalarNumeratorService::lower_weighted` accepts compact products and
+powers of scalar products. It substitutes the complete numerator into the
+authenticated denominator basis in one simultaneous Symbolica traversal, then
+collects that polynomial natively. This avoids first expanding a power in the
+Gram basis only to cancel most terms after the coordinate change. Exact scalar
+prefactors are collected before entry admission, with their original rational
+poles retained even when an entire coefficient vanishes.
+
+Lowering is not itself a scope certificate. Its resulting nonzero keys still
+go through the same saved-domain checks. Scalar-work and expression-size limits
+are operational budgets, not additional mathematical rank or D cuts. For this
+weighted path, `max_polynomial_terms` bounds denominator-basis support and each
+collected coefficient's rational support; the older unweighted `lower()` applies
+its polynomial bound in the scalar-product basis. `max_lowered_terms` counts
+the weighted path's final nonzero keys. Equal budgets therefore need not accept
+the same expression through both APIs.
+
 ## Prepared Rust use
 
 This example chooses a native-verified witness from the supplied package rather

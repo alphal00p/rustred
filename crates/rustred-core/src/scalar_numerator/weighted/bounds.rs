@@ -16,22 +16,153 @@ struct Shape {
 pub(crate) struct Work {
     used: usize,
     limits: ScalarNumeratorLimits,
+    #[cfg(test)]
+    diagnostic: Option<WorkDiagnostic>,
 }
+
+#[cfg(test)]
+pub(super) struct WorkDiagnostic {
+    pub(super) phase: &'static str,
+    pub(super) counts: std::collections::BTreeMap<&'static str, usize>,
+    pub(super) last_key: Vec<i64>,
+    pub(super) last_weight: Option<symbolica::atom::Atom>,
+}
+
 impl Work {
     pub fn new(limits: ScalarNumeratorLimits) -> Self {
-        Self { used: 0, limits }
+        Self {
+            used: 0,
+            limits,
+            #[cfg(test)]
+            diagnostic: None,
+        }
     }
-    fn charge(&mut self, count: usize) -> Result<(), Error> {
+    pub(super) fn charge(&mut self, count: usize) -> Result<(), Error> {
         self.used = checked_add("weighted collection work", self.used, count)?;
+        #[cfg(test)]
+        if let Some(diagnostic) = &mut self.diagnostic {
+            *diagnostic.counts.entry(diagnostic.phase).or_default() += count;
+        }
         check_limit(
             "weighted collection work",
             self.used,
             self.limits.exact_algebra.max_term_operations,
         )
     }
+
+    #[cfg(test)]
+    pub(super) fn enable_diagnostic(&mut self) {
+        self.diagnostic = Some(WorkDiagnostic {
+            phase: "initialization",
+            counts: Default::default(),
+            last_key: Vec::new(),
+            last_weight: None,
+        });
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_diagnostic_phase(&mut self, phase: &'static str) {
+        if let Some(diagnostic) = &mut self.diagnostic {
+            diagnostic.phase = phase;
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn capture_diagnostic_weight(
+        &mut self,
+        key: &crate::family::IntegralKey,
+        weight: &symbolica::atom::Atom,
+    ) {
+        if let Some(diagnostic) = &mut self.diagnostic {
+            diagnostic.last_key = key.powers().to_vec();
+            diagnostic.last_weight = Some(weight.clone());
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn diagnostic(&self) -> Option<&WorkDiagnostic> {
+        self.diagnostic.as_ref()
+    }
     pub fn preflight(&mut self, atom: AtomView<'_>) -> Result<(), Error> {
         shape(atom, self.limits, self).map(|_| ())
     }
+
+    /// Admit syntactic common-factor collection without assuming that every
+    /// repeated denominator will be cross-multiplied. Symbolica's collector
+    /// walks factor maps; it does not expand polynomial products. Sum arity
+    /// charges the possible union of factors against each summand. Expanded
+    /// rational support is still checked separately AFTER this collection.
+    pub(super) fn preflight_collection(&mut self, atom: AtomView<'_>) -> Result<(), Error> {
+        collection(atom, self.limits, self).map(|_| ())
+    }
+}
+
+fn collection(
+    atom: AtomView<'_>,
+    limits: ScalarNumeratorLimits,
+    work: &mut Work,
+) -> Result<(usize, usize), Error> {
+    work.charge(1)?;
+    let (nodes, degree) = match atom {
+        AtomView::Num(_) => (1, 0),
+        AtomView::Var(_) | AtomView::Fun(_) => (1, 1),
+        AtomView::Mul(product) => {
+            let mut nodes = 1;
+            let mut degree = 0;
+            for factor in product.iter() {
+                let (next_nodes, next_degree) = collection(factor, limits, work)?;
+                nodes = checked_add("weighted factor-collection nodes", nodes, next_nodes)?;
+                degree = checked_add("weighted factor-collection degree", degree, next_degree)?;
+            }
+            work.charge(nodes)?;
+            (nodes, degree)
+        }
+        AtomView::Add(sum) => {
+            let mut nodes = 1;
+            let mut degree = 0;
+            for term in sum.iter() {
+                let (next_nodes, next_degree) = collection(term, limits, work)?;
+                nodes = checked_add("weighted factor-collection nodes", nodes, next_nodes)?;
+                degree = checked_add("weighted factor-collection degree", degree, next_degree)?;
+            }
+            work.charge(checked_mul(
+                "weighted factor-collection work",
+                nodes,
+                sum.get_nargs(),
+            )?)?;
+            (nodes, degree)
+        }
+        AtomView::Pow(power) => {
+            let (nodes, degree) = collection(power.get_base(), limits, work)?;
+            let exponent = Rational::try_from(power.get_exp())
+                .ok()
+                .filter(|value| value.is_integer());
+            let degree = if let Some(exponent) = exponent {
+                let exponent = exponent
+                    .numerator()
+                    .to_i64()
+                    .ok_or(Error::ScalarProductExponentOverflow)?;
+                checked_mul(
+                    "weighted factor-collection degree",
+                    degree,
+                    usize::try_from(exponent.unsigned_abs())
+                        .map_err(|_| Error::ScalarProductExponentOverflow)?,
+                )?
+            } else {
+                degree
+            };
+            (
+                checked_add("weighted factor-collection nodes", nodes, 2)?,
+                degree,
+            )
+        }
+    };
+    check_limit(
+        "weighted factor-collection degree",
+        degree,
+        limits.max_scalar_product_degree.min(isize::MAX as usize),
+    )?;
+    Ok((nodes, degree))
 }
 
 fn multiply(

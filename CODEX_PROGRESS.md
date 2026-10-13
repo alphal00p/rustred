@@ -669,6 +669,246 @@ process. Neither low numerator degree nor solved source topology implies cheap
 symbolic coefficient application. The independent factorized point435 remains
 running at about3h without a result; do not claim a representation speedup.
 
+The entry-probe correction is committed/pushed on main as
+`bf5b288267891322323b2f2f827d23f7c447419e`. Vakint is pinning that actual Git
+revision for a single final rebuild including native tests, both examples and
+the existing lower-loop regression binaries. No local-path dependency will be
+committed. Its corrected813 census has not yet run on this revision.
+
+The first physical ladder preparation completed all21 quadratic-Taylor groups,
+all native Dirac/color algebra and rank2/4 angular projector controls, with
+exact A-R10 power-counting checks. It then stopped at the already diagnosed
+mass-family mismatch in the test's final DOT ingress; the fixed source includes
+a cheap ingress control before expensive algebra. This is partial preparation
+evidence, not passed reduction. About19min, monitored peak15.44GB, no RAM stop.
+Evidence `TMP/five-loop-qcd-ladder-20261013/physical-first/` retains21 scalar
+numerators and a6.6MB first routed DOT. The fixed test will regenerate all
+preparation as the user requested; these files will not shortcut it or enter Git.
+An explicit-slow-only feature activation in Vakint's existing test recipe is
+being verified so the new feynkit-ingress-gated slow test is not silently omitted.
+
+### October 13 — actual-Git acceptance and the higher-rank ingress blocker
+
+Vakint's actual-Git `bf5b2882` build passes117 native tests/five ignored,
+the52-factor/early-clone gate, and the public4MiB eviction gate. Public eviction
+reports4,842 evicted entries/815 recomputed nodes while retaining exact values,
+guards and family identities; process92.26s including load, peak2.96GB.
+The full primary admitted suite also passes22m45.8s, peak3.33GB: all primary
+rank0/5/11 controls, LMB/expanded/indexed parity, six real positive-propagator
+cancellations, nonunit masses, bridges and typed outside-entry refusal.
+Evidence `TMP/five-loop-vakint-20261013/vakint-bf5-*`. No full five-loop
+coverage claim follows from those selected reductions.
+
+Cold default construction is0.042506s with no five-loop catalogue. Explicit
+package loading is73.860198s including0.144083s catalogue creation. First
+point162 total0.733273s versus0.711362s warm; measured canonicalization,
+tensor pass, admitted-witness search, scalar lowering, saved rules and products
+sum to only part of those totals. About0.47s remains outside these timers,
+at guard/master materialization by source location; it is incorrect to attribute
+the entire frontend overhead to graph matching. Timings are shared-host runs.
+
+Existing regression recapture preserves the same four baseline-proven failures:
+tensor18pass/twofail/oneignored, selected FORM-less scalar4pass/onefail, and
+the same three-loop nonunit tensor-declaration failure. No assertion was relaxed.
+A separate genuine Unknown-input baseline comparison confirmed that eager
+five-loop parsing could wrongly reject a legacy formal Unknown input even with
+no artifact. Delivery gated that parsing on an installed five-loop catalogue;
+the new strict-after-activation regression passes with the full118-test native
+suite. Hakari generation/verification passes unchanged; CI workspace regeneration
+is being completed with top-level enable=false and no artifact in the index.
+
+The corrected813 admission-only run passes more than650 witnesses, including
+the formerly aborted missing-route candidates. It now exposes a different real
+frontend problem at rank6 and above: a candidate momentum change can expand
+the numerator into over1M intermediate scalar-lowering terms or input nodes
+before cancellations are collected. Original common-basis identity/admission
+checks still pass. This is not an additional mathematical R/D restriction or
+proof the campaign lacks rules. The run continues to retain all failed cases.
+
+The physical ladder's COMPLETE native preparation now passes in1288.550s:
+21 homogeneous quadratic contributions,8,306 compact scalar terms,34MB final
+Vakint input; all D-dimensional trace/projector/routing/mass-ingress steps run
+inside the slow test. The next stage fails an existing conservative weighted
+rational bound (prospective2,621,440terms versus100,000), before artifact
+eligibility can be assessed. The total1500.01s failed run is not a successful
+reduction. Repeated rational denominators are a suspected mechanism; the first
+actual over-bound weight is being isolated, not guessed from the limit alone.
+
+Root authorized the exact lane to diagnose that weight using saved preparation
+ONLY for debugging, then implement a generic Symbolica-native weighted lowering
+path: simultaneous affine denominator-coordinate substitution before polynomial
+expansion/collection, retaining original pole guards and bounded work. Legacy
+`lower()` remains unchanged. The application lane will preserve compact scalar
+ASTs for that five-loop handoff without undoing earlier contraction-scope fixes.
+No custom CAS, scope widening, arbitrary cap increase, new IBPs or skipped
+resource exceptions as fake admission are authorized. Root independently audits
+simultaneous replacement, no internal labels escaping, exact factored/expanded
+parity, genuine-size-limit rejection and the real witness corpus before release.
+
+Native ladder bookkeeping corrected by exact executable control: after removing
+the external insertion vertices,12 incidence edges represent9 distinct quadratic
+forms, with five doubled fermion denominators and four simple rungs, A14/L5.
+All five upper/lower fermion pairs coincide at q=0, not only the external pairs.
+The native ingress coalesces them to9edges/5vertices and preserves the numerator.
+The cheap independently reviewed control passes0.176s; large generated DOTs
+remain local and are never substituted for full preparation in the slow test.
+
+The old factorized point435 probe remained alive after its original supervisor
+disappeared; original telemetry stopped at08:08UTC. Root detected this through
+process-parent and file-time checks and attached a new identity-checked RAM
+observer without restarting the calculation. The approximately38-minute gap
+is recorded in `point00435-factorized-independent/guard-reattachment.json`;
+no continuous-telemetry or parent exit-code claim is made. Fresh monitoring
+uses the original95/100GB process limits and150GB host reserve. Production
+and every artifact byte remain untouched.
+
+The independent factorized point435 probe has now ended with the same64GiB
+retained-cache limit after14,053.319s of first application (about3h54),185,309
+rule applications and37,868,690coefficient additions. It returned no reduced
+answer. Its original parent exit status is unavailable, but stdout explicitly
+records the resource error and finished/failed counts; the attached observer
+records no forced stop. Do not describe this as a successful factorized timing
+or compare it as an equal-work speed ratio to the earlier shared sparse failure.
+Root started one fresh sparse retry with the already tested LRU binary and
+the same64GiB cache allowance, separate evidence
+`point00435-sparse-lru-independent`, CPUs56--63,150GB process guard and150GB
+host reserve. No timeout, new source search, or production writes; result pending.
+
+The corrected full frontend census has reached718passes/70resource failures
+at the latest sample. Failures arise in candidate polynomial expansion at rank6
+and above, not the original native union/identity check. The exact lane's
+approved weighted-only redesign uses native simultaneous substitution into
+denominator coordinates before native polynomial collection. The same existing
+scalar-product atoms can serve as local formal-coordinate labels only because
+replacement is simultaneous and every label is consumed by polynomial extraction;
+mixed/swap and no-leak regressions are mandatory. Pinned Symbolica implementation
+and its swap test have been inspected. Vakint needs only a private compact-form
+choice at the five-loop parent-routing boundary; existing one-through-four-loop
+expanded behavior and contraction sealing remain unchanged. The actual physical
+weight diagnostic runs separately from cached preparation; final slow acceptance
+still regenerates the full numerator. Production code is not changed before the
+diagnostic and native-API audit, and resource exceptions are not silently skipped.
+
+### October 13 — whole-numerator lowering and independent regression audit
+
+The completed corrected frontend census is729passes/84resource failures in
+2919.213s, peak2.9935GB. The84 failures start at scalar rank6; none is the old
+missing-route abort or an outside-scope predicate. This is an admission-only
+run: no owner preparation or IBP application occurred. Evidence:
+`TMP/five-loop-vakint-20261013/vakint-admission-census-813-bf5/`.
+
+The ladder diagnostic isolates a real false size barrier: one389-node rational
+weight with repeated d,d-1,d+2 denominators becomes exactly zero under native
+Symbolica `collect_factors`, before any polynomial expansion. The previous
+uncollected support estimate was enormous. Original pole conditions must still
+be retained. Evidence: `TMP/five-loop-qcd-ladder-20261013/weight-diagnostic-bf5/`.
+
+The exact-application agent implemented whole-expression simultaneous literal
+substitution into denominator coordinates, native Symbolica polynomial collection,
+and native factor collection before rational support admission. Root independently
+reviewed grammar, simultaneous replacement, no temporary-label leakage, original
+pole preservation and genuinely oversized-input refusals. The existing unweighted
+API is unchanged. Weighted polynomial budgets now count denominator-basis rather
+than Gram-basis support; this operational distinction is intentional and must not
+be described as identical resource policy. No budget or saved domain was widened.
+
+Optimized build13m15s (excluded from execution measurements) passes22 scalar
+tests,586 related core regressions,18 saved-application tests and7 route-preparation
+tests. Evidence: `TMP/five-loop-whole-weighted-{scalar-tests,core-regressions,
+app-tests,route-tests}-20261013.log`. The real813 frontend rerun and the physical
+prepared-input positive gate await the integrated Vakint executable; unit tests
+alone do not establish those gates. The final slow test still regenerates all
+physical preparation rather than treating the diagnostic input as its fixture.
+
+The new physical prepared-input gate gets past the old false support rejection:
+its first two Taylor contributions lower to4,158 and2,998 keys, preserving every
+original pole and D-j=10. All7,156 occurrences are refused by the pinned gen54
+union through this geometric witness; that is not a test of the user's moving
+D10 campaign or all alternative presentations. Contribution three then exhausts
+the shared16M collection-work budget (16,000,605 requested). The diagnostic
+fails after260.18s native/262.14s supervised, peak2.872GB; it is not a completed
+ladder reduction. The exact lane is localizing the consumed work before changing
+policy. No default limit, rule set, or starting domain has been widened.
+Evidence: `TMP/five-loop-qcd-ladder-20261013/prepared-whole-weighted-first/`.
+
+The first whole-weighted813 gate is now complete:737pass/76resource refusals,
+774.46s native. Comparing case IDs,46 old failures pass and38 previously passing
+cases now refuse the Den-basis support estimate; the net improvement of eight
+must not obscure these operational regressions. This is NOT a validated release
+or an equal-work speedup. All76 errors are the conservative Den polynomial bound,
+not missing entries or IBPs. Root identified nested numeric linear combinations
+inside powers as a possible false-support mechanism and added native Symbolica
+`expand_num()` before support accounting, preserving outer powers. The pinned
+and current native implementations, public API and focused tight-budget test
+were inspected; the exact-application agent independently audited the slice.
+The new build is being tested before any promotion. Its remaining budget-policy
+question (Gram versus Den support) stays explicit until the corpus is rerun.
+
+Numeric normalization is independently audited and passes23 scalar tests,
+including a rank11 affine-cancellation case under a one-term support bound,
+and527 related candidate/routed/product regressions. The diagnostic-only test
+is explicitly ignored, not counted as an acceptance pass. Frozen core binary
+`TMP/five-loop-vakint-20261013/rustred-core-whole-weighted-numeric-tests`, SHA256
+`6f2bfd343c4a1910f7fe63fbde726c5b0051b97a5faa57ce9bc6a4f2b9beabb3`.
+The first diagnostic build had two test-only compile errors (missing AtomView
+import and SmartString-to-error conversion); corrected before the5m48s successful
+build. No production semantics changed in those setup corrections.
+
+The integrated normalized executable is now frozen at
+`TMP/five-loop-vakint-20261013/vakint-weighted-normalized-native-tests`, SHA256
+`f012756286c1a416b965c104cd149791ce4b8b974be5654a1353e2eb71d592f0`.
+Root is repeating the entire813 census onCPUs24--31 with
+`nix develop --command python -B TMP/five-loop-vakint-20261013/run_admission_census.py vakint-weighted-normalized-native-tests vakint-admission-census-813-numeric-normalized 24-31`.
+The exact lane independently repeats the prepared ladder diagnostic onCPU16
+under unchanged limits, now capturing exact failing inputs for core-only work
+accounting. Evidence `TMP/five-loop-qcd-ladder-20261013/prepared-whole-weighted-numeric/`.
+No refreshed full-numerator preparation or successful physical reduction is
+claimed from these diagnostic replays.
+
+The normalized813 rerun is COMPLETE:811pass/two operational refusals in
+1059.22s native/1060.72s supervised, peak2.663GB. Scope-audit time after loading
+is1020.31s. All previously reported scalar expansion/support failures disappear;
+there are no new failing IDs. The two remaining inputs, point00352(R10) and
+point00356(R11), reach native entry-transport work estimates161,313,306 and
+386,902,320 against the existing64M polynomial-operation allowance. They failed
+earlier too, before this stage. Both are still recorded as failed, not converted
+into inapplicable candidates. The next comparison configures the existing
+operational allowance explicitly at512M; defaults and native entry union stay
+unchanged. This is an admission audit, with zero owner preparations, coefficient
+cache entries or IBP applications, not813 completed reductions.
+
+The captured physical contribution also completes in an explicit32M diagnostic:
+18,094,565 charged work units,2,985 keys/four conditions,46.171s lowering and
+0.768GB peak process memory. This is a configured-budget diagnostic, not a default
+success. The conservative Den-polynomial preflight uses13,607,262 of those units;
+charged shares are NOT measured CPU shares. Ordinals differ between prepared
+runs: compare exact captured targets, not `input01` labels, when drawing any
+regression conclusion. The complete21-contribution diagnostic will use a logged
+64M work setting; its default branch is still16M. Delivery will expose the
+existing RustRed scalar-work policy as a Vakint setting rather than silently
+increase the default or describe a work refusal as missing coverage.
+
+Vakint's ordinary normalized native suite passes119tests/seven ignored in195.98s
+(the preceding snapshot passed the same119tests in174.57s; unpaired shared-host
+times, not a speed comparison).
+The delivery lane found an isolated Python-host base at Community `cd36326`
+whose manifests match the earlier successful native-host receipt and already
+share this Symbolica/FeynKit revision. It is preparing a private JJ workspace,
+wheel and interpreter; the live gallery checkout/environment is not modified.
+
+The final core test-source check passes in1m26s from the root workspace,
+including the corrected manual diagnostic parser for attributed native symbols.
+The initial dependency-selected check from the Vakint workspace could not select
+external-package features; that tooling refusal is retained separately, not a
+source failure. Numeric-normalization source/tests are ready for their scoped
+RustRed milestone; actual application coverage, the two explicit routing-budget
+retries, the full physical diagnostic and Vakint delivery remain open.
+
+The independent sparse LRU retry ofpoint435 remains live; the former factorized
+failure and new retry are distinct runs, not a completed speed comparison. The
+older full native sweep is also still live and has progressed into rank2. Production
+campaigns and their artifacts remain untouched.
+
 ## October 11 — retain stopped refinement and remove arbitrary count ceiling
 
 User requests both the `1000001 exceeds 1000000` repair and preservation of

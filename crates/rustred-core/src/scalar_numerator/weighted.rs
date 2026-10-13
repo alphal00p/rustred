@@ -1,5 +1,6 @@
 //! Exact collection of complete physical prefactors, before entry admission.
 pub(super) mod bounds;
+mod denominator;
 
 use std::collections::{BTreeMap, BTreeSet};
 use symbolica::atom::{Atom, AtomCore, AtomView};
@@ -11,6 +12,7 @@ use super::model::{
     WeightedScalarNumeratorLowering,
 };
 use super::service::PreparedScalarProducts;
+use super::syntax::validate_scalar_syntax;
 use super::syntax::{ExactComparisonBudget, census_atom, contains_exact_atom};
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError};
 use crate::family::{IntegralFamily, IntegralKey};
@@ -123,6 +125,12 @@ pub(super) fn lower_weighted_in_request(
     work: &mut bounds::Work,
 ) -> Result<WeightedScalarNumeratorLowering, Error> {
     let limits = prepared.limits;
+    if base_integral.powers().len() != family.denominator_count() {
+        return Err(Error::WrongIntegralKeyArity {
+            expected: family.denominator_count(),
+            actual: base_integral.powers().len(),
+        });
+    }
     for (expression, resource) in [
         (numerator, "weighted lowering input nodes"),
         (mass_squared, "weighted lowering mass nodes"),
@@ -153,34 +161,49 @@ pub(super) fn lower_weighted_in_request(
     for condition in family.domain().conditions() {
         conditions.retain(condition.polynomial().to_expression())?;
     }
-    let lowered = prepared.lower_impl(family, numerator, base_integral, |_| Ok(()))?;
+    validate_scalar_syntax(
+        numerator.as_view(),
+        prepared.dot_head,
+        &prepared.loop_momenta,
+        &mut comparisons,
+    )?;
+    #[cfg(test)]
+    work.set_diagnostic_phase("coordinate translation/admission");
+    let translated = denominator::translate(
+        prepared,
+        family,
+        numerator,
+        mass_squared,
+        work,
+        &mut comparisons,
+    )?;
+    let polynomial = native("whole denominator polynomial conversion", || {
+        translated.to_polynomial_in_vars::<u32>(prepared.scalar_product_variables.clone())
+    })?;
+    check_limit(
+        "weighted denominator polynomial terms",
+        polynomial.coefficients.len(),
+        limits.max_polynomial_terms,
+    )?;
     let context = family.coefficient_context();
     let mut weights = BTreeMap::<IntegralKey, Atom>::new();
     let mut retained_nodes = 0usize;
-    for term in lowered.terms {
-        context.validate_with_limits(&term.coefficient, limits.exact_algebra)?;
-        conditions.retain(term.coefficient.denominator.to_expression())?;
-        conditions.scan(term.scalar_spectator.as_view())?;
-        let mass_power = native("weighted common-mass power", || {
-            mass_squared.clone().pow(term.common_mass_squared_power)
-        })?;
-        // These are ordinary native Atom operations. No polynomial arithmetic
-        // or probabilistic zero-testing is implemented by this adapter.
-        let value = native("weighted scalar prefactor", || {
-            term.coefficient.to_expression() * term.scalar_spectator * mass_power
-        })?;
-        let old = weights.remove(&term.integral);
-        if let Some(old) = &old {
-            retained_nodes -= census_atom(
-                old.as_view(),
-                "weighted lowering retained nodes",
-                limits.max_output_atom_nodes,
-                limits,
-            )?;
-        }
-        let sum = native("weighted scalar sum", || {
-            old.map_or_else(|| value.clone(), |old| old + &value)
-        })?;
+    for term in &polynomial {
+        denominator::validate_coefficient(prepared, &term.coefficient, &mut comparisons)?;
+        conditions.scan(term.coefficient.as_view())?;
+        let powers = base_integral
+            .powers()
+            .iter()
+            .zip(term.exponents)
+            .enumerate()
+            .map(|(denominator, (&power, &exponent))| {
+                power
+                    .checked_sub(i64::from(exponent))
+                    .ok_or(Error::IntegralPowerUnderflow { denominator, power })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let integral = IntegralKey::try_new(powers)?;
+        let sum = term.coefficient.clone();
         let nodes = census_atom(
             sum.as_view(),
             "weighted lowering retained nodes",
@@ -193,11 +216,33 @@ pub(super) fn lower_weighted_in_request(
             retained_nodes,
             limits.max_output_atom_nodes,
         )?;
-        weights.insert(term.integral, sum);
+        weights.insert(integral, sum);
     }
     let mut terms = Vec::new();
     let mut output_nodes = 0;
     for (integral, weight) in weights {
+        #[cfg(test)]
+        {
+            work.capture_diagnostic_weight(&integral, &weight);
+            work.set_diagnostic_phase("common-factor collection");
+        }
+        work.preflight_collection(weight.as_view())?;
+        let weight = native("weighted common-factor collection", || {
+            weight.collect_factors()
+        })?;
+        census_atom(
+            weight.as_view(),
+            "weighted collected-factor nodes",
+            limits.max_output_atom_nodes,
+            limits,
+        )?;
+        // In particular, a cancelled rational prefactor must not be refused
+        // using the expanded support estimate of its uncollected denominators.
+        if weight.is_zero() {
+            continue;
+        }
+        #[cfg(test)]
+        work.set_diagnostic_phase("rational collection");
         work.preflight(weight.as_view())?;
         let weight = native("weighted rational collection", || weight.together())?;
         census_atom(
@@ -210,6 +255,8 @@ pub(super) fn lower_weighted_in_request(
         if weight.is_zero() {
             continue;
         }
+        #[cfg(test)]
+        work.set_diagnostic_phase("base coefficient extraction");
         let (coefficient, scalar_spectator) = split_coefficient(context, weight, limits, work)?;
         if coefficient.is_zero() {
             continue;
@@ -242,6 +289,11 @@ pub(super) fn lower_weighted_in_request(
                 conditions.nodes,
             )?,
             limits.max_output_atom_nodes,
+        )?;
+        check_limit(
+            "lowered scalar-numerator terms",
+            checked_add("lowered scalar-numerator terms", terms.len(), 1)?,
+            limits.max_lowered_terms,
         )?;
         terms.push(LoweredScalarNumeratorTerm {
             coefficient,
@@ -318,3 +370,7 @@ fn split_coefficient(
     }
     Ok((coefficient, spectator))
 }
+
+#[cfg(test)]
+#[path = "weighted/diagnostics.rs"]
+mod diagnostics;

@@ -134,6 +134,15 @@ impl<'family> FamilyScalarNumeratorService<'family> {
     /// multiply `I_key(m²)`; additional mass powers are already in spectators.
     /// All original visible poles remain nonzero conditions, including when
     /// their weighted integral contribution cancels exactly to zero.
+    ///
+    /// Unlike the legacy `lower()` path, factored scalar-product polynomials
+    /// are changed to denominator coordinates before native polynomial
+    /// collection. `max_polynomial_terms` bounds this denominator-basis
+    /// polynomial (including conservative preflight estimates), while
+    /// `max_lowered_terms` bounds the final nonzero keys. Scalar-coefficient
+    /// collection shares the request's exact-work budget. These resource
+    /// checks are not an entry-domain authorization, and their acceptance
+    /// need not coincide with `lower()` under the same numerical limits.
     pub fn lower_weighted(
         &self,
         numerator: &Atom,

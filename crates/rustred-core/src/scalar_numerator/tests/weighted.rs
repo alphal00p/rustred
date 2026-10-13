@@ -1,6 +1,6 @@
 use super::*;
 
-fn weights(result: &WeightedScalarNumeratorLowering) -> BTreeMap<Vec<i64>, Atom> {
+pub(super) fn weights(result: &WeightedScalarNumeratorLowering) -> BTreeMap<Vec<i64>, Atom> {
     result
         .terms()
         .iter()
@@ -228,7 +228,10 @@ fn weighted_mass_and_collection_resources_fail_closed() {
             | Err(ScalarNumeratorError::ResourceCountOverflow { .. })
     ));
     let mut limits = ScalarNumeratorLimits::default();
-    limits.exact_algebra.max_term_operations = 3;
+    // Whole-expression grammar/change-of-basis admission now shares this
+    // request budget with collection (7 prior operations plus the 3-node
+    // translated dot visited by native numeric distribution).
+    limits.exact_algebra.max_term_operations = 10;
     let shared =
         FamilyScalarNumeratorService::try_new(artifact.family(), head, vec![k], limits).unwrap();
     assert!(

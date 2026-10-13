@@ -17,7 +17,14 @@ pub struct ScalarNumeratorLimits {
     pub max_input_terms: usize,
     pub max_factors_per_term: usize,
     pub max_scalar_product_degree: usize,
+    /// Polynomial-support bound, including conservative preflight estimates.
+    /// Legacy `lower()` applies this to its scalar-product polynomial;
+    /// `lower_weighted()` applies it after changing to denominator coordinates,
+    /// and to each collected scalar coefficient's rational numerator/denominator.
+    /// Thus the two methods need not accept identical inputs under equal limits.
     pub max_polynomial_terms: usize,
+    /// Lowered-term bound. For `lower_weighted()`, this counts emitted nonzero
+    /// family keys after exact coefficient collection, not expanded Gram terms.
     pub max_lowered_terms: usize,
     pub max_output_atom_nodes: usize,
 }

@@ -368,32 +368,74 @@ the corresponding test yet.
 | Requirement | Current evidence | Status |
 |---|---|---|
 | External package; no embedded/download fallback | Local 281 MB package; manifest digest above; loader/setting source audit; path-absent and wrong-path tests | Implemented; warmed-setting checks included in loaded examples |
-| 67 classes, 19 factorized classes, native DOT/pinches | Generated contraction census and all registered DOT round trips in the retained 101-test Vakint executable | Passed on that snapshot |
+| 67 classes, 19 factorized classes, native DOT/pinches | Generated contraction census, all registered DOT round trips and the 118-test native suite pinned to RustRed `bf5b2882` | Passed on that snapshot |
 | Exact recorded admission, including holes | 804-record inventory, 41 native-empty records; 763 nonempty domains; package/admission tests | Passed |
-| Admitted representatives and feasible boundaries | 813 deduplicated concrete witnesses | Full execution pending; live JSONL receipt records each result |
+| Admitted representatives and feasible boundaries | 813 deduplicated concrete witnesses; normalized frontend-only census: 811 pass, two native routing-work refusals | Scalar-expansion failures repaired; explicit routing-budget retest pending; full IBP execution remains separate and incomplete |
 | Exact replay of all retained finite terminal maps on export | All 939 source keys verified against the pinned publication; 905 remaining keys | Passed |
 | Portable authenticated loading and lazy owners | 30 release application/loader/route-preparation tests, including corruption, moved source, first-use error and threaded route checks | Passed |
-| Coefficient application, guard retention, cycles/errors and cache identity | 500 corrected release core tests, including audited batch-reuse/counter fixes | Passed; broader real-input sweep still in progress |
-| Simultaneous numerator/LMB and orientation invariance | Exact inverse fixture checked; scalar-scope repair and focused regressions implemented | Loaded-package rerun pending |
-| Positive denominator cancellation versus explicit pinch | New single/multiple/dotted native DOT fixtures being added | Pending; earlier absent-denominator numerator tests do not prove this |
-| Homogeneous GeV^10 and higher admitted numerator boundaries | Dedicated degree-10 DOT fixture; scalar-degree 5/11 inverse-denominator examples | Complete loaded suite pending |
+| Coefficient application, guard retention, cycles/errors and cache identity | 586 related release core regressions; exact public 4 MiB LRU pressure comparison | Passed; broader real-input sweep still in progress |
+| Simultaneous numerator/LMB and orientation invariance | Loaded primary suite: scalar-degree 0/5/11 controls in original, expanded, standard/detailed DOT and alternate/indexed LMB forms | Passed at `bf5b2882`; not an all-domain invariance proof |
+| Positive denominator cancellation versus explicit pinch | Six positive-propagator comparisons including single, dotted, multiple, mixed powers and nonunit masses | Passed in the loaded primary suite |
+| Homogeneous GeV^10 and higher admitted numerator boundaries | Homogeneous degree-10 factorized control; scalar-degree 5/11 inverse-denominator examples | Passed for the named controls; a separate full-parent degree-10 request was outside the pinned union |
 | Factorized symbolic output and cross contractions | Independent 5×1L and 3L×2L comparisons; all 38 positive and 14 numerator-terminal reductions, including three cross projections | 52-terminal sweep passed after batch reuse |
-| General common mass and zero-flow bridges | Scalar nonunit-mass check; native bridge fixtures and exact scalar prefactor tests | Final loaded bridge/guard rerun pending |
-| No FORM dependency and preserved lower-loop behavior | Invalid FORM setting in acceptance harness; lower native/provider/default tests in the retained suite | Final regression rerun pending |
+| General common mass and zero-flow bridges | Nonunit-mass controls and three constant massive-bridge cases in the loaded primary suite | Passed |
+| No FORM dependency and preserved lower-loop behavior | Invalid FORM setting in acceptance harness; explicit comparison to baseline `6203c6cbb` | New gates pass; four pre-existing tensor/scalar integration failures reproduced on both baseline and current source, not counted as passes |
 | Rust and Python/HEPKit DOT examples | Example sources and Python-feature compile checks | Final runtime examples pending |
 | Cold, first/warm, RSS, output and cache measurements | Native JSONL case receipts and matched measurements above | In progress; shared-cache first application is not a per-case cold process |
-| Source-only delivery | RustRed `e774bf33` pushed; runtime package excluded | Later implementation slices and Vakint push pending |
+| Source-only delivery | RustRed through `bf5b2882` pushed, including guarded LRU; runtime package excluded | Compact weighted lowering and Vakint push pending |
 
 - Complete admitted inventory reductions, including higher-rank cases, with
   resource outcomes reported individually.
-- Validate exact alternative-LMB and numerator-cancellation comparisons, and
-  factorized lower-program composition through the now-tested package loader.
-- Retest lower-loop regressions after the scalar-scope and bridge fixes; the
-  generated-graph census reconciliation itself is complete.
+- Repeat the affected loaded comparisons after the compact weighted-lowering
+  change; baseline-pinned LMB/cancellation and factor-product gates already pass.
+- Preserve the recorded baseline failures rather than weakening assertions or
+  describing the entire lower-loop suite as green.
 - Report matching, tensor, scalar application, terminal normalization and
   rendering times separately in the final Vakint acceptance table.
-- Verify missing-path disable behavior even after an instance has populated
-  its application cache. No numerical substitution or FORM fallback is allowed.
+- Finish Python/HEPKit runtime smoke testing with one coherent native host;
+  Python-feature compilation alone is not an end-to-end Python check.
+
+### Whole-numerator lowering gate
+
+The completed frontend census took 2,919.213 s with 2.994 GB peak RSS. Its 84
+failures at scalar rank 6 and above were intermediate expression/work limits,
+not out-of-union keys or missing rules. The redesigned weighted-only path uses
+Symbolica's simultaneous literal replacement to change the complete numerator
+into denominator coordinates before native polynomial collection. Original
+rational poles are retained before any cancellation. Native `collect_factors`
+then precedes rational support estimation. Legacy unweighted lowering is not
+changed, and resource limits are not increased.
+
+The integrated optimized rerun uses executable SHA256
+`57583ef3ad43bc822f8d2b92d9a722ef4040384240f4485a6f25656fc5229c0e`,
+evidence `vakint-admission-census-813-whole-weighted/`. It finishes with 737 passes
+and 76 resource refusals in 774.46 s native. Case-by-case comparison finds 46
+previous failures fixed and 38 newly refused cases: this is not an accepted
+upgrade, despite the lower total failure count. The newly exposed conservative
+denominator-support estimates are being corrected and retested without treating
+resource refusals as mathematical noncoverage. Core release regressions already
+pass. A separate physical-ladder diagnostic
+replays the prepared numerator only to check lowering/admission; the full slow
+acceptance test must still regenerate its QCD numerator and projector itself.
+The earlier full preparation succeeded in 1,288.550 s, then failed a conservative
+rational support bound before reduction. That failed run is not an accepted
+physical ladder reduction.
+
+The subsequent numeric-only normalization repair uses native Symbolica
+`expand_num` inside the coordinate-change path without expanding outer powers.
+Its tight one-term-budget rank-11 regression and 527 related core tests pass.
+The complete external census now passes 811 of 813 inputs in 1,059.22 s including
+loading (1,020.31 s for the audit itself), with 2.663 GB peak RSS. All previous
+scalar-expansion failures are removed; the two remaining failures are
+`point-00352` and `point-00356`, whose native entry transports request
+161,313,306 and 386,902,320 polynomial-operation units against the existing
+64-million allowance. These are operational refusals, not missing-rule or
+outside-scope evidence. A separately logged run with an explicitly configured
+larger routing budget is pending. No IBPs were applied by this audit.
+
+Frozen integrated executable SHA256:
+`f012756286c1a416b965c104cd149791ce4b8b974be5654a1353e2eb71d592f0`;
+evidence: `vakint-admission-census-813-numeric-normalized/`.
 
 The exported package inherits the saved scope's authority. It does not claim
 independent certification, minimality, or unrestricted five-loop closure.

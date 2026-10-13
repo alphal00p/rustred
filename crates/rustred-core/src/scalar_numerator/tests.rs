@@ -14,6 +14,7 @@ use super::*;
 
 mod scoped;
 mod weighted;
+mod whole_weighted;
 
 fn symbol(name: &str) -> Symbol {
     SymbolBuilder::new(

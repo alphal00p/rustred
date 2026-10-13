@@ -99,7 +99,7 @@ impl ExactComparisonBudget {
         Self { used: 0, limit }
     }
 
-    fn equals(
+    pub(super) fn equals(
         &mut self,
         left: AtomView<'_>,
         right: AtomView<'_>,
