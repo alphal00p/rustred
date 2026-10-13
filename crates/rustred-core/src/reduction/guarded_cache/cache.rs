@@ -1,4 +1,4 @@
-use super::{ClosedUnitMassProgram, GuardedCacheError};
+use super::{ClosedUnitMassProgram, GuardedCacheError, RootUse};
 use crate::algebra::ExactAlgebraLimits;
 use crate::family::IntegralKey;
 use crate::persistence::application_cache::{ApplicationCacheBinding, ApplicationCacheRecord};
@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 struct Entry {
-    record: ApplicationCacheRecord,
+    record: Arc<ApplicationCacheRecord>,
     weight: CacheWeight,
     eviction: EvictionMetadata,
     validated_exact: ExactAlgebraLimits,
@@ -23,6 +23,8 @@ struct Entry {
 pub struct GuardedRootCacheStatistics {
     pub ram_hits: usize,
     pub backing_hits: usize,
+    pub descendant_ram_hits: usize,
+    pub descendant_backing_hits: usize,
     pub completed_reductions: usize,
     /// Full payload-validation attempts on admission or tightened exact
     /// bounds. Unchanged/looser RAM hits do not traverse the payload again.
@@ -89,6 +91,9 @@ impl State {
 /// metadata is bounded by integral count; this is not a process-RSS bound.
 /// A cold solve shares the same budget and can evict completed outer roots;
 /// its active descendants remain protected inside the ordinary reducer.
+/// A lookup may transiently hold one immutable Arc after its entry is evicted,
+/// while native import/output or backing decode buffers coexist. The retained
+/// census is not a bound on those transient buffers or process RSS.
 pub struct GuardedRootCache {
     pub(super) binding: ApplicationCacheBinding,
     pub(super) artifact_identity: usize,
@@ -200,14 +205,15 @@ impl GuardedRootCache {
         self.state()
             .entries
             .get(key)
-            .map(|entry| entry.record.clone())
+            .map(|entry| entry.record.as_ref().clone())
     }
     pub(super) fn hit(
         &mut self,
         key: &IntegralKey,
         limits: ReductionLimits,
+        usage: RootUse,
         validate: impl FnOnce(&ApplicationCacheRecord) -> Result<(), GuardedCacheError>,
-    ) -> Result<Option<ApplicationCacheRecord>, GuardedCacheError> {
+    ) -> Result<Option<Arc<ApplicationCacheRecord>>, GuardedCacheError> {
         let mut state = self.state();
         let Some(entry) = state.entries.get(key) else {
             return Ok(None);
@@ -240,8 +246,16 @@ impl GuardedRootCache {
                 .eviction = metadata;
             state.index.insert(key.clone(), metadata);
         }
-        state.statistics.ram_hits = state.statistics.ram_hits.saturating_add(1);
-        Ok(Some(state.entries[key].record.clone()))
+        match usage {
+            RootUse::Entry => {
+                state.statistics.ram_hits = state.statistics.ram_hits.saturating_add(1)
+            }
+            RootUse::Descendant => {
+                state.statistics.descendant_ram_hits =
+                    state.statistics.descendant_ram_hits.saturating_add(1)
+            }
+        }
+        Ok(Some(Arc::clone(&state.entries[key].record)))
     }
     pub(super) fn validate_payload(
         &mut self,
@@ -254,9 +268,17 @@ impl GuardedRootCache {
         }
         validate()
     }
-    pub(super) fn backing_hit(&mut self) {
+    pub(super) fn backing_hit(&mut self, usage: RootUse) {
         let mut state = self.state();
-        state.statistics.backing_hits = state.statistics.backing_hits.saturating_add(1);
+        match usage {
+            RootUse::Entry => {
+                state.statistics.backing_hits = state.statistics.backing_hits.saturating_add(1)
+            }
+            RootUse::Descendant => {
+                state.statistics.descendant_backing_hits =
+                    state.statistics.descendant_backing_hits.saturating_add(1)
+            }
+        }
     }
     pub(super) fn completed_reduction(&mut self, work: ReductionStatistics) {
         let mut state = self.state();
@@ -264,10 +286,20 @@ impl GuardedRootCache {
             state.statistics.completed_reductions.saturating_add(1);
         state.statistics.work.merge_work(work);
     }
+    #[cfg(test)]
     pub(super) fn insert(
         &mut self,
         key: IntegralKey,
         record: ApplicationCacheRecord,
+        limits: ReductionLimits,
+    ) -> Result<(), ReductionError> {
+        self.insert_shared(key, Arc::new(record), limits)
+    }
+
+    pub(super) fn insert_shared(
+        &mut self,
+        key: IntegralKey,
+        record: Arc<ApplicationCacheRecord>,
         limits: ReductionLimits,
     ) -> Result<(), ReductionError> {
         let weight =
@@ -322,5 +354,20 @@ impl GuardedRootCache {
                 Err(error) => return Err(error),
             }
         }
+    }
+
+    /// One shared immutable payload, not a clone of all records or all keys.
+    /// The returned Arc keeps it alive after this short lock has been released.
+    pub(super) fn export_next(
+        &self,
+        after: Option<&IntegralKey>,
+    ) -> Option<(IntegralKey, Arc<ApplicationCacheRecord>, CacheWeight)> {
+        use std::ops::Bound::{Excluded, Unbounded};
+        let state = self.state();
+        let next = match after {
+            Some(key) => state.entries.range((Excluded(key), Unbounded)).next(),
+            None => state.entries.first_key_value(),
+        };
+        next.map(|(key, entry)| (key.clone(), Arc::clone(&entry.record), entry.weight))
     }
 }

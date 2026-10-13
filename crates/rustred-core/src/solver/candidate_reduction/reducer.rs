@@ -16,11 +16,11 @@ use super::model::{
     CandidateReductionError, CandidateStatistics, PreparedRule,
 };
 
-/// Deterministic, iterative application of explicitly experimental sector
-/// formulas. This type cannot be converted to a closed artifact. It never
-/// invents a terminal to hide a gap or invokes a source-generation campaign.
+/// Immutable mathematical inputs shared by independent application sessions.
+/// Terminal conventions are shared separately so changing one session's
+/// convention cannot copy the rule program or affect another session.
 #[derive(Debug)]
-pub struct CandidateReducer<const N: usize> {
+pub(super) struct CandidateProgram<const N: usize> {
     pub(super) family_fingerprint: Arc<String>,
     pub(super) context: IndexedCoefficientContext,
     pub(super) root_sector: [bool; N],
@@ -29,11 +29,19 @@ pub struct CandidateReducer<const N: usize> {
     pub(super) rules: BTreeMap<[bool; N], Vec<PreparedRule<N>>>,
     pub(super) whole_piece_alternatives: BTreeMap<[bool; N], Vec<usize>>,
     pub(super) terminals: BTreeSet<IntegralKey>,
-    pub(super) terminal_aliases: Option<TerminalAliasPlan>,
-    pub(super) terminal_normalization: Option<TerminalNormalizationPlan>,
     pub(super) zero_sectors: BTreeSet<[bool; N]>,
     pub(super) _zero_certificates: Vec<zero::Certificate>,
     pub(super) source_conditions: Vec<IndexedPolynomial>,
+}
+
+/// Deterministic, iterative application of explicitly experimental sector
+/// formulas. This type cannot be converted to a closed artifact. It never
+/// invents a terminal to hide a gap or invokes a source-generation campaign.
+#[derive(Debug)]
+pub struct CandidateReducer<const N: usize> {
+    pub(super) program: Arc<CandidateProgram<N>>,
+    pub(super) terminal_aliases: Option<Arc<TerminalAliasPlan>>,
+    pub(super) terminal_normalization: Option<Arc<TerminalNormalizationPlan>>,
     pub(super) limits: ReductionLimits,
     pub(super) cache: BTreeMap<IntegralKey, CacheEntry>,
     pub(super) cache_representation: CandidateCacheRepresentation,
@@ -43,8 +51,33 @@ pub struct CandidateReducer<const N: usize> {
 }
 
 impl<const N: usize> CandidateReducer<N> {
+    /// Start an isolated application session over this exact immutable rule
+    /// program and terminal convention. This neither reparses/replays rules
+    /// nor clones their coefficients. The new cache, budget and work counters
+    /// are empty; clearing either session cannot disturb the other.
+    pub fn fork_empty(&self) -> Self {
+        self.fork_empty_with_limits(self.limits)
+    }
+
+    /// As `fork_empty`, with explicitly selected operational allowances for
+    /// the new session. Mathematical admission and terminal declarations are
+    /// unchanged. No allowance or state is modified in the source session.
+    pub fn fork_empty_with_limits(&self, limits: ReductionLimits) -> Self {
+        Self {
+            program: Arc::clone(&self.program),
+            terminal_aliases: self.terminal_aliases.clone(),
+            terminal_normalization: self.terminal_normalization.clone(),
+            limits,
+            cache: BTreeMap::new(),
+            cache_representation: self.cache_representation,
+            cache_weight: CacheWeight::default(),
+            cache_budget: SharedCacheBudget::default(),
+            statistics: ReductionStatistics::default(),
+        }
+    }
+
     pub fn family_fingerprint(&self) -> &str {
-        &self.family_fingerprint
+        &self.program.family_fingerprint
     }
     pub fn index_count(&self) -> usize {
         N
@@ -52,15 +85,15 @@ impl<const N: usize> CandidateReducer<N> {
     /// Original declared terminals, retained even when output aliases are installed.
     /// Offline catalogs and provenance checks should continue to use this set.
     pub fn terminals(&self) -> &BTreeSet<IntegralKey> {
-        &self.terminals
+        &self.program.terminals
     }
     pub fn ordering(&self) -> OrderingPolicy {
-        self.ordering.clone()
+        self.program.ordering.clone()
     }
     /// Optional entry-domain bound on `sum(max(-n_i, 0))`. This is not a
     /// successor bound: valid reductions may visit integrals above this rank.
     pub fn max_numerator_rank(&self) -> Option<u32> {
-        self.max_numerator_rank
+        self.program.max_numerator_rank
     }
     pub fn limits(&self) -> ReductionLimits {
         self.limits
@@ -144,7 +177,8 @@ impl<const N: usize> CandidateReducer<N> {
                 })?
                 .clone();
             for coefficient in result.terms().values().chain(&conditions) {
-                self.context
+                self.program
+                    .context
                     .base()
                     .validate_with_limits(coefficient, self.limits.exact_algebra)?;
             }
@@ -189,13 +223,13 @@ impl<const N: usize> CandidateReducer<N> {
                         let terms = CachedTerms::from_sparse(
                             BTreeMap::new(),
                             self.cache_representation,
-                            self.context.base(),
+                            self.program.context.base(),
                             self.limits,
                         )?;
                         self.cache_insert(key, terms, conditions)?;
                         continue;
                     }
-                    if self.terminals.contains(&key) {
+                    if self.program.terminals.contains(&key) {
                         // Exactly one sealed convention is installed. All
                         // outputs are declared fixed points; no replay or
                         // recursive terminal expansion enters the hot path.
@@ -212,12 +246,12 @@ impl<const N: usize> CandidateReducer<N> {
                                 .as_ref()
                                 .and_then(|plan| plan.aliases().get(&key))
                                 .map_or(&key, |alias| alias.representative());
-                            BTreeMap::from([(terminal.clone(), self.context.base().one())])
+                            BTreeMap::from([(terminal.clone(), self.program.context.base().one())])
                         };
                         let terms = CachedTerms::from_sparse(
                             terms,
                             self.cache_representation,
-                            self.context.base(),
+                            self.program.context.base(),
                             self.limits,
                         )?;
                         let mut conditions = conditions;
@@ -225,7 +259,8 @@ impl<const N: usize> CandidateReducer<N> {
                             // The finite normalization factory uses rational
                             // constant geometry. Retain native output poles as
                             // well, before any downstream master cancellation.
-                            let sparse = terms.materialize(self.context.base(), self.limits)?;
+                            let sparse =
+                                terms.materialize(self.program.context.base(), self.limits)?;
                             for coefficient in sparse.values() {
                                 retain_polynomial(conditions, &coefficient.denominator);
                             }
@@ -307,7 +342,7 @@ impl<const N: usize> CandidateReducer<N> {
                         output
                     });
                     let output = cache::combine(
-                        self.context.base(),
+                        self.program.context.base(),
                         &self.cache,
                         self.cache_representation,
                         terms,
@@ -406,7 +441,7 @@ impl<const N: usize> CandidateReducer<N> {
             .cache
             .values()
             .flat_map(|entry| entry.terms.terminal_keys())
-            .filter(|key| self.terminals.contains(*key))
+            .filter(|key| self.program.terminals.contains(*key))
             .collect::<BTreeSet<_>>()
             .len();
         Ok(CandidateReachabilityReport {
@@ -479,9 +514,11 @@ impl<const N: usize> CandidateReducer<N> {
                 detail: "candidate target is absent after work stack completed",
             })?;
         Ok(CandidateDecomposition {
-            family_fingerprint: self.family_fingerprint.clone(),
+            family_fingerprint: self.program.family_fingerprint.clone(),
             target: target.clone(),
-            terms: entry.terms.materialize(self.context.base(), self.limits)?,
+            terms: entry
+                .terms
+                .materialize(self.program.context.base(), self.limits)?,
         })
     }
 
@@ -491,13 +528,13 @@ impl<const N: usize> CandidateReducer<N> {
     ) -> Result<Vec<Coefficient>, CandidateReductionError> {
         let mut conditions = Vec::new();
         super::evaluator::CandidateEvaluator {
-            context: &self.context,
-            root_sector: self.root_sector,
-            ordering: &self.ordering,
+            context: &self.program.context,
+            root_sector: self.program.root_sector,
+            ordering: &self.program.ordering,
             rules: &[],
             whole_piece_alternatives: &[],
-            source_conditions: &self.source_conditions,
-            zero_sectors: &self.zero_sectors,
+            source_conditions: &self.program.source_conditions,
+            zero_sectors: &self.program.zero_sectors,
             limits: self.limits,
         }
         .validate_target_with_conditions(target, &mut |condition| {
@@ -513,23 +550,25 @@ impl<const N: usize> CandidateReducer<N> {
     ) -> Result<(BTreeMap<IntegralKey, Coefficient>, Vec<Coefficient>), CandidateReductionError>
     {
         let sector = std::array::from_fn(|i| target.powers().get(i).copied().unwrap_or(0) > 0);
-        let rules = self
-            .rules
-            .get(&sector)
-            .ok_or_else(|| CandidateReductionError::Uncovered {
-                target: target.clone(),
-            })?;
+        let rules =
+            self.program
+                .rules
+                .get(&sector)
+                .ok_or_else(|| CandidateReductionError::Uncovered {
+                    target: target.clone(),
+                })?;
         super::evaluator::CandidateEvaluator {
-            context: &self.context,
-            root_sector: self.root_sector,
-            ordering: &self.ordering,
+            context: &self.program.context,
+            root_sector: self.program.root_sector,
+            ordering: &self.program.ordering,
             rules,
             whole_piece_alternatives: self
+                .program
                 .whole_piece_alternatives
                 .get(&sector)
                 .map_or(&[], Vec::as_slice),
-            source_conditions: &self.source_conditions,
-            zero_sectors: &self.zero_sectors,
+            source_conditions: &self.program.source_conditions,
+            zero_sectors: &self.program.zero_sectors,
             limits: self.limits,
         }
         .apply_with_conditions(target, request, &mut self.statistics)
@@ -584,7 +623,7 @@ mod guarded_tests {
         )
         .unwrap();
         let c = family.coefficient_context();
-        let indexed = reducer.context.clone();
+        let indexed = reducer.program.context.clone();
         let polynomial = |text| {
             let value = indexed.lift(&c.coefficient_fixture(text)).unwrap();
             indexed
@@ -594,8 +633,15 @@ mod guarded_tests {
                 )
                 .unwrap()
         };
-        reducer.source_conditions.push(polynomial("d-7"));
-        let rules = reducer.rules.get_mut(&[true]).unwrap();
+        std::sync::Arc::get_mut(&mut reducer.program)
+            .unwrap()
+            .source_conditions
+            .push(polynomial("d-7"));
+        let rules = std::sync::Arc::get_mut(&mut reducer.program)
+            .unwrap()
+            .rules
+            .get_mut(&[true])
+            .unwrap();
         rules[0].rhs[0].denominator = polynomial("d-4");
         rules[1].rhs[0].denominator = polynomial("d-5");
         rules[1].exceptions = vec![vec![polynomial("d-6"), polynomial("d-8")]];

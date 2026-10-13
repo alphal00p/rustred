@@ -8,12 +8,19 @@ use crate::family::IntegralKey;
 use crate::foundry::artifact::{ClosedArtifact, CommonMassHomogeneityProof};
 use crate::foundry::cell::RuleCellTerm;
 use crate::foundry::parametric::ParametricRule;
+use crate::persistence::application_cache::{ApplicationCacheRecord, ApplicationCacheStage};
 
 use super::error::ReductionError;
 use super::model::{
     HomogeneousMasterCoefficient, HomogeneousMasterDecomposition, MasterDecomposition,
     ReductionLimits, ReductionStatistics,
 };
+
+/// Scoped same-artifact lookup. No provider is stored in a Reducer or passed
+/// into its lower-family dependency reducers. The error type preserves typed
+/// backing failures without expanding the ordinary public ReductionError.
+pub(crate) type GuardedRootLookup<'a, E> =
+    dyn FnMut(&IntegralKey) -> Result<Option<Arc<ApplicationCacheRecord>>, E> + 'a;
 
 impl ReductionLimits {
     /// Intersect a caller's remaining request budget with an immutable owner
@@ -72,6 +79,9 @@ pub struct Reducer<'artifact> {
     artifact: &'artifact ClosedArtifact,
     limits: ReductionLimits,
     cache: BTreeMap<IntegralKey, MasterDecomposition>,
+    /// Imported nodes already contributed their complete ordered guards to
+    /// this request. Never reselect their rules during the final guard walk.
+    guarded_imports: BTreeSet<IntegralKey>,
     cache_weight: CacheWeight,
     shared_cache: Arc<SharedCacheBudget>,
     statistics: ReductionStatistics,
@@ -143,6 +153,7 @@ impl<'artifact> Reducer<'artifact> {
             artifact,
             limits,
             cache: BTreeMap::new(),
+            guarded_imports: BTreeSet::new(),
             cache_weight: CacheWeight::default(),
             shared_cache,
             statistics: ReductionStatistics::default(),
@@ -187,6 +198,7 @@ impl<'artifact> Reducer<'artifact> {
             self.limits,
         )?;
         self.cache.clear();
+        self.guarded_imports.clear();
         self.cache_weight = CacheWeight::default();
         self.seed_master_terminals()
     }
@@ -245,6 +257,29 @@ impl<'artifact> Reducer<'artifact> {
         limits: ReductionLimits,
         shared: Arc<SharedCacheBudget>,
     ) -> Result<(MasterDecomposition, Vec<Coefficient>, ReductionStatistics), ReductionError> {
+        Self::reduce_artifact_unit_mass_guarded_impl(artifact, target, limits, shared, None)
+    }
+
+    pub(crate) fn reduce_artifact_unit_mass_guarded_with_lookup(
+        artifact: &'artifact ClosedArtifact,
+        target: &IntegralKey,
+        limits: ReductionLimits,
+        shared: Arc<SharedCacheBudget>,
+        lookup: &mut GuardedRootLookup<'_, super::GuardedCacheError>,
+    ) -> Result<
+        (MasterDecomposition, Vec<Coefficient>, ReductionStatistics),
+        super::GuardedCacheError,
+    > {
+        Self::reduce_artifact_unit_mass_guarded_impl(artifact, target, limits, shared, Some(lookup))
+    }
+
+    fn reduce_artifact_unit_mass_guarded_impl<E: From<ReductionError>>(
+        artifact: &'artifact ClosedArtifact,
+        target: &IntegralKey,
+        limits: ReductionLimits,
+        shared: Arc<SharedCacheBudget>,
+        lookup: Option<&mut GuardedRootLookup<'_, E>>,
+    ) -> Result<(MasterDecomposition, Vec<Coefficient>, ReductionStatistics), E> {
         let mut reducer = Self::build(artifact, limits, shared)?;
         let mut request = ReductionRequest {
             guarded_conditions: Some(Vec::new()),
@@ -255,7 +290,26 @@ impl<'artifact> Reducer<'artifact> {
             }),
             ..Default::default()
         };
-        let decomposition = reducer.reduce_unit_mass_in_request(target, &mut request)?;
+        let decomposition = if let Some(lookup) = lookup {
+            reducer.validate_target(target)?;
+            let canonical_target = reducer.canonicalize(target)?;
+            let canonical = reducer.reduce_canonical_unit_mass(
+                &canonical_target,
+                &mut request,
+                Some(lookup),
+            )?;
+            if canonical_target == *target {
+                canonical
+            } else {
+                MasterDecomposition::new(
+                    reducer.family_fingerprint.clone(),
+                    target.clone(),
+                    canonical.into_terms(),
+                )
+            }
+        } else {
+            reducer.reduce_unit_mass_in_request(target, &mut request)?
+        };
         // Coefficients already came from the ordinary checked engine. Inspect
         // only its retained, completed DAG to preserve selected original poles
         // even when its final coefficients have cancelled them away.
@@ -278,6 +332,9 @@ impl<'artifact> Reducer<'artifact> {
             request.retain_nonzero_guard(&condition.polynomial().clone().into(), self.limits)?;
         }
         for target in self.cache.keys() {
+            if self.guarded_imports.contains(target) {
+                continue;
+            }
             if self.artifact.masters().contains(target) || self.artifact.is_zero_terminal(target) {
                 continue;
             }
@@ -355,7 +412,8 @@ impl<'artifact> Reducer<'artifact> {
     ) -> Result<MasterDecomposition, ReductionError> {
         self.validate_target(target)?;
         let canonical_target = self.canonicalize(target)?;
-        let canonical = self.reduce_canonical_unit_mass(&canonical_target, request)?;
+        let canonical =
+            self.reduce_canonical_unit_mass::<ReductionError>(&canonical_target, request, None)?;
         if canonical_target == *target {
             Ok(canonical)
         } else {
@@ -367,11 +425,12 @@ impl<'artifact> Reducer<'artifact> {
         }
     }
 
-    fn reduce_canonical_unit_mass(
+    fn reduce_canonical_unit_mass<E: From<ReductionError>>(
         &mut self,
         target: &IntegralKey,
         request: &mut ReductionRequest,
-    ) -> Result<MasterDecomposition, ReductionError> {
+        mut lookup: Option<&mut GuardedRootLookup<'_, E>>,
+    ) -> Result<MasterDecomposition, E> {
         if let Some(cached) = self.cache.get(target).cloned() {
             self.statistics.record_cache_hit();
             return Ok(cached);
@@ -390,34 +449,63 @@ impl<'artifact> Reducer<'artifact> {
                             self.statistics.record_cache_hit();
                             continue;
                         }
-                        if self.artifact.is_zero_terminal(&key) {
-                            self.cache_insert(
-                                key.clone(),
-                                MasterDecomposition::new(
+                        // A completed external value must not mask an active
+                        // native cycle. Ordinary no-provider behavior remains
+                        // the existing begin_expansion check below.
+                        if lookup.is_some() && active.contains(&key) {
+                            return Err(ReductionError::CycleDetected { target: key }.into());
+                        }
+                        // Native applicability is selected before consulting
+                        // the provider: an uncovered node stays uncovered.
+                        let expansion = if self.artifact.is_zero_terminal(&key) {
+                            Expansion::Zero
+                        } else if let Some(factorization) = self.select_first_factorization(&key)? {
+                            Expansion::Factorization(factorization)
+                        } else {
+                            Expansion::Rule(self.select_first_rule(&key)?)
+                        };
+                        // The guarded outer API already checked the starting
+                        // root. Avoid a second identical backing lookup.
+                        if key != *target {
+                            if let Some(provider) = lookup.as_mut() {
+                                if let Some(record) = provider(&key)? {
+                                    drop(expansion);
+                                    self.import_guarded_root(&key, &record, request)?;
+                                    continue;
+                                }
+                            }
+                        }
+                        let selected = match expansion {
+                            Expansion::Zero => {
+                                self.cache_insert(
+                                    key.clone(),
+                                    MasterDecomposition::new(
+                                        self.family_fingerprint.clone(),
+                                        key,
+                                        BTreeMap::new(),
+                                    ),
+                                )?;
+                                continue;
+                            }
+                            Expansion::Factorization(factorization) => {
+                                request
+                                    .record_rule_application(self.limits.max_rule_applications)?;
+                                let routed = self.apply_factorization(
+                                    &factorization.routed_target,
+                                    factorization.ordinal,
+                                    request,
+                                )?;
+                                let expansion = MasterDecomposition::new(
                                     self.family_fingerprint.clone(),
-                                    key,
-                                    BTreeMap::new(),
-                                ),
-                            )?;
-                            continue;
-                        }
-                        if let Some(factorization) = self.select_first_factorization(&key)? {
-                            request.record_rule_application(self.limits.max_rule_applications)?;
-                            let routed = self.apply_factorization(
-                                &factorization.routed_target,
-                                factorization.ordinal,
-                                request,
-                            )?;
-                            let expansion = MasterDecomposition::new(
-                                self.family_fingerprint.clone(),
-                                key.clone(),
-                                routed.into_terms(),
-                            );
-                            self.statistics.record_rule_application();
-                            self.cache_insert(key, expansion)?;
-                            continue;
-                        }
-                        let selected = self.select_first_rule(&key)?;
+                                    key.clone(),
+                                    routed.into_terms(),
+                                );
+                                self.statistics.record_rule_application();
+                                self.cache_insert(key, expansion)?;
+                                continue;
+                            }
+                            Expansion::Rule(selected) => selected,
+                        };
                         begin_expansion(&mut active, &key)?;
                         request.record_rule_application(self.limits.max_rule_applications)?;
                         let application = self.apply_selected_rule(&key, selected)?;
@@ -454,11 +542,15 @@ impl<'artifact> Reducer<'artifact> {
                                         detail: "a child expansion is absent at its combine frame",
                                     })?;
                             for (master, child_coefficient) in child_expansion.terms() {
-                                let contribution = self.artifact.coefficient_context().try_mul(
-                                    &rule_coefficient,
-                                    child_coefficient,
-                                    self.limits.exact_algebra,
-                                )?;
+                                let contribution = self
+                                    .artifact
+                                    .coefficient_context()
+                                    .try_mul(
+                                        &rule_coefficient,
+                                        child_coefficient,
+                                        self.limits.exact_algebra,
+                                    )
+                                    .map_err(ReductionError::from)?;
                                 accumulate_master_in_request(
                                     self.artifact.coefficient_context(),
                                     &mut masters,
@@ -473,7 +565,7 @@ impl<'artifact> Reducer<'artifact> {
                         if !active.remove(&target) {
                             return Err(ReductionError::ReducerInvariant {
                                 detail: "a combine frame is not present in the active dependency set",
-                            });
+                            }.into());
                         }
                         self.cache_insert(
                             target.clone(),
@@ -493,9 +585,44 @@ impl<'artifact> Reducer<'artifact> {
                 .ok_or(ReductionError::ReducerInvariant {
                     detail: "the root expansion is absent after exhausting the work stack",
                 })
+                .map_err(Into::into)
         })();
         request.restore_pending_frames(pending_baseline);
         result
+    }
+
+    fn import_guarded_root(
+        &mut self,
+        key: &IntegralKey,
+        record: &ApplicationCacheRecord,
+        request: &mut ReductionRequest,
+    ) -> Result<(), ReductionError> {
+        if !request.retains_nonzero_guards()
+            || record.key.stage() != ApplicationCacheStage::GuardedRoot
+            || !record.key.owner().is_empty()
+            || record.key.powers() != key.powers()
+        {
+            return Err(ReductionError::ReducerInvariant {
+                detail: "guarded provider returned an invalid key or unguarded request",
+            });
+        }
+        // Payload/context/leaf authority was validated at lookup admission.
+        // Preserve every supplied condition, even for zero terms and constant
+        // obligations; the existing final first-occurrence union deduplicates.
+        for guard in &record.nonzero_conditions {
+            request.retain_imported_nonzero_guard(guard, self.limits)?;
+        }
+        self.cache_insert(
+            key.clone(),
+            MasterDecomposition::new(
+                self.family_fingerprint.clone(),
+                key.clone(),
+                record.terms.clone(),
+            ),
+        )?;
+        self.guarded_imports.insert(key.clone());
+        self.statistics.record_cache_hit();
+        Ok(())
     }
 
     /// Restore an arbitrary nonzero common mass squared inside the artifact's
@@ -1094,6 +1221,21 @@ impl ReductionRequest {
         condition: &Coefficient,
         limits: ReductionLimits,
     ) -> Result<(), ReductionError> {
+        self.retain_nonzero_guard_impl(condition, limits, false)
+    }
+    fn retain_imported_nonzero_guard(
+        &mut self,
+        condition: &Coefficient,
+        limits: ReductionLimits,
+    ) -> Result<(), ReductionError> {
+        self.retain_nonzero_guard_impl(condition, limits, true)
+    }
+    fn retain_nonzero_guard_impl(
+        &mut self,
+        condition: &Coefficient,
+        limits: ReductionLimits,
+        preserve_constant: bool,
+    ) -> Result<(), ReductionError> {
         let Some(conditions) = &mut self.guarded_conditions else {
             return Ok(());
         };
@@ -1102,7 +1244,10 @@ impl ReductionRequest {
                 detail: "guarded reduction encountered a zero nonzero-condition",
             });
         }
-        if condition.numerator.is_constant() && condition.denominator.is_constant() {
+        if !preserve_constant
+            && condition.numerator.is_constant()
+            && condition.denominator.is_constant()
+        {
             return Ok(());
         }
         let budget =
@@ -1447,6 +1592,12 @@ pub(crate) fn coefficient_cache_weight<'a>(
         })
 }
 
+enum Expansion<'a> {
+    Zero,
+    Factorization(SelectedFactorization),
+    Rule(SelectedRule<'a>),
+}
+
 #[derive(Debug)]
 enum Frame {
     Expand(IntegralKey),
@@ -1590,6 +1741,117 @@ fn pow_signed(
 mod guarded_provider_tests {
     use super::*;
     use crate::foundry::artifact::derive_two_loop_unit_mass_sunset;
+
+    #[test]
+    fn imported_zero_terms_keep_all_stored_guards_and_release_their_lease() {
+        let artifact = crate::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap();
+        let mut reducer = Reducer::new(&artifact).unwrap();
+        let shared = Arc::clone(&reducer.shared_cache);
+        let limits = ReductionLimits::default();
+        let d = artifact
+            .coefficient_context()
+            .parameter(&artifact.coefficient_context().parameter_names()[0])
+            .unwrap();
+        let guards = vec![d.clone(), artifact.coefficient_context().integer(-2), d];
+        let key = IntegralKey::try_new([0]).unwrap();
+        let record = ApplicationCacheRecord {
+            key: crate::persistence::application_cache::ApplicationCacheKey::guarded_root(&key),
+            terms: BTreeMap::new(),
+            nonzero_conditions: guards.clone(),
+        };
+        let mut request = ReductionRequest {
+            guarded_conditions: Some(Vec::new()),
+            guarded_condition_budget: Some(GuardedConditionBudget {
+                shared: shared.clone(),
+                limits,
+                weight: CacheWeight::default(),
+            }),
+            ..Default::default()
+        };
+        reducer
+            .import_guarded_root(&key, &record, &mut request)
+            .unwrap();
+        assert!(reducer.cache[&key].is_zero());
+        reducer
+            .collect_guarded_dag_conditions(&mut request)
+            .unwrap();
+        assert_eq!(request.guarded_conditions.as_ref().unwrap(), &guards);
+        drop(request);
+        drop(reducer);
+        assert_eq!(shared.snapshot(), CacheCensus::default());
+    }
+
+    #[test]
+    fn imported_native_sunset_result_keeps_the_exact_original_angular_guard_set() {
+        let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+        let key = IntegralKey::try_new([1, 1, -2]).unwrap();
+        let (unit, guards, _) =
+            Reducer::reduce_artifact_unit_mass_guarded(&artifact, &key, Default::default())
+                .unwrap();
+        assert!(!guards.is_empty());
+        let record = ApplicationCacheRecord {
+            key: crate::persistence::application_cache::ApplicationCacheKey::guarded_root(&key),
+            terms: unit.terms().clone(),
+            nonzero_conditions: guards.clone(),
+        };
+        let mut reducer = Reducer::new(&artifact).unwrap();
+        let shared = Arc::clone(&reducer.shared_cache);
+        let mut request = ReductionRequest {
+            guarded_conditions: Some(Vec::new()),
+            guarded_condition_budget: Some(GuardedConditionBudget {
+                shared: shared.clone(),
+                limits: Default::default(),
+                weight: CacheWeight::default(),
+            }),
+            ..Default::default()
+        };
+        reducer
+            .import_guarded_root(&key, &record, &mut request)
+            .unwrap();
+        reducer
+            .collect_guarded_dag_conditions(&mut request)
+            .unwrap();
+        assert_eq!(reducer.cache[&key].terms(), unit.terms());
+        assert_eq!(reducer.statistics().rule_applications(), 0);
+        assert_eq!(
+            request
+                .guarded_conditions
+                .as_ref()
+                .unwrap()
+                .iter()
+                .collect::<HashSet<_>>(),
+            guards.iter().collect::<HashSet<_>>()
+        );
+        drop(request);
+        drop(reducer);
+        assert_eq!(shared.snapshot(), CacheCensus::default());
+    }
+
+    #[test]
+    fn descendant_provider_panic_does_not_leave_transient_cache_charged() {
+        let artifact = crate::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap();
+        let shared = Arc::new(SharedCacheBudget::default());
+        let mut lookup = |_: &IntegralKey| -> Result<
+            Option<Arc<ApplicationCacheRecord>>,
+            super::super::GuardedCacheError,
+        > {
+            panic!("injected descendant lookup unwind");
+        };
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                Reducer::reduce_artifact_unit_mass_guarded_with_lookup(
+                    &artifact,
+                    &IntegralKey::try_new([5]).unwrap(),
+                    Default::default(),
+                    shared.clone(),
+                    &mut lookup,
+                )
+                .unwrap();
+            }))
+            .is_err()
+        );
+        assert_eq!(shared.snapshot(), CacheCensus::default());
+    }
 
     #[test]
     fn transient_reducer_and_guard_leases_release_only_their_own_budget_on_panic() {

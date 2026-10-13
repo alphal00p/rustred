@@ -4,6 +4,13 @@
 
 ### Audited infrastructure checkpoint
 
+Both source milestones are now pushed and independently remote-verified:
+RustRed `main` at `59e45868ea7a81f11969c5d14fd5f7e5570610ec` and GammaLoop
+`vakint_rustred` at `57aeb3121e59908b895bba0a137859c02d3a33a4`. The latter pins
+the former Git revision and contains the passed real 1L cache test. All commits
+use ValentinHirschi / valentin.hirschi@gmail.com. No runtime artifacts, cache
+packs, master-table changes or timing logs were pushed.
+
 The explicit native guarded-root program/cache, dynamic pressure reclamation,
 hot-hit validation stamps and combined homogeneity entry pass 146 optimized tests:
 14 guarded-cache, 9 provider/reducer cleanup, 78 existing reduction and 45 routed
@@ -25,17 +32,111 @@ receipt is historical and does not cover the subsequent three-file change.
 The harness imports real production source; its preparation backend mocks are
 orchestration evidence, not IBP reduction evidence.
 
-Final full release source checks also pass for all current app tests/examples
-(63 s) and Vakint lib/tests/community bindings (16.30 s):
+Final source checks also pass for all current app tests/examples in the release
+profile (63 s) and Vakint lib/tests/community bindings in the dev profile (16.30 s):
 `TMP/cache-preparation-final-app-check-20261013.log` and
 `TMP/five-loop-vakint-20261013/check-lower-cache-final-20261013.log`.
-Root is publishing the coherent native/app slice so Vakint can pin an actual
-Git revision for the real shipped-1L prepare/save/fresh-process-load gate.
-No real public `prepare_cache` runtime success is claimed before that gate.
+Root published the coherent native/app slice as
+`59e45868ea7a81f11969c5d14fd5f7e5570610ec` on `main`; the remote revision was
+verified. Vakint is pinning that actual Git revision for the optimized real
+shipped-1L prepare/save/fresh-process-load gate. Root independently reran the
+14 native guarded-cache tests and 8 recovery-store tests successfully.
+The real 1L gate now passes with the optimized, actual-Git-pinned executable:
+`one_loop_preparation_and_fresh_process_hits_preserve_public_evaluation`,
+0.12 s for the complete test, including preparation and the fresh reader process.
+It prepares powers 0--4, verifies disk reuse of I(4) with zero native IBPs,
+checks RAM reuse, compares held-out I(5) against ordinary exact reduction, clears
+and reloads, and verifies that a later attachment does not silently enlarge a
+configured RAM allowance. The FORM path is invalid. This is one-loop end-to-end
+correctness, not 2--4L coverage or a phase-separated speedup measurement.
+Evidence: `TMP/five-loop-vakint-20261013/actual-git-one-loop-cache-59e45868-time/`.
+The supervised 2.175 s includes orchestration/drain and must not be reported as
+solver time. GNU time reports 0.11 s at centisecond resolution and 30,924 KiB
+maximum RSS (31,666,176 bytes); the supervisor's sparse samples are not this
+native peak. Earlier launch failures (missing executable paths before any test
+child ran) remain preserved. Test-only timing instrumentation was edited after
+this binary captured its source; the binary lacks those markers and is credited
+only for its original assertions. Per-phase timings await the next batched build.
 
-Remaining cache work: actual 1L then 2/3/4L integration; bounded live-cache save;
-prepared guarded roots usable as descendants of later requests; compression,
-overlap-miss/compaction and bounded-RAM measurements; explicit downloads;
+Parallel follow-up ownership: the exact-application agent adds compressed chunk
+transport, nonoverlapping range coalescing and cumulative lookup bounds; the
+profile agent adds bounded live-cache export and guarded descendant reuse; the
+delivery agent owns the actual Git-pinned Vakint runtime gate. Each is followed
+by an independent audit. The production walker was observed live again at
+16:52 UTC, PID 2051536, in run `20261013T161808.702984Z`; its reserved CPUs
+64--95 remain excluded from development builds. No production action was taken.
+
+Follow-up implementation checkpoint (validated; publication next):
+
+- The full native Cargo application gate passes all 27 store/preparation tests
+  in 0.09 s after 12m02 compilation. Native Symbolica code generation was reused.
+  All captured registered core/app sources remained unchanged. Receipt:
+  `TMP/five-loop-vakint-20261013/cache-compressed-primer-native-app-tests.json`;
+  frozen executable SHA256
+  `f3fa21a7758056e7c16040553d24ebfbb6b3e3875c20724a0cf27b3ef6bec6e0`.
+  This closes the current core + compressed IO + generic primer release gate.
+  The unregistered resident-save drafts are a separate next slice, not covered
+  by this result or the imminent commit.
+
+- The first optimized combined core build finished in 6m43. Across its filters,
+  215 test executions cover 162 distinct tests: 161 distinct tests pass, including
+  all four new candidate-session tests. One new negative fixture failed because
+  it incorrectly expected a vacant coefficient insertion to consume a
+  coalescing-addition allowance. The implementation correctly needed zero such
+  additions. The author changed only that fixture to a four-term polynomial
+  limit: cached I(4) fits, but the parent I(5) multiplication must fail after
+  the descendant hit. Typed failure, retained child and released transient
+  census assertions remain. The corrected 23-test guarded gate passes in
+  0.01 s after 6m13 compilation: all 162 distinct tests are now covered by
+  passing receipts. No production algebra/counter change accommodated the
+  fixture. Consolidated receipt:
+  `TMP/guarded-descendant-export-core-gate-receipt-20261013.json`.
+  Logs: `TMP/guarded-descendant-export-candidate-core-tests-20261013.log` and
+  `TMP/guarded-descendant-export-remaining-core-tests-20261013.log`.
+  Substring test filters overlap, so execution totals are not unique-test totals.
+- Independent descendant/export audit passed after a defensive correction:
+  only the two actual outside-domain predicates skip an external cache lookup;
+  structural `CertifiedEntryScope` errors now propagate. Export keeps one shared
+  immutable record at a time, invokes callbacks unlocked, and reports accepted
+  rather than necessarily durable records. It does not serialize usage/aging
+  statistics. Root and the independent exact-application agent reviewed these
+  boundaries; the final runtime gate remains necessary before publication.
+
+- The generic physical-mask primer moved into RustRed. Its 27-test exact-source
+  harness passes in 0.17 s, including the 23 previous IO/preparation cases.
+  Proposal counting uses native `FiniteEntryDomain` and Symbolica combinatorics;
+  masks may have noncontiguous auxiliary slots. Relative dot/rank and absolute
+  correlated budgets remain explicit; requests are never silently clipped.
+  The delivery agent independently audited the planner without blockers.
+- The full current app library/tests source-check passes in the release profile
+  (100 s) against the current native core, compressed store, primer and closed
+  adapter. All 2,035 recorded core/app source and manifest hashes are unchanged.
+  Receipt: `TMP/five-loop-vakint-20261013/cache-compressed-primer-full-app-check.json`.
+  The combined optimized core and subsequent full Cargo app gates have now
+  passed on build-0, CPUs 32--47, reusing the same target and native dependencies.
+  No current performance comparison follows from compilation.
+
+- Compressed cache-pack schema 02 passes 23 exact-source tests (13 store,
+  10 preparation) in 0.09 s. Encoded/decoded caps, one-member gzip integrity,
+  bounded geometric buffer growth, sorted disjoint chunk ranges and cumulative
+  lookup grants are covered. Source/dependency hashes match. Root independently
+  reviewed the IO changes and requested the amortized-buffer correction, which
+  now passes its regression. The full app gate above also passes against the
+  updated core. Overlapping-run compaction and large-pack RSS validation are
+  not claimed. The successful earlier Vk 1L gate used schema 01; the upcoming
+  fresh-process Vk 2/3L controls will use schema 02.
+- Root factored `CandidateReducer` into shared immutable program data plus
+  isolated mutable application state. `fork_empty` shares rules and terminal
+  conventions without polynomial copying, reparsing or global-cache clearing.
+  `fork_empty_with_limits` explicitly configures only the new session. The
+  delivery agent independently reviewed it without blockers; a recommended
+  weighted-normalization regression was added alongside the three fresh-session
+  tests. The core test suite type-check passed in 1m22 (dev profile); optimized
+  runtime verification now passes with the guarded-descendant slice, including
+  both sparse and factorized storage and the actual weighted terminal convention.
+
+Remaining cache work: 2/3/4L integration; application-level live-cache saving;
+overlapping-run compaction and bounded-RAM measurements; explicit downloads;
 LRU/LFU workload comparisons and final 1--4L packs. Default evaluation paths stay
 unchanged. Sealed internal guardless memoization is not persisted or described
 as a reusable guarded intermediate cache. No new5Lpreparation is running.

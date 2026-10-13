@@ -13,7 +13,9 @@ pub use runner::{
     CachePreparationBackend, CachePreparationReport, CachePreparationStatus,
     prepare_application_cache,
 };
-pub use workload::{CachePreparationTarget, CachePreparationWorkload};
+pub use workload::{
+    CachePreparationPrimerBudget, CachePreparationTarget, CachePreparationWorkload,
+};
 
 #[cfg(test)]
 mod runner_tests;

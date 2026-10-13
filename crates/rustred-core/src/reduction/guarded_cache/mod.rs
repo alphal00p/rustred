@@ -1,6 +1,7 @@
 //! Explicit completed guarded roots for borrowed sealed programs. This cache
 //! never stores the ordinary reducer's guardless descendants or an active DAG.
 mod cache;
+mod export;
 mod program;
 #[cfg(test)]
 mod tests;
@@ -13,7 +14,14 @@ use crate::persistence::application_cache::{
 use std::fmt;
 
 pub use cache::{GuardedRootCache, GuardedRootCacheStatistics};
+pub use export::{GuardedRootExportError, GuardedRootExportStatistics};
 pub use program::ClosedUnitMassProgram;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RootUse {
+    Entry,
+    Descendant,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GuardedCacheBackingErrorKind {

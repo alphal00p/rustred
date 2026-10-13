@@ -91,9 +91,17 @@ fn lazy_pack_reads_one_exact_chunk_and_no_payload_at_open() {
     assert!(total > maximum as u64);
     drop(writer);
     let mut tight = limits;
-    tight.chunk.binary.max_program_bytes = maximum;
+    tight.max_encoded_chunk_bytes = maximum;
+    tight.chunk.binary.max_program_bytes = manifest(&path)
+        .runs
+        .iter()
+        .flatten()
+        .map(|chunk| chunk.decoded_bytes as usize)
+        .max()
+        .unwrap();
     let mut reader = SavedApplicationCachePack::open_generated(&path, &binding(1), tight).unwrap();
     assert_eq!(reader.statistics().chunks_read, 0);
+    assert_eq!(reader.statistics().runs, 1);
     assert_eq!(reader.lookup(&key(6), &context()).unwrap(), Some(record(6)));
     assert_eq!(reader.statistics().chunks_read, 1);
     assert!(reader.statistics().chunk_bytes_read <= maximum as u64);
@@ -183,6 +191,7 @@ fn bundle_program_identity_and_aggregate_quota_precede_child_writes() {
     let encoded =
         encode_application_cache_chunk(&bindings[1], &[record(2)], &context(), limits.chunk)
             .unwrap();
+    let encoded = compression::encode(&encoded, limits).unwrap();
     let tighter = SavedApplicationCachePackLimits {
         max_disk_bytes: used + encoded.len() as u64 / 2,
         ..limits
@@ -421,4 +430,262 @@ fn fresh_process_native_state_and_guarded_zero_roundtrip() {
         String::from_utf8_lossy(&result.stdout).contains("1 passed"),
         "child filter ran no test"
     );
+}
+
+#[test]
+fn gzip_requires_one_complete_member_exact_length_digest_and_bounded_output() {
+    let limits = SavedApplicationCachePackLimits::default();
+    let raw = encode_application_cache_chunk(
+        &binding(1),
+        &[record(0), record(1)],
+        &context(),
+        limits.chunk,
+    )
+    .unwrap();
+    let digest = *blake3::hash(&raw).as_bytes();
+    let encoded = compression::encode(&raw, limits).unwrap();
+    assert_eq!(
+        compression::decode(&encoded, raw.len() as u64, &digest, limits).unwrap(),
+        raw
+    );
+    assert!(compression::decode(&encoded, raw.len() as u64 - 1, &digest, limits).is_err());
+    assert!(compression::decode(&encoded, raw.len() as u64 + 1, &digest, limits).is_err());
+    assert!(compression::decode(&encoded, raw.len() as u64, &[0; 32], limits).is_err());
+    let mut truncated = encoded.clone();
+    truncated.pop();
+    assert!(compression::decode(&truncated, raw.len() as u64, &digest, limits).is_err());
+    let mut corrupt = encoded.clone();
+    let trailer = corrupt.len() - 8;
+    corrupt[trailer] ^= 1;
+    assert!(compression::decode(&corrupt, raw.len() as u64, &digest, limits).is_err());
+    for tail in [&encoded[..], &[0u8][..]] {
+        let mut trailing = encoded.clone();
+        trailing.extend_from_slice(tail);
+        assert!(compression::decode(&trailing, raw.len() as u64, &digest, limits).is_err());
+    }
+    let mut tight = limits;
+    tight.chunk.binary.max_program_bytes = raw.len() - 1;
+    assert_eq!(
+        compression::decode(&encoded, raw.len() as u64, &digest, tight)
+            .unwrap_err()
+            .kind(),
+        crate::AppErrorKind::Limit
+    );
+    assert_eq!(
+        compression::decode(&encoded, u64::MAX, &digest, tight)
+            .unwrap_err()
+            .kind(),
+        crate::AppErrorKind::Limit
+    );
+    tight = limits;
+    tight.max_encoded_chunk_bytes = encoded.len() - 1;
+    assert_eq!(
+        compression::encode(&raw, tight).unwrap_err().kind(),
+        crate::AppErrorKind::Limit
+    );
+    assert_eq!(
+        compression::decode(&encoded, raw.len() as u64, &digest, tight)
+            .unwrap_err()
+            .kind(),
+        crate::AppErrorKind::Limit
+    );
+}
+
+#[test]
+fn disjoint_batches_coalesce_in_both_directions_and_holes_without_changing_precedence() {
+    let scratch = scratch();
+    let path = scratch.0.join("coalesced");
+    let limits = SavedApplicationCachePackLimits {
+        max_runs: 1,
+        ..Default::default()
+    };
+    let mut writer = SavedApplicationCacheWriter::create(&path, binding(1), limits).unwrap();
+    for n in [4, 8, 0, 6, 2] {
+        writer.append_completed(&[record(n)], &context()).unwrap();
+    }
+    assert_eq!(writer.statistics().unwrap().runs, 1);
+    writer.checkpoint().unwrap();
+    let before = physical_chunks(&path);
+    assert_eq!(
+        writer
+            .append_completed(&[record(4)], &context())
+            .unwrap_err()
+            .kind(),
+        crate::AppErrorKind::Limit
+    );
+    assert_eq!(
+        physical_chunks(&path),
+        before,
+        "directory rejection precedes writes"
+    );
+    drop(writer);
+    let mut reader = SavedApplicationCachePack::open_generated(&path, &binding(1), limits).unwrap();
+    for n in [0, 2, 4, 6, 8] {
+        assert_eq!(reader.lookup(&key(n), &context()).unwrap(), Some(record(n)));
+    }
+    assert_eq!(reader.statistics().chunks_read, 5);
+    assert_eq!(reader.lookup(&key(5), &context()).unwrap(), None);
+    assert_eq!(reader.statistics().chunks_read, 5);
+
+    let limits = SavedApplicationCachePackLimits {
+        max_runs: 2,
+        ..limits
+    };
+    let mut writer = SavedApplicationCacheWriter::resume(&path, &binding(1), limits).unwrap();
+    let mut replacement = record(4);
+    replacement.terms.clear(); // Trusted completed zero; guard order still exact.
+    writer
+        .append_completed(&[replacement.clone()], &context())
+        .unwrap();
+    writer.append_completed(&[record(7)], &context()).unwrap();
+    writer.checkpoint().unwrap();
+    assert_eq!(writer.statistics().unwrap().runs, 2);
+    let mut newer = SavedApplicationCachePack::open_generated(&path, &binding(1), limits).unwrap();
+    assert_eq!(
+        newer.lookup(&key(4), &context()).unwrap(),
+        Some(replacement)
+    );
+    assert_eq!(newer.lookup(&key(6), &context()).unwrap(), Some(record(6)));
+    assert_eq!(
+        reader.lookup(&key(4), &context()).unwrap(),
+        Some(record(4)),
+        "old immutable snapshot unchanged"
+    );
+}
+
+#[test]
+fn overlapping_run_misses_charge_cumulative_read_and_decode_before_next_operation() {
+    let scratch = scratch();
+    let path = scratch.0.join("overlapping");
+    let limits = SavedApplicationCachePackLimits::default();
+    let mut writer = SavedApplicationCacheWriter::create(&path, binding(1), limits).unwrap();
+    for endpoint in [10, 11, 12] {
+        writer
+            .append_completed(&[record(0), record(endpoint)], &context())
+            .unwrap();
+    }
+    writer.checkpoint().unwrap();
+    drop(writer);
+    let directory = manifest(&path);
+    assert_eq!(directory.runs.len(), 3);
+    let newest = &directory.runs[2][0];
+    let second = &directory.runs[1][0];
+    let encoded_two = newest.bytes + second.bytes + 2;
+    let decoded_two = newest.decoded_bytes + second.decoded_bytes + 2;
+    for tight in [
+        SavedApplicationCachePackLimits {
+            max_lookup_chunks: 1,
+            ..limits
+        },
+        SavedApplicationCachePackLimits {
+            max_lookup_encoded_bytes: encoded_two - 1,
+            ..limits
+        },
+        SavedApplicationCachePackLimits {
+            max_lookup_decoded_bytes: decoded_two - 1,
+            ..limits
+        },
+    ] {
+        let mut reader =
+            SavedApplicationCachePack::open_generated(&path, &binding(1), tight).unwrap();
+        assert_eq!(
+            reader.lookup(&key(5), &context()).unwrap_err().kind(),
+            crate::AppErrorKind::Limit
+        );
+        let stats = reader.statistics();
+        assert_eq!(stats.chunks_read, 1);
+        assert_eq!(stats.chunk_bytes_read, newest.bytes);
+        assert_eq!(stats.decoded_chunk_bytes, newest.decoded_bytes);
+        assert_eq!(stats.lookup_encoded_bytes_charged, newest.bytes + 1);
+        assert_eq!(stats.lookup_decoded_bytes_charged, newest.decoded_bytes + 1);
+        assert_eq!(stats.lookup_limit_refusals, 1);
+        assert_eq!(stats.misses, 0, "a budget refusal is not a cache miss");
+        assert_eq!(
+            reader.lookup(&key(12), &context()).unwrap(),
+            Some(record(12)),
+            "limits reset for each request"
+        );
+    }
+    let mut reader = SavedApplicationCachePack::open_generated(&path, &binding(1), limits).unwrap();
+    assert_eq!(reader.lookup(&key(5), &context()).unwrap(), None);
+    assert_eq!(reader.statistics().chunks_read, 3);
+    assert_eq!(reader.statistics().misses, 1);
+    for tight in [
+        SavedApplicationCachePackLimits {
+            max_lookup_chunks: 0,
+            ..limits
+        },
+        SavedApplicationCachePackLimits {
+            max_lookup_encoded_bytes: 0,
+            ..limits
+        },
+        SavedApplicationCachePackLimits {
+            max_lookup_decoded_bytes: 0,
+            ..limits
+        },
+    ] {
+        let mut reader =
+            SavedApplicationCachePack::open_generated(&path, &binding(1), tight).unwrap();
+        assert_eq!(
+            reader.lookup(&key(100), &context()).unwrap(),
+            None,
+            "range-only misses do not need IO grants"
+        );
+        assert_eq!(
+            reader.lookup(&key(5), &context()).unwrap_err().kind(),
+            crate::AppErrorKind::Limit
+        );
+        assert_eq!(reader.statistics().chunks_read, 0);
+    }
+}
+
+#[test]
+fn schema_is_explicit_and_compressed_disk_census_matches_physical_chunks() {
+    let scratch = scratch();
+    let path = scratch.0.join("pack");
+    let limits = SavedApplicationCachePackLimits::default();
+    let mut writer = SavedApplicationCacheWriter::create(&path, binding(1), limits).unwrap();
+    writer
+        .append_completed(&[record(0), record(1)], &context())
+        .unwrap();
+    writer.checkpoint().unwrap();
+    assert_eq!(writer.physical_chunk_bytes(), physical_chunks(&path).1);
+    assert_eq!(
+        writer.statistics().unwrap().referenced_chunk_bytes,
+        physical_chunks(&path).1
+    );
+    drop(writer);
+    let mut bytes = fs::read(path.join(index::MANIFEST)).unwrap();
+    assert!(bytes.starts_with(b"RR-CACHE-PACK-02"));
+    bytes[..16].copy_from_slice(b"RR-CACHE-PACK-01");
+    let end = bytes.len() - 32;
+    let digest = blake3::hash(&bytes[..end]);
+    bytes[end..].copy_from_slice(digest.as_bytes());
+    fs::write(path.join(index::MANIFEST), bytes).unwrap();
+    assert!(
+        SavedApplicationCachePack::open_generated(&path, &binding(1), limits).is_err(),
+        "no silent legacy-format fallback"
+    );
+}
+
+#[test]
+fn tiny_frame_writes_preserve_bytes_and_never_request_capacity_above_limit() {
+    use std::io::Write;
+    const LIMIT: usize = 1_003;
+    let mut output = index::BoundedBytes::new(LIMIT);
+    let expected: Vec<u8> = (0..LIMIT).map(|n| (n % 251) as u8).collect();
+    for byte in &expected {
+        output.write_all(&[*byte]).unwrap();
+        assert!(output.capacity() <= LIMIT);
+    }
+    assert!(!output.limit_exceeded());
+    assert!(output.write_all(&[1]).is_err());
+    assert!(output.limit_exceeded());
+    assert!(output.capacity() <= LIMIT);
+    assert_eq!(output.finish(), expected);
+    let mut empty = index::BoundedBytes::new(0);
+    empty.write_all(&[]).unwrap();
+    assert!(empty.write_all(&[1]).is_err());
+    assert_eq!(empty.capacity(), 0);
+    assert!(empty.finish().is_empty());
 }

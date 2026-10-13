@@ -19,7 +19,7 @@ pub use error::ReductionError;
 pub use guarded_cache::{
     ClosedUnitMassProgram, GuardedCacheBacking, GuardedCacheBackingError,
     GuardedCacheBackingErrorKind, GuardedCacheError, GuardedRootCache, GuardedRootCacheStatistics,
-    GuardedRootResult, GuardedRootSource,
+    GuardedRootExportError, GuardedRootExportStatistics, GuardedRootResult, GuardedRootSource,
 };
 pub use model::{
     HomogeneousMasterCoefficient, HomogeneousMasterDecomposition, MasterDecomposition,

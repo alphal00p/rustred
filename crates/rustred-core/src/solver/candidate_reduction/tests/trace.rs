@@ -174,13 +174,23 @@ fn original_denominator_zero_skips_zero_coefficient_and_can_fall_through() {
             Default::default(),
         )
         .unwrap();
-    let first = &mut owner.rules.get_mut(&[true]).unwrap()[0].rhs[0];
+    let first = &mut std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .rules
+        .get_mut(&[true])
+        .unwrap()[0]
+        .rhs[0];
     first.denominator = denominator;
     first.coefficient = context.zero();
     let report = owner.trace_targets([key([4])], Default::default()).unwrap();
     assert_eq!(report.uncovered(), &BTreeSet::from([key([2])]));
     assert_eq!(report.rule_applications(), 1);
-    owner.rules.get_mut(&[true]).unwrap().truncate(1);
+    std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .rules
+        .get_mut(&[true])
+        .unwrap()
+        .truncate(1);
     let report = owner.trace_targets([key([4])], Default::default()).unwrap();
     assert_eq!(report.uncovered(), &BTreeSet::from([key([4])]));
     assert_eq!(report.rule_applications(), 0);
@@ -205,12 +215,20 @@ fn dimension_stays_symbolic_even_with_a_pole_at_four() {
             Default::default(),
         )
         .unwrap();
-    let term = &mut owner.rules.get_mut(&[true]).unwrap()[0].rhs[0];
+    let term = &mut std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .rules
+        .get_mut(&[true])
+        .unwrap()[0]
+        .rhs[0];
     term.coefficient = coefficient.clone();
     term.denominator = denominator;
     let report = owner.trace_targets([key([4])], Default::default()).unwrap();
     assert_eq!(report.uncovered(), &BTreeSet::from([key([3])]));
-    assert_eq!(owner.rules[&[true]][0].rhs[0].coefficient, coefficient);
+    assert_eq!(
+        std::sync::Arc::get_mut(&mut owner.program).unwrap().rules[&[true]][0].rhs[0].coefficient,
+        coefficient
+    );
 }
 
 #[test]
@@ -234,7 +252,13 @@ fn non_descent_to_an_already_scheduled_key_and_overflow_abort() {
         Err(CandidateReductionError::NonDescending { .. })
     ));
     let mut owner = partial(&[(2, &[(1, 1)])]);
-    owner.rules.get_mut(&[true]).unwrap()[0].rhs[0].shift = [i64::MAX];
+    std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .rules
+        .get_mut(&[true])
+        .unwrap()[0]
+        .rhs[0]
+        .shift = [i64::MAX];
     assert!(matches!(
         owner.trace_targets([key([2])], Default::default()),
         Err(CandidateReductionError::IndexOverflow { .. })
@@ -250,26 +274,36 @@ fn invalid_entries_source_conditions_and_algebra_limits_abort() {
             ReductionError::WrongArity { .. }
         ))
     ));
-    owner.root_sector = [false];
+    std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .root_sector = [false];
     assert!(matches!(
         owner.trace_targets([key([4])], Default::default()),
         Err(CandidateReductionError::OutsideRoot { .. })
     ));
-    owner.root_sector = [true];
+    std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .root_sector = [true];
     let context = owner.coefficient_context().clone();
-    owner.source_conditions.push(
-        context
-            .admit_native_polynomial_result_with_limits(
-                index_offset(&context, 0, 4),
-                Default::default(),
-            )
-            .unwrap(),
-    );
+    std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .source_conditions
+        .push(
+            context
+                .admit_native_polynomial_result_with_limits(
+                    index_offset(&context, 0, 4),
+                    Default::default(),
+                )
+                .unwrap(),
+        );
     assert!(matches!(
         owner.trace_targets([key([4])], Default::default()),
         Err(CandidateReductionError::SourceConditionVanished { .. })
     ));
-    owner.source_conditions.clear();
+    std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .source_conditions
+        .clear();
     owner
         .limits
         .indexed_algebra
@@ -686,14 +720,17 @@ fn retained_terminal_still_checks_source_conditions_before_a_warm_cache_hit() {
         .unwrap()
         .context()
         .clone();
-    owner.source_conditions.push(
-        context
-            .admit_native_polynomial_result_with_limits(
-                index_offset(&context, 0, 1),
-                Default::default(),
-            )
-            .unwrap(),
-    );
+    std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .source_conditions
+        .push(
+            context
+                .admit_native_polynomial_result_with_limits(
+                    index_offset(&context, 0, 1),
+                    Default::default(),
+                )
+                .unwrap(),
+        );
     assert!(matches!(
         owner.reduce_unit_mass(&key([1])),
         Err(CandidateReductionError::SourceConditionVanished { .. })

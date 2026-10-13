@@ -99,6 +99,44 @@ fn owner(
 }
 
 #[test]
+fn isolated_session_shares_weighted_convention_without_sharing_completed_cache() {
+    let (family, raw, target) = fixture();
+    let plan = TerminalNormalizationPlan::vacuum_quadratic_numerators(
+        &family,
+        &raw,
+        OrderingPolicy::SpiredUncutV1,
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(plan.terms()[&target].len(), 2);
+    for representation in [
+        CandidateCacheRepresentation::Sparse,
+        CandidateCacheRepresentation::Factorized,
+    ] {
+        let mut original = owner(&family, &raw, &plan, representation);
+        let expected = original
+            .reduce_unit_mass_guarded(&target, Default::default())
+            .unwrap();
+        let before = original.statistics();
+        let mut isolated = original.fork_empty();
+        assert!(std::sync::Arc::ptr_eq(&original.program, &isolated.program));
+        assert!(std::sync::Arc::ptr_eq(
+            original.terminal_normalization.as_ref().unwrap(),
+            isolated.terminal_normalization.as_ref().unwrap(),
+        ));
+        assert_eq!(isolated.statistics(), Default::default());
+        let result = isolated
+            .reduce_unit_mass_guarded(&target, Default::default())
+            .unwrap();
+        assert_eq!(result.0, expected.0);
+        assert_eq!(result.1, expected.1);
+        assert_eq!(original.statistics(), before);
+        isolated.clear_cache().unwrap();
+        assert_eq!(original.statistics(), before);
+    }
+}
+
+#[test]
 fn weighted_terminal_and_cached_output_cannot_bypass_an_inherited_source_pole() {
     let (family, raw, target) = fixture();
     let plan = TerminalNormalizationPlan::vacuum_quadratic_numerators(
@@ -128,7 +166,10 @@ fn weighted_terminal_and_cached_output_cannot_bypass_an_inherited_source_pole() 
                     Default::default(),
                 )
                 .unwrap();
-            owner.source_conditions.push(condition);
+            std::sync::Arc::get_mut(&mut owner.program)
+                .unwrap()
+                .source_conditions
+                .push(condition);
             let before = owner.statistics();
             assert!(matches!(
                 owner.reduce_unit_mass(&target),

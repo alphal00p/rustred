@@ -10,7 +10,7 @@ use crate::sector::{OrderingPolicy, zero};
 use crate::solver::{FiniteCasePolicy, SectorSolution};
 
 use super::model::{CandidateCacheRepresentation, CandidateReductionError};
-use super::reducer::CandidateReducer;
+use super::reducer::{CandidateProgram, CandidateReducer};
 
 impl<const N: usize> CandidateReducer<N> {
     /// Prepare an explicitly experimental, owned formula applier. The family
@@ -142,19 +142,21 @@ impl<const N: usize> CandidateReducer<N> {
             ..
         } = shared;
         Ok(Self {
-            family_fingerprint: Arc::new(family.fingerprint().to_owned()),
-            context,
-            root_sector,
-            max_numerator_rank: scope.flatten(),
-            ordering,
-            rules,
-            whole_piece_alternatives,
-            terminals,
+            program: Arc::new(CandidateProgram {
+                family_fingerprint: Arc::new(family.fingerprint().to_owned()),
+                context,
+                root_sector,
+                max_numerator_rank: scope.flatten(),
+                ordering,
+                rules,
+                whole_piece_alternatives,
+                terminals,
+                zero_sectors,
+                _zero_certificates: zero_certificates,
+                source_conditions,
+            }),
             terminal_aliases: None,
             terminal_normalization: None,
-            zero_sectors,
-            _zero_certificates: zero_certificates,
-            source_conditions,
             limits,
             cache: BTreeMap::new(),
             cache_representation: CandidateCacheRepresentation::Sparse,
@@ -167,6 +169,6 @@ impl<const N: usize> CandidateReducer<N> {
     /// The exact family-owned indexed coefficient context, useful for
     /// diagnostics and pure-Rust adapters. It has no closure authority.
     pub fn coefficient_context(&self) -> &IndexedCoefficientContext {
-        &self.context
+        &self.program.context
     }
 }

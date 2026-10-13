@@ -19,6 +19,8 @@ use super::{CandidateReducer, CandidateReductionError};
 
 #[path = "tests/factorized_audit.rs"]
 mod factorized_audit;
+#[path = "tests/session.rs"]
+mod session;
 #[path = "tests/terminal_alias_audit.rs"]
 mod terminal_alias_audit;
 #[path = "tests/terminal_aliases.rs"]
@@ -285,7 +287,11 @@ fn factorized_empty_zero_child_does_not_hide_the_original_pole() {
             Default::default(),
         )
         .unwrap();
-    let rules = owner.rules.get_mut(&[true]).unwrap();
+    let rules = std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .rules
+        .get_mut(&[true])
+        .unwrap();
     rules.truncate(1);
     rules[0].rhs.truncate(1);
     rules[0].rhs[0].shift = [-2];
@@ -502,7 +508,10 @@ fn cached_requests_still_check_source_conditions_arity_and_root_scope() {
     let condition = context
         .admit_native_polynomial_result_with_limits(index_offset(context, 0, 2), Default::default())
         .unwrap();
-    owner.source_conditions.push(condition);
+    std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .source_conditions
+        .push(condition);
     assert!(matches!(
         owner.reduce_unit_mass(&key([2])),
         Err(CandidateReductionError::SourceConditionVanished { .. })
@@ -513,7 +522,9 @@ fn cached_requests_still_check_source_conditions_arity_and_root_scope() {
             ReductionError::WrongArity { .. }
         ))
     ));
-    owner.root_sector = [false];
+    std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .root_sector = [false];
     assert!(matches!(
         owner.reduce_unit_mass(&key([2])),
         Err(CandidateReductionError::OutsideRoot { .. })

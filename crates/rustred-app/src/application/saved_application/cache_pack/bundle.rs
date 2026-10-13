@@ -12,7 +12,7 @@ use std::{
 };
 
 const FILE: &str = "bundle.rrindex";
-const MAGIC: &[u8; 16] = b"RR-CACHE-BNDL-01";
+const MAGIC: &[u8; 16] = b"RR-CACHE-BNDL-02";
 const METADATA: &str = "preparation.rrcheckpoint";
 const METADATA_MAGIC: &[u8; 16] = b"RR-CACHE-JOB-001";
 

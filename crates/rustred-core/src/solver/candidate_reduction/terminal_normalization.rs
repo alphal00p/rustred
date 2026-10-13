@@ -1,5 +1,7 @@
 //! Once-only installation of a finite, flat weighted terminal convention.
 
+use std::sync::Arc;
+
 use crate::reduction::terminal_normalization::{
     TerminalNormalizationPlan, TerminalNormalizationStatistics,
 };
@@ -24,36 +26,37 @@ impl<const N: usize> CandidateReducer<N> {
         if plan.family_fingerprint() != self.family_fingerprint() {
             return Err(invalid("terminal normalization belongs to another family"));
         }
-        if plan.ordering() != self.ordering {
+        if plan.ordering() != self.program.ordering {
             return Err(invalid(
                 "terminal normalization uses another integral ordering",
             ));
         }
-        if plan.raw_terminals() != &self.terminals {
+        if plan.raw_terminals() != &self.program.terminals {
             return Err(invalid(
                 "terminal normalization must cover exactly the declared raw terminal set",
             ));
         }
         for row in plan.terms().values() {
             for coefficient in row.values() {
-                self.context
+                self.program
+                    .context
                     .base()
                     .validate_with_limits(coefficient, self.limits.exact_algebra)
                     .map_err(|e| invalid(&e.to_string()))?;
             }
         }
-        self.terminal_normalization = Some(plan);
+        self.terminal_normalization = Some(Arc::new(plan));
         self.terminal_aliases = None;
         Ok(())
     }
 
     pub fn terminal_normalization(&self) -> Option<&TerminalNormalizationPlan> {
-        self.terminal_normalization.as_ref()
+        self.terminal_normalization.as_deref()
     }
 
     pub fn terminal_normalization_statistics(&self) -> Option<&TerminalNormalizationStatistics> {
         self.terminal_normalization
-            .as_ref()
+            .as_deref()
             .map(TerminalNormalizationPlan::statistics)
     }
 }

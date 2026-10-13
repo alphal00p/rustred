@@ -10,7 +10,7 @@ use rustred::persistence::application_cache::{ApplicationCacheBinding, Applicati
 use super::*;
 use crate::AppError;
 
-const MAGIC: &[u8; 16] = b"RR-CACHE-PACK-01";
+const MAGIC: &[u8; 16] = b"RR-CACHE-PACK-02";
 pub(super) const MANIFEST: &str = "cache.rrindex";
 pub(super) const MAX_FRAME: usize = 64 * 1024 * 1024;
 
@@ -18,13 +18,18 @@ pub(super) const MAX_FRAME: usize = 64 * 1024 * 1024;
 pub(super) struct Chunk {
     pub digest: [u8; 32],
     pub bytes: u64,
+    pub decoded_digest: [u8; 32],
+    pub decoded_bytes: u64,
     pub records: usize,
     pub first: ApplicationCacheKey,
     pub last: ApplicationCacheKey,
 }
 impl Chunk {
     pub fn file_name(&self) -> String {
-        format!("{}.rrchunk", blake3::Hash::from_bytes(self.digest).to_hex())
+        format!(
+            "{}.rrchunk.gz",
+            blake3::Hash::from_bytes(self.digest).to_hex()
+        )
     }
 }
 
@@ -50,6 +55,7 @@ pub(super) fn validate(
         return Err(AppError::limit("cache run directory exceeds allowance"));
     }
     let mut result = SavedApplicationCachePackStatistics::default();
+    result.runs = manifest.runs.len();
     result.directory_owned_bytes = size_of::<Manifest>()
         .saturating_add(manifest.binding.family_fingerprint.capacity())
         .saturating_add(manifest.binding.layer.capacity())
@@ -81,7 +87,11 @@ pub(super) fn validate(
                 return Err(fail("invalid, overlapping or unordered cache chunk range"));
             }
             previous = Some(&chunk.last);
-            if chunk.bytes == 0 || chunk.bytes > limits.chunk.binary.max_program_bytes as u64 {
+            if chunk.bytes == 0
+                || chunk.bytes > limits.max_encoded_chunk_bytes as u64
+                || chunk.decoded_bytes == 0
+                || chunk.decoded_bytes > limits.chunk.binary.max_program_bytes as u64
+            {
                 return Err(AppError::limit("cache chunk byte allowance exceeded"));
             }
             result.chunks = result
@@ -128,7 +138,7 @@ pub(super) fn encode(
     // Structural framing only; no algebra values are present in this index.
     bincode::encode_into_std_write(manifest, &mut output, bincode::config::standard())
         .map_err(fail)?;
-    let mut bytes = output.0;
+    let mut bytes = output.finish();
     let digest = blake3::hash(&bytes);
     bytes.extend_from_slice(digest.as_bytes());
     if bytes.len() > limits.max_manifest_bytes {
@@ -171,40 +181,54 @@ pub(super) fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, AppErro
     if !metadata.is_file() || metadata.len() > limit as u64 {
         return Err(fail("cache path is not a bounded regular file"));
     }
-    let file = File::open(path).map_err(fail)?;
+    let mut file = File::open(path).map_err(fail)?;
+    let length = usize::try_from(metadata.len()).map_err(fail)?;
     let mut bytes = Vec::new();
-    bytes
-        .try_reserve_exact(metadata.len() as usize)
-        .map_err(fail)?;
-    file.take((limit as u64).saturating_add(1))
-        .read_to_end(&mut bytes)
-        .map_err(fail)?;
-    if bytes.len() > limit || bytes.len() as u64 != metadata.len() {
+    bytes.try_reserve_exact(length).map_err(fail)?;
+    bytes.resize(length, 0);
+    file.read_exact(&mut bytes).map_err(fail)?;
+    if file.read(&mut [0u8; 1]).map_err(fail)? != 0 {
         return Err(fail("cache file changed or exceeded its read allowance"));
     }
     Ok(bytes)
 }
 
-pub(super) struct BoundedBytes(Vec<u8>, usize);
+pub(super) struct BoundedBytes(Vec<u8>, usize, bool);
 impl BoundedBytes {
     pub fn new(limit: usize) -> Self {
-        Self(Vec::new(), limit)
+        Self(Vec::new(), limit, false)
     }
     pub fn finish(self) -> Vec<u8> {
         self.0
     }
+    pub fn limit_exceeded(&self) -> bool {
+        self.2
+    }
+    #[cfg(test)]
+    pub fn capacity(&self) -> usize {
+        self.0.capacity()
+    }
 }
 impl Write for BoundedBytes {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        let requested = self
-            .0
-            .len()
-            .checked_add(bytes.len())
-            .ok_or_else(|| io::Error::other("cache index byte overflow"))?;
+        let Some(requested) = self.0.len().checked_add(bytes.len()) else {
+            self.2 = true;
+            return Err(io::Error::other("cache frame byte overflow"));
+        };
         if requested > self.1 {
-            return Err(io::Error::other("cache index byte allowance exceeded"));
+            self.2 = true;
+            return Err(io::Error::other("cache frame byte allowance exceeded"));
         }
-        self.0.try_reserve(bytes.len()).map_err(io::Error::other)?;
+        if requested > self.0.capacity() {
+            // Amortize tiny bincode writes without asking Vec for capacity
+            // beyond the admitted frame limit, even at a non-power-of-two cap.
+            let capacity = requested
+                .max(self.0.capacity().saturating_mul(2))
+                .min(self.1);
+            self.0
+                .try_reserve_exact(capacity - self.0.len())
+                .map_err(io::Error::other)?;
+        }
         self.0.extend_from_slice(bytes);
         Ok(bytes.len())
     }

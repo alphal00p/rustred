@@ -192,7 +192,7 @@ impl<const N: usize> CandidateReducer<N> {
             )?;
         }
         let mut report = CandidateTraceReport {
-            family_fingerprint: self.family_fingerprint.clone(),
+            family_fingerprint: self.program.family_fingerprint.clone(),
             input_targets,
             requested_targets: seen.len(),
             reachable_integrals: 0,
@@ -212,7 +212,7 @@ impl<const N: usize> CandidateReducer<N> {
                 report.visited_zeros.insert(target);
                 continue;
             }
-            if self.terminals.contains(&target) {
+            if self.program.terminals.contains(&target) {
                 report.declared_terminals.insert(target);
                 continue;
             }

@@ -340,6 +340,23 @@ payload validation; tightened exact bounds are checked before reuse. The combine
 `reduce_guarded_root_with_homogeneity` entry reuses native common-mass conversion
 without reauthenticating its own just-validated result.
 
+Completed guarded roots can also accelerate other requests. For example, a
+prepared one-loop `I(4)` supplies the child needed to reduce `I(5)` with one
+native rule application. The native engine checks applicability and cycles
+before consulting a descendant cache entry. It merges every stored condition,
+including conditions on a zero result; deterministic guard order can differ
+from a wholly cold traversal. Descendants outside the public entry scope follow
+ordinary internal reduction without querying the root cache: entry bounds never
+clip the native reduction. Structural or backing errors are not cache misses.
+
+`program.export_completed(&cache, backing)` visits completed records in key
+order, retaining only one shared record at a time and invoking the backing
+without holding a cache mutex. It exports exact terms and conditions, not active
+work, LRU timestamps, LFU frequencies or counters. Imported entries start with
+fresh policy metadata. Export statistics describe records accepted by the
+backing; the backing's checkpoint determines durability. An error reports the
+accepted prefix without changing the RAM cache.
+
 Retained roots and a fresh native reduction share a budget. If a reservation
 fails because evictable completed roots occupy it, the pressure hook evicts a
 root and retries that same reservation, not the algebra or its work budget.
@@ -356,14 +373,37 @@ cancelled, time/size stops and failures. It emits final completion only after
 the checkpoint is durable. Current cancellation is observed between roots;
 an in-flight native reduction is not a saved instruction-pointer checkpoint.
 
-This is a tested infrastructure checkpoint, not finished public cache delivery:
-the ordinary one-through-four-loop Vakint preparation/load path still needs its
-real end-to-end gates. Disk chunks are not yet compressed or compacted, and
-overlapping runs can amplify misses. Live-cache export, guarded descendant reuse
-and explicit downloads remain pending. The sealed reducer's internal guardless
-memoization is deliberately not persisted; current guarded cache hits concern
-completed roots, not a demonstrated speedup for different later roots. Five-loop
-cache preparation is deferred pending the user's updated D<=10 artifact.
+Cache-pack schema 02 stores bounded gzip chunks around the native Symbolica
+state-aware codec. It checks encoded and decoded lengths/digests, requires one
+complete gzip member and rejects trailing data. The index retains chunk ranges,
+not every coefficient or integral key. Disjoint batches share a sorted run;
+overlapping batches preserve newest-record precedence. A lookup bounds both
+compressed reads and decoded bytes before doing the work. Exceeding a lookup
+allowance is a typed refusal, not a fabricated miss. Compaction of overlapping
+runs and an explicit application-level cold-fallback policy remain future work.
+Schema 01 development packs are deliberately incompatible and must be rebuilt.
+
+`CachePreparationWorkload::parent_pinches` accepts explicit physical masks,
+including noncontiguous auxiliary slots, and either a relative extra-dot/rank
+budget or an absolute `EntryPowerBudget`. Native finite-domain counting and
+Symbolica combinatorics preflight the proposal count before key allocation.
+Requests beyond the configured allowance are rejected, never silently clipped.
+This plans a finite warmup workload; it neither generates rules nor establishes
+new physics coverage.
+
+Experimental candidate programs also support `CandidateReducer::fork_empty`
+and `fork_empty_with_limits`: independent cache, work and budget state over
+shared immutable rules and terminal conventions. Creating a session does not
+reparse or clone rule polynomials, clear the source session, or promote a
+candidate program to a closed artifact. This is the foundation for the four-loop
+cache adapter, not a claim that that integration is already complete.
+
+The real one-loop Vakint prepare/save/fresh-process-load test passes. Two- through
+four-loop end-to-end gates, application-level live saving, explicit downloads,
+LRU/LFU workload comparisons and final prepared packs remain pending. The
+sealed reducer's internal guardless memoization is not persisted. No claim of
+bounded 128 GB loading follows from the small regression tests. Five-loop cache
+preparation is deferred pending the user's updated D<=10 artifact.
 
 ## Eviction policy choices
 

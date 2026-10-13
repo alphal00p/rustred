@@ -1,9 +1,9 @@
 mod application;
 pub use application::{
     CachePreparationBackend, CachePreparationCapabilities, CachePreparationOptions,
-    CachePreparationReport, CachePreparationResolvedOptions, CachePreparationStatus,
-    CachePreparationTarget, CachePreparationWorkload, ClosedApplicationCache,
-    ClosedCachePreparationBackend, prepare_application_cache,
+    CachePreparationPrimerBudget, CachePreparationReport, CachePreparationResolvedOptions,
+    CachePreparationStatus, CachePreparationTarget, CachePreparationWorkload,
+    ClosedApplicationCache, ClosedCachePreparationBackend, prepare_application_cache,
 };
 pub use application::{
     CandidateArtifact, CandidateArtifactPage, CandidateGenerationEvents, CandidateGenerationJob,

@@ -1,6 +1,7 @@
 //! Install independently verified terminal equalities outside the hot path.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use crate::family::IntegralKey;
 use crate::reduction::terminal_normalization::TerminalAliasPlan;
@@ -32,24 +33,24 @@ impl<const N: usize> CandidateReducer<N> {
                 "terminal aliases belong to another family".into(),
             ));
         }
-        if plan.ordering() != self.ordering {
+        if plan.ordering() != self.program.ordering {
             return Err(CandidateReductionError::InvalidInput(
                 "terminal aliases use another integral ordering".into(),
             ));
         }
-        if plan.raw_terminals() != &self.terminals {
+        if plan.raw_terminals() != &self.program.terminals {
             return Err(CandidateReductionError::InvalidInput(
                 "terminal aliases must cover exactly the declared raw terminal set".into(),
             ));
         }
-        self.terminal_aliases = Some(plan);
+        self.terminal_aliases = Some(Arc::new(plan));
         self.terminal_normalization = None;
         Ok(())
     }
 
     /// Verified optional output normalization, prepared once rather than per rule.
     pub fn terminal_aliases(&self) -> Option<&TerminalAliasPlan> {
-        self.terminal_aliases.as_ref()
+        self.terminal_aliases.as_deref()
     }
 
     /// Possible output representatives. This is not an independent-master basis
@@ -58,8 +59,9 @@ impl<const N: usize> CandidateReducer<N> {
         if let Some(plan) = &self.terminal_normalization {
             return plan.canonical_terminals();
         }
-        self.terminal_aliases
-            .as_ref()
-            .map_or(&self.terminals, TerminalAliasPlan::canonical_terminals)
+        self.terminal_aliases.as_deref().map_or(
+            &self.program.terminals,
+            TerminalAliasPlan::canonical_terminals,
+        )
     }
 }

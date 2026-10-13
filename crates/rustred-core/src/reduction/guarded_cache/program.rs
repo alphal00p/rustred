@@ -1,5 +1,6 @@
 use super::{
     GuardedCacheBacking, GuardedCacheError, GuardedRootCache, GuardedRootResult, GuardedRootSource,
+    RootUse,
 };
 use crate::algebra::CoefficientContext;
 use crate::family::IntegralKey;
@@ -11,6 +12,7 @@ use crate::reduction::{
     HomogeneousMasterCoefficient, HomogeneousMasterDecomposition, MasterDecomposition, Reducer,
     ReductionError, ReductionLimits, ReductionStatistics, coefficient_cache_weight,
 };
+use std::sync::Arc;
 
 const LAYER: &str = "closed-guarded-root-raw-unit-mass-v1";
 
@@ -113,6 +115,10 @@ impl<'a> ClosedUnitMassProgram<'a> {
     /// with one shared budget for retained roots and transient native payloads.
     /// Pressure evicts an eligible outer root and retries the same insertion,
     /// never restarting the solve or resetting a work grant.
+    /// Completed prepared roots may also supply admitted same-artifact
+    /// descendants. Their guard vectors are merged in stored order using the
+    /// existing first-occurrence union; this deterministic sequence can differ
+    /// from an entirely cold DAG traversal while preserving every obligation.
     pub fn reduce_guarded_root(
         &self,
         target: &IntegralKey,
@@ -120,7 +126,73 @@ impl<'a> ClosedUnitMassProgram<'a> {
         limits: ReductionLimits,
         mut backing: Option<&mut dyn GuardedCacheBacking>,
     ) -> Result<GuardedRootResult, GuardedCacheError> {
-        self.validate_entry(target)?;
+        let limits = limits.bounded_by(cache.limits);
+        if let Some((record, source)) =
+            self.lookup_completed(target, cache, limits, &mut backing, RootUse::Entry)?
+        {
+            let mut work = ReductionStatistics::default();
+            work.record_cache_hit();
+            return Ok(GuardedRootResult {
+                record: record.as_ref().clone(),
+                work,
+                source,
+            });
+        }
+        let shared = cache.shared_budget();
+        let (unit, nonzero_conditions, work) = {
+            let mut lookup = |descendant: &IntegralKey| {
+                self.lookup_completed(descendant, cache, limits, &mut backing, RootUse::Descendant)
+                    .map(|found| found.map(|(record, _)| record))
+            };
+            Reducer::reduce_artifact_unit_mass_guarded_with_lookup(
+                self.artifact,
+                target,
+                limits,
+                shared,
+                &mut lookup,
+            )?
+        };
+        cache.completed_reduction(work);
+        let record = Arc::new(ApplicationCacheRecord {
+            key: ApplicationCacheKey::guarded_root(target),
+            terms: unit.into_terms(),
+            nonzero_conditions,
+        });
+        cache.validate_payload(|| self.validate_completed_record(&record, limits))?;
+        if let Some(store) = backing {
+            store.store_completed(&record, self.context())?;
+        }
+        cache.insert_shared(target.clone(), Arc::clone(&record), limits)?;
+        Ok(GuardedRootResult {
+            record: record.as_ref().clone(),
+            work,
+            source: GuardedRootSource::Reduced,
+        })
+    }
+
+    pub(super) fn lookup_completed(
+        &self,
+        target: &IntegralKey,
+        cache: &mut GuardedRootCache,
+        limits: ReductionLimits,
+        backing: &mut Option<&mut dyn GuardedCacheBacking>,
+        usage: RootUse,
+    ) -> Result<Option<(Arc<ApplicationCacheRecord>, GuardedRootSource)>, GuardedCacheError> {
+        if let Err(error) = self.validate_entry(target) {
+            // A root-only admission boundary is not a descendant boundary.
+            // Such nodes stay inside the existing certified native descent;
+            // they cannot consult or populate the external guarded-root cache.
+            if usage == RootUse::Descendant
+                && matches!(
+                    error,
+                    ReductionError::OutsideCertifiedRootDomain { .. }
+                        | ReductionError::OutsideCertifiedTotalExcessDomain { .. }
+                )
+            {
+                return Ok(None);
+            }
+            return Err(error.into());
+        }
         if cache.binding != self.binding
             || cache.artifact_identity != self.artifact_identity()
             || backing
@@ -129,21 +201,14 @@ impl<'a> ClosedUnitMassProgram<'a> {
         {
             return Err(GuardedCacheError::BindingMismatch);
         }
-        let limits = limits.bounded_by(cache.limits);
         // Refuse an individually oversized existing root before evicting
         // other useful roots merely to meet a tighter aggregate allowance.
         cache.check_hit_weight(target, limits)?;
         cache.check_limits(limits)?;
-        if let Some(record) = cache.hit(target, limits, |record| {
+        if let Some(record) = cache.hit(target, limits, usage, |record| {
             self.validate_completed_record(record, limits)
         })? {
-            let mut work = ReductionStatistics::default();
-            work.record_cache_hit();
-            return Ok(GuardedRootResult {
-                record,
-                work,
-                source: GuardedRootSource::Ram,
-            });
+            return Ok(Some((record, GuardedRootSource::Ram)));
         }
         let key = ApplicationCacheKey::guarded_root(target);
         if let Some(store) = backing.as_mut() {
@@ -154,40 +219,13 @@ impl<'a> ClosedUnitMassProgram<'a> {
                     ));
                 }
                 cache.validate_payload(|| self.validate_completed_record(&record, limits))?;
-                cache.insert(target.clone(), record.clone(), limits)?;
-                cache.backing_hit();
-                let mut work = ReductionStatistics::default();
-                work.record_cache_hit();
-                return Ok(GuardedRootResult {
-                    record,
-                    work,
-                    source: GuardedRootSource::Backing,
-                });
+                let record = Arc::new(record);
+                cache.insert_shared(target.clone(), Arc::clone(&record), limits)?;
+                cache.backing_hit(usage);
+                return Ok(Some((record, GuardedRootSource::Backing)));
             }
         }
-        let (unit, nonzero_conditions, work) =
-            Reducer::reduce_artifact_unit_mass_guarded_with_budget(
-                self.artifact,
-                target,
-                limits,
-                cache.shared_budget(),
-            )?;
-        cache.completed_reduction(work);
-        let record = ApplicationCacheRecord {
-            key,
-            terms: unit.into_terms(),
-            nonzero_conditions,
-        };
-        cache.validate_payload(|| self.validate_completed_record(&record, limits))?;
-        if let Some(store) = backing {
-            store.store_completed(&record, self.context())?;
-        }
-        cache.insert(target.clone(), record.clone(), limits)?;
-        Ok(GuardedRootResult {
-            record,
-            work,
-            source: GuardedRootSource::Reduced,
-        })
+        Ok(None)
     }
 
     /// Reduce and restore homogeneity within one native call. The conversion

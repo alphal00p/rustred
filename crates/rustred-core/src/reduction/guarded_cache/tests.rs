@@ -10,6 +10,9 @@ use crate::reduction::{
 };
 use std::collections::BTreeMap;
 
+mod descendants;
+mod export_tests;
+
 fn key(n: i64) -> IntegralKey {
     IntegralKey::try_new([n]).unwrap()
 }

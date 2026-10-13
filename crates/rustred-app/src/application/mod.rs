@@ -2,9 +2,9 @@ pub(crate) mod atomic_file;
 mod cache_preparation;
 pub use cache_preparation::{
     CachePreparationBackend, CachePreparationCapabilities, CachePreparationOptions,
-    CachePreparationReport, CachePreparationResolvedOptions, CachePreparationStatus,
-    CachePreparationTarget, CachePreparationWorkload, ClosedApplicationCache,
-    ClosedCachePreparationBackend, prepare_application_cache,
+    CachePreparationPrimerBudget, CachePreparationReport, CachePreparationResolvedOptions,
+    CachePreparationStatus, CachePreparationTarget, CachePreparationWorkload,
+    ClosedApplicationCache, ClosedCachePreparationBackend, prepare_application_cache,
 };
 mod campaign {
     pub(super) mod foundry;

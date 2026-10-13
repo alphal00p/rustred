@@ -215,14 +215,17 @@ fn factorized_cached_requests_recheck_source_conditions_arity_and_scope() {
         .unwrap();
     owner.reduce_unit_mass(&key([2])).unwrap();
     let context = owner.coefficient_context().clone();
-    owner.source_conditions.push(
-        context
-            .admit_native_polynomial_result_with_limits(
-                index_offset(&context, 0, 2),
-                Default::default(),
-            )
-            .unwrap(),
-    );
+    std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .source_conditions
+        .push(
+            context
+                .admit_native_polynomial_result_with_limits(
+                    index_offset(&context, 0, 2),
+                    Default::default(),
+                )
+                .unwrap(),
+        );
     let before = owner.statistics();
     assert!(matches!(
         owner.reduce_unit_mass(&key([2])),
@@ -234,7 +237,9 @@ fn factorized_cached_requests_recheck_source_conditions_arity_and_scope() {
             ReductionError::WrongArity { .. }
         ))
     ));
-    owner.root_sector = [false];
+    std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .root_sector = [false];
     assert!(matches!(
         owner.reduce_unit_mass(&key([2])),
         Err(CandidateReductionError::OutsideRoot { .. })
@@ -259,7 +264,11 @@ fn factorization_cannot_erase_an_original_rule_pole() {
             Default::default(),
         )
         .unwrap();
-    let rules = owner.rules.get_mut(&[true]).unwrap();
+    let rules = std::sync::Arc::get_mut(&mut owner.program)
+        .unwrap()
+        .rules
+        .get_mut(&[true])
+        .unwrap();
     rules.truncate(1);
     rules[0].rhs[0].denominator = pole;
     assert!(matches!(

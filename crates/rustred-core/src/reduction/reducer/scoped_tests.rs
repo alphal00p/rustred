@@ -13,7 +13,7 @@ fn entry_admission_precedes_cache_and_does_not_constrain_internal_descendants() 
     let child = IntegralKey::try_new([3]).unwrap(); // E=2 > entry D=1, inside test envelope.
     let mut request = ReductionRequest::default();
     let internal = reducer
-        .reduce_canonical_unit_mass(&child, &mut request)
+        .reduce_canonical_unit_mass::<ReductionError>(&child, &mut request, None)
         .unwrap();
     assert_eq!(request.pending_frame_count(), 0);
     assert_eq!(reducer.cache.get(&child), Some(&internal));

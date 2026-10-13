@@ -138,9 +138,12 @@ impl SavedApplicationCacheWriter {
         self.writes.inject_post_install_failure();
     }
 
-    /// One bounded sorted batch becomes one immutable run. Calls do not retain
-    /// the input or an encoded payload. An explicit checkpoint makes the new
-    /// run visible to future readers; a crash beforehand leaves only an orphan.
+    /// One bounded sorted batch becomes one immutable compressed chunk. A
+    /// disjoint range extends the newest run in sorted order; overlapping ranges
+    /// start a new run, preserving newest-key precedence. Calls retain neither
+    /// input nor encoded payload. A checkpoint publishes the updated directory.
+    /// Construction temporarily owns native and compressed buffers plus a
+    /// bounded prospective directory copy, not an unbounded per-entry index.
     pub fn append_completed(
         &mut self,
         records: &[ApplicationCacheRecord],
@@ -150,28 +153,45 @@ impl SavedApplicationCacheWriter {
         if records.is_empty() {
             return Ok(());
         }
-        if self.manifest.runs.len() >= self.limits.max_runs {
-            return Err(AppError::limit(
-                "cache run allowance reached; compact before appending",
-            ));
-        }
-        let bytes = encode_application_cache_chunk(
+        let decoded = encode_application_cache_chunk(
             &self.manifest.binding,
             records,
             context,
             self.limits.chunk,
         )
         .map_err(fail)?;
+        let bytes = compression::encode(&decoded, self.limits)?;
         let chunk = index::Chunk {
             digest: *blake3::hash(&bytes).as_bytes(),
             bytes: bytes.len() as u64,
+            decoded_digest: *blake3::hash(&decoded).as_bytes(),
+            decoded_bytes: decoded.len() as u64,
             records: records.len(),
             first: records.first().expect("nonempty").key.clone(),
             last: records.last().expect("nonempty").key.clone(),
         };
+        drop(decoded);
+        // No file is created until all prospective range/directory bounds pass.
+        // This is metadata only, bounded independently of coefficient payloads.
+        let mut prospective = self.manifest.clone();
+        let coalesced = if let Some(run) = prospective.runs.last_mut() {
+            let offset = run.partition_point(|existing| existing.last < chunk.first);
+            if run.get(offset).is_none_or(|next| chunk.last < next.first) {
+                run.insert(offset, chunk.clone());
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if !coalesced {
+            prospective.runs.push(vec![chunk.clone()]);
+        }
+        index::validate(&prospective, &prospective.binding, self.limits)?;
         let path = self.directory.join("chunks").join(chunk.file_name());
         if path.exists() {
-            let existing = index::read_bounded(&path, self.limits.chunk.binary.max_program_bytes)?;
+            let existing = index::read_bounded(&path, self.limits.max_encoded_chunk_bytes)?;
             if existing != bytes {
                 return Err(fail("content-addressed cache chunk collision"));
             }
@@ -189,12 +209,7 @@ impl SavedApplicationCacheWriter {
             self.physical_chunk_bytes = total;
             self.physical_chunks += 1;
         }
-        self.manifest.runs.push(vec![chunk]);
-        // Validate prospective directory accounting before any later publish.
-        if let Err(error) = index::validate(&self.manifest, &self.manifest.binding, self.limits) {
-            self.manifest.runs.pop();
-            return Err(error);
-        }
+        self.manifest = prospective;
         Ok(())
     }
     pub fn checkpoint(&mut self) -> Result<(), AppError> {

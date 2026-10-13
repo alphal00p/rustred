@@ -287,3 +287,25 @@ persist its internal guardless descendant memoization as guarded authority.
 The four-loop pack has multiple exact program namespaces under one aggregate
 16 GB disk quota. Default workloads are documented finite operational presets,
 not assertions of renormalizable-physics coverage or exhaustive integer coverage.
+
+### October 13 delivery checkpoint
+
+- Native guarded-root, descendant reuse/export, isolated candidate sessions and
+  ordinary reduction regressions pass 162 distinct optimized tests. Prepared
+  one-loop I(4) supplies the descendant of I(5), reducing native rule work to one
+  application without losing exact coefficients or nonzero obligations.
+- Compressed cache-pack schema 02 and the generic physical-mask primer pass
+  the full 27-test Cargo application gate. The format uses native Symbolica
+  payloads, bounded gzip transport and indexed runs; schema 01 development packs
+  are not migrated. Existing production IBP artifact formats are unchanged.
+- Vakint's real 1L prepare/load/fresh-process test passes on the preceding
+  published revision. Its 0.12 s measures the complete test, not a matched
+  reduction speedup. Two-/three-loop controls and four-loop cache wiring follow.
+- The next application-level save slice explicitly exports resident completed
+  roots. It must not pretend to copy unloaded backing records or preserve a
+  complete disk-backed cache. Full base-plus-overlay preservation, explicit
+  download APIs, large-pack RSS checks and the final 1--4L packs remain required.
+- Four-loop session construction shares immutable rules and installed terminal
+  normalization without clearing ordinary Vakint caches. The native candidate
+  cached-program adapter must reuse RustRed's guarded cache machinery, retain
+  candidate authority and document which inner-DAG policies are supported.

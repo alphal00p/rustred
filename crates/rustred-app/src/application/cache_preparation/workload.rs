@@ -5,10 +5,69 @@ use rustred::{
     persistence::application_cache::{ApplicationCacheBinding, ApplicationCacheIoLimits},
     solver::RootRegionInput,
 };
+use symbolica::{combinatorics::CombinationIterator, domains::integer::Integer};
 
 use crate::{
-    AppError, FiniteEntryDomain, SavedApplicationWitnessKind, saved_application_boundary_witnesses,
+    AppError, EntryPowerBudget, FiniteEntryDomain, SavedApplicationWitnessKind,
+    saved_application_boundary_witnesses,
 };
+
+/// Caller-selected finite primer policy, unrelated to backend coverage or loop
+/// order. Relative dots are counted above one power on each surviving line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CachePreparationPrimerBudget {
+    Relative {
+        max_extra_dots: u32,
+        max_numerator_rank: u32,
+    },
+    Absolute(EntryPowerBudget),
+}
+impl Default for CachePreparationPrimerBudget {
+    fn default() -> Self {
+        Self::Relative {
+            max_extra_dots: 2,
+            max_numerator_rank: 1,
+        }
+    }
+}
+impl CachePreparationPrimerBudget {
+    fn for_support(self, active: usize) -> Result<EntryPowerBudget, AppError> {
+        match self {
+            Self::Absolute(budget) => Ok(budget),
+            Self::Relative {
+                max_extra_dots,
+                max_numerator_rank,
+            } => Ok(EntryPowerBudget {
+                max_positive_power: u32::try_from(active)
+                    .ok()
+                    .and_then(|n| n.checked_add(max_extra_dots))
+                    .ok_or_else(|| {
+                        AppError::limit("cache primer positive-power allowance overflow")
+                    })?,
+                max_numerator_rank,
+                min_power_difference: None,
+                max_power_difference: None,
+            }),
+        }
+    }
+}
+
+fn validate_bindings(bindings: &[ApplicationCacheBinding]) -> Result<(), AppError> {
+    if bindings.is_empty() || bindings.len() > 128 {
+        return Err(AppError::input(
+            "cache workload requires 1..=128 exact namespaces",
+        ));
+    }
+    for (index, binding) in bindings.iter().enumerate() {
+        binding
+            .validate(ApplicationCacheIoLimits::default())
+            .map_err(|error| AppError::input(error.to_string()))?;
+        if bindings[..index].contains(binding) {
+            return Err(AppError::input("duplicate cache workload namespace"));
+        }
+    }
+    Ok(())
+}
 
 /// A native root proposal. It must still cross the active application's entry
 /// admission before execution; a workload is not new coverage authority.
@@ -42,6 +101,110 @@ pub struct CachePreparationWorkload {
 }
 
 impl CachePreparationWorkload {
+    /// Enumerate all pinches of explicitly supplied physical parent supports,
+    /// including the empty support, using native finite A/R domains. A false
+    /// parent slot can never become positive; auxiliary axes may occur anywhere.
+    /// The caller authenticates which lines are physical, and the backend still
+    /// validates every proposal before cache lookup or reduction.
+    ///
+    /// `max_requests` bounds generated proposals INCLUDING duplicate parents or
+    /// overlapping supports, as in [`Self::explicit`]. Exact native combinatorial
+    /// preflight rejects an oversized workload before constructing keys. The same
+    /// allowance (at least one) bounds positive layers in each native count.
+    /// Counts and enumeration are operational preparation, not mathematical
+    /// coverage, topology recognition, rule generation or a minimal basis claim.
+    pub fn parent_pinches(
+        bindings: Vec<ApplicationCacheBinding>,
+        parents: &[(usize, Vec<bool>)],
+        budget: CachePreparationPrimerBudget,
+        max_requests: usize,
+    ) -> Result<Self, AppError> {
+        validate_bindings(&bindings)?;
+        // Check every declaration before potentially expensive preflight work,
+        // including mixed namespaces and a malformed later parent.
+        for (namespace, support) in parents {
+            let binding = bindings
+                .get(*namespace)
+                .ok_or_else(|| AppError::input("unknown cache primer namespace"))?;
+            if support.len() != binding.physical_arity {
+                return Err(AppError::input(
+                    "cache primer parent differs from physical arity",
+                ));
+            }
+        }
+        FiniteEntryDomain::new(
+            vec![false; bindings[0].physical_arity],
+            budget.for_support(0)?,
+        )?;
+        let mut count = Integer::from(0);
+        let cap = Integer::from(max_requests);
+        let mut groups = Vec::new();
+        for (namespace, parent) in parents {
+            let physical = parent.iter().filter(|&&present| present).count();
+            for active in 0..=physical {
+                let selected = budget.for_support(active)?;
+                // Permutation-independent count: false axes include both pinched
+                // physical lines and auxiliaries. No coefficient algebra is used.
+                let representative = (0..parent.len()).map(|axis| axis < active).collect();
+                let domain = FiniteEntryDomain::new(representative, selected)?;
+                let per_support = domain.target_count(max_requests.max(1))?;
+                if per_support == Integer::from(0) {
+                    continue;
+                }
+                count += per_support * Integer::binom(physical as i64, active as i64);
+                if count > cap {
+                    return Err(AppError::limit(
+                        "cache primer exceeds its request allowance",
+                    ));
+                }
+                groups
+                    .try_reserve(1)
+                    .map_err(|_| AppError::limit("cannot allocate cache primer groups"))?;
+                groups.push((*namespace, parent, active, selected));
+            }
+        }
+        let mut requests = Vec::new();
+        for (namespace, parent, active, selected) in groups {
+            let physical = parent
+                .iter()
+                .enumerate()
+                .filter_map(|(axis, &present)| present.then_some(axis))
+                .collect::<Vec<_>>();
+            let mut append = |indices: &[usize]| -> Result<(), AppError> {
+                let mut support = vec![false; parent.len()];
+                for &index in indices {
+                    support[physical[index]] = true;
+                }
+                for target in FiniteEntryDomain::new(support, selected)?.targets() {
+                    if requests.len() >= max_requests {
+                        return Err(AppError::limit(
+                            "cache primer exceeds its request allowance",
+                        ));
+                    }
+                    requests
+                        .try_reserve(1)
+                        .map_err(|_| AppError::limit("cannot allocate cache primer requests"))?;
+                    requests.push((namespace, target?));
+                }
+                Ok(())
+            };
+            if active == 0 {
+                append(&[])?;
+            } else {
+                let mut combinations = CombinationIterator::new(physical.len(), active);
+                while let Some(indices) = combinations.next() {
+                    append(indices)?;
+                }
+            }
+        }
+        if Integer::from(requests.len()) != count {
+            return Err(AppError::input(
+                "native cache primer count/enumeration mismatch",
+            ));
+        }
+        Self::explicit(bindings, requests, max_requests)
+    }
+
     /// Enumerate caller-selected finite power budgets with the existing native
     /// A/R composition iterator. These are operational warmup proposals, not a
     /// physics profile or an extension of any backend's admitted root domain.
@@ -75,19 +238,7 @@ impl CachePreparationWorkload {
         requests: impl IntoIterator<Item = (usize, IntegralKey)>,
         max_requests: usize,
     ) -> Result<Self, AppError> {
-        if bindings.is_empty() || bindings.len() > 128 {
-            return Err(AppError::input(
-                "cache workload requires 1..=128 exact namespaces",
-            ));
-        }
-        for (index, binding) in bindings.iter().enumerate() {
-            binding
-                .validate(ApplicationCacheIoLimits::default())
-                .map_err(|error| AppError::input(error.to_string()))?;
-            if bindings[..index].contains(binding) {
-                return Err(AppError::input("duplicate cache workload namespace"));
-            }
-        }
+        validate_bindings(&bindings)?;
         let mut roots = BTreeMap::<(usize, IntegralKey), u64>::new();
         for (ordinal, (namespace, integral)) in requests.into_iter().enumerate() {
             if ordinal >= max_requests {

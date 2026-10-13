@@ -280,3 +280,301 @@ fn native_finite_workload_is_exact_and_never_silently_truncated() {
         AppErrorKind::Limit
     );
 }
+
+#[test]
+fn relative_primer_counts_every_pinch_with_dots_relative_to_surviving_support() {
+    for (arity, expected) in [(1, 5), (3, 77), (6, 2320)] {
+        let parents = [(0, vec![true; arity])];
+        let workload = CachePreparationWorkload::parent_pinches(
+            vec![binding(arity)],
+            &parents,
+            Default::default(),
+            expected,
+        )
+        .unwrap();
+        assert_eq!(workload.targets().len(), expected);
+        assert!(
+            workload.targets().iter().any(|target| target
+                .integral()
+                .powers()
+                .iter()
+                .all(|&n| n == 0))
+        );
+        for target in workload.targets() {
+            let positive = target
+                .integral()
+                .powers()
+                .iter()
+                .filter(|&&n| n > 0)
+                .count() as u64;
+            let dots = target
+                .integral()
+                .powers()
+                .iter()
+                .filter(|&&n| n > 0)
+                .map(|&n| n as u64)
+                .sum::<u64>()
+                - positive;
+            let rank = target
+                .integral()
+                .powers()
+                .iter()
+                .filter(|&&n| n < 0)
+                .map(|&n| n.unsigned_abs())
+                .sum::<u64>();
+            assert!(dots <= 2 && rank <= 1);
+            assert_eq!(target.source_occurrences(), 1);
+        }
+        assert_eq!(
+            CachePreparationWorkload::parent_pinches(
+                vec![binding(arity)],
+                &parents,
+                Default::default(),
+                expected - 1,
+            )
+            .unwrap_err()
+            .kind(),
+            AppErrorKind::Limit
+        );
+    }
+    let one = CachePreparationWorkload::parent_pinches(
+        vec![binding(1)],
+        &[(0, vec![true])],
+        Default::default(),
+        5,
+    )
+    .unwrap();
+    assert_eq!(
+        one.targets()
+            .iter()
+            .map(|target| target.integral().clone())
+            .collect::<Vec<_>>(),
+        [-1, 0, 1, 2, 3].map(|n| key(&[n]))
+    );
+}
+
+#[test]
+fn primer_noncontiguous_physical_lines_preserve_auxiliaries_and_duplicate_budget() {
+    let parent = (0, vec![false, true, false, true, false]);
+    let one = CachePreparationWorkload::parent_pinches(
+        vec![binding(5)],
+        &[parent.clone()],
+        Default::default(),
+        60,
+    )
+    .unwrap();
+    assert_eq!(one.targets().len(), 60);
+    let undotted = CachePreparationWorkload::parent_pinches(
+        vec![binding(5)],
+        &[parent.clone()],
+        CachePreparationPrimerBudget::Relative {
+            max_extra_dots: 0,
+            max_numerator_rank: 0,
+        },
+        4,
+    )
+    .unwrap();
+    assert_eq!(undotted.targets().len(), 4);
+    assert!(
+        undotted.targets().iter().all(|target| target
+            .integral()
+            .powers()
+            .iter()
+            .all(|&n| n == 0 || n == 1))
+    );
+    for target in one.targets() {
+        for axis in [0, 2, 4] {
+            assert!(target.integral().powers()[axis] <= 0);
+        }
+    }
+    assert!(
+        one.targets()
+            .iter()
+            .any(|target| target.integral() == &key(&[-1, 1, 0, 1, 0]))
+    );
+    let repeated = CachePreparationWorkload::parent_pinches(
+        vec![binding(5)],
+        &[parent.clone(), parent.clone()],
+        Default::default(),
+        120,
+    )
+    .unwrap();
+    assert_eq!(repeated.targets().len(), one.targets().len());
+    assert!(
+        repeated
+            .targets()
+            .iter()
+            .all(|target| target.source_occurrences() == 2)
+    );
+    assert_eq!(
+        CachePreparationWorkload::parent_pinches(
+            vec![binding(5)],
+            &[parent.clone(), parent],
+            Default::default(),
+            119,
+        )
+        .unwrap_err()
+        .kind(),
+        AppErrorKind::Limit
+    );
+}
+
+#[test]
+fn primer_absolute_budgets_match_native_domains_and_large_arity_needs_no_bitmask() {
+    let budget = EntryPowerBudget {
+        max_positive_power: 4,
+        max_numerator_rank: 2,
+        min_power_difference: Some(2),
+        max_power_difference: Some(2),
+    };
+    let workload = CachePreparationWorkload::parent_pinches(
+        vec![binding(3)],
+        &[(0, vec![true, false, true])],
+        CachePreparationPrimerBudget::Absolute(budget),
+        1000,
+    )
+    .unwrap();
+    let domains = [
+        vec![false, false, false],
+        vec![true, false, false],
+        vec![false, false, true],
+        vec![true, false, true],
+    ]
+    .map(|support| (0, FiniteEntryDomain::new(support, budget).unwrap()));
+    let expected =
+        CachePreparationWorkload::finite_entry_domains(vec![binding(3)], &domains, 1000).unwrap();
+    assert_eq!(workload.targets(), expected.targets());
+    assert_eq!(workload.digest(), expected.digest());
+    let zero_budget = EntryPowerBudget {
+        max_positive_power: 0,
+        max_numerator_rank: 0,
+        min_power_difference: None,
+        max_power_difference: None,
+    };
+    let wide = CachePreparationWorkload::parent_pinches(
+        vec![binding(64)],
+        &[(0, vec![true; 64])],
+        CachePreparationPrimerBudget::Absolute(zero_budget),
+        1,
+    )
+    .unwrap();
+    assert_eq!(wide.targets().len(), 1);
+    assert_eq!(wide.targets()[0].integral(), &key(&[0; 64]));
+    let empty = CachePreparationWorkload::parent_pinches(
+        vec![binding(64)],
+        &[(0, vec![true; 64])],
+        CachePreparationPrimerBudget::Absolute(EntryPowerBudget {
+            min_power_difference: Some(1),
+            ..zero_budget
+        }),
+        0,
+    )
+    .unwrap();
+    assert!(empty.targets().is_empty());
+    assert_eq!(
+        CachePreparationWorkload::parent_pinches(
+            vec![binding(64)],
+            &[(0, vec![true; 64])],
+            Default::default(),
+            1,
+        )
+        .unwrap_err()
+        .kind(),
+        AppErrorKind::Limit
+    );
+}
+
+#[test]
+fn primer_validates_all_namespaces_and_masks_before_counting_and_balances_families() {
+    let bindings = vec![binding(1), binding(3)];
+    let parents = [(0, vec![true]), (1, vec![true; 3])];
+    let workload = CachePreparationWorkload::parent_pinches(
+        bindings.clone(),
+        &parents,
+        Default::default(),
+        82,
+    )
+    .unwrap();
+    assert_eq!(workload.targets().len(), 82);
+    assert_eq!(
+        workload
+            .execution_order()
+            .take(4)
+            .map(|target| target.namespace())
+            .collect::<Vec<_>>(),
+        [0, 1, 0, 1]
+    );
+    assert_eq!(
+        CachePreparationWorkload::parent_pinches(
+            bindings.clone(),
+            &parents,
+            Default::default(),
+            81,
+        )
+        .unwrap_err()
+        .kind(),
+        AppErrorKind::Limit
+    );
+    // The valid first parent exceeds cap0, but malformed later declarations
+    // must still be rejected as input, before any proposal counting.
+    for invalid in [(2, vec![true]), (1, vec![]), (1, vec![true; 4])] {
+        assert_eq!(
+            CachePreparationWorkload::parent_pinches(
+                bindings.clone(),
+                &[(0, vec![true]), invalid],
+                Default::default(),
+                0,
+            )
+            .unwrap_err()
+            .kind(),
+            AppErrorKind::Input
+        );
+    }
+    assert_eq!(
+        CachePreparationWorkload::parent_pinches(
+            vec![binding(1), binding(1)],
+            &[],
+            Default::default(),
+            0,
+        )
+        .unwrap_err()
+        .kind(),
+        AppErrorKind::Input
+    );
+    assert_eq!(
+        CachePreparationWorkload::parent_pinches(vec![], &[], Default::default(), 0,)
+            .unwrap_err()
+            .kind(),
+        AppErrorKind::Input
+    );
+    assert_eq!(
+        CachePreparationWorkload::parent_pinches(
+            vec![binding(1)],
+            &[],
+            CachePreparationPrimerBudget::Absolute(EntryPowerBudget {
+                max_positive_power: 1,
+                max_numerator_rank: 0,
+                min_power_difference: Some(2),
+                max_power_difference: Some(1),
+            }),
+            0,
+        )
+        .unwrap_err()
+        .kind(),
+        AppErrorKind::Input
+    );
+    assert_eq!(
+        CachePreparationWorkload::parent_pinches(
+            vec![binding(1)],
+            &[(0, vec![true])],
+            CachePreparationPrimerBudget::Relative {
+                max_extra_dots: u32::MAX,
+                max_numerator_rank: 0
+            },
+            10,
+        )
+        .unwrap_err()
+        .kind(),
+        AppErrorKind::Limit
+    );
+}
