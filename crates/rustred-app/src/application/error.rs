@@ -52,7 +52,8 @@ pub struct AppError {
 }
 
 impl AppError {
-    pub(crate) fn new(kind: AppErrorKind, message: impl Into<String>) -> Self {
+    /// Construct a typed failure at an external native-backend boundary.
+    pub fn new(kind: AppErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
             message: message.into(),

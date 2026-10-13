@@ -1,4 +1,5 @@
 use super::*;
+use crate::reduction::ReductionLimits;
 use crate::solver::candidate_reduction::owner_test_support::*;
 use crate::solver::{
     CandidateCacheRepresentation, CandidateReductionError, RoutedCandidateReducer,
@@ -736,7 +737,7 @@ fn scheduling_failure_cleans_pins_and_access_sequence_fails_closed() {
         error,
         CandidateRoutedError::Candidate(CandidateReductionError::Application(
             ReductionError::CacheResourceCountOverflow {
-                resource: "routed cache access sequence"
+                resource: "completed cache access sequence"
             }
         ))
     ));

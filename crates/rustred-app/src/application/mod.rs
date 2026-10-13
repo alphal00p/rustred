@@ -1,4 +1,11 @@
 pub(crate) mod atomic_file;
+mod cache_preparation;
+pub use cache_preparation::{
+    CachePreparationBackend, CachePreparationCapabilities, CachePreparationOptions,
+    CachePreparationReport, CachePreparationResolvedOptions, CachePreparationStatus,
+    CachePreparationTarget, CachePreparationWorkload, ClosedApplicationCache,
+    ClosedCachePreparationBackend, prepare_application_cache,
+};
 mod campaign {
     pub(super) mod foundry;
     pub(super) mod foundry_wave;
@@ -35,7 +42,9 @@ pub use routed_campaign::{
     owner_domain_walk_inventory,
 };
 pub use saved_application::{
-    PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationDomain,
+    PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,
+    SavedApplicationCacheBundleWriter, SavedApplicationCachePack, SavedApplicationCachePackLimits,
+    SavedApplicationCachePackStatistics, SavedApplicationCacheWriter, SavedApplicationDomain,
     SavedApplicationIntegral, SavedApplicationOptions, SavedApplicationPreparationStatistics,
     SavedApplicationProduct, SavedApplicationProductChartStatistics,
     SavedApplicationProductStatistics, SavedApplicationReduction, SavedApplicationWitness,

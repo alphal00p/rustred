@@ -29,6 +29,14 @@ the requested ValentinHirschi identity. This is the active tool-managed goal.
 
 ### October 13 follow-up — persistent application caches
 
+Latest priority correction: focus active implementation and preparation on
+**one through four loops only**. Five-loop cache preparation/integration and
+additional generation-54 application experiments are deferred while the user
+finishes a D<=10 campaign. Keep the cache engine/format generic and retain the
+future five-loop targets below, but do not launch five-loop warmup or silently
+replace the frozen source artifact. The larger five-loop goal is not declared
+complete by this priority change.
+
 The user has authorized the cache proposal, extending the active application
 work. Implement explicit mutable RustRed caches with dependency-safe LRU and
 aged LFU, native Symbolica binary persistence, exact active-artifact hash binding

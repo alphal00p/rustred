@@ -23,8 +23,15 @@ fn override_from_value(
                 Some("evict-lru") => {
                     rustred::solver::CandidateRoutedCachePolicy::EvictLeastRecentlyUsed
                 }
+                Some("evict-aged-lfu") => {
+                    rustred::solver::CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed
+                }
                 Some("fail-on-limit") => rustred::solver::CandidateRoutedCachePolicy::FailOnLimit,
-                _ => return Err("cache_policy must be evict-lru or fail-on-limit".into()),
+                _ => {
+                    return Err(
+                        "cache_policy must be evict-lru, evict-aged-lfu or fail-on-limit".into(),
+                    );
+                }
             };
             continue;
         }
@@ -119,6 +126,11 @@ mod tests {
         assert_eq!(
             options.cache_policy,
             rustred::solver::CandidateRoutedCachePolicy::FailOnLimit
+        );
+        override_from_value(&mut options, &json!({"cache_policy": "evict-aged-lfu"})).unwrap();
+        assert_eq!(
+            options.cache_policy,
+            rustred::solver::CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed
         );
         let before = options;
         assert!(

@@ -1,5 +1,11 @@
 mod application;
 pub use application::{
+    CachePreparationBackend, CachePreparationCapabilities, CachePreparationOptions,
+    CachePreparationReport, CachePreparationResolvedOptions, CachePreparationStatus,
+    CachePreparationTarget, CachePreparationWorkload, ClosedApplicationCache,
+    ClosedCachePreparationBackend, prepare_application_cache,
+};
+pub use application::{
     CandidateArtifact, CandidateArtifactPage, CandidateGenerationEvents, CandidateGenerationJob,
     CandidateGenerationSession, CandidateGenerationSnapshot, CandidateGenerationState,
     CandidateTerminalNormalization, CandidateTerminalNormalizationLimits,
@@ -16,7 +22,9 @@ pub use application::{
     owner_domain_walk_inventory,
 };
 pub use application::{
-    PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationDomain,
+    PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,
+    SavedApplicationCacheBundleWriter, SavedApplicationCachePack, SavedApplicationCachePackLimits,
+    SavedApplicationCachePackStatistics, SavedApplicationCacheWriter, SavedApplicationDomain,
     SavedApplicationIntegral, SavedApplicationOptions, SavedApplicationPreparationStatistics,
     SavedApplicationProduct, SavedApplicationProductChartStatistics,
     SavedApplicationProductStatistics, SavedApplicationReduction, SavedApplicationWitness,

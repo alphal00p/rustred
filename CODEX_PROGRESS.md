@@ -1,5 +1,108 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## Latest priority — October 13: prepare 1--4-loop caches only
+
+### Audited infrastructure checkpoint
+
+The explicit native guarded-root program/cache, dynamic pressure reclamation,
+hot-hit validation stamps and combined homogeneity entry pass 146 optimized tests:
+14 guarded-cache, 9 provider/reducer cleanup, 78 existing reduction and 45 routed
+regressions.
+Native test binary SHA256
+`aae16a4afeef3b6da4126c390542176cab03b4d9e59bc241a754882bc9d28a0e`;
+log `TMP/closed-guarded-cache-core-tests-20261013.log`; complete owned-source
+receipt `TMP/closed-guarded-cache-core-tests-receipt-20261013.json`.
+Independent exact/math/lock/guard audit passes. Active-root admission and full
+binding remain ahead of every hit; zero/master leaf consistency is checked;
+immutable same/looser RAM hits avoid structural payload reauthentication.
+
+The recovery-fixed native store plus preparation framework passes 18 exact-source
+tests (8 store, 10 planning/orchestration) in 0.10 s, including a fresh subprocess and
+final-notification durability. Before/after source and six dependency hashes
+match. Evidence: `TMP/five-loop-vakint-20261013/cache-pack-preparation-18-receipt.json`
+and `TMP/five-loop-cache-pack-preparation-18-tests-20261013.log`. The earlier 17-test
+receipt is historical and does not cover the subsequent three-file change.
+The harness imports real production source; its preparation backend mocks are
+orchestration evidence, not IBP reduction evidence.
+
+Final full release source checks also pass for all current app tests/examples
+(63 s) and Vakint lib/tests/community bindings (16.30 s):
+`TMP/cache-preparation-final-app-check-20261013.log` and
+`TMP/five-loop-vakint-20261013/check-lower-cache-final-20261013.log`.
+Root is publishing the coherent native/app slice so Vakint can pin an actual
+Git revision for the real shipped-1L prepare/save/fresh-process-load gate.
+No real public `prepare_cache` runtime success is claimed before that gate.
+
+Remaining cache work: actual 1L then 2/3/4L integration; bounded live-cache save;
+prepared guarded roots usable as descendants of later requests; compression,
+overlap-miss/compaction and bounded-RAM measurements; explicit downloads;
+LRU/LFU workload comparisons and final 1--4L packs. Default evaluation paths stay
+unchanged. Sealed internal guardless memoization is not persisted or described
+as a reusable guarded intermediate cache. No new5Lpreparation is running.
+
+Our two development-only5L application jobs were stopped and drained at
+15:28:14UTC through identity-checked supervisor pidfds:190completed exact-warm
+receipts and4earlier operational failures retained, R5point62interrupted after
+5489.61s with1006progress events, point68neverstarted. Unfinished RAM work was
+not persisted. Source/input hashes are unchanged; receipt:
+`TMP/five-loop-vakint-20261013/development-coefficient-stop-20261013.json`.
+These are distinct from production's13:45automatic swap stop.
+
+The user subsequently authorized disabling production's swap-growth guard.
+Validated the supported per-resume `--swap-growth-stop-bytes-per-second 0`
+overlay using the real policy code: swap-only stopping is disabled while the
+570/600GB RSS guards and150GBhost floor remain. Supplied the public
+`saved_campaign.py run --resume` command; no native launch, frozen-policy edit
+or checkpoint modification was performed by us. Keep the override on future
+resume invocations unless the user chooses another policy.
+
+The user explicitly deferred five-loop cache preparation while awaiting a D<=10
+campaign. Generic persistence/LRU/LFU work continues, but active backend wiring
+and warmup target one through four loops only. The frozen generation-54
+five-loop goal is not complete and is not silently replaced with the new live
+scope. The primary agent approved the core-owned borrowed closed-program plus
+explicit guarded-root-cache seam, and the app-owned preparation runner. Vakint
+only resolves its native artifacts and steers those services. First gate: one-
+loop powers 1--4, zero/pinch and held-out5, with a fresh-process saved-cache hit.
+
+Development-only five-loop pilots are being wound down by their owning agent
+with identity-checked supervisor stops and preserved completed/partial receipts;
+no unfinished case will be counted as successful. The old full813 FailOnLimit
+sweep and R5 point62/queued68 are development jobs, not the production campaign.
+No further five-loop pilot or warmup is authorized at this stage.
+
+Separately, read-only diagnosis confirmed production THE_ONE stopped itself at
+2026-10-13 13:45:09 UTC on `own_swap_growth_sustained`: configured threshold
+32 MiB/s for120s, final sampled rate157.4 MiB/s for120.826s. RSS186.684GB was
+below the570GB soft/600GB hard cap; host availability389.570GB exceeded the150GB
+floor. Over the surrounding125s, own swap grew32.755→43.503GB whileRSSfell
+197.257→186.684GB, so this record does not establish memory runaway or global
+OOM. Native exit4 saved resumable generation69 with8,337,406pending domains and
+zero frontiers. No production setting, checkpoint or process was changed by us.
+Evidence: `campaigns/five-loop-rank-ladder-THE-ONE/runs/20261012T230628.287965Z/`
+(`supervisor-result.json`, `stop-request.json`, `resources.jsonl`).
+
+Historical checkpoint e6fa6f48 is pushed with independently audited/tested LFUDA
+and native record codec. The first app disk-store gate passed five tests,
+including fresh-process state/guard recovery (23m22 compile, 0.03 s tests).
+The subsequent audit found omitted root atomic-index staging bytes in the
+resume quota and stale live counters after uncertain post-install failure.
+Both findings are fixed and covered by the current 18-test receipt above:
+owned staging is counted, and uncertain writers are poisoned until rescan.
+No 128 GB partial-loading claim follows from these small store tests. The ignored
+exact-source harness speeds up IO-edge iterations; it does not replace the real
+Vakint/native reduction integration gate.
+
+The latest full native Vakint primary application suite also completed: all
+three main expanded/LMB controls, six positive-line cancellation comparisons,
+three bridges, the homogeneous control and explicit refusals pass. It took
+3203.631s (~53m24), peak2.884GB, versus an older unpaired1365s run. Four frontend
+witness searches account for~2718s and~99% of the observed added wall time;
+both snapshots enumerate73graph maps/2304orientation candidates/144verified
+witnesses for each. The regression is per-candidate pipeline cost, not more
+candidate witnesses, and is not cured by IBP memoization. Preserve this finding;
+do not start another five-loop profiling/optimization lane under the new scope.
+
 ## Current verified checkpoint — October 13, 13:40 UTC
 
 The active goal remains generation-54 symbolic application, not new IBPs,

@@ -321,7 +321,51 @@ only compact-map import. Deferred owner initialization is reported separately
 by `owner_preparation_statistics`. These receipts do not attribute process RSS
 to phases.
 
-## Native eviction policies
+## Explicit guarded caches and preparation (integration checkpoint)
+
+For sealed artifacts, `rustred::reduction::ClosedUnitMassProgram` borrows the
+immutable artifact and accepts an explicit mutable `GuardedRootCache`:
+
+```rust
+let program = ClosedUnitMassProgram::new(&artifact, authenticated_source_digest);
+let mut cache = GuardedRootCache::new(&program, limits);
+let result = program.reduce_guarded_root(&target, &mut cache, limits, None)?;
+```
+
+The loader must supply the digest of the exact bytes that produced the artifact;
+do not derive identity from its path or loop count. Every call checks input
+admission and binding before a RAM or backing hit. Completed payloads retain
+their ordered nonzero conditions. Same-or-looser RAM-hit policies reuse prior
+payload validation; tightened exact bounds are checked before reuse. The combined
+`reduce_guarded_root_with_homogeneity` entry reuses native common-mass conversion
+without reauthenticating its own just-validated result.
+
+Retained roots and a fresh native reduction share a budget. If a reservation
+fails because evictable completed roots occupy it, the pressure hook evicts a
+root and retries that same reservation, not the algebra or its work budget.
+An individually oversized entry or true protected working-set limit remains a
+typed refusal. Metadata/entry-count and coefficient limits remain explicit;
+the coefficient census is not process RSS.
+
+The app layer now provides generated-native cache pack/bundle readers and
+writers, exact binding checks, bounded chunk decoding, atomic checkpoints,
+aggregate disk quotas, and a finite `prepare_application_cache` runner. A bundle
+can hold multiple program namespaces; four-loop storage is one aggregate quota,
+not four copies of the advertised allowance. Preparation distinguishes complete,
+cancelled, time/size stops and failures. It emits final completion only after
+the checkpoint is durable. Current cancellation is observed between roots;
+an in-flight native reduction is not a saved instruction-pointer checkpoint.
+
+This is a tested infrastructure checkpoint, not finished public cache delivery:
+the ordinary one-through-four-loop Vakint preparation/load path still needs its
+real end-to-end gates. Disk chunks are not yet compressed or compacted, and
+overlapping runs can amplify misses. Live-cache export, guarded descendant reuse
+and explicit downloads remain pending. The sealed reducer's internal guardless
+memoization is deliberately not persisted; current guarded cache hits concern
+completed roots, not a demonstrated speedup for different later roots. Five-loop
+cache preparation is deferred pending the user's updated D<=10 artifact.
+
+## Eviction policy choices
 
 The native routed cache also offers
 `CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed`. This is LFU with

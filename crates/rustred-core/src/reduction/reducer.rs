@@ -79,6 +79,26 @@ pub struct Reducer<'artifact> {
     dependency_reducers: Vec<Reducer<'artifact>>,
 }
 
+impl Drop for Reducer<'_> {
+    fn drop(&mut self) {
+        if self.cache.is_empty() {
+            debug_assert_eq!(self.cache_weight, CacheWeight::default());
+            return;
+        }
+        // Dependencies and guarded-condition leases own separate census and
+        // release themselves. This matters when an explicit outer root cache
+        // keeps the shared budget alive after this transient reducer exits.
+        let released = self.shared_cache.replace_without_pressure(
+            self.cache.len(),
+            self.cache_weight,
+            0,
+            CacheWeight::default(),
+            self.limits,
+        );
+        debug_assert!(released.is_ok(), "reducer cache census did not release");
+    }
+}
+
 impl<'artifact> Reducer<'artifact> {
     pub fn new(artifact: &'artifact ClosedArtifact) -> Result<Self, ReductionError> {
         Self::with_limits(artifact, ReductionLimits::default())
@@ -209,7 +229,23 @@ impl<'artifact> Reducer<'artifact> {
         target: &IntegralKey,
         limits: ReductionLimits,
     ) -> Result<(MasterDecomposition, Vec<Coefficient>, ReductionStatistics), ReductionError> {
-        let mut reducer = Self::with_limits(artifact, limits)?;
+        Self::reduce_artifact_unit_mass_guarded_with_budget(
+            artifact,
+            target,
+            limits,
+            Arc::new(SharedCacheBudget::default()),
+        )
+    }
+
+    /// Same guarded evaluator, with an explicit aggregate retained budget.
+    /// Its optional pressure handler can release completed outer roots only.
+    pub(crate) fn reduce_artifact_unit_mass_guarded_with_budget(
+        artifact: &'artifact ClosedArtifact,
+        target: &IntegralKey,
+        limits: ReductionLimits,
+        shared: Arc<SharedCacheBudget>,
+    ) -> Result<(MasterDecomposition, Vec<Coefficient>, ReductionStatistics), ReductionError> {
+        let mut reducer = Self::build(artifact, limits, shared)?;
         let mut request = ReductionRequest {
             guarded_conditions: Some(Vec::new()),
             guarded_condition_budget: Some(GuardedConditionBudget {
@@ -1203,12 +1239,31 @@ pub(crate) struct CacheCensus {
     pub(crate) coefficient_bytes: usize,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(crate) struct SharedCacheBudget {
     census: Mutex<CacheCensus>,
+    pressure: Mutex<Option<Arc<dyn Fn() -> Result<bool, ReductionError> + Send + Sync>>>,
+}
+
+impl std::fmt::Debug for SharedCacheBudget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SharedCacheBudget")
+            .field("census", &self.census)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SharedCacheBudget {
+    pub(crate) fn set_pressure_handler(
+        &self,
+        handler: Arc<dyn Fn() -> Result<bool, ReductionError> + Send + Sync>,
+    ) {
+        *self
+            .pressure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(handler);
+    }
+
     pub(crate) fn snapshot(&self) -> CacheCensus {
         *self
             .census
@@ -1217,6 +1272,48 @@ impl SharedCacheBudget {
     }
 
     pub(crate) fn replace(
+        &self,
+        old_integrals: usize,
+        old_weight: CacheWeight,
+        new_integrals: usize,
+        new_weight: CacheWeight,
+        limits: ReductionLimits,
+    ) -> Result<(), ReductionError> {
+        loop {
+            match self.replace_without_pressure(
+                old_integrals,
+                old_weight,
+                new_integrals,
+                new_weight,
+                limits,
+            ) {
+                Err(error) if super::cache_policy::is_cache_limit(&error) => {
+                    // An owned replacement that cannot fit even alone cannot
+                    // benefit from discarding unrelated completed results.
+                    if new_integrals > limits.max_cached_integrals
+                        || new_weight.coefficient_terms > limits.max_cached_coefficient_terms
+                        || new_weight.coefficient_bytes > limits.max_cached_coefficient_bytes
+                    {
+                        return Err(error);
+                    }
+                    let pressure = self
+                        .pressure
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .clone();
+                    // Both mutexes are dropped before invoking the callback.
+                    // Retry this exact reservation, not an arithmetic step.
+                    match pressure {
+                        Some(pressure) if pressure()? => {}
+                        _ => return Err(error),
+                    }
+                }
+                result => return result,
+            }
+        }
+    }
+
+    pub(crate) fn replace_without_pressure(
         &self,
         old_integrals: usize,
         old_weight: CacheWeight,
@@ -1249,19 +1346,27 @@ impl SharedCacheBudget {
             .ok_or(ReductionError::CacheResourceCountOverflow {
                 resource: "retained coefficient bytes",
             })?;
-        if integrals > limits.max_cached_integrals {
+        // Pure releases must remain possible after a caller lowers its limit.
+        // A no-op is still a validation request, not a release exemption.
+        let release_only = new_integrals <= old_integrals
+            && new_weight.coefficient_terms <= old_weight.coefficient_terms
+            && new_weight.coefficient_bytes <= old_weight.coefficient_bytes
+            && (new_integrals < old_integrals
+                || new_weight.coefficient_terms < old_weight.coefficient_terms
+                || new_weight.coefficient_bytes < old_weight.coefficient_bytes);
+        if !release_only && integrals > limits.max_cached_integrals {
             return Err(ReductionError::CacheLimit {
                 requested: integrals,
                 limit: limits.max_cached_integrals,
             });
         }
-        if coefficient_terms > limits.max_cached_coefficient_terms {
+        if !release_only && coefficient_terms > limits.max_cached_coefficient_terms {
             return Err(ReductionError::CacheCoefficientTermLimit {
                 requested: coefficient_terms,
                 limit: limits.max_cached_coefficient_terms,
             });
         }
-        if coefficient_bytes > limits.max_cached_coefficient_bytes {
+        if !release_only && coefficient_bytes > limits.max_cached_coefficient_bytes {
             return Err(ReductionError::CacheCoefficientByteLimit {
                 requested: coefficient_bytes,
                 limit: limits.max_cached_coefficient_bytes,
@@ -1431,7 +1536,7 @@ fn accumulate_master_with(
     Ok(())
 }
 
-fn homogeneity_exponent(
+pub(super) fn homogeneity_exponent(
     target: &IntegralKey,
     master: &IntegralKey,
 ) -> Result<i128, ReductionError> {
@@ -1485,6 +1590,115 @@ fn pow_signed(
 mod guarded_provider_tests {
     use super::*;
     use crate::foundry::artifact::derive_two_loop_unit_mass_sunset;
+
+    #[test]
+    fn transient_reducer_and_guard_leases_release_only_their_own_budget_on_panic() {
+        let artifact = crate::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap();
+        let shared = Arc::new(SharedCacheBudget::default());
+        let limits = ReductionLimits::default();
+        let outer = coefficient_cache_weight([&artifact.coefficient_context().one()]).unwrap();
+        shared
+            .replace(0, CacheWeight::default(), 1, outer, limits)
+            .unwrap();
+        let before = shared.snapshot();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _reducer = Reducer::with_shared_cache(&artifact, limits, shared.clone()).unwrap();
+            let mut request = ReductionRequest {
+                guarded_conditions: Some(Vec::new()),
+                guarded_condition_budget: Some(GuardedConditionBudget {
+                    shared: shared.clone(),
+                    limits,
+                    weight: CacheWeight::default(),
+                }),
+                ..Default::default()
+            };
+            let guard = artifact
+                .coefficient_context()
+                .parameter(&artifact.coefficient_context().parameter_names()[0])
+                .unwrap();
+            request.retain_nonzero_guard(&guard, limits).unwrap();
+            assert!(shared.snapshot().coefficient_bytes > before.coefficient_bytes);
+            panic!("injected guarded provider unwind");
+        }));
+        assert!(panic.is_err());
+        assert_eq!(shared.snapshot(), before);
+    }
+
+    #[test]
+    fn pressure_callback_panic_drops_no_budget_lock_and_releases_transient_cache() {
+        let artifact = crate::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap();
+        let shared = Arc::new(SharedCacheBudget::default());
+        let limits = ReductionLimits {
+            max_cached_integrals: 1,
+            ..Default::default()
+        };
+        shared.set_pressure_handler(Arc::new(|| panic!("injected pressure unwind")));
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Reducer::reduce_artifact_unit_mass_guarded_with_budget(
+                &artifact,
+                &IntegralKey::try_new([2]).unwrap(),
+                limits,
+                shared.clone(),
+            )
+            .unwrap();
+        }));
+        assert!(panic.is_err());
+        assert_eq!(shared.snapshot(), CacheCensus::default());
+    }
+
+    #[test]
+    fn pure_budget_release_remains_valid_after_limit_shrink() {
+        let shared = SharedCacheBudget::default();
+        shared
+            .replace(
+                0,
+                CacheWeight::default(),
+                3,
+                CacheWeight {
+                    coefficient_terms: 9,
+                    coefficient_bytes: 90,
+                },
+                Default::default(),
+            )
+            .unwrap();
+        let zero = ReductionLimits {
+            max_cached_integrals: 0,
+            max_cached_coefficient_terms: 0,
+            max_cached_coefficient_bytes: 0,
+            ..Default::default()
+        };
+        shared
+            .replace_without_pressure(
+                1,
+                CacheWeight {
+                    coefficient_terms: 3,
+                    coefficient_bytes: 30,
+                },
+                0,
+                CacheWeight::default(),
+                zero,
+            )
+            .unwrap();
+        assert_eq!(shared.snapshot().integrals, 2);
+        assert!(
+            shared
+                .replace(0, CacheWeight::default(), 0, CacheWeight::default(), zero)
+                .is_err()
+        );
+        shared
+            .replace_without_pressure(
+                2,
+                CacheWeight {
+                    coefficient_terms: 6,
+                    coefficient_bytes: 60,
+                },
+                0,
+                CacheWeight::default(),
+                zero,
+            )
+            .unwrap();
+        assert_eq!(shared.snapshot(), CacheCensus::default());
+    }
 
     #[test]
     fn retained_guards_share_the_live_coefficient_budget_and_release_on_drop() {

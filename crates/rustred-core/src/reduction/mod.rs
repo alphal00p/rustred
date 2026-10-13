@@ -6,13 +6,21 @@
 //! and `K = 3` artifacts exercise ordinary rules, guarded exceptional cells,
 //! exact symmetry routing, and immutable lower-family factorization.
 
+pub(crate) mod cache_policy;
 mod error;
+mod guarded_cache;
 mod model;
 mod reducer;
 pub mod terminal_normalization;
 pub mod terminal_relations;
 
+pub use cache_policy::CompletedCachePolicy;
 pub use error::ReductionError;
+pub use guarded_cache::{
+    ClosedUnitMassProgram, GuardedCacheBacking, GuardedCacheBackingError,
+    GuardedCacheBackingErrorKind, GuardedCacheError, GuardedRootCache, GuardedRootCacheStatistics,
+    GuardedRootResult, GuardedRootSource,
+};
 pub use model::{
     HomogeneousMasterCoefficient, HomogeneousMasterDecomposition, MasterDecomposition,
     ReductionLimits, ReductionStatistics,

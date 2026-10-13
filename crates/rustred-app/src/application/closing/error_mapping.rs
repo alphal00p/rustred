@@ -147,7 +147,10 @@ fn sector_search_error_kind(error: &SectorSearchError) -> AppErrorKind {
     }
 }
 
-pub(super) fn map_reduction_error(context: &'static str, error: ReductionError) -> AppError {
+pub(in crate::application) fn map_reduction_error(
+    context: &'static str,
+    error: ReductionError,
+) -> AppError {
     let kind = reduction_error_kind(&error);
     AppError::new(kind, format!("{context}: {error}"))
 }

@@ -19,7 +19,8 @@ use super::{
     ClosingArtifactInspectResult, ClosingArtifactReduceRequest, ClosingArtifactReduceResult,
     ExactMasterCoefficient,
 };
-use error_mapping::{map_artifact_encoding_error, map_artifact_load_error, map_reduction_error};
+pub(super) use error_mapping::map_reduction_error;
+use error_mapping::{map_artifact_encoding_error, map_artifact_load_error};
 use model::{
     ArtifactPayloadOutputV1, ArtifactSummaryOutputV2, ClosingRuleOutputV1, GenerateOutputV2,
     InspectOutputV4, IntegralKeyOutputV1, LifecycleOutputV1, ReduceOutputV3,

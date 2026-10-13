@@ -4,8 +4,10 @@
 //! prepared once. Mutable memoization belongs to the returned handle. Compact
 //! runtime exports retain native Symbolica coefficients and inherited authority;
 //! they are application data, not new source or closure certificates.
+mod cache_pack;
 mod charts;
 mod codec;
+mod options;
 mod package;
 mod products;
 mod progress;
@@ -22,12 +24,9 @@ use std::time::{Duration, Instant};
 
 use rustred::algebra::Coefficient;
 use rustred::family::{IntegralFamily, IntegralKey};
-use rustred::persistence::BinaryIoLimits;
-use rustred::reduction::ReductionLimits;
 use rustred::solver::{
-    CandidateRoutedApplicationStatistics, CandidateRoutedCachePolicy,
-    CandidateRoutedCacheStatistics, CandidateRoutedReduction, CandidateStatistics,
-    RoutedCandidateApplication, RoutedCandidateLimits,
+    CandidateRoutedApplicationStatistics, CandidateRoutedCacheStatistics, CandidateRoutedReduction,
+    CandidateStatistics, RoutedCandidateApplication,
 };
 use serde_json::Value;
 
@@ -39,7 +38,13 @@ use super::routed_campaign::{
 };
 use crate::{AppError, MasterReductionArtifact};
 
+pub use cache_pack::{
+    SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter, SavedApplicationCachePack,
+    SavedApplicationCachePackLimits, SavedApplicationCachePackStatistics,
+    SavedApplicationCacheWriter,
+};
 pub use charts::SavedApplicationProductChartStatistics;
+pub use options::SavedApplicationOptions;
 pub use package::{
     export_saved_application, load_saved_application, prepare_saved_application,
     saved_application_arity, saved_application_domains,
@@ -51,44 +56,6 @@ pub use witnesses::{
 
 /// Versioned manifest for application-only native generated data.
 pub const SAVED_APPLICATION_SCHEMA: &str = "rustred.saved-application.v1";
-
-/// Operational allowances do not enlarge the recorded mathematical entry scope.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SavedApplicationOptions {
-    pub reduction_limits: ReductionLimits,
-    pub trace_limits: RoutedCandidateLimits,
-    pub binary_limits: BinaryIoLimits,
-    pub cache_representation: rustred::solver::CandidateCacheRepresentation,
-    /// Completed results may be discarded and recomputed. Live dependencies
-    /// remain protected; this allowance is not a process-wide memory limit.
-    pub cache_policy: CandidateRoutedCachePolicy,
-    /// Existing bounded deterministic route-verification pool. This does not
-    /// change reduction scope or create parallel formula-application workers.
-    pub preparation_workers: usize,
-}
-impl Default for SavedApplicationOptions {
-    fn default() -> Self {
-        Self {
-            reduction_limits: Default::default(),
-            trace_limits: Default::default(),
-            binary_limits: Default::default(),
-            cache_representation: Default::default(),
-            cache_policy: CandidateRoutedCachePolicy::EvictLeastRecentlyUsed,
-            preparation_workers: 1,
-        }
-    }
-}
-impl SavedApplicationOptions {
-    fn validate_preparation(&self) -> Result<(), AppError> {
-        if self.preparation_workers == 0 {
-            return Err(AppError::input("preparation_workers must be positive"));
-        }
-        rustred::campaign::ParallelExecution::preflight_requested_core_budget(
-            self.preparation_workers,
-        )
-        .map_err(|error| AppError::input(error.to_string()))
-    }
-}
 
 /// Wall-clock preparation receipts, separate from application and export work.
 /// Phases are disjoint cumulative durations, not per-phase RSS measurements.

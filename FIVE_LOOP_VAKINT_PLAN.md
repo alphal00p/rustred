@@ -177,6 +177,14 @@ silently switch to the user's live D10 campaign. See `CODEX_PROGRESS.md` and
 
 ## Approved follow-up — persistent reusable application caches
 
+**Latest user priority:** implement and prepare the **1--4-loop caches only**
+for now. Five-loop preparation, new five-loop application pilots and the
+five-loop-specific cache/session wiring are deferred pending the user's D<=10
+campaign. Generic storage, policy and APIs must remain loop-count independent.
+The future five-loop defaults below remain a design target, not active warmup
+or a claim of support for that newer artifact. Preserve the earlier five-loop
+requirements and evidence rather than marking them complete.
+
 The user's subsequent approval promotes the earlier cache discussion into
 implementation scope. It does not authorize new IBPs, numerical masters or
 changes to production campaigns. Existing validation jobs continue unchanged.
@@ -257,13 +265,25 @@ finished work. Never count a warmup cache as broader artifact coverage.
    corruption and hash mismatch, lower RAM than disk size, bounded index loading,
    interruption and package identity separation. No cache may authorize an
    otherwise unsupported input or introduce a new terminal.
-4. Integrate all one-through-five-loop backend sessions and Vakint/Python
+4. Integrate one-through-four-loop backend sessions and Vakint/Python
    preparation/load/download steering without changing evaluation defaults.
    Preserve the lower-loop integration baseline and report old failures honestly.
+   Five-loop session wiring is deferred by the latest instruction.
 5. Benchmark exact cold/warm and fresh-process persisted-cache results, including
    held-out inputs not used for preparation, plus loading/I/O overhead and RSS.
    Compare LRU/LFU on identical input order and budgets. Independent audits must
    cover both cache correctness and measurement interpretation.
-6. Only after focused acceptance, run the extensive bounded five-loop preparation
-   and report its completed workload, useful retained entries, package path/hash,
-   time and actual RAM/disk sizes. Push source/docs only; host packs separately.
+6. Only after focused acceptance, prepare the requested one-through-four-loop
+   packs and report their completed workloads, useful retained entries, paths/
+   hashes, time and actual RAM/disk sizes. Defer the extensive five-loop
+   preparation until the user provides the updated artifact and resumes that
+   lane. Push source/docs only; host packs separately.
+
+The first concrete lower-loop gate uses the existing closed one-loop program,
+an explicit guarded-root cache, cold reductions of powers 1--4, a fresh-process
+binary reload and exact warm agreement, plus a held-out power and zero/pinch
+controls. Reuse the existing guarded reducer and common-mass restoration; never
+persist its internal guardless descendant memoization as guarded authority.
+The four-loop pack has multiple exact program namespaces under one aggregate
+16 GB disk quota. Default workloads are documented finite operational presets,
+not assertions of renormalizable-physics coverage or exhaustive integer coverage.
