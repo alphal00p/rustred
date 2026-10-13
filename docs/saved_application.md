@@ -248,6 +248,25 @@ optional terminal-product presentation. A new owner selection or coefficient
 context requires a new handle. Core per-call statistics and
 `terminal_substitution_additions` together describe composition work.
 
+`SavedApplicationOptions.cache_policy` selects native completed-result reuse.
+The saved runtime defaults to `CandidateRoutedCachePolicy::EvictLeastRecentlyUsed`:
+when a retained-entry, coefficient-term or coefficient-byte allowance is reached,
+it discards older completed entries that are not needed by a pending combine or
+the current output. Pending dependencies are reference-counted and protected;
+recomputation uses the same exact rules, guards and per-request work allowances.
+`FailOnLimit` selects the previous retention behavior and remains the default
+for the lower-level `RoutedCandidateApplication` API. Neither policy changes
+artifact bytes, admission, terminal identities or formula precedence.
+
+`cache_work_statistics()` reports cumulative evicted entries/terms/bytes and
+same-request recomputed nodes, including work in failed requests. Per-request
+receipts expose the same fields under `statistics().cache`. Cache clearing
+preserves cumulative work counters. Eviction is not an unlimited-memory promise:
+a single oversized result or the protected active working set can still exceed
+the explicit allowance. An oversized entry is rejected before discarding useful
+old entries. Native arithmetic scratch space and the returned expression are
+not the completed-result cache.
+
 `owner_preparation_statistics()` distinguishes declared, prepared and failed
 owners, preparation attempts and cumulative preparation time. Route presence
 and transport lookup do not prepare formulas. A first-use preparation error is
@@ -299,6 +318,7 @@ saved_application inventory PUBLICATION_OR_RUNTIME
 saved_application terminals RUNTIME
 saved_application export PUBLICATION NEW_RUNTIME_DIRECTORY
 saved_application suite RUNTIME INVENTORY_JSON [OFFSET] [COUNT] [REPEATS] [CACHE_MODE] [CACHE_BYTES] [CACHE_REPRESENTATION] [LIMITS_JSON]
+saved_application compare-cache RUNTIME INVENTORY_JSON CASE_ID CACHE_BYTES [REFERENCE_BYTES] [LIMITS_JSON]
 ```
 
 `inventory` writes JSON to standard output. `terminals` reports family-qualified
@@ -309,11 +329,21 @@ checks exact coefficient/guard equality on repeated applications. Cache mode is
 also removes its aggregate coefficient-term ceiling while preserving its other
 limits. The Rust API does not make that second change automatically.
 An optional JSON object overrides named operational counts without recompiling,
-for example `{"max_transport_endpoints":40000000,"preparation_workers":8}`. Unknown names, rank/scope
-keys and non-integer values are rejected. Complete selected limits appear in
+for example `{"max_transport_endpoints":40000000,"preparation_workers":8}`.
+The same object accepts `"cache_policy":"evict-lru"` (default) or
+`"cache_policy":"fail-on-limit"`. Unknown names, rank/scope keys and invalid
+values are rejected. Complete selected limits appear in
 the preparation receipt. After a failed case the driver records the cache
 census and clears partial memoization before the next case, preventing an
 exhausted shared cache from manufacturing repeated unrelated failures.
+
+`compare-cache` compares one inventory key with a fail-on-limit reference cache
+(1 GiB by default) and a smaller evicting cache. It requires exact coefficient
+and ordered-condition equality, first/warm agreement and actual eviction, and
+checks every output against the declared remaining terminals. Other selected
+limits are identical. Preparation and application are timed separately; the
+two handles run serially in one process, so these are not independent cold
+process measurements. It writes no artifacts and does not discover new rules.
 
 Export to a new local directory outside tracked source. Keep that entire
 directory together when hosting it. The current measurements and incomplete

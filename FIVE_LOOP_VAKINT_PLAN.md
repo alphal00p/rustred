@@ -72,12 +72,71 @@ behavior remain intact.
 
 ## Delivery
 
+### Physical five-loop ladder regression
+
+Prepare a closed massless fermion loop with four gluon rungs and the two
+external gluon insertions through native FeynKit/QCD generation and dressing.
+The user now requests the physical transverse quadratic-momentum projection,
+not the normalized trace of the already-zero-momentum graph. Keep external q
+until the homogeneous q² Taylor coefficient of the full integrand is extracted;
+use the existing Symbolica/FeynKit services, the paper's auxiliary-mass UV
+prescription and d-dimensional Lorentz algebra. Do not turn originally massless
+fermion numerators into massive ones or assume an individual graph is transverse.
+This is a contribution to the kinetic counterterm, not a complete beta function.
+
+Latest user directive restores full preparation inside the slow regression:
+native dressing, d-dimensional Dirac/color algebra, physical q² projection,
+loop-momentum-basis expansion, mass assignment and Vakint reduction all execute
+in the test. Share the preparation helper with a reproducible standalone
+example; commit a compact seed DOT, not an enormous expanded numerator fixture.
+Where the native interfaces permit, contract the rail trace before expanding
+rail momenta p_i=k-l1-...-li into the independent loop basis. The user's FORM
+trace snippets are structural references only; no FORM is executed. They do
+not supersede the approved physical projector. Report preparation, expression
+size and reduction separately; run only in the full slow test suite.
+This supersedes the intervening request for a reduction-only prepared-input
+test. Preserve every Taylor term and coefficient rather than substituting an
+unrelated admitted inverse-denominator control.
+
+Inventory each lowered term's actual entry domain, D, negative-index degree
+and explicit mass power. Net logarithmic scaling has D-j=10 for a term
+(mUV²)^j I_D; massive numerator lowering can require D above10. The user's
+production D<=10 extension remains untouched and does not replace this task's
+generation-54 package implicitly. Unsupported prepared inputs must report the
+exact missing admission, with no new IBPs or invented terminal declaration.
+
+The D cap is a starting-request constraint only, never a descendant cap.
+Distinguish physical polynomial numerators from the campaign's actual basis:
+all fifteen common-basis slots are shifted quadratics q_i²-1. The current
+adapter admits collected lowered keys as entries; a raw physical numerator
+with net D10 is not automatically a recorded basis-key request. A higher-D
+lowering image alone is not evidence that the physical campaign must be widened.
+Any future physical-root admission must retain exact lowering provenance and
+discharge those images through installed rules, not merely bypass the union.
+
+### Package and cache delivery
+
 User clarification: the five-loop artifact must **never be committed or
 pushed**. Export it to an ignored workspace output, and report its path and
 digest for the user to host. Vakint gains an explicit loader and optional
 artifact-path setting; when the setting is absent, RustRed does not process
 five-loop inputs. No embedded default, automatic download or runtime
 generation is introduced. This supersedes earlier shipped-asset wording.
+
+User follow-up: construct the five-loop topology catalogue only when loading
+the five-loop artifact, not in ordinary `Vakint::new()`. Measure catalogue
+construction separately from package loading; retain existing one-through-four
+loop startup behavior and public topology access conventions.
+
+The configured coefficient-cache budget must remain explicit. Add an optional
+dependency-safe eviction policy: only completed entries not pinned by queued
+combinations/current outputs are eligible. Eviction never changes rule
+precedence, admission, guards or terminals; recomputation is charged to the same
+work budget. Report evictions/recomputation and fail explicitly when an entry
+or the live pinned working set cannot fit. After independent audit, focused
+release tests and an exact real-package cache-pressure comparison, saved
+application defaults to eviction; the legacy low-level core API keeps
+fail-on-limit unless explicitly configured otherwise.
 
 Keep progress in `CODEX_PROGRESS.md`; scoped commits on RustRed main and the
 existing Vakint feature branch use ValentinHirschi's requested identity. Keep

@@ -1,7 +1,12 @@
 //! Exact, memoized application of the same immutable routed owner programs.
 //! No missing rule becomes a terminal and no source generation runs here.
+mod cache_policy;
 mod engine;
+mod guard_union;
 mod transport;
+
+use cache_policy::EvictionIndex;
+pub use cache_policy::{CandidateRoutedCachePolicy, CandidateRoutedCacheStatistics};
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -32,6 +37,7 @@ pub struct CandidateRoutedApplicationStatistics {
     pub transport_operations: usize,
     pub transport_endpoints: usize,
     pub work: ReductionStatistics,
+    pub cache: CandidateRoutedCacheStatistics,
 }
 
 /// Exact coefficients under sufficient generic nonzero conditions. Reduction
@@ -68,6 +74,7 @@ struct CacheEntry {
     terms: CachedTerms,
     conditions: Vec<Coefficient>,
     weight: CacheWeight,
+    last_access: u64,
 }
 
 #[derive(Debug)]
@@ -104,6 +111,9 @@ pub struct RoutedCandidateApplication<const N: usize> {
     limits: RoutedCandidateLimits,
     cache: BTreeMap<Node<N>, CacheEntry>,
     cache_representation: CandidateCacheRepresentation,
+    cache_policy: CandidateRoutedCachePolicy,
+    eviction_index: EvictionIndex<N>,
+    cache_work: CandidateRoutedCacheStatistics,
     cache_budget: SharedCacheBudget,
     cache_weight: CacheWeight,
     work: ReductionStatistics,
@@ -118,6 +128,9 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             limits: self.limits,
             cache: BTreeMap::new(),
             cache_representation: CandidateCacheRepresentation::Sparse,
+            cache_policy: CandidateRoutedCachePolicy::default(),
+            eviction_index: EvictionIndex::default(),
+            cache_work: CandidateRoutedCacheStatistics::default(),
             cache_budget: SharedCacheBudget::default(),
             cache_weight: CacheWeight::default(),
             work: ReductionStatistics::default(),
@@ -147,6 +160,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             limits,
             cache: BTreeMap::new(),
             cache_representation: CandidateCacheRepresentation::Sparse,
+            cache_policy: CandidateRoutedCachePolicy::default(),
+            eviction_index: EvictionIndex::default(),
+            cache_work: CandidateRoutedCacheStatistics::default(),
             cache_budget: SharedCacheBudget::default(),
             cache_weight: CacheWeight::default(),
             work: ReductionStatistics::default(),
@@ -164,6 +180,32 @@ impl<const N: usize> RoutedCandidateApplication<N> {
     }
     pub fn cache_representation(&self) -> CandidateCacheRepresentation {
         self.cache_representation
+    }
+
+    pub fn cache_policy(&self) -> CandidateRoutedCachePolicy {
+        self.cache_policy
+    }
+
+    /// Select bounded cache behavior before application or after clearing the
+    /// cache. Eviction changes reuse only, never admission or terminal status.
+    pub fn set_cache_policy(
+        &mut self,
+        policy: CandidateRoutedCachePolicy,
+    ) -> Result<(), CandidateRoutedError> {
+        if !self.cache.is_empty() {
+            return Err(CandidateRoutedError::InvalidInput(
+                "cache policy requires an empty routed reduction cache".into(),
+            ));
+        }
+        self.cache_policy = policy;
+        self.eviction_index = EvictionIndex::default();
+        Ok(())
+    }
+
+    /// Cumulative work, including failed requests; clearing the cache does not
+    /// reset work counters. Per-call work is also included in each result.
+    pub fn cache_work_statistics(&self) -> CandidateRoutedCacheStatistics {
+        self.cache_work
     }
 
     /// Select private coefficient storage before application or after clearing
@@ -204,6 +246,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         )?;
         self.cache.clear();
         self.cache_weight = CacheWeight::default();
+        self.eviction_index = EvictionIndex::default();
         Ok(())
     }
 }

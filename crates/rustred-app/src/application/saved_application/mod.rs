@@ -24,7 +24,8 @@ use rustred::family::{IntegralFamily, IntegralKey};
 use rustred::persistence::BinaryIoLimits;
 use rustred::reduction::ReductionLimits;
 use rustred::solver::{
-    CandidateRoutedApplicationStatistics, CandidateRoutedReduction, CandidateStatistics,
+    CandidateRoutedApplicationStatistics, CandidateRoutedCachePolicy,
+    CandidateRoutedCacheStatistics, CandidateRoutedReduction, CandidateStatistics,
     RoutedCandidateApplication, RoutedCandidateLimits,
 };
 use serde_json::Value;
@@ -57,6 +58,9 @@ pub struct SavedApplicationOptions {
     pub trace_limits: RoutedCandidateLimits,
     pub binary_limits: BinaryIoLimits,
     pub cache_representation: rustred::solver::CandidateCacheRepresentation,
+    /// Completed results may be discarded and recomputed. Live dependencies
+    /// remain protected; this allowance is not a process-wide memory limit.
+    pub cache_policy: CandidateRoutedCachePolicy,
     /// Existing bounded deterministic route-verification pool. This does not
     /// change reduction scope or create parallel formula-application workers.
     pub preparation_workers: usize,
@@ -68,6 +72,7 @@ impl Default for SavedApplicationOptions {
             trace_limits: Default::default(),
             binary_limits: Default::default(),
             cache_representation: Default::default(),
+            cache_policy: CandidateRoutedCachePolicy::EvictLeastRecentlyUsed,
             preparation_workers: 1,
         }
     }
@@ -366,6 +371,11 @@ impl<const N: usize> PreparedSavedApplication<N> {
     }
     pub fn cache_statistics(&self) -> CandidateStatistics {
         self.application.cache_statistics()
+    }
+    /// Cumulative eviction/recomputation work, including failed requests.
+    /// Clearing retained results does not reset these counters.
+    pub fn cache_work_statistics(&self) -> CandidateRoutedCacheStatistics {
+        self.application.cache_work_statistics()
     }
     pub fn owner_preparation_statistics(
         &self,
@@ -671,6 +681,9 @@ impl<const N: usize> PreparedSavedApplication<N> {
         }
         application
             .set_cache_representation(options.cache_representation)
+            .map_err(failure)?;
+        application
+            .set_cache_policy(options.cache_policy)
             .map_err(failure)?;
         metadata["owner_preparation"] =
             serde_json::json!(if deferred { "on_first_use" } else { "eager" });

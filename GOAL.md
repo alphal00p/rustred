@@ -14,6 +14,15 @@ The five-loop runtime artifact is **not committed or pushed**: deliver its
 local path and digest for user hosting. Vakint must expose an explicit loader
 and optional artifact-path setting. Without that setting, RustRed does not
 handle five-loop inputs; existing lower-loop behavior/defaults remain intact.
+Prepare the five-loop topology catalogue only at artifact loading, with its
+startup cost measured separately. Keep cache size configurable; implement and
+test optional dependency-safe eviction without weakening admission, guards or
+exactness, and distinguish cache exhaustion from missing-rule failures.
+Add the physical ladder slow regression with native dressing, d-dimensional
+algebra, transverse-q² projection and LMB expansion executed inside the test;
+retain a reproducible preparation command and only a compact seed DOT. Audit
+actual massive-lowered entry domains, including
+explicit mass powers; do not silently widen the pinned source scope.
 Delegate orthogonal implementation and independent audits, then commit/push
 tested code/docs only to RustRed main and the Vakint integration branch with
 the requested ValentinHirschi identity. This is the active tool-managed goal.

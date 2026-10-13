@@ -402,6 +402,76 @@ fn runtime_options_select_native_cache_representation_and_report_preparation() {
 }
 
 #[test]
+fn saved_runtime_eviction_is_default_and_preserves_exact_refined_outputs() {
+    use rustred::solver::{CandidateCacheRepresentation, CandidateRoutedCachePolicy};
+    let scratch = Scratch::new();
+    let mut original = prepared_fixture(&scratch.0.join("source"));
+    let runtime = scratch.0.join("runtime");
+    original.export_runtime(&runtime).unwrap();
+    let input = [(
+        IntegralKey::try_new([4]).unwrap(),
+        original.family().coefficient_context().one(),
+    )];
+    let expected = original.reduce_linear_combination(input.clone()).unwrap();
+    for representation in [
+        CandidateCacheRepresentation::Sparse,
+        CandidateCacheRepresentation::Factorized,
+    ] {
+        let mut options = SavedApplicationOptions {
+            cache_representation: representation,
+            ..Default::default()
+        };
+        options.reduction_limits.max_cached_integrals = 2;
+        assert_eq!(
+            options.cache_policy,
+            CandidateRoutedCachePolicy::EvictLeastRecentlyUsed
+        );
+        let mut application = load_saved_application::<1>(&runtime, options).unwrap();
+        let result = application
+            .reduce_linear_combination(input.clone())
+            .unwrap();
+        assert_eq!(result.terms(), expected.terms());
+        assert_eq!(result.nonzero_conditions(), expected.nonzero_conditions());
+        assert!(result.statistics().cache.evicted_entries > 0);
+        assert!(application.cache_statistics().cached_integrals() <= 2);
+        assert_eq!(
+            application.cache_work_statistics(),
+            result.statistics().cache
+        );
+        let warm = application
+            .reduce_linear_combination(input.clone())
+            .unwrap();
+        assert_eq!(warm.terms(), result.terms());
+        assert_eq!(warm.nonzero_conditions(), result.nonzero_conditions());
+        assert_eq!(warm.statistics().work.rule_applications(), 0);
+        let work = application.cache_work_statistics();
+        application.clear_cache().unwrap();
+        assert_eq!(application.cache_work_statistics(), work);
+        let again = application
+            .reduce_linear_combination(input.clone())
+            .unwrap();
+        assert_eq!(again.terms(), result.terms());
+        assert_eq!(again.nonzero_conditions(), result.nonzero_conditions());
+        assert!(application.cache_work_statistics().evicted_entries > work.evicted_entries);
+        options.cache_policy = CandidateRoutedCachePolicy::FailOnLimit;
+        let mut fail_on_limit = load_saved_application::<1>(&runtime, options).unwrap();
+        let error = fail_on_limit
+            .reduce_linear_combination(input.clone())
+            .unwrap_err();
+        assert_eq!(error.kind(), crate::AppErrorKind::Execution);
+        assert!(
+            error.message().contains(
+                &rustred::reduction::ReductionError::CacheLimit {
+                    requested: 3,
+                    limit: 2,
+                }
+                .to_string()
+            )
+        );
+    }
+}
+
+#[test]
 fn deferred_runtime_owns_authenticated_bytes_before_first_formula_use() {
     let scratch = Scratch::new();
     let mut original = prepared_fixture(&scratch.0.join("source"));

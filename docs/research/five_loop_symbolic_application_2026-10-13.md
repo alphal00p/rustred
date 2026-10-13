@@ -54,6 +54,89 @@ The 67 degree-zero witnesses are not a claim of 67 distinct graph classes.
 Graph census coverage and integral admission are separate tests. These boundary
 samples are not exhaustive enumeration of every integer point in each domain.
 
+### What a `point-XXXXX` names
+
+These are deterministic test-inventory IDs, not topology names, master labels,
+or ranks. A row records its exact 15-coordinate integral key and every original
+query/domain boundary that proposed it. Sorting the execution order by rank
+does not renumber the rows. Multiple domains can share one concrete witness.
+
+For example, `point-00435` has powers
+`[1,1,0,1,1,0,1,1,1,1,0,1,0,-1,1]`. Thus ten coordinates appear as simple
+denominators, coordinate14 is an inverse-denominator numerator, and four
+coordinates are absent. It has scalar negative-index degree1, A10 and D9;
+it is not an open rank-one Lorentz tensor. Inverse denominators include their
+constant mass term, so their engineering degree2 is not a claim of a purely
+homogeneous momentum numerator. This point is the representative of the
+recorded `rank1-d9-00034-2c3b1465245235ff9137c9c0` region and also of several
+higher-rank extensions of that region.
+
+Other expensive completed witnesses have the same R1/A10/D9 summary but
+different exact supports and dots:
+
+| Inventory ID | Exact integral powers | First application / warm repeat |
+|---|---|---|
+| point-00159 | `[-1,1,1,1,0,1,1,1,1,1,0,1,1,0,0]` | 1111.775 s / 0.0786 s |
+| point-00233 | `[0,1,0,0,1,1,1,1,1,1,0,1,-1,1,1]` | 1062.201 s / 0.9422 s |
+| point-00390 | `[1,-1,1,0,1,1,1,1,1,0,0,1,0,2,0]` | 878.037 s / 1.4368 s |
+
+These are first encounters in the shared native sweep, not independent cold
+processes or full Vakint front-end timings. They demonstrate that scalar rank
+alone is a poor predictor of application cost. The separate first/warm checks
+compare exact coefficients and retained guards, not numerical zero samples.
+
+### Final-output validity checks
+
+The core accepts only installed terminal declarations as leaves; missing rules
+and dependency cycles are errors. The saved application then requires every
+returned leaf to have a published terminal-substitution row. At package loading,
+all row targets must belong to the published remaining-terminal set, with valid
+family identities, coefficient contexts and conditions. Consequently a
+successful flat result contains only those declared family-qualified keys.
+There is no catch-all conversion of unresolved integrals into new masters.
+
+Vakint can additionally replace an established factorized terminal by its
+verified product chart and existing lower-loop reductions. Those outputs may
+contain qualified lower-loop masters rather than literal five-loop terminal
+keys; exact routing, factorization and lower-program terminal validation provide
+their authority. This is not master minimality or independent certification of
+the original saved IBPs. Native mutation/missing-rule/cycle tests exercise the
+failure paths; no expensive source replay is repeated per evaluation.
+
+## Completed-result eviction: real package pressure test
+
+An exact comparison of point00163 uses the same package, selected rule policy,
+native sparse coefficients and work limits, changing only cache policy/bytes.
+One process loads successive handles with eight preparation workers on CPUs24--31;
+it drops the first handle before loading the second. These are not independent
+cold-process measurements. First application includes deferred owner initialization.
+
+| Measurement | Reference, 1 GiB fail-on-limit | 4 MiB LRU |
+|---|---:|---:|
+| Package preparation | 37.544 s | 39.360 s |
+| First application | 11.838 s | 11.835 s |
+| Included deferred-owner preparation | 11.373 s | 11.205 s |
+| Warm application | 22.4 ms | 31.4 ms |
+| Retained cache entries | 7,627 | 3,603 |
+| Retained coefficient/guard bytes | 7,807,476 | 4,194,008 |
+| Evicted entries | 0 | 4,839 |
+| Same-request recomputed nodes | 0 | 815 |
+| Rule applications | 3,753 | 4,334 |
+
+All23 output coefficients and27,570 ordered guards agree exactly across both
+policies and warm repeats. Every output key belongs to the authenticated
+remaining-terminal set. Whole supervised run104.28s, sampled peak3.82GB.
+No general speedup claim follows: eviction reduces retained memory but can
+increase exact recomputation. An earlier1MiB trial correctly failed on the
+protected working set after substantial eviction; its negative evidence remains.
+
+Frozen driver `saved_application-evict-lru`, SHA256
+`e5325f40a29f14b44de6d7b2d6905242e9f978ce04aa07589fef6edd9b34a1f5`;
+evidence under `TMP/five-loop-vakint-20261013/`:
+`point00163-exact-eviction-comparison-4m` and the unsuccessful
+`point00163-exact-eviction-comparison`. Focused release tests576core/24app/6driver
+pass. Real Vakint cache-pressure and all813 frontend-admission runs remain pending.
+
 ## Matched guard-union optimization
 
 Both runs used optimized frozen executables, the same runtime package and four

@@ -2,15 +2,14 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use super::cache_policy::DependencyPins;
+use super::guard_union::GuardUnion;
 use super::{
-    CacheEntry, CandidateRoutedApplicationStatistics, CandidateRoutedReduction,
-    RoutedCandidateApplication,
+    CandidateRoutedApplicationStatistics, CandidateRoutedReduction, RoutedCandidateApplication,
 };
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::family::IntegralKey;
-use crate::reduction::{
-    ReductionError, ReductionRequest, accumulate_master_in_request, coefficient_cache_weight,
-};
+use crate::reduction::{ReductionError, ReductionRequest, accumulate_master_in_request};
 use crate::sector::symmetry::integral_transport::ExpansionError;
 use crate::solver::candidate_reduction::CandidateReductionError;
 use crate::solver::candidate_reduction::cache::{self, CachedTerms};
@@ -104,6 +103,7 @@ struct Request<const N: usize> {
     seen: BTreeSet<Node<N>>,
     active: BTreeSet<Node<N>>,
     stack: Vec<Frame<N>>,
+    pins: DependencyPins<N>,
 }
 
 impl<const N: usize> Request<N> {
@@ -158,9 +158,11 @@ impl<const N: usize> RoutedCandidateApplication<N> {
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
         let mut request = Request::default();
         let result = self.reduce_request(terms, admission, &mut request, true);
+        self.release_request_pins(&mut request.pins);
         // Failed attempts retain valid completed cache entries and their
         // measured work, never active or partially combined nodes.
         self.work.merge_work(request.stats.work);
+        self.cache_work.merge(request.stats.cache);
         result
     }
 
@@ -174,7 +176,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
         let mut request = Request::default();
         let result = self.reduce_routed_request(terms, admission, &mut request);
+        self.release_request_pins(&mut request.pins);
         self.work.merge_work(request.stats.work);
+        self.cache_work.merge(request.stats.cache);
         result
     }
 
@@ -288,6 +292,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         let mut output = BTreeMap::new();
         for (target, factor) in entries {
             let root = Node::Route(target);
+            self.pin_dependency(&root, &mut request.pins)?;
             request.push(Frame::Enter(root.clone()), limits.max_pending_frames)?;
             self.run_stack(request)?;
             let entry = self
@@ -315,6 +320,11 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     &mut request.stats.work,
                 )?;
             }
+            // The output owns its coefficients and guards now. The current
+            // root may be reused or evicted while processing later roots.
+            drop(terms);
+            self.touch_cache(&root)?;
+            self.release_dependency(&root, &mut request.pins)?;
         }
         charge(
             &mut request.stats.operational_nodes,
@@ -353,6 +363,10 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     terms,
                     mut conditions,
                 } => {
+                    // One shallow membership index for the complete frame,
+                    // including every child. Cache guards are borrowed until
+                    // a genuinely new condition is retained in first-seen order.
+                    let mut guards = GuardUnion::try_new(&mut conditions)?;
                     let output = cache::combine_values(
                         coefficients,
                         self.cache_representation,
@@ -363,20 +377,34 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                                     .ok_or(ReductionError::ReducerInvariant {
                                         detail: "routed child is absent at combine frame",
                                     })?;
-                            retain_conditions(&mut conditions, entry.conditions.iter().cloned());
+                            guards.extend(&entry.conditions)?;
                             Ok((&entry.terms, factor.clone()))
                         }),
                         limits,
                         &mut request.algebra,
                         &mut request.stats.work,
                     )?;
+                    drop(guards);
+                    // Every queued parent retains its own reference. Release
+                    // this frame's children only after all arithmetic and
+                    // guards have been copied, before admitting the parent.
+                    for child in terms.keys() {
+                        self.touch_cache(child)?;
+                        self.release_dependency(child, &mut request.pins)?;
+                    }
                     if !request.active.remove(&node) {
                         return Err(ReductionError::ReducerInvariant {
                             detail: "routed combine node is not active",
                         }
                         .into());
                     }
-                    self.cache_insert(node, output, conditions)?;
+                    self.cache_insert(
+                        node,
+                        output,
+                        conditions,
+                        &request.pins,
+                        &mut request.stats.cache,
+                    )?;
                     continue;
                 }
                 Frame::Enter(node) => node,
@@ -386,7 +414,8 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     target: node.key().clone(),
                 });
             }
-            if !request.seen.contains(&node) {
+            let seen_before = request.seen.contains(&node);
+            if !seen_before {
                 let mut size = request.stats.operational_nodes;
                 charge(
                     &mut size,
@@ -408,11 +437,16 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 retain_polynomial(&mut conditions, condition)
             })?;
             if self.cache.contains_key(&node) {
+                self.touch_cache(&node)?;
                 request.stats.work.record_cache_hit();
                 continue;
             }
+            if seen_before {
+                request.stats.cache.recomputed_nodes =
+                    request.stats.cache.recomputed_nodes.saturating_add(1);
+            }
             if base.is_zero(key) {
-                self.cache_insert_sparse(node, BTreeMap::new(), conditions)?;
+                self.cache_insert_sparse(node, BTreeMap::new(), conditions, request)?;
                 continue;
             }
             request.active.insert(node.clone());
@@ -541,6 +575,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                                 node.clone(),
                                 BTreeMap::from([(key.clone(), coefficients.one())]),
                                 conditions,
+                                request,
                             )?;
                             continue;
                         }
@@ -574,6 +609,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 limits.max_pending_frames,
             )?;
             for child in terms.keys().rev() {
+                self.pin_dependency(child, &mut request.pins)?;
                 request.push(Frame::Enter(child.clone()), limits.max_pending_frames)?;
             }
         }
@@ -585,6 +621,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         node: Node<N>,
         terms: BTreeMap<IntegralKey, Coefficient>,
         conditions: Vec<Coefficient>,
+        request: &mut Request<N>,
     ) -> Result<(), CandidateRoutedError> {
         let context = &self.context;
         let terms = CachedTerms::from_sparse(
@@ -593,43 +630,12 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             context.shared.context.base(),
             context.limits,
         )?;
-        self.cache_insert(node, terms, conditions)
-    }
-
-    fn cache_insert(
-        &mut self,
-        node: Node<N>,
-        terms: CachedTerms,
-        conditions: Vec<Coefficient>,
-    ) -> Result<(), CandidateRoutedError> {
-        let previous = self.cache.get(&node);
-        let previous_count = usize::from(previous.is_some());
-        let previous_weight = previous.map(|entry| entry.weight).unwrap_or_default();
-        // Conditions are retained payload and share the existing coefficient
-        // term/byte budget with decompositions, including cached zero results.
-        let weight = terms
-            .weight()?
-            .checked_add(coefficient_cache_weight(&conditions)?)?;
-        let prospective_weight = self
-            .cache_weight
-            .checked_sub(previous_weight)?
-            .checked_add(weight)?;
-        self.cache_budget.replace(
-            previous_count,
-            previous_weight,
-            1,
-            weight,
-            self.context.limits,
-        )?;
-        self.cache.insert(
+        self.cache_insert(
             node,
-            CacheEntry {
-                terms,
-                conditions,
-                weight,
-            },
-        );
-        self.cache_weight = prospective_weight;
-        Ok(())
+            terms,
+            conditions,
+            &request.pins,
+            &mut request.stats.cache,
+        )
     }
 }

@@ -4,6 +4,7 @@
 //! `saved_application terminals APPLICATION`
 //! `saved_application export PUBLICATION NEW_DIRECTORY`
 //! `saved_application suite APPLICATION INVENTORY_JSON [OFFSET] [COUNT] [REPEATS] [CACHE_MODE] [CACHE_BYTES] [CACHE_REPRESENTATION] [LIMITS_JSON]`
+//! `saved_application compare-cache APPLICATION INVENTORY_JSON CASE_ID CACHE_BYTES [REFERENCE_BYTES] [LIMITS_JSON]`
 //!
 //! Inventory writes a small JSON document to stdout. Suite emits JSONL, one
 //! completed receipt per concrete point, and never claims exhaustive closure.
@@ -18,6 +19,10 @@
 //! `preparation_workers` in that object controls only native route preparation.
 //! A failed request is recorded and its partial memoization cleared, so one
 //! exhausted cache cannot manufacture failures for all later inventory cases.
+//! compare-cache uses one exact CASE_ID, fail-on-limit reference (1 GiB by
+//! default), and a smaller bounded LRU cache. Optional LIMITS_JSON supplies
+//! identical other limits; the command fixes both cache policies/byte caps.
+//! It requires actual eviction plus exact first/warm terms and guard equality.
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Instant;
@@ -29,6 +34,8 @@ use rustred_app::{
 };
 use serde_json::{Value, json};
 
+#[path = "saved_application/compare_cache.rs"]
+mod compare_cache;
 #[path = "saved_application/limits.rs"]
 mod limits;
 
@@ -37,7 +44,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.len() < 2 {
-        return Err("expected inventory SOURCE, export SOURCE DEST, or suite PACKAGE INVENTORY [OFFSET COUNT REPEATS]".into());
+        return Err("expected inventory SOURCE, export SOURCE DEST, suite PACKAGE INVENTORY [OFFSET COUNT REPEATS], or compare-cache PACKAGE INVENTORY CASE_ID CACHE_BYTES [REFERENCE_BYTES] [LIMITS_JSON]".into());
     }
     let arity = saved_application_arity(Path::new(&args[1]))?;
     macro_rules! dispatch {
@@ -69,6 +76,7 @@ fn run<const N: usize>(args: &[String], arity: usize) -> Result<()> {
             Ok(())
         }
         "suite" if (3..=10).contains(&args.len()) => suite::<N>(args, arity),
+        "compare-cache" if (5..=7).contains(&args.len()) => compare_cache::run::<N>(args, arity),
         _ => Err("invalid saved_application arguments".into()),
     }
 }
@@ -205,6 +213,7 @@ fn suite<const N: usize>(args: &[String], arity: usize) -> Result<()> {
         "metadata":prepared.metadata(), "cases":rows.len(), "offset":offset,"requested_count":count,
         "cache_max_bytes":options.reduction_limits.max_cached_coefficient_bytes,
         "cache_representation":format!("{:?}",options.cache_representation),
+        "cache_policy":format!("{:?}",options.cache_policy),
         "operational_options":format!("{:?}",options),
         "owner_preparation":owner_preparation_json(&prepared),
         "preparation_seconds": {
@@ -237,6 +246,7 @@ fn suite<const N: usize>(args: &[String], arity: usize) -> Result<()> {
                     json!({"event":"failed", "case":row,
                     "seconds":first_started.elapsed().as_secs_f64(), "error":error.to_string(),
                     "cache_before_clear":format!("{:?}",prepared.cache_statistics()),
+                    "cache_work":format!("{:?}",prepared.cache_work_statistics()),
                     "owner_preparation":owner_preparation_json(&prepared),
                     "cache_cleared_after_failure":true})
                 );
@@ -263,6 +273,7 @@ fn suite<const N: usize>(args: &[String], arity: usize) -> Result<()> {
             json!({"event":"reduced", "case":row, "first_seconds":first_seconds,
             "terms":first.terms().len(), "conditions":first.nonzero_conditions().len(),
             "cache_mode":cache_mode, "first_is_fresh_process":false,
+            "cache_work":format!("{:?}",prepared.cache_work_statistics()),
             "terminal_substitution_additions":first.terminal_substitution_additions(),
             "first_work":format!("{:?}",first.statistics()),
             "owner_preparation":owner_preparation_json(&prepared),

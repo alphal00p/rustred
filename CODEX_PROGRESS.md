@@ -403,6 +403,215 @@ reveals an artificial rank22 projector request; the existing native compact
 integrated-pair dot service is being used to preserve genuine scalar invariants,
 without implementing a new tensor reducer. Both are Vakint ingress changes.
 
+RustRed milestone `72773cf0c18bdc0f097f794c343c45046e86a560` is committed
+and pushed to `main` with the requested ValentinHirschi identity. It contains
+only the 61 owned source/test/documentation files; no runtime artifact, campaign
+output, reference code or unrelated FeynKit/notebook work was included.
+Formatting is clean. The frozen executable remains
+`TMP/five-loop-vakint-20261013/saved_application-lazy-batch`.
+
+Vakint's later native suite now passes108 tests (two explicitly ignored),
+including both scalar-scope seals and use of the existing compact integrated
+dot representation. Frozen test executable SHA256
+`b53e5e798eb7a24ad83a47b6e3ebf16975b8f7ffab0e77a602f55e8534fe6121`;
+receipt `release-native-invariant-full.{log,time}`. The complete loaded example,
+legacy-indexed full-pipeline regression, and existing tensor integration/oracle
+tests are still pending. The approved FORM oracle executable was verified at
+`FOR_REFERENCE_ONLY_DO_NOT_PUSH/form5-hep/install/bin/form` (5.0.1); five-loop
+acceptance itself retains an invalid FORM setting.
+
+Native 813-witness sweep remains live, with124 completed exact warm comparisons
+and no reported errors. Current in-flight input is `point-00435`, scalarR1/A10/D9,
+with powers `[1,1,0,1,1,0,1,1,1,1,0,1,0,-1,1]`. At about2h10 elapsed the
+process uses roughly73GB RSS plus7GB swapped pages, with one busy core and
+over630GB host memory available. The supervisor's150GB guard remains active;
+no completion or performance extrapolation is made for this expensive case.
+
+### October 13 — real high-rank Vakint parity and first large cache failure
+
+The loaded primary Vakint suite now passes scalar, inverse-denominator degree5
+and degree11 controls: original/expanded, standard/detailed, dot/indexed LMB
+presentations all return the same exact qualified master expression. Native
+factorization confirms equal nonzero guard domains (249/253 factors), while
+original guard payloads remain untouched. Private compact scalar handoff avoids
+the artificial rank22 request; public tensor presentation stays independent.
+Latest first/warm times after loading:0.726/0.706s scalar,0.776/0.773s degree5,
+2.603/2.466s degree11; load73.976s. These selected controls do not imply uniformly
+fast high-rank reduction. True cancellation, bridge and homogeneous-numerator
+cases remain in the running loaded suite.
+
+The broader native sweep reports130 successes and one resource failure so far.
+Point00435 fails after4,908.687s because the shared retained coefficient cache
+requests68,720,304,470bytes, exceeding its64GiB allowance. This is not a missing
+rule, and is not evidence that a fresh isolated reduction necessarily needs
+that much memory. The driver clears its cache and continues. The independent
+factorized probe of the same input is still running after about28min, with
+approximately17.5GB RSS; it has not completed, so no speedup is claimed.
+It uses the newer lazy binary and an independent cache, unlike the older shared
+sparse sweep. Both use explicit work/resource guards and no new IBP generation.
+
+Independent baseline comparison proves four existing integration-test failures
+also occur at Vakint6203c6cbb with identical pinned Symbolica/FeynKit dependencies
+and unchanged assertions. Normalized logs match byte-for-byte; they remain
+reported failures, not passes. Evidence:
+`TMP/vakint-baseline-6203c6cbb.BgzCKd/comparison/{report.typ,manifest.json}`.
+The same run passes18 tensor and4 FORM-less scalar integration controls.
+
+### October 13 — cache eviction, lazy catalogue and the physical ladder
+
+The final eager-package Vakint acceptance run completes successfully in22m53s,
+peak3.08GiB: scalar and degree5/11 inverse-denominator controls, six actual
+positive-denominator cancellations versus independently pinched DOTs, three
+massive bridges, nonunit mass and cache/configuration controls. Exact coefficient
+and guard-domain comparisons pass. A separate full-parent homogeneous GeV10
+control is correctly refused by the actual entry union; it is not counted as
+a successful reduction. Evidence is `release-private-handoff-admitted-suite`
+and `release-full-parent-homogeneous` under the Vakint workspace. The latter
+does not authorize a broader family or a new campaign.
+
+The core package lane implemented dependency-safe LRU of completed results.
+Root independently reviewed pin/reference lifetimes, coefficient-plus-guard
+weight accounting, Route/Apply identities and failure cleanup. Nine core tests
+cover both native representations, shared dependencies, recomputation budgets,
+guarded cancellation, admission-before-cache and error recovery. Root added
+saved-runtime policy selection/default eviction, cumulative eviction statistics,
+driver selection and round-trip application tests. Release verification remains
+pending; the first coordinated check is
+`TMP/five-loop-eviction-check-20261013.log`. No change to the already-running
+frozen probes is inferred from these source edits. The core low-level API keeps
+its previous fail-on-limit default. True pinned-working-set or single-entry
+overflow still produces an explicit resource error; eviction cannot promise
+unbounded memory or remove native arithmetic/output scratch costs.
+
+The exact lane also supplied stable-order borrowed guard union indexing for
+the coefficient engine after profiles located a material equality-scan cost.
+Package lane audited this independently; root is integrating/testing both
+changes together. The hash index resolves collisions by exact equality and
+preserves guard payload/order, with no CAS normalization or zero sampling.
+
+Five-loop catalogue construction now belongs to successful artifact loading,
+not default Vakint construction. Root assigned package lane an independent
+audit; it found that any unknown lower-loop input with a configured invalid
+five-loop path could incorrectly trigger loading before Unknown fallback.
+A native loop-classification/exact-symbol gate and regressions are being added;
+no prefix guesses or parallel topology parser are permitted. The earlier
+whole-constructor timings0.182/0.170s were not isolated catalogue costs.
+
+The scientific ladder lane now uses the native FeynKit generator/dressing
+pipeline: a bare DOT import alone fills missing fragments with1 and would not
+constitute a dressed QCD test. The user first approved normalized external
+color/Lorentz trace, then asked about the actual beta-function projector.
+Root explained the transverse homogeneous-q² projection and checked the user's
+paper2203.11038, Eqs4.16--4.18. Unlike the q=0 dimension-two/D9 test, its
+dimensionless coefficient naturally needs D10 before explicit mass factors.
+The pinned source maxD9 does not admit that extension by implication. The lane
+continues native graph/dimension/dressing checks; no q² expansion or new IBPs
+are silently authorized. A single ladder is not a complete beta-function result,
+nor does ordinary gluon field renormalization alone equal coupling renormalization.
+
+Read-only native sweep update:137 successful first/warm exact comparisons and
+one64GiB retained-cache failure. The independent factorized point435 probe is
+still live at1h35, roughly32GBRSS, without a completed result. Its timing is not
+a matched comparison to the previous shared sparse run. No production writes.
+
+User subsequently approved the physical projector and changed the test boundary:
+prepare the full vacuum DOT/sum offline, retain a reproducible native preparation
+command, and test only reduction of the saved prepared fixture. Exact lane has
+resumed that implementation with native series and tensor averaging. An analytic
+A q²g+B qq control must retain A and remove B without requiring diagramwise
+transversality. No extra physical loop may be introduced by angular averaging.
+The user's current D<=10 campaign is acknowledged but is not an instruction to
+change the pinned publication. Massively lowered terms can need D>10 with
+explicit mass factors: D-j=10 for (mUV²)^j I_D. Report actual inventories before
+any scoped application. Root's coordinated eviction check completed in66s;
+the release test build is live (session20312), still not a test-pass receipt.
+
+The latest user correction restores the complete HEPKit preparation inside
+the slow ladder test: trace/color algebra, physical q² projection and LMB
+expansion must be executed, not loaded as a large prepared expression. Retain
+a compact seed DOT and share the preparation helper with the standalone
+example. The provided zero-momentum FORM trace is a structural reference only;
+no FORM execution and no silent replacement of the physical projector.
+Root notified both Vakint lanes and updated the authoritative goal/plan.
+
+User also requests an explicit audit of Vakint's scope restrictions. Package
+lane verified exact composed base67 + eleven amendment documents against the
+exported804 query records and role lists: identical. Every published query
+has minD=maxD9; rank/A/coordinate/support predicates remain correlated.
+Root verified the native application checks entry only before run_stack and
+does not clip internal rule successors. The physical-versus-shifted-basis
+boundary and full matcher admission remain under audit; no broader input
+guarantee is inferred from these checks.
+
+Release verification of eviction: initial core run575passes/one new fixture
+failure in3.44s. The fixture compared the original native polynomial allocation
+(262bytes) with its installed clone (190bytes); native cloning trims spare Vec
+capacity. Production correctly measures, stores and evicts the installed
+payload. Root corrected the test to independently measure that installed guard
+weight, preserving the cap, oversized-result rejection and census assertions;
+package lane independently confirmed the diagnosis. Corrected optimized core
+rebuild is session84781. No runtime arithmetic or budget change was needed.
+
+The coordinated core/app release build completed in26m52s. App/load/route tests
+pass24/24 in0.07s with CPUs24--31. The first single-core invocation correctly
+refused a two-worker preparation fixture; it is retained as a setup failure,
+not a product regression or parallel-test receipt. The passing rerun has no
+vacuously skipped parallel controls. Evidence:
+`TMP/five-loop-eviction-app-tests-affinity-20261013.log`.
+
+Package lane delivered a generation-free `saved_application compare-cache`
+driver. It compares one admitted key under a generous fail-on-limit cache and
+a smaller LRU cache, with exact coefficient/ordered-guard equality and explicit
+published-terminal membership; it requires actual eviction before reporting
+success. It releases the first prepared handle before loading the second and
+reports separate preparation/first/warm timings, not cold-process speedup.
+Root source audit passed; build and real point163 pressure probe remain pending.
+
+Native source/app audit finds no additional Vk R11/D9 cutoff: entry checks reuse
+the exact saved union after weighted numerator collection. All813 inventory
+supports are literal selected owners. Genuine tensor-rank and scalar-expression
+resource limits remain distinct operational constraints. The independent lane
+is adding a full813 no-IBP Vakint ingress/admission census to catch presentation
+or routing exclusions without waiting for coefficient reductions. No starting
+bound is reapplied inside native run_stack, and no missing-rule leaf is promoted
+to a master. Physical raw-D and shifted-basis entry-D remain separate semantics;
+the final D<=10 assessment waits for the actual physical input audit.
+
+### October 13 — real five-loop LRU comparison succeeds
+
+Corrected release core tests pass576/576 in3.38s; app/load/route tests pass24/24
+in0.07s and driver-option/comparison tests pass6/6. The native optimized driver
+build takes12m53s, separate from timings. Frozen
+`TMP/five-loop-vakint-20261013/saved_application-evict-lru`, SHA256
+`e5325f40a29f14b44de6d7b2d6905242e9f978ce04aa07589fef6edd9b34a1f5`.
+
+An actual package point163 comparison passes: 1GiB fail-on-limit reference
+versus4MiB LRU returns exactly the same23coefficients and27,570ordered guards,
+and every output belongs to the published remaining-terminal set. Both warm
+repeats agree exactly. Reference retains7,627entries/7,807,476bytes; bounded
+retains3,603entries/4,194,008bytes after4,839evictions and815same-request
+recomputations. Rule applications rise3,753→4,334, an honest time/memory tradeoff.
+First calls are11.8376/11.8348s INCLUDING11.3733/11.2046s deferred owner
+initialization; warm22.4/31.4ms. Preparation37.544/39.360s. Same process,
+successive handles, CPUs24--31 and8route workers: not independent cold timings
+or a statistically measured speedup. Whole process104.28s, peak3.82GB.
+Evidence `point00163-exact-eviction-comparison-4m/{request.json,stdout,result.json}`.
+
+The earlier1MiB pressure probe correctly fails when its protected working set
+does not fit, after34,100evictions/29,735recomputations, with no false result.
+Its evidence remains in `point00163-exact-eviction-comparison`; it is a genuine
+minimum-working-set failure, not successful reduction. No protected dependency
+was evicted and no mathematical/resource invariant was relaxed to pass4MiB.
+The independent implementation/audit and real comparison justify enabling LRU
+by default in the new saved-runtime layer, with explicit fail-on-limit available.
+
+Native QCD generation/dressing succeeds in0.16666s for exactly one requested
+five-loop graph,10vertices/16edges including two external carriers. Full
+physical Taylor/projector/LMB preparation and reduction remain pending. The
+full813 Vakint admission-only census is compiled into a frozen optimized test
+binary; root will run it after build-1 releases CPUs8--15. No result is inferred
+from compilation, and no campaign/artifact bytes have changed.
+
 ## October 11 — retain stopped refinement and remove arbitrary count ceiling
 
 User requests both the `1000001 exceeds 1000000` repair and preservation of

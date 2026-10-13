@@ -18,6 +18,16 @@ fn override_from_value(
     // Validate a complete copy before altering the caller's configuration.
     let mut candidate = *options;
     for (name, value) in object {
+        if name == "cache_policy" {
+            candidate.cache_policy = match value.as_str() {
+                Some("evict-lru") => {
+                    rustred::solver::CandidateRoutedCachePolicy::EvictLeastRecentlyUsed
+                }
+                Some("fail-on-limit") => rustred::solver::CandidateRoutedCachePolicy::FailOnLimit,
+                _ => return Err("cache_policy must be evict-lru or fail-on-limit".into()),
+            };
+            continue;
+        }
         let value = value
             .as_u64()
             .and_then(|value| usize::try_from(value).ok())
@@ -75,6 +85,8 @@ mod tests {
     #[test]
     fn invalid_or_unknown_limits_are_transactional_errors() {
         for value in [
+            json!({"cache_policy": "unknown"}),
+            json!({"cache_policy": 1}),
             json!({"preparation_workers": 0}),
             json!({"max_rule_applications": -1}),
             json!({"max_rule_applications": 1.5}),
@@ -94,5 +106,28 @@ mod tests {
         let mut options = SavedApplicationOptions::default();
         override_from_value(&mut options, &json!({"preparation_workers": 64})).unwrap();
         assert_eq!(options.preparation_workers, 64);
+    }
+
+    #[test]
+    fn cache_policy_is_explicit_and_transactional() {
+        let mut options = SavedApplicationOptions::default();
+        assert_eq!(
+            options.cache_policy,
+            rustred::solver::CandidateRoutedCachePolicy::EvictLeastRecentlyUsed
+        );
+        override_from_value(&mut options, &json!({"cache_policy": "fail-on-limit"})).unwrap();
+        assert_eq!(
+            options.cache_policy,
+            rustred::solver::CandidateRoutedCachePolicy::FailOnLimit
+        );
+        let before = options;
+        assert!(
+            override_from_value(
+                &mut options,
+                &json!({"cache_policy": "evict-lru", "unknown": 0})
+            )
+            .is_err()
+        );
+        assert_eq!(options, before);
     }
 }
