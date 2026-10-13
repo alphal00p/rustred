@@ -4,6 +4,7 @@
 //! Inspecting an envelope never constructs a closing artifact. Native Symbolica
 //! import is explicitly a generated-data boundary, not a hostile-input parser.
 
+pub mod application_cache;
 mod atoms;
 mod catalog;
 mod compare;

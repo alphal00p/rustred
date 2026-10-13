@@ -76,7 +76,7 @@ pub struct CandidateRoutedApplicationSnapshot {
     pub active_nodes: usize,
     pub pending_frames: usize,
     pub cached: CandidateRoutedCacheCensus,
-    /// Only LRU maintains dependency pins. None under FailOnLimit, not zero.
+    /// Evicting policies maintain dependency pins. None under FailOnLimit, not zero.
     pub pinned: Option<CandidateRoutedCacheCensus>,
     pub eligible: Option<CandidateRoutedCacheCensus>,
 }

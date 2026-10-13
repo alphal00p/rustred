@@ -158,6 +158,34 @@ without a guard stop. No allowance was silently changed. Point-00006 then
 started in that lane; point-00062 remains active in the other. Their failure and
 timing evidence stays separate from the successful 813-point frontend census.
 
+First cache implementation slice is frozen and tested: dynamic-aged LFU alongside
+unchanged LRU, plus the native generated coefficient/guard chunk codec. A single
+combined snapshot passed the core source check (65 s), optimized compilation
+(6m30s), 45 routed/application/policy/observer tests and three codec tests.
+Evidence: `TMP/five-loop-aged-lfu-codec-core-20261013.log`; frozen test executable
+SHA256 `dff18093b5c1ab465c6f4f7802ca38ba9046c408343aebbcb76b61c249652dc4`.
+Exact-application agent independently audited LFUDA; delivery independently
+audited the codec. Neither found a blocker. Root reviewed both and is committing
+this source-only slice before the larger program/cache ownership extraction.
+
+LFUDA counts only real reuse of completed resident results; dynamic aging plus
+recency determines unpinned victims. LRU priorities/counts remain zero. Overhead:
+two u64 fields per retained entry and one u64 priority per eligible index record.
+There is no periodic full-cache scan or benchmarked LFU performance gain yet.
+The codec uses existing Symbolica RP-in-Atom/state encoding, preserves all guards
+including empty reductions, checks exact binding/context/arity and uses fixed-u64
+outer lengths. It is a trusted-generated structural boundary, not an equation
+proof for arbitrary bytes. The filesystem pack, runtime attachment, preparation
+and download interfaces remain incomplete; no 128 GB partial-loading claim.
+
+The second R11 pilot, point-00006, stopped on its explicitly configured ten-million
+operational-node allowance after 1,130.163 s, not cache exhaustion: 21.707 GB
+charged cache remained below 32 GiB, with zero evictions/recomputation. Whole
+process 1,247.581 s, peak RSS 48.427 GB, no memory-guard stop. Both R11 failures
+are retained without silent retries. Reopen with explicit operational budgets
+after completed subresults can be persisted; LFU alone cannot cure these limits.
+The connected R5 lane and current primary Vakint regression remain live.
+
 Accepted plan: `FIVE_LOOP_VAKINT_PLAN.md`. Root baseline `6f7097ac`.
 Pinned source is THE_ONE generation54 scope `f7ee869…`, not moving latest:
 804 recorded starting domains, 67 owners, 9,982 rules, 939 raw/905 remaining

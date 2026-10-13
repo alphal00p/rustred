@@ -233,6 +233,10 @@ Default target maximum pack sizes, in decimal bytes:
 These are maxima, not minimum amounts to manufacture. Track serialized disk
 bytes and decoded RAM separately, including bounded index/chunk buffers. Active
 CAS/output memory is reported separately from retained cache payload.
+For opt-in preparation, the default RAM allowance is the lesser of the disk
+target and 32,000,000,000 bytes; callers may override it. Attaching a pack to an
+already configured application honors that application's RAM allowance unless
+explicitly overridden. Ordinary evaluation defaults do not change.
 
 Use a reproducible, finite, topology-balanced sorted reduction workload. Bind its
 identity and completed positions to checkpoints. The five-loop default permits

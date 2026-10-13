@@ -9,8 +9,7 @@ use super::progress::Progress;
 use super::{
     CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
     CandidateRoutedApplicationStatistics, CandidateRoutedApplicationStatus,
-    CandidateRoutedCacheCensus, CandidateRoutedCachePolicy, CandidateRoutedReduction,
-    RoutedCandidateApplication,
+    CandidateRoutedCacheCensus, CandidateRoutedReduction, RoutedCandidateApplication,
 };
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::family::IntegralKey;
@@ -234,7 +233,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             progress,
             ..Default::default()
         };
-        if observed && self.cache_policy == CandidateRoutedCachePolicy::EvictLeastRecentlyUsed {
+        if observed && self.cache_policy.evicts() {
             request.pins.census = Some(CandidateRoutedCacheCensus::default());
         }
         let run = || {
@@ -562,7 +561,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 retain_polynomial(&mut conditions, condition)
             })?;
             if self.cache.contains_key(&node) {
-                self.touch_cache(&node)?;
+                self.reuse_cache(&node)?;
                 request.stats.work.record_cache_hit();
                 continue;
             }

@@ -321,6 +321,24 @@ only compact-map import. Deferred owner initialization is reported separately
 by `owner_preparation_statistics`. These receipts do not attribute process RSS
 to phases.
 
+## Native eviction policies
+
+The native routed cache also offers
+`CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed`. This is LFU with
+dynamic aging: genuine completed-result hits increment a resident entry's
+reuse count, while ordinary child/root consumption only refreshes recency.
+Eligible victims are ordered by age-adjusted frequency, then recency; eviction
+advances the aging baseline. Active dependency pins remain protected. There are
+no periodic whole-cache aging scans, and eviction never changes coefficient or
+guard algebra. LRU remains the saved application's default.
+
+The first native slice has exact sparse/factorized, aging, pin, failure and
+observer regressions. Its bounded metadata overhead is two additional u64s per
+entry and one priority u64 per eligible index key. No LFU speed advantage is
+claimed. Public CLI/Python selectors, explicit borrowed-cache ownership and
+save/load integration are still being connected; the native chunk codec alone
+is not a usable persistent-cache facility or proof of bounded 128 GB loading.
+
 ## Optional request progress
 
 The ordinary application API performs no progress clocks, formatting or pin-census

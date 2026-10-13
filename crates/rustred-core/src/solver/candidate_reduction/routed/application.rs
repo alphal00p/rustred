@@ -6,8 +6,8 @@ mod guard_union;
 mod progress;
 mod transport;
 
-use cache_policy::EvictionIndex;
 pub use cache_policy::{CandidateRoutedCachePolicy, CandidateRoutedCacheStatistics};
+use cache_policy::{EvictionIndex, EvictionMetadata};
 pub use progress::{
     CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
     CandidateRoutedApplicationStatus, CandidateRoutedCacheCensus,
@@ -79,7 +79,7 @@ struct CacheEntry {
     terms: CachedTerms,
     conditions: Vec<Coefficient>,
     weight: CacheWeight,
-    last_access: u64,
+    eviction: EvictionMetadata,
 }
 
 #[derive(Debug)]
@@ -117,7 +117,7 @@ pub struct RoutedCandidateApplication<const N: usize> {
     cache: BTreeMap<Node<N>, CacheEntry>,
     cache_representation: CandidateCacheRepresentation,
     cache_policy: CandidateRoutedCachePolicy,
-    eviction_index: EvictionIndex<N>,
+    eviction_index: EvictionIndex<Node<N>>,
     cache_work: CandidateRoutedCacheStatistics,
     cache_budget: SharedCacheBudget,
     cache_weight: CacheWeight,

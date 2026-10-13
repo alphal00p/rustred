@@ -38,9 +38,264 @@ fn assert_census<const N: usize>(app: &RoutedCandidateApplication<N>) {
     assert_eq!(census.coefficient_terms, weight.coefficient_terms);
     assert_eq!(census.coefficient_bytes, weight.coefficient_bytes);
     assert!(app.eviction_index.eligible.len() <= app.cache.len());
-    for (stamp, node) in &app.eviction_index.eligible {
-        assert_eq!(*stamp, app.cache[node].last_access);
+    for (priority, stamp, node) in &app.eviction_index.eligible {
+        assert_eq!(*stamp, app.cache[node].eviction.last_access);
+        assert_eq!(*priority, app.cache[node].eviction.priority);
     }
+}
+
+#[test]
+fn aged_lfu_counts_only_genuine_reuse_and_uses_recency_for_ties() {
+    let mut app = application(ReductionLimits {
+        max_cached_integrals: 2,
+        ..Default::default()
+    });
+    app.set_cache_policy(CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed)
+        .unwrap();
+    let mut pins = DependencyPins::default();
+    let mut stats = CandidateRoutedCacheStatistics::default();
+    let a = Node::Route(key([1]));
+    let b = Node::Apply([true], key([1]));
+    let c = Node::Route(key([2]));
+    let d = Node::Route(key([3]));
+    insert(&mut app, a.clone(), vec![], &mut pins, &mut stats).unwrap();
+    insert(&mut app, b.clone(), vec![], &mut pins, &mut stats).unwrap();
+    for _ in 0..10 {
+        app.touch_cache(&a).unwrap();
+    }
+    assert_eq!(app.cache[&a].eviction.reuse_count, 0);
+    assert_eq!(app.cache[&a].eviction.priority, 1);
+    insert(&mut app, c.clone(), vec![], &mut pins, &mut stats).unwrap();
+    assert!(app.cache.contains_key(&a));
+    assert!(!app.cache.contains_key(&b));
+    assert_eq!(app.eviction_index.age, 1);
+    app.reuse_cache(&a).unwrap();
+    assert_eq!(app.cache[&a].eviction.reuse_count, 1);
+    assert_eq!(app.cache[&a].eviction.priority, 3);
+    insert(&mut app, d.clone(), vec![], &mut pins, &mut stats).unwrap();
+    assert!(!app.cache.contains_key(&c));
+    assert_eq!(app.eviction_index.age, 2);
+    assert_eq!(app.cache[&d].eviction.priority, 3);
+    assert_eq!(app.cache[&d].eviction.reuse_count, 0);
+    assert_census(&app);
+}
+
+#[test]
+fn lru_reuse_and_eviction_do_not_update_lfu_counts_or_age() {
+    let mut app = application(ReductionLimits {
+        max_cached_integrals: 2,
+        ..Default::default()
+    });
+    app.set_cache_policy(CandidateRoutedCachePolicy::EvictLeastRecentlyUsed)
+        .unwrap();
+    let one = app.family().coefficient_context().one();
+    for power in [3, 3, 4, 4, 3] {
+        app.reduce_linear_combination([(key([power]), one.clone())])
+            .unwrap();
+    }
+    assert!(app.cache_work_statistics().evicted_entries > 0);
+    assert_eq!(app.eviction_index.age, 0);
+    assert!(
+        app.cache
+            .values()
+            .all(|entry| entry.eviction.reuse_count == 0 && entry.eviction.priority == 0)
+    );
+    assert_census(&app);
+}
+
+#[test]
+fn aged_lfu_cold_stream_eventually_retires_a_formerly_hot_entry() {
+    let mut app = application(ReductionLimits {
+        max_cached_integrals: 2,
+        ..Default::default()
+    });
+    app.set_cache_policy(CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed)
+        .unwrap();
+    let mut pins = DependencyPins::default();
+    let mut stats = CandidateRoutedCacheStatistics::default();
+    let hot = Node::Route(key([1]));
+    insert(&mut app, hot.clone(), vec![], &mut pins, &mut stats).unwrap();
+    insert(
+        &mut app,
+        Node::Route(key([2])),
+        vec![],
+        &mut pins,
+        &mut stats,
+    )
+    .unwrap();
+    for _ in 0..3 {
+        app.reuse_cache(&hot).unwrap();
+    }
+    assert_eq!(app.cache[&hot].eviction.priority, 4);
+    for power in 3..=5 {
+        insert(
+            &mut app,
+            Node::Route(key([power])),
+            vec![],
+            &mut pins,
+            &mut stats,
+        )
+        .unwrap();
+        assert!(app.cache.contains_key(&hot));
+    }
+    insert(
+        &mut app,
+        Node::Route(key([6])),
+        vec![],
+        &mut pins,
+        &mut stats,
+    )
+    .unwrap();
+    assert!(!app.cache.contains_key(&hot));
+    assert_eq!(app.eviction_index.age, 4);
+    assert_eq!(stats.evicted_entries, 4);
+    assert_census(&app);
+}
+
+#[test]
+fn aged_lfu_shared_pins_survive_aging_and_release_cannot_rewind_age() {
+    let mut app = application(ReductionLimits {
+        max_cached_integrals: 2,
+        ..Default::default()
+    });
+    app.set_cache_policy(CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed)
+        .unwrap();
+    let mut pins = DependencyPins {
+        census: Some(Default::default()),
+        ..Default::default()
+    };
+    let mut stats = CandidateRoutedCacheStatistics::default();
+    let protected = Node::Route(key([1]));
+    let guard = app.family().coefficient_context().integer(7);
+    insert(
+        &mut app,
+        protected.clone(),
+        vec![guard.clone()],
+        &mut pins,
+        &mut stats,
+    )
+    .unwrap();
+    app.pin_dependency(&protected, &mut pins).unwrap();
+    app.pin_dependency(&protected, &mut pins).unwrap();
+    for power in 2..=6 {
+        insert(
+            &mut app,
+            Node::Route(key([power])),
+            vec![],
+            &mut pins,
+            &mut stats,
+        )
+        .unwrap();
+        assert!(app.cache.contains_key(&protected));
+        assert_eq!(pins.census.unwrap().entries, 1);
+    }
+    let age = app.eviction_index.age;
+    assert!(age > app.cache[&protected].eviction.priority);
+    app.release_dependency(&protected, &mut pins).unwrap();
+    assert_eq!(pins.census.unwrap().entries, 1);
+    app.release_dependency(&protected, &mut pins).unwrap();
+    assert_eq!(pins.census.unwrap().entries, 0);
+    insert(
+        &mut app,
+        Node::Route(key([7])),
+        vec![],
+        &mut pins,
+        &mut stats,
+    )
+    .unwrap();
+    assert!(!app.cache.contains_key(&protected));
+    assert_eq!(app.eviction_index.age, age);
+    assert_census(&app);
+}
+
+#[test]
+fn aged_lfu_replacement_is_fresh_admission_and_clear_resets_metadata_only() {
+    let mut app = application(Default::default());
+    app.set_cache_policy(CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed)
+        .unwrap();
+    let mut pins = DependencyPins {
+        census: Some(Default::default()),
+        ..Default::default()
+    };
+    let mut stats = CandidateRoutedCacheStatistics::default();
+    let node = Node::Route(key([1]));
+    let guard = app.family().coefficient_context().integer(7);
+    insert(
+        &mut app,
+        node.clone(),
+        vec![guard.clone()],
+        &mut pins,
+        &mut stats,
+    )
+    .unwrap();
+    app.pin_dependency(&node, &mut pins).unwrap();
+    app.reuse_cache(&node).unwrap();
+    assert_eq!(app.cache[&node].eviction.reuse_count, 1);
+    insert(
+        &mut app,
+        node.clone(),
+        vec![guard.clone(), guard],
+        &mut pins,
+        &mut stats,
+    )
+    .unwrap();
+    assert_eq!(app.cache[&node].eviction.reuse_count, 0);
+    assert_eq!(
+        pins.census.unwrap(),
+        CandidateRoutedCacheCensus::new(1, app.cache[&node].weight)
+    );
+    app.release_request_pins(&mut pins);
+    let one = app.family().coefficient_context().one();
+    app.reduce_linear_combination([(key([3]), one.clone())])
+        .unwrap();
+    assert_eq!(app.cache[&Node::Route(key([3]))].eviction.reuse_count, 0);
+    app.reduce_linear_combination([(key([3]), one.clone())])
+        .unwrap();
+    assert_eq!(app.cache[&Node::Route(key([3]))].eviction.reuse_count, 1);
+    let work = app.cache_work_statistics();
+    app.clear_cache().unwrap();
+    assert_eq!(app.eviction_index.age, 0);
+    assert_eq!(app.eviction_index.clock, 0);
+    assert!(app.eviction_index.eligible.is_empty());
+    assert_eq!(app.cache_work_statistics(), work);
+    app.reduce_linear_combination([(key([3]), one)]).unwrap();
+    assert_eq!(app.cache[&Node::Route(key([3]))].eviction.reuse_count, 0);
+    assert_census(&app);
+}
+
+#[test]
+fn aged_lfu_counter_and_admission_overflow_preserve_payload_and_index() {
+    let mut app = application(Default::default());
+    app.set_cache_policy(CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed)
+        .unwrap();
+    let mut pins = DependencyPins::default();
+    let mut stats = CandidateRoutedCacheStatistics::default();
+    let node = Node::Route(key([1]));
+    insert(&mut app, node.clone(), vec![], &mut pins, &mut stats).unwrap();
+    app.cache.get_mut(&node).unwrap().eviction.reuse_count = u64::MAX;
+    let metadata = app.cache[&node].eviction;
+    let index = app.eviction_index.eligible.clone();
+    assert!(app.reuse_cache(&node).is_err());
+    assert_eq!(app.cache[&node].eviction, metadata);
+    assert_eq!(app.eviction_index.eligible, index);
+    app.eviction_index.age = u64::MAX;
+    let census = app.cache_budget.snapshot();
+    assert!(
+        insert(
+            &mut app,
+            Node::Route(key([2])),
+            vec![],
+            &mut pins,
+            &mut stats
+        )
+        .is_err()
+    );
+    assert_eq!(app.cache_budget.snapshot(), census);
+    assert_eq!(app.eviction_index.eligible, index);
+    assert_eq!(stats.evicted_entries, 0);
+    app.clear_cache().unwrap();
+    assert_eq!(app.eviction_index.age, 0);
+    assert_census(&app);
 }
 
 #[test]
@@ -204,44 +459,46 @@ fn pinned_working_set_failure_releases_all_pins_for_the_next_request() {
 
 #[test]
 fn evicted_dependencies_recompute_exactly_and_spend_the_same_work_grant() {
-    let limits = ReductionLimits {
-        max_cached_integrals: 2,
-        ..Default::default()
-    };
-    let mut app = application(limits);
-    app.set_cache_policy(CandidateRoutedCachePolicy::EvictLeastRecentlyUsed)
-        .unwrap();
-    let one = app.family().coefficient_context().one();
-    let inputs = [(key([3]), one.clone()), (key([4]), one.clone())];
-    let result = app.reduce_linear_combination(inputs.clone()).unwrap();
-    let expected = application(Default::default())
-        .reduce_linear_combination(inputs.clone())
-        .unwrap();
-    assert_eq!(result.terms(), expected.terms());
-    assert_eq!(result.nonzero_conditions(), expected.nonzero_conditions());
-    assert_eq!(expected.statistics().work.rule_applications(), 3);
-    assert_eq!(result.statistics().work.rule_applications(), 4);
-    assert_eq!(result.statistics().cache.recomputed_nodes, 2);
-    assert_census(&app);
-    let mut bounded = application(ReductionLimits {
-        max_rule_applications: 3,
-        ..limits
-    });
-    bounded
-        .set_cache_policy(CandidateRoutedCachePolicy::EvictLeastRecentlyUsed)
-        .unwrap();
-    assert!(matches!(
-        bounded.reduce_linear_combination(inputs),
-        Err(CandidateRoutedError::Candidate(
-            CandidateReductionError::Application(ReductionError::RuleApplicationLimit {
-                requested: 4,
-                limit: 3
-            })
-        ))
-    ));
-    assert!(bounded.cache_work_statistics().evicted_entries > 0);
-    assert_eq!(bounded.eviction_index.eligible.len(), bounded.cache.len());
-    assert_census(&bounded);
+    for policy in [
+        CandidateRoutedCachePolicy::EvictLeastRecentlyUsed,
+        CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed,
+    ] {
+        let limits = ReductionLimits {
+            max_cached_integrals: 2,
+            ..Default::default()
+        };
+        let mut app = application(limits);
+        app.set_cache_policy(policy).unwrap();
+        let one = app.family().coefficient_context().one();
+        let inputs = [(key([3]), one.clone()), (key([4]), one.clone())];
+        let result = app.reduce_linear_combination(inputs.clone()).unwrap();
+        let expected = application(Default::default())
+            .reduce_linear_combination(inputs.clone())
+            .unwrap();
+        assert_eq!(result.terms(), expected.terms());
+        assert_eq!(result.nonzero_conditions(), expected.nonzero_conditions());
+        assert_eq!(expected.statistics().work.rule_applications(), 3);
+        assert_eq!(result.statistics().work.rule_applications(), 4);
+        assert_eq!(result.statistics().cache.recomputed_nodes, 2);
+        assert_census(&app);
+        let mut bounded = application(ReductionLimits {
+            max_rule_applications: 3,
+            ..limits
+        });
+        bounded.set_cache_policy(policy).unwrap();
+        assert!(matches!(
+            bounded.reduce_linear_combination(inputs),
+            Err(CandidateRoutedError::Candidate(
+                CandidateReductionError::Application(ReductionError::RuleApplicationLimit {
+                    requested: 4,
+                    limit: 3
+                })
+            ))
+        ));
+        assert!(bounded.cache_work_statistics().evicted_entries > 0);
+        assert_eq!(bounded.eviction_index.eligible.len(), bounded.cache.len());
+        assert_census(&bounded);
+    }
 }
 
 fn insert(
@@ -405,41 +662,45 @@ fn guarded_cancellation_recomputes_after_eviction_and_keeps_original_poles() {
         },
     );
     let routed = RoutedCandidateReducer::try_new(owners, [], Default::default()).unwrap();
-    for representation in [
-        CandidateCacheRepresentation::Sparse,
-        CandidateCacheRepresentation::Factorized,
+    for policy in [
+        CandidateRoutedCachePolicy::EvictLeastRecentlyUsed,
+        CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed,
     ] {
-        let mut app = routed.application();
-        app.set_cache_policy(CandidateRoutedCachePolicy::EvictLeastRecentlyUsed)
-            .unwrap();
-        app.set_cache_representation(representation).unwrap();
-        let zero = app
-            .reduce_linear_combination([(key([3]), c.one())])
-            .unwrap();
-        assert!(zero.is_zero());
-        assert!(
-            zero.nonzero_conditions()
-                .contains(&c.coefficient_fixture("d-4"))
-        );
-        assert!(
-            zero.nonzero_conditions()
-                .contains(&c.coefficient_fixture("d-3"))
-        );
-        let warm = app
-            .reduce_linear_combination([(key([3]), c.one())])
-            .unwrap();
-        assert_eq!(warm.nonzero_conditions(), zero.nonzero_conditions());
-        assert_eq!(warm.statistics().work.rule_applications(), 0);
-        app.reduce_linear_combination([(key([2]), c.one())])
-            .unwrap();
-        assert!(!app.cache.contains_key(&Node::Route(key([3]))));
-        let again = app
-            .reduce_linear_combination([(key([3]), c.one())])
-            .unwrap();
-        assert_eq!(again.terms(), zero.terms());
-        assert_eq!(again.nonzero_conditions(), zero.nonzero_conditions());
-        assert!(again.statistics().work.rule_applications() > 0);
-        assert_census(&app);
+        for representation in [
+            CandidateCacheRepresentation::Sparse,
+            CandidateCacheRepresentation::Factorized,
+        ] {
+            let mut app = routed.application();
+            app.set_cache_policy(policy).unwrap();
+            app.set_cache_representation(representation).unwrap();
+            let zero = app
+                .reduce_linear_combination([(key([3]), c.one())])
+                .unwrap();
+            assert!(zero.is_zero());
+            assert!(
+                zero.nonzero_conditions()
+                    .contains(&c.coefficient_fixture("d-4"))
+            );
+            assert!(
+                zero.nonzero_conditions()
+                    .contains(&c.coefficient_fixture("d-3"))
+            );
+            let warm = app
+                .reduce_linear_combination([(key([3]), c.one())])
+                .unwrap();
+            assert_eq!(warm.nonzero_conditions(), zero.nonzero_conditions());
+            assert_eq!(warm.statistics().work.rule_applications(), 0);
+            app.reduce_linear_combination([(key([2]), c.one())])
+                .unwrap();
+            assert!(!app.cache.contains_key(&Node::Route(key([3]))));
+            let again = app
+                .reduce_linear_combination([(key([3]), c.one())])
+                .unwrap();
+            assert_eq!(again.terms(), zero.terms());
+            assert_eq!(again.nonzero_conditions(), zero.nonzero_conditions());
+            assert!(again.statistics().work.rule_applications() > 0);
+            assert_census(&app);
+        }
     }
 }
 

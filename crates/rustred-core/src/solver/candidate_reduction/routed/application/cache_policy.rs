@@ -19,6 +19,17 @@ pub enum CandidateRoutedCachePolicy {
     /// combines or the current root. A protected working set (or one entry)
     /// that cannot fit still returns the existing typed cache-limit error.
     EvictLeastRecentlyUsed,
+    /// LFU with dynamic aging. Only genuine completed-result hits increase a
+    /// resident entry's frequency; first consumption does not. Eviction uses
+    /// (age-adjusted frequency, recency), excluding all protected dependencies.
+    /// This changes reuse priority, never coefficient algebra or work limits.
+    EvictAgedLeastFrequentlyUsed,
+}
+
+impl CandidateRoutedCachePolicy {
+    pub(crate) fn evicts(self) -> bool {
+        self != Self::FailOnLimit
+    }
 }
 
 /// Reuse work, not process RSS. Evicted payload includes retained guards.
@@ -46,15 +57,34 @@ impl CandidateRoutedCacheStatistics {
     }
 }
 
-#[derive(Debug, Default)]
-pub(super) struct EvictionIndex<const N: usize> {
-    // Exactly one record per eligible entry. Pinned entries have no record.
-    // Stamps are unique and checked; there is no stale-record priority queue.
-    eligible: BTreeSet<(u64, Node<N>)>,
-    clock: u64,
+/// Operational metadata only: never serialized as mathematical authority.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct EvictionMetadata {
+    last_access: u64,
+    reuse_count: u64,
+    priority: u64,
 }
 
-impl<const N: usize> EvictionIndex<N> {
+#[derive(Debug)]
+pub(super) struct EvictionIndex<K> {
+    // Exactly one record per eligible entry. Pinned entries have no record.
+    // Stamps are unique and checked; there is no stale-record priority queue.
+    eligible: BTreeSet<(u64, u64, K)>,
+    clock: u64,
+    age: u64,
+}
+
+impl<K> Default for EvictionIndex<K> {
+    fn default() -> Self {
+        Self {
+            eligible: BTreeSet::new(),
+            clock: 0,
+            age: 0,
+        }
+    }
+}
+
+impl<K> EvictionIndex<K> {
     fn next_access(&mut self) -> Result<u64, ReductionError> {
         self.clock =
             self.clock
@@ -64,6 +94,52 @@ impl<const N: usize> EvictionIndex<N> {
                 })?;
         Ok(self.clock)
     }
+
+    fn aged_priority(&self, reuse_count: u64) -> Result<u64, ReductionError> {
+        // The fixed +1 is admission priority, not a claimed reuse. Without it
+        // a stream of cold victims would never advance age past old hot entries.
+        self.age
+            .checked_add(1)
+            .and_then(|age| age.checked_add(reuse_count))
+            .ok_or(ReductionError::CacheResourceCountOverflow {
+                resource: "routed LFU aging priority",
+            })
+    }
+
+    fn admission(
+        &self,
+        policy: CandidateRoutedCachePolicy,
+        stamp: u64,
+    ) -> Result<EvictionMetadata, ReductionError> {
+        Ok(EvictionMetadata {
+            last_access: stamp,
+            reuse_count: 0,
+            priority: if policy == CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed {
+                self.aged_priority(0)?
+            } else {
+                0
+            },
+        })
+    }
+}
+
+impl<K: Ord + Clone> EvictionIndex<K> {
+    fn remove(&mut self, key: &K, metadata: EvictionMetadata) -> bool {
+        self.eligible
+            .remove(&(metadata.priority, metadata.last_access, key.clone()))
+    }
+
+    fn insert(&mut self, key: K, metadata: EvictionMetadata) {
+        self.eligible
+            .insert((metadata.priority, metadata.last_access, key));
+    }
+
+    fn evicted(&mut self, priority: u64, access: u64, key: K) {
+        self.eligible.remove(&(priority, access, key));
+        // A long-pinned old entry may return with priority below current age.
+        // Such a victim must not rewind the admission baseline.
+        self.age = self.age.max(priority);
+    }
 }
 
 #[derive(Default)]
@@ -71,7 +147,7 @@ pub(super) struct DependencyPins<const N: usize> {
     // One record per live dependency, bounded by max_unique_nodes; repeated
     // parent references share a checked count instead of duplicating keys.
     nodes: BTreeMap<Node<N>, usize>,
-    // Enabled only for an observed LRU request. Each completed entry is counted
+    // Enabled only for an observed evicting request. Each completed entry is counted
     // once, independent of the number of parents that currently reference it.
     pub(super) census: Option<CandidateRoutedCacheCensus>,
 }
@@ -109,7 +185,7 @@ fn is_cache_limit(error: &ReductionError) -> bool {
 
 impl<const N: usize> RoutedCandidateApplication<N> {
     fn eviction_enabled(&self) -> bool {
-        self.cache_policy == CandidateRoutedCachePolicy::EvictLeastRecentlyUsed
+        self.cache_policy.evicts()
     }
 
     pub(super) fn pin_dependency(
@@ -139,15 +215,22 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 if let Some(census) = &mut pins.census {
                     census.retain(entry.weight);
                 }
-                self.eviction_index
-                    .eligible
-                    .remove(&(entry.last_access, node.clone()));
+                self.eviction_index.remove(node, entry.eviction);
             }
         }
         Ok(())
     }
 
     pub(super) fn touch_cache(&mut self, node: &Node<N>) -> Result<(), CandidateRoutedError> {
+        self.access_cache(node, false)
+    }
+
+    /// Exactly one already-completed result reused by an Enter cache hit.
+    pub(super) fn reuse_cache(&mut self, node: &Node<N>) -> Result<(), CandidateRoutedError> {
+        self.access_cache(node, true)
+    }
+
+    fn access_cache(&mut self, node: &Node<N>, reuse: bool) -> Result<(), CandidateRoutedError> {
         if !self.eviction_enabled() {
             return Ok(());
         }
@@ -156,15 +239,23 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             .cache
             .get_mut(node)
             .ok_or(ReductionError::ReducerInvariant {
-                detail: "routed LRU access refers to an absent result",
+                detail: "routed cache access refers to an absent result",
             })?;
-        let eligible = self
-            .eviction_index
-            .eligible
-            .remove(&(entry.last_access, node.clone()));
-        entry.last_access = stamp;
+        let mut metadata = entry.eviction;
+        metadata.last_access = stamp;
+        if reuse && self.cache_policy == CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed {
+            metadata.reuse_count = metadata.reuse_count.checked_add(1).ok_or(
+                ReductionError::CacheResourceCountOverflow {
+                    resource: "routed LFU reuse frequency",
+                },
+            )?;
+            metadata.priority = self.eviction_index.aged_priority(metadata.reuse_count)?;
+        }
+        // Check all scalar changes before altering the entry or eligibility.
+        let eligible = self.eviction_index.remove(node, entry.eviction);
+        entry.eviction = metadata;
         if eligible {
-            self.eviction_index.eligible.insert((stamp, node.clone()));
+            self.eviction_index.insert(node.clone(), metadata);
         }
         Ok(())
     }
@@ -194,9 +285,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 if let Some(census) = &mut pins.census {
                     census.release(entry.weight);
                 }
-                self.eviction_index
-                    .eligible
-                    .insert((entry.last_access, node.clone()));
+                self.eviction_index.insert(node.clone(), entry.eviction);
             }
         }
         Ok(())
@@ -207,9 +296,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
     pub(super) fn release_request_pins(&mut self, pins: &mut DependencyPins<N>) {
         for (node, _) in std::mem::take(&mut pins.nodes) {
             if let Some(entry) = self.cache.get(&node) {
-                self.eviction_index
-                    .eligible
-                    .insert((entry.last_access, node));
+                self.eviction_index.insert(node, entry.eviction);
             }
         }
         if let Some(census) = &mut pins.census {
@@ -239,6 +326,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             0
         };
         loop {
+            // Re-evaluate after each victim: admission uses the final global
+            // age, and priority overflow must precede budget replacement.
+            let eviction = self.eviction_index.admission(self.cache_policy, stamp)?;
             let previous = self.cache.get(&node);
             let previous_weight = previous.map(|entry| entry.weight).unwrap_or_default();
             let prospective = self
@@ -263,9 +353,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                         }
                     }
                     if let Some(previous) = previous {
-                        self.eviction_index
-                            .eligible
-                            .remove(&(previous.last_access, node.clone()));
+                        self.eviction_index.remove(&node, previous.eviction);
                     }
                     let eligible = (evict && !pinned).then(|| node.clone());
                     self.cache.insert(
@@ -274,17 +362,18 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                             terms,
                             conditions,
                             weight,
-                            last_access: stamp,
+                            eviction,
                         },
                     );
                     self.cache_weight = prospective;
                     if let Some(node) = eligible {
-                        self.eviction_index.eligible.insert((stamp, node));
+                        self.eviction_index.insert(node, eviction);
                     }
                     return Ok(());
                 }
                 Err(error) if evict && is_cache_limit(&error) => {
-                    let Some((access, victim)) = self.eviction_index.eligible.first().cloned()
+                    let Some((priority, access, victim)) =
+                        self.eviction_index.eligible.first().cloned()
                     else {
                         // All remaining entries are protected dependencies.
                         return Err(error.into());
@@ -313,7 +402,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                         self.context.limits,
                     )?;
                     self.cache.remove(&victim);
-                    self.eviction_index.eligible.remove(&(access, victim));
+                    self.eviction_index.evicted(priority, access, victim);
                     self.cache_weight = remaining;
                     stats.merge(CandidateRoutedCacheStatistics {
                         evicted_entries: 1,
