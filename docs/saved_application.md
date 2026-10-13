@@ -97,8 +97,10 @@ The prepared handle provides two explicit application paths:
 
 `route_entry_to_owner` exposes the scope-checked transport without applying
 IBPs. `routed_entry_is_admitted` probes the same union without formula
-preparation: out-of-union images return `false`, while malformed keys, routing
-and resource failures remain typed errors. Literal owners use identity transport. Missing routes, missing owners,
+preparation: out-of-union images and entry supports without a saved route return
+`false`, allowing a matcher to try another verified witness. Malformed keys,
+invalid transports and resource failures remain errors. Literal owners use
+identity transport. Actual application of missing routes, missing owners,
 uncovered rules, invalid coefficients and cycles produce errors; they are not
 converted into new terminal declarations. Descendants of an admitted request
 follow saved rules and are not clipped to starting-domain bounds.

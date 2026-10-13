@@ -408,12 +408,16 @@ impl<const N: usize> PreparedSavedApplication<N> {
 
     /// Probe the exact saved union after native, verified owner transport.
     /// No formulas are prepared or applied. An out-of-union endpoint returns
-    /// false; malformed keys, missing routes and resource failures stay errors.
+    /// false, as does an unsupported entry support without a saved owner route.
+    /// That is a rejected matching candidate, not a broken application. Malformed
+    /// keys, invalid transports and resource failures stay errors. Actual route
+    /// and reduction methods still reject missing owners with an error.
     pub fn routed_entry_is_admitted(&self, target: &IntegralKey) -> Result<bool, AppError> {
-        let routed = self
-            .application
-            .route_entry_to_owner(target)
-            .map_err(failure)?;
+        let routed = match self.application.route_entry_to_owner(target) {
+            Ok(routed) => routed,
+            Err(rustred::solver::CandidateRoutedError::MissingOwner { .. }) => return Ok(false),
+            Err(error) => return Err(failure(error)),
+        };
         for (endpoint, coefficient) in routed.terms() {
             if !coefficient.is_zero() && !self.entry_domain.is_admitted(endpoint)? {
                 return Ok(false);

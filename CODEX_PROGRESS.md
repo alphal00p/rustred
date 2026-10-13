@@ -612,6 +612,63 @@ full813 Vakint admission-only census is compiled into a frozen optimized test
 binary; root will run it after build-1 releases CPUs8--15. No result is inferred
 from compilation, and no campaign/artifact bytes have changed.
 
+### October 13 — scope audit exposes a candidate-selection defect
+
+Cache milestone is committed/pushed on main as
+`760885f0c9b9b9e7900620327ac7b56ab84a080f`; no artifact or unrelated work was
+included. New frozen Vakint tests pass116/116 (five explicitly ignored) in
+163.04s, including lazy-catalogue and native geometry/scalar regressions.
+Its loaded52-factor/clone test also passes206.71s native/209.13s supervised,
+peak4.16GB. A clone made before explicit loading shares the subsequently loaded
+application and catalogue Arc; default construction has no five-loop catalogue.
+Measured default construction0.042754s (base catalogue0.038444s), compared with
+the earlier eager whole-constructor0.182/0.170s observations, not a formal paired
+benchmark. Actual-Git final pin/build and broader acceptance remain pending.
+
+The first full813 frontend-admission census completed203.76s, peak2.61GB,
+without applying rules/preparing owners. It reports172passes and641failures:
+634 are a diagnostic-harness contract error (passing unexpanded polynomial
+factors to the direct native lowering check), fixed by expanding only that
+identity-check input; the real frontend still receives the original factored
+numerator. Seven are a real false-rejection path: an early geometrical candidate
+whose support has no installed entry route raised MissingOwner and aborted
+later witness selection, even though the original inventory key is admitted.
+
+Root implemented a narrow typed fix: the boolean `routed_entry_is_admitted`
+probe returns false for an unsupported entry support, while actual routing
+and reduction still error on missing owners. Malformed keys, invalid transport
+and resource errors still propagate. No rule/terminal authority or domain is
+added. Delivery independently audited the exact error arm and pre-validation;
+existing tests now check a rejected candidate followed by a valid one plus
+unchanged actual-application errors. Cargo check passes69s; optimized focused
+app tests are building (session37719). Full corrected813 execution is still
+required; do not report it as passed.
+
+The physical ladder preparation has passed the native A/B and anisotropic
+rank-four projector controls, native exact vacuum routing, and all three
+Dirac/color Taylor orders. Angular projection/remaining preparation still runs.
+An ingress mass-family consistency fix was identified before the run finishes;
+the captured first binary predates that fix and cannot be called final
+acceptance. Continuous100GB/process and150GB/host-reserve monitoring was attached
+to the existing process without restarting; its receipt explicitly records
+the preceding manually monitored interval. Generated outputs remain local.
+
+The typed candidate-probe fix now passes18 optimized saved-application tests
+(native, capacity-dispatch, no CLI/reconstruction) in0.09s, including padded
+storage, source/runtime identity, actual-reduction missing-route errors and
+rejected-then-admitted witness probing. Check passes with the ordinary default
+feature set too. Evidence `TMP/five-loop-entry-probe-release-tests-20261013.log`.
+Root is pushing this narrow application fix before the single actual-Git
+Vakint rebuild; the complete corrected813 frontend run is still pending.
+
+The long frozen sparse sweep now has138 successful cases and one prior cache
+failure. Newly completed point00511 takes5,597.141s first/1.329s warm and returns
+222terms/32,616guards after70,499rule applications and20,286,266coefficient
+additions. This is an expensive shared-run first encounter, not a fresh cold
+process. Neither low numerator degree nor solved source topology implies cheap
+symbolic coefficient application. The independent factorized point435 remains
+running at about3h without a result; do not claim a representation speedup.
+
 ## October 11 — retain stopped refinement and remove arbitrary count ceiling
 
 User requests both the `1000001 exceeds 1000000` repair and preservation of

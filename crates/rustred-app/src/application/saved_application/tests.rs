@@ -640,16 +640,31 @@ powers=[0,1,1]
             .unwrap()
     );
     assert!(
-        application
+        !application
             .routed_entry_is_admitted(&key([1, 1, 1]))
-            .is_err()
+            .unwrap()
     );
+    // A rejected geometrical witness must not abort a search that can reach an
+    // admitted alternative. This does not turn an absent route into authority.
+    let mut accepted = None;
+    for candidate in [key([1, 1, 1]), original.clone()] {
+        if application.routed_entry_is_admitted(&candidate).unwrap() {
+            accepted = Some(candidate);
+            break;
+        }
+    }
+    assert_eq!(accepted, Some(original.clone()));
     assert!(
         application
             .routed_entry_is_admitted(&IntegralKey::try_new([1]).unwrap())
             .is_err()
     );
     assert!(application.route_entry_to_owner(&key([1, 1, 1])).is_err());
+    assert!(
+        application
+            .reduce_routed_linear_combination([(key([1, 1, 1]), c.one())])
+            .is_err()
+    );
     assert!(
         application
             .reduce_routed_linear_combination([(key([2, 2, -1]), c.zero())])
