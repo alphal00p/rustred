@@ -59,7 +59,10 @@ conditions, through the native compact-map round trip. The package contains:
 
 It excludes campaign ledgers, refinement/search matrices and numerical masters.
 Runtime loading verifies compressed chunks and the reconstructed native
-payload digests, then uses the existing native owner loader. It needs no source
+payload digests, structural records, coefficient-frame indices and native
+family bindings at its boundary. It retains owned encoded bytes, so first use
+does not reread mutable files. Each requested owner then uses existing native
+rule admission, preferred-program policy and overlay replay exactly once. It needs no source
 campaign paths or decompression temporary files. Native Symbolica import is a
 trusted-generated-data boundary; integrity checks do not upgrade saved rules
 to independently replayed certificates or prove master independence.
@@ -93,7 +96,9 @@ The prepared handle provides two explicit application paths:
   Entry transport and downstream reduction share one operational budget.
 
 `route_entry_to_owner` exposes the scope-checked transport without applying
-IBPs. Literal owners use identity transport. Missing routes, missing owners,
+IBPs. `routed_entry_is_admitted` probes the same union without formula
+preparation: out-of-union images return `false`, while malformed keys, routing
+and resource failures remain typed errors. Literal owners use identity transport. Missing routes, missing owners,
 uncovered rules, invalid coefficients and cycles produce errors; they are not
 converted into new terminal declarations. Descendants of an admitted request
 follow saved rules and are not clipped to starting-domain bounds.
@@ -173,12 +178,34 @@ preparation reuses the immutable result. Unsupported or connected terminals
 stay flat. This presentation step does not independently reduce lower factors
 or alter the package's 905-key terminal identity.
 
+`prepare_terminal_product_charts(VacuumProductChartLimits)` separately groups
+negative-power terminals by source family and positive support. A
+`terminal_product_chart` preserves the verified momentum map, including all
+numerators. Its `project` method uses an explicit existing tensor-projector
+callback only for cross-component couplings, then performs native exact scalar
+lowering. Residual cross-component powers or foreign coefficients fail closed.
+Chart statistics count prepared geometry, not completed tensor projections.
+Identical settings reuse the chart plans; changed settings replace them only
+after successful preparation. Component families are available through the
+same `output_family` and `output_family_shared` accessors. Flat terminal rows,
+entry scope and reduction caches remain unchanged.
+
 For independent factor reduction and exact sum-of-products comparison, the core
 `VacuumProductReducer` accepts an explicit `VacuumFactorProvider`. The provider
 must use existing selected programs, report per-call work and preserve their
 guards under the remaining limits. Same-loop declared terminals stop; verified
 product recursion strictly lowers loop count while preserving its total.
 Products are sorted, multiplied and coalesced with native Symbolica algebra.
+
+Before requesting a lower program, the core reuses its native sector-zero
+analyzer. Only a replayed `ProvedZero` certificate can remove a scaleless
+factor, including polynomial numerators in that sector; an inconclusive test
+still requires the provider. All sibling factors remain checked and their
+guards retained even if one factor is zero. Decisions are memoized by exact
+family and positive support under shared cache limits, with native work bounded
+by `VacuumProductReductionLimits.zero` and `max_zero_analyses`. Zero-analysis,
+support-cache and proved-zero counts are reported separately; `clear_cache`
+clears both support decisions and factor expansions.
 
 Existing candidate reducers provide
 `reduce_unit_mass_guarded(target, remaining_limits)`. Closed artifacts provide
@@ -187,6 +214,15 @@ allocating a redundant receiver cache. Both return the existing typed
 decomposition, nonzero conditions and per-call statistics. The instance closed
 method additionally deducts its receiver's retained cache from the allowance.
 These interfaces generate no IBPs and do not silently fall back to another CAS.
+
+For a verified transport into an existing candidate program,
+`reduce_transported_candidate_factor` retains one native memoization cache
+across the transport's distinct endpoints. Shared subreductions are evaluated
+once within that batch. The native cache and the retained weighted output and
+guards share the caller's cache allowance; every endpoint consumes the same
+rule/coalescing work budget. The scoped native cache is cleared at entry and
+on success or error, while the outer product reducer can still cache the
+completed factor result. No new rules or terminal identities are discovered.
 
 ## Operational budgets and reuse
 
@@ -212,6 +248,12 @@ optional terminal-product presentation. A new owner selection or coefficient
 context requires a new handle. Core per-call statistics and
 `terminal_substitution_additions` together describe composition work.
 
+`owner_preparation_statistics()` distinguishes declared, prepared and failed
+owners, preparation attempts and cumulative preparation time. Route presence
+and transport lookup do not prepare formulas. A first-use preparation error is
+cached and fails before any result is returned. Clearing coefficient memoization
+preserves prepared owners and their immutable identity.
+
 A cache-budget error is an operational failure, not proof of missing rules or
 unsupported scope. A failed request can leave valid completed subresults in
 the cache. Clear between independent cases when measuring separate resource
@@ -219,19 +261,27 @@ requirements. Retained coefficient-byte counters are not process RSS; owner
 programs, family data, native arithmetic scratch space and output materialization
 also consume memory.
 
-Current loading eagerly imports and prepares all selected owners and rule
-coefficients. It shares the native context and verified routes, and later
-applications reuse them. True deferred per-owner preparation remains an unmet
-performance requirement. The lazy coefficient-table facility used by inspection
-views is not the runtime owner loader. Measure cold loading separately from
-first application and warm reuse; do not label a warm reduction as a cold start.
+Runtime loading defers per-owner formula preparation through the existing
+native lazy coefficient-table decoder. Family/context preparation, zero
+certificates and route verification remain eager. Full native formula validity
+is checked on that owner's first use, before dispatch; loading a handle alone
+does not assert that every untouched formula has been prepared or certified.
+Source-publication preparation remains eager for offline export checks.
+
+`preparation_workers` defaults to one and controls the existing deterministic
+route-verification pool. It must be positive and pass the native core-budget
+preflight. It does not parallelize formula application or widen coverage.
+Measure cold loading, first application including any owner initialization,
+and warm reuse separately; do not label a warm reduction as a cold start.
 
 `preparation_statistics()` exposes disjoint cumulative wall durations for
 metadata, terminal maps, owner payload read/decompression/authentication,
-eager owner preparation, route preparation and remaining assembly work, plus
+shared owner-context admission, route preparation and remaining assembly work, plus
 the overall total. Source preparation includes native terminal verification
 and compact-map checking in its terminal-map phase; runtime preparation includes
-only compact-map import. These receipts do not attribute process RSS to phases.
+only compact-map import. Deferred owner initialization is reported separately
+by `owner_preparation_statistics`. These receipts do not attribute process RSS
+to phases.
 
 ## Native driver
 
@@ -259,7 +309,7 @@ checks exact coefficient/guard equality on repeated applications. Cache mode is
 also removes its aggregate coefficient-term ceiling while preserving its other
 limits. The Rust API does not make that second change automatically.
 An optional JSON object overrides named operational counts without recompiling,
-for example `{"max_transport_endpoints":40000000}`. Unknown names, rank/scope
+for example `{"max_transport_endpoints":40000000,"preparation_workers":8}`. Unknown names, rank/scope
 keys and non-integer values are rejected. Complete selected limits appear in
 the preparation receipt. After a failed case the driver records the cache
 census and clears partial memoization before the next case, preventing an

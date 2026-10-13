@@ -4,6 +4,7 @@
 //! prepared once. Mutable memoization belongs to the returned handle. Compact
 //! runtime exports retain native Symbolica coefficients and inherited authority;
 //! they are application data, not new source or closure certificates.
+mod charts;
 mod codec;
 mod package;
 mod products;
@@ -36,6 +37,7 @@ use super::routed_campaign::{
 };
 use crate::{AppError, MasterReductionArtifact};
 
+pub use charts::SavedApplicationProductChartStatistics;
 pub use package::{
     export_saved_application, load_saved_application, prepare_saved_application,
     saved_application_arity, saved_application_domains,
@@ -49,12 +51,37 @@ pub use witnesses::{
 pub const SAVED_APPLICATION_SCHEMA: &str = "rustred.saved-application.v1";
 
 /// Operational allowances do not enlarge the recorded mathematical entry scope.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SavedApplicationOptions {
     pub reduction_limits: ReductionLimits,
     pub trace_limits: RoutedCandidateLimits,
     pub binary_limits: BinaryIoLimits,
     pub cache_representation: rustred::solver::CandidateCacheRepresentation,
+    /// Existing bounded deterministic route-verification pool. This does not
+    /// change reduction scope or create parallel formula-application workers.
+    pub preparation_workers: usize,
+}
+impl Default for SavedApplicationOptions {
+    fn default() -> Self {
+        Self {
+            reduction_limits: Default::default(),
+            trace_limits: Default::default(),
+            binary_limits: Default::default(),
+            cache_representation: Default::default(),
+            preparation_workers: 1,
+        }
+    }
+}
+impl SavedApplicationOptions {
+    fn validate_preparation(&self) -> Result<(), AppError> {
+        if self.preparation_workers == 0 {
+            return Err(AppError::input("preparation_workers must be positive"));
+        }
+        rustred::campaign::ParallelExecution::preflight_requested_core_budget(
+            self.preparation_workers,
+        )
+        .map_err(|error| AppError::input(error.to_string()))
+    }
 }
 
 /// Wall-clock preparation receipts, separate from application and export work.
@@ -67,7 +94,8 @@ pub struct SavedApplicationPreparationStatistics {
     pub terminal_maps: Duration,
     /// Owner payload reads, transport decompression and digest admission.
     pub owner_payloads: Duration,
-    /// Eager native owner import/context, zero proofs and rule preparation.
+    /// Shared native context/zero proofs and owner admission. Formula
+    /// preparation is eager for source publication, deferred for runtime load.
     pub owner_preparation: Duration,
     pub route_preparation: Duration,
     /// Remaining entry validation and assembly outside the measured phases.
@@ -255,6 +283,7 @@ pub struct PreparedSavedApplication<const N: usize> {
     entry_domain: RequestedEntryDomain<N>,
     terminals: TerminalMaps,
     terminal_products: Option<products::TerminalProducts>,
+    terminal_product_charts: Option<charts::TerminalProductCharts>,
     preparation_statistics: SavedApplicationPreparationStatistics,
     options: SavedApplicationOptions,
     metadata: Value,
@@ -277,6 +306,13 @@ impl<const N: usize> PreparedSavedApplication<N> {
                     .get(fingerprint)
                     .map(Arc::as_ref)
             })
+            .or_else(|| {
+                self.terminal_product_charts
+                    .as_ref()?
+                    .families
+                    .get(fingerprint)
+                    .map(Arc::as_ref)
+            })
     }
     /// Share an authenticated family with a lower-factor provider without
     /// rebuilding its exact matrices or duplicating its Symbolica context.
@@ -287,6 +323,13 @@ impl<const N: usize> PreparedSavedApplication<N> {
             .cloned()
             .or_else(|| {
                 self.terminal_products
+                    .as_ref()?
+                    .families
+                    .get(fingerprint)
+                    .cloned()
+            })
+            .or_else(|| {
+                self.terminal_product_charts
                     .as_ref()?
                     .families
                     .get(fingerprint)
@@ -324,6 +367,11 @@ impl<const N: usize> PreparedSavedApplication<N> {
     pub fn cache_statistics(&self) -> CandidateStatistics {
         self.application.cache_statistics()
     }
+    pub fn owner_preparation_statistics(
+        &self,
+    ) -> rustred::solver::DeferredCandidateOwnerStatistics {
+        self.application.owner_preparation_statistics()
+    }
     pub fn clear_cache(&mut self) -> Result<(), AppError> {
         self.application.clear_cache().map_err(failure)
     }
@@ -346,6 +394,22 @@ impl<const N: usize> PreparedSavedApplication<N> {
             }
         }
         Ok(routed)
+    }
+
+    /// Probe the exact saved union after native, verified owner transport.
+    /// No formulas are prepared or applied. An out-of-union endpoint returns
+    /// false; malformed keys, missing routes and resource failures stay errors.
+    pub fn routed_entry_is_admitted(&self, target: &IntegralKey) -> Result<bool, AppError> {
+        let routed = self
+            .application
+            .route_entry_to_owner(target)
+            .map_err(failure)?;
+        for (endpoint, coefficient) in routed.terms() {
+            if !coefficient.is_zero() && !self.entry_domain.is_admitted(endpoint)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Transport equivalent entries to saved owners and reduce the exact
@@ -477,10 +541,30 @@ impl<const N: usize> PreparedSavedApplication<N> {
     fn from_parts(
         inputs: package::ApplicationInputs,
         terminals: TerminalMaps,
-        mut metadata: Value,
+        metadata: Value,
         options: SavedApplicationOptions,
     ) -> Result<Self, AppError> {
+        Self::from_parts_with_mode(inputs, terminals, metadata, options, false)
+    }
+
+    fn from_parts_deferred(
+        inputs: package::ApplicationInputs,
+        terminals: TerminalMaps,
+        metadata: Value,
+        options: SavedApplicationOptions,
+    ) -> Result<Self, AppError> {
+        Self::from_parts_with_mode(inputs, terminals, metadata, options, true)
+    }
+
+    fn from_parts_with_mode(
+        inputs: package::ApplicationInputs,
+        terminals: TerminalMaps,
+        mut metadata: Value,
+        options: SavedApplicationOptions,
+        deferred: bool,
+    ) -> Result<Self, AppError> {
         let started = Instant::now();
+        options.validate_preparation()?;
         let (selection, arity, limits) = Selection::parse(&inputs.selection)?;
         if arity > N {
             return Err(AppError::input(format!(
@@ -495,6 +579,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         request.owner_base = inputs.owner_base.clone();
         request.reduction_limits = options.reduction_limits;
         request.trace_limits = options.trace_limits;
+        request.workers = options.preparation_workers;
         let expected = inputs
             .payloads
             .iter()
@@ -534,17 +619,38 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 }
             }
         };
-        let reducer = prepare::prepare_with_reader::<N>(
-            &request,
-            &selection,
-            limits,
-            &AtomicBool::new(false),
-            &observer,
-            Some(&mut authenticate),
-            &mut reader,
-        )?
+        let mut application = if deferred {
+            let family = terminals
+                .families
+                .get(&selection.family_fingerprint)
+                .cloned()
+                .ok_or_else(|| {
+                    AppError::input("deferred primary family is absent from terminal maps")
+                })?;
+            prepare::prepare_deferred_with_reader::<N>(
+                family,
+                &request,
+                &selection,
+                limits,
+                &AtomicBool::new(false),
+                &observer,
+                Some(&mut authenticate),
+                &mut reader,
+            )?
+        } else {
+            prepare::prepare_with_reader::<N>(
+                &request,
+                &selection,
+                limits,
+                &AtomicBool::new(false),
+                &observer,
+                Some(&mut authenticate),
+                &mut reader,
+            )?
+            .map(|reducer| reducer.application())
+        }
         .ok_or_else(|| AppError::execution("saved application preparation cancelled"))?;
-        let family = reducer.programs().context().family();
+        let family = application.family();
         if !terminals.families.contains_key(family.fingerprint()) {
             return Err(AppError::input(
                 "saved owners and terminal maps have different families",
@@ -563,10 +669,12 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 "saved application manifest family differs from its owners",
             ));
         }
-        let mut application = reducer.application();
         application
             .set_cache_representation(options.cache_representation)
             .map_err(failure)?;
+        metadata["owner_preparation"] =
+            serde_json::json!(if deferred { "on_first_use" } else { "eager" });
+        metadata["preparation_workers"] = serde_json::json!(options.preparation_workers);
         let mut preparation_statistics = timing.into_inner().2;
         preparation_statistics.finish(started.elapsed());
         Ok(Self {
@@ -574,6 +682,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
             entry_domain,
             terminals,
             terminal_products: None,
+            terminal_product_charts: None,
             preparation_statistics,
             options,
             metadata,

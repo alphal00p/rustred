@@ -58,6 +58,7 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
             limits,
             families: BTreeMap::new(),
             cache: BTreeMap::new(),
+            zero_supports: BTreeMap::new(),
             cache_weight: CacheWeight::default(),
             cache_budget: SharedCacheBudget::default(),
         };
@@ -68,7 +69,8 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
     pub fn cache_statistics(&self) -> VacuumProductCacheStatistics {
         let census = self.cache_budget.snapshot();
         VacuumProductCacheStatistics {
-            cached_factors: census.integrals,
+            cached_factors: self.cache.len(),
+            cached_zero_supports: self.zero_supports.len(),
             coefficient_terms: census.coefficient_terms,
             coefficient_bytes: census.coefficient_bytes,
             families: self.families.len(),
@@ -76,13 +78,19 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
     }
     pub fn clear_cache(&mut self) -> Result<(), Error> {
         self.cache_budget.replace(
-            self.cache.len(),
+            self.cache
+                .len()
+                .checked_add(self.zero_supports.len())
+                .ok_or(ReductionError::CacheResourceCountOverflow {
+                    resource: "retained integrals",
+                })?,
             self.cache_weight,
             0,
             CacheWeight::default(),
             self.limits.reduction,
         )?;
         self.cache.clear();
+        self.zero_supports.clear();
         self.cache_weight = CacheWeight::default();
         self.families.clear();
         self.families
@@ -354,6 +362,14 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
             .get(target.family_fingerprint())
             .cloned()
             .ok_or_else(|| Error::InvalidInput("factor family is missing".into()))?;
+        let mut conditions = Conditions::default();
+        self.retain_family_conditions(&family, &mut conditions)?;
+        if let Some(guards) =
+            self.proved_zero_conditions(&family, target.integral(), &mut request.stats)?
+        {
+            conditions.extend(&self.context, guards.iter().cloned(), self.limits)?;
+            return Ok((Vec::new(), conditions, BTreeSet::new()));
+        }
         charge(
             &mut request.stats.provider_calls,
             1,
@@ -423,10 +439,8 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
             }
             .into());
         }
-        let mut conditions = Conditions::default();
         // The native family domain belongs to the cached input factor even
         // when its provider returns zero or a different declared family.
-        self.retain_family_conditions(&family, &mut conditions)?;
         conditions.extend(&self.context, result.nonzero_conditions, self.limits)?;
         let mut terms = BTreeMap::new();
         for term in result.terms {

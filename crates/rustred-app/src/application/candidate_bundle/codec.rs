@@ -633,6 +633,22 @@ pub(super) fn solutions<const N: usize>(
     indices: &[usize; N],
     limits: CandidateBundleLimits,
 ) -> Result<Vec<([bool; N], SectorSolution<N>)>, AppError> {
+    solutions_from_table(
+        &bundle.records,
+        bundle.coefficients.as_ref(),
+        context,
+        indices,
+        limits,
+    )
+}
+
+pub(super) fn solutions_from_table<const N: usize>(
+    bundle: &ProgramRecord,
+    coefficients: &impl rules::NativeCoefficientSource,
+    context: &IndexedCoefficientContext,
+    indices: &[usize; N],
+    limits: CandidateBundleLimits,
+) -> Result<Vec<([bool; N], SectorSolution<N>)>, AppError> {
     validate(bundle, limits)?;
     let generation_policy = super::policy::parse(&bundle.solver_policy)?;
     let mathematical_order = super::order::saved_policy(bundle)?;
@@ -655,13 +671,8 @@ pub(super) fn solutions<const N: usize>(
                 .iter()
                 .enumerate()
                 .map(|(rule_ordinal, record)| {
-                    let mut rule = rules::restore_rule(
-                        record,
-                        &bundle.coefficients,
-                        variables,
-                        indices,
-                        &sector,
-                    )?;
+                    let mut rule =
+                        rules::restore_rule(record, coefficients, variables, indices, &sector)?;
                     rule.dispatch_policy = dispatch::policy(bundle, sector_ordinal, rule_ordinal);
                     Ok(rule)
                 })

@@ -18,6 +18,62 @@ use crate::AppError;
 
 pub use ingress::validate_domain_overlay_ingress;
 
+/// Runtime boundary admission of frozen overlay frames and native family
+/// identity. Equation replay and owner installation remain first-use work.
+pub(crate) fn validate_deferred_overlay<const N: usize>(
+    bytes: &[u8],
+    owner: [bool; N],
+    baseline_digest: [u8; 32],
+    family: &rustred::family::IntegralFamily,
+    limits: CandidateBundleLimits,
+) -> Result<(), AppError> {
+    use rustred::persistence::{LazyDecodedCoefficientTable, SectionTag};
+    let (envelope, record, native_family) = codec::read_structure(bytes, limits)?;
+    if rustred::storage_array(&record.owner_sector, false) != Some(owner)
+        || record.base_owner_blake3 != baseline_digest
+        || record.family_fingerprint != family.fingerprint()
+    {
+        return Err(AppError::input(
+            "deferred overlay owner, base digest or family differs",
+        ));
+    }
+    let table = LazyDecodedCoefficientTable::new(
+        Arc::from(
+            envelope
+                .section(SectionTag::SYMBOLICA_STATE)
+                .expect("admitted overlay state"),
+        ),
+        Arc::from(
+            envelope
+                .section(SectionTag::COEFFICIENTS)
+                .expect("admitted overlay coefficients"),
+        ),
+        limits.binary_limits(),
+    )
+    .map_err(super::codec::binary_error)?;
+    for rule in &record.rules {
+        super::codec::rules::validate_rule_ids(rule, table.len())?;
+    }
+    if record
+        .requested_cases
+        .iter()
+        .flat_map(|case| &case.equations)
+        .any(|&id| id as usize >= table.len())
+    {
+        return Err(AppError::input(
+            "deferred overlay case coefficient ID is outside its table",
+        ));
+    }
+    native_family
+        .validate_against_family(
+            family,
+            &table,
+            limits.family_limits(),
+            limits.binary_limits(),
+        )
+        .map_err(super::codec::binary_error)
+}
+
 /// Caller-owned cold-load resources, independent of saved search scope.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CandidateDomainOverlayLoadLimits {

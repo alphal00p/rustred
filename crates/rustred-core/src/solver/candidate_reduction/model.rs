@@ -39,6 +39,11 @@ impl CandidateDecomposition {
     pub fn terms(&self) -> &BTreeMap<IntegralKey, Coefficient> {
         &self.terms
     }
+    /// Transfer a native result into a core-owned semantic composition without
+    /// retaining a second sparse coefficient copy.
+    pub(crate) fn into_terms(self) -> BTreeMap<IntegralKey, Coefficient> {
+        self.terms
+    }
     pub fn is_zero(&self) -> bool {
         self.terms.is_empty()
     }

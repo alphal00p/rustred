@@ -96,3 +96,30 @@ impl ScalarNumeratorLowering {
         self.terms.is_empty()
     }
 }
+
+/// Fully weighted exact lowering, coalesced before a caller admits reduction
+/// entries. Each term multiplies the physical integral `I_key(m²)`: its scalar
+/// spectator already contains every additional common-mass power, and
+/// `common_mass_squared_power()` is therefore zero. Unit-mass presentation
+/// supplies only the remaining factor `(m²)^(L*d/2-sum(key))`.
+#[derive(Clone, Debug)]
+pub struct WeightedScalarNumeratorLowering {
+    pub(super) lowering: ScalarNumeratorLowering,
+    pub(super) nonzero_conditions: Vec<Atom>,
+}
+impl WeightedScalarNumeratorLowering {
+    pub fn family_fingerprint(&self) -> &str {
+        self.lowering.family_fingerprint()
+    }
+    pub fn terms(&self) -> &[LoweredScalarNumeratorTerm] {
+        self.lowering.terms()
+    }
+    pub fn is_zero(&self) -> bool {
+        self.lowering.is_zero()
+    }
+    /// Original rational poles, native family conditions, and nonzero mass.
+    /// These may contain arbitrary caller scalar spectators, not only d.
+    pub fn nonzero_conditions(&self) -> &[Atom] {
+        &self.nonzero_conditions
+    }
+}

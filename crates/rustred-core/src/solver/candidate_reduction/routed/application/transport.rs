@@ -29,7 +29,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         target: &IntegralKey,
         statistics: &mut CandidateRoutedApplicationStatistics,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        let context = &self.reducer.programs.context;
+        let context = &self.context;
         let shared = &context.shared;
         let evaluator = CandidateEvaluator {
             context: &shared.context,
@@ -54,72 +54,72 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         charge(
             &mut statistics.input_terms,
             1,
-            self.reducer.limits.max_input_targets,
+            self.limits.max_input_targets,
             "input targets",
         )?;
         charge(
             &mut statistics.operational_nodes,
             1,
-            self.reducer.limits.max_unique_nodes,
+            self.limits.max_unique_nodes,
             "operational nodes",
         )?;
         statistics.requested_targets = 1;
         let support = support::<N>(target);
-        let terms = if self.reducer.programs.owners.contains_key(&support) {
+        let terms = if self.owners.contains(&support) {
             BTreeMap::from([(target.clone(), shared.context.base().one())])
         } else {
-            let route = self.reducer.routes.get(&support).ok_or_else(|| {
-                CandidateRoutedError::MissingOwner {
-                    target: target.clone(),
-                }
-            })?;
+            let route =
+                self.routes
+                    .get(&support)
+                    .ok_or_else(|| CandidateRoutedError::MissingOwner {
+                        target: target.clone(),
+                    })?;
             charge(
                 &mut statistics.transport_calls,
                 1,
-                self.reducer.limits.max_transport_calls,
+                self.limits.max_transport_calls,
                 "transport calls",
             )?;
-            let mapped = route.transport.transport_with_usage(
-                target,
-                self.reducer.limits.expansion,
-                |usage| {
-                    let operations = statistics
-                        .transport_operations
-                        .checked_add(usage.operations)
-                        .ok_or(ExpansionError::ResourceCountOverflow {
-                            resource: "aggregate routed operations",
-                        })?;
-                    let endpoints = statistics
-                        .transport_endpoints
-                        .checked_add(usage.endpoints)
-                        .ok_or(ExpansionError::ResourceCountOverflow {
-                            resource: "aggregate routed endpoints",
-                        })?;
-                    for (resource, requested, limit) in [
-                        (
-                            "aggregate routed operations",
-                            operations,
-                            self.reducer.limits.max_transport_operations,
-                        ),
-                        (
-                            "aggregate routed endpoints",
-                            endpoints,
-                            self.reducer.limits.max_transport_endpoints,
-                        ),
-                    ] {
-                        if requested > limit {
-                            return Err(ExpansionError::ResourceLimit {
-                                resource,
-                                requested,
-                                limit,
-                            });
+            let mapped =
+                route
+                    .transport
+                    .transport_with_usage(target, self.limits.expansion, |usage| {
+                        let operations = statistics
+                            .transport_operations
+                            .checked_add(usage.operations)
+                            .ok_or(ExpansionError::ResourceCountOverflow {
+                                resource: "aggregate routed operations",
+                            })?;
+                        let endpoints = statistics
+                            .transport_endpoints
+                            .checked_add(usage.endpoints)
+                            .ok_or(ExpansionError::ResourceCountOverflow {
+                                resource: "aggregate routed endpoints",
+                            })?;
+                        for (resource, requested, limit) in [
+                            (
+                                "aggregate routed operations",
+                                operations,
+                                self.limits.max_transport_operations,
+                            ),
+                            (
+                                "aggregate routed endpoints",
+                                endpoints,
+                                self.limits.max_transport_endpoints,
+                            ),
+                        ] {
+                            if requested > limit {
+                                return Err(ExpansionError::ResourceLimit {
+                                    resource,
+                                    requested,
+                                    limit,
+                                });
+                            }
                         }
-                    }
-                    statistics.transport_operations = operations;
-                    statistics.transport_endpoints = endpoints;
-                    Ok(())
-                },
-            )?;
+                        statistics.transport_operations = operations;
+                        statistics.transport_endpoints = endpoints;
+                        Ok(())
+                    })?;
             let owner: [bool; N] = std::array::from_fn(|i| {
                 route
                     .owner_sector
@@ -135,7 +135,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 charge(
                     &mut statistics.operational_nodes,
                     1,
-                    self.reducer.limits.max_unique_nodes,
+                    self.limits.max_unique_nodes,
                     "operational nodes",
                 )?;
                 // Only installed exact zero certificates justify omission.

@@ -23,6 +23,8 @@ fn override_from_value(
             .and_then(|value| usize::try_from(value).ok())
             .ok_or_else(|| format!("{name} must be a nonnegative native-size integer"))?;
         let destination = match name.as_str() {
+            "preparation_workers" if value != 0 => &mut candidate.preparation_workers,
+            "preparation_workers" => return Err("preparation_workers must be positive".into()),
             "max_input_targets" => &mut candidate.trace_limits.max_input_targets,
             "max_unique_nodes" => &mut candidate.trace_limits.max_unique_nodes,
             "max_transport_calls" => &mut candidate.trace_limits.max_transport_calls,
@@ -73,6 +75,7 @@ mod tests {
     #[test]
     fn invalid_or_unknown_limits_are_transactional_errors() {
         for value in [
+            json!({"preparation_workers": 0}),
             json!({"max_rule_applications": -1}),
             json!({"max_rule_applications": 1.5}),
             json!({"max_rule_applications": "unlimited"}),
@@ -84,5 +87,12 @@ mod tests {
             assert!(override_from_value(&mut options, &value).is_err());
             assert_eq!(options, original);
         }
+    }
+
+    #[test]
+    fn preparation_workers_has_no_campaign_worker_ceiling() {
+        let mut options = SavedApplicationOptions::default();
+        override_from_value(&mut options, &json!({"preparation_workers": 64})).unwrap();
+        assert_eq!(options.preparation_workers, 64);
     }
 }

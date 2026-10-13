@@ -7,9 +7,16 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::super::cache::CachedTerms;
-use super::super::{CandidateCacheRepresentation, CandidateStatistics};
+use super::super::owners::PreparedOwner;
+use super::super::{
+    CandidateCacheRepresentation, CandidateOwnerContext, CandidateOwnerPrograms,
+    CandidateReductionError, CandidateStatistics, DeferredCandidateOwnerPrograms,
+    DeferredCandidateOwnerStatistics,
+};
 use super::trace::Node;
-use super::{CandidateRoutedError, RoutedCandidateReducer};
+use super::{
+    CandidateOwnerRoute, CandidateRoutedError, RoutedCandidateLimits, RoutedCandidateReducer,
+};
 use crate::algebra::Coefficient;
 use crate::family::{IntegralFamily, IntegralKey};
 use crate::reduction::{CacheWeight, ReductionStatistics, SharedCacheBudget};
@@ -63,12 +70,38 @@ struct CacheEntry {
     weight: CacheWeight,
 }
 
+#[derive(Debug)]
+enum ApplicationOwners<const N: usize> {
+    Eager(Arc<CandidateOwnerPrograms<N>>),
+    Deferred(Arc<DeferredCandidateOwnerPrograms<N>>),
+}
+impl<const N: usize> ApplicationOwners<N> {
+    fn contains(&self, sector: &[bool; N]) -> bool {
+        match self {
+            Self::Eager(programs) => programs.owners.contains_key(sector),
+            Self::Deferred(programs) => programs.contains_owner(sector),
+        }
+    }
+    fn owner(
+        &self,
+        sector: &[bool; N],
+    ) -> Result<Option<Arc<PreparedOwner<N>>>, CandidateReductionError> {
+        match self {
+            Self::Eager(programs) => Ok(programs.owners.get(sector).cloned()),
+            Self::Deferred(programs) => programs.owner(sector),
+        }
+    }
+}
+
 /// Mutable application session over an immutable owner and route snapshot.
 /// Entry admission is checked on every input before cancellation or cache
 /// lookup. Descendants are constrained by owner rules, never by entry bounds.
 #[derive(Debug)]
 pub struct RoutedCandidateApplication<const N: usize> {
-    reducer: RoutedCandidateReducer<N>,
+    context: Arc<CandidateOwnerContext<N>>,
+    owners: ApplicationOwners<N>,
+    routes: BTreeMap<[bool; N], CandidateOwnerRoute>,
+    limits: RoutedCandidateLimits,
     cache: BTreeMap<Node<N>, CacheEntry>,
     cache_representation: CandidateCacheRepresentation,
     cache_budget: SharedCacheBudget,
@@ -79,11 +112,10 @@ pub struct RoutedCandidateApplication<const N: usize> {
 impl<const N: usize> RoutedCandidateReducer<N> {
     pub fn application(&self) -> RoutedCandidateApplication<N> {
         RoutedCandidateApplication {
-            reducer: Self {
-                programs: self.programs.clone(),
-                routes: self.routes.clone(),
-                limits: self.limits,
-            },
+            context: self.programs.context.clone(),
+            owners: ApplicationOwners::Eager(self.programs.clone()),
+            routes: self.routes.clone(),
+            limits: self.limits,
             cache: BTreeMap::new(),
             cache_representation: CandidateCacheRepresentation::Sparse,
             cache_budget: SharedCacheBudget::default(),
@@ -94,6 +126,42 @@ impl<const N: usize> RoutedCandidateReducer<N> {
 }
 
 impl<const N: usize> RoutedCandidateApplication<N> {
+    /// Construct a runtime application without preparing any owner formulas.
+    /// Manifest presence authenticates route endpoints; first Apply performs
+    /// that owner's native admission once and fails closed on any error.
+    pub fn try_new_deferred(
+        programs: Arc<DeferredCandidateOwnerPrograms<N>>,
+        routes: impl IntoIterator<Item = CandidateOwnerRoute>,
+        limits: RoutedCandidateLimits,
+    ) -> Result<Self, CandidateRoutedError> {
+        let routes = super::prepare::validate_routes(
+            programs.context(),
+            |sector| programs.contains_owner(sector),
+            routes,
+            limits,
+        )?;
+        Ok(Self {
+            context: programs.context().clone(),
+            owners: ApplicationOwners::Deferred(programs),
+            routes,
+            limits,
+            cache: BTreeMap::new(),
+            cache_representation: CandidateCacheRepresentation::Sparse,
+            cache_budget: SharedCacheBudget::default(),
+            cache_weight: CacheWeight::default(),
+            work: ReductionStatistics::default(),
+        })
+    }
+    pub fn owner_preparation_statistics(&self) -> DeferredCandidateOwnerStatistics {
+        match &self.owners {
+            ApplicationOwners::Deferred(programs) => programs.statistics(),
+            ApplicationOwners::Eager(programs) => DeferredCandidateOwnerStatistics {
+                declared_owners: programs.owner_count(),
+                prepared_owners: programs.owner_count(),
+                ..Default::default()
+            },
+        }
+    }
     pub fn cache_representation(&self) -> CandidateCacheRepresentation {
         self.cache_representation
     }
@@ -115,7 +183,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         Ok(())
     }
     pub fn family(&self) -> &IntegralFamily {
-        self.reducer.programs.context.family()
+        self.context.family()
     }
     pub fn cache_statistics(&self) -> CandidateStatistics {
         let census = self.cache_budget.snapshot();
@@ -132,7 +200,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             self.cache_weight,
             0,
             CacheWeight::default(),
-            self.reducer.programs.context.limits,
+            self.context.limits,
         )?;
         self.cache.clear();
         self.cache_weight = CacheWeight::default();

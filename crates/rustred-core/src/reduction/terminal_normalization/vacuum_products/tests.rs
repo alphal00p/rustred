@@ -1,5 +1,6 @@
 use super::*;
 use std::collections::BTreeSet;
+mod charts;
 
 fn vacuum(momenta: &[Vec<i64>]) -> IntegralFamily {
     use crate::algebra::CoefficientContext;

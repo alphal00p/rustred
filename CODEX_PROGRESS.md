@@ -223,6 +223,186 @@ does not claim completed Vakint5Lacceptance, lazy owner loading, or all813witnes
 success. Artifact, campaignoutputs, privatevendor material and unrelated
 FeynKit/notebook changes are excluded from the staged source snapshot.
 
+Code-only milestone `e774bf33` committed/pushed to RustRed `main` with the
+requested identity. Remote advanced from`6f7097ac`; no five-loop runtime bytes
+or unrelated edits were included. Goal remainsactive. ReplacementVakintagent
+reuses existing clone, preparesrelease thinLTO/codegen16 build and preserves
+the interrupted probe evidence. Exactagent owns weighted scalar semantic
+coalescing; packageagent independentlyaudits it and implements runtime-only
+deferred owner preparation without changing campaign/trace semantics.
+
+Completed sparse/factorized matched release application onpoint154:317.829s vs
+485.522s first; warmmedians0.3402/0.3522s; cache3.029/3.374GB; processpeak
+11.430/11.948GB. Both82terms,41,857rules,99,679nodes andexactcold/warm equality.
+Nofullrealcross-processcoefficientcomparisonclaim; unitparitypassed. Sparse
+remainsdefault. Phase receipts reveal154scold=80sowners+70sroutes+3sI/O;
+lazyowner+existingrouteparallelismtargettheactualcoldcost. Nativepositive-support
+replay confirms14numerator-bearingfactorizeddenominator supports (notyetfull
+integralproducts) beside38scalarproducts; sourcehelperlinks frozenexisting
+libraries/Symbolica, noPythonCAS authority. Evidence undernative-positive-supports.
+
+Vakintfullrelease libsuite:90pass/3fail/1pre-existingofflineignored in105.72s,
+peak2.308GB. Native166generatedgraphs match59classes; all67explicitDOTpinches
+and4independentfactorprovider tests pass. Three failures are old3Lshortnames
+removed by corrected contraction-representative selection; delivery restored
+publishedrepresentatives without weakeningassertions. Firstreleaseapplication
+scalarpoint162 and independentfive-tadpole parity pass; weighted GeV10point60
+authenticatedtypedkey alsofirst/warm succeeds (~0.58/0.56s), expanded equality
+passes. AlternateLMB stillchoosesvalidbutinadmissibleD13images underDexact9:
+matcher lane must selectan admission-aware verified witness, notrelaxscope.
+
+Activeorthogonal ownership: exactagent finisheschart/provider sharedbudgetfixes,
+then owns native matcher alternativewitnesses; Vakintdelivery owns scalarhook,
+existingFeynKittensorcallback/signedlowerprovider andacceptance; packageagent
+owns lazyloader/groupedchartaccess and independentcoreaudit. Rootcoordinates
+nativechecks/releasebuilds/profiles andstagedcode-onlymilestones.
+
+### October 13 — external package, factorization, and routing validation
+
+The active tool-managed goal explicitly forbids committing/pushing the five-loop
+runtime artifact. Its local path remains
+`TMP/five-loop-vakint-20261013/application-gen54-first/`; the manifest SHA-256 is
+`01425e1cecc71893d2e3a592a162600100326f285914926df61e43dd0c870e4b`.
+Vakint's optional path and explicit loader are implemented; an unset path must
+disable five-loop application even after another instance populated a cache.
+Independent audit of that behavior and package portability is active.
+
+Current coordinated release snapshot: 194 focused core tests and 17 saved
+application tests pass. Two additional deferred-loader tests failed because
+their test-only family label contained unsupported hyphens; the fixture label
+is corrected, with rerun pending. Four new native scaleless-factor tests and
+zero-flow bridge ingress tests await the next coordinated build. The latest
+Vakint library run passes 101 tests, with two explicitly ignored tests.
+
+The previous alternate-LMB diagnosis is superseded by a concrete reproducer:
+the exact denominator witness is correct, but expanding closed indexed powers
+before restoring scalar-product notation loses dummy-index scopes. For example,
+the squared cross contraction can be misread as a product of self-contractions.
+This creates the spurious D=13 keys. Delivery owns the scope-preserving bridge
+repair, using existing FeynKit/Symbolica primitives; admission remains unchanged.
+The generic finite alternative-witness matcher has separate passing tests but
+is not the cure for this particular failure.
+
+Native generated-graph census now reproduces all 67 classes, including all 19
+factorized classes: 166 scalar skeletons, 7,548 loop-preserving contraction
+representatives and 101 native incidence classes before exact integral matching.
+All three cross-component numerator-factor controls pass after native scaleless
+factor detection. A local four-loop factor currently exhausts the explicit
+one-million-rule work budget because guarded single-key calls discard reusable
+subtrees between transported endpoints. The core lane is adding scoped batch
+memoization with combined coefficient/guard/cache accounting, not raising
+mathematical coverage or implementing algebra in Vakint.
+
+The 813-witness native sweep remains running on CPUs 48--55, separate from
+production. At the latest observation it has 98 successful exact warm-repeat
+checks and no failures, still in the rank-one cohort. Point 00233 needed
+1,062.20 s first application versus 0.942 s warm, with 252 output terms; this
+is evidence that some application cases are expensive, not full-suite success.
+Evidence: `TMP/five-loop-vakint-20261013/all813-high-work-shared/`.
+
+Next: validate scalar dummy-scope repair, run deferred-loader/zero/bridge tests,
+audit and test batch reuse, then rerun the actual factor and LMB acceptance
+cases. No new IBP generation, master evaluation, or production writes.
+
+### October 13 — batch reuse audited; cancellation acceptance tightened
+
+The exact-application lane delivered `reduce_transported_candidate_factor`:
+one native guarded memoization cache per verified transport batch, including
+native cache plus retained output/guard accounting and cleanup on success/error.
+The independent package lane found an unnecessary owned-coefficient clone;
+the implementation now consumes the decomposition. No custom algebra or new
+rules are introduced. Independent source audit passes; four targeted tests
+cover shared work, guards surviving cancellation, tightened warm-cache limits,
+family identity and cleanup. Coordinated core/app/examples checking passes
+(16.32 s). Release test build is running; its initial snapshot predates the
+move-only copy fix and must not be labeled the final audited executable.
+
+Independent acceptance review also distinguished two different tests: the
+existing high-degree examples place an *absent* denominator in the numerator,
+so expanded/LMB equality there does not prove cancellation of a positive
+propagator against a separate pinched input. The exact lane is adding genuine
+single/multiple/dotted cancellation fixtures around admitted scalar point162,
+using native DOT ingress. The negative unsupported-scope control is also being
+tightened to require the expected admission error rather than accepting any
+error. No test is counted as successful merely because a resource limit fired.
+
+Latest native sweep observation: 115 successes, zero errors, with all 67
+rank-zero witnesses complete and 48 rank-one witnesses complete; later ranks
+remain pending. Peak observed process RSS is around 51 GB, within its explicit
+150 GB process guard. Production remains untouched.
+
+Release verification update: the pre-cleanup build finished in 13m56s. All 30
+application/loading/route-preparation tests pass in 0.60 s, including both
+corrected deferred-loader fixtures. The core run reports 200 passes and two
+failures, both now diagnosed and repaired: cached children were skipped without
+incrementing the hit counter (actual shared work was already reduced correctly),
+and the zero fixture expected `d-4` instead of the native raw determinant guard
+`2*(d-4)`. The new test proves exact equivalence and preservation of every
+native family guard. Both corrections passed independent source audit. Final
+core/app/driver release rebuild is session24654, log
+`TMP/five-loop-batch-final-build-20261013.log`; do not count it as passed yet.
+
+A ten-second, 974-sample profile of the live native rank-one sweep is retained
+at `all813-high-work-shared/application.perf.data` with a text report. Work is
+in Symbolica rational-polynomial arithmetic/allocation plus guard unions;
+polynomial equality under guard retention accounts for 9.55% of self samples.
+This short window is diagnostic, not a full-campaign cost breakdown. It does
+not motivate another CAS implementation. The sweep now has 118 successes and
+no errors at the last observed event; remaining cases are still running.
+
+### October 13 — all factorized terminals pass with unchanged budgets
+
+The actual external-package product sweep now passes all 52 controls: 38
+positive products spanning 19 factorized supports, plus 14 numerator charts,
+including all three cross-component projections. Exact warm coefficients and
+guards agree and no original five-loop key survives those product outputs.
+Scoped native cache reuse resolves the earlier one-million-rule failure without
+raising limits. Wall time 214.91 s including cold load, user/system CPU
+207.34/5.87 s, peak RSS 4,186,928 KiB. Evidence:
+`TMP/vakint-five-loop-20261013/release-all-factor-products-batch.{log,time}`;
+frozen executable `vakint-scope-batch-native-tests`, SHA256
+`78dda97b5573ea3206e3ca19cd73ea3ff26e7672f96d7e1ffbe591a10b510810`.
+This is not a numerical master comparison or a claim that warm agreement alone
+independently proves all products. Separate native projector/lower-factor
+reference tests provide the compositional checks.
+
+The scope-preserving scalar bridge passes its two focused regressions, covering
+cross powers, closed-power combinations, index alpha-renaming and degree2/5/11
+lowering after nontrivial simultaneous routing. The full Vakint run passes105
+tests; its only failure was a new huge-exponent fixture reaching Symbolica's
+intrinsic numeric-power `u32::MAX` limit. A typed preflight replaces that panic;
+ordinary bridge behavior is unchanged and the final rerun is pending. Six true
+positive-propagator cancellation versus independently pinched DOT fixtures have
+also passed independent source audit; loaded execution is next.
+
+The final root test build exposed a missing test-only `Coefficient` import;
+root added it and queued the corrected core build (session78416,
+`TMP/five-loop-batch-core-final-retry-20261013.log`). No runtime change for that
+compiler error. Artifact bytes and production remain untouched.
+
+Corrected root release core tests now pass 500/500 in0.88s (expanded to all
+candidate-reduction tests, not only the routed subset). Runtime driver build
+finishes in6m36s; frozen `saved_application-lazy-batch` SHA256
+`a0f3b21d3e97fa8a144dd7907eaadab66249ac7d798137f49211d18759303d8c`.
+Matched-input one/eight-worker preparation completes in77.286/36.904s;
+route phase68.718/28.665s, whole four-case processes94.262/54.215s and
+peak3.021/3.006GB. Only2of67owner programs prepare during these cases;
+the second owner's one-time initialization is13.6--14.0s, then warm calls
+are29--33ms. Both runs pass exact own first/warm equality; no full cross-process
+coefficient-map comparison is inferred from matching counts. Failed initial
+serial supervisor-affinity admission is retained separately, with no child run.
+
+Vakint's corrected106-test suite passes (two explicit ignored tests), but
+subsequent real acceptance exposes a second scalar-scope boundary: candidate
+numerator substitutions can occur before restoring closed contractions. Two
+mathematically identical candidate images then differ in admission. Exact
+master values already agree, but the callback inconsistency must be fixed, not
+masked by relaxing guard comparisons. Delivery is sealing scalar contractions
+before both candidate and selected substitutions. Expanded degree11 also
+reveals an artificial rank22 projector request; the existing native compact
+integrated-pair dot service is being used to preserve genuine scalar invariants,
+without implementing a new tensor reducer. Both are Vakint ingress changes.
+
 ## October 11 — retain stopped refinement and remove arbitrary count ceiling
 
 User requests both the `1000001 exceeds 1000000` repair and preservation of

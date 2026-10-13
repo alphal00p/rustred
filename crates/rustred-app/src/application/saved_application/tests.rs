@@ -324,6 +324,10 @@ fn runtime_options_select_native_cache_representation_and_report_preparation() {
             representation
         );
         assert_eq!(application.cache_statistics().cached_integrals(), 0);
+        assert_eq!(
+            application.owner_preparation_statistics().prepared_owners,
+            0
+        );
         let timing = application.preparation_statistics();
         assert_eq!(
             timing.total,
@@ -338,9 +342,26 @@ fn runtime_options_select_native_cache_representation_and_report_preparation() {
             IntegralKey::try_new([4]).unwrap(),
             application.family().coefficient_context().one(),
         )];
+        application.route_entry_to_owner(&input[0].0).unwrap();
+        assert_eq!(
+            application
+                .owner_preparation_statistics()
+                .preparation_attempts,
+            0
+        );
         let first = application
             .reduce_linear_combination(input.clone())
             .unwrap();
+        assert_eq!(
+            application.owner_preparation_statistics().prepared_owners,
+            1
+        );
+        assert_eq!(
+            application
+                .owner_preparation_statistics()
+                .preparation_attempts,
+            1
+        );
         if let Some((terms, conditions)) = &expected {
             assert_eq!(first.terms(), terms);
             assert_eq!(first.nonzero_conditions(), conditions);
@@ -357,6 +378,10 @@ fn runtime_options_select_native_cache_representation_and_report_preparation() {
         assert!(warm.statistics().work.cache_hits() > 0);
         assert!(application.cache_statistics().cached_coefficient_bytes() > 0);
         application.clear_cache().unwrap();
+        assert_eq!(
+            application.owner_preparation_statistics().prepared_owners,
+            1
+        );
         assert_eq!(application.cache_statistics().cached_integrals(), 0);
         assert_eq!(application.cache_statistics().cached_coefficient_terms(), 0);
         assert_eq!(application.cache_statistics().cached_coefficient_bytes(), 0);
@@ -367,7 +392,46 @@ fn runtime_options_select_native_cache_representation_and_report_preparation() {
         let after_clear = application.reduce_linear_combination(input).unwrap();
         assert_eq!(after_clear.terms(), first.terms());
         assert!(after_clear.statistics().work.rule_applications() > 0);
+        assert_eq!(
+            application
+                .owner_preparation_statistics()
+                .preparation_attempts,
+            1
+        );
     }
+}
+
+#[test]
+fn deferred_runtime_owns_authenticated_bytes_before_first_formula_use() {
+    let scratch = Scratch::new();
+    let mut original = prepared_fixture(&scratch.0.join("source"));
+    let key = IntegralKey::try_new([2]).unwrap();
+    let one = original.family().coefficient_context().one();
+    let expected = original
+        .reduce_linear_combination([(key.clone(), one.clone())])
+        .unwrap();
+    let runtime = scratch.0.join("runtime");
+    let report = original.export_runtime(&runtime).unwrap();
+    let mut lazy = load_saved_application::<1>(&runtime, Default::default()).unwrap();
+    assert_eq!(lazy.owner_preparation_statistics().prepared_owners, 0);
+    let chunk = report["payloads"][0]["chunks"][0]["path"].as_str().unwrap();
+    std::fs::write(runtime.join(chunk), b"changed after boundary validation").unwrap();
+    let actual = lazy.reduce_linear_combination([(key, one)]).unwrap();
+    assert_eq!(actual.terms(), expected.terms());
+    assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+    assert_eq!(lazy.owner_preparation_statistics().prepared_owners, 1);
+    assert!(load_saved_application::<1>(&runtime, Default::default()).is_err());
+    let invalid_workers = SavedApplicationOptions {
+        preparation_workers: 0,
+        ..Default::default()
+    };
+    assert!(
+        load_saved_application::<1>(&runtime, invalid_workers)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("preparation_workers")
+    );
 }
 
 #[test]
@@ -442,6 +506,9 @@ powers=[0,1,1]
         "owners":[{"path":"objects/owner.rrbin","bytes":bytes.len(),"mask":"011"}],
         "initial_frontier_routes":[{"source_mask":"110","owner_mask":"011","requires_transport":true,
             "source_to_representative":[["1","0"],["0","1"]],
+            "owner_to_representative":[["1","-1"],["1","0"]]},
+            {"source_mask":"101","owner_mask":"011","requires_transport":true,
+            "source_to_representative":[["1","0"],["1","-1"]],
             "owner_to_representative":[["1","-1"],["1","0"]]}]}).to_string();
     let queries = json!({"schema":"rustred.owner-domain-queries.json.v2", "queries":[
         {"id":"single-owner-image", "owner":"011", "lower":[0,1,1], "upper":[0,1,1], "max_numerator_rank":0}
@@ -450,7 +517,8 @@ powers=[0,1,1]
         serde_json::from_value(json!([{"path":"objects/owner.rrbin","bytes":bytes.len(),
         "blake3":blake3::hash(bytes).to_hex().to_string()}]))
         .unwrap();
-    let metadata = json!({"family_fingerprint":family.fingerprint()});
+    let metadata = json!({"family_fingerprint":family.fingerprint(),"raw_terminals":rows.len(),
+        "remaining_terminals":remaining.len(),"source_keys_checked":rows.len()});
     let mut options = SavedApplicationOptions::default();
     options.trace_limits.max_transport_calls = 1;
     let mut application = PreparedSavedApplication::<3>::from_parts(
@@ -470,6 +538,7 @@ powers=[0,1,1]
     )
     .unwrap();
     assert!(application.validate_entry(&original).is_err());
+    assert!(application.routed_entry_is_admitted(&original).unwrap());
     let routed = application.route_entry_to_owner(&original).unwrap();
     assert_eq!(
         routed.terms(),
@@ -495,6 +564,21 @@ powers=[0,1,1]
             .is_err()
     );
     assert!(application.route_entry_to_owner(&key([0, 1, 1])).is_err());
+    assert!(
+        !application
+            .routed_entry_is_admitted(&key([0, 1, 1]))
+            .unwrap()
+    );
+    assert!(
+        application
+            .routed_entry_is_admitted(&key([1, 1, 1]))
+            .is_err()
+    );
+    assert!(
+        application
+            .routed_entry_is_admitted(&IntegralKey::try_new([1]).unwrap())
+            .is_err()
+    );
     assert!(application.route_entry_to_owner(&key([1, 1, 1])).is_err());
     assert!(
         application
@@ -555,4 +639,44 @@ powers=[0,1,1]
         .reduce_linear_combination([(canonical, c.integer(3))])
         .unwrap();
     assert_eq!(after_products.terms(), actual.terms());
+    let runtime = scratch.0.join("runtime");
+    application.export_runtime(&runtime).unwrap();
+    let mut serial = load_saved_application::<3>(&runtime, options).unwrap();
+    let mut parallel = load_saved_application::<3>(
+        &runtime,
+        SavedApplicationOptions {
+            preparation_workers: 2,
+            ..options
+        },
+    )
+    .unwrap();
+    assert_eq!(serial.owner_preparation_statistics().prepared_owners, 0);
+    assert_eq!(parallel.owner_preparation_statistics().prepared_owners, 0);
+    assert!(parallel.routed_entry_is_admitted(&key([2, 2, 0])).unwrap());
+    assert!(!parallel.routed_entry_is_admitted(&key([0, 1, 1])).unwrap());
+    assert_eq!(
+        parallel.owner_preparation_statistics().preparation_attempts,
+        0
+    );
+    for target in [key([2, 2, 0]), key([2, 0, 2])] {
+        let serial_route = serial.route_entry_to_owner(&target).unwrap();
+        let parallel_route = parallel.route_entry_to_owner(&target).unwrap();
+        assert_eq!(serial_route.terms(), parallel_route.terms());
+        assert_eq!(
+            serial_route.nonzero_conditions(),
+            parallel_route.nonzero_conditions()
+        );
+        let expected = serial
+            .reduce_routed_linear_combination([(target.clone(), c.one())])
+            .unwrap();
+        let actual = parallel
+            .reduce_routed_linear_combination([(target, c.one())])
+            .unwrap();
+        assert_eq!(actual.terms(), expected.terms());
+        assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+    }
+    assert_eq!(
+        parallel.owner_preparation_statistics().preparation_attempts,
+        1
+    );
 }

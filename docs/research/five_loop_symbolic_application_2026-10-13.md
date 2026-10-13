@@ -113,7 +113,58 @@ That input is `[-1,1,1,0,1,1,1,0,1,1,0,1,0,0,2]`: R=1, A=10, D=9.
 Evidence: `cache-32g-retry/`; frozen executable SHA256
 `7f2c2d728e536b4dfbd4d2d8463fe02f838e0d22ff684b58757ced9795684212`.
 Factorized cache storage is an opt-in reuse of RustRed's existing Symbolica
-factorized-polynomial arithmetic; comparative measurements are pending.
+factorized-polynomial arithmetic. A subsequent matched comparison on this same
+input completed with both representations; sparse remains the default:
+
+| Representation | First application (s) | Warm median (s) | Retained coefficient bytes (GB) | Process peak RSS (GB) |
+|---|---:|---:|---:|---:|
+| Sparse | 317.829 | 0.3402 | 3.029 | 11.430 |
+| Factorized | 485.522 | 0.3522 | 3.374 | 11.948 |
+
+Both report 99,679 operational cache entries, 41,857 rule applications,
+2,848,551 coalescing additions and 82 output terms. Each independently passed
+exact cold/warm equality. These receipts alone do not compare the full real
+output maps across processes; focused unit tests cover cross-representation
+equality. Factorized storage is not a general performance win demonstrated by
+this input. The two probes ran concurrently on disjoint CPU sets 48–55 and
+56–63, with equal 32 GiB coefficient budgets and 100 GB process guards.
+
+Their cold preparation took approximately 154 s each. Newly separated phases
+show 80.1–80.6 s owner preparation, 70.0–70.1 s route preparation, 3.0–3.1 s
+payload loading, and 0.3–0.4 s terminal-map import. This motivates per-owner
+deferred preparation and reuse of the existing parallel route verifier, not
+another coefficient codec or CAS implementation.
+
+Evidence: `point154-sparse-final/`, `point154-factorized-final/`, executable
+`saved_application-final-eager` SHA256
+`d6354da1934a7c94a9ac75bcd66b44ae3e4aa66afcc039a88aa986e0b50acc1b`.
+
+### Deferred preparation and worker comparison
+
+The later frozen `saved_application-lazy-batch` executable (SHA256
+`a0f3b21d3e97fa8a144dd7907eaadab66249ac7d798137f49211d18759303d8c`)
+ran the same four degree-zero cases with one and eight preparation workers.
+Both completed and each independently checked exact first/warm coefficients
+and guards. Native route parity across worker widths is also unit-tested;
+these process receipts do not themselves compare full output maps across runs.
+
+| Boundary | One worker | Eight workers |
+|---|---:|---:|
+| Cold package preparation | 77.286 s | 36.904 s |
+| Of which route preparation | 68.718 s | 28.665 s |
+| Deferred owner preparation during four applications | 13.962 s | 13.611 s |
+| Prepared owner count after four cases | 2 / 67 | 2 / 67 |
+| Whole supervised process | 94.262 s | 54.215 s |
+| Sampled process-tree peak RSS | 3.021 GB | 3.006 GB |
+
+The second case's first application includes about 14 s of one-time owner
+initialization; its warm call takes 29--33 ms. Subsequent calls to that owner
+do not repeat initialization, including after coefficient-cache clearing.
+This is one sequential comparison on CPU 24 versus CPUs 32--39 while other
+host workloads were active, not an optimal-scaling or confidence-interval
+claim. Evidence: `runtime-lazy-one-cpu/` and `runtime-lazy-eight/`.
+The earlier `runtime-lazy-one/` attempt failed supervisor affinity admission
+before starting a child and is not a timing result.
 
 One degree-11 boundary witness (`point-00000`, A=20, D=9) completed in 0.0412 s
 after 162.464 s preparation, with a 0.0188 s exact-equal warm call and one output
@@ -152,13 +203,110 @@ and prepares 15 lower-family descriptions. No binary-format migration was
 needed. This does not establish complete factor-product reduction parity;
 numerator-bearing factorized cases still need explicit validation.
 
+The existing native positive-support factorization service independently
+confirms 14 numerator-bearing keys with factorized denominator support, besides
+the 38 scalar products. This is not yet a numerator-factorization identity.
+Evidence: `native-positive-supports/`, 160.331 s including cold loading and
+7.731 GB sampled peak RSS. The diagnostic links the frozen native libraries;
+no independent Python linear-algebra calculation is used as authority.
+
+## Subsequent integration evidence
+
+The generated census now reconciles the complete reference list: 166 connected
+scalar skeletons produce 7,548 loop-preserving contraction representatives,
+101 native incidence classes and, after exact momentum matching, all 67 integral
+classes including 19 factorized classes. These counts use the explicitly
+recorded scalar generator settings, not QCD numerator filters. Zero-flow
+bridges are handled separately at ingress as scalar propagator factors.
+
+The latest retained Vakint library executable passes 101 tests, with two
+explicitly ignored tests. Evidence:
+`TMP/vakint-five-loop-20261013/release-final-native-tests.log`;
+executable `TMP/five-loop-vakint-20261013/vakint-101-native-tests`, SHA256
+`7d0eca42782f6b6a72540f91395b70941d6ea16bea52fb89aa8d224c9edfb39d`.
+This snapshot predates the subsequent dummy-index bridge repair and zero-flow
+bridge extraction, which require their own regression runs.
+
+Deferred owner preparation reduces a later real Vakint cold load to 72.890 s,
+with zero of 67 owner programs prepared at load time. The first scalar witness
+prepares one owner in 2.868 ms. Route checks remain eager. This receipt is not
+a matched comparison against the root executable's earlier 154 s boundary;
+it includes Vakint product/chart preparation and uses a different executable.
+Evidence: `release-admission-suite.log`, with retained example SHA256
+`212f130e7933ee5738303dd24b5da55e88c15be4b75354a626864597129e0b7e`.
+
+The real GeV^10 denominator-cancellation witness passes in its initial and
+expanded presentations. Its alternate-LMB failure has been traced to loss of
+dummy-index scopes: expansion precedes restoration of scalar-product notation,
+and a squared cross contraction is consequently interpreted as a product of
+self-contractions. The denominator routing witness itself is correct. The fix
+uses the existing FeynKit scalar bridge and must not broaden the recorded D=9
+admission predicate. Full alternate-LMB success is not yet claimed.
+
+All 52 factorized terminal checks now pass: 38 positive products spanning all
+19 factorized support classes, plus 14 numerator-bearing product charts,
+including the three cross-component projections. Each result has exact
+first/warm coefficient and guard equality and contains only qualified lower
+families. Existing native scaleless-sector analysis handles free-loop factors;
+scoped batch memoization eliminates repeated four-loop subreductions between
+transport endpoints. The previous one-million-rule failure no longer occurs,
+without increasing the default limits or generating any rule.
+
+The full test took 214.91 s wall / 207.34 s user + 5.87 s system CPU, including
+cold package loading, with peak RSS 4,186,928 KiB (3.99 GiB), on CPU 0.
+Evidence: `release-all-factor-products-batch.log` and `.time`; retained
+executable `vakint-scope-batch-native-tests`, SHA256
+`78dda97b5573ea3206e3ca19cd73ea3ff26e7672f96d7e1ffbe591a10b510810`.
+This is a completed test versus an earlier failed test, not a matched speedup
+ratio. Nor is warm equality an independent oracle for all 52 products;
+independent lower-factor and projector controls are tested separately.
+
+The outer configurable product budget is intersected with each provider's
+existing policy. In particular, shipped four-loop candidate sessions retain
+their original 1 GiB / 16-million-coefficient-term native cache ceiling. Raising
+the outer product allowance alone does not raise that inner ceiling; all 52
+controls pass within it. Native cache allowance spans a transported batch,
+while each guarded endpoint also respects its existing per-call work ceiling.
+
+The external-artifact setting and loader passed an independent source audit:
+an unset path rejects five-loop use before consulting a warmed cache; explicit
+loading changes settings only after success; package identity includes the
+canonical path and full preparation/product options. There is no five-loop
+embedded data or automatic download. Same-path loaded bytes remain immutable
+until an explicit reload. Runtime tests remain part of the acceptance gate.
+
 ## Outstanding acceptance work
+
+The following matrix distinguishes graph registration, recorded scope and
+successful application. A passing census is not an application-coverage claim.
+"Pending" includes implemented changes whose final executable has not passed
+the corresponding test yet.
+
+| Requirement | Current evidence | Status |
+|---|---|---|
+| External package; no embedded/download fallback | Local 281 MB package; manifest digest above; loader/setting source audit; path-absent and wrong-path tests | Implemented; warmed-setting checks included in loaded examples |
+| 67 classes, 19 factorized classes, native DOT/pinches | Generated contraction census and all registered DOT round trips in the retained 101-test Vakint executable | Passed on that snapshot |
+| Exact recorded admission, including holes | 804-record inventory, 41 native-empty records; 763 nonempty domains; package/admission tests | Passed |
+| Admitted representatives and feasible boundaries | 813 deduplicated concrete witnesses | Full execution pending; live JSONL receipt records each result |
+| Exact replay of all retained finite terminal maps on export | All 939 source keys verified against the pinned publication; 905 remaining keys | Passed |
+| Portable authenticated loading and lazy owners | 30 release application/loader/route-preparation tests, including corruption, moved source, first-use error and threaded route checks | Passed |
+| Coefficient application, guard retention, cycles/errors and cache identity | 500 corrected release core tests, including audited batch-reuse/counter fixes | Passed; broader real-input sweep still in progress |
+| Simultaneous numerator/LMB and orientation invariance | Exact inverse fixture checked; scalar-scope repair and focused regressions implemented | Loaded-package rerun pending |
+| Positive denominator cancellation versus explicit pinch | New single/multiple/dotted native DOT fixtures being added | Pending; earlier absent-denominator numerator tests do not prove this |
+| Homogeneous GeV^10 and higher admitted numerator boundaries | Dedicated degree-10 DOT fixture; scalar-degree 5/11 inverse-denominator examples | Complete loaded suite pending |
+| Factorized symbolic output and cross contractions | Independent 5×1L and 3L×2L comparisons; all 38 positive and 14 numerator-terminal reductions, including three cross projections | 52-terminal sweep passed after batch reuse |
+| General common mass and zero-flow bridges | Scalar nonunit-mass check; native bridge fixtures and exact scalar prefactor tests | Final loaded bridge/guard rerun pending |
+| No FORM dependency and preserved lower-loop behavior | Invalid FORM setting in acceptance harness; lower native/provider/default tests in the retained suite | Final regression rerun pending |
+| Rust and Python/HEPKit DOT examples | Example sources and Python-feature compile checks | Final runtime examples pending |
+| Cold, first/warm, RSS, output and cache measurements | Native JSONL case receipts and matched measurements above | In progress; shared-cache first application is not a per-case cold process |
+| Source-only delivery | RustRed `e774bf33` pushed; runtime package excluded | Later implementation slices and Vakint push pending |
 
 - Complete admitted inventory reductions, including higher-rank cases, with
   resource outcomes reported individually.
 - Validate exact alternative-LMB and numerator-cancellation comparisons, and
   factorized lower-program composition through the now-tested package loader.
-- Complete generated-graph census reconciliation and lower-loop regressions.
+- Retest lower-loop regressions after the scalar-scope and bridge fixes; the
+  generated-graph census reconciliation itself is complete.
 - Report matching, tensor, scalar application, terminal normalization and
   rendering times separately in the final Vakint acceptance table.
 - Verify missing-path disable behavior even after an instance has populated

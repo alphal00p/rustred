@@ -48,10 +48,16 @@ impl Default for CandidateOwnerLoadLimits {
     }
 }
 
-struct OwnerDescriptor<const N: usize> {
-    sector: [bool; N],
-    root: [bool; N],
-    ordering: OrderingPolicy,
+pub(super) struct OwnerDescriptor<const N: usize> {
+    pub(super) sector: [bool; N],
+    pub(super) root: [bool; N],
+    pub(super) ordering: OrderingPolicy,
+}
+
+pub(super) struct OwnerAdmission<const N: usize> {
+    pub(super) descriptors: Vec<OwnerDescriptor<N>>,
+    pub(super) scope: CandidateOwnerScope,
+    pub(super) zero_masks: BTreeSet<usize>,
 }
 
 /// Load selected single-sector candidate programs into one shared native context.
@@ -122,13 +128,11 @@ pub(crate) fn load_generated_candidate_owners_with_preference_rule_subsets<const
     load_owner_programs(inputs, preferences, rule_subsets, limits, reduction_limits)
 }
 
-fn load_owner_programs<const N: usize>(
+pub(super) fn admit_owner_inputs<const N: usize>(
     inputs: &[CandidateOwnerBundle<'_>],
     preferences: &[CandidateOwnerBundle<'_>],
-    rule_subsets: &BTreeMap<[bool; N], &[usize]>,
     limits: CandidateOwnerLoadLimits,
-    reduction_limits: ReductionLimits,
-) -> Result<(Arc<IntegralFamily>, CandidateOwnerPrograms<N>), AppError> {
+) -> Result<OwnerAdmission<N>, AppError> {
     if !(1..=16).contains(&N) {
         return Err(AppError::input("candidate owner/reducer arity mismatch"));
     }
@@ -238,6 +242,29 @@ fn load_owner_programs<const N: usize>(
     }
     let saved_policy = policy::parse(solver_policy.as_deref().expect("nonempty input"))?;
     let zero_masks = needed_zero_masks(&roots, limits.max_zero_sector_visits)?;
+    Ok(OwnerAdmission {
+        descriptors,
+        zero_masks,
+        scope: CandidateOwnerScope {
+            max_numerator_rank: saved_policy.max_numerator_rank,
+            finite_case_policy: saved_policy.finite_case_policy,
+        },
+    })
+}
+
+fn load_owner_programs<const N: usize>(
+    inputs: &[CandidateOwnerBundle<'_>],
+    preferences: &[CandidateOwnerBundle<'_>],
+    rule_subsets: &BTreeMap<[bool; N], &[usize]>,
+    limits: CandidateOwnerLoadLimits,
+    reduction_limits: ReductionLimits,
+) -> Result<(Arc<IntegralFamily>, CandidateOwnerPrograms<N>), AppError> {
+    let OwnerAdmission {
+        descriptors,
+        scope,
+        zero_masks,
+    } = admit_owner_inputs(inputs, preferences, limits)?;
+    let count = descriptors.len();
 
     // Only now may any native state be imported. Every borrowed input is
     // immutable for this call, so the preflight and import inspect identical
@@ -246,16 +273,8 @@ fn load_owner_programs<const N: usize>(
     let family = Arc::new(super::reconstruct_family::<N>(&first, limits.bundle)?);
     let proofs = zero_proofs::<N>(&family, &zero_masks)?;
     let context = Arc::new(
-        CandidateOwnerContext::try_new(
-            Arc::clone(&family),
-            CandidateOwnerScope {
-                max_numerator_rank: saved_policy.max_numerator_rank,
-                finite_case_policy: saved_policy.finite_case_policy,
-            },
-            proofs,
-            reduction_limits,
-        )
-        .map_err(|error| AppError::execution(error.to_string()))?,
+        CandidateOwnerContext::try_new(Arc::clone(&family), scope, proofs, reduction_limits)
+            .map_err(|error| AppError::execution(error.to_string()))?,
     );
     let mut decoded = Vec::new();
     decoded
@@ -340,7 +359,7 @@ fn needed_zero_masks<const N: usize>(
     Ok(masks)
 }
 
-fn zero_proofs<const N: usize>(
+pub(super) fn zero_proofs<const N: usize>(
     family: &IntegralFamily,
     masks: &BTreeSet<usize>,
 ) -> Result<Vec<zero::Certificate>, AppError> {

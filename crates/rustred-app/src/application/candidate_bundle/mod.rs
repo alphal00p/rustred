@@ -13,6 +13,7 @@ mod domain_overlay;
 mod generate;
 mod inspection;
 mod load;
+pub(crate) use load::{DeferredOwnerOverlay, prepare_deferred_candidate_owners};
 mod model;
 mod normalization;
 pub use normalization::{CandidateTerminalNormalization, CandidateTerminalNormalizationLimits};

@@ -93,6 +93,7 @@ pub fn prepare_saved_application<const N: usize>(
     options: SavedApplicationOptions,
 ) -> Result<PreparedSavedApplication<N>, AppError> {
     let started = std::time::Instant::now();
+    options.validate_preparation()?;
     let manifest = publication_manifest(publication);
     let bytes = read_bounded(&manifest, MAX_METADATA)?;
     let report: Value = serde_json::from_slice(&bytes).map_err(failure)?;
@@ -169,15 +170,15 @@ pub fn export_saved_application<const N: usize>(
     prepare_saved_application::<N>(publication, options)?.export_runtime(destination)
 }
 
-/// Load application-only data. Owners and their formula coefficients are
-/// currently imported and prepared eagerly in one shared native context.
-/// Verified routes and prepared owners are reused by subsequent applications;
-/// deferred per-owner preparation is not implemented by this loader.
+/// Authenticate application-only data once and retain frozen native frames.
+/// Owner presence, geometry/context, zero certificates and routes are eager;
+/// each owner's formulas and overlays are admitted/prepared once on first use.
 pub fn load_saved_application<const N: usize>(
     directory: &Path,
     options: SavedApplicationOptions,
 ) -> Result<PreparedSavedApplication<N>, AppError> {
     let started = std::time::Instant::now();
+    options.validate_preparation()?;
     let manifest = if directory.is_dir() {
         directory.join("application.json")
     } else {
@@ -218,7 +219,7 @@ pub fn load_saved_application<const N: usize>(
     }
     drop(maps);
     let terminal_time = terminal_started.elapsed();
-    let mut prepared = PreparedSavedApplication::from_parts(
+    let mut prepared = PreparedSavedApplication::from_parts_deferred(
         ApplicationInputs {
             selection,
             queries,

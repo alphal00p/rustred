@@ -1,5 +1,10 @@
 //! Immutable, same-family candidate programs; not closure certificates.
+mod deferred;
 mod domains;
+pub use deferred::{
+    DeferredCandidateOwnerDescriptor, DeferredCandidateOwnerLoader, DeferredCandidateOwnerPrograms,
+    DeferredCandidateOwnerStatistics,
+};
 mod evaluation;
 pub use domains::{
     OwnerAppliedCellRefinement, OwnerAppliedError, OwnerAppliedEvent, OwnerAppliedFailure,
@@ -17,6 +22,7 @@ mod feedback;
 mod identities;
 mod model;
 pub use factor_census::{FactorCensusLimits, FactorCensusRole, OwnerFactorCensus};
+pub(in crate::solver::candidate_reduction) use model::PreparedOwner;
 mod preferred;
 mod prepare;
 pub(in crate::solver::candidate_reduction) use evaluation::OwnerStep;

@@ -2,7 +2,10 @@
 //! These records carry no replay, descent, terminal or coverage authority.
 
 use rustred::algebra::{Coefficient, CoefficientPolynomial};
-use rustred::persistence::{CoefficientId, CoefficientTableBuilder, DecodedCoefficientTable};
+use rustred::persistence::{
+    BinaryIoError, CoefficientId, CoefficientTableBuilder, DecodedCoefficientTable,
+    LazyDecodedCoefficientTable,
+};
 use rustred::solver::{
     AffineCase, AffineIntersection, Case, CoordinateCase, ExceptionalConditions, RuleCandidate,
     SearchStats, SectorRule, Seed, SeedSource, Term,
@@ -15,6 +18,37 @@ use super::{
     validate_integral,
 };
 use crate::AppError;
+
+/// Local decoder seam: both stores use the existing native Symbolica codec.
+/// Rule reconstruction owns its output; no lazy reference escapes admission.
+pub(in crate::application::candidate_bundle) trait NativeCoefficientSource {
+    fn coefficient_count(&self) -> usize;
+    fn coefficient_owned(&self, id: CoefficientId) -> Result<Coefficient, BinaryIoError>;
+}
+impl NativeCoefficientSource for DecodedCoefficientTable {
+    fn coefficient_count(&self) -> usize {
+        self.len()
+    }
+    fn coefficient_owned(&self, id: CoefficientId) -> Result<Coefficient, BinaryIoError> {
+        self.coefficient(id).cloned()
+    }
+}
+impl NativeCoefficientSource for LazyDecodedCoefficientTable {
+    fn coefficient_count(&self) -> usize {
+        self.len()
+    }
+    fn coefficient_owned(&self, id: CoefficientId) -> Result<Coefficient, BinaryIoError> {
+        Ok(self.coefficient(id)?.as_ref().clone())
+    }
+}
+impl<T: NativeCoefficientSource> NativeCoefficientSource for std::sync::Arc<T> {
+    fn coefficient_count(&self) -> usize {
+        self.as_ref().coefficient_count()
+    }
+    fn coefficient_owned(&self, id: CoefficientId) -> Result<Coefficient, BinaryIoError> {
+        self.as_ref().coefficient_owned(id)
+    }
+}
 
 pub(in crate::application::candidate_bundle) fn case_record<const N: usize>(
     case: &Case<N>,
@@ -157,7 +191,7 @@ pub(in crate::application::candidate_bundle) fn validate_rule_ids(
 
 pub(in crate::application::candidate_bundle) fn restore_case<const N: usize>(
     record: &CaseRecord,
-    table: &DecodedCoefficientTable,
+    table: &impl NativeCoefficientSource,
     variables: &[PolyVariable],
     indices: &[usize; N],
     sector: &[bool; N],
@@ -191,7 +225,7 @@ pub(in crate::application::candidate_bundle) fn restore_case<const N: usize>(
 
 pub(in crate::application::candidate_bundle) fn restore_rule<const N: usize>(
     record: &RuleRecord,
-    table: &DecodedCoefficientTable,
+    table: &impl NativeCoefficientSource,
     variables: &[PolyVariable],
     indices: &[usize; N],
     sector: &[bool; N],
@@ -200,7 +234,7 @@ pub(in crate::application::candidate_bundle) fn restore_rule<const N: usize>(
     if !rustred::fits_storage(record.target.values.len(), N) {
         return Err(AppError::input("candidate rule exceeds storage capacity"));
     }
-    validate_rule_ids(record, table.len())?;
+    validate_rule_ids(record, table.coefficient_count())?;
     let mut padded_case = record.case.clone();
     for axis in record.target.values.len()..N {
         padded_case.fixed_axes.push(axis);
@@ -219,7 +253,7 @@ pub(in crate::application::candidate_bundle) fn restore_rule<const N: usize>(
         .map(|term| {
             Ok(Term {
                 integral: integral(&term.integral)?,
-                coefficient: coefficient(table, variables, term.coefficient)?.clone(),
+                coefficient: coefficient(table, variables, term.coefficient)?,
             })
         })
         .collect::<Result<_, AppError>>()?;
@@ -261,12 +295,12 @@ pub(in crate::application::candidate_bundle) fn restore_rule<const N: usize>(
 }
 
 fn coefficient(
-    table: &DecodedCoefficientTable,
+    table: &impl NativeCoefficientSource,
     variables: &[PolyVariable],
     id: u32,
 ) -> Result<Coefficient, AppError> {
     let id = CoefficientId::try_from_index(id as usize).map_err(binary_error)?;
-    let value = table.coefficient(id).map_err(binary_error)?;
+    let value = table.coefficient_owned(id).map_err(binary_error)?;
     let physical_variables = value.get_variables().as_slice();
     if physical_variables != variables
         && (!cfg!(feature = "capacity-dispatch")
@@ -280,7 +314,7 @@ fn coefficient(
         ));
     }
     if value.get_variables().as_slice() == variables {
-        Ok(value.clone())
+        Ok(value)
     } else {
         let numerator = value
             .numerator
@@ -301,7 +335,7 @@ fn coefficient(
 }
 
 fn polynomial(
-    table: &DecodedCoefficientTable,
+    table: &impl NativeCoefficientSource,
     variables: &[PolyVariable],
     id: u32,
 ) -> Result<CoefficientPolynomial, AppError> {
@@ -309,5 +343,5 @@ fn polynomial(
     if !value.denominator.is_one() {
         return Err(AppError::input("candidate equation is not a polynomial"));
     }
-    Ok(value.numerator.clone())
+    Ok(value.numerator)
 }

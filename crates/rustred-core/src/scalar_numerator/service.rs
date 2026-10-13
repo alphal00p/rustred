@@ -9,7 +9,9 @@ use crate::foundry::artifact::{ClosedArtifact, CommonMassHomogeneityProof};
 use super::error::{
     ScalarNumeratorError, ScalarProductHeadViolation, check_limit, checked_add, checked_mul,
 };
-use super::model::{ScalarNumeratorLimits, ScalarNumeratorLowering};
+use super::model::{
+    ScalarNumeratorLimits, ScalarNumeratorLowering, WeightedScalarNumeratorLowering,
+};
 use super::syntax::{census_atom, contains_head};
 
 /// Artifact-bound lowering service for scalarized common-mass vacuum numerators.
@@ -125,6 +127,43 @@ impl<'family> FamilyScalarNumeratorService<'family> {
     ) -> Result<ScalarNumeratorLowering, ScalarNumeratorError> {
         self.prepared
             .lower_impl(self.family, numerator, base_integral, |_| Ok(()))
+    }
+
+    /// Coalesce complete physical prefactors across all scalar monomials
+    /// before the caller applies any entry-domain policy. The returned terms
+    /// multiply `I_key(m²)`; additional mass powers are already in spectators.
+    /// All original visible poles remain nonzero conditions, including when
+    /// their weighted integral contribution cancels exactly to zero.
+    pub fn lower_weighted(
+        &self,
+        numerator: &Atom,
+        base_integral: &IntegralKey,
+        common_mass_squared: &Atom,
+    ) -> Result<WeightedScalarNumeratorLowering, ScalarNumeratorError> {
+        super::weighted::lower_weighted(
+            &self.prepared,
+            self.family,
+            numerator,
+            base_integral,
+            common_mass_squared,
+        )
+    }
+
+    pub(crate) fn lower_weighted_in_request(
+        &self,
+        numerator: &Atom,
+        base_integral: &IntegralKey,
+        common_mass_squared: &Atom,
+        work: &mut super::WeightedScalarWork,
+    ) -> Result<WeightedScalarNumeratorLowering, ScalarNumeratorError> {
+        super::weighted::lower_weighted_in_request(
+            &self.prepared,
+            self.family,
+            numerator,
+            base_integral,
+            common_mass_squared,
+            work,
+        )
     }
 }
 

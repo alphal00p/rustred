@@ -166,7 +166,7 @@ impl TerminalProducts {
     }
 }
 
-fn merge_work(
+pub(super) fn merge_work(
     total: &mut VacuumProductStatistics,
     next: &VacuumProductStatistics,
 ) -> Result<(), AppError> {
@@ -185,7 +185,7 @@ fn merge_work(
     }
     Ok(())
 }
-fn check_count(name: &str, count: usize, limit: usize) -> Result<(), AppError> {
+pub(super) fn check_count(name: &str, count: usize, limit: usize) -> Result<(), AppError> {
     if count > limit {
         Err(AppError::limit(format!(
             "{name} requires {count}; limit {limit}"

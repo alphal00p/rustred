@@ -12,9 +12,14 @@ mod lowering;
 mod model;
 mod service;
 mod syntax;
+mod weighted;
+pub(crate) use weighted::bounds::Work as WeightedScalarWork;
 
 pub use error::{ScalarNumeratorError, ScalarProductHeadViolation};
-pub use model::{LoweredScalarNumeratorTerm, ScalarNumeratorLimits, ScalarNumeratorLowering};
+pub use model::{
+    LoweredScalarNumeratorTerm, ScalarNumeratorLimits, ScalarNumeratorLowering,
+    WeightedScalarNumeratorLowering,
+};
 pub use service::{FamilyScalarNumeratorService, ScalarNumeratorService};
 
 #[cfg(test)]

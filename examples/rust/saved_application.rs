@@ -15,6 +15,7 @@
 //! CACHE_REPRESENTATION is sparse (default) or factorized (Symbolica-native).
 //! LIMITS_JSON optionally overrides named operational work/cardinality limits;
 //! it never changes admission or the mathematical rank/power scope.
+//! `preparation_workers` in that object controls only native route preparation.
 //! A failed request is recorded and its partial memoization cleared, so one
 //! exhausted cache cannot manufacture failures for all later inventory cases.
 use std::collections::BTreeMap;
@@ -205,6 +206,7 @@ fn suite<const N: usize>(args: &[String], arity: usize) -> Result<()> {
         "cache_max_bytes":options.reduction_limits.max_cached_coefficient_bytes,
         "cache_representation":format!("{:?}",options.cache_representation),
         "operational_options":format!("{:?}",options),
+        "owner_preparation":owner_preparation_json(&prepared),
         "preparation_seconds": {
             "total":preparation.total.as_secs_f64(),
             "metadata":preparation.metadata.as_secs_f64(),
@@ -235,6 +237,7 @@ fn suite<const N: usize>(args: &[String], arity: usize) -> Result<()> {
                     json!({"event":"failed", "case":row,
                     "seconds":first_started.elapsed().as_secs_f64(), "error":error.to_string(),
                     "cache_before_clear":format!("{:?}",prepared.cache_statistics()),
+                    "owner_preparation":owner_preparation_json(&prepared),
                     "cache_cleared_after_failure":true})
                 );
                 prepared.clear_cache()?;
@@ -262,6 +265,7 @@ fn suite<const N: usize>(args: &[String], arity: usize) -> Result<()> {
             "cache_mode":cache_mode, "first_is_fresh_process":false,
             "terminal_substitution_additions":first.terminal_substitution_additions(),
             "first_work":format!("{:?}",first.statistics()),
+            "owner_preparation":owner_preparation_json(&prepared),
             "cache":format!("{:?}",prepared.cache_statistics()),"warm_exact_equal":true,"warm":warm})
         );
     }
@@ -274,4 +278,14 @@ fn suite<const N: usize>(args: &[String], arity: usize) -> Result<()> {
         return Err(format!("{failures} admitted witness reductions failed").into());
     }
     Ok(())
+}
+
+fn owner_preparation_json<const N: usize>(
+    prepared: &rustred_app::PreparedSavedApplication<N>,
+) -> Value {
+    let stats = prepared.owner_preparation_statistics();
+    json!({"declared_owners":stats.declared_owners,
+        "prepared_owners":stats.prepared_owners,"failed_owners":stats.failed_owners,
+        "preparation_attempts":stats.preparation_attempts,
+        "cumulative_seconds":stats.preparation_time.as_secs_f64()})
 }

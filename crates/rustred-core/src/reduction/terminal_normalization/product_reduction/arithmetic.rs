@@ -34,19 +34,33 @@ pub(super) struct Conditions {
     seen: HashSet<Coefficient>,
 }
 impl Conditions {
+    pub(super) fn values(&self) -> &[Coefficient] {
+        &self.values
+    }
     pub fn extend(
         &mut self,
         context: &CoefficientContext,
         values: impl IntoIterator<Item = Coefficient>,
         limits: VacuumProductReductionLimits,
     ) -> Result<(), Error> {
+        self.extend_with_admission(context, values, limits, |_, _| Ok(()))
+    }
+    pub(super) fn extend_with_admission(
+        &mut self,
+        context: &CoefficientContext,
+        values: impl IntoIterator<Item = Coefficient>,
+        limits: VacuumProductReductionLimits,
+        mut admit: impl FnMut(&[Coefficient], &Coefficient) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         for value in values {
             context.validate_with_limits(&value, limits.reduction.exact_algebra)?;
             if value.is_zero() {
                 return Err(Error::InvalidInput("a nonzero condition vanished".into()));
             }
-            self.denominator(context, &value, limits)?;
-            self.insert(value, limits)?;
+            if !value.denominator.is_constant() {
+                self.insert_with_admission(value.denominator.clone().into(), limits, &mut admit)?;
+            }
+            self.insert_with_admission(value, limits, &mut admit)?;
         }
         Ok(())
     }
@@ -67,6 +81,14 @@ impl Conditions {
         value: Coefficient,
         limits: VacuumProductReductionLimits,
     ) -> Result<(), Error> {
+        self.insert_with_admission(value, limits, &mut |_, _| Ok(()))
+    }
+    fn insert_with_admission(
+        &mut self,
+        value: Coefficient,
+        limits: VacuumProductReductionLimits,
+        admit: &mut impl FnMut(&[Coefficient], &Coefficient) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         if !self.seen.contains(&value) {
             let mut count = self.values.len();
             charge(
@@ -75,6 +97,7 @@ impl Conditions {
                 limits.max_nonzero_conditions,
                 "nonzero conditions",
             )?;
+            admit(&self.values, &value)?;
             self.seen.insert(value.clone());
             self.values.push(value);
         }
@@ -94,6 +117,28 @@ pub(super) fn accumulate<K: Ord>(
     request: &mut ReductionRequest,
     stats: &mut VacuumProductReductionStatistics,
 ) -> Result<(), Error> {
+    accumulate_with_admission(
+        context,
+        output,
+        product,
+        coefficient,
+        limits,
+        request,
+        stats,
+        |_, _| Ok(()),
+    )
+}
+
+pub(super) fn accumulate_with_admission<K: Ord>(
+    context: &CoefficientContext,
+    output: &mut BTreeMap<K, Coefficient>,
+    product: K,
+    coefficient: Coefficient,
+    limits: VacuumProductReductionLimits,
+    request: &mut ReductionRequest,
+    stats: &mut VacuumProductReductionStatistics,
+    mut admit: impl FnMut(Option<&Coefficient>, &Coefficient) -> Result<(), Error>,
+) -> Result<(), Error> {
     if coefficient.is_zero() {
         return Ok(());
     }
@@ -105,10 +150,12 @@ pub(super) fn accumulate<K: Ord>(
             if sum.is_zero() {
                 entry.remove();
             } else {
+                admit(Some(entry.get()), &sum)?;
                 *entry.get_mut() = sum;
             }
         }
         Entry::Vacant(entry) => {
+            admit(None, &coefficient)?;
             entry.insert(coefficient);
         }
     }

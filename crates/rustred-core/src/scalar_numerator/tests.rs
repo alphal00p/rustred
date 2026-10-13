@@ -13,6 +13,7 @@ use crate::reduction::Reducer;
 use super::*;
 
 mod scoped;
+mod weighted;
 
 fn symbol(name: &str) -> Symbol {
     SymbolBuilder::new(

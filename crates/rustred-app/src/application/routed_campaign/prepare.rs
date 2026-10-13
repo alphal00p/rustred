@@ -53,15 +53,23 @@ pub(in crate::application) fn prepare_with_fingerprints<const N: usize>(
     )
 }
 
-pub(in crate::application) fn prepare_with_reader<const N: usize>(
+struct SelectedPayloads {
+    bytes: Vec<Vec<u8>>,
+    masks: Vec<rustred::sector::Mask>,
+    overlay_payloads: Vec<overlays::Payload>,
+    preferred_payloads: Vec<preferences::Payload>,
+    owner_digests: Vec<[u8; 32]>,
+}
+
+fn read_selected_payloads<const N: usize>(
     request: &RoutedCampaignRequest,
     selection: &Selection,
-    limits: CandidateOwnerLoadLimits,
+    _limits: CandidateOwnerLoadLimits,
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
     mut fingerprints: Option<&mut dyn FnMut(Vec<String>) -> Result<(), String>>,
     reader: &mut dyn FnMut(&Path, u64) -> Result<Vec<u8>, AppError>,
-) -> Result<Option<RoutedCandidateReducer<N>>, AppError> {
+) -> Result<Option<SelectedPayloads>, AppError> {
     let mut bytes = Vec::new();
     let mut masks = Vec::new();
     for (ordinal, owner) in selection.owners.iter().enumerate() {
@@ -114,6 +122,42 @@ pub(in crate::application) fn prepare_with_reader<const N: usize>(
     if cancellation.load(Ordering::Relaxed) {
         return Ok(None);
     }
+    Ok(Some(SelectedPayloads {
+        bytes,
+        masks,
+        overlay_payloads,
+        preferred_payloads,
+        owner_digests,
+    }))
+}
+
+pub(in crate::application) fn prepare_with_reader<const N: usize>(
+    request: &RoutedCampaignRequest,
+    selection: &Selection,
+    limits: CandidateOwnerLoadLimits,
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
+    fingerprints: Option<&mut dyn FnMut(Vec<String>) -> Result<(), String>>,
+    reader: &mut dyn FnMut(&Path, u64) -> Result<Vec<u8>, AppError>,
+) -> Result<Option<RoutedCandidateReducer<N>>, AppError> {
+    let Some(SelectedPayloads {
+        bytes,
+        masks,
+        overlay_payloads,
+        preferred_payloads,
+        owner_digests,
+    }) = read_selected_payloads::<N>(
+        request,
+        selection,
+        limits,
+        cancellation,
+        observer,
+        fingerprints,
+        reader,
+    )?
+    else {
+        return Ok(None);
+    };
     let inputs = bytes
         .iter()
         .zip(&masks)
@@ -249,6 +293,122 @@ pub(in crate::application) fn prepare_with_reader<const N: usize>(
     RoutedCandidateReducer::try_new(programs, routes, request.trace_limits)
         .map(Some)
         .map_err(|e| AppError::input(format!("routed programs: {e:?}")))
+}
+
+/// Runtime-only path: all immutable bytes are authenticated now, while owner
+/// formulas are admitted and prepared once when the application requests them.
+pub(in crate::application) fn prepare_deferred_with_reader<const N: usize>(
+    family: Arc<rustred::family::IntegralFamily>,
+    request: &RoutedCampaignRequest,
+    selection: &Selection,
+    limits: CandidateOwnerLoadLimits,
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
+    fingerprints: Option<&mut dyn FnMut(Vec<String>) -> Result<(), String>>,
+    reader: &mut dyn FnMut(&Path, u64) -> Result<Vec<u8>, AppError>,
+) -> Result<Option<rustred::solver::RoutedCandidateApplication<N>>, AppError> {
+    let Some(SelectedPayloads {
+        bytes,
+        masks,
+        overlay_payloads,
+        preferred_payloads,
+        owner_digests,
+    }) = read_selected_payloads::<N>(
+        request,
+        selection,
+        limits,
+        cancellation,
+        observer,
+        fingerprints,
+        reader,
+    )?
+    else {
+        return Ok(None);
+    };
+    if family.fingerprint() != selection.family_fingerprint || family.external_count() != 0 {
+        return Err(AppError::input(
+            "deferred shared family differs from vacuum owner selection",
+        ));
+    }
+    let inputs = bytes
+        .iter()
+        .zip(&masks)
+        .map(|(bytes, owner_sector)| CandidateOwnerBundle {
+            bytes,
+            owner_sector,
+        })
+        .collect::<Vec<_>>();
+    let preferences = preferred_payloads
+        .iter()
+        .map(|payload| CandidateOwnerBundle {
+            bytes: &payload.bytes,
+            owner_sector: &payload.owner,
+        })
+        .collect::<Vec<_>>();
+    let subsets = selection
+        .preferred_owner_programs
+        .iter()
+        .filter_map(|record| {
+            record.rule_ordinals.as_deref().map(|ordinals| {
+                let bits = record.owner_mask.as_bytes();
+                (
+                    std::array::from_fn(|axis| bits.get(axis) == Some(&b'1')),
+                    ordinals,
+                )
+            })
+        })
+        .collect();
+    let overlays = overlay_payloads
+        .iter()
+        .map(|payload| {
+            let bits = selection.owners[payload.owner_ordinal].mask.as_bytes();
+            crate::application::candidate_bundle::DeferredOwnerOverlay {
+                bytes: payload.bytes.as_slice(),
+                owner: std::array::from_fn(|axis| bits.get(axis) == Some(&b'1')),
+                baseline_digest: owner_digests[payload.owner_ordinal],
+            }
+        })
+        .collect::<Vec<_>>();
+    let programs = crate::application::candidate_bundle::prepare_deferred_candidate_owners::<N>(
+        family.clone(),
+        &inputs,
+        &preferences,
+        &subsets,
+        &overlays,
+        limits,
+        request.reduction_limits,
+    )?;
+    observer(
+        json!({"event":"loaded", "owners":programs.owner_count(),"saved_terminals":programs.terminal_count(),
+        "family_fingerprint":family.fingerprint(),"owner_preparation":"deferred","prepared_owners":0}),
+    );
+    drop(inputs);
+    drop(preferences);
+    drop(overlays);
+    drop(bytes);
+    drop(preferred_payloads);
+    drop(overlay_payloads);
+    let Some(routes) = routes::prepare::<N>(
+        &family,
+        &selection.initial_frontier_routes,
+        request.workers,
+        cancellation,
+        observer,
+    )?
+    else {
+        return Ok(None);
+    };
+    observer(json!({"event":"routes_verified", "routes":routes.len()}));
+    if cancellation.load(Ordering::Relaxed) {
+        return Ok(None);
+    }
+    rustred::solver::RoutedCandidateApplication::try_new_deferred(
+        Arc::new(programs),
+        routes,
+        request.trace_limits,
+    )
+    .map(Some)
+    .map_err(|error| AppError::input(format!("deferred routed programs: {error}")))
 }
 
 fn read_payload(path: &Path, bytes: u64) -> Result<Vec<u8>, AppError> {

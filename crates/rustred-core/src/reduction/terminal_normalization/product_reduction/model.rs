@@ -60,6 +60,11 @@ pub trait VacuumFactorProvider {
 pub struct VacuumProductReductionLimits {
     pub reduction: ReductionLimits,
     pub products: VacuumProductLimits,
+    /// Existing exact native sector-zero analysis, performed before providers.
+    pub zero: crate::sector::zero::Limits,
+    /// New family/support decisions per reduction request. Cached decisions
+    /// consume shared cache slots but no further native analysis allowance.
+    pub max_zero_analyses: usize,
     pub max_input_products: usize,
     pub max_factors_per_product: usize,
     pub max_provider_calls: usize,
@@ -71,6 +76,8 @@ impl Default for VacuumProductReductionLimits {
         Self {
             reduction: Default::default(),
             products: Default::default(),
+            zero: Default::default(),
+            max_zero_analyses: 100_000,
             max_input_products: 100_000,
             max_factors_per_product: 1024,
             max_provider_calls: 100_000,
@@ -91,11 +98,16 @@ pub struct VacuumProductReductionStatistics {
     pub product_terminals: usize,
     pub basis_candidates: usize,
     pub canonical_candidates: usize,
+    pub zero_analyses: usize,
+    pub zero_cache_hits: usize,
+    pub proved_zero_factors: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct VacuumProductCacheStatistics {
     pub cached_factors: usize,
+    /// Shares `reduction.max_cached_integrals` with `cached_factors`.
+    pub cached_zero_supports: usize,
     pub coefficient_terms: usize,
     pub coefficient_bytes: usize,
     pub families: usize,
@@ -134,6 +146,11 @@ pub(super) struct CacheEntry {
     pub conditions: Vec<Coefficient>,
 }
 
+pub(super) enum ZeroSupport {
+    Inconclusive,
+    ProvedZero(Arc<Vec<Coefficient>>),
+}
+
 /// One immutable provider identity and its exact qualified-factor cache.
 pub struct VacuumProductReducer<P> {
     pub(super) provider: P,
@@ -142,6 +159,7 @@ pub struct VacuumProductReducer<P> {
     pub(super) limits: VacuumProductReductionLimits,
     pub(super) families: BTreeMap<String, Arc<IntegralFamily>>,
     pub(super) cache: BTreeMap<VacuumIntegralKey, Arc<CacheEntry>>,
+    pub(super) zero_supports: BTreeMap<(String, crate::sector::Mask), ZeroSupport>,
     pub(super) cache_weight: CacheWeight,
     pub(super) cache_budget: SharedCacheBudget,
 }
@@ -156,6 +174,7 @@ pub enum VacuumProductReductionError {
     },
     Reduction(ReductionError),
     Product(VacuumProductError),
+    Zero(crate::sector::zero::Error),
     ResourceLimit {
         resource: &'static str,
         requested: usize,
@@ -170,6 +189,11 @@ impl From<ReductionError> for VacuumProductReductionError {
 impl From<VacuumProductError> for VacuumProductReductionError {
     fn from(error: VacuumProductError) -> Self {
         Self::Product(error)
+    }
+}
+impl From<crate::sector::zero::Error> for VacuumProductReductionError {
+    fn from(error: crate::sector::zero::Error) -> Self {
+        Self::Zero(error)
     }
 }
 impl From<crate::algebra::ExactAlgebraError> for VacuumProductReductionError {
@@ -190,6 +214,7 @@ impl fmt::Display for VacuumProductReductionError {
             ),
             Self::Reduction(error) => error.fmt(f),
             Self::Product(error) => error.fmt(f),
+            Self::Zero(error) => error.fmt(f),
             Self::ResourceLimit {
                 resource,
                 requested,

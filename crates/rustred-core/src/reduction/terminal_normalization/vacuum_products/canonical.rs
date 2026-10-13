@@ -1,5 +1,5 @@
 //! Bounded canonical momentum charts and complete lower-family construction.
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::{
@@ -17,7 +17,14 @@ use symbolica::prelude::Integer;
 pub(super) struct CanonicalFactor {
     pub family: Arc<IntegralFamily>,
     /// Original parent slots in canonical lower-family active-slot order.
-    pub alignments: BTreeSet<Vec<usize>>,
+    /// Each alignment retains its exact old-block to canonical-loop map.
+    pub alignments: BTreeMap<Vec<usize>, Vec<Vec<Coefficient>>>,
+}
+
+pub(super) struct MomentumChart {
+    pub rows: Vec<Vec<Coefficient>>,
+    /// Old loop coordinates in the new momentum basis.
+    pub inverse: Vec<Vec<Coefficient>>,
 }
 
 /// Enumerate combinations without retaining the combinatorial search space.
@@ -54,7 +61,7 @@ pub(super) fn unimodular_transform(
     family: &IntegralFamily,
     rows: &[Vec<Coefficient>],
     selection: &[usize],
-) -> Result<Option<Vec<Vec<Coefficient>>>, Error> {
+) -> Result<Option<MomentumChart>, Error> {
     let context = family.coefficient_context();
     let limits = symbolica_matrix_limits(family.construction_limits());
     let basis = selection
@@ -81,7 +88,10 @@ pub(super) fn unimodular_transform(
             "momentum transformation failed exact replay".into(),
         ));
     }
-    Ok(Some(transformed))
+    Ok(Some(MomentumChart {
+        rows: transformed,
+        inverse,
+    }))
 }
 
 pub(super) fn canonical_factor(
@@ -96,7 +106,7 @@ pub(super) fn canonical_factor(
         return Err(Error::InvalidInput("empty momentum block".into()));
     }
     let mut best: Option<Vec<Vec<Integer>>> = None;
-    let mut alignments = BTreeSet::new();
+    let mut alignments = BTreeMap::new();
     combinations(rows.len(), loops, &mut |selection| {
         charge(
             &mut stats.basis_candidates,
@@ -107,6 +117,7 @@ pub(super) fn canonical_factor(
             return Ok(true);
         };
         let integral = transformed
+            .rows
             .iter()
             .map(|row| {
                 row.iter()
@@ -164,14 +175,49 @@ pub(super) fn canonical_factor(
                     .iter()
                     .map(|(row, _)| row.clone())
                     .collect::<Vec<_>>();
+                let alignment = proposed.iter().map(|(_, slot)| *slot).collect::<Vec<_>>();
+                let keep = best.as_ref().is_none_or(|best| momenta <= *best);
+                let transport = if keep {
+                    Some(
+                        transformed
+                            .inverse
+                            .iter()
+                            .map(|row| {
+                                permutation
+                                    .iter()
+                                    .zip(&signs)
+                                    .map(|(&axis, &negative)| {
+                                        if negative {
+                                            family
+                                                .coefficient_context()
+                                                .try_neg(
+                                                    &row[axis],
+                                                    family.construction_limits().exact_algebra,
+                                                )
+                                                .map_err(algebra)
+                                        } else {
+                                            Ok(row[axis].clone())
+                                        }
+                                    })
+                                    .collect::<Result<Vec<_>, Error>>()
+                            })
+                            .collect::<Result<Vec<_>, Error>>()?,
+                    )
+                } else {
+                    None
+                };
                 match best.as_ref().map(|best| momenta.cmp(best)) {
                     None | Some(std::cmp::Ordering::Less) => {
                         best = Some(momenta);
                         alignments.clear();
-                        alignments.insert(proposed.iter().map(|(_, slot)| *slot).collect());
+                        alignments.insert(alignment, transport.expect("retained minimum"));
                     }
                     Some(std::cmp::Ordering::Equal) => {
-                        alignments.insert(proposed.iter().map(|(_, slot)| *slot).collect());
+                        // First witness wins: the bounded enumeration order is
+                        // deterministic even when momentum reversals coincide.
+                        alignments
+                            .entry(alignment)
+                            .or_insert_with(|| transport.expect("retained equal chart"));
                     }
                     Some(std::cmp::Ordering::Greater) => {}
                 }

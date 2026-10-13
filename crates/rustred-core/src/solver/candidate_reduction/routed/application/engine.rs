@@ -184,7 +184,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         admission: CandidateEntryAdmission<'_, N>,
         request: &mut Request<N>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        let context = self.reducer.programs.context.clone();
+        let context = self.context.clone();
         let coefficients = context.shared.context.base();
         let limits = context.limits;
         let mut entries = BTreeMap::new();
@@ -226,7 +226,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         request: &mut Request<N>,
         count_inputs: bool,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        let context = self.reducer.programs.context.clone();
+        let context = self.context.clone();
         let shared = &context.shared;
         let limits = context.limits;
         let base = CandidateEvaluator {
@@ -247,7 +247,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 charge(
                     &mut request.stats.input_terms,
                     1,
-                    self.reducer.limits.max_input_targets,
+                    self.limits.max_input_targets,
                     "input terms",
                 )?;
             }
@@ -264,13 +264,13 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 charge(
                     &mut size,
                     entries.len(),
-                    self.reducer.limits.max_unique_nodes,
+                    self.limits.max_unique_nodes,
                     "initial operational nodes",
                 )?;
                 charge(
                     &mut size,
                     1,
-                    self.reducer.limits.max_unique_nodes,
+                    self.limits.max_unique_nodes,
                     "initial operational nodes",
                 )?;
             }
@@ -319,7 +319,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         charge(
             &mut request.stats.operational_nodes,
             request.seen.len(),
-            self.reducer.limits.max_unique_nodes,
+            self.limits.max_unique_nodes,
             "operational nodes",
         )?;
         Ok(CandidateRoutedReduction {
@@ -331,7 +331,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
     }
 
     fn run_stack(&mut self, request: &mut Request<N>) -> Result<(), CandidateRoutedError> {
-        let context = self.reducer.programs.context.clone();
+        let context = self.context.clone();
         let shared = &context.shared;
         let limits = context.limits;
         let coefficients = shared.context.base();
@@ -391,13 +391,13 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 charge(
                     &mut size,
                     request.seen.len(),
-                    self.reducer.limits.max_unique_nodes,
+                    self.limits.max_unique_nodes,
                     "operational nodes",
                 )?;
                 charge(
                     &mut size,
                     1,
-                    self.reducer.limits.max_unique_nodes,
+                    self.limits.max_unique_nodes,
                     "operational nodes",
                 )?;
                 request.seen.insert(node.clone());
@@ -419,21 +419,21 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             let parent_support = support::<N>(key);
             let terms = match &node {
                 Node::Route(_) => {
-                    if self.reducer.programs.owners.contains_key(&parent_support) {
+                    if self.owners.contains(&parent_support) {
                         BTreeMap::from([(
                             Node::Apply(parent_support, key.clone()),
                             coefficients.one(),
                         )])
-                    } else if let Some(route) = self.reducer.routes.get(&parent_support) {
+                    } else if let Some(route) = self.routes.get(&parent_support) {
                         charge(
                             &mut request.stats.transport_calls,
                             1,
-                            self.reducer.limits.max_transport_calls,
+                            self.limits.max_transport_calls,
                             "transport calls",
                         )?;
                         let mapped = route.transport.transport_with_usage(
                             key,
-                            self.reducer.limits.expansion,
+                            self.limits.expansion,
                             |usage| {
                                 let operations = request
                                     .stats
@@ -453,12 +453,12 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                                     (
                                         "aggregate routed operations",
                                         operations,
-                                        self.reducer.limits.max_transport_operations,
+                                        self.limits.max_transport_operations,
                                     ),
                                     (
                                         "aggregate routed endpoints",
                                         endpoints,
-                                        self.reducer.limits.max_transport_endpoints,
+                                        self.limits.max_transport_endpoints,
                                     ),
                                 ] {
                                     if requested > limit {
@@ -502,16 +502,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                             "apply node does not belong to its owner support".into(),
                         ));
                     }
-                    let owner =
-                        self.reducer
-                            .programs
-                            .owners
-                            .get(owner_sector)
-                            .ok_or_else(|| {
-                                CandidateRoutedError::InvalidInput(
-                                    "admitted owner disappeared".into(),
-                                )
-                            })?;
+                    let owner = self.owners.owner(owner_sector)?.ok_or_else(|| {
+                        CandidateRoutedError::InvalidInput("admitted owner disappeared".into())
+                    })?;
                     let result = if owner.batches[0].terminals.contains(key) {
                         OwnerStep::Terminal
                     } else {
@@ -593,7 +586,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         terms: BTreeMap<IntegralKey, Coefficient>,
         conditions: Vec<Coefficient>,
     ) -> Result<(), CandidateRoutedError> {
-        let context = &self.reducer.programs.context;
+        let context = &self.context;
         let terms = CachedTerms::from_sparse(
             terms,
             self.cache_representation,
@@ -626,7 +619,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             previous_weight,
             1,
             weight,
-            self.reducer.programs.context.limits,
+            self.context.limits,
         )?;
         self.cache.insert(
             node,

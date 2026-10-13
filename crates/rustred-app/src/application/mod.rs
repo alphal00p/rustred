@@ -16,26 +16,32 @@ mod family_solve;
 pub(crate) mod generation_progress;
 mod input;
 mod lowering;
-pub(crate) mod memory;
 mod master_reduction;
-pub use master_reduction::{MasterNormalizationProfile, MasterReductionOperation, MasterReductionOptions, MasterReductionArtifact, master_reduce_saved_campaign, master_refine_published_artifact, master_publish_partial_refinement, master_reduction_inspect, load_master_reduction, load_master_relation_session};
+pub(crate) mod memory;
+pub use master_reduction::{
+    MasterNormalizationProfile, MasterReductionArtifact, MasterReductionOperation,
+    MasterReductionOptions, load_master_reduction, load_master_relation_session,
+    master_publish_partial_refinement, master_reduce_saved_campaign, master_reduction_inspect,
+    master_refine_published_artifact,
+};
 mod model;
 mod options;
 mod producer;
 mod resource_policy;
 mod routed_campaign;
 mod saved_application;
-pub use saved_application::{
-    PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationDomain, SavedApplicationIntegral,
-    SavedApplicationOptions, SavedApplicationReduction, export_saved_application,
-    SavedApplicationProduct, SavedApplicationProductStatistics,
-    SavedApplicationPreparationStatistics,
-    load_saved_application, prepare_saved_application, saved_application_arity, saved_application_domains,
-    SavedApplicationWitness, SavedApplicationWitnessKind, saved_application_boundary_witnesses,
-};
 pub use routed_campaign::{
     OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
     owner_domain_walk_inventory,
+};
+pub use saved_application::{
+    PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationDomain,
+    SavedApplicationIntegral, SavedApplicationOptions, SavedApplicationPreparationStatistics,
+    SavedApplicationProduct, SavedApplicationProductChartStatistics,
+    SavedApplicationProductStatistics, SavedApplicationReduction, SavedApplicationWitness,
+    SavedApplicationWitnessKind, export_saved_application, load_saved_application,
+    prepare_saved_application, saved_application_arity, saved_application_boundary_witnesses,
+    saved_application_domains,
 };
 
 pub(crate) use routed_campaign::{

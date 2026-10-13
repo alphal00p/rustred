@@ -26,10 +26,12 @@ pub use model::{
 };
 pub use owners::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateIntegralIdentity, CandidateOwnerContext,
-    CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerScope, FactorCensusLimits,
-    FactorCensusRole, OwnerAppliedCellRefinement, OwnerAppliedError, OwnerAppliedEvent,
-    OwnerAppliedFailure, OwnerAppliedLimits, OwnerAppliedNonzero, OwnerAppliedProblem,
-    OwnerAppliedProblemKind, OwnerAppliedStats, OwnerAppliedSuccessor, OwnerDomainAttemptLimits,
+    CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerScope,
+    DeferredCandidateOwnerDescriptor, DeferredCandidateOwnerLoader, DeferredCandidateOwnerPrograms,
+    DeferredCandidateOwnerStatistics, FactorCensusLimits, FactorCensusRole,
+    OwnerAppliedCellRefinement, OwnerAppliedError, OwnerAppliedEvent, OwnerAppliedFailure,
+    OwnerAppliedLimits, OwnerAppliedNonzero, OwnerAppliedProblem, OwnerAppliedProblemKind,
+    OwnerAppliedStats, OwnerAppliedSuccessor, OwnerDomainAttemptLimits,
     OwnerDomainMatchDisposition, OwnerDomainMatchError, OwnerDomainMatchFailure,
     OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats, OwnerDomainPredicate,
     OwnerDomainRefinementAxes, OwnerDomainScope, OwnerFactorCensus, OwnerFeedbackError,

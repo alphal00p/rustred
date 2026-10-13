@@ -10,6 +10,7 @@ use crate::family::{AffineDenominator, IntegralFamily, IntegralFamilyLimits};
 use super::error::check_limit;
 use super::{
     BinaryIoError, BinaryIoLimits, CoefficientId, CoefficientTableBuilder, DecodedCoefficientTable,
+    LazyDecodedCoefficientTable,
 };
 
 /// The input geometry of any complete affine denominator family. This record
@@ -82,6 +83,69 @@ impl NativeFamilyRecord {
 
     pub fn arity(&self) -> usize {
         self.denominators.len()
+    }
+
+    /// Bind a structurally admitted owner record to an already authenticated
+    /// family while decoding only its geometry coefficients. This uses the
+    /// existing native lazy table; no expression text or new algebra codec is
+    /// involved and unreferenced rule coefficients remain encoded.
+    pub fn validate_against_family(
+        &self,
+        family: &IntegralFamily,
+        table: &LazyDecodedCoefficientTable,
+        family_limits: IntegralFamilyLimits,
+        io_limits: BinaryIoLimits,
+    ) -> Result<(), BinaryIoError> {
+        self.validate_shape(family_limits, io_limits)?;
+        if self.name.as_str() != family.name()
+            || self.loop_momenta.as_slice() != family.loop_momenta()
+            || self.external_momenta.as_slice() != family.external_momenta()
+            || self.parameters.as_slice() != family.coefficient_context().parameter_names()
+            || self.denominators.len() != family.denominator_count()
+            || self.external_gram.len() != family.external_gram().len()
+            || self.power_shifts.len() != family.power_shifts().len()
+        {
+            return Err(BinaryIoError::Invalid(
+                "native owner family metadata differs from shared family",
+            ));
+        }
+        let compare = |id: u32, expected: &Coefficient| -> Result<(), BinaryIoError> {
+            let value = table.coefficient(CoefficientId::try_from_index(id as usize)?)?;
+            family
+                .coefficient_context()
+                .validate_with_limits(&value, io_limits.exact_algebra)
+                .map_err(|error| BinaryIoError::Native(error.to_string()))?;
+            if value.as_ref() != expected {
+                return Err(BinaryIoError::Invalid(
+                    "native owner geometry differs from shared family",
+                ));
+            }
+            Ok(())
+        };
+        compare(self.dimension, family.dimension())?;
+        for (encoded, denominator) in self.denominators.iter().zip(family.denominators()) {
+            if encoded.coefficients.len() != denominator.coefficients().len() {
+                return Err(BinaryIoError::Invalid(
+                    "native owner denominator arity differs",
+                ));
+            }
+            compare(encoded.constant, denominator.constant())?;
+            for (&id, value) in encoded.coefficients.iter().zip(denominator.coefficients()) {
+                compare(id, value)?;
+            }
+        }
+        for (encoded, row) in self.external_gram.iter().zip(family.external_gram()) {
+            if encoded.len() != row.len() {
+                return Err(BinaryIoError::Invalid("native owner Gram arity differs"));
+            }
+            for (&id, value) in encoded.iter().zip(row) {
+                compare(id, value)?;
+            }
+        }
+        for (&id, value) in self.power_shifts.iter().zip(family.power_shifts()) {
+            compare(id, value)?;
+        }
+        Ok(())
     }
 
     /// Validate structural shape before cloning any native coefficient arrays.

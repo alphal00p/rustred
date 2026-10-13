@@ -35,6 +35,9 @@ impl fmt::Display for ScalarProductHeadViolation {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ScalarNumeratorError {
+    InvalidWeightedInput {
+        detail: &'static str,
+    },
     UnsupportedArtifact {
         detail: &'static str,
     },
@@ -112,6 +115,9 @@ pub enum ScalarNumeratorError {
 impl fmt::Display for ScalarNumeratorError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidWeightedInput { detail } => {
+                write!(formatter, "invalid weighted scalar lowering: {detail}")
+            }
             Self::FamilyEligibility(error) => write!(
                 formatter,
                 "family cannot lower a unit-mass common-scale vacuum numerator: {error}"

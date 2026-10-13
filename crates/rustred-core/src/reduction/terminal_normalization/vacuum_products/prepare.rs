@@ -54,7 +54,7 @@ impl VacuumProductPlan {
                 .collect(),
         );
         let mut momenta = BTreeMap::new();
-        let mut charts: BTreeMap<Vec<usize>, Option<Vec<CanonicalFactor>>> = BTreeMap::new();
+        let mut charts: BTreeMap<Vec<usize>, Option<SupportChart>> = BTreeMap::new();
         for key in terminals {
             if key.powers().iter().any(|&power| power < 0) {
                 plan.statistics.numerator_terminals += 1;
@@ -94,7 +94,7 @@ impl VacuumProductPlan {
                 continue;
             };
             let mut factors = Vec::new();
-            for block in chart {
+            for block in &chart.blocks {
                 if !plan.families.contains_key(block.family.fingerprint()) {
                     let mut count = plan.families.len();
                     charge(&mut count, limits.max_lower_families, "lower families")?;
@@ -103,7 +103,7 @@ impl VacuumProductPlan {
                 }
                 let mut powers = block
                     .alignments
-                    .iter()
+                    .keys()
                     .map(|alignment| {
                         alignment
                             .iter()
@@ -135,13 +135,19 @@ impl VacuumProductPlan {
     }
 }
 
-fn discover(
+pub(super) struct SupportChart {
+    pub inverse: Vec<Vec<Coefficient>>,
+    pub groups: Vec<Vec<usize>>,
+    pub blocks: Vec<CanonicalFactor>,
+}
+
+pub(super) fn discover(
     family: &IntegralFamily,
     active: &[usize],
     rows: &[Vec<Coefficient>],
     limits: VacuumProductLimits,
     stats: &mut VacuumProductStatistics,
-) -> Result<Option<Vec<CanonicalFactor>>, Error> {
+) -> Result<Option<SupportChart>, Error> {
     let loops = family.loop_count();
     if active.len() < loops {
         return Ok(None);
@@ -160,9 +166,10 @@ fn discover(
             Ok(true)
         }
     })?;
-    let Some(rows) = transformed else {
+    let Some(transformed) = transformed else {
         return Ok(None);
     };
+    let rows = transformed.rows;
     // Fundamental momentum supports give the direct-sum components. A full
     // basis was verified above, so every loop belongs to at least one row.
     let mut groups = (0..loops).map(|i| BTreeSet::from([i])).collect::<Vec<_>>();
@@ -189,6 +196,10 @@ fn discover(
     groups.sort();
     let mut chart = Vec::new();
     let mut covered = BTreeSet::new();
+    let ordered_groups = groups
+        .iter()
+        .map(|group| group.iter().copied().collect())
+        .collect();
     for group in groups {
         let mut block_rows = Vec::new();
         let mut slots = Vec::new();
@@ -221,5 +232,9 @@ fn discover(
             "momentum blocks omit an active denominator".into(),
         ));
     }
-    Ok(Some(chart))
+    Ok(Some(SupportChart {
+        inverse: transformed.inverse,
+        groups: ordered_groups,
+        blocks: chart,
+    }))
 }

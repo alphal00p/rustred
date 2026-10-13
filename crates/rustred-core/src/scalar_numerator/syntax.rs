@@ -364,7 +364,7 @@ fn resolve_loop(
     Ok(None)
 }
 
-fn contains_exact_atom(
+pub(super) fn contains_exact_atom(
     atom: AtomView<'_>,
     needle: AtomView<'_>,
     comparisons: &mut ExactComparisonBudget,

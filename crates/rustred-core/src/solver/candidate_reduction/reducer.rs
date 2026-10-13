@@ -263,7 +263,12 @@ impl<const N: usize> CandidateReducer<N> {
                         &mut request,
                     )?;
                     for child in children.into_iter().rev() {
-                        if !self.cached_for(&child, guarded) {
+                        if self.cached_for(&child, guarded) {
+                            // A ready subtree is consumed without scheduling
+                            // Expand, so its hit must be recorded here rather
+                            // than relying on the stack's cached-node branch.
+                            self.statistics.record_cache_hit();
+                        } else {
                             self.push_frame(&mut stack, Frame::Expand(child), &mut request)?;
                         }
                     }

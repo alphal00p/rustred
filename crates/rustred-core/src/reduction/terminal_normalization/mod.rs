@@ -37,10 +37,14 @@ pub use product_reduction::{
     VacuumFactor, VacuumFactorProvider, VacuumFactorReduction, VacuumFactorTerm, VacuumFactorWork,
     VacuumProductCacheStatistics, VacuumProductReducer, VacuumProductReduction,
     VacuumProductReductionError, VacuumProductReductionLimits, VacuumProductReductionStatistics,
+    reduce_transported_candidate_factor, reduce_transported_vacuum_factor,
+    reduce_vacuum_factor_combination,
 };
 pub use vacuum_products::{
-    VacuumProductError, VacuumProductLimits, VacuumProductPlan, VacuumProductStatistics,
-    VerifiedVacuumProduct,
+    VacuumProductChartLimits, VacuumProductChartPlan, VacuumProductComponent, VacuumProductError,
+    VacuumProductLimits, VacuumProductPlan, VacuumProductProjection, VacuumProductStatistics,
+    VacuumTensorProjection, VacuumTensorProjectionInput, VerifiedVacuumProduct,
+    VerifiedVacuumProductChart,
 };
 pub use weighted::{
     TerminalNormalizationError, TerminalNormalizationLimits, TerminalNormalizationPlan,

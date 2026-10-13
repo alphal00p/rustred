@@ -2,7 +2,14 @@
 //! Momentum squares, inverse matrices and full block separation are replayed;
 //! no IBPs, numerical values, terminal independence or closure are inferred.
 mod canonical;
+mod charts;
 mod prepare;
+
+pub use charts::{
+    VacuumProductChartLimits, VacuumProductChartPlan, VacuumProductComponent,
+    VacuumProductProjection, VacuumTensorProjection, VacuumTensorProjectionInput,
+    VerifiedVacuumProductChart,
+};
 
 use std::collections::BTreeMap;
 use std::fmt;

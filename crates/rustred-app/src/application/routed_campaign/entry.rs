@@ -101,6 +101,18 @@ impl<const N: usize> RequestedEntryDomain<N> {
             .validate_entry(target)
             .map_err(|e| AppError::input(format!("finite starting domain: {e}")))
     }
+
+    pub fn is_admitted(&self, target: &IntegralKey) -> Result<bool, AppError> {
+        use rustred::solver::RootAdmissionError;
+        match self.policy.validate_entry(target) {
+            Ok(()) => Ok(true),
+            Err(
+                RootAdmissionError::OutsideSelectedSupport { .. }
+                | RootAdmissionError::OutsideStartingDomain { .. },
+            ) => Ok(false),
+            Err(error) => Err(AppError::input(format!("finite starting domain: {error}"))),
+        }
+    }
 }
 
 pub(in crate::application) fn admission<const N: usize>(
@@ -138,10 +150,17 @@ mod tests {
         let domain = RequestedEntryDomain::<2>::parse(&text).unwrap();
         for powers in [[2, 0], [3, -1], [6, -3]] {
             domain.validate(&key(powers)).unwrap();
+            assert!(domain.is_admitted(&key(powers)).unwrap());
         }
         for powers in [[1, 0], [2, -1], [4, -2], [0, 0], [2, 1]] {
             assert!(domain.validate(&key(powers)).is_err(), "{powers:?}");
+            assert!(!domain.is_admitted(&key(powers)).unwrap(), "{powers:?}");
         }
+        assert!(
+            domain
+                .is_admitted(&IntegralKey::try_new([1, 0, 0]).unwrap())
+                .is_err()
+        );
         assert_eq!(description(Some(&domain))["region_count"], 2);
         assert_eq!(
             description(Some(&domain))["exhaustive_coverage_claim"],
