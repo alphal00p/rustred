@@ -16,6 +16,7 @@ mod owners;
 pub(crate) mod power_domain;
 mod preparation;
 mod reducer;
+mod root_guards;
 mod routed;
 mod terminal_aliases;
 mod terminal_normalization;

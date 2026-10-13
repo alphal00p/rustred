@@ -431,9 +431,18 @@ installed normalization.
 
 This initial candidate wrapper caches completed starting roots only. A cold
 request uses an isolated native session, sharing the outer coefficient budget.
-Its inner DAG retains the existing fail-on-limit policy and does not yet consult
-prepared roots as descendants. Do not infer held-out four-loop speedups from the
-closed-program descendant tests or exact-repeat hits.
+For that fresh single-root solve, the native engine retains the exact root guard
+union once instead of copying each subtree's cumulative conditions into every
+memo entry. It uses the same local guard producers and deterministic first-seen
+order, including poles from cancelled contributions, and charges the guard
+payload to the same shared budget through final validation. The existing
+subtree-guarded API remains unchanged for other callers. The fresh-only mode
+rejects a populated inner memo rather than assuming it has already observed
+the required conditions.
+
+Its inner coefficient DAG retains the existing fail-on-limit policy and does
+not yet consult prepared roots as descendants. Do not infer held-out four-loop
+speedups from the closed-program descendant tests or exact-repeat hits.
 
 ## Explicit cache snapshots and resumable preparation
 
@@ -484,12 +493,24 @@ including pinches, unit and nonunit masses, exact guards and held-out inputs.
 Their 5/20/256-root workloads are functional controls, not exhaustive integer
 coverage or the final extensive caches. The generic app session and public
 full-snapshot façade pass the expanded 50-test native application gate. Four-loop
-integration's first 38-input test saved seven roots, then stopped at the native
-16-million-coefficient-term allowance before reaching fresh-process checks.
-A matched diagnostic identifies subtree-guard storage as the dominant retained
-payload; its optimization and the complete rerun are still pending. Explicit
-downloads, LRU/LFU workload comparisons and final prepared packs also remain
-pending. The sealed reducer's internal guardless
+integration's first 38-input test initially saved seven roots, then stopped at
+the native 16-million-coefficient-term allowance. After the fresh-root guard
+change, the unchanged suite passes: preparation of all 38 roots takes 173.08 s
+and charges 397,885 disk bytes. The fresh process checks all 38 at mass squared
+1 and 4, exact warm repeats, cancellation/pinch controls, held-out inputs and
+existing numerical tables. Prepared calls use zero native IBPs. The full test
+takes 277.18 s; these are shared-host functional measurements, not matched
+speedup claims or a completed 164,352-root default preparation.
+
+On the specific dotted-X diagnostic (ninth propagator squared, A=D=10 and R=0),
+ordinary reduction succeeds with
+1,949,470 retained coefficient terms; the old guarded traversal refuses near
+16 million, at least 87.8% attributable to guard payload. The fresh-root solve
+completes under the unchanged limit with exactly equal output coefficients and
+native work counters, retaining 3,723 unique guards in its result. The failed
+old traversal's duration is not a completed-work benchmark. Explicit downloads,
+LRU/LFU workload comparisons and final prepared packs remain pending.
+The sealed reducer's internal guardless
 memoization is not persisted. No claim of bounded 128 GB loading follows from
 the small regression tests. Five-loop cache preparation is deferred pending the
 user's updated D<=10 artifact.

@@ -1,6 +1,79 @@
 # Codex progress: five-loop optimization and controlled deployment
 
-## October 13 — generic cache session milestone ready for publication
+## October 13 — same-limit four-loop cache gate now passes
+
+- [M] The matched Symbolica 3.0.1 dotted-X experiment completes with the fresh
+  collector in 15.55392 s under the unchanged 16M-term / 4-billion-byte policy.
+  Here the ninth propagator is squared: A=D=10, R=0. The historical evidence
+  filename `x-d9` refers to that ninth coordinate, not a D<=9 scope.
+  Its 14 output coefficients and all three native work counters equal ordinary
+  reduction exactly: 86,314 rules, 561,135 cache hits and 1,765,820 coalescing
+  additions. The result retains 3,723 unique guards and weighs 18,048 terms /
+  887,792 bytes. Ordinary reduction took 15.05996 s in this run; the old guarded
+  API still correctly reports its prior 16M-term refusal. These unpaired timings
+  do not establish a speedup over completed old guarded work.
+- [M] The **unchanged first-38 integration suite passes**. Preparation:
+  173.08406 s, 38/38 roots, 397,885 charged disk bytes, no failure/checkpoint
+  error. Fresh child: 78.11 s, all 38 inputs at mass squared 1 and 4 agree with
+  ordinary evaluation, exact warm repeats, four nonterminal guard-record
+  checks, eight cancellation/pinch comparisons, four held-out cubes, four
+  existing-table numerical checks, and clear-to-disk reuse pass. Prepared
+  calls record 38 backing hits, 114 RAM hits and zero new native IBPs.
+- Held-out first/warm observations in seconds: H 3.1276/0.0476,
+  FG 0.2713/0.0181, BMW 1.6232/0.0161, X 15.8971/0.0830. These are first versus
+  repeated applications in one loaded process, not matched cold-process
+  baselines. Candidate descendant hits remain zero; first calls execute new
+  native reductions. No candidate descendant-reuse claim is made.
+- Full test 277.18 s; supervised process-group total 278.45188 s, sampled peak
+  tree RSS 4.468 GB, exit zero, no memory stop, owned group drained. Evidence:
+  `TMP/five-loop-vakint-20261013/four-cache-first38-rootguard-local-20261013/`.
+  The old failed seven-record run remains separate. Input lists, assertions,
+  preparation budgets and fresh-load budgets are unchanged between runs.
+- [M] Public one-loop Rust `native_cache` example also passes: default five-root
+  primer, attachment/repeat, held-out I5 and full snapshot including five backing
+  references plus two resident records. Fresh restoration has exact equality
+  and zero native rules. GNU wall 0.10 s, peak RSS 12,288 KiB; supervisor time
+  2.175 s is distinct. Evidence: `native-cache-rust-example-first` in the same
+  temporary evidence directory.
+- Next: publish the tested collector and small public-trait visibility cleanup;
+  pin Vakint to that revision. Delivery owns isolated Python runtime checks;
+  Profile owns matched LRU/LFU replay on the retained four-loop pack; Exact
+  audits both. Do not equate the 38-root pack with the final extensive caches.
+
+## October 13 — fresh-root guard collection passes native tests
+
+- [M] Profile's optimized collector gate passes **181/181 distinct tests**:
+  25 guarded-cache, five shared-union, 12 provider/budget-cleanup, 98
+  reduction/candidate, and 41 routed-application tests. Compilation 6m22;
+  all 15 captured implementation/test hashes stayed unchanged. Binary SHA256
+  `69acc42202398042431bc479e8e041c631d2972440c6b511bb8feda340a4455d`.
+  Log: `TMP/five-loop-vakint-20261013/fresh-root-guard-core-tests.log`.
+- [M] Root independently repeated the fresh-root, shared-union and weighted
+  terminal tests on CPU 16 with one Rayon worker: 14/14 passed in 0.03 s.
+  Log: `TMP/root-fresh-guard-repeat-20261013.log`.
+- Exact's final source audit passes. The fresh mode enforces an empty inner
+  memo, retains the same ordered local conditions using the existing exact
+  guard union, and charges its unique guard payload to the same shared budget
+  through output validation. The existing public subtree-guard API is unchanged.
+  Error/panic tests verify release of only the request's own retained budget.
+- The real X dotted-input and full first-38 reruns remain pending on the
+  matched Vakint/Symbolica 3.0.1 build. The native unit-test build uses RustRed's
+  vendored 3.0.0 package; do not substitute that for a matched runtime benchmark.
+  No claim that four-loop preparation now succeeds follows from these unit tests.
+- The Vakint Python cache steering and public Rust example pass source checking
+  in 2m21. Host runtime checks remain pending. Omitted load options preserve
+  native RAM/work/eviction/lookup policy, but the separate whole reader-storage
+  policy uses the supplied/default load options; do not claim it inherits prior
+  IO limits. Download support remains outside this delivery slice.
+
+## October 13 — generic cache session milestone published
+
+Root committed and pushed the tested baseline to RustRed `main` at
+`061905c2bf89dfbdbfa60ffb69bbc6bfa37ae3c6`; `ls-remote` confirmed the same hash.
+The commit uses ValentinHirschi / valentin.hirschi@gmail.com and contains only
+the 20 scoped source/doc files. It excludes the in-progress guard collector,
+all cache/artifact outputs, and unrelated work. Vakint's next pin will follow
+the collector/runtime gate rather than trigger an unnecessary intermediate build.
 
 - [M] The expanded native application suite passes **50/50** after the two
   fixture-setup corrections, including shared Closed/Candidate steering,

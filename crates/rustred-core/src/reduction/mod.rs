@@ -8,6 +8,7 @@
 
 pub(crate) mod cache_policy;
 mod error;
+pub(crate) mod guard_union;
 pub(crate) mod guarded_cache;
 mod model;
 mod reducer;
@@ -27,8 +28,8 @@ pub use model::{
 };
 pub use reducer::Reducer;
 pub(crate) use reducer::{
-    CacheCensus, CacheWeight, ReductionRequest, SharedCacheBudget, accumulate_master_in_request,
-    coefficient_cache_weight, convolve_factor_expansion_in_request,
+    CacheCensus, CacheWeight, GuardedConditionBudget, ReductionRequest, SharedCacheBudget,
+    accumulate_master_in_request, coefficient_cache_weight, convolve_factor_expansion_in_request,
 };
 
 #[cfg(test)]

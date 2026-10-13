@@ -21,6 +21,8 @@ use super::{CandidateReducer, CandidateReductionError};
 mod cached_program;
 #[path = "tests/factorized_audit.rs"]
 mod factorized_audit;
+#[path = "tests/root_guards.rs"]
+mod root_guards;
 #[path = "tests/session.rs"]
 mod session;
 #[path = "tests/terminal_alias_audit.rs"]

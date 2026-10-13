@@ -13,7 +13,7 @@ const END: usize = usize::MAX;
 /// bounds scratch metadata linearly in the retained guard count, independently
 /// of how many duplicate guards are visited. Equality, never a hash alone,
 /// decides membership; no guard normalization or algebra occurs here.
-pub(super) struct GuardUnion<'a, S = RandomState> {
+pub(crate) struct GuardUnion<'a, S = RandomState> {
     output: &'a mut Vec<Coefficient>,
     heads: HashMap<u64, usize>,
     previous: Vec<usize>,
@@ -21,7 +21,7 @@ pub(super) struct GuardUnion<'a, S = RandomState> {
 }
 
 impl<'a> GuardUnion<'a> {
-    pub(super) fn try_new(output: &'a mut Vec<Coefficient>) -> Result<Self, ReductionError> {
+    pub(crate) fn try_new(output: &'a mut Vec<Coefficient>) -> Result<Self, ReductionError> {
         Self::with_hasher(output, RandomState::new())
     }
 }
@@ -48,7 +48,18 @@ impl<'a, S: BuildHasher> GuardUnion<'a, S> {
         })
     }
 
-    pub(super) fn extend(&mut self, conditions: &[Coefficient]) -> Result<(), ReductionError> {
+    pub(crate) fn extend(&mut self, conditions: &[Coefficient]) -> Result<(), ReductionError> {
+        self.extend_with(conditions, |_| Ok(()))
+    }
+
+    /// Admit payload for each genuinely new guard before retaining its clone.
+    /// Metadata allocation is preflighted first; duplicate guards need no
+    /// second payload grant. The caller owns rollback/RAII of that grant.
+    pub(crate) fn extend_with(
+        &mut self,
+        conditions: &[Coefficient],
+        mut admit: impl FnMut(&Coefficient) -> Result<(), ReductionError>,
+    ) -> Result<(), ReductionError> {
         for condition in conditions {
             let hash = self.hasher.hash_one(condition);
             let head = self.heads.get(&hash).copied().unwrap_or(END);
@@ -87,6 +98,7 @@ impl<'a, S: BuildHasher> GuardUnion<'a, S> {
                     resource: "routed merged guards",
                     requested,
                 })?;
+            admit(condition)?;
             self.output.push(condition.clone());
             self.previous.push(head);
             self.heads.insert(hash, index);

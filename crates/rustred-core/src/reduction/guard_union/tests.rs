@@ -1,3 +1,4 @@
+//! Exact stable membership shared by routed and fresh-root application.
 use super::*;
 use crate::algebra::CoefficientContext;
 use std::hash::Hasher;
@@ -121,4 +122,45 @@ fn existing_prefix_duplicates_and_first_seen_order_remain_unchanged() {
             .unwrap();
     }
     assert_eq!(output, [b.clone(), a, b, c]);
+}
+
+#[test]
+fn payload_admission_runs_only_for_new_guards_and_failure_keeps_membership_reusable() {
+    let context = CoefficientContext::new(["d"]);
+    let a = context.coefficient_fixture("d-4");
+    let b = context.coefficient_fixture("d-3");
+    let mut output = Vec::new();
+    let mut calls = 0;
+    {
+        let mut union = GuardUnion::try_new(&mut output).unwrap();
+        union
+            .extend_with(&[a.clone(), a.clone()], |_| {
+                calls += 1;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(calls, 1);
+        let before = union.output.clone();
+        assert!(
+            union
+                .extend_with(&[a.clone(), b.clone()], |_| {
+                    calls += 1;
+                    Err(ReductionError::CacheCoefficientTermLimit {
+                        requested: 2,
+                        limit: 1,
+                    })
+                })
+                .is_err()
+        );
+        assert_eq!(*union.output, before);
+        assert_eq!(union.previous.len(), 1);
+        union
+            .extend_with(&[b.clone(), a.clone()], |_| {
+                calls += 1;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(calls, 3);
+    }
+    assert_eq!(output, [a, b]);
 }

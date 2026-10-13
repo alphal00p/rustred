@@ -6,7 +6,7 @@ pub use application::{
     CachePreparationWorkload, CacheSaveMode, CacheSaveOptions, CacheSaveReport,
     CandidateApplicationCache, CandidateCachePreparationBackend, ClosedApplicationCache,
     ClosedCachePreparationBackend, NativeApplicationCache, NativeCachePreparationBackend,
-    prepare_application_cache,
+    NativeCacheProgram, prepare_application_cache,
 };
 pub use application::{
     CandidateArtifact, CandidateArtifactPage, CandidateGenerationEvents, CandidateGenerationJob,

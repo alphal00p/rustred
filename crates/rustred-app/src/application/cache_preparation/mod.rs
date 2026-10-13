@@ -12,6 +12,7 @@ pub use export::{CacheSaveMode, CacheSaveOptions, CacheSaveReport};
 pub use options::{
     CachePreparationCapabilities, CachePreparationOptions, CachePreparationResolvedOptions,
 };
+pub use program::NativeCacheProgram;
 pub use runner::{
     CachePreparationBackend, CachePreparationReport, CachePreparationStatus,
     prepare_application_cache,

@@ -306,14 +306,17 @@ descendant reuse are not yet implemented. Four-loop performance claims require
 the upcoming actual adapter and held-out tests.
 
 The generic Closed/Candidate app sessions and public resident/full-save modes
-now pass 50 native application tests. Four-loop adapter code compiles, but its
-first 38-input run saved only seven roots before reaching a native term limit.
-The matched diagnostic confirms guard payload dominates this retention. A
-fresh-root-only guard-union optimization is being tested without increasing
-the allowance or changing the existing subtree-guard API.
+now pass 50 native application tests. The fresh-root guard-union change passes
+181 focused native tests and the unchanged four-loop 38-input runtime suite,
+fixing the earlier term-limit failure without increasing its allowance.
+All 38 prepare in 173.08 s and pass fresh-process exact comparisons at two
+masses, warm repeats, cancellation/pinch, held-out and existing-table controls.
+This does not establish completion of the full default 164,352-root primer.
+The existing subtree-guard API remains unchanged, and candidate descendant
+cache reuse is still unimplemented.
 
-The remaining deliverables are successful four-loop application/cache gates,
-download surfaces, Python cache steering, matched LRU/LFU comparisons and the
+The remaining deliverables are download surfaces, Python runtime cache steering
+checks, matched LRU/LFU comparisons and the
 final 1--4L preparation workloads/packs. The small passing controls are not a
 substitute for those deliverables or the deferred five-loop acceptance work.
 

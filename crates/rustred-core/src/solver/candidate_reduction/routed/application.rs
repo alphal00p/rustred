@@ -2,7 +2,7 @@
 //! No missing rule becomes a terminal and no source generation runs here.
 mod cache_policy;
 mod engine;
-mod guard_union;
+use crate::reduction::guard_union;
 mod progress;
 mod transport;
 

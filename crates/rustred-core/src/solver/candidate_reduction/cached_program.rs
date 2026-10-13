@@ -52,7 +52,10 @@ impl std::error::Error for CandidateGuardedCacheError {}
 ///
 /// The explicit outer cache stores only completed guarded starting roots.
 /// LRU/LFU applies to those roots; the transient candidate inner DAG retains
-/// its existing FailOnLimit behavior. Prepared roots are not yet consulted
+/// its existing coefficient-only FailOnLimit behavior. A fresh root retains
+/// its complete native guard union once, under the same shared allowance,
+/// instead of retaining duplicate subtree guard vectors at every inner node.
+/// Prepared roots are not yet consulted
 /// as candidate descendants, and no inner-DAG reuse/eviction is claimed.
 #[derive(Clone)]
 pub struct CandidateUnitMassProgram<const N: usize> {
@@ -225,7 +228,7 @@ impl<const N: usize> CandidateUnitMassProgram<N> {
             let mut session = self
                 .snapshot
                 .fork_empty_with_shared_budget(limits, cache.shared_budget());
-            session.reduce_unit_mass_guarded(target, limits)?
+            session.reduce_fresh_unit_mass_guarded(target, limits)?
         }; // Drop releases only this native session's retained share.
         cache.completed_reduction(work);
         let record = Arc::new(ApplicationCacheRecord {

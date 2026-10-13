@@ -1194,17 +1194,45 @@ pub(crate) struct ReductionRequest {
     guarded_condition_budget: Option<GuardedConditionBudget>,
 }
 
-struct GuardedConditionBudget {
+pub(crate) struct GuardedConditionBudget {
     shared: Arc<SharedCacheBudget>,
     limits: ReductionLimits,
     weight: CacheWeight,
 }
 
+impl GuardedConditionBudget {
+    pub(crate) fn new(shared: Arc<SharedCacheBudget>, limits: ReductionLimits) -> Self {
+        Self {
+            shared,
+            limits,
+            weight: CacheWeight::default(),
+        }
+    }
+
+    pub(crate) fn retain(
+        &mut self,
+        condition: &Coefficient,
+        limits: ReductionLimits,
+    ) -> Result<(), ReductionError> {
+        let weight = self
+            .weight
+            .checked_add(coefficient_cache_weight(std::iter::once(condition))?)?;
+        self.shared
+            .replace(0, self.weight, 0, weight, self.limits.bounded_by(limits))?;
+        self.weight = weight;
+        Ok(())
+    }
+}
+
 impl Drop for GuardedConditionBudget {
     fn drop(&mut self) {
-        let released = self
-            .shared
-            .replace(0, self.weight, 0, CacheWeight::default(), self.limits);
+        let released = self.shared.replace_without_pressure(
+            0,
+            self.weight,
+            0,
+            CacheWeight::default(),
+            self.limits,
+        );
         debug_assert!(
             released.is_ok(),
             "guarded-condition cache census did not release"
@@ -1256,19 +1284,9 @@ impl ReductionRequest {
                 .ok_or(ReductionError::ReducerInvariant {
                     detail: "guarded conditions have no shared cache budget",
                 })?;
-        let weight = budget
-            .weight
-            .checked_add(coefficient_cache_weight(std::iter::once(condition))?)?;
         // Guards coexist with the parent, dependencies and moment caches.
         // Charge their sum against the same owner before retaining the clone.
-        budget.shared.replace(
-            0,
-            budget.weight,
-            0,
-            weight,
-            budget.limits.bounded_by(limits),
-        )?;
-        budget.weight = weight;
+        budget.retain(condition, limits)?;
         conditions
             .try_reserve(1)
             .map_err(|_| ReductionError::AllocationFailure {

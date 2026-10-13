@@ -186,6 +186,46 @@ impl<const N: usize> CandidateReducer<N> {
         ),
         CandidateReductionError,
     > {
+        self.reduce_guarded_impl(target, remaining, false)
+    }
+
+    /// A single fresh root may retain its complete guard union once instead
+    /// of copying subtree unions into every inner memo entry. This private
+    /// mode must never consume a previously populated coefficient cache.
+    pub(super) fn reduce_fresh_unit_mass_guarded(
+        &mut self,
+        target: &IntegralKey,
+        remaining: ReductionLimits,
+    ) -> Result<
+        (
+            CandidateDecomposition,
+            Vec<Coefficient>,
+            ReductionStatistics,
+        ),
+        CandidateReductionError,
+    > {
+        if !self.cache.is_empty() {
+            return Err(ReductionError::ReducerInvariant {
+                detail: "fresh guarded candidate root requires an empty inner cache",
+            }
+            .into());
+        }
+        self.reduce_guarded_impl(target, remaining, true)
+    }
+
+    fn reduce_guarded_impl(
+        &mut self,
+        target: &IntegralKey,
+        remaining: ReductionLimits,
+        fresh_root: bool,
+    ) -> Result<
+        (
+            CandidateDecomposition,
+            Vec<Coefficient>,
+            ReductionStatistics,
+        ),
+        CandidateReductionError,
+    > {
         let original_limits = self.limits;
         let previous_work = self.statistics;
         self.limits = original_limits.bounded_by(remaining);
@@ -199,15 +239,21 @@ impl<const N: usize> CandidateReducer<N> {
                 CacheWeight::default(),
                 self.limits,
             )?;
-            let result = self.reduce_unit_mass_impl(target, true)?;
-            let conditions = self
-                .cache
-                .get(target)
-                .and_then(|entry| entry.conditions.as_ref())
-                .ok_or(ReductionError::ReducerInvariant {
-                    detail: "guarded candidate root lacks its condition cache",
-                })?
-                .clone();
+            let (result, conditions, _request_guard_lease) = if fresh_root {
+                let (result, conditions, lease) = self.reduce_with_root_guard_union(target)?;
+                (result, conditions, Some(lease))
+            } else {
+                let result = self.reduce_unit_mass_impl(target, true)?;
+                let conditions = self
+                    .cache
+                    .get(target)
+                    .and_then(|entry| entry.conditions.as_ref())
+                    .ok_or(ReductionError::ReducerInvariant {
+                        detail: "guarded candidate root lacks its condition cache",
+                    })?
+                    .clone();
+                (result, conditions, None)
+            };
             for coefficient in result.terms().values().chain(&conditions) {
                 self.program
                     .context
@@ -228,8 +274,26 @@ impl<const N: usize> CandidateReducer<N> {
         target: &IntegralKey,
         guarded: bool,
     ) -> Result<CandidateDecomposition, CandidateReductionError> {
+        self.reduce_unit_mass_impl_with_root_guards(target, guarded, None)
+    }
+
+    pub(super) fn reduce_unit_mass_impl_with_root_guards(
+        &mut self,
+        target: &IntegralKey,
+        guarded: bool,
+        mut root_guards: Option<
+            &mut dyn FnMut(&[Coefficient]) -> Result<(), CandidateReductionError>,
+        >,
+    ) -> Result<CandidateDecomposition, CandidateReductionError> {
+        if root_guards.is_some() && (!guarded || !self.cache.is_empty()) {
+            return Err(ReductionError::ReducerInvariant {
+                detail: "root guard collection requires one fresh guarded candidate request",
+            }
+            .into());
+        }
+        let subtree_guards = guarded && root_guards.is_none();
         self.validate_entry_target(target)?;
-        if self.cached_for(target, guarded) {
+        if self.cached_for(target, subtree_guards) {
             self.statistics.record_cache_hit();
             return self.materialize_target(target);
         }
@@ -241,7 +305,7 @@ impl<const N: usize> CandidateReducer<N> {
             request.release_pending_frame()?;
             match frame {
                 Frame::Expand(key) => {
-                    if self.cached_for(&key, guarded) {
+                    if self.cached_for(&key, subtree_guards) {
                         self.statistics.record_cache_hit();
                         continue;
                     }
@@ -258,6 +322,7 @@ impl<const N: usize> CandidateReducer<N> {
                             self.program.context.base(),
                             self.limits,
                         )?;
+                        let conditions = retain_root_guards(&mut root_guards, conditions)?;
                         self.cache_insert(key, terms, conditions)?;
                         continue;
                     }
@@ -283,6 +348,7 @@ impl<const N: usize> CandidateReducer<N> {
                                 retain_polynomial(conditions, &coefficient.denominator);
                             }
                         }
+                        let conditions = retain_root_guards(&mut root_guards, conditions)?;
                         self.cache_insert(key, terms, conditions)?;
                         continue;
                     }
@@ -298,6 +364,7 @@ impl<const N: usize> CandidateReducer<N> {
                         (self.apply_candidate(&key, &mut request)?, None)
                     };
                     self.statistics.record_rule_application();
+                    let conditions = retain_root_guards(&mut root_guards, conditions)?;
                     let mut children = Vec::new();
                     children.try_reserve_exact(terms.len()).map_err(|_| {
                         ReductionError::AllocationFailure {
@@ -316,7 +383,7 @@ impl<const N: usize> CandidateReducer<N> {
                         &mut request,
                     )?;
                     for child in children.into_iter().rev() {
-                        if self.cached_for(&child, guarded) {
+                        if self.cached_for(&child, subtree_guards) {
                             // A ready subtree is consumed without scheduling
                             // Expand, so its hit must be recorded here rather
                             // than relying on the stack's cached-node branch.
@@ -623,6 +690,24 @@ impl<const N: usize> CandidateReducer<N> {
             limits: self.limits,
         }
         .apply_with_conditions(target, request, &mut self.statistics)
+    }
+}
+
+fn retain_root_guards(
+    collector: &mut Option<&mut dyn FnMut(&[Coefficient]) -> Result<(), CandidateReductionError>>,
+    conditions: Option<Vec<Coefficient>>,
+) -> Result<Option<Vec<Coefficient>>, CandidateReductionError> {
+    if let Some(collector) = collector.as_mut() {
+        collector(
+            conditions
+                .as_deref()
+                .ok_or(ReductionError::ReducerInvariant {
+                    detail: "fresh guarded candidate visit has no local conditions",
+                })?,
+        )?;
+        Ok(None)
+    } else {
+        Ok(conditions)
     }
 }
 
