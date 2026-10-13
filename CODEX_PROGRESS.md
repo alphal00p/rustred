@@ -904,6 +904,58 @@ source failure. Numeric-normalization source/tests are ready for their scoped
 RustRed milestone; actual application coverage, the two explicit routing-budget
 retries, the full physical diagnostic and Vakint delivery remain open.
 
+Milestone committed and pushed to RustRed main as
+`1fca5bd0ae11b8d25c89658a9c78a476a2b76048` using the requested ValentinHirschi
+identity. Only the14 owned scalar-lowering/test/documentation files were staged;
+the external package, production campaigns and foreign FeynKit/notebook changes
+were not included. Vakint's delivery pin will advance to this revision.
+
+### October 13 — tested Vakint partial push and master-evaluation handoff
+
+User prioritized a usable feature-branch snapshot for a separate numerical-master
+agent. Pushed and remote-verified `alphal00p/gammaloop:vakint_rustred` at
+`6de4f9dd808bc7251b11d8fce93b572c94e1cb0a`, with actual Git RustRed pin `1fca5bd0`.
+Normal fast-forward from `8d6c8f7b1`; no history rewrite. The48 source/doc/config
+files include `crates/vakint/MASTERS.md`, explicitly requested despite the usual
+Typst policy. No five-loop package, campaign output, wheel, or license was staged.
+Authors AND committers of the new RustRed/Vakint commits and the two inherited
+ahead commits were checked: ValentinHirschi <valentin.hirschi@gmail.com>.
+
+The handoff identifies exact1--4L definitions, MATAD/FMFT data and unknown tails,
+the74 four-loop output keys versus the smaller PR basis, and the905 nonminimal
+five-loop terminal definitions/export command/external package. It stresses
+normalization, finite precision, factor products and extra epsilon orders induced
+by coefficient poles. Root `MASTERS.md` links to this authoritative Vakint guide.
+No numerical-master evaluation work is started by this lane.
+
+Partial-push checks:119 ordinary native tests, public4MiB LRU plus tightened
+scalar-policy-before-cache gate, actual-Git checks with/without ingress and
+Python bindings, Clippy/rustfmt/ruff/hakari/CI-graph hygiene. Four pre-existing
+integration failures remain baseline-reproduced and explicitly documented.
+An isolated complete Community host at `cd36326` passes the real Python DOT
+example: first receipt load76.67s, first9.25s, warm9.37s, exact tuple equality,
+one warm cache hit, invalid FORM, peak2.49GB. This wheel predates only the new
+scalar-work keyword. A second concise-output run also passes; unpaired shared-host
+timings are not a speed comparison. Live gallery environment is unchanged.
+
+Full21-contribution QCD prepared-input diagnostic at explicit64M work passes:
+75,643 weighted occurrences,4 guards,594.83s native/595.42s supervised, peak3.24GB.
+The per-contribution histogram (D,j,count) is (10,0,20842),(11,1,27852),
+(12,2,18140),(13,3,6998),(14,4,1595),(15,5,202),(16,6,14). Every occurrence obeys
+D-j=10. None is admitted by pinnedgen54D9 through this geometric witness.
+This is not global coalescence, all-witness exclusion, fresh preparation, or an
+IBP reduction; it does not establish that a physical D10 request needs higher
+physical UV degree. Evidence: `prepared-whole-weighted-64m/complete-histogram.json`.
+
+The explicit512M native-polynomial-operation census still refuses the same two
+inputs: point00352 reaches aggregate routed operations161,313,306>64M;
+point00356 reaches native exponent entries74,884,545>64M. Do not keep increasing
+one allowance per build. The exact lane now investigates a generic exact early
+outside-union endpoint witness, with delivery as independent critic; otherwise
+use a coherent existing operational profile. No approximate scope decision or
+unconditional suppression of resource errors is authorized. Application runs
+and production remain untouched; numerical masters remain the other agent's lane.
+
 The independent sparse LRU retry ofpoint435 remains live; the former factorized
 failure and new retry are distinct runs, not a completed speed comparison. The
 older full native sweep is also still live and has progressed into rank2. Production
