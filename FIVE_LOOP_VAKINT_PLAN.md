@@ -175,5 +175,91 @@ D9 package; do not count a typed refusal as successful ladder reduction or
 silently switch to the user's live D10 campaign. See `CODEX_PROGRESS.md` and
 `docs/research/five_loop_symbolic_application_2026-10-13.md` for exact receipts.
 
-Persistent cache packs, explicit borrowed-cache ownership and aged-LFU remain
-discussion proposals, not implemented acceptance claims or newly assigned work.
+## Approved follow-up — persistent reusable application caches
+
+The user's subsequent approval promotes the earlier cache discussion into
+implementation scope. It does not authorize new IBPs, numerical masters or
+changes to production campaigns. Existing validation jobs continue unchanged.
+
+### Architecture and interfaces
+
+- Separate immutable prepared application programs from explicit mutable cache
+  state. Rust APIs accept a mutable cache reference; a convenience session may
+  still own one. Share immutable owners, routing and Symbolica contexts instead
+  of deep-cloning expressions. Preserve existing Vakint public conventions.
+- Keep dependency-safe LRU and add aged LFU with recency tie-breaking. Protect
+  entries required by active combinations under both policies. Count genuine
+  reuse, keep metadata bounded, and avoid full-cache scans in the hit path.
+  Retain LRU as the default until a matched workload supports changing it.
+- Bind each cache to the exact active artifact/program content hash, including
+  routing, source conditions and the selected terminal convention. A mismatch
+  is an explicit refusal, not a migration or silent cache hit. Loop count and
+  filesystem path are labels, not sufficient compatibility identities.
+- Serialize completed exact expansions and all conditions using the existing
+  native Symbolica state-aware binary machinery. No canonical-string algebra
+  serialization, custom CAS or numerical/epsilon-truncated output cache.
+  Reconstruct byte accounting and eviction indexes on load; do not restore
+  in-flight dependency pins or partial results.
+- Implement compressed, indexed chunks with bounded index/payload loading and
+  a mutable overlay. A small RAM budget must not require loading the full pack
+  or all encoded atoms. Preparation needs a bounded completed-result sink so
+  eviction from RAM does not lose data intended for the larger disk pack.
+  Publish completed chunks/manifests atomically and recover cleanly from tails
+  left by interruption. Validate compatibility/integrity at load boundaries,
+  not repeatedly in the arithmetic hot path; native generated-cache provenance
+  remains a trust boundary, not an independent mathematical proof.
+- Add explicit cache save/load/attach/download surfaces. Downloads use a supplied
+  trusted URL/manifest and checksum, stream to bounded temporary storage and
+  publish only compatible data. There is currently no native Vakint downloader
+  to reuse; do not claim otherwise or add automatic network access to evaluation.
+
+### Preparation and limits
+
+Vakint's `prepare_cache(n_loops, output_path, ...)` resolves the actual configured
+one-through-three-loop artifact, four-loop bundle or explicit five-loop package,
+then delegates workload execution and persistence to RustRed. Five-loop absence
+of an artifact path remains an error. Expose policy, RAM/disk allowances,
+workload selection, time budget, checkpoint interval, resume and progress.
+
+Default target maximum pack sizes, in decimal bytes:
+
+| Loop count | Target disk allowance |
+|---|---:|
+| 1, 2, 3 (each separate pack) | 1,000,000,000 |
+| 4 | 16,000,000,000 |
+| 5, validated partial loading | 128,000,000,000 |
+| 5, before that validation | 32,000,000,000 |
+
+These are maxima, not minimum amounts to manufacture. Track serialized disk
+bytes and decoded RAM separately, including bounded index/chunk buffers. Active
+CAS/output memory is reported separately from retained cache payload.
+
+Use a reproducible, finite, topology-balanced sorted reduction workload. Bind its
+identity and completed positions to checkpoints. The five-loop default permits
+up to ten hours of preparation, configurable by the caller. Check cancellation
+and time limits at safe native boundaries, saving completed cache data without
+claiming to serialize an in-progress CAS operation. Report completion, time/size
+budget stop, cancellation and failure distinctly; resume must retain useful
+finished work. Never count a warmup cache as broader artifact coverage.
+
+### Sequencing and tests
+
+1. Audit native Symbolica and existing cache/persistence APIs; freeze interfaces
+   and disjoint agent ownership before shared engine edits.
+2. Implement/test LRU versus aged LFU and native cache records/chunk storage in
+   parallel; serialize the subsequent shared program/cache extraction.
+3. Add explicit borrowed-cache application, disk read-through/write-through and
+   atomic save/resume. Test guard/output parity, pins, eviction/recomputation,
+   corruption and hash mismatch, lower RAM than disk size, bounded index loading,
+   interruption and package identity separation. No cache may authorize an
+   otherwise unsupported input or introduce a new terminal.
+4. Integrate all one-through-five-loop backend sessions and Vakint/Python
+   preparation/load/download steering without changing evaluation defaults.
+   Preserve the lower-loop integration baseline and report old failures honestly.
+5. Benchmark exact cold/warm and fresh-process persisted-cache results, including
+   held-out inputs not used for preparation, plus loading/I/O overhead and RSS.
+   Compare LRU/LFU on identical input order and budgets. Independent audits must
+   cover both cache correctness and measurement interpretation.
+6. Only after focused acceptance, run the extensive bounded five-loop preparation
+   and report its completed workload, useful retained entries, package path/hash,
+   time and actual RAM/disk sizes. Push source/docs only; host packs separately.

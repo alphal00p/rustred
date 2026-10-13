@@ -75,7 +75,88 @@ needs aging and a matched-workload comparison; current default remains LRU.
 No cache serialization, hosted cache download or `prepare_cache` is implemented
 by this checkpoint. Continue the authorized application-validation work first.
 
+### October 13, 13:58 UTC — observer milestone pushed; next exact-application gates
+
+RustRed `40c75765845f5473ec8954a08f674cd4fe8b3243` is committed and pushed to
+main; root independently checked the remote and requested author/committer.
+Only the 17 owned implementation/test/documentation files were included.
+Foreign FeynKit/notebook work, application data and campaigns remain untouched.
+
+The current actual-Git Vakint library completes the 52-terminal factor gate in
+202.90 s native / 204.467 s supervised, peak 4.169 GB, exit zero. All exact
+cold/warm terms and conditions, cross projections and cache clears pass.
+Receipt: `post-profile-all-52-factors/`. The separately linked current primary
+example (SHA256 `dd5307d2c1f9a72ede886450f310a7a261e88a4e677f0c4b95683c7f4a39afdb`)
+is still executing its complete LMB/cancellation suite on CPUs 8--15; successful
+partial output is not a finished receipt.
+
+The independent audit now joins actual support keys, rather than comparing
+cardinalities: 38 positive terminal products map bijectively to all 19 factorized
+reference classes; 813 inventory witnesses map to all 67 registry classes and
+763 nonempty domains. The 14 numerator products occupy four factorized classes.
+Crucially, every inventory witness of R6--R11 belongs to one of 18 factorized
+classes; the actual saved corpus contains no nonfactorized R11 witness.
+Evidence and full source-hashed mappings:
+`TMP/five-loop-vakint-20261013/coverage-gap-audit/{README.md,class-join.json}`.
+
+Profile agent started two independent, observed coefficient-application lanes;
+root verified both native processes and commands live at 13:58 UTC:
+
+| Lane | First case | Next case after a drained result | CPU affinity |
+|---|---|---|---|
+| R5 | point-00062, connected class30214, offset515 | point-00068, 1+4 class32576, offset521 | 24--31 |
+| R11 | point-00001, 2+3 class31754, offset778 | point-00006, 1+4 class32258, offset783 | 56--63 |
+
+Each uses the unchanged frozen observed driver, input-hash verification, sparse
+32 GiB dependency-safe LRU, independent cache state, one exact warm repeat and
+one-second safe-boundary events. Process ceilings are 100 GB each with a 150 GB
+host reserve and no time deadline; ordinary native failures are retained, not
+silently reclassified or retried with larger allowances. Evidence directories
+are `observed-four-point-r5/` and `observed-four-point-r11/`. These are pending
+measurements, not performance predictions from the much easier R2 analogues.
+
+The exact-application agent is implementing separately selectable, test-only
+nontrivial high-rank routing comparisons using those admitted IDs, plus mixed
+degree-11 positive-line cancellation at nonunit mass. It must reuse native
+builders/comparisons and provide independent audit before new execution. No
+solver mathematics, saved scope, production campaign or master table changes.
+
 ## October 13 — five-loop symbolic Vakint application started
+
+### Subsequent authorization — persistent caches now active
+
+The user approved exact-artifact-bound cache persistence, both LRU and aged-LFU,
+and extensive resumable preparation with a five-loop allowance up to ten hours.
+Targets are 1 GB per one/two/three-loop pack, 16 GB at four loops and 128 GB at
+five loops only with validated partial loading (otherwise 32 GB). We interpret
+GB as decimal serialized pack bytes and expose a separate RAM allowance.
+This supersedes the earlier "proposal only" status, not the pinned-rule/no-new-
+IBP/no-numerical-master boundaries. Updated `GOAL.md` and the detailed existing
+plan before shared implementation changes.
+
+Delegation: profile agent keeps both actual high-rank pilot jobs monitored and
+designs dependency-safe aged LFU; exact-application agent holds the unstarted
+extra fixture refactor and owns native cache persistence/program ownership;
+Vakint delivery keeps its current primary regression running and designs native
+cache preparation plus public steering. Root freezes interfaces and coordinates
+shared-file edits; independent reviews rotate between those lanes. No long cache
+preparation run has been started.
+
+Initial audits found that existing `LazyDecodedCoefficientTable` retains all
+encoded bytes and cannot provide a bounded-RAM 128 GB disk cache by itself.
+Preparation must write completed results incrementally so RAM eviction does not
+erase entries meant for the disk pack. Lower-loop reducer sessions also differ:
+one-through-three are currently recreated per evaluation and four-loop guarded
+factor calls clear transient state. These seams require native integration, not
+a second memo table in Vakint. There is no current native Vakint download helper;
+the new explicit downloader must not be described as an existing API.
+
+The new rank11 point-00001 pilot returned a typed native materialization-work
+refusal (65,162,036 required against 64,000,000), not a cache/scope failure:
+103.593 s first request after 73.250 s preparation, peak RSS 7.187 GB, drained
+without a guard stop. No allowance was silently changed. Point-00006 then
+started in that lane; point-00062 remains active in the other. Their failure and
+timing evidence stays separate from the successful 813-point frontend census.
 
 Accepted plan: `FIVE_LOOP_VAKINT_PLAN.md`. Root baseline `6f7097ac`.
 Pinned source is THE_ONE generation54 scope `f7ee869…`, not moving latest:

@@ -27,6 +27,28 @@ Delegate orthogonal implementation and independent audits, then commit/push
 tested code/docs only to RustRed main and the Vakint integration branch with
 the requested ValentinHirschi identity. This is the active tool-managed goal.
 
+### October 13 follow-up — persistent application caches
+
+The user has authorized the cache proposal, extending the active application
+work. Implement explicit mutable RustRed caches with dependency-safe LRU and
+aged LFU, native Symbolica binary persistence, exact active-artifact hash binding
+(refuse mismatches), and bounded lazy loading of externally hosted cache packs.
+Vakint steers native `prepare_cache(n_loops, output_path, ...)`, attach/load and
+explicit download operations; it does not implement another reducer or cache
+algebra. Existing defaults remain in-memory, with no automatic network or disk
+side effects. Cache hits never widen admission or discard guards.
+
+Preparation targets, in decimal GB: 1 GB each for one, two and three loops;
+16 GB for four loops; 128 GB for five loops only after partial-loading and RAM
+budget controls are demonstrated, otherwise 32 GB. Disk and RAM allowances are
+separate. Use a deterministic extensive finite workload, including admitted
+five-loop cases, with an explicit configurable ten-hour five-loop preparation
+budget. Preserve completed work on interruption and resume; budget exhaustion
+is partial preparation, not successful completion of the workload or closure.
+Do not launch that long preparation before the implementation and its focused
+tests are ready. All runtime data stays external to Git. Details and validation
+sequence are in `FIVE_LOOP_VAKINT_PLAN.md` and `CODEX_PROGRESS.md`.
+
 ## October 8 — completed: fast publication, optional deep verification
 
 Follow `FAST_PUBLICATION_PLAN.md`. Independent graph/reinspection verification
