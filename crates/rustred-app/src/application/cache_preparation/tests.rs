@@ -30,6 +30,7 @@ fn preparation_defaults_are_decimal_and_do_not_change_evaluation() {
     );
     assert_eq!(options.time_limit_seconds, 36_000);
     assert_eq!(options.max_roots, 1_000_000);
+    assert_eq!(options.batch_records, 64);
     assert_eq!(
         SavedApplicationOptions::default().cache_policy,
         CandidateRoutedCachePolicy::EvictLeastRecentlyUsed
@@ -56,6 +57,8 @@ fn preparation_defaults_are_decimal_and_do_not_change_evaluation() {
         assert_eq!(selected.disk_bytes, disk);
         assert_eq!(selected.ram_bytes, 17);
         assert_eq!(selected.storage_limits.max_disk_bytes, disk);
+        assert_eq!(selected.batch_records, 64);
+        assert_eq!(selected.to_document()["batch_records"], 64);
     }
     let lazy = CachePreparationOptions {
         ram_bytes: Some(17),
@@ -65,6 +68,35 @@ fn preparation_defaults_are_decimal_and_do_not_change_evaluation() {
     .unwrap();
     assert_eq!(lazy.disk_bytes, 128_000_000_000_u64);
     assert_eq!(lazy.to_document()["ram_is_process_rss"], false);
+}
+
+#[test]
+fn preparation_batch_target_is_independent_of_chunk_safety_limits() {
+    let limits = SavedApplicationCachePackLimits::default();
+    assert_eq!(limits.chunk.max_records, 4096);
+    for batch_records in [1, 64, 128, 4096] {
+        let selected = CachePreparationOptions {
+            batch_records,
+            ..Default::default()
+        }
+        .resolve(1, Default::default())
+        .unwrap();
+        assert_eq!(selected.batch_records, batch_records);
+        assert_eq!(selected.storage_limits.chunk, limits.chunk);
+        assert_eq!(selected.to_document()["batch_records"], batch_records);
+    }
+    for batch_records in [0, limits.chunk.max_records + 1] {
+        assert_eq!(
+            CachePreparationOptions {
+                batch_records,
+                ..Default::default()
+            }
+            .resolve(1, Default::default())
+            .unwrap_err()
+            .kind(),
+            AppErrorKind::Input
+        );
+    }
 }
 
 #[test]

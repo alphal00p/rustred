@@ -347,6 +347,7 @@ fn observer_counts_are_durable_and_failed_checkpoint_never_announces_completion(
         let workload = backend.workload(&[1, 2, 3]);
         let mut selected = options();
         selected.storage_limits.chunk.max_records = 1;
+        selected.batch_records = 1;
         let mut observed = Vec::new();
         let mut injected = false;
         let context = CoefficientContext::try_new(["preparation_runner_d"]).unwrap();
@@ -414,7 +415,11 @@ fn inconsistent_resolved_budgets_fail_before_configuration_or_io() {
     ram.retained_coefficient_bytes += 1;
     let mut disk = options();
     disk.storage_limits.max_disk_bytes += 1;
-    for selected in [ram, disk] {
+    let mut zero_batch = options();
+    zero_batch.batch_records = 0;
+    let mut oversized_batch = options();
+    oversized_batch.batch_records = oversized_batch.storage_limits.chunk.max_records + 1;
+    for selected in [ram, disk, zero_batch, oversized_batch] {
         let error = prepare_application_cache(
             &workload,
             &selected,
@@ -429,4 +434,64 @@ fn inconsistent_resolved_budgets_fail_before_configuration_or_io() {
         assert_eq!(backend.configured, 0);
         assert!(!output.exists());
     }
+}
+
+#[test]
+fn smaller_batch_target_resumes_a_larger_existing_chunk() {
+    let scratch = Scratch::new();
+    let output = scratch.0.join("old-layout");
+    let mut first = Backend::new(1);
+    let workload = first.workload(&(1..=67).collect::<Vec<_>>());
+    let mut old = options();
+    old.batch_records = old.storage_limits.chunk.max_records;
+    let mut calls = 0;
+    let report = prepare_application_cache(
+        &workload,
+        &old,
+        &output,
+        &AtomicBool::new(false),
+        &mut first,
+        |_| {
+            calls += 1;
+            if calls == 66 {
+                Err(AppError::new(AppErrorKind::Cancelled, "stop after65 roots"))
+            } else {
+                Ok(())
+            }
+        },
+    )
+    .unwrap();
+    assert_eq!(report.status, CachePreparationStatus::Cancelled);
+    assert_eq!(report.completed_roots, 65);
+    let small = options();
+    assert_eq!(small.batch_records, 64);
+    assert_eq!(small.storage_limits, old.storage_limits);
+    let bundle = crate::SavedApplicationCacheBundle::open_generated(
+        &output,
+        workload.bindings(),
+        small.storage_limits,
+    )
+    .unwrap();
+    let mut reader = bundle.open_reader(&workload.bindings()[0]).unwrap();
+    assert_eq!(reader.statistics().chunks, 1);
+    assert_eq!(reader.statistics().records, 65);
+    let last = ApplicationCacheKey::guarded_root(&IntegralKey::try_new([65]).unwrap());
+    assert!(reader.lookup(&last, &first.context).unwrap().is_some());
+    let mut resumed = Backend::new(1);
+    let report = prepare_application_cache(
+        &workload,
+        &small,
+        &output,
+        &AtomicBool::new(false),
+        &mut resumed,
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(report.status, CachePreparationStatus::Complete);
+    assert_eq!(report.reused_roots, 65);
+    assert_eq!(report.newly_stored_roots, 2);
+    assert_eq!(report.completed_roots, 67);
+    assert_eq!(resumed.calls, 2);
+    assert_eq!(resumed.admitted.get(), 67);
+    assert_eq!(report.options["batch_records"], 64);
 }

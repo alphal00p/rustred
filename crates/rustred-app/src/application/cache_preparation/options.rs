@@ -41,6 +41,9 @@ pub struct CachePreparationOptions {
     pub time_limit_seconds: u64,
     pub checkpoint_interval_seconds: u64,
     pub max_roots: usize,
+    /// Maximum staged roots across namespaces before a preparation flush.
+    /// This layout target does not reduce existing-pack decoding allowances.
+    pub batch_records: usize,
     pub resume: bool,
     pub(crate) storage_limits: SavedApplicationCachePackLimits,
 }
@@ -54,6 +57,7 @@ impl Default for CachePreparationOptions {
             time_limit_seconds: 36_000,
             checkpoint_interval_seconds: 60,
             max_roots: 1_000_000,
+            batch_records: 64,
             resume: true,
             storage_limits: Default::default(),
         }
@@ -72,6 +76,7 @@ pub struct CachePreparationResolvedOptions {
     pub time_limit: Duration,
     pub checkpoint_interval: Duration,
     pub max_roots: usize,
+    pub batch_records: usize,
     pub resume: bool,
     pub storage_limits: SavedApplicationCachePackLimits,
     pub capabilities: CachePreparationCapabilities,
@@ -150,7 +155,7 @@ impl CachePreparationOptions {
             .map_err(|_| AppError::limit("preparation RAM allowance does not fit this platform"))?;
         let mut storage_limits = self.storage_limits;
         storage_limits.max_disk_bytes = disk_bytes;
-        Ok(CachePreparationResolvedOptions {
+        let resolved = CachePreparationResolvedOptions {
             loop_count,
             ram_bytes,
             retained_coefficient_bytes,
@@ -159,10 +164,13 @@ impl CachePreparationOptions {
             time_limit: Duration::from_secs(self.time_limit_seconds),
             checkpoint_interval: Duration::from_secs(self.checkpoint_interval_seconds),
             max_roots: self.max_roots,
+            batch_records: self.batch_records,
             resume: self.resume,
             storage_limits,
             capabilities,
-        })
+        };
+        resolved.validate()?;
+        Ok(resolved)
     }
 }
 
@@ -175,11 +183,17 @@ impl CachePreparationResolvedOptions {
             || self.ram_bytes == 0
             || self.disk_bytes == 0
             || self.max_roots == 0
+            || self.batch_records == 0
             || self.checkpoint_interval.is_zero()
             || self.storage_limits.chunk.max_records == 0
         {
             return Err(AppError::input(
                 "cache preparation requires positive loop, RAM, disk, root, checkpoint and batch allowances",
+            ));
+        }
+        if self.batch_records > self.storage_limits.chunk.max_records {
+            return Err(AppError::input(
+                "cache preparation batch target exceeds the chunk record safety limit",
             ));
         }
         let ram = usize::try_from(self.ram_bytes)
@@ -210,6 +224,7 @@ impl CachePreparationResolvedOptions {
             "time_limit_seconds": self.time_limit.as_secs(),
             "checkpoint_interval_seconds": self.checkpoint_interval.as_secs(),
             "max_roots": self.max_roots,
+            "batch_records": self.batch_records,
             "resume": self.resume,
             "validated_lazy_storage": self.capabilities.has_validated_lazy_storage(),
             "storage_limits": format!("{:?}", self.storage_limits),

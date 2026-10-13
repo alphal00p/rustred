@@ -224,6 +224,82 @@ fn save_storage_defaults_share_preparation_policy_without_resolving_ram() {
 }
 
 #[test]
+fn preparation_batch_layout_preserves_native_work_records_and_guards() {
+    let (artifact, digest) = fixture();
+    let program = || ClosedUnitMassProgram::new(&artifact, digest);
+    let workload = CachePreparationWorkload::explicit(
+        vec![program().binding().clone()],
+        (1..=5).map(|power| (0, key(power))),
+        5,
+    )
+    .unwrap();
+    let scratch = Scratch::new();
+    let mut expected = None;
+    for (batch_records, chunks) in [(4096, 1), (1, 5), (2, 3)] {
+        let output = scratch.0.join(format!("batch-{batch_records}"));
+        let options = CachePreparationOptions {
+            batch_records,
+            ..Default::default()
+        }
+        .resolve(1, Default::default())
+        .unwrap();
+        let mut backend =
+            ClosedCachePreparationBackend::new(vec![program()], Default::default()).unwrap();
+        let report = prepare_application_cache(
+            &workload,
+            &options,
+            &output,
+            &AtomicBool::new(false),
+            &mut backend,
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(report.status, CachePreparationStatus::Complete);
+        assert_eq!(report.newly_stored_roots, 5);
+        assert_eq!(report.options["batch_records"], batch_records);
+        assert_eq!(options.storage_limits.chunk.max_records, 4096);
+        let bundle = SavedApplicationCacheBundle::open_generated(
+            &output,
+            workload.bindings(),
+            options.storage_limits,
+        )
+        .unwrap();
+        let active = program();
+        let mut reader = bundle.open_reader(active.binding()).unwrap();
+        assert_eq!(reader.statistics().chunks, chunks);
+        let records = (1..=5)
+            .map(|power| {
+                let record = reader
+                    .lookup(
+                        &ApplicationCacheKey::guarded_root(&key(power)),
+                        active.context(),
+                    )
+                    .unwrap()
+                    .unwrap();
+                active
+                    .validate_completed_record(&record, Default::default())
+                    .unwrap();
+                record
+            })
+            .collect::<Vec<_>>();
+        let work = [
+            "rule_applications",
+            "coalescing_additions",
+            "completed_reductions",
+            "descendant_ram_hits",
+        ]
+        .map(|name| report.native_statistics[0][name].clone());
+        assert!(work[0].as_u64().unwrap() > 0);
+        if let Some((expected_records, expected_work)) = &expected {
+            assert_eq!(&records, expected_records);
+            assert_eq!(&work, expected_work);
+        } else {
+            expected = Some((records, work));
+        }
+    }
+}
+
+#[test]
 fn fresh_preparation_resume_reuses_durable_root_inside_one_rule_budget() {
     let (artifact, digest) = fixture();
     let program = || ClosedUnitMassProgram::new(&artifact, digest);

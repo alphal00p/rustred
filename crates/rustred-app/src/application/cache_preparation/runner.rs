@@ -357,7 +357,9 @@ pub fn prepare_application_cache(
                     break;
                 }
             };
-            if pending.needs_flush(weight, limits) {
+            if pending.buffered_records() >= options.batch_records
+                || pending.needs_flush(weight, limits)
+            {
                 if let Err(error) =
                     pending.flush_preparation(workload, backend, &mut writer, &mut report)
                 {

@@ -315,10 +315,29 @@ This does not establish completion of the full default 164,352-root primer.
 The existing subtree-guard API remains unchanged, and candidate descendant
 cache reuse is still unimplemented.
 
-The remaining deliverables are download surfaces, Python runtime cache steering
-checks, matched LRU/LFU comparisons and the
-final 1--4L preparation workloads/packs. The small passing controls are not a
-substitute for those deliverables or the deferred five-loop acceptance work.
+Subsequent measurements now include the complete default 1--3L primers:
+5/77/2,320 inputs prepared in 0.009/0.012/5.955 s, with fresh-process loading,
+exact two-mass/pinch checks and held-out inputs. The isolated actual-Git Python
+host passes eight runtime cache tests. Matched LRU/aged-LFU replays pass; LFU
+saves 16 of 240 backing lookups on a deliberately skewed test, with only a small
+public-API timing benefit. LRU remains the default.
+
+A held-out three-loop comparison found that smaller transport chunks reduce
+first-use read-through from 133 ms to 51 ms without changing algebra or native
+work. A new preparation-only `batch_records` target of 64 passes all 53 native
+application tests and an independent repeat; it does not reduce existing-pack
+decoder limits. The full four-loop
+164,352-input preparation follows that gate and the corresponding actual-Git
+Python runtime checks. Preparation selects a deterministic finite primer, not
+all reduction paths and not an adaptive cost-per-byte ranking. Four-loop
+candidate caches still lack persistent descendant reuse, so exact-repeat gains
+must remain separate from held-out performance claims.
+
+The remaining deliverables are download surfaces, the full four-loop preparation
+workload/pack and final package delivery. The passing controls and lower-loop
+packs are not substitutes for those deliverables or the deferred five-loop
+acceptance work. Detailed commands, hashes and measurements are recorded in
+`CODEX_PROGRESS.md` and its cited temporary evidence receipts.
 
 Prepared one-loop I(4) supplies the descendant of I(5), reducing native rule work
 to one application without losing exact coefficients or nonzero obligations.

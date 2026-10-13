@@ -488,6 +488,17 @@ Refreshing authenticates the bounded index and preserves cumulative I/O counters
 it does not reload every payload or reset the RAM allowance. The runner's initial
 readers remain a fixed snapshot for its deduplicated starting workload.
 
+`CachePreparationOptions::batch_records` targets 64 staged roots across all
+namespaces by default; positive overrides must fit the storage chunk's record
+safety limit. It controls preparation flushing only, not decoding or resume
+limits. Existing packs containing larger chunks therefore remain readable and
+resumable with the smaller target. Reports include the selected target; byte,
+coefficient and checkpoint limits can also flush a batch earlier. In the measured
+2,320-root three-loop pack, 64-record batches reduced one held-out request's
+median read-through time from 133 ms to 51 ms with unchanged native work and
+exact output, while increasing the pack from 75,240 to 143,445 bytes. This is a
+specific layout measurement, not a general four-loop performance claim.
+
 Vakint's real one-, two- and three-loop prepare/fresh-process-load tests pass,
 including pinches, unit and nonunit masses, exact guards and held-out inputs.
 Their 5/20/256-root workloads are functional controls, not exhaustive integer

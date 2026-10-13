@@ -1,6 +1,141 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 13 — preparation layout selected from held-out measurements
+
+- [M] Profile completed the existing-knob layout comparison on the same full
+  2,320-input three-loop primer. Fresh ABBA processes compare the same held-out
+  input, exact output and native work. The original 4,096-record chunk target
+  costs 133.27 ms median on first use; targets of 64 and 128 give 51.19 and
+  53.18 ms. Their ordinary uncached controls are 62.95, 63.47 and 62.74 ms.
+  All warmup and probe process groups exit zero and drain normally. These
+  measurements establish a specific three-loop read-through improvement, not
+  general four-loop speedups or statistically significant superiority of 64
+  over 128. Receipt: `TMP/five-loop-vakint-20261013/lower-cache-layout-receipt-20261013.json`.
+- [M] The 64-record layout has 37 chunks and 143,445 charged bytes versus the
+  original one-chunk 75,240-byte pack. The held-out request decompresses 1.14 MB
+  rather than 30.20 MB; native rules and descendant hits are unchanged. Full
+  preparation takes 6.04 s versus 5.95 s. All preparation/probe inputs and
+  outputs remain local. The intended cache objective is work avoided per byte,
+  **not** an implemented adaptive input ranking: current warmup still uses
+  deduplicated pinches, at most two extra dots and scalar negative degree one,
+  balanced between artifact namespaces.
+- [M] Profile implemented `CachePreparationOptions::batch_records`, default 64,
+  as a producer-only flush target. Reader safety limits and schema remain
+  unchanged, so older larger chunks can still be loaded/resumed. Source check
+  and all **53 optimized native application tests pass**. Delivery
+  independently reviewed the source, prepared ten Python checks and retained
+  an authentic pre-change 65-record chunk for a cross-version resume check.
+  Root independently repeated all 53 on CPU 16 with one worker: all pass in
+  0.32 s. The author's build took 10m43; its original filter ran 51 tests and
+  the two omitted nested IO tests were then run on the same frozen executable.
+  Executable SHA256:
+  `81166c865a37745e6771a129554e3b97268a125d5e4ef52beb4ecf1fc25a87ee`.
+  Six captured source hashes are unchanged. Root's repeat log is
+  `TMP/five-loop-vakint-20261013/batch-records-root-independent-repeat.log`.
+- [A] Delivery will update the same isolated actual-Git Python host after the
+  tested root revision is pushed. Profile prepared the public-API full four-loop
+  launcher: 164,352 selected inputs, aggregate 16-billion-byte RAM/disk budgets,
+  unchanged native work limits, explicit resume, durable-root progress and the
+  existing cooperative ten-hour preparation budget. It has **not launched**.
+  The launcher preserves failures and checkpoints; it does not regenerate IBPs
+  or touch the user's five-loop campaign. Candidate caches still reuse selected
+  starting roots only; candidate descendant reuse remains unimplemented.
+- [M] Root's separate source review and `cache_layout_audit` both pass with no
+  actionable finding. The audit confirms unchanged schema 02, aggregate staging
+  across namespaces and unchanged durable-prefix/error accounting. It correctly
+  distinguishes source review from the separately completed runtime gate.
+- [M] Root also created local portable 1--3L archives, including the measured
+  64-record 3L layout, under
+  `TMP/five-loop-vakint-20261013/prepared-lower-cache-delivery/`. Each archive was
+  extracted into a separate directory and passed the frozen optimized public
+  verifier in a fresh process: exact unit/nonunit-mass results, warm repeats,
+  pinches where applicable, held-out reductions and clear-to-backing reuse.
+  Archive sizes are 2,251 / 3,125 / 142,740 bytes; checksums and exact test paths
+  are in that directory's `manifest.json` (SHA256
+  `c29ca8fee4574d0efe33785178db6ddd0d282ebd1aaa0bcbcb0300458f6f574b`).
+  These are not uploaded assets or source-controlled data; archive verification
+  is functional evidence, not a new timing comparison or exhaustive proof.
+- Next executable steps: push the scoped root milestone; pin and test the private Python host/Vakint;
+  launch full four-loop preparation. Downloader and final hosted packs remain
+  pending; the deferred five-loop acceptance objective is unchanged.
+
+## October 13 — Vakint cache milestone pushed; complete default 1--3L packs
+
+- [M] Vakint integration is pushed and remote-verified at
+  `d55a7e1e964ed93273e6fc18f01fcaaa803a8591` on `vakint_rustred`, pinned to
+  actual Git RustRed `6a70dccfac11dbbaa9ffe3facfa5710b4f33a65f`. The scoped push
+  includes the native/Python cache APIs, examples, tests and Typst documentation,
+  not cache packs, numerical-master changes or the private Python installation.
+- [M] A private complete Symbolica 3.0.1/HEPKit wheel passes all eight Python
+  runtime checks in 0.476 s, including GIL release, reentrant statistics,
+  cancellation/resume, real SIGINT, callback exceptions and checkpoint errors,
+  partial native-policy overrides, mass/epsilon/normalization behavior and full
+  snapshots. The Rust and Python examples also pass. A fixture's two epsilon
+  arguments were corrected from strings to existing-API Symbolica variables;
+  no native code or assertions changed after the preserved 7/8 initial attempt.
+  Receipt: `TMP/community-cache-smoke-20261013.8gjsFL/cache-python-runtime-receipt.json`.
+- [M] Root prepared the **complete default finite primers** at 1--3 loops using
+  the public Vakint API and a frozen optimized driver, followed by fresh-child
+  exact symbolic checks at masses squared 1 and 4, pinches, held-out power four,
+  warm repeats and RAM-clear/backing reuse. Explicit RAM and disk limits were
+  one billion bytes each. All three preparations and fresh checks exit zero.
+
+| Loops | Prepared inputs | Preparation seconds | Charged disk bytes | Fresh attachment seconds |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 5 | 0.009219 | 3,201 | 0.000518 |
+| 2 | 77 | 0.012481 | 4,514 | 0.003122 |
+| 3 | 2,320 | 5.954927 | 75,240 | 0.691301 |
+
+  Cache directories are `TMP/five-loop-vakint-20261013/default-{1,2,3}l-cache-20261013/cache`.
+  Preparation includes native program loading/planning; attachment includes
+  artifact loading in a new process, not only reading the tiny cache index.
+  Held-out calls perform 1/6/62 rules and reuse saved descendants. The 3L pinch
+  witness is undotted; these are public-value witnesses, while previous focused
+  native gates separately compare exact coefficient/guard records. They are
+  not exhaustive tests of every integral or guarantees of a minimal basis.
+- Driver: `prepare_default_lower_caches.rs`, SHA256
+  `0386477fb3afd4e1d6bc2f90361debd4b1b79ccb81c96ac9c519cc187dcf5434`;
+  binary SHA256 `55cd4b5a690cdecd1fb97ec7cc8f63bf1363c53546b013a45632867a2f31bc81`.
+  Matched local-path runtime libraries are the previously frozen Symbolica 3.0.1
+  build, not falsely labeled as a new actual-Git executable. GNU total wall
+  times (preparation plus fresh child) are 0.13/0.14/7.15 s; supervised totals
+  2.167/2.162/8.169 s include process-group monitoring/drain. All output remains
+  local and no production campaign is changed.
+
+## October 13 — cache policy and layout measurements
+
+- [M] Profile's constructed four-loop two-entry-per-namespace replay passes
+  native and public ABBA trials with identical 368-request streams. LRU:
+  128 RAM hits, 240 backing hits and 232 evictions; aged LFU: 144, 224 and 216.
+  Both have zero native IBPs and lookup refusals. Aged LFU saves 16 chunk reads
+  (6.7%) on this deliberately skewed workload, not a universal policy result.
+- Native call totals: LRU 0.6932/0.6957 s, aged LFU 0.6442/0.6469 s; public call
+  totals 8.9035/8.8852 versus 8.8343/8.7359 s. End-to-end difference is small.
+  LRU remains default. Record/guard equality, eviction counts, unchanged pack
+  hashes and separate normal-budget held-out reductions pass. Receipt:
+  `TMP/five-loop-vakint-20261013/cache-policy-replay-receipt-20261013.json`.
+- [M] Negative result on identical 3L `I3L(4,4,1,1,1,1,1)`: eight fresh ABBA
+  processes agree exactly, but first application with the 2,320-root pack takes
+  0.1325--0.1383 s versus uncached 0.0620--0.0660 s. Cached repeats take about
+  0.0079 s versus ordinary repeats about 0.061 s. The cached first call reads
+  53 chunks / 3.74 MB encoded / 30.20 MB decompressed for 33 descendant hits.
+  Setup is excluded and the small byte-budget difference is recorded; no
+  pressure occurs. More stored roots do not automatically improve first use.
+- Reader detail corrected during review: a lookup decompresses and inspects
+  chunk frames but materializes coefficients only for the selected record,
+  **not every record in the chunk**. No new page cache is being added. Profile
+  is testing the existing `chunk.max_records=64/128` knob on the same complete
+  workload before choosing an improved layout or starting the large 4L primer.
+- Exact's agent could not be restarted because the tool reports a thread limit.
+  Root takes its independent review duties; the two existing implementation/
+  measurement lanes continue. This is not a goal blocker.
+
 ## October 13 — same-limit four-loop cache gate now passes
+
+The collector and public sealed-trait visibility cleanup are committed and
+pushed to RustRed `main` at `6a70dccfac11dbbaa9ffe3facfa5710b4f33a65f`, with
+remote hash verification. Delivery is pinning that actual Git revision for
+Vakint and the isolated Python runtime test. No cache or artifact was pushed.
 
 - [M] The matched Symbolica 3.0.1 dotted-X experiment completes with the fresh
   collector in 15.55392 s under the unchanged 16M-term / 4-billion-byte policy.
