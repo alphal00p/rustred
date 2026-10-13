@@ -3,7 +3,7 @@
 //! `saved_application inventory PUBLICATION`
 //! `saved_application terminals APPLICATION`
 //! `saved_application export PUBLICATION NEW_DIRECTORY`
-//! `saved_application suite APPLICATION INVENTORY_JSON [OFFSET] [COUNT] [REPEATS] [CACHE_MODE] [CACHE_BYTES] [CACHE_REPRESENTATION] [LIMITS_JSON]`
+//! `saved_application suite APPLICATION INVENTORY_JSON [OFFSET] [COUNT] [REPEATS] [CACHE_MODE] [CACHE_BYTES] [CACHE_REPRESENTATION] [LIMITS_JSON] [PROGRESS_MS]`
 //! `saved_application compare-cache APPLICATION INVENTORY_JSON CASE_ID CACHE_BYTES [REFERENCE_BYTES] [LIMITS_JSON]`
 //!
 //! Inventory writes a small JSON document to stdout. Suite emits JSONL, one
@@ -23,9 +23,12 @@
 //! default), and a smaller bounded LRU cache. Optional LIMITS_JSON supplies
 //! identical other limits; the command fixes both cache policies/byte caps.
 //! It requires actual eviction plus exact first/warm terms and guard equality.
+//! PROGRESS_MS opts into structured request snapshots (zero/default is off).
+//! Snapshots run at native safe boundaries, not inside a CAS call or combine.
+//! Suite observes direct entries; the separate routed-entry API is unobserved.
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use rustred::family::IntegralKey;
 use rustred_app::{
@@ -75,7 +78,7 @@ fn run<const N: usize>(args: &[String], arity: usize) -> Result<()> {
             );
             Ok(())
         }
-        "suite" if (3..=10).contains(&args.len()) => suite::<N>(args, arity),
+        "suite" if (3..=11).contains(&args.len()) => suite::<N>(args, arity),
         "compare-cache" if (5..=7).contains(&args.len()) => compare_cache::run::<N>(args, arity),
         _ => Err("invalid saved_application arguments".into()),
     }
@@ -159,6 +162,12 @@ fn inventory<const N: usize>(source: &Path, arity: usize) -> Result<()> {
 }
 
 fn suite<const N: usize>(args: &[String], arity: usize) -> Result<()> {
+    let progress_interval = args
+        .get(10)
+        .map(|value| value.parse::<u64>())
+        .transpose()?
+        .filter(|&milliseconds| milliseconds != 0)
+        .map(Duration::from_millis);
     let mut options = SavedApplicationOptions::default();
     if let Some(value) = args.get(7) {
         let bytes = value.parse::<usize>()?;
@@ -237,7 +246,7 @@ fn suite<const N: usize>(args: &[String], arity: usize) -> Result<()> {
         let target = IntegralKey::try_new(powers)?;
         let one = prepared.family().coefficient_context().one();
         let first_started = Instant::now();
-        let first = match prepared.reduce_linear_combination([(target.clone(), one.clone())]) {
+        let first = match apply_case(&mut prepared, &target, &one, row, 0, progress_interval) {
             Ok(value) => value,
             Err(error) => {
                 failures += 1;
@@ -256,9 +265,16 @@ fn suite<const N: usize>(args: &[String], arity: usize) -> Result<()> {
         };
         let first_seconds = first_started.elapsed().as_secs_f64();
         let mut warm = Vec::with_capacity(repeats);
-        for _ in 0..repeats {
+        for repeat in 0..repeats {
             let repeated_started = Instant::now();
-            let repeated = prepared.reduce_linear_combination([(target.clone(), one.clone())])?;
+            let repeated = apply_case(
+                &mut prepared,
+                &target,
+                &one,
+                row,
+                repeat + 1,
+                progress_interval,
+            )?;
             if repeated.terms() != first.terms()
                 || repeated.nonzero_conditions() != first.nonzero_conditions()
             {
@@ -289,6 +305,27 @@ fn suite<const N: usize>(args: &[String], arity: usize) -> Result<()> {
         return Err(format!("{failures} admitted witness reductions failed").into());
     }
     Ok(())
+}
+
+fn apply_case<const N: usize>(
+    prepared: &mut rustred_app::PreparedSavedApplication<N>,
+    target: &IntegralKey,
+    one: &rustred::algebra::Coefficient,
+    row: &Value,
+    attempt: usize,
+    interval: Option<Duration>,
+) -> std::result::Result<rustred_app::SavedApplicationReduction, rustred_app::AppError> {
+    let inputs = [(target.clone(), one.clone())];
+    match interval {
+        None => prepared.reduce_linear_combination(inputs),
+        Some(interval) => {
+            prepared.reduce_linear_combination_with_progress(inputs, interval, |mut event| {
+                event["case_id"] = row["id"].clone();
+                event["attempt"] = json!(attempt);
+                println!("{event}");
+            })
+        }
+    }
 }
 
 fn owner_preparation_json<const N: usize>(

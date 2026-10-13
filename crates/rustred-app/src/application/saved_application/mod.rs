@@ -8,6 +8,7 @@ mod charts;
 mod codec;
 mod package;
 mod products;
+mod progress;
 mod scope;
 #[cfg(test)]
 mod tests;
@@ -448,6 +449,14 @@ impl<const N: usize> PreparedSavedApplication<N> {
         &mut self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
     ) -> Result<SavedApplicationReduction, AppError> {
+        self.reduce_linear_combination_progress(terms, None)
+    }
+
+    fn reduce_linear_combination_progress(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        mut progress: Option<&mut progress::SavedProgress<'_>>,
+    ) -> Result<SavedApplicationReduction, AppError> {
         let mut inputs = Vec::new();
         for (key, coefficient) in terms {
             if inputs.len() >= self.options.trace_limits.max_input_targets {
@@ -459,20 +468,40 @@ impl<const N: usize> PreparedSavedApplication<N> {
             self.entry_domain.validate(&key)?;
             inputs.push((key, coefficient));
         }
-        let reduced = self
-            .application
-            .reduce_linear_combination_with_entry_admission(
-                inputs,
-                entry::admission(Some(&self.entry_domain)),
-            )
-            .map_err(failure)?;
-        self.apply_terminal_substitutions(reduced)
+        let reduced = if let Some(progress) = progress.as_deref_mut() {
+            self.application
+                .reduce_linear_combination_with_entry_admission_and_observer(
+                    inputs,
+                    entry::admission(Some(&self.entry_domain)),
+                    progress.interval,
+                    |snapshot| progress.routed(snapshot),
+                )
+        } else {
+            self.application
+                .reduce_linear_combination_with_entry_admission(
+                    inputs,
+                    entry::admission(Some(&self.entry_domain)),
+                )
+        }
+        .map_err(failure)?;
+        self.apply_terminal_substitutions_progress(reduced, progress)
     }
 
     fn apply_terminal_substitutions(
         &self,
         reduced: CandidateRoutedReduction,
     ) -> Result<SavedApplicationReduction, AppError> {
+        self.apply_terminal_substitutions_progress(reduced, None)
+    }
+
+    fn apply_terminal_substitutions_progress(
+        &self,
+        reduced: CandidateRoutedReduction,
+        mut progress: Option<&mut progress::SavedProgress<'_>>,
+    ) -> Result<SavedApplicationReduction, AppError> {
+        if let Some(progress) = progress.as_deref_mut() {
+            progress.terminal_start(reduced.terms().len());
+        }
         let mut output = BTreeMap::new();
         // Keep deterministic encounter order in the output, but use native
         // Symbolica Hash/Eq for membership. Borrowing avoids a second owned
@@ -536,6 +565,9 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 if !sum.is_zero() {
                     output.insert(key.clone(), sum);
                 }
+            }
+            if let Some(progress) = progress.as_deref_mut() {
+                progress.terminal_row(additions - routed_additions);
             }
         }
         Ok(SavedApplicationReduction {

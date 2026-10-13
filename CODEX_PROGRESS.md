@@ -1,5 +1,80 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## Current verified checkpoint — October 13, 13:40 UTC
+
+The active goal remains generation-54 symbolic application, not new IBPs,
+numerical master evaluation or modification of production campaigns. The
+preceding continuation made progress through completed native measurements and
+independent implementation audits. Historical live/pending observations below
+are superseded by these completed receipts where explicitly identified.
+
+- **Frontend admission: 813/813 passed.** The final coherent explicit
+  materialization profile accepts every deduplicated representative/boundary
+  witness from the 763 nonempty domains (41 other recorded domains are empty).
+  Post-load admission took 971.550 s; test total 1,046.92 s; guarded process
+  1,047.483 s, peak RSS 3.847 GB, exit zero and drained. All owner-preparation,
+  cache-entry and rule-application counts remain zero: this is entry eligibility,
+  not coefficient-application coverage or exhaustive integer-point enumeration.
+  Receipt: `TMP/five-loop-vakint-20261013/vakint-admission-census-813-coherent-materialization-512m/`.
+  The profile raises coherent configurable transport/materialization allowances;
+  it changes no default, source domain, scalar policy or mathematical predicate.
+- **The former cache-failing point 435 completed under dependency-safe LRU.**
+  First reduction 11,795.794 s; exact warm repeat 2.652 s; 278 declared terminal
+  coefficients and 33,375 retained conditions. It evicted 250,411 entries and
+  recomputed 36,329 nodes under the 64 GiB charged-cache allowance. Whole process
+  12,033.915 s and peak RSS 90.671 GB: retained-cache bytes are not process RSS.
+  This is successful bounded-cache application, not a speed comparison against
+  earlier failed runs. Receipt: `point00435-sparse-lru-independent/` under the
+  same evidence directory; summary `point00435-lru-profile-summary.json`.
+- **Opt-in application observation passed a real request.** Point 154 took
+  294.908 s first / 0.338 s warm, with exact equality of 82 coefficients and
+  29,324 conditions. All 197 events passed ordering/lifecycle checks; cached =
+  pinned + eligible for all 195 core-bearing snapshots. Charged cache peaked
+  at 3.029 GB, sampled pinned payload 141.761 MB, process RSS 6.930 GB, with
+  no eviction. Periodic intervals were 1.001--13.646 s: callbacks occur at safe
+  boundaries, not within a long CAS operation. Receipt:
+  `point00154-observed-validation.json`. The API is direct-root-only and off by
+  default; no Vakint progress-stream or in-CAS heartbeat is claimed.
+- Profile agent implemented observation; exact-application agent independently
+  audited it and the shared test resource profile with no blockers. Final
+  focused release tests pass 39 core and 20 application tests; driver built.
+  Root integrates and pushes only the owned source/docs, excluding foreign
+  FeynKit/notebook edits and all application/campaign data.
+- The attempted rank-zero-first admission optimization was rejected before any
+  production change: the failing outer candidate already had one non-scalar
+  key. Existing coherent resource settings resolve the two cases instead.
+- Source handoff is already pushed: RustRed `1fca5bd0` / documentation
+  `7a2fc4c7`; GammaLoop/Vakint `6de4f9dd` on `vakint_rustred`. All identities
+  are ValentinHirschi / valentin.hirschi@gmail.com. `MASTERS.md` documents the
+  numerical agent's separate task. The external 281 MB package remains local.
+- The audited full-census test/resource-profile follow-up is now pushed at
+  GammaLoop `43efced0151f00e297af4e0abb06a2115d66f61a`, with its RustRed Git
+  pin still `1fca5bd0`. Root independently checked the remote and both Git
+  identities. Same final library passes six numerator, four matcher and one
+  basis-control tests; the 52-product gate is running. The primary loaded
+  LMB/cancellation example is being linked against that exact Git revision,
+  separately from the frozen previous executable.
+- Root independently reran the 39 final core and 20 saved-app focused tests
+  (one cost diagnostic remains explicitly ignored), checked formatting of all
+  owned Rust files and reviewed the observer/documentation diff. App tests
+  predate only the final core counter-copy/lookup-reuse correction; the final
+  core tests and real observed driver include it. No full-suite claim is made.
+- **Still open:** broad exact coefficient execution and post-lowering reruns of
+  native invariance/cancellation/product comparisons. The old FailOnLimit sweep
+  remains live; its 190 passes and three cache failures are legacy-policy
+  evidence, not current-LRU acceptance. The physical QCD ladder preparation
+  succeeds, but its complete lowering is outside this pinned D9 entry scope;
+  no successful ladder reduction or universal D10 sufficiency is claimed.
+
+The user's cache-persistence/LFU discussion is recorded as a proposal, not an
+implementation instruction or delivered feature. A future explicit cache must
+retain guards, distinguish raw routed results from terminal substitutions,
+bind package identity and preserve admission-before-hit. Hosted packs could
+use selective binary loading and a mutable overlay. Frequency-based eviction
+needs aging and a matched-workload comparison; current default remains LRU.
+No cache serialization, hosted cache download or `prepare_cache` is implemented
+by this checkpoint. Continue the authorized application-validation work first.
+
 ## October 13 — five-loop symbolic Vakint application started
 
 Accepted plan: `FIVE_LOOP_VAKINT_PLAN.md`. Root baseline `6f7097ac`.
@@ -955,6 +1030,43 @@ outside-union endpoint witness, with delivery as independent critic; otherwise
 use a coherent existing operational profile. No approximate scope decision or
 unconditional suppression of resource errors is authorized. Application runs
 and production remain untouched; numerical masters remain the other agent's lane.
+
+### October 13 — post-push continuation: admission scheduling and live CAS profile
+
+The preceding goal turn made concrete progress (two tested source/documentation
+pushes, repaired scalar lowering, completed validation/diagnostics), not merely
+a wait. Revalidated the old native813 sweep and the new LRU point435 retry as
+live processes with their original command/parent identities. At12:05UTC the
+old sweep had190 successful exact warm comparisons and three resource failures;
+the LRU retry had not returned an answer. No completion is inferred from CPU use.
+
+`five_loop_application_profile` independently sampled the owned LRU process for
+30seconds:2,870 samples, zero lost. Inclusive sample shares are73.74% in exact
+coefficient addition,54.48% in polynomial GCD,7.64% multiplication,3.94% guard
+union,1.38% cache insertion and0.16% transport (overlapping call trees, not an
+additive timing table). Actual victim destruction was observed during eviction.
+In a600second window, RSS grew4.21GB and swap0.85GB while CPU used595seconds.
+This does not distinguish new CAS work from recomputation; final-only counters
+are insufficient. Evidence: `point00435-sparse-lru-independent/profile-agent-1210.perf.data`.
+
+Approved a narrow, optional structured application observer following existing
+caller-thread callback conventions. The profile lane owns engine/cache telemetry,
+not algebra or scheduling changes. Default-off observation must avoid clocks,
+formatting and pin-census work. Required checks include exact observed/unobserved
+parity, O(1) optional pinned/eligible accounting, error/panic cleanup and correct
+distinction between core completion and terminal-substitution completion. Do not
+restart the existing long request just to add observation. This is active work,
+not a delivered feature or a claimed performance improvement.
+
+The exact lane and independent delivery critic favor a smaller admission fix
+than a new partial-polynomial proof API: the frontend already has coalesced keys,
+and its all-keys admission test already short-circuits on false. Probe cheap
+rank-zero keys first with the UNCHANGED complete predicate, leaving the canonical
+accepted key/coefficient vector unchanged. An observed false is scope evidence;
+resource errors are never caught and reinterpreted as false. All terms of an
+accepted candidate must still pass. A two-case native diagnostic is being built
+to prove that this applies to the actual failing witnesses before production
+changes. No new IBPs, numerical masters, or production-campaign writes.
 
 The independent sparse LRU retry ofpoint435 remains live; the former factorized
 failure and new retry are distinct runs, not a completed speed comparison. The

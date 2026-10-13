@@ -113,6 +113,147 @@ fn native_compact_maps_preserve_every_coefficient_context_and_guard() {
 }
 
 #[test]
+fn application_progress_preserves_output_and_orders_completion_after_substitution() {
+    let scratch = Scratch::new();
+    let mut application = prepared_fixture(&scratch.0.join("source"));
+    let input = [(
+        IntegralKey::try_new([4]).unwrap(),
+        application.family().coefficient_context().one(),
+    )];
+    let expected = application
+        .reduce_linear_combination(input.clone())
+        .unwrap();
+    application.clear_cache().unwrap();
+    let mut events = Vec::new();
+    let actual = application
+        .reduce_linear_combination_with_progress(input, Duration::ZERO, |event| events.push(event))
+        .unwrap();
+    assert_eq!(actual.terms(), expected.terms());
+    assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+    assert_eq!(actual.statistics(), expected.statistics());
+    assert_eq!(
+        actual.terminal_substitution_additions(),
+        expected.terminal_substitution_additions()
+    );
+    let core_done = events
+        .iter()
+        .position(|event| {
+            event["phase"] == "routed_reduction" && event["core"]["status"] == "succeeded"
+        })
+        .unwrap();
+    let substitution = events
+        .iter()
+        .position(|event| event["phase"] == "terminal_substitution")
+        .unwrap();
+    assert!(core_done < substitution);
+    assert!(
+        events[..events.len() - 1]
+            .iter()
+            .all(|event| event["request_finished"] == false)
+    );
+    let last = events.last().unwrap();
+    assert_eq!(last["request_finished"], true);
+    assert_eq!(last["status"], "succeeded");
+    assert_eq!(last["completed_terminal_rows"], last["terminal_rows"]);
+    assert_eq!(
+        last["terminal_substitution_additions"],
+        actual.terminal_substitution_additions()
+    );
+    assert!(last["core"]["cached"]["coefficient_bytes"].is_u64());
+    assert_eq!(last["schema"], "rustred.saved-application-progress.v1");
+}
+
+#[test]
+fn application_progress_reports_admission_and_terminal_substitution_failures() {
+    let scratch = Scratch::new();
+    let mut application = prepared_fixture(&scratch.0.join("source"));
+    let one = application.family().coefficient_context().one();
+    let mut events = Vec::new();
+    assert!(
+        application
+            .reduce_linear_combination_with_progress(
+                [(IntegralKey::try_new([1, 2]).unwrap(), one.clone())],
+                Duration::ZERO,
+                |event| events.push(event),
+            )
+            .is_err()
+    );
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[1]["phase"], "entry_admission");
+    assert_eq!(events[1]["status"], "failed");
+    assert!(events[1]["core"].is_null());
+    events.clear();
+    application.terminals.rows.clear();
+    assert!(
+        application
+            .reduce_linear_combination_with_progress(
+                [(IntegralKey::try_new([4]).unwrap(), one)],
+                Duration::ZERO,
+                |event| events.push(event),
+            )
+            .is_err()
+    );
+    let last = events.last().unwrap();
+    assert_eq!(last["phase"], "terminal_substitution");
+    assert_eq!(last["status"], "failed");
+    assert_eq!(last["core"]["status"], "succeeded");
+    assert_eq!(last["request_finished"], true);
+}
+
+#[test]
+#[ignore = "bounded release timing diagnostic; reports observations, no timing assertion"]
+fn application_progress_cost_probe() {
+    let scratch = Scratch::new();
+    let mut application = prepared_fixture(&scratch.0.join("source"));
+    let input = [(
+        IntegralKey::try_new([4]).unwrap(),
+        application.family().coefficient_context().one(),
+    )];
+    let expected = application
+        .reduce_linear_combination(input.clone())
+        .unwrap();
+    // Alternate order to reduce warming/drift bias. This small symbolic fixture
+    // is deliberately a high callback-frequency test, not a five-loop forecast.
+    for pair in 0..6 {
+        for observed in if pair % 2 == 0 {
+            [false, true]
+        } else {
+            [true, false]
+        } {
+            let started = Instant::now();
+            let mut callbacks = 0usize;
+            for _ in 0..1000 {
+                application.clear_cache().unwrap();
+                let actual = if observed {
+                    application
+                        .reduce_linear_combination_with_progress(
+                            input.clone(),
+                            Duration::from_secs(1),
+                            |event| {
+                                std::hint::black_box(event);
+                                callbacks += 1;
+                            },
+                        )
+                        .unwrap()
+                } else {
+                    application
+                        .reduce_linear_combination(input.clone())
+                        .unwrap()
+                };
+                assert_eq!(actual.terms(), expected.terms());
+                assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+            }
+            println!(
+                "{}",
+                json!({"event":"application_progress_cost", "pair":pair,
+                "observed":observed,"requests":1000,"callbacks":callbacks,
+                "seconds":started.elapsed().as_secs_f64()})
+            );
+        }
+    }
+}
+
+#[test]
 fn compact_boundary_rejects_unknown_terminals_and_impossible_guards() {
     let mut maps = maps_fixture();
     let options = SavedApplicationOptions::default();

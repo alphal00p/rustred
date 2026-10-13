@@ -2,7 +2,7 @@
 //! source authority lives here. Metadata contains keys/counts, not coefficients.
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{CacheEntry, RoutedCandidateApplication};
+use super::{CacheEntry, CandidateRoutedCacheCensus, RoutedCandidateApplication};
 use crate::algebra::Coefficient;
 use crate::reduction::{CacheWeight, ReductionError, ReductionLimits, coefficient_cache_weight};
 use crate::solver::candidate_reduction::cache::CachedTerms;
@@ -71,6 +71,9 @@ pub(super) struct DependencyPins<const N: usize> {
     // One record per live dependency, bounded by max_unique_nodes; repeated
     // parent references share a checked count instead of duplicating keys.
     nodes: BTreeMap<Node<N>, usize>,
+    // Enabled only for an observed LRU request. Each completed entry is counted
+    // once, independent of the number of parents that currently reference it.
+    pub(super) census: Option<CandidateRoutedCacheCensus>,
 }
 
 fn check_entry(weight: CacheWeight, limits: ReductionLimits) -> Result<(), ReductionError> {
@@ -133,6 +136,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             }
             pins.nodes.insert(node.clone(), 1);
             if let Some(entry) = self.cache.get(node) {
+                if let Some(census) = &mut pins.census {
+                    census.retain(entry.weight);
+                }
                 self.eviction_index
                     .eligible
                     .remove(&(entry.last_access, node.clone()));
@@ -185,6 +191,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         if *count == 0 {
             pins.nodes.remove(node);
             if let Some(entry) = self.cache.get(node) {
+                if let Some(census) = &mut pins.census {
+                    census.release(entry.weight);
+                }
                 self.eviction_index
                     .eligible
                     .insert((entry.last_access, node.clone()));
@@ -203,6 +212,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     .insert((entry.last_access, node));
             }
         }
+        if let Some(census) = &mut pins.census {
+            *census = CandidateRoutedCacheCensus::default();
+        }
     }
 
     pub(super) fn cache_insert(
@@ -210,7 +222,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         node: Node<N>,
         terms: CachedTerms,
         conditions: Vec<Coefficient>,
-        pins: &DependencyPins<N>,
+        pins: &mut DependencyPins<N>,
         stats: &mut CandidateRoutedCacheStatistics,
     ) -> Result<(), CandidateRoutedError> {
         let weight = terms
@@ -241,12 +253,21 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 self.context.limits,
             ) {
                 Ok(()) => {
+                    let pinned = evict && pins.nodes.contains_key(&node);
+                    if let Some(census) = &mut pins.census {
+                        if pinned {
+                            if previous.is_some() {
+                                census.release(previous_weight);
+                            }
+                            census.retain(weight);
+                        }
+                    }
                     if let Some(previous) = previous {
                         self.eviction_index
                             .eligible
                             .remove(&(previous.last_access, node.clone()));
                     }
-                    let eligible = (evict && !pins.nodes.contains_key(&node)).then(|| node.clone());
+                    let eligible = (evict && !pinned).then(|| node.clone());
                     self.cache.insert(
                         node,
                         CacheEntry {

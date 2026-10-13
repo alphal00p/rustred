@@ -144,3 +144,36 @@ reference material, credentials, production checkpoints and unrelated work
 uncommitted. Deliver local portable application assets plus committed examples, a coverage matrix,
 timing results and documentation. Do not substitute a new proof/minimization
 project for the requested application implementation.
+
+## Verified checkpoint — October 13
+
+The external application package, native loader/path setting, exact guarded
+application, dependency-safe LRU and whole-expression scalar lowering have
+source-only pushes on RustRed main and GammaLoop `vakint_rustred`. The master
+evaluation handoff is documented separately in `MASTERS.md`; it does not expand
+this implementation task into numerical evaluation.
+
+All 813 deduplicated boundary/representative witnesses now pass the complete
+native frontend-admission census under an explicit coherent operational profile.
+The census prepares no owner formulas and applies no IBPs. These results do not
+replace the still-incomplete full coefficient-application inventory. Every
+recorded nonempty domain has a witness; this is not exhaustive enumeration of
+all integer points. Defaults and mathematical admission predicates are unchanged.
+
+The previously cache-failing point 435 completes with LRU and exact warm
+equality; cache pressure no longer forces this case to abandon its completed
+subresults. An optional direct-entry application observer has independent code
+audit and real-request validation, including pinned/evictable accounting and
+terminal-substitution lifecycle. It is off by default and is not an in-CAS
+heartbeat, Vakint dashboard or serialized-cache feature.
+
+Remaining acceptance includes broad actual coefficient application, final-build
+reruns of affected LMB/cancellation and factor-product gates, and honest per-case
+resource/performance reporting. The physical ladder's full native preparation
+and mass-weighted scalar lowering are measured, but not admitted by the pinned
+D9 package; do not count a typed refusal as successful ladder reduction or
+silently switch to the user's live D10 campaign. See `CODEX_PROGRESS.md` and
+`docs/research/five_loop_symbolic_application_2026-10-13.md` for exact receipts.
+
+Persistent cache packs, explicit borrowed-cache ownership and aged-LFU remain
+discussion proposals, not implemented acceptance claims or newly assigned work.

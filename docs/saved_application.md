@@ -321,6 +321,45 @@ only compact-map import. Deferred owner initialization is reported separately
 by `owner_preparation_statistics`. These receipts do not attribute process RSS
 to phases.
 
+## Optional request progress
+
+The ordinary application API performs no progress clocks, formatting or pin-census
+work. To observe a direct-entry request, replace the application call in the Rust
+example above with:
+
+```rust
+let result = prepared.reduce_linear_combination_with_progress(
+    [(witness.integral, one)],
+    std::time::Duration::from_secs(1),
+    |event| println!("{event}"),
+)?;
+```
+
+The caller-thread callback receives structured `serde_json::Value` events with
+schema `rustred.saved-application-progress.v1`. `phase` distinguishes entry
+admission, routed reduction and terminal substitution. A successful core snapshot
+does not finish the saved application: full success requires
+`request_finished == true` and `status == "succeeded"`. Events contain counters,
+not coefficient expressions or a fraction of total work completed.
+
+Core snapshots report request-local work, evictions/recomputation, live nodes and
+frames, and retained cached/pinned/eligible entry, term and byte counts. Cache
+counts include earlier reusable results. Pinned payload is a subset of the
+completed cache, including guards; neither is process RSS or arithmetic scratch.
+Under `FailOnLimit`, pinned/eligible counts are unavailable (`null`), not zero.
+The lower-level Rust API
+`reduce_linear_combination_with_entry_admission_and_observer` instead supplies
+a borrowed typed `CandidateRoutedApplicationSnapshot`.
+
+The interval is a minimum checked at bounded native operation boundaries, not
+a heartbeat. No callback interrupts a CAS call or combine. Initial, completion
+and app-phase events are unconditional; zero interval requests every available
+boundary in the Rust API. Error snapshots precede pin cleanup; a core observer
+panic releases pins before unwinding. Callback formatting and I/O add caller-owned
+cost. This API covers `reduce_linear_combination`; the separate
+`reduce_routed_linear_combination` entry-transport API has no observed wrapper,
+and this does not enable a Vakint progress stream.
+
 ## Native driver
 
 Build the example with a runtime configuration supporting the physical arity:
@@ -336,7 +375,7 @@ Its argument forms are:
 saved_application inventory PUBLICATION_OR_RUNTIME
 saved_application terminals RUNTIME
 saved_application export PUBLICATION NEW_RUNTIME_DIRECTORY
-saved_application suite RUNTIME INVENTORY_JSON [OFFSET] [COUNT] [REPEATS] [CACHE_MODE] [CACHE_BYTES] [CACHE_REPRESENTATION] [LIMITS_JSON]
+saved_application suite RUNTIME INVENTORY_JSON [OFFSET] [COUNT] [REPEATS] [CACHE_MODE] [CACHE_BYTES] [CACHE_REPRESENTATION] [LIMITS_JSON] [PROGRESS_MS]
 saved_application compare-cache RUNTIME INVENTORY_JSON CASE_ID CACHE_BYTES [REFERENCE_BYTES] [LIMITS_JSON]
 ```
 
@@ -355,6 +394,27 @@ values are rejected. Complete selected limits appear in
 the preparation receipt. After a failed case the driver records the cache
 census and clears partial memoization before the next case, preventing an
 exhausted shared cache from manufacturing repeated unrelated failures.
+
+`PROGRESS_MS` opts into the same structured events; omitted or zero means off.
+The driver adds `case_id` and `attempt` (zero for first application, one for the
+first warm repeat). Because arguments are positional, supply `LIMITS_JSON` before
+the progress interval. For the retained local generation-54 package/inventory:
+
+```sh
+case_offset=$(jq -er '.cases | to_entries[] | select(.value.id == "point-00154") | .key' \
+  TMP/five-loop-vakint-20261013/inventory-rank-order.json)
+target/release/examples/saved_application suite \
+  TMP/five-loop-vakint-20261013/application-gen54-first \
+  TMP/five-loop-vakint-20261013/inventory-rank-order.json \
+  "$case_offset" 1 1 independent 8589934592 sparse \
+  TMP/five-loop-vakint-20261013/application-work-limits.json 1000
+```
+
+That inventory resolves the ID to offset 82. The command selects one case, one
+warm repeat, an 8 GiB sparse cache and a one-second observation interval. The
+measured run additionally used process supervision and CPU affinity; its timings,
+memory boundaries and frozen identities are recorded in the
+[five-loop measurement record](research/five_loop_symbolic_application_2026-10-13.md).
 
 `compare-cache` compares one inventory key with a fail-on-limit reference cache
 (1 GiB by default) and a smaller evicting cache. It requires exact coefficient

@@ -2,6 +2,9 @@
 
 This is a work-in-progress record, not a claim that the full Vakint acceptance
 suite passes. No new IBPs or numerical masters are generated in this work.
+Earlier October 13 experiments remain as historical evidence. Later completion
+and delivery receipts supersede their pending status only for the named checks;
+frontend admission and completed IBP application remain separate gates.
 
 ## Scope and runtime data
 
@@ -135,7 +138,92 @@ Frozen driver `saved_application-evict-lru`, SHA256
 evidence under `TMP/five-loop-vakint-20261013/`:
 `point00163-exact-eviction-comparison-4m` and the unsuccessful
 `point00163-exact-eviction-comparison`. Focused release tests576core/24app/6driver
-pass. Real Vakint cache-pressure and all813 frontend-admission runs remain pending.
+pass. At that earlier snapshot, real Vakint cache-pressure and all813
+frontend-admission runs remained pending; later receipts are recorded below.
+
+### October 13 completions: large LRU case and observed moderate case
+
+The independent sparse LRU retry of `point-00435` completed with a 64 GiB
+coefficient/guard allowance. A separate fresh-process `point-00154` run validated
+the optional observer with an 8 GiB allowance and one-second requested interval.
+Both used generation 54 and the existing `application-work-limits.json`; both
+exited zero, with one exact warm repeat and no process-memory guard stop.
+They are different inputs and executables, not a matched performance comparison.
+
+| Timing boundary | point-00435, LRU | point-00154, observed LRU |
+|---|---:|---:|
+| Cold package preparation (s) | 80.410 | 74.009 |
+| First full saved application (s) | 11,795.794 | 294.908 |
+| Deferred owner preparation included in first (s; owners) | 24.278; 30/67 | 14.112; 16/67 |
+| Warm full saved application (s) | 2.6516 | 0.3377 |
+| Native `finished.wall_seconds` | 11,878.920 | 369.278 |
+| Whole supervised process, including exit/drain (s) | 12,033.915 | 374.581 |
+
+First/warm timings include terminal substitution but exclude package preparation.
+The native `finished` receipt precedes prepared-handle/cache destruction; the
+supervised boundary includes subsequent teardown and process exit. Compilation
+is excluded from all these timings.
+
+| Output and work diagnostic | point-00435 | point-00154 |
+|---|---:|---:|
+| Returned terms / retained conditions | 278 / 33,375 | 82 / 29,324 |
+| Distinct operational nodes | 455,801 | 99,679 |
+| Rule applications / coalescing additions | 221,492 / 46,886,300 | 41,857 / 2,848,551 |
+| Additional terminal-substitution additions | 733 | 717 |
+| Transport calls / operations / endpoints | 197,141 / 29,127,554 / 5,284,839 | 29,398 / 4,515,520 / 1,048,723 |
+| Retained cache entries / coefficient terms | 241,719 / 1,113,534,096 | 99,679 / 56,435,522 |
+| Charged retained coefficient/guard bytes | 68,719,412,372 | 3,028,625,782 |
+| Evicted entries / coefficient bytes | 250,411 / 20,517,018,200 | 0 / 0 |
+| Same-request recomputed nodes | 36,329 | 0 |
+| Sampled process-tree peak RSS (bytes) | 90,670,780,416 | 6,929,629,184 |
+
+Warm calls used one core cache hit and no new rules, transports or recomputation.
+Both compared complete coefficient maps and ordered guard vectors exactly within
+the process; output validity follows the declared-terminal checks above. Counts
+alone are not an independent oracle or a cross-executable full-output comparison.
+The large-case completion demonstrates successful eviction under substantial
+pressure, not a speedup relative to earlier failed runs.
+
+The observed run produced 197 events (192 first-call, five warm). All 195 events
+carrying a core snapshot satisfied `cached = pinned + eligible` for entries,
+coefficient terms and charged bytes, below the 8 GiB ceiling. Maximum sampled
+pinned payload was 141,760,876 bytes; maximum sampled pinned entries, pending
+frames and active nodes were 1,843, 1,662 and 31 respectively. Pins were zero at
+successful core completion, before terminal substitution/full-request completion.
+These are sampled maxima, not exact lifetime peaks. Pinned payload is part of
+the charged cache; neither is RSS. Owner data, pending coefficients, CAS/output
+scratch and allocator retention remain outside that census. Pinned bytes were
+not observed in the older 435 run.
+
+A 29.999 s profile during 435 captured 2,870 samples with none lost. Inclusive
+cycle shares were 73.74% coefficient addition, 54.48% polynomial GCD, 3.94% guard
+union, 1.38% cache insertion and 0.16% transport; these overlap and must not be
+summed. Victim destruction was observed. The sample cannot divide CAS time
+between fresh work and recomputation or characterize the whole execution.
+
+Observation is default-off and covers direct-root requests, not a Vakint progress
+stream. It does not interrupt a CAS call/combine. The 187 periodic intervals
+ranged from 1.001 to 13.646 s despite the one-second minimum; lifecycle events
+are unconditional. A tiny saved-fixture diagnostic measured about 24 microseconds
+extra per request for five structured callbacks, excluding stdout serialization
+and I/O. This is not a long-request overhead estimate.
+
+Local evidence under `TMP/five-loop-vakint-20261013/`:
+`point00435-sparse-lru-independent/`, `point00435-lru-profile-summary.json`,
+`point00154-sparse-observed-8g-independent/`, `point00154-observed-validation.json`,
+`point00154-observed-identity.json` and `point00154-observed-inputs.sha256`.
+All 77 package files, inventory, work limits and launcher retained their hashes.
+Observed driver SHA256:
+`4431975b4ee64ce73fdde225b6698f8aeb2ff205b97e8460f8101d44bf4471de`.
+
+Observer logs: `TMP/five-loop-observer-core-pinned-final-tests-20261013.log`
+(39 final core tests), `TMP/five-loop-observer-app-tests-20261013.log`
+(20 app tests; one explicitly ignored cost probe),
+`TMP/five-loop-observer-driver-build-20261013.log` and
+`TMP/five-loop-observer-cost-20261013.log`. The app test snapshot preceded only
+the final core counter-copy/lookup-reuse corrections; final core tests and the
+production driver/154 run include those corrections. Independent source review
+also covered failure-before-cleanup and panic reuse.
 
 ## Matched guard-union optimization
 
@@ -358,6 +446,24 @@ canonical path and full preparation/product options. There is no five-loop
 embedded data or automatic download. Same-path loaded bytes remain immutable
 until an explicit reload. Runtime tests remain part of the acceptance gate.
 
+### October 13 post-push delivery and Python runtime
+
+RustRed source milestones `1fca5bd0` and `7a2fc4c7` are pushed. The tested partial
+Vakint delivery at `6de4f9dd` is followed by the pushed profile/test/docs slice
+`43efced0`, retaining actual Git RustRed pin `1fca5bd0`.
+The runtime package remains external; these pushes are not full application
+acceptance or delivery of numerical five-loop master values.
+
+An isolated complete Community host at `cd36326` passed the real Python DOT
+example with invalid FORM, exact first/warm tuple equality and one warm cache
+hit: load 76.673 s, first 9.247 s, warm 9.366 s, 27,496 conditions and one output
+family; supervised 98.330 s, sampled peak RSS 2,489,434,112 bytes. A second
+concise-output run also passed. These are unpaired shared-host observations.
+Evidence: `TMP/community-five-loop-smoke-20261013.Ci6QXq/` under
+`dot-example-smoke/` and `dot-example-concise/`. The isolated wheel predates the
+new scalar-work keyword; the live gallery environment was not changed. This is
+a completed native Python example, not a claim that every binding path passed.
+
 ## Outstanding acceptance work
 
 The following matrix distinguishes graph registration, recorded scope and
@@ -370,19 +476,19 @@ the corresponding test yet.
 | External package; no embedded/download fallback | Local 281 MB package; manifest digest above; loader/setting source audit; path-absent and wrong-path tests | Implemented; warmed-setting checks included in loaded examples |
 | 67 classes, 19 factorized classes, native DOT/pinches | Generated contraction census, all registered DOT round trips and the 118-test native suite pinned to RustRed `bf5b2882` | Passed on that snapshot |
 | Exact recorded admission, including holes | 804-record inventory, 41 native-empty records; 763 nonempty domains; package/admission tests | Passed |
-| Admitted representatives and feasible boundaries | 813 deduplicated concrete witnesses; normalized frontend-only census: 811 pass, two native routing-work refusals | Scalar-expansion failures repaired; explicit routing-budget retest pending; full IBP execution remains separate and incomplete |
+| Admitted representatives and feasible boundaries | Default normalized frontend census: 811/813; coherent explicit resource profile: 813/813, with no owner preparation or IBP application | Frontend admission passed under that profile; full coefficient execution remains separate and incomplete |
 | Exact replay of all retained finite terminal maps on export | All 939 source keys verified against the pinned publication; 905 remaining keys | Passed |
 | Portable authenticated loading and lazy owners | 30 release application/loader/route-preparation tests, including corruption, moved source, first-use error and threaded route checks | Passed |
-| Coefficient application, guard retention, cycles/errors and cache identity | 586 related release core regressions; exact public 4 MiB LRU pressure comparison | Passed; broader real-input sweep still in progress |
+| Coefficient application, guard retention, cycles/errors and cache identity | 586 related core regressions; public 4 MiB comparison; completed large LRU point435 and observed point154; 39 core/20 app observer tests | Named gates passed; not all813 coefficient reductions |
 | Simultaneous numerator/LMB and orientation invariance | Loaded primary suite: scalar-degree 0/5/11 controls in original, expanded, standard/detailed DOT and alternate/indexed LMB forms | Passed at `bf5b2882`; not an all-domain invariance proof |
 | Positive denominator cancellation versus explicit pinch | Six positive-propagator comparisons including single, dotted, multiple, mixed powers and nonunit masses | Passed in the loaded primary suite |
 | Homogeneous GeV^10 and higher admitted numerator boundaries | Homogeneous degree-10 factorized control; scalar-degree 5/11 inverse-denominator examples | Passed for the named controls; a separate full-parent degree-10 request was outside the pinned union |
 | Factorized symbolic output and cross contractions | Independent 5×1L and 3L×2L comparisons; all 38 positive and 14 numerator-terminal reductions, including three cross projections | 52-terminal sweep passed after batch reuse |
 | General common mass and zero-flow bridges | Nonunit-mass controls and three constant massive-bridge cases in the loaded primary suite | Passed |
 | No FORM dependency and preserved lower-loop behavior | Invalid FORM setting in acceptance harness; explicit comparison to baseline `6203c6cbb` | New gates pass; four pre-existing tensor/scalar integration failures reproduced on both baseline and current source, not counted as passes |
-| Rust and Python/HEPKit DOT examples | Example sources and Python-feature compile checks | Final runtime examples pending |
-| Cold, first/warm, RSS, output and cache measurements | Native JSONL case receipts and matched measurements above | In progress; shared-cache first application is not a per-case cold process |
-| Source-only delivery | RustRed through `bf5b2882` pushed, including guarded LRU; runtime package excluded | Compact weighted lowering and Vakint push pending |
+| Rust and Python/HEPKit DOT examples | Loaded Rust controls and real native Python DOT example in isolated Community `cd36326` | Named runtime controls passed; not every Python binding path |
+| Cold, first/warm, RSS, output and cache measurements | Historical matched pairs plus independent435/observed154 receipts with explicit timing and memory boundaries | Named runs completed; shared-cache first application is not a per-case cold process |
+| Source-only delivery | RustRed `1fca5bd0`/`7a2fc4c7` and Vakint `43efced0` pushed; external package excluded | Tested partial source delivery complete; remaining application gates stay explicit |
 
 - Complete admitted inventory reductions, including higher-rank cases, with
   resource outcomes reported individually.
@@ -392,8 +498,8 @@ the corresponding test yet.
   describing the entire lower-loop suite as green.
 - Report matching, tensor, scalar application, terminal normalization and
   rendering times separately in the final Vakint acceptance table.
-- Finish Python/HEPKit runtime smoke testing with one coherent native host;
-  Python-feature compilation alone is not an end-to-end Python check.
+- Retain the completed isolated Python runtime receipt separately from
+  compile-only checks; it does not cover every Python/HEPKit binding path.
 
 ### Whole-numerator lowering gate
 
@@ -430,12 +536,24 @@ scalar-expansion failures are removed; the two remaining failures are
 `point-00352` and `point-00356`, whose native entry transports request
 161,313,306 and 386,902,320 polynomial-operation units against the existing
 64-million allowance. These are operational refusals, not missing-rule or
-outside-scope evidence. A separately logged run with an explicitly configured
-larger routing budget is pending. No IBPs were applied by this audit.
+outside-scope evidence. That snapshot left an explicitly configured larger
+routing-budget retest pending. No IBPs were applied by this audit.
 
 Frozen integrated executable SHA256:
 `f012756286c1a416b965c104cd149791ce4b8b974be5654a1353e2eb71d592f0`;
 evidence: `vakint-admission-census-813-numeric-normalized/`.
+
+The later coherent `materialize-512m` profile first passed both affected cases,
+then the complete 813-case frontend census: 971.550 s after loading, 1,046.92 s
+test wall and 1,047.483 s supervised, with 3,846,541,312 bytes sampled peak RSS.
+All 813 passed; owner preparation, cached integrals and rule applications stayed
+zero. Production defaults and the recorded entry union were unchanged. This
+profile configures the existing aggregate and native materialization allowances
+together; complete options are recorded in
+`entry-probe-coherent-materialization-512m/` and
+`vakint-admission-census-813-coherent-materialization-512m/` under the same local
+evidence root. This completes that configured admission audit, not 813 IBP
+reductions or the separately outside-union physical-ladder request.
 
 The exported package inherits the saved scope's authority. It does not claim
 independent certification, minimality, or unrestricted five-loop closure.

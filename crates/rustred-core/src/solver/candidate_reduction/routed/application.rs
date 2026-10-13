@@ -3,10 +3,15 @@
 mod cache_policy;
 mod engine;
 mod guard_union;
+mod progress;
 mod transport;
 
 use cache_policy::EvictionIndex;
 pub use cache_policy::{CandidateRoutedCachePolicy, CandidateRoutedCacheStatistics};
+pub use progress::{
+    CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
+    CandidateRoutedApplicationStatus, CandidateRoutedCacheCensus,
+};
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

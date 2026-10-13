@@ -44,6 +44,66 @@ fn assert_census<const N: usize>(app: &RoutedCandidateApplication<N>) {
 }
 
 #[test]
+fn observed_pin_census_counts_shared_guards_and_references_once() {
+    let mut app = application(Default::default());
+    app.set_cache_policy(CandidateRoutedCachePolicy::EvictLeastRecentlyUsed)
+        .unwrap();
+    let mut pins = DependencyPins {
+        census: Some(Default::default()),
+        ..Default::default()
+    };
+    let mut stats = CandidateRoutedCacheStatistics::default();
+    let first = Node::Route(key([1]));
+    let second = Node::Route(key([2]));
+    let guard = app.family().coefficient_context().integer(7);
+    insert(
+        &mut app,
+        first.clone(),
+        vec![guard.clone()],
+        &mut pins,
+        &mut stats,
+    )
+    .unwrap();
+    app.pin_dependency(&first, &mut pins).unwrap();
+    app.pin_dependency(&first, &mut pins).unwrap();
+    app.pin_dependency(&second, &mut pins).unwrap();
+    assert_eq!(pins.census.unwrap().entries, 1);
+    insert(
+        &mut app,
+        second.clone(),
+        vec![guard.clone()],
+        &mut pins,
+        &mut stats,
+    )
+    .unwrap();
+    insert(
+        &mut app,
+        second.clone(),
+        vec![guard.clone(), guard],
+        &mut pins,
+        &mut stats,
+    )
+    .unwrap();
+    let mut expected = CandidateRoutedCacheCensus::default();
+    for (node, entry) in &app.cache {
+        if pins.nodes.contains_key(node) {
+            expected.retain(entry.weight);
+        }
+    }
+    assert_eq!(pins.census, Some(expected));
+    app.release_dependency(&first, &mut pins).unwrap();
+    assert_eq!(pins.census, Some(expected));
+    app.release_dependency(&first, &mut pins).unwrap();
+    assert_eq!(
+        pins.census.unwrap(),
+        CandidateRoutedCacheCensus::new(1, app.cache[&second].weight)
+    );
+    app.release_request_pins(&mut pins);
+    assert_eq!(pins.census, Some(Default::default()));
+    assert_eq!(app.eviction_index.eligible.len(), app.cache.len());
+}
+
+#[test]
 fn default_fails_but_opt_in_preserves_shared_siblings_and_warm_root() {
     let limits = ReductionLimits {
         max_cached_integrals: 2,
@@ -188,7 +248,7 @@ fn insert(
     app: &mut RoutedCandidateApplication<1>,
     node: Node<1>,
     conditions: Vec<Coefficient>,
-    pins: &DependencyPins<1>,
+    pins: &mut DependencyPins<1>,
     stats: &mut CandidateRoutedCacheStatistics,
 ) -> Result<(), CandidateRoutedError> {
     app.cache_insert(
@@ -213,10 +273,10 @@ fn exact_lru_touches_and_reference_counts_preserve_route_apply_identity() {
     let route = Node::Route(key([1]));
     let apply = Node::Apply([true], key([1]));
     let other = Node::Route(key([2]));
-    insert(&mut app, route.clone(), vec![], &pins, &mut stats).unwrap();
-    insert(&mut app, apply.clone(), vec![], &pins, &mut stats).unwrap();
+    insert(&mut app, route.clone(), vec![], &mut pins, &mut stats).unwrap();
+    insert(&mut app, apply.clone(), vec![], &mut pins, &mut stats).unwrap();
     app.touch_cache(&route).unwrap();
-    insert(&mut app, other.clone(), vec![], &pins, &mut stats).unwrap();
+    insert(&mut app, other.clone(), vec![], &mut pins, &mut stats).unwrap();
     assert!(app.cache.contains_key(&route));
     assert!(!app.cache.contains_key(&apply));
     assert_eq!(stats.evicted_entries, 1);
@@ -224,7 +284,7 @@ fn exact_lru_touches_and_reference_counts_preserve_route_apply_identity() {
     app.pin_dependency(&route, &mut pins).unwrap();
     app.release_dependency(&route, &mut pins).unwrap();
     assert_eq!(pins.nodes[&route], 1);
-    insert(&mut app, apply.clone(), vec![], &pins, &mut stats).unwrap();
+    insert(&mut app, apply.clone(), vec![], &mut pins, &mut stats).unwrap();
     assert!(app.cache.contains_key(&route));
     assert!(!app.cache.contains_key(&other));
     app.release_dependency(&route, &mut pins).unwrap();
@@ -241,7 +301,7 @@ fn guards_in_cached_zeros_are_charged_and_released_without_duplicates() {
         .coefficient_context()
         .coefficient_fixture("d-4");
     let weight = coefficient_cache_weight(std::slice::from_ref(&condition)).unwrap();
-    let pins = DependencyPins::default();
+    let mut pins = DependencyPins::default();
     for limits in [
         ReductionLimits {
             max_cached_coefficient_terms: weight.coefficient_terms,
@@ -263,7 +323,7 @@ fn guards_in_cached_zeros_are_charged_and_released_without_duplicates() {
             &mut sizing,
             first.clone(),
             vec![condition.clone()],
-            &pins,
+            &mut pins,
             &mut stats,
         )
         .unwrap();
@@ -276,7 +336,7 @@ fn guards_in_cached_zeros_are_charged_and_released_without_duplicates() {
             &mut sizing,
             second.clone(),
             vec![condition.clone()],
-            &pins,
+            &mut pins,
             &mut stats,
         )
         .unwrap();
@@ -299,7 +359,7 @@ fn guards_in_cached_zeros_are_charged_and_released_without_duplicates() {
                 &mut sizing,
                 first,
                 vec![condition.clone(), condition.clone()],
-                &pins,
+                &mut pins,
                 &mut stats
             )
             .is_err()
@@ -407,7 +467,7 @@ fn scheduling_failure_cleans_pins_and_access_sequence_fails_closed() {
         &mut app,
         Node::Route(key([1])),
         vec![],
-        &DependencyPins::default(),
+        &mut DependencyPins::default(),
         &mut CandidateRoutedCacheStatistics::default(),
     )
     .unwrap_err();

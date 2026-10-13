@@ -10,8 +10,10 @@ mod prepare;
 mod trace;
 
 pub use application::{
-    CandidateRoutedApplicationStatistics, CandidateRoutedCachePolicy,
-    CandidateRoutedCacheStatistics, CandidateRoutedReduction, RoutedCandidateApplication,
+    CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
+    CandidateRoutedApplicationStatistics, CandidateRoutedApplicationStatus,
+    CandidateRoutedCacheCensus, CandidateRoutedCachePolicy, CandidateRoutedCacheStatistics,
+    CandidateRoutedReduction, RoutedCandidateApplication,
 };
 
 pub use campaign::{

@@ -1,11 +1,16 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::cache_policy::DependencyPins;
 use super::guard_union::GuardUnion;
+use super::progress::Progress;
 use super::{
-    CandidateRoutedApplicationStatistics, CandidateRoutedReduction, RoutedCandidateApplication,
+    CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
+    CandidateRoutedApplicationStatistics, CandidateRoutedApplicationStatus,
+    CandidateRoutedCacheCensus, CandidateRoutedCachePolicy, CandidateRoutedReduction,
+    RoutedCandidateApplication,
 };
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::family::IntegralKey;
@@ -97,16 +102,55 @@ mod tests {
 }
 
 #[derive(Default)]
-struct Request<const N: usize> {
+struct Request<'a, const N: usize> {
     algebra: ReductionRequest,
     stats: CandidateRoutedApplicationStatistics,
     seen: BTreeSet<Node<N>>,
     active: BTreeSet<Node<N>>,
     stack: Vec<Frame<N>>,
     pins: DependencyPins<N>,
+    progress: Option<Progress<'a>>,
 }
 
-impl<const N: usize> Request<N> {
+impl<const N: usize> Request<'_, N> {
+    fn observe(
+        &mut self,
+        application: &RoutedCandidateApplication<N>,
+        phase: Option<CandidateRoutedApplicationPhase>,
+        status: CandidateRoutedApplicationStatus,
+        force: bool,
+    ) {
+        let Some(progress) = &mut self.progress else {
+            return;
+        };
+        if let Some(phase) = phase {
+            progress.phase = phase;
+        }
+        let Some(now) = progress.due(force) else {
+            return;
+        };
+        let cached =
+            CandidateRoutedCacheCensus::new(application.cache.len(), application.cache_weight);
+        let mut statistics = self.stats;
+        // The execution counter is finalized at return. Observers receive a
+        // current copy without altering work accounting or the eventual result.
+        statistics.operational_nodes = self.seen.len();
+        let snapshot = CandidateRoutedApplicationSnapshot {
+            sequence: progress.sequence,
+            elapsed: now.duration_since(progress.started),
+            phase: progress.phase,
+            status,
+            statistics,
+            unique_nodes: self.seen.len(),
+            active_nodes: self.active.len(),
+            pending_frames: self.algebra.pending_frame_count(),
+            cached,
+            pinned: self.pins.census,
+            eligible: self.pins.census.map(|pinned| cached.excluding(pinned)),
+        };
+        (progress.observer)(&snapshot);
+    }
+
     fn push(&mut self, frame: Frame<N>, limit: usize) -> Result<(), CandidateRoutedError> {
         self.algebra.retain_pending_frame(limit)?;
         self.stack
@@ -156,14 +200,79 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         admission: CandidateEntryAdmission<'_, N>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        let mut request = Request::default();
-        let result = self.reduce_request(terms, admission, &mut request, true);
+        self.reduce_observed_request(terms, admission, None)
+    }
+
+    /// Observe one exact request on its calling thread. No observation runs
+    /// inside CAS or a combine. Clock checks occur every 256 frame boundaries;
+    /// the requested interval is a minimum, not a heartbeat guarantee. Zero
+    /// requests every boundary. Initial and terminal snapshots are unconditional.
+    /// Failure snapshots precede dependency cleanup. If the observer panics,
+    /// pins are released and completed-cache work is retained before unwinding.
+    pub fn reduce_linear_combination_with_entry_admission_and_observer(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        admission: CandidateEntryAdmission<'_, N>,
+        interval: Duration,
+        mut observer: impl FnMut(&CandidateRoutedApplicationSnapshot),
+    ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        self.reduce_observed_request(
+            terms,
+            admission,
+            Some(Progress::new(interval, &mut observer)),
+        )
+    }
+
+    fn reduce_observed_request(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        admission: CandidateEntryAdmission<'_, N>,
+        progress: Option<Progress<'_>>,
+    ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        let observed = progress.is_some();
+        let mut request = Request {
+            progress,
+            ..Default::default()
+        };
+        if observed && self.cache_policy == CandidateRoutedCachePolicy::EvictLeastRecentlyUsed {
+            request.pins.census = Some(CandidateRoutedCacheCensus::default());
+        }
+        let run = || {
+            request.observe(
+                self,
+                Some(CandidateRoutedApplicationPhase::Admission),
+                CandidateRoutedApplicationStatus::Running,
+                true,
+            );
+            let result = self.reduce_request(terms, admission, &mut request, true);
+            request.observe(
+                self,
+                None,
+                if result.is_ok() {
+                    CandidateRoutedApplicationStatus::Succeeded
+                } else {
+                    CandidateRoutedApplicationStatus::Failed
+                },
+                true,
+            );
+            result
+        };
+        // The ordinary path has no clock, snapshot construction or unwind
+        // boundary. Observed callbacks must not strand the eviction index.
+        let result = if observed {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
+        } else {
+            Ok(run())
+        };
         self.release_request_pins(&mut request.pins);
         // Failed attempts retain valid completed cache entries and their
         // measured work, never active or partially combined nodes.
         self.work.merge_work(request.stats.work);
         self.cache_work.merge(request.stats.cache);
-        result
+        match result {
+            Ok(result) => result,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
     }
 
     /// Explicitly transport initial keys using installed routes, then admit
@@ -186,7 +295,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         &mut self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         admission: CandidateEntryAdmission<'_, N>,
-        request: &mut Request<N>,
+        request: &mut Request<'_, N>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
         let context = self.context.clone();
         let coefficients = context.shared.context.base();
@@ -227,7 +336,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         &mut self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         admission: CandidateEntryAdmission<'_, N>,
-        request: &mut Request<N>,
+        request: &mut Request<'_, N>,
         count_inputs: bool,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
         let context = self.context.clone();
@@ -295,6 +404,12 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             self.pin_dependency(&root, &mut request.pins)?;
             request.push(Frame::Enter(root.clone()), limits.max_pending_frames)?;
             self.run_stack(request)?;
+            request.observe(
+                self,
+                Some(CandidateRoutedApplicationPhase::RootCollection),
+                CandidateRoutedApplicationStatus::Running,
+                false,
+            );
             let entry = self
                 .cache
                 .get(&root)
@@ -340,7 +455,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         })
     }
 
-    fn run_stack(&mut self, request: &mut Request<N>) -> Result<(), CandidateRoutedError> {
+    fn run_stack(&mut self, request: &mut Request<'_, N>) -> Result<(), CandidateRoutedError> {
         let context = self.context.clone();
         let shared = &context.shared;
         let limits = context.limits;
@@ -357,6 +472,16 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         };
         while let Some(frame) = request.stack.pop() {
             request.algebra.release_pending_frame()?;
+            let phase = match &frame {
+                Frame::Enter(_) => CandidateRoutedApplicationPhase::Expansion,
+                Frame::Combine { .. } => CandidateRoutedApplicationPhase::Combination,
+            };
+            request.observe(
+                self,
+                Some(phase),
+                CandidateRoutedApplicationStatus::Running,
+                false,
+            );
             let node = match frame {
                 Frame::Combine {
                     node,
@@ -402,7 +527,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                         node,
                         output,
                         conditions,
-                        &request.pins,
+                        &mut request.pins,
                         &mut request.stats.cache,
                     )?;
                     continue;
@@ -621,7 +746,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         node: Node<N>,
         terms: BTreeMap<IntegralKey, Coefficient>,
         conditions: Vec<Coefficient>,
-        request: &mut Request<N>,
+        request: &mut Request<'_, N>,
     ) -> Result<(), CandidateRoutedError> {
         let context = &self.context;
         let terms = CachedTerms::from_sparse(
@@ -634,7 +759,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             node,
             terms,
             conditions,
-            &request.pins,
+            &mut request.pins,
             &mut request.stats.cache,
         )
     }
