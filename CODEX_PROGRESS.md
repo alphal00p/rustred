@@ -1,6 +1,56 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 13 — RAM-only cache supervisor and rebuilt Python host
+
+- [M] Root found that the generic `generation_guard.run` helper did not forward
+  optional swap settings and therefore inherited its historical 32 MiB/s swap
+  stop. `cache_layout_audit` added optional swap-rate/window passthrough using
+  the unchanged `RamGuard`, and records the resolved policy in `request.json`.
+  Omitted options preserve old behavior. Root independently passed all 15
+  pipeline tests and 16 existing RAM/frontier-policy tests, including extreme
+  synthetic swap growth with rate zero, unchanged RAM stops and invalid-option
+  refusal before child launch. No live production process or campaign input
+  changed. Logs: `TMP/five-loop-vakint-20261013/cache-ram-only-guard-root-repeat.log`
+  and `cache-ram-only-existing-policy-repeat.log` in the same directory.
+- [M] Profile's full four-loop launcher explicitly sets the swap rate to zero;
+  its 50-billion-byte process-tree RSS ceiling, 5% margin and 150-billion-byte
+  host reserve remain active. Native cache/disk allowances remain 16 billion
+  bytes. This monitoring-only change needs no Rust rebuild and is not an
+  artifact/schema change. Root approved the launcher after independent review.
+- [M] The incremental actual-Git `d44e3bee` Python host build completes
+  successfully: Cargo 12m51, supervised 783.58 s, peak tree RSS 9.742 GB, no
+  guard stop and a fully drained process group. Captured compiled-source hashes
+  are unchanged. The in-flight supervisor had already imported its old helper;
+  the separate monitoring fix did not change the compiled native source.
+- [A] Delivery installed the new private wheel and is running the ten Python
+  cache tests, authentic pre-change 65-record load/resume compatibility and the
+  public example. Profile is released to launch the full 164,352-input workload
+  immediately after that matching receipt is available. This entry does not
+  claim those runtime checks or full preparation have finished.
+
 ## October 13 — preparation layout selected from held-out measurements
+
+Root's implementation/docs milestone is now committed, pushed and remote-
+verified at `d44e3beea9de1370a9cdd6fff08cbfbb486c1c4e`. Delivery's same-host
+incremental actual-Git Python build is live under session 38917, supervisor
+247926/process-group 247936, evidence
+`TMP/community-cache-smoke-20261013.8gjsFL/build-layout`. It uses build-0,
+CPUs 32--47, Cargo eight jobs, and unchanged shared Symbolica/FeynKit versions.
+The previous wheel, smoke evidence and authentic old pack are preserved.
+Profile has conditional launch approval for the reviewed full four-loop runner
+after the ten new-host smoke tests and old-pack compatibility checks pass.
+
+- [D] A separate bounded read-only audit identified the minimal explicit cache
+  download/import route: keep a single trusted-checksum archive, use existing
+  HTTP/gzip/tar libraries in Vakint, and reuse RustRed's native
+  `copy_bases_to_new` for bounded verified chunk transfer. No new codec, CAS,
+  automatic evaluation download or authentication framework is needed. HTTP
+  and extraction safeguards, combined staging/output disk accounting, and
+  no-replace directory publication still need implementation/tests. Imported
+  snapshots would be loadable for evaluation, not resumable preparation jobs,
+  because native full-copy intentionally omits preparation metadata. This is
+  **design only**, deferred until the current host gate and full four-loop
+  preparation are running; it must not delay that preparation or its push.
 
 - [M] Profile completed the existing-knob layout comparison on the same full
   2,320-input three-loop primer. Fresh ABBA processes compare the same held-out

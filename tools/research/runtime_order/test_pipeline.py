@@ -158,6 +158,7 @@ class PipelineTests(unittest.TestCase):
             self.assertFalse(self.directory.exists())
 
     def test_guard_has_no_timeout_and_reports_noncooperative_ram_stop(self):
+        self.resources["swap_growth_stop_bytes_per_second"] = 0
         child = MagicMock(pid=123456789)
         child.poll.side_effect = [None, 0, 0]
         child.wait.return_value = -signal.SIGTERM
@@ -177,6 +178,61 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result["stop_reason"], "aggregate_rss_soft_limit")
         self.assertFalse(result["in_sector_resume"])
         self.assertIsNone(prep.read(self.base / "guard/request.json")["hard_timeout"])
+
+    def test_guard_swap_override_and_default_are_enforced_and_recorded(self):
+        for disabled in (False, True):
+            with self.subTest(disabled=disabled):
+                resources = dict(self.resources)
+                if disabled:
+                    resources.update(swap_growth_stop_bytes_per_second=0, swap_growth_stop_seconds=1.0)
+                output = self.base / f"swap-{disabled}"
+                child = MagicMock(pid=123456789)
+                child.poll.side_effect = [None, None, None, 0, 0]
+                child.wait.return_value = 0
+                collector = MagicMock()
+                collector.sample.return_value = (
+                    {1: dict(rss_bytes=100_000, cpu_seconds=0.0, start=1, ppid=0)}, {})
+                with patch.object(guard.subprocess, "Popen", return_value=child), \
+                        patch.object(guard, "group_running", return_value=False), \
+                        patch.object(guard.os, "killpg") as signal_group, \
+                        patch.object(guard.SUPERVISOR, "ProcessTreeCollector", return_value=collector), \
+                        patch.object(guard.SUPERVISOR, "host_memory", return_value={"available_bytes":10_000_000_000}), \
+                        patch.object(guard.SUPERVISOR, "tree_swap_bytes", side_effect=[0, 10**12, 2 * 10**12]), \
+                        patch.object(guard.time, "monotonic", side_effect=iter(range(0, 10_000, 120))), \
+                        redirect_stdout(io.StringIO()):
+                    if disabled:
+                        guard.run(["fake"], output, resources, poll_seconds=0)
+                        signal_group.assert_not_called()
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "unfinished sector must restart"):
+                            guard.run(["fake"], output, resources, poll_seconds=0)
+                        signal_group.assert_any_call(child.pid, signal.SIGTERM)
+                result = prep.read(output / "result.json")
+                self.assertEqual(result["stop_reason"], None if disabled else "own_swap_growth_sustained")
+                policy = prep.read(output / "request.json")["ram_guard"]
+                self.assertEqual(policy["swap_growth_stop_bytes_per_second"],
+                                 0 if disabled else 32 * 1024 * 1024)
+                self.assertEqual(policy["swap_growth_stop_seconds"], 1.0 if disabled else 120.0)
+                self.assertEqual(policy["hard_rss_bytes"], self.resources["max_memory_bytes"])
+                self.assertEqual(policy["host_available_floor_bytes"], self.resources["host_memory_reserve_bytes"])
+
+    def test_invalid_swap_guard_configuration_refuses_before_child_start(self):
+        for index, override in enumerate((
+                {"swap_growth_stop_bytes_per_second": -1},
+                {"swap_growth_stop_seconds": 0},
+                {"swap_growth_stop_seconds": float("inf")},
+                {"swap_growth_stop_seconds": None})):
+            with self.subTest(override=override), \
+                    patch.object(guard.SUPERVISOR, "host_memory", return_value={"available_bytes":10_000_000_000}), \
+                    patch.object(guard.subprocess, "Popen") as child, \
+                    self.assertRaises((ValueError, TypeError)):
+                output = self.base / f"invalid-swap-{index}"
+                guard.run(["unused"], output, dict(self.resources, **override))
+            child.assert_not_called()
+            result = prep.read(output / "result.json")
+            self.assertFalse(result["child_started"])
+            self.assertTrue(result["owned_group_drained"])
+            self.assertIn("resource_admission_failed", result["stop_reason"])
 
     def test_walk_override_or_invalid_escrow_refused_before_generation(self):
         plan = self.prepare()

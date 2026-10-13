@@ -56,13 +56,18 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0):
         host = SUPERVISOR.host_memory()
         hard, soft, floor = SUPERVISOR.memory_admission(resources["max_memory_bytes"], None, host,
             resources["host_memory_reserve_bytes"], resources["ram_guard_margin_percent"])
-        guard = SUPERVISOR.RamGuard(hard, soft, floor)
-    except (OSError, ValueError, KeyError) as error:
+        guard = SUPERVISOR.RamGuard(hard, soft, floor,
+            swap_growth_bytes_per_second=resources.get("swap_growth_stop_bytes_per_second",
+                SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_BYTES_PER_SECOND),
+            swap_growth_seconds=resources.get("swap_growth_stop_seconds",
+                SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_SECONDS))
+    except (OSError, ValueError, TypeError, KeyError) as error:
         (directory / "result.json").write_text(json.dumps(dict(exit_code=None, child_started=False,
             owned_group_drained=True, stop_reason=f"resource_admission_failed: {error}"), indent=2) + "\n")
         raise
     request = dict(command=command, cpus=sorted(cpus), started_unix=time.time(),
         memory=SUPERVISOR.memory_admission_record(resources["max_memory_bytes"], host, floor, hard, soft),
+        ram_guard=guard.policy(),
         stop_contract="SIGTERM then owned-group drain; only completed sector shards are resumable",
         hard_timeout=None, environment_recorded=False)
     (directory / "request.json").write_text(json.dumps(request, indent=2) + "\n")
