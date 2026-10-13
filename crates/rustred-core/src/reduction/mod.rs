@@ -8,7 +8,7 @@
 
 pub(crate) mod cache_policy;
 mod error;
-mod guarded_cache;
+pub(crate) mod guarded_cache;
 mod model;
 mod reducer;
 pub mod terminal_normalization;

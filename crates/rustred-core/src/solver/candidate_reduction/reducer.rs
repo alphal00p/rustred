@@ -46,8 +46,28 @@ pub struct CandidateReducer<const N: usize> {
     pub(super) cache: BTreeMap<IntegralKey, CacheEntry>,
     pub(super) cache_representation: CandidateCacheRepresentation,
     pub(super) cache_weight: CacheWeight,
-    pub(super) cache_budget: SharedCacheBudget,
+    pub(super) cache_budget: Arc<SharedCacheBudget>,
     pub(super) statistics: ReductionStatistics,
+}
+
+impl<const N: usize> Drop for CandidateReducer<N> {
+    fn drop(&mut self) {
+        if self.cache.is_empty() {
+            debug_assert_eq!(self.cache_weight, CacheWeight::default());
+            return;
+        }
+        // The outer completed-root cache owns separate retained payload. A
+        // transient native session releases exactly its own share, including
+        // after a typed error or unwind, without invoking pressure callbacks.
+        let released = self.cache_budget.replace_without_pressure(
+            self.cache.len(),
+            self.cache_weight,
+            0,
+            CacheWeight::default(),
+            self.limits,
+        );
+        debug_assert!(released.is_ok(), "candidate cache census did not release");
+    }
 }
 
 impl<const N: usize> CandidateReducer<N> {
@@ -63,6 +83,14 @@ impl<const N: usize> CandidateReducer<N> {
     /// the new session. Mathematical admission and terminal declarations are
     /// unchanged. No allowance or state is modified in the source session.
     pub fn fork_empty_with_limits(&self, limits: ReductionLimits) -> Self {
+        self.fork_empty_with_shared_budget(limits, Arc::new(SharedCacheBudget::default()))
+    }
+
+    pub(super) fn fork_empty_with_shared_budget(
+        &self,
+        limits: ReductionLimits,
+        cache_budget: Arc<SharedCacheBudget>,
+    ) -> Self {
         Self {
             program: Arc::clone(&self.program),
             terminal_aliases: self.terminal_aliases.clone(),
@@ -71,7 +99,7 @@ impl<const N: usize> CandidateReducer<N> {
             cache: BTreeMap::new(),
             cache_representation: self.cache_representation,
             cache_weight: CacheWeight::default(),
-            cache_budget: SharedCacheBudget::default(),
+            cache_budget,
             statistics: ReductionStatistics::default(),
         }
     }
@@ -81,6 +109,10 @@ impl<const N: usize> CandidateReducer<N> {
     }
     pub fn index_count(&self) -> usize {
         N
+    }
+    /// Physical key arity, which can be smaller than storage capacity `N`.
+    pub fn physical_arity(&self) -> usize {
+        self.program.context.index_count()
     }
     /// Original declared terminals, retained even when output aliases are installed.
     /// Offline catalogs and provenance checks should continue to use this set.
@@ -233,21 +265,7 @@ impl<const N: usize> CandidateReducer<N> {
                         // Exactly one sealed convention is installed. All
                         // outputs are declared fixed points; no replay or
                         // recursive terminal expansion enters the hot path.
-                        let terms = if let Some(plan) = &self.terminal_normalization {
-                            plan.terms()
-                                .get(&key)
-                                .ok_or(ReductionError::ReducerInvariant {
-                                    detail: "sealed normalization omitted a raw terminal",
-                                })?
-                                .clone()
-                        } else {
-                            let terminal = self
-                                .terminal_aliases
-                                .as_ref()
-                                .and_then(|plan| plan.aliases().get(&key))
-                                .map_or(&key, |alias| alias.representative());
-                            BTreeMap::from([(terminal.clone(), self.program.context.base().one())])
-                        };
+                        let terms = self.terminal_terms(&key)?;
                         let terms = CachedTerms::from_sparse(
                             terms,
                             self.cache_representation,
@@ -364,7 +382,7 @@ impl<const N: usize> CandidateReducer<N> {
     }
 
     pub fn clear_cache(&mut self) -> Result<(), CandidateReductionError> {
-        self.cache_budget.replace(
+        self.cache_budget.replace_without_pressure(
             self.cache.len(),
             self.cache_weight,
             0,
@@ -526,6 +544,14 @@ impl<const N: usize> CandidateReducer<N> {
         &self,
         target: &IntegralKey,
     ) -> Result<Vec<Coefficient>, CandidateReductionError> {
+        self.target_conditions_with_limits(target, self.limits)
+    }
+
+    pub(super) fn target_conditions_with_limits(
+        &self,
+        target: &IntegralKey,
+        limits: ReductionLimits,
+    ) -> Result<Vec<Coefficient>, CandidateReductionError> {
         let mut conditions = Vec::new();
         super::evaluator::CandidateEvaluator {
             context: &self.program.context,
@@ -535,12 +561,37 @@ impl<const N: usize> CandidateReducer<N> {
             whole_piece_alternatives: &[],
             source_conditions: &self.program.source_conditions,
             zero_sectors: &self.program.zero_sectors,
-            limits: self.limits,
+            limits,
         }
         .validate_target_with_conditions(target, &mut |condition| {
             retain_polynomial(&mut conditions, condition)
         })?;
         Ok(conditions)
+    }
+
+    /// Exact leaf row under the installed native terminal convention. Callers
+    /// must establish that `target` is a declared raw terminal first.
+    pub(super) fn terminal_terms(
+        &self,
+        target: &IntegralKey,
+    ) -> Result<BTreeMap<IntegralKey, Coefficient>, CandidateReductionError> {
+        if let Some(plan) = &self.terminal_normalization {
+            return plan.terms().get(target).cloned().ok_or_else(|| {
+                ReductionError::ReducerInvariant {
+                    detail: "sealed normalization omitted a raw terminal",
+                }
+                .into()
+            });
+        }
+        let terminal = self
+            .terminal_aliases
+            .as_ref()
+            .and_then(|plan| plan.aliases().get(target))
+            .map_or(target, |alias| alias.representative());
+        Ok(BTreeMap::from([(
+            terminal.clone(),
+            self.program.context.base().one(),
+        )]))
     }
 
     fn apply_guarded_candidate(

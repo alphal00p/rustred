@@ -43,6 +43,7 @@ struct Backend<'a> {
     configured: usize,
     refused: Option<i64>,
     fail: Option<i64>,
+    fail_late_context: bool,
     cancel: Option<&'a AtomicBool>,
     order: Vec<(usize, i64)>,
 }
@@ -63,6 +64,7 @@ impl Backend<'_> {
             configured: 0,
             refused: None,
             fail: None,
+            fail_late_context: false,
             cancel: None,
             order: Vec::new(),
         }
@@ -88,6 +90,9 @@ impl CachePreparationBackend for Backend<'_> {
         self.bindings
             .get(namespace)
             .ok_or_else(|| AppError::input("unknown mock namespace"))?;
+        if self.fail_late_context && namespace == 1 && self.calls >= 2 {
+            return Err(AppError::input("mock second-namespace checkpoint failure"));
+        }
         Ok(&self.context)
     }
     fn configure(&mut self, _: &CachePreparationResolvedOptions) -> Result<(), AppError> {
@@ -202,6 +207,44 @@ fn preparation_resume_revalidates_roots_and_balances_namespaces() {
     assert_eq!(report.completed_roots, 0);
     assert_eq!(report.reused_roots, 0);
     assert_eq!(resumed.calls, 0);
+}
+
+#[test]
+fn later_namespace_failure_keeps_exact_durable_preparation_prefix() {
+    let scratch = Scratch::new();
+    let output = scratch.0.join("pack");
+    let mut backend = Backend::new(2);
+    backend.fail_late_context = true;
+    let workload = backend.workload(&[1]);
+    let report = prepare_application_cache(
+        &workload,
+        &options(),
+        &output,
+        &AtomicBool::new(false),
+        &mut backend,
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(report.status, CachePreparationStatus::Failed);
+    assert_eq!(report.total_roots, 2);
+    assert_eq!(report.completed_roots, 1);
+    assert_eq!(report.newly_stored_roots, 1);
+    assert_eq!(backend.calls, 2);
+    let mut resumed = Backend::new(2);
+    let report = prepare_application_cache(
+        &workload,
+        &options(),
+        &output,
+        &AtomicBool::new(false),
+        &mut resumed,
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(report.status, CachePreparationStatus::Complete);
+    assert_eq!(report.completed_roots, 2);
+    assert_eq!(report.reused_roots, 1);
+    assert_eq!(report.newly_stored_roots, 1);
+    assert_eq!(resumed.calls, 1);
 }
 
 #[test]

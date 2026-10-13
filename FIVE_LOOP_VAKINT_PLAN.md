@@ -290,22 +290,29 @@ not assertions of renormalizable-physics coverage or exhaustive integer coverage
 
 ### October 13 delivery checkpoint
 
-- Native guarded-root, descendant reuse/export, isolated candidate sessions and
-  ordinary reduction regressions pass 162 distinct optimized tests. Prepared
-  one-loop I(4) supplies the descendant of I(5), reducing native rule work to one
-  application without losing exact coefficients or nonzero obligations.
-- Compressed cache-pack schema 02 and the generic physical-mask primer pass
-  the full 27-test Cargo application gate. The format uses native Symbolica
-  payloads, bounded gzip transport and indexed runs; schema 01 development packs
-  are not migrated. Existing production IBP artifact formats are unchanged.
-- Vakint's real 1L prepare/load/fresh-process test passes on the preceding
-  published revision. Its 0.12 s measures the complete test, not a matched
-  reduction speedup. Two-/three-loop controls and four-loop cache wiring follow.
-- The next application-level save slice explicitly exports resident completed
-  roots. It must not pretend to copy unloaded backing records or preserve a
-  complete disk-backed cache. Full base-plus-overlay preservation, explicit
-  download APIs, large-pack RSS checks and the final 1--4L packs remain required.
-- Four-loop session construction shares immutable rules and installed terminal
-  normalization without clearing ordinary Vakint caches. The native candidate
-  cached-program adapter must reuse RustRed's guarded cache machinery, retain
-  candidate authority and document which inner-DAG policies are supported.
+Follow-up cache gates now pass: 173 distinct optimized native core tests,
+40 native Cargo application tests, and real fresh-process Vakint cache tests
+at 1L, 2L and 3L. The application tests cover resident-only export, durable
+preparation resume that reuses descendants, reader refresh and portable
+full-base copying. The latter preserves unloaded records by streaming verified
+compressed chunks, not by loading all coefficients. Full-copy and resident-only
+semantics remain distinct. Five-loop warmup is still deferred.
+
+The native candidate cached-program wrapper now provides the isolated-session
+foundation for four-loop cache integration. It preserves exact normalized
+terminal rows, guards, physical arity and common-mass authority. Its current
+cache covers completed starting roots; inner candidate DAG eviction and prepared
+descendant reuse are not yet implemented. Four-loop performance claims require
+the upcoming actual adapter and held-out tests.
+
+The remaining deliverables are the four-loop adapter, public full-save and
+download surfaces, Python cache steering, matched LRU/LFU comparisons and the
+final 1--4L preparation workloads/packs. The small passing controls are not a
+substitute for those deliverables or the deferred five-loop acceptance work.
+
+Prepared one-loop I(4) supplies the descendant of I(5), reducing native rule work
+to one application without losing exact coefficients or nonzero obligations.
+The schema 02 cache format uses native Symbolica payloads, bounded gzip transport
+and indexed runs; schema 01 development packs are not migrated. Existing
+production IBP artifact formats are unchanged. Reported 1--3L test durations
+measure complete functional controls, not paired reduction speedups.

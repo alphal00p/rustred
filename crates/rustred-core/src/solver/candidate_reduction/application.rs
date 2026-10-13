@@ -3,7 +3,7 @@ use super::evaluator::{CandidateEvaluator, validate_entry_rank};
 use super::reducer::CandidateReducer;
 use crate::algebra::Coefficient;
 use crate::family::IntegralKey;
-use crate::reduction::ReductionRequest;
+use crate::reduction::{ReductionLimits, ReductionRequest};
 use std::collections::BTreeMap;
 
 impl<const N: usize> CandidateReducer<N> {
@@ -11,12 +11,26 @@ impl<const N: usize> CandidateReducer<N> {
         &self,
         target: &IntegralKey,
     ) -> Result<(), CandidateReductionError> {
-        self.validate_target(target)?;
+        self.validate_entry_with_limits(target, self.limits)
+    }
+    pub(super) fn validate_entry_with_limits(
+        &self,
+        target: &IntegralKey,
+        limits: ReductionLimits,
+    ) -> Result<(), CandidateReductionError> {
+        self.validate_target_with_limits(target, limits)?;
         validate_entry_rank(target, self.program.max_numerator_rank)
     }
     pub(super) fn validate_target(
         &self,
         target: &IntegralKey,
+    ) -> Result<(), CandidateReductionError> {
+        self.validate_target_with_limits(target, self.limits)
+    }
+    fn validate_target_with_limits(
+        &self,
+        target: &IntegralKey,
+        limits: ReductionLimits,
     ) -> Result<(), CandidateReductionError> {
         CandidateEvaluator {
             context: &self.program.context,
@@ -26,7 +40,7 @@ impl<const N: usize> CandidateReducer<N> {
             whole_piece_alternatives: &[],
             source_conditions: &self.program.source_conditions,
             zero_sectors: &self.program.zero_sectors,
-            limits: self.limits,
+            limits,
         }
         .validate_target(target)
     }

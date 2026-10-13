@@ -39,7 +39,8 @@ use super::routed_campaign::{
 use crate::{AppError, MasterReductionArtifact};
 
 pub use cache_pack::{
-    SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter, SavedApplicationCachePack,
+    SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter,
+    SavedApplicationCacheCopyStatistics, SavedApplicationCachePack,
     SavedApplicationCachePackLimits, SavedApplicationCachePackStatistics,
     SavedApplicationCacheWriter,
 };

@@ -137,6 +137,83 @@ fn isolated_session_shares_weighted_convention_without_sharing_completed_cache()
 }
 
 #[test]
+fn cached_candidate_preserves_weighted_rows_guards_and_canonical_leaf_authority() {
+    use crate::reduction::{CompletedCachePolicy, GuardedRootSource};
+    use crate::solver::CandidateUnitMassProgram;
+    let (family, raw, target) = fixture();
+    let plan = TerminalNormalizationPlan::vacuum_quadratic_numerators(
+        &family,
+        &raw,
+        OrderingPolicy::SpiredUncutV1,
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(plan.terms()[&target].len(), 2);
+    for representation in [
+        CandidateCacheRepresentation::Sparse,
+        CandidateCacheRepresentation::Factorized,
+    ] {
+        let mut source = owner(&family, &raw, &plan, representation);
+        let d = source.coefficient_context().base().parameter("d").unwrap();
+        let source_guard = source
+            .coefficient_context()
+            .lift_base_polynomial(&d.numerator)
+            .unwrap();
+        std::sync::Arc::get_mut(&mut source.program)
+            .unwrap()
+            .source_conditions
+            .push(source_guard);
+        let expected = source
+            .reduce_unit_mass_guarded(&target, Default::default())
+            .unwrap();
+        let program = CandidateUnitMassProgram::new(&source, [42; 32]);
+        assert!(std::sync::Arc::strong_count(source.terminal_normalization.as_ref().unwrap()) >= 2);
+        let mut cache = program.new_cache(
+            Default::default(),
+            CompletedCachePolicy::EvictAgedLeastFrequentlyUsed,
+        );
+        let (cold, unit) = program
+            .reduce_guarded_root_with_decomposition(&target, &mut cache, Default::default(), None)
+            .unwrap();
+        assert_eq!(unit, expected.0);
+        assert_eq!(cold.record.nonzero_conditions, expected.1);
+        assert!(cold.record.nonzero_conditions.contains(&d));
+        assert_eq!(cold.record.terms, plan.terms()[&target]);
+        let warm = program
+            .reduce_guarded_root(&target, &mut cache, Default::default(), None)
+            .unwrap();
+        assert_eq!(warm.source, GuardedRootSource::Ram);
+        assert_eq!(warm.record, cold.record);
+        let mut corrupted = cold.record.clone();
+        corrupted
+            .terms
+            .remove(corrupted.terms.keys().next().cloned().as_ref().unwrap());
+        assert!(
+            program
+                .validate_completed_record(&corrupted, Default::default())
+                .is_err()
+        );
+        let canonical = plan.canonical_terminals().iter().next().unwrap();
+        let leaf = program
+            .reduce_guarded_root(canonical, &mut cache, Default::default(), None)
+            .unwrap();
+        assert_eq!(
+            leaf.record.terms,
+            BTreeMap::from([(canonical.clone(), program.context().one())])
+        );
+        let mut corrupted = leaf.record;
+        corrupted
+            .terms
+            .insert(canonical.clone(), program.context().integer(2));
+        assert!(
+            program
+                .validate_completed_record(&corrupted, Default::default())
+                .is_err()
+        );
+    }
+}
+
+#[test]
 fn weighted_terminal_and_cached_output_cannot_bypass_an_inherited_source_pole() {
     let (family, raw, target) = fixture();
     let plan = TerminalNormalizationPlan::vacuum_quadratic_numerators(

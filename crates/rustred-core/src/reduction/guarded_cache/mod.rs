@@ -2,6 +2,7 @@
 //! never stores the ordinary reducer's guardless descendants or an active DAG.
 mod cache;
 mod export;
+mod lookup;
 mod program;
 #[cfg(test)]
 mod tests;
@@ -14,11 +15,13 @@ use crate::persistence::application_cache::{
 use std::fmt;
 
 pub use cache::{GuardedRootCache, GuardedRootCacheStatistics};
+pub(crate) use export::export_bound;
 pub use export::{GuardedRootExportError, GuardedRootExportStatistics};
+pub(crate) use lookup::lookup_bound;
 pub use program::ClosedUnitMassProgram;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum RootUse {
+pub(crate) enum RootUse {
     Entry,
     Descendant,
 }

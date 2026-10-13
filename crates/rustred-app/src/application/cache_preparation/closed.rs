@@ -11,8 +11,8 @@ use rustred::{
     reduction::{
         ClosedUnitMassProgram, CompletedCachePolicy, GuardedCacheBacking, GuardedCacheBackingError,
         GuardedCacheBackingErrorKind, GuardedCacheError, GuardedRootCache,
-        GuardedRootCacheStatistics, GuardedRootResult, HomogeneousMasterDecomposition,
-        ReductionError, ReductionLimits,
+        GuardedRootCacheStatistics, GuardedRootExportError, GuardedRootExportStatistics,
+        GuardedRootResult, HomogeneousMasterDecomposition, ReductionError, ReductionLimits,
     },
 };
 use serde_json::{Value, json};
@@ -33,20 +33,7 @@ impl GuardedCacheBacking for ReadOnlyBacking {
         key: &ApplicationCacheKey,
         context: &CoefficientContext,
     ) -> Result<Option<ApplicationCacheRecord>, GuardedCacheBackingError> {
-        self.0
-            .lookup(key, context)
-            .map_err(|error| GuardedCacheBackingError {
-                kind: match error.kind() {
-                    AppErrorKind::Limit | AppErrorKind::OutputLimit => {
-                        GuardedCacheBackingErrorKind::Limit
-                    }
-                    AppErrorKind::Input | AppErrorKind::Schema | AppErrorKind::Serialization => {
-                        GuardedCacheBackingErrorKind::Invalid
-                    }
-                    _ => GuardedCacheBackingErrorKind::Io,
-                },
-                message: error.to_string(),
-            })
+        self.0.lookup(key, context).map_err(backing_error)
     }
     fn store_completed(
         &mut self,
@@ -131,6 +118,12 @@ impl<'a> ClosedApplicationCache<'a> {
         )?;
         self.attach_pack(bundle.open_reader(self.program.binding())?)
     }
+    fn refresh_backing(&mut self) -> Result<(), AppError> {
+        if let Some(backing) = self.backing.as_mut() {
+            backing.0.refresh()?;
+        }
+        Ok(())
+    }
     pub fn reduce_guarded_root(
         &mut self,
         target: &IntegralKey,
@@ -168,6 +161,12 @@ impl<'a> ClosedApplicationCache<'a> {
     }
     pub fn clear_ram(&mut self) -> Result<(), AppError> {
         self.cache.clear().map_err(reduction_error)
+    }
+    pub(super) fn export_to(
+        &self,
+        backing: &mut dyn GuardedCacheBacking,
+    ) -> Result<GuardedRootExportStatistics, GuardedRootExportError> {
+        self.program.export_completed(&self.cache, backing)
     }
 }
 
@@ -218,6 +217,31 @@ impl CachePreparationBackend for ClosedCachePreparationBackend<'_> {
     }
     fn context(&self, namespace: usize) -> Result<&CoefficientContext, AppError> {
         Ok(self.session(namespace)?.program.context())
+    }
+    fn attach_completed_cache(
+        &mut self,
+        namespace: usize,
+        reader: SavedApplicationCachePack,
+    ) -> Result<(), AppError> {
+        self.sessions
+            .get_mut(namespace)
+            .ok_or_else(|| AppError::input("unknown closed cache namespace"))?
+            .attach_pack(reader)
+    }
+    fn refresh_completed_caches(&mut self) -> Result<(), AppError> {
+        for session in &mut self.sessions {
+            session.refresh_backing()?;
+        }
+        Ok(())
+    }
+    fn completed_cache_directory_bytes(&self) -> Result<usize, AppError> {
+        self.sessions
+            .iter()
+            .filter_map(|session| session.io_statistics())
+            .try_fold(0usize, |bytes, statistics| {
+                bytes.checked_add(statistics.directory_owned_bytes)
+            })
+            .ok_or_else(|| AppError::limit("closed backing directory byte count overflow"))
     }
     fn configure(&mut self, options: &CachePreparationResolvedOptions) -> Result<(), AppError> {
         // A conservative documented partition bounds the aggregate across
@@ -277,10 +301,16 @@ impl CachePreparationBackend for ClosedCachePreparationBackend<'_> {
         json!(self.sessions.iter().map(|session| {
             let stats = session.cache_statistics();
             json!({"ram_hits":stats.ram_hits, "backing_hits":stats.backing_hits,
+                "descendant_ram_hits":stats.descendant_ram_hits, "descendant_backing_hits":stats.descendant_backing_hits,
                 "payload_validations":stats.payload_validations,
                 "completed_reductions":stats.completed_reductions, "evicted_entries":stats.evicted_entries,
                 "cached_integrals":stats.cached_integrals, "cached_coefficient_terms":stats.cached_coefficient_terms,
                 "cached_coefficient_bytes":stats.cached_coefficient_bytes,
+                "backing_io":session.io_statistics().map(|io| json!({
+                    "directory_owned_bytes":io.directory_owned_bytes,
+                    "chunks_read":io.chunks_read, "encoded_bytes_read":io.chunk_bytes_read,
+                    "decoded_bytes":io.decoded_chunk_bytes, "hits":io.hits, "misses":io.misses,
+                    "lookup_limit_refusals":io.lookup_limit_refusals})),
                 "rule_applications":stats.work.rule_applications(), "coalescing_additions":stats.work.coalescing_additions()})
         }).collect::<Vec<_>>())
     }
@@ -289,7 +319,19 @@ impl CachePreparationBackend for ClosedCachePreparationBackend<'_> {
 fn reduction_error(error: ReductionError) -> AppError {
     crate::application::closing::map_reduction_error("guarded closed cache", error)
 }
-fn guarded_error(error: GuardedCacheError) -> AppError {
+pub(super) fn backing_error(error: AppError) -> GuardedCacheBackingError {
+    GuardedCacheBackingError {
+        kind: match error.kind() {
+            AppErrorKind::Limit | AppErrorKind::OutputLimit => GuardedCacheBackingErrorKind::Limit,
+            AppErrorKind::Input | AppErrorKind::Schema | AppErrorKind::Serialization => {
+                GuardedCacheBackingErrorKind::Invalid
+            }
+            _ => GuardedCacheBackingErrorKind::Io,
+        },
+        message: error.to_string(),
+    }
+}
+pub(super) fn guarded_error(error: GuardedCacheError) -> AppError {
     match error {
         GuardedCacheError::Reduction(error) => reduction_error(error),
         GuardedCacheError::BindingMismatch | GuardedCacheError::InvalidRecord(_) => {

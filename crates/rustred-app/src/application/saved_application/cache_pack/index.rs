@@ -14,7 +14,7 @@ const MAGIC: &[u8; 16] = b"RR-CACHE-PACK-02";
 pub(super) const MANIFEST: &str = "cache.rrindex";
 pub(super) const MAX_FRAME: usize = 64 * 1024 * 1024;
 
-#[derive(Clone, Debug, bincode::Encode, bincode::Decode)]
+#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct Chunk {
     pub digest: [u8; 32],
     pub bytes: u64,
@@ -33,7 +33,7 @@ impl Chunk {
     }
 }
 
-#[derive(Clone, Debug, bincode::Encode, bincode::Decode)]
+#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct Manifest {
     pub binding: ApplicationCacheBinding,
     pub bundle_managed: bool,

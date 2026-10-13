@@ -3,8 +3,9 @@ mod cache_preparation;
 pub use cache_preparation::{
     CachePreparationBackend, CachePreparationCapabilities, CachePreparationOptions,
     CachePreparationPrimerBudget, CachePreparationReport, CachePreparationResolvedOptions,
-    CachePreparationStatus, CachePreparationTarget, CachePreparationWorkload,
-    ClosedApplicationCache, ClosedCachePreparationBackend, prepare_application_cache,
+    CachePreparationStatus, CachePreparationTarget, CachePreparationWorkload, CacheSaveOptions,
+    CacheSaveReport, ClosedApplicationCache, ClosedCachePreparationBackend,
+    prepare_application_cache,
 };
 mod campaign {
     pub(super) mod foundry;
@@ -43,7 +44,8 @@ pub use routed_campaign::{
 };
 pub use saved_application::{
     PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,
-    SavedApplicationCacheBundleWriter, SavedApplicationCachePack, SavedApplicationCachePackLimits,
+    SavedApplicationCacheBundleWriter, SavedApplicationCacheCopyStatistics,
+    SavedApplicationCachePack, SavedApplicationCachePackLimits,
     SavedApplicationCachePackStatistics, SavedApplicationCacheWriter, SavedApplicationDomain,
     SavedApplicationIntegral, SavedApplicationOptions, SavedApplicationPreparationStatistics,
     SavedApplicationProduct, SavedApplicationProductChartStatistics,

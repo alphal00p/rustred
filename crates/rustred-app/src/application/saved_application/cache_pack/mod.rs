@@ -18,7 +18,10 @@ mod writer;
 
 use rustred::persistence::application_cache::ApplicationCacheIoLimits;
 
-pub use bundle::{SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter};
+pub use bundle::{
+    SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter,
+    SavedApplicationCacheCopyStatistics,
+};
 pub use reader::SavedApplicationCachePack;
 pub use writer::SavedApplicationCacheWriter;
 

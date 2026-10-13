@@ -1,5 +1,8 @@
 //! A generic bundle is an exact set of child program bindings, not a loop-count
 //! dispatch table. Child writes share one quota before touching disk.
+mod snapshot;
+pub use snapshot::SavedApplicationCacheCopyStatistics;
+
 use super::*;
 use crate::{AppError, application::atomic_file::write_file_atomically};
 use rustred::algebra::CoefficientContext;

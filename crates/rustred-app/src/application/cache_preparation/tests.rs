@@ -29,6 +29,7 @@ fn preparation_defaults_are_decimal_and_do_not_change_evaluation() {
         CandidateRoutedCachePolicy::EvictLeastRecentlyUsed
     );
     assert_eq!(options.time_limit_seconds, 36_000);
+    assert_eq!(options.max_roots, 1_000_000);
     assert_eq!(
         SavedApplicationOptions::default().cache_policy,
         CandidateRoutedCachePolicy::EvictLeastRecentlyUsed

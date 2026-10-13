@@ -48,6 +48,40 @@ impl SavedApplicationCachePack {
     pub fn statistics(&self) -> SavedApplicationCachePackStatistics {
         self.statistics
     }
+    pub(super) fn captured_snapshot(&self) -> (&Path, &index::Manifest) {
+        (&self.directory, &self.manifest)
+    }
+    /// Authenticate a newer committed directory without decoding coefficients.
+    /// Intended for explicit durable-checkpoint boundaries, not each lookup.
+    /// On failure the previous snapshot remains usable. Successful refreshes
+    /// replace only directory metadata/census: cumulative payload-I/O, lookup
+    /// charges and hit/miss counters are preserved, not reset. Index reads are
+    /// separately bounded by `max_manifest_bytes`, as at initial open.
+    pub fn refresh(&mut self) -> Result<(), AppError> {
+        let bytes = index::read_bounded(
+            &self.directory.join(index::MANIFEST),
+            self.limits.max_manifest_bytes,
+        )?;
+        let (manifest, directory) = index::decode(&bytes, self.binding(), self.limits)?;
+        if manifest.bundle_managed != self.manifest.bundle_managed
+            || manifest.generation < self.manifest.generation
+            || manifest.generation == self.manifest.generation && manifest != *self.manifest
+        {
+            return Err(fail(
+                "cache refresh changed ownership or rewound/mutated its generation",
+            ));
+        }
+        let mut statistics = self.statistics;
+        statistics.runs = directory.runs;
+        statistics.chunks = directory.chunks;
+        statistics.records = directory.records;
+        statistics.referenced_chunk_bytes = directory.referenced_chunk_bytes;
+        statistics.manifest_bytes = directory.manifest_bytes;
+        statistics.directory_owned_bytes = directory.directory_owned_bytes;
+        self.manifest = Arc::new(manifest);
+        self.statistics = statistics;
+        Ok(())
+    }
     /// Share only immutable directory metadata; no coefficient/route cloning.
     pub fn fork_reader(&self) -> Self {
         let mut statistics = self.statistics;

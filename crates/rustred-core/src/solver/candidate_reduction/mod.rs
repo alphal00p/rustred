@@ -9,6 +9,7 @@
 
 mod application;
 mod cache;
+mod cached_program;
 mod evaluator;
 mod model;
 mod owners;
@@ -20,6 +21,7 @@ mod terminal_aliases;
 mod terminal_normalization;
 mod trace;
 
+pub use cached_program::{CandidateGuardedCacheError, CandidateUnitMassProgram};
 pub use model::{
     CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
     CandidateReductionError, CandidateStatistics,

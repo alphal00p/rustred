@@ -1,5 +1,106 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## Current cache delivery status — October 13, after access recovery
+
+The active implementation priority remains 1--4-loop cache preparation. RustRed
+`main` has the tested compressed-storage/guarded-reuse checkpoint `a0649fed`.
+Vakint's corresponding actual-Git 1--3L integration milestone is now pushed at
+`24cb1ceb6e906452e29816a11737ef855b7150a3` on `vakint_rustred`; root verified the
+remote hash. It contains only the tested pin, primer adapter, tests and docs,
+not cache packs or numerical-master changes.
+The root independently reran the actual-Git a064 Vakint binary on CPU 17 with
+workspace-local temporary storage: 1L passed in 0.12 s; combined 2L/3L tests
+passed in 2.38 s. The tests include fresh-process loading, exact coefficients
+and guard obligations, common-mass changes, pinches, RAM reuse and held-out roots.
+The held-out 3L input used 62 native rules and reused one RAM plus 32 backing
+descendants. Its observed 0.05060 s is an unpaired functional measurement, not
+a speedup claim. Receipt log: `TMP/root-lower-cache-repeat-20261013.log`.
+
+The native candidate cache wrapper's three fixture-setup corrections now pass
+the optimized 11-test retest. Across the original and corrected receipts all
+173 distinct tests pass; no production-code change was needed for these fixes.
+The independent exact-application audit also passes. Consolidated evidence:
+`TMP/candidate-guarded-program-core-gate-receipt-20261013.json`.
+The isolated wrapper is the next four-loop cache integration step, not yet a
+validated four-loop application cache. Resident-only export and preparation
+resume now pass native runtime gates. Complete copying of a partially loaded
+backing pack is a separate tested bounded IO operation; resident export does
+not claim that capability by itself.
+No five-loop cache preparation or production-campaign changes are being made.
+
+The full native Cargo application gate passes all 40 focused tests in 0.16 s,
+after 9m44 compilation under build-0 on CPUs 32--47. It includes resident export, interrupted
+preparation resume with durable descendant reuse, reader refresh, and portable
+full-base copying. The current source check passed in 100 s. Root and the Vakint
+delivery agent independently reviewed base copying; the profile agent reviewed
+resident export and the preparation/refresh path. No blocking findings remain.
+The copy API uses a 64 KiB streaming buffer plus separately bounded directory
+metadata, preserves the captured run order and unloaded/shadowed records,
+and creates independent destination files. Bundle publication is last. This is
+tested small-pack correctness, not a validated large-pack benchmark. All 2,043
+captured source files and manifests remained unchanged. Receipt:
+`TMP/five-loop-vakint-20261013/cache-full-snapshot-native-app-tests.json`;
+log: `TMP/cache-full-snapshot-native-app-tests-20261013.log`.
+The next source milestone includes these tested native/app changes and docs,
+but excludes the unregistered generic Closed/Candidate frontend-session draft.
+
+## October 13 execution-environment interruption — resolved
+
+Normal root shell access is restored after the user's permission update. A
+read-only Nix package check also successfully ran Bubblewrap 0.11.2; it is a
+Codex sandbox-launch dependency, not a RustRed or campaign dependency. No
+sandbox bypass, host configuration change or production restart was performed.
+The three implementation lanes have resumed with their previous ownership.
+The core author corrected only the three diagnosed fixture setups and launched
+the focused optimized test gate; production algebra remains unchanged. Log:
+`TMP/candidate-guarded-program-corrected-tests-20261013.log`.
+
+The interruption history below is preserved; its blocked/live statements refer
+to those earlier observations, not the now-restored environment.
+
+Following the workspace permission change, shell commands fail in the sandbox
+launcher before execution because neither a system nor bundled `bwrap` binary
+is available. All three active subagents also reported revoked application
+network permission. No escalation or sandbox bypass was attempted. The root's
+attempt to poll the previous core gate handle 94559 returned an unknown handle;
+this does not establish whether the host process finished. Do not restart that
+build or a production campaign without rechecking the actual process and logs.
+The owning profile agent subsequently recovered its existing handle and verified
+the same Cargo/rustc parent chain (355493/355497) alive; its read-only log access
+works without a permissions override. The root's shell launcher still fails on
+a second read-only attempt. The native gate remains live, not failed or restarted.
+
+The most recent delivered evidence before the interruption reports passing
+actual-Git `a0649fed` Vakint cache gates at 1L/2L/3L (0.15/0.13/2.21 s for each
+complete test). Preparation covered 5/20/256 finite operational roots, not full
+integer domains. The receipt is
+`TMP/five-loop-vakint-20261013/actual-git-lower-cache-a0649fed-receipt.json`.
+The candidate cached-program optimized result and the resident-save/resume
+runtime work still require verification. Last relevant logs:
+`TMP/candidate-guarded-program-core-tests-20261013.log` and
+`TMP/cache-resident-export-resume-source-check-20261013.log`.
+Subsequent read-only inspection by the owning profile agent recovered the native
+gate result: exit 1 after 5m38 compilation, 173 distinct tests with 170 passes and
+three new fixture-setup failures. Existing closed/routed gates remain passing.
+The first fixture used unsupported padded capacity 2 for physical arity 1;
+the supported capacity-dispatch test should use 4. Two fixtures incorrectly
+supplied a base-context polynomial to indexed admission, which correctly raised
+`WrongContext`; they need the existing native `lift_base_polynomial` service.
+These diagnoses are not completed fixes. No test, implementation or assertion
+has been changed after the environment interruption, and no new build started.
+All 15 source hashes match the captured manifest. Native binary SHA256:
+`4d1ca36e26cefbd385fc0b8c74b0b56b63bc1e53dabd0969981fc1461816fce1`.
+No five-loop cache preparation, new IBPs, numerical masters, or production
+campaign modifications are authorized by this interruption.
+
+Recovered lane handoffs: the local Vakint `a0649fed` pin/tests/docs have not yet
+been pushed; last confirmed remote Vakint is `57aeb312`. Registered resident-save,
+shared batch and preparation-refresh code passed source checking in 1m36, but
+runtime checks are pending. Full-base snapshot copying is approved design only,
+not an implemented feature. Four-loop candidate core source checking passed;
+four-loop app/Vakint cache integration has not yet been implemented. Preserve
+all local work and do not label the source-check gates as executed runtime tests.
+
 ## Latest priority — October 13: prepare 1--4-loop caches only
 
 ### Audited infrastructure checkpoint

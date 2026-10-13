@@ -20,6 +20,7 @@ impl CachePreparationCapabilities {
 
     // Only an integrated native backend may enable this capability. Current
     // standalone chunk/pack codecs alone do not establish it.
+    #[cfg(test)]
     pub(crate) const fn validated_lazy_storage() -> Self {
         Self {
             validated_lazy_storage: true,
@@ -52,7 +53,7 @@ impl Default for CachePreparationOptions {
             disk_bytes: None,
             time_limit_seconds: 36_000,
             checkpoint_interval_seconds: 60,
-            max_roots: 100_000,
+            max_roots: 1_000_000,
             resume: true,
             storage_limits: Default::default(),
         }
@@ -77,6 +78,35 @@ pub struct CachePreparationResolvedOptions {
 }
 
 impl CachePreparationOptions {
+    /// One owner for preparation/snapshot disk defaults. This does not reserve
+    /// RAM or grant backend availability or mathematical admission.
+    pub(super) fn resolve_disk_bytes(
+        loop_count: usize,
+        requested: Option<u64>,
+        capabilities: CachePreparationCapabilities,
+    ) -> Result<u64, AppError> {
+        if loop_count == 0 {
+            return Err(AppError::input("cache storage loop count must be positive"));
+        }
+        let bytes = match (requested, loop_count) {
+            (Some(bytes), _) => bytes,
+            (None, 1..=3) => 1_000_000_000_u64,
+            (None, 4) => 16_000_000_000,
+            (None, 5) if capabilities.has_validated_lazy_storage() => 128_000_000_000,
+            (None, 5) => 32_000_000_000,
+            (None, _) => {
+                return Err(AppError::input(
+                    "no default cache disk budget for this loop count; supply an explicit disk budget",
+                ));
+            }
+        };
+        if bytes == 0 {
+            return Err(AppError::input(
+                "cache storage disk budget must be positive",
+            ));
+        }
+        Ok(bytes)
+    }
     /// Override native pack IO policy as a unit. Its explicit disk allowance
     /// becomes the requested quota, avoiding two competing disk-limit fields.
     pub fn with_storage_limits(mut self, limits: SavedApplicationCachePackLimits) -> Self {
@@ -104,18 +134,7 @@ impl CachePreparationOptions {
                 "cache checkpoint interval must be positive",
             ));
         }
-        let disk_bytes = match (self.disk_bytes, loop_count) {
-            (Some(bytes), _) => bytes,
-            (None, 1..=3) => 1_000_000_000_u64,
-            (None, 4) => 16_000_000_000,
-            (None, 5) if capabilities.has_validated_lazy_storage() => 128_000_000_000,
-            (None, 5) => 32_000_000_000,
-            (None, _) => {
-                return Err(AppError::input(
-                    "no default cache disk budget for this loop count; supply an explicit disk budget",
-                ));
-            }
-        };
+        let disk_bytes = Self::resolve_disk_bytes(loop_count, self.disk_bytes, capabilities)?;
         let ram_bytes = self.ram_bytes.unwrap_or(disk_bytes.min(32_000_000_000));
         if disk_bytes == 0 || ram_bytes == 0 {
             return Err(AppError::input(

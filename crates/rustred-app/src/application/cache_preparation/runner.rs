@@ -12,7 +12,10 @@ use rustred::{
 };
 use serde_json::{Value, json};
 
-use super::{CachePreparationResolvedOptions, CachePreparationTarget, CachePreparationWorkload};
+use super::{
+    CachePreparationResolvedOptions, CachePreparationTarget, CachePreparationWorkload,
+    batch::CompletedCacheBatch,
+};
 use crate::{
     AppError, AppErrorKind, SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter,
     SavedApplicationCachePack,
@@ -26,6 +29,26 @@ pub trait CachePreparationBackend {
     /// Apply the explicit preparation RAM/policy without enlarging unrelated
     /// native arithmetic or work allowances.
     fn configure(&mut self, options: &CachePreparationResolvedOptions) -> Result<(), AppError>;
+    /// Optional native descendant-cache attachment. The runner still owns
+    /// root-level resume validation; native programs must also admit and
+    /// validate every backing record they use during a reduction.
+    fn attach_completed_cache(
+        &mut self,
+        _namespace: usize,
+        _reader: SavedApplicationCachePack,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    /// Called only after durable batches, never per requested root. Preserve
+    /// native RAM/work policy and cumulative I/O counters when refreshing.
+    fn refresh_completed_caches(&mut self) -> Result<(), AppError> {
+        Ok(())
+    }
+    /// Upper census of backing directories retained by the backend, distinct
+    /// from runner readers, retained coefficient payload and process RSS.
+    fn completed_cache_directory_bytes(&self) -> Result<usize, AppError> {
+        Ok(0)
+    }
     /// Must use the active native program's entry admission, including zeros.
     /// Called before every existing-record lookup, even when resuming.
     fn validate_entry(&self, target: &CachePreparationTarget) -> Result<(), AppError>;
@@ -168,41 +191,27 @@ impl Checkpoint {
     }
 }
 
-#[derive(Default)]
-struct Pending {
-    records: Vec<Vec<ApplicationCacheRecord>>,
-    count: usize,
-    terms: usize,
-    bytes: usize,
-}
-impl Pending {
-    fn flush(
+impl CompletedCacheBatch {
+    fn flush_preparation(
         &mut self,
         workload: &CachePreparationWorkload,
-        backend: &impl CachePreparationBackend,
+        backend: &mut impl CachePreparationBackend,
         writer: &mut SavedApplicationCacheBundleWriter,
         report: &mut CachePreparationReport,
     ) -> Result<(), AppError> {
-        for (namespace, records) in self.records.iter_mut().enumerate() {
-            if records.is_empty() {
-                continue;
-            }
-            records.sort_by(|left, right| left.key.cmp(&right.key));
-            writer.append_completed(
-                &workload.bindings()[namespace],
-                records,
-                backend.context(namespace)?,
-            )?;
-            // The BUNDLE API checkpoints the child before returning. This is
-            // deliberately not standalone CacheWriter::append_completed,
-            // whose records remain staged until an explicit checkpoint.
-            report.completed_roots += records.len();
-            report.newly_stored_roots += records.len();
-            records.clear();
+        let before = self.durable_records();
+        let result = self.flush(workload.bindings(), writer, |namespace| {
+            backend.context(namespace)
+        });
+        // A later namespace may fail after an earlier child was published.
+        // Keep that durable prefix in the report even when returning an error.
+        let published = self.durable_records() - before;
+        report.completed_roots += published;
+        report.newly_stored_roots += published;
+        result?;
+        if published != 0 {
+            backend.refresh_completed_caches()?;
         }
-        self.count = 0;
-        self.terms = 0;
-        self.bytes = 0;
         Ok(())
     }
 }
@@ -269,6 +278,14 @@ pub fn prepare_application_cache(
         .iter()
         .map(|binding| bundle.open_reader(binding))
         .collect::<Result<_, _>>()?;
+    for (namespace, reader) in readers.iter().enumerate() {
+        backend.attach_completed_cache(namespace, reader.fork_reader())?;
+    }
+    let runner_directory_bytes = readers
+        .iter()
+        .map(|reader| reader.statistics().directory_owned_bytes)
+        .try_fold(0usize, |sum, bytes| sum.checked_add(bytes))
+        .ok_or_else(|| AppError::limit("cache reader directory byte count overflow"))?;
     let mut report = CachePreparationReport {
         status: CachePreparationStatus::Running,
         total_roots: workload.targets().len(),
@@ -277,10 +294,9 @@ pub fn prepare_application_cache(
         reused_roots: 0,
         elapsed: started.elapsed(),
         charged_disk_bytes: writer.charged_disk_bytes()?,
-        directory_owned_bytes: readers
-            .iter()
-            .map(|reader| reader.statistics().directory_owned_bytes)
-            .sum(),
+        directory_owned_bytes: runner_directory_bytes
+            .checked_add(backend.completed_cache_directory_bytes()?)
+            .ok_or_else(|| AppError::limit("cache reader directory byte count overflow"))?,
         options: options.to_document(),
         native_profile: backend.operational_profile(),
         native_statistics: backend.statistics(),
@@ -288,10 +304,7 @@ pub fn prepare_application_cache(
         checkpoint_failure: None,
     };
     Checkpoint::publish(workload, &report, &mut writer)?;
-    let mut pending = Pending {
-        records: (0..workload.bindings().len()).map(|_| Vec::new()).collect(),
-        ..Default::default()
-    };
+    let mut pending = CompletedCacheBatch::new(workload.bindings().len());
     let mut last_checkpoint = started;
     let limits = options.storage_limits.chunk;
     let mut storage_failed = false;
@@ -337,46 +350,30 @@ pub fn prepare_application_cache(
             }
         };
         if let Some(record) = record {
-            let (terms, bytes) = match record.coefficient_census() {
+            let weight = match CompletedCacheBatch::weight(&record, limits) {
                 Ok(weight) => weight,
                 Err(error) => {
-                    report.stop(AppError::limit(error.to_string()), false);
+                    report.stop(error, true);
                     break;
                 }
             };
-            if terms > limits.max_decoded_coefficient_terms
-                || bytes > limits.max_decoded_coefficient_bytes
-            {
-                report.stop(
-                    AppError::limit("completed root exceeds preparation IO buffer allowance"),
-                    true,
-                );
-                break;
-            }
-            let full = pending.count >= limits.max_records
-                || pending
-                    .terms
-                    .checked_add(terms)
-                    .is_none_or(|n| n > limits.max_decoded_coefficient_terms)
-                || pending
-                    .bytes
-                    .checked_add(bytes)
-                    .is_none_or(|n| n > limits.max_decoded_coefficient_bytes);
-            if full {
-                if let Err(error) = pending.flush(workload, backend, &mut writer, &mut report) {
+            if pending.needs_flush(weight, limits) {
+                if let Err(error) =
+                    pending.flush_preparation(workload, backend, &mut writer, &mut report)
+                {
                     report.stop(error, true);
                     storage_failed = true;
                     break;
                 }
             }
-            pending.terms += terms;
-            pending.bytes += bytes;
-            pending.count += 1;
-            pending.records[target.namespace()].push(record);
+            if let Err(error) = pending.push(target.namespace(), record, weight, limits) {
+                report.stop(error, true);
+                break;
+            }
         }
         if last_checkpoint.elapsed() >= options.checkpoint_interval {
             let checkpoint = pending
-                .flush(workload, backend, &mut writer, &mut report)
+                .flush_preparation(workload, backend, &mut writer, &mut report)
                 .and_then(|()| Checkpoint::publish(workload, &report, &mut writer));
             if let Err(error) = checkpoint {
                 report.stop(error, true);
@@ -387,7 +384,7 @@ pub fn prepare_application_cache(
         }
     }
     if !storage_failed {
-        if let Err(error) = pending.flush(workload, backend, &mut writer, &mut report) {
+        if let Err(error) = pending.flush_preparation(workload, backend, &mut writer, &mut report) {
             if report.failure.is_none() {
                 report.stop(error, true);
             } else {
@@ -400,6 +397,9 @@ pub fn prepare_application_cache(
     }
     report.elapsed = started.elapsed();
     report.native_statistics = backend.statistics();
+    report.directory_owned_bytes = runner_directory_bytes
+        .checked_add(backend.completed_cache_directory_bytes()?)
+        .ok_or_else(|| AppError::limit("cache reader directory byte count overflow"))?;
     report.charged_disk_bytes = writer.charged_disk_bytes()?;
     if let Err(error) = Checkpoint::publish(workload, &report, &mut writer) {
         report.checkpoint_failure = Some(error);

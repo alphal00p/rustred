@@ -1,4 +1,4 @@
-use super::{ClosedUnitMassProgram, GuardedCacheError, RootUse};
+use super::{ClosedUnitMassProgram, RootUse};
 use crate::algebra::ExactAlgebraLimits;
 use crate::family::IntegralKey;
 use crate::persistence::application_cache::{ApplicationCacheBinding, ApplicationCacheRecord};
@@ -115,6 +115,19 @@ impl GuardedRootCache {
         limits: ReductionLimits,
         policy: CompletedCachePolicy,
     ) -> Self {
+        Self::bound(
+            program.binding().clone(),
+            program.artifact_identity(),
+            limits,
+            policy,
+        )
+    }
+    pub(crate) fn bound(
+        binding: ApplicationCacheBinding,
+        artifact_identity: usize,
+        limits: ReductionLimits,
+        policy: CompletedCachePolicy,
+    ) -> Self {
         let state = Arc::new(Mutex::new(State {
             policy,
             entries: BTreeMap::new(),
@@ -138,8 +151,8 @@ impl GuardedRootCache {
             }));
         }
         Self {
-            binding: program.binding().clone(),
-            artifact_identity: program.artifact_identity(),
+            binding,
+            artifact_identity,
             limits,
             state,
             budget,
@@ -187,7 +200,7 @@ impl GuardedRootCache {
         self.budget
             .replace(0, CacheWeight::default(), 0, CacheWeight::default(), limits)
     }
-    pub(super) fn shared_budget(&self) -> Arc<SharedCacheBudget> {
+    pub(crate) fn shared_budget(&self) -> Arc<SharedCacheBudget> {
         Arc::clone(&self.budget)
     }
     pub(super) fn check_hit_weight(
@@ -207,13 +220,13 @@ impl GuardedRootCache {
             .get(key)
             .map(|entry| entry.record.as_ref().clone())
     }
-    pub(super) fn hit(
+    pub(super) fn hit<E: From<ReductionError>>(
         &mut self,
         key: &IntegralKey,
         limits: ReductionLimits,
         usage: RootUse,
-        validate: impl FnOnce(&ApplicationCacheRecord) -> Result<(), GuardedCacheError>,
-    ) -> Result<Option<Arc<ApplicationCacheRecord>>, GuardedCacheError> {
+        validate: impl FnOnce(&ApplicationCacheRecord) -> Result<(), E>,
+    ) -> Result<Option<Arc<ApplicationCacheRecord>>, E> {
         let mut state = self.state();
         let Some(entry) = state.entries.get(key) else {
             return Ok(None);
@@ -257,10 +270,10 @@ impl GuardedRootCache {
         }
         Ok(Some(Arc::clone(&state.entries[key].record)))
     }
-    pub(super) fn validate_payload(
+    pub(crate) fn validate_payload<E>(
         &mut self,
-        validate: impl FnOnce() -> Result<(), GuardedCacheError>,
-    ) -> Result<(), GuardedCacheError> {
+        validate: impl FnOnce() -> Result<(), E>,
+    ) -> Result<(), E> {
         {
             let mut state = self.state();
             state.statistics.payload_validations =
@@ -280,7 +293,7 @@ impl GuardedRootCache {
             }
         }
     }
-    pub(super) fn completed_reduction(&mut self, work: ReductionStatistics) {
+    pub(crate) fn completed_reduction(&mut self, work: ReductionStatistics) {
         let mut state = self.state();
         state.statistics.completed_reductions =
             state.statistics.completed_reductions.saturating_add(1);
@@ -296,7 +309,7 @@ impl GuardedRootCache {
         self.insert_shared(key, Arc::new(record), limits)
     }
 
-    pub(super) fn insert_shared(
+    pub(crate) fn insert_shared(
         &mut self,
         key: IntegralKey,
         record: Arc<ApplicationCacheRecord>,

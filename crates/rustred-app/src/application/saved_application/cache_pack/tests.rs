@@ -7,6 +7,8 @@ use rustred::persistence::application_cache::{
 };
 use std::{collections::BTreeMap, fs, path::Path};
 
+mod snapshot;
+
 fn binding(id: u8) -> ApplicationCacheBinding {
     ApplicationCacheBinding {
         artifact_digest: [id; 32],
@@ -688,4 +690,82 @@ fn tiny_frame_writes_preserve_bytes_and_never_request_capacity_above_limit() {
     assert!(empty.write_all(&[1]).is_err());
     assert_eq!(empty.capacity(), 0);
     assert!(empty.finish().is_empty());
+}
+
+#[test]
+fn refresh_uses_only_committed_bounded_indexes_and_preserves_lookup_counters() {
+    let scratch = scratch();
+    let path = scratch.0.join("refresh");
+    let limits = SavedApplicationCachePackLimits::default();
+    let mut writer = SavedApplicationCacheWriter::create(&path, binding(1), limits).unwrap();
+    writer.append_completed(&[record(1)], &context()).unwrap();
+    writer.checkpoint().unwrap();
+    let mut reader = SavedApplicationCachePack::open_generated(&path, &binding(1), limits).unwrap();
+    let mut old_snapshot = reader.fork_reader();
+    let mut bounded = SavedApplicationCachePack::open_generated(
+        &path,
+        &binding(1),
+        SavedApplicationCachePackLimits {
+            max_chunks: 1,
+            ..limits
+        },
+    )
+    .unwrap();
+    assert_eq!(reader.lookup(&key(1), &context()).unwrap(), Some(record(1)));
+    let before = reader.statistics();
+    writer.append_completed(&[record(2)], &context()).unwrap();
+    reader.refresh().unwrap();
+    assert_eq!(
+        reader.statistics(),
+        before,
+        "unpublished append is invisible"
+    );
+    assert_eq!(reader.lookup(&key(2), &context()).unwrap(), None);
+    let before = reader.statistics();
+    writer.checkpoint().unwrap();
+    reader.refresh().unwrap();
+    let after = reader.statistics();
+    assert_eq!(after.chunks, 2);
+    assert_eq!(after.chunks_read, before.chunks_read);
+    assert_eq!(after.chunk_bytes_read, before.chunk_bytes_read);
+    assert_eq!(after.decoded_chunk_bytes, before.decoded_chunk_bytes);
+    assert_eq!(
+        after.lookup_encoded_bytes_charged,
+        before.lookup_encoded_bytes_charged
+    );
+    assert_eq!(
+        after.lookup_decoded_bytes_charged,
+        before.lookup_decoded_bytes_charged
+    );
+    assert_eq!(after.hits, before.hits);
+    assert_eq!(after.misses, before.misses);
+    assert_eq!(reader.lookup(&key(2), &context()).unwrap(), Some(record(2)));
+    assert_eq!(old_snapshot.lookup(&key(2), &context()).unwrap(), None);
+    assert_eq!(
+        bounded.refresh().unwrap_err().kind(),
+        crate::AppErrorKind::Limit
+    );
+    assert_eq!(bounded.statistics().chunks, 1);
+    assert_eq!(
+        bounded.lookup(&key(1), &context()).unwrap(),
+        Some(record(1))
+    );
+    let before = reader.statistics();
+    let generation = reader.generation();
+    let original = fs::read(path.join(index::MANIFEST)).unwrap();
+    fs::write(path.join(index::MANIFEST), &original[..original.len() - 1]).unwrap();
+    assert!(reader.refresh().is_err());
+    assert_eq!(reader.statistics(), before);
+    assert_eq!(reader.generation(), generation);
+    fs::write(path.join(index::MANIFEST), &original).unwrap();
+    let mut rewound = manifest(&path);
+    rewound.generation -= 1;
+    fs::write(
+        path.join(index::MANIFEST),
+        index::encode(&rewound, limits).unwrap(),
+    )
+    .unwrap();
+    assert!(reader.refresh().is_err());
+    assert_eq!(reader.statistics(), before);
+    assert_eq!(reader.lookup(&key(2), &context()).unwrap(), Some(record(2)));
 }

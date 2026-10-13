@@ -2,8 +2,9 @@ mod application;
 pub use application::{
     CachePreparationBackend, CachePreparationCapabilities, CachePreparationOptions,
     CachePreparationPrimerBudget, CachePreparationReport, CachePreparationResolvedOptions,
-    CachePreparationStatus, CachePreparationTarget, CachePreparationWorkload,
-    ClosedApplicationCache, ClosedCachePreparationBackend, prepare_application_cache,
+    CachePreparationStatus, CachePreparationTarget, CachePreparationWorkload, CacheSaveOptions,
+    CacheSaveReport, ClosedApplicationCache, ClosedCachePreparationBackend,
+    prepare_application_cache,
 };
 pub use application::{
     CandidateArtifact, CandidateArtifactPage, CandidateGenerationEvents, CandidateGenerationJob,
@@ -23,7 +24,8 @@ pub use application::{
 };
 pub use application::{
     PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,
-    SavedApplicationCacheBundleWriter, SavedApplicationCachePack, SavedApplicationCachePackLimits,
+    SavedApplicationCacheBundleWriter, SavedApplicationCacheCopyStatistics,
+    SavedApplicationCachePack, SavedApplicationCachePackLimits,
     SavedApplicationCachePackStatistics, SavedApplicationCacheWriter, SavedApplicationDomain,
     SavedApplicationIntegral, SavedApplicationOptions, SavedApplicationPreparationStatistics,
     SavedApplicationProduct, SavedApplicationProductChartStatistics,

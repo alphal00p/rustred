@@ -1,4 +1,6 @@
 use super::{ClosedUnitMassProgram, GuardedCacheBacking, GuardedCacheError, GuardedRootCache};
+use crate::algebra::CoefficientContext;
+use crate::persistence::application_cache::ApplicationCacheBinding;
 use crate::reduction::{CacheWeight, ReductionError};
 
 /// Records accepted by the backing callback, not a claim that its writer has
@@ -66,34 +68,50 @@ impl ClosedUnitMassProgram<'_> {
         cache: &GuardedRootCache,
         backing: &mut dyn GuardedCacheBacking,
     ) -> Result<GuardedRootExportStatistics, GuardedRootExportError> {
-        let mut statistics = GuardedRootExportStatistics::default();
-        if cache.binding != *self.binding()
-            || cache.artifact_identity != self.artifact_identity()
-            || backing.binding() != self.binding()
-        {
-            return Err(GuardedRootExportError {
-                accepted_prefix: statistics,
-                source: GuardedCacheError::BindingMismatch,
-            });
-        }
-        let mut cursor = None;
-        while let Some((key, record, weight)) = cache.export_next(cursor.as_ref()) {
-            let prospective =
-                statistics
-                    .checked_next(weight)
-                    .map_err(|source| GuardedRootExportError {
-                        accepted_prefix: statistics,
-                        source: source.into(),
-                    })?;
-            backing
-                .store_completed(&record, self.context())
+        export_bound(
+            self.binding(),
+            self.artifact_identity(),
+            self.context(),
+            cache,
+            backing,
+        )
+    }
+}
+
+pub(crate) fn export_bound(
+    binding: &ApplicationCacheBinding,
+    identity: usize,
+    context: &CoefficientContext,
+    cache: &GuardedRootCache,
+    backing: &mut dyn GuardedCacheBacking,
+) -> Result<GuardedRootExportStatistics, GuardedRootExportError> {
+    let mut statistics = GuardedRootExportStatistics::default();
+    if &cache.binding != binding
+        || cache.artifact_identity != identity
+        || backing.binding() != binding
+    {
+        return Err(GuardedRootExportError {
+            accepted_prefix: statistics,
+            source: GuardedCacheError::BindingMismatch,
+        });
+    }
+    let mut cursor = None;
+    while let Some((key, record, weight)) = cache.export_next(cursor.as_ref()) {
+        let prospective =
+            statistics
+                .checked_next(weight)
                 .map_err(|source| GuardedRootExportError {
                     accepted_prefix: statistics,
                     source: source.into(),
                 })?;
-            statistics = prospective;
-            cursor = Some(key);
-        }
-        Ok(statistics)
+        backing
+            .store_completed(&record, context)
+            .map_err(|source| GuardedRootExportError {
+                accepted_prefix: statistics,
+                source: source.into(),
+            })?;
+        statistics = prospective;
+        cursor = Some(key);
     }
+    Ok(statistics)
 }

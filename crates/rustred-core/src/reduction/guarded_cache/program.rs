@@ -193,39 +193,17 @@ impl<'a> ClosedUnitMassProgram<'a> {
             }
             return Err(error.into());
         }
-        if cache.binding != self.binding
-            || cache.artifact_identity != self.artifact_identity()
-            || backing
-                .as_ref()
-                .is_some_and(|store| store.binding() != &self.binding)
-        {
-            return Err(GuardedCacheError::BindingMismatch);
-        }
-        // Refuse an individually oversized existing root before evicting
-        // other useful roots merely to meet a tighter aggregate allowance.
-        cache.check_hit_weight(target, limits)?;
-        cache.check_limits(limits)?;
-        if let Some(record) = cache.hit(target, limits, usage, |record| {
-            self.validate_completed_record(record, limits)
-        })? {
-            return Ok(Some((record, GuardedRootSource::Ram)));
-        }
-        let key = ApplicationCacheKey::guarded_root(target);
-        if let Some(store) = backing.as_mut() {
-            if let Some(record) = store.lookup(&key, self.context())? {
-                if record.key != key {
-                    return Err(GuardedCacheError::InvalidRecord(
-                        "backing returned a different exact key",
-                    ));
-                }
-                cache.validate_payload(|| self.validate_completed_record(&record, limits))?;
-                let record = Arc::new(record);
-                cache.insert_shared(target.clone(), Arc::clone(&record), limits)?;
-                cache.backing_hit(usage);
-                return Ok(Some((record, GuardedRootSource::Backing)));
-            }
-        }
-        Ok(None)
+        super::lookup_bound(
+            &self.binding,
+            self.artifact_identity(),
+            self.context(),
+            target,
+            cache,
+            limits,
+            backing,
+            usage,
+            |record| self.validate_completed_record(record, limits),
+        )
     }
 
     /// Reduce and restore homogeneity within one native call. The conversion

@@ -398,12 +398,59 @@ reparse or clone rule polynomials, clear the source session, or promote a
 candidate program to a closed artifact. This is the foundation for the four-loop
 cache adapter, not a claim that that integration is already complete.
 
-The real one-loop Vakint prepare/save/fresh-process-load test passes. Two- through
-four-loop end-to-end gates, application-level live saving, explicit downloads,
-LRU/LFU workload comparisons and final prepared packs remain pending. The
-sealed reducer's internal guardless memoization is not persisted. No claim of
-bounded 128 GB loading follows from the small regression tests. Five-loop cache
-preparation is deferred pending the user's updated D<=10 artifact.
+`CandidateUnitMassProgram::new(&reducer, program_and_convention_digest)` captures
+an immutable candidate snapshot. Its digest must include unambiguous framing of
+the loaded program and installed terminal-normalization bytes. It uses the same
+explicit `GuardedRootCache`, LRU/LFU policies, native persistence records and
+bounded export mechanics as a sealed program, but preserves candidate authority
+and returns a native `CandidateDecomposition`. That type supplies common-mass
+exponents. Physical coordinate count, not compiled storage capacity, determines
+cache-key arity. Source conditions and current entry bounds precede every hit;
+unknown leaves remain errors and an imported terminal row must match the
+installed normalization.
+
+This initial candidate wrapper caches completed starting roots only. A cold
+request uses an isolated native session, sharing the outer coefficient budget.
+Its inner DAG retains the existing fail-on-limit policy and does not yet consult
+prepared roots as descendants. Do not infer held-out four-loop speedups from the
+closed-program descendant tests or exact-repeat hits.
+
+## Explicit cache snapshots and resumable preparation
+
+`ClosedApplicationCache::save_completed` exports resident completed roots via
+the bounded native bundle writer. Its report separates callback-accepted records
+from durably published records, and states whether a lazy backing was attached.
+Unloaded backing records are **not** copied by this operation. RAM contents,
+eviction usage and native work limits are unchanged. A partial report must not
+be treated as a complete cache snapshot.
+
+For full backing preservation,
+`SavedApplicationCacheBundleWriter::copy_bases_to_new` copies captured immutable
+base indexes and compressed chunks to a new directory, then returns a writer for
+resident overlays. It streams bytes through a 64 KiB buffer, verifies exact
+lengths and hashes, and performs no coefficient decoding. Directory metadata is
+bounded separately. The destination has independent files, so relocating the
+source does not break it. All namespaces share one disk quota. The top-level
+index is published last; an interrupted partial copy is not silently resumed or
+overwritten. Successful base copying alone does not mean a subsequent resident
+overlay succeeded.
+
+Preparation attaches the completed pack to its native backend when resuming and
+refreshes those readers after durable batches. A later root can therefore reuse
+saved descendants instead of merely skipping already-completed starting roots.
+Refreshing authenticates the bounded index and preserves cumulative I/O counters;
+it does not reload every payload or reset the RAM allowance. The runner's initial
+readers remain a fixed snapshot for its deduplicated starting workload.
+
+Vakint's real one-, two- and three-loop prepare/fresh-process-load tests pass,
+including pinches, unit and nonunit masses, exact guards and held-out inputs.
+Their 5/20/256-root workloads are functional controls, not exhaustive integer
+coverage or the final extensive caches. Four-loop end-to-end integration,
+public full-snapshot saving, explicit downloads, LRU/LFU workload comparisons
+and final prepared packs remain pending. The sealed reducer's internal guardless
+memoization is not persisted. No claim of bounded 128 GB loading follows from
+the small regression tests. Five-loop cache preparation is deferred pending the
+user's updated D<=10 artifact.
 
 ## Eviction policy choices
 
