@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -33,13 +34,33 @@ pub(super) fn prepare<const N: usize>(
 }
 
 /// Bind checkpoint identity to the exact admitted payloads before native import.
-pub(super) fn prepare_with_fingerprints<const N: usize>(
+pub(in crate::application) fn prepare_with_fingerprints<const N: usize>(
+    request: &RoutedCampaignRequest,
+    selection: &Selection,
+    limits: CandidateOwnerLoadLimits,
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
+    fingerprints: Option<&mut dyn FnMut(Vec<String>) -> Result<(), String>>,
+) -> Result<Option<RoutedCandidateReducer<N>>, AppError> {
+    prepare_with_reader(
+        request,
+        selection,
+        limits,
+        cancellation,
+        observer,
+        fingerprints,
+        &mut read_payload,
+    )
+}
+
+pub(in crate::application) fn prepare_with_reader<const N: usize>(
     request: &RoutedCampaignRequest,
     selection: &Selection,
     limits: CandidateOwnerLoadLimits,
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
     mut fingerprints: Option<&mut dyn FnMut(Vec<String>) -> Result<(), String>>,
+    reader: &mut dyn FnMut(&Path, u64) -> Result<Vec<u8>, AppError>,
 ) -> Result<Option<RoutedCandidateReducer<N>>, AppError> {
     let mut bytes = Vec::new();
     let mut masks = Vec::new();
@@ -51,34 +72,20 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
             json!({"event":"preparation", "phase":"owner_read", "completed":ordinal, "total":selection.owners.len()}),
         );
         let path = request.owner_base.join(&owner.path);
-        let file =
-            File::open(&path).map_err(|e| AppError::input(format!("{}: {e}", path.display())))?;
-        if file
-            .metadata()
-            .map_err(|e| AppError::input(e.to_string()))?
-            .len()
-            != owner.bytes
-        {
-            return Err(AppError::input(format!(
-                "{}: owner size differs from manifest",
-                path.display()
-            )));
-        }
-        let mut payload = Vec::new();
-        file.take(owner.bytes + 1)
-            .read_to_end(&mut payload)
-            .map_err(|e| AppError::input(format!("{}: {e}", path.display())))?;
+        let payload = reader(&path, owner.bytes)?;
         if u64::try_from(payload.len()).ok() != Some(owner.bytes) {
             return Err(AppError::input("owner changed during bounded read"));
         }
         bytes.push(payload);
         masks.push(mask(&owner.mask, owner.mask.len())?);
     }
-    let Some(overlay_payloads) = overlays::read(request, selection, cancellation, observer)? else {
+    let Some(overlay_payloads) =
+        overlays::read(request, selection, cancellation, observer, reader)?
+    else {
         return Ok(None);
     };
     let Some(preferred_payloads) =
-        preferences::read::<N>(request, selection, cancellation, observer)?
+        preferences::read::<N>(request, selection, cancellation, observer, reader)?
     else {
         return Ok(None);
     };
@@ -242,4 +249,27 @@ pub(super) fn prepare_with_fingerprints<const N: usize>(
     RoutedCandidateReducer::try_new(programs, routes, request.trace_limits)
         .map(Some)
         .map_err(|e| AppError::input(format!("routed programs: {e:?}")))
+}
+
+fn read_payload(path: &Path, bytes: u64) -> Result<Vec<u8>, AppError> {
+    let file = File::open(path).map_err(|e| AppError::input(format!("{}: {e}", path.display())))?;
+    if file
+        .metadata()
+        .map_err(|e| AppError::input(e.to_string()))?
+        .len()
+        != bytes
+    {
+        return Err(AppError::input("owner size differs from manifest"));
+    }
+    let limit = bytes
+        .checked_add(1)
+        .ok_or_else(|| AppError::limit("owner byte limit overflow"))?;
+    let mut payload = Vec::new();
+    file.take(limit)
+        .read_to_end(&mut payload)
+        .map_err(|e| AppError::input(e.to_string()))?;
+    if payload.len() as u64 != bytes {
+        return Err(AppError::input("owner changed during bounded read"));
+    }
+    Ok(payload)
 }

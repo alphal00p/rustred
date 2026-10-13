@@ -9,8 +9,32 @@ use crate::AppError;
 /// This is an input-size allowance, not an integral-rank or loop-count limit.
 const MAX_REGIONS: usize = 10_000;
 
+/// Parse saved query records without requiring each historical region to be
+/// nonempty. Rank ladders legitimately retain vacuous early-stage requests.
+pub(crate) fn recorded_regions<const N: usize>(
+    text: &str,
+    physical_arity: usize,
+) -> Result<Vec<(String, RootRegionInput<N>)>, AppError> {
+    let queries = input::parse(text, physical_arity, MAX_REGIONS, 1024 * 1024)?;
+    Ok(queries
+        .into_iter()
+        .map(|q| {
+            (
+                q.id,
+                RootRegionInput {
+                    support: std::array::from_fn(|i| q.owner.get(i).copied().unwrap_or(false)),
+                    lower: q.lower,
+                    upper: q.upper,
+                    rank: q.rank,
+                    powers: q.powers,
+                },
+            )
+        })
+        .collect())
+}
+
 #[derive(Debug)]
-pub(super) struct RequestedEntryDomain<const N: usize> {
+pub(in crate::application) struct RequestedEntryDomain<const N: usize> {
     policy: FiniteRootAdmission<N>,
     description: Value,
     description_json_bytes: usize,
@@ -79,7 +103,7 @@ impl<const N: usize> RequestedEntryDomain<N> {
     }
 }
 
-pub(super) fn admission<const N: usize>(
+pub(in crate::application) fn admission<const N: usize>(
     domain: Option<&RequestedEntryDomain<N>>,
 ) -> CandidateEntryAdmission<'_, N> {
     match domain {

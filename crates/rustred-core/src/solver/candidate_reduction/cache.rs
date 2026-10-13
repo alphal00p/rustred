@@ -21,6 +21,8 @@ pub(super) enum CachedTerms {
 pub(super) struct CacheEntry {
     pub terms: CachedTerms,
     pub weight: CacheWeight,
+    /// Only opt-in guarded application pays for this exact subtree domain.
+    pub conditions: Option<Vec<Coefficient>>,
 }
 
 impl CachedTerms {
@@ -113,11 +115,34 @@ pub(super) fn combine(
     request: &mut ReductionRequest,
     statistics: &mut ReductionStatistics,
 ) -> Result<CachedTerms, CandidateReductionError> {
+    combine_values(
+        context,
+        representation,
+        terms
+            .into_iter()
+            .map(|(child, factor)| Ok((&child_entry(cache, &child)?.terms, factor))),
+        limits,
+        request,
+        statistics,
+    )
+}
+
+/// Share the established coefficient algebra with dispatchers whose cached
+/// dependency identities also carry an owner or operational phase.
+pub(super) fn combine_values<'a>(
+    context: &CoefficientContext,
+    representation: CandidateCacheRepresentation,
+    children: impl IntoIterator<Item = Result<(&'a CachedTerms, Coefficient), CandidateReductionError>>,
+    limits: ReductionLimits,
+    request: &mut ReductionRequest,
+    statistics: &mut ReductionStatistics,
+) -> Result<CachedTerms, CandidateReductionError> {
     match representation {
         CandidateCacheRepresentation::Sparse => {
             let mut output = BTreeMap::new();
-            for (child, factor) in terms {
-                let CachedTerms::Sparse(child) = &child_entry(cache, &child)?.terms else {
+            for child in children {
+                let (child, factor) = child?;
+                let CachedTerms::Sparse(child) = child else {
                     return Err(mixed_representation());
                 };
                 for (terminal, coefficient) in child {
@@ -138,8 +163,9 @@ pub(super) fn combine(
         }
         CandidateCacheRepresentation::Factorized => {
             let mut output = BTreeMap::new();
-            for (child, factor) in terms {
-                let CachedTerms::Factorized(child) = &child_entry(cache, &child)?.terms else {
+            for child in children {
+                let (child, factor) = child?;
+                let CachedTerms::Factorized(child) = child else {
                     return Err(mixed_representation());
                 };
                 // Rule conditions, original poles and descent were checked by
@@ -248,6 +274,7 @@ mod tests {
                     )
                     .unwrap(),
                     weight: CacheWeight::default(),
+                    conditions: None,
                 },
             )]);
             let mut request = ReductionRequest::default();
@@ -285,6 +312,7 @@ mod tests {
             CacheEntry {
                 terms: CachedTerms::Sparse(BTreeMap::new()),
                 weight: CacheWeight::default(),
+                conditions: None,
             },
         )]);
         assert!(matches!(

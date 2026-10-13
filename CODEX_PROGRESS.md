@@ -1,5 +1,228 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 13 — five-loop symbolic Vakint application started
+
+Accepted plan: `FIVE_LOOP_VAKINT_PLAN.md`. Root baseline `6f7097ac`.
+Pinned source is THE_ONE generation54 scope `f7ee869…`, not moving latest:
+804 recorded starting domains, 67 owners, 9,982 rules, 939 raw/905 remaining
+terminals. Its maximum scalar rank11/D9 is not a rectangular coverage claim.
+The existing routed engine is trace-only; exact multi-owner back-substitution
+is the substantive missing application component. No new IBPs or numerical
+masters are authorized; only admitted inputs become successful test cases.
+
+Active lanes: `five_loop_exact_application` owns routed coefficient recursion,
+guard-preserving evaluator and cache tests; `five_loop_application_package`
+owns compact runtime export/load and prepared scope-aware application;
+`five_loop_vakint` owns registry/DOT/backend integration. Root coordinates
+resources, inventories, acceptance and independent audit rotations. Evidence
+will live under `TMP/five-loop-vakint-20261013/` (created when needed).
+The Vakint workspace clone is `TMP/vakint-five-loop-20261013` on
+`vakint_rustred`, based on native-ingress revision `6203c6cbb`. This includes
+the later integration work absent from the old reference checkout. Both
+remote feature branches inspected point at earlier `8d6c8f7b1`; delivery
+must retain their ancestry and use a normal fast-forward, not force push.
+Root foreign FeynKit/notebook changes remain untouched. Production has already
+begun another extension and is never a development output target.
+
+Initial state: implementation active; no new performance or correctness
+receipts yet. Next: core/application seams, topology census/admission inventory,
+focused compile/tests, and a first cold-loaded exact admitted-input reduction.
+
+User clarification recorded: five-loop runtime artifact is never committed or
+pushed. Delivery supplies its local path/digest for user hosting. Vakint gets
+an explicit loader and optional artifact-path setting; absence disables only
+five-loop RustRed processing. No auto-download/generation or embedded default.
+The updated complete scope has been assigned as the active tool-managed goal.
+
+First implementation slices are present, not yet an end-to-end delivery:
+exact multi-owner application with guards/caches; portable native terminal-map
+export plus gzip transport; native Vakint path setting/loader, five-loop graph
+registry and DOT pinch ingress. Independent code audits cover core/application
+semantics and identified two substantive integration corrections: vacuous
+historical query domains must remain in provenance but not invalidate the
+runtime union, and nonisomorphic vacuum incidence graphs can represent the same
+integral (e.g. differing tadpole attachment vertices), requiring the existing
+FeynKit exact momentum-map fallback rather than graph isomorphism alone.
+
+Validation receipts so far: first optimized core test build 8m46s;
+125 existing routed/entry regressions pass in0.22s. First10 new application
+tests:7pass/3fixturefailures (unprovided empty-support zero certificate and an
+inadmissible empty owner library); corrections are in source, rerun pending.
+App cargo check/tests passed before later compression/scope edits; final native
+builds and Vakint checks remain active. No actual five-loop coefficient solve
+or timing success is claimed yet. Largest source owner is725,521,584bytes;
+read-only gzip-1 probe gives121,347,774bytes in6.09s. Local runtime delivery
+uses bounded compressed chunks; no artifact is staged for Git.
+
+Active logs: `TMP/five-loop-core-build-20261013.log`,
+`TMP/five-loop-core-tests-20261013.log`,
+`TMP/five-loop-route-regressions-20261013.log`,
+`TMP/five-loop-app-check-20261013.log`,
+`TMP/five-loop-app-test-build-20261013.log`, and
+`TMP/vakint-five-loop-20261013/check-five-loop.log`.
+Root usesCPUs32–47/build-0; Vakint check usesCPUs0–15/build-1; native probes
+useCPUs48–55. Production remains on its reserved cores and unmodified.
+
+Measured first real source inventory:804records =763nonempty +41native-proven
+empty historical requests; deduplicated representative/max-R/max-A sampling
+gives813points, R0..11 and A9..20 in0.129s. Inventory/receipts live under
+`TMP/five-loop-vakint-20261013/`. First local runtime export succeeds:
+317.306s native /321.443s supervised, sampled peak36.860GB, 281,312,247bytes
+at `application-gen54-first`; manifest SHA256
+`01425e1cecc71893d2e3a592a162600100326f285914926df61e43dd0c870e4b`.
+All939source terminal maps are checked in export;905remaining keys preserved.
+No artifact is committed. Frozen first example binary SHA256
+`0662f369a9a4a4c4836d7951ece80df583fc44c4bc8d57e9ab28015496cac13e`.
+
+First four admitted native point reductions complete with exact warm-cache
+equality. Cold package preparation171.692s. First/warm timings:point00162
+1.843/~1.869s (1term), point00163 74.773/~73.757s (23terms), point00164
+1.855/~1.866s (22terms), point00165 1.853/~1.848s (1term). This is a slow
+prototype baseline, not delivery performance. Perf identifies78.12% polynomial
+equality plus14.94%memcmp in quadratic guard-list deduplication (27,494+guards),
+despite warm calls executing no rules. App agent fixes this with Symbolica's
+native Hash/Eq plus first-seen ordering, and shares identical decoded guard
+vectors without changing native bytes or dropping conditions. Matched rerun
+pending; do not claim speedup until measured.
+
+Final core release snapshot passes143routed/entry tests and5generic positive
+vacuum-product tests. Independent audit validates product decomposition math,
+and identified a conservative certified-zero route-image admission rejection;
+fixed with retained source guards and exact zero certificates only. App first
+7package tests pass; final scope/routing/product/large-guard tests are building.
+Vakint check passes. Its first tests expose a real legacy contraction bug:
+original pairs(8,3),(8,4) were sequentially relabelled rather than computing
+the complete equivalence class, losing contractions. Graph and symbolic
+contraction now share a proper quotient; LMB uses native spanning forests.
+Next run passes7/8five-loop tests, with the remaining DOT fixture correcting
+its assumption that parser edge IDs follow declaration order. All-end-to-end
+five-loop numerical/master claims remain explicitly out of scope.
+
+### October 13 — measured application fixes and resource diagnosis
+
+Matched four-point guard-sharing rerun (same package, input and CPUs48–55):
+cold preparation171.692→152.370s; the slow23-term point's warm application
+73.824→0.0212s, with exact repeat equality and unchanged guards/term counts.
+Whole-process sampled peak18.764→7.736GB. This is one matched pair, not an
+all-corpus performance result. Native Symbolica Hash/Eq replaces quadratic
+guard union; identical decoded guard vectors share immutable storage.
+Evidence: `TMP/five-loop-vakint-20261013/{first-four-points,guard-sharing-four-points}`.
+
+The813-point pilot exposed default1GiB/16M-coefficient-term cache ceilings,
+not missing-rule frontiers. Independent-mode pilot stopped after107successes
+and12resource failures; shared-cache run completed76successes/737errors,
+but after the first full-cache error the later failures are NOT independent
+mathematical evidence. Both negative receipts are retained. Cache budgets are
+now explicit application options. Retrying admitted rank-one `point-00154`
+with32GiB byte allowance succeeds:316.898s first,0.3444s warm (exact equality),
+99,679operational nodes,41,857rule applications,82output terms,29,324guards;
+coefficient cache3.029GB, process peak11.436GB, cold preparation158.880s.
+Receipt: `cache-32g-retry`; frozen executable `saved_application-budgets`
+SHA256 `7f2c2d728e536b4dfbd4d2d8463fe02f838e0d22ff684b58757ced9795684212`.
+
+Existing factorized coefficient-cache algebra is now opt-in for routed
+application (sparse remains default); measurements pending. Generic exact
+sum-of-products normalization and guard-preserving lower-loop reducer APIs
+are implemented for Vakint's factor provider. Separate agents audit these
+changes; coordinated release tests are building. No new tensor reducer or
+IBP generation is introduced. All905flat terminal identities are retained
+in the package; canonical factor products are an exact runtime convention.
+
+Latest pre-audit-fix release snapshot passes156focused routed/application,
+guarded-provider and product tests in0.22s. Independent review then found and
+fixed two additional gaps: lower closed-provider guard payload must share the
+coefficient cache allowance, and input/returned native family-domain guards
+must survive cancellation in product normalization. New regressions and direct
+single-cache closed-provider API are in source; final rebuild/check pending.
+
+High-rank first witness `point-00000` (scalarR11,A20,D9) succeeds in0.0412s first
+and0.0188s warm after162.464s cold preparation. It is a simple1-term result,
+not representative of all high-rank work. The subsequent36-case cohort was
+diagnostically stopped after one success and three different configured work
+limits (4M transport endpoints,1M operational nodes,64M transport operations).
+Elapsed414.623s, peak15.769GB, owned process drained; this run is censored.
+The native driver now accepts explicit operational JSON overrides and clears
+partial caches after failed cases. Existing Rust limits remain configurable;
+no scope expansion, new rules or publication changes occurred.
+
+Runtime docs: `docs/saved_application.md`; measurement record:
+`docs/research/five_loop_symbolic_application_2026-10-13.md`. Owner preparation
+is currently eager, honestly documented as an unmet performance requirement;
+phase timings were added before considering a larger lazy-owner refactor.
+Independent Vakint audit found two backward-compatibility regressions from new
+five-loop registration: default PySecDec eligibility and unknown-integral
+fallback after an unsuccessful unit-Jacobian proposal. The Vakint lane is
+correcting both, while preserving absence-of-path disabling RustRed only.
+
+The first combined release build completed in19m05s. Its binaries pass156core
+and12appfocused tests (0.22s/0.03s), including largeguardunion regression.
+Latest post-audit source including budget/domain fixes and preparation receipts
+passes `cargo check --locked -p rustred-app --tests --example saved_application`
+in59.02s. A second frozen release test build is underway before code publication.
+No artifact or production data was staged.
+
+Vakint16/16topology/routing tests pass in24.62s (debug), including all67native
+DOT round trips and existing1–4Lrouting regressions. Slow32652 matched130.390s
+in the legacy sweep before native work; native input0.0099s and exactincidence
+match0.0786s. Dispatching provedfive-looplongform input beforelegacy fixes the
+delay. Lowerfactorprovider's2typed coefficient/guard tests pass0.06s. Actual
+externalgeneration54load underSymbolica3.0.1 is still running in debug; neither
+cross-versionloadsuccess nor fullVakintsymbolicacceptance is claimed yet.
+
+Subsequent actual package load succeeds under Vakint's Symbolica3.0.1:
+1152.745s debug load/preparation, including2.521s structural product preparation.
+The905terminals yield38proved positive-product presentations,867retained,
+268withnumerator indices,15lowerfamilies. No codec migration is needed.
+This debug receipt is not a release-timing claim. Followup admitted suite runs
+scalarpoint162,GeV10point60 andrank11point0 within one loaded instance, with
+warm equality, path-disable and independent five-tadpole product checks.
+
+Finalcore release tests after budget/domain changes:159pass/1testsetupfailure.
+The failure wrongly assumed an ordinary family's native domain contains no
+conditions; harmlessconstant-one conditions are retained. Root changed only
+that fixture precondition to verify d−4 is absent from the input domain, while
+keeping all returned-guard/cancellation/warmcache assertions. Independent agent
+approved the correction; execution rerun pending. No coefficient bug inferred.
+
+Finalapp release snapshot passes13/13saved-application tests in0.05s, including
+sparse/factorized exact parity, preparation timing partitions, guardsharing,
+nativecodec/gzipcorruption, portability, admission holes and cache clearing.
+Second combined release build18m37s. Root now runs the single correctedcore
+fixture (session31140, `TMP/five-loop-final-fixture-test-20261013.log`), followed
+by the frozen nativeexample build with`capacity-dispatch` (same1..16physical
+support using4/8/16storage, matching earlier benchmark binaries). This avoids
+16separate frontend monomorphizations; full defaultconfiguration remains
+compile-checked/tested. Exampleadds operationalJSONoverrides and a remaining
+terminal inventory mode; noartifactorcodepushclaimedyet.
+
+Corrected fixture rerun passes, followed by160/160focusedcoretests in0.20s.
+Independent Vakint lower-provider tests:3/4passed; true5=3L×2L coefficients also
+matched exactly, but guardcomparison differed only by true rational constants
+from familybasisproofs. Test now validates allguards/nonzeroness and compares
+nonconstant obligations, retaining every coefficient/cache assertion; rerunpending.
+
+The prior Vakint agent suffered repeated stream failures; replacement
+`five_loop_vakint_delivery` owns the sameclone. It confirmed admitted-suite and
+generated-graph processes absent; both incomplete logs are censored, not new
+successes. Completed coldcodec receipt remains valid. A real adapter issue is
+under repair: scalar monomials with different spectator signs were separated
+before saved admission, preventing exact cancellations for expanded inverse
+propagators. Coreagent implements opt-in weighted scalar lowering/coalescing;
+existing prepared-entry admission is unchanged. No scope widening is allowed.
+Packageagent designs runtime-only lazy owner preparation (required remaining
+performance work), with immutable frozen payloads and first-use exact validation.
+
+First application/package milestone is ready for code-only publication:
+160core +13app +2native-driver tests pass; optimized capacity-dispatch driver
+build5m56s. Frozen local executable `saved_application-final-eager` SHA256
+`d6354da1934a7c94a9ac75bcd66b44ae3e4aa66afcc039a88aa986e0b50acc1b`.
+Matched same-input sparse/factorized rank-one probes run on disjoint48–55 and
+56–63CPUsets with32GiB coefficient allowance and100GBprocess guards; receipts
+`point154-sparse-final`/`point154-factorized-final` pending. This milestone
+does not claim completed Vakint5Lacceptance, lazy owner loading, or all813witness
+success. Artifact, campaignoutputs, privatevendor material and unrelated
+FeynKit/notebook changes are excluded from the staged source snapshot.
+
 ## October 11 — retain stopped refinement and remove arbitrary count ceiling
 
 User requests both the `1000001 exceeds 1000000` repair and preservation of

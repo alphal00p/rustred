@@ -30,7 +30,7 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
         self.validate_target_with_conditions(target, &mut |_| {})
     }
 
-    fn validate_target_with_conditions(
+    pub(super) fn validate_target_with_conditions(
         &self,
         target: &IntegralKey,
         nonzero: &mut impl FnMut(&CoefficientPolynomial),
@@ -81,6 +81,44 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
         request: &mut ReductionRequest,
         statistics: &mut ReductionStatistics,
     ) -> Result<BTreeMap<IntegralKey, Coefficient>, CandidateReductionError> {
+        let (_, rule) = self.selected_rule(target)?;
+        self.apply_selected(rule, target, request, statistics, &mut |_| {})
+    }
+
+    /// The same ordered dispatch and strict descent as `apply`, retaining the
+    /// generic conditions needed for exact coefficient back-substitution.
+    pub(super) fn apply_with_conditions(
+        &self,
+        target: &IntegralKey,
+        request: &mut ReductionRequest,
+        statistics: &mut ReductionStatistics,
+    ) -> Result<(BTreeMap<IntegralKey, Coefficient>, Vec<Coefficient>), CandidateReductionError>
+    {
+        let mut conditions = Vec::new();
+        let mut nonzero = |condition: &CoefficientPolynomial| {
+            if !condition.is_constant() {
+                let condition: Coefficient = condition.clone().into();
+                if !conditions.contains(&condition) {
+                    conditions.push(condition);
+                }
+            }
+        };
+        self.validate_target_with_conditions(target, &mut nonzero)?;
+        let (baseline, rule) = self.selected_rule(target)?;
+        // Post-baseline alternatives require both the baseline coverage and
+        // their own applicability. Rejected candidates contribute no guards.
+        self.applicable_with_conditions(baseline, target, &mut nonzero)?;
+        if !std::ptr::eq(baseline, rule) {
+            self.applicable_with_conditions(rule, target, &mut nonzero)?;
+        }
+        let terms = self.apply_selected(rule, target, request, statistics, &mut nonzero)?;
+        Ok((terms, conditions))
+    }
+
+    fn selected_rule(
+        &self,
+        target: &IntegralKey,
+    ) -> Result<(&PreparedRule<N>, &PreparedRule<N>), CandidateReductionError> {
         let mut baseline = None;
         for rule in self.rules {
             if rule.dispatch_policy == crate::solver::RuleDispatchPolicy::Partition
@@ -95,6 +133,7 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
                 target: target.clone(),
             });
         };
+        let baseline = rule;
         // A singleton is a whole baseline piece. Optional alternatives cannot
         // create coverage where the ordinary batch had no applicable rule.
         for &index in self.whole_piece_alternatives {
@@ -104,7 +143,7 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
                 break;
             }
         }
-        self.apply_selected(rule, target, request, statistics)
+        Ok((baseline, rule))
     }
 
     fn applicable(
@@ -187,11 +226,11 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
         target: &IntegralKey,
         request: &mut ReductionRequest,
         statistics: &mut ReductionStatistics,
+        nonzero: &mut impl FnMut(&CoefficientPolynomial),
     ) -> Result<BTreeMap<IntegralKey, Coefficient>, CandidateReductionError> {
         let mut result = BTreeMap::new();
         for term in &rule.rhs {
-            let Some((child, coefficient)) =
-                self.specialize_term(rule, term, target, &mut |_| {})?
+            let Some((child, coefficient)) = self.specialize_term(rule, term, target, nonzero)?
             else {
                 continue;
             };

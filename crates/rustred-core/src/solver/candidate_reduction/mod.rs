@@ -47,12 +47,14 @@ pub use routed::{
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,
     CandidateDomainRouteFailure, CandidateDomainRouteLimits, CandidateDomainRouteOptions,
     CandidateDomainRouteStats, CandidateEntryAdmission, CandidateOwnerRoute,
-    CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
-    CandidateRoutedCampaignSnapshot, CandidateRoutedError, CandidateRoutedFrontier,
-    CandidateRoutedFrontierReason, CandidateRoutedIdentity, CandidateRoutedTraceReport,
+    CandidateRoutedApplicationStatistics, CandidateRoutedCampaignError,
+    CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport, CandidateRoutedCampaignSnapshot,
+    CandidateRoutedError, CandidateRoutedFrontier, CandidateRoutedFrontierReason,
+    CandidateRoutedIdentity, CandidateRoutedReduction, CandidateRoutedTraceReport,
     CandidateRoutedWork, CandidateRoutedWorkBudget, EntryWitnessError, EntryWitnessLimits,
     EntryWitnessOutcome, FiniteRootAdmission, RootAdmissionError, RootRegionInput,
-    RoutedCandidateLimits, RoutedCandidateReducer, pick_entry_intersection_witness,
+    RoutedCandidateApplication, RoutedCandidateLimits, RoutedCandidateReducer,
+    pick_entry_intersection_witness,
 };
 pub use trace::{CandidateTraceLimits, CandidateTraceReport};
 

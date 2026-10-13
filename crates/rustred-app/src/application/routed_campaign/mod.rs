@@ -1,12 +1,12 @@
 //! Shared finite-target tracing and symbolic local-domain diagnostics.
 //! Neither diagnostic alone claims parametric family closure.
 mod domains;
-mod entry;
+pub(in crate::application) mod entry;
 mod feedback;
 mod guarded;
-mod input;
+pub(in crate::application) mod input;
 mod matching;
-mod prepare;
+pub(in crate::application) mod prepare;
 mod storage;
 mod terminal_equations;
 pub(in crate::application) use terminal_equations::{

@@ -38,6 +38,10 @@ name = "two-loop-single-mass-vacuum"
 path = "../../examples/rust/two_loop_single_mass_vacuum.rs"
 
 [[example]]
+name = "saved_application"
+path = "../../examples/rust/saved_application.rs"
+
+[[example]]
 name = "probe_owner_case"
 path = "examples/probe_owner_case.rs"
 
@@ -107,6 +111,7 @@ required-features = ["cli"]
 [dependencies]
 bincode.workspace = true
 blake3 = "1"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 rayon = "1"
 rustred = { path = "../rustred-core", default-features = false }
 serde = { version = "1", features = ["derive"] }

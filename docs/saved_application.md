@@ -1,0 +1,271 @@
+# Applying a saved reduction
+
+`rustred-app` can prepare an immutable saved publication, apply its existing
+owners with exact coefficient back-substitution, and export a portable runtime
+directory. Application performs no IBP generation, campaign walk or finite
+master search. It returns symbolic terminal coefficients and applicability
+conditions; it does not provide numerical five-loop master values.
+
+The runtime artifact is optional external data. Do not commit or push it with
+the code. Host or distribute the complete exported directory separately and
+configure its path explicitly in the embedding application. Loading never
+downloads an artifact or resumes its source campaign.
+
+The implementation is in
+[`saved_application`](../crates/rustred-app/src/application/saved_application/mod.rs).
+The small native driver is
+[`examples/rust/saved_application.rs`](../examples/rust/saved_application.rs).
+
+## Publication and runtime boundaries
+
+These public APIs are exported by `rustred_app`:
+
+| API | Purpose |
+| --- | --- |
+| `saved_application_arity(path)` | Read the authenticated physical arity without importing owners. |
+| `saved_application_domains::<N>(path)` | Read original query IDs, native geometry and empty-domain flags. |
+| `prepare_saved_application::<N>(publication, options)` | Authenticate an explicit publication, check its native terminal substitutions and prepare owners/routes. |
+| `export_saved_application::<N>(publication, destination, options)` | Prepare and write a self-contained runtime directory. The destination must not exist. |
+| `load_saved_application::<N>(runtime, options)` | Load `application.json` and its runtime payloads. |
+| `prepared.export_runtime(destination)` | Export an already prepared handle without changing its mathematical scope. |
+
+For publication input, a directory resolves to `artifact.json`, never the
+moving `latest.json` pointer. An explicit manifest path is also accepted.
+Runtime loading accepts a directory or its `application.json` file. `N` is a
+compiled storage capacity at least as large as the physical arity; integral
+keys retain their physical coordinate count.
+
+The five-loop integration uses the fixed THE_ONE generation-54 publication:
+
+```text
+campaigns/five-loop-rank-ladder-THE-ONE/master-reduction/scopes/
+f7ee869008fccc6ed6cf2f4e3342c78d2b8607f59ac4d523dcae504595c1b0f8/artifact.json
+```
+
+Its selection contains 67 owners and 9,982 rule records. It retains 804 query
+records and 939 raw terminal maps with 905 remaining family-qualified keys.
+Native geometry proves 41 historical queries empty; the other 763 define the
+executable union. Empty records remain in provenance and inventories.
+
+Export checks every retained source terminal substitution, including its
+conditions, through the native compact-map round trip. The package contains:
+
+- The exact owner selection, verified-route definitions and recorded query union.
+- Existing native owner/overlay/preference payloads, transported as standard
+  gzip streams split into bounded 32 MiB chunks.
+- Compact terminal substitutions using RustRed's existing Symbolica state and
+  coefficient-table codec, plus complete native family definitions.
+- Sizes, BLAKE3 digests, source identity and inherited assurance metadata.
+
+It excludes campaign ledgers, refinement/search matrices and numerical masters.
+Runtime loading verifies compressed chunks and the reconstructed native
+payload digests, then uses the existing native owner loader. It needs no source
+campaign paths or decompression temporary files. Native Symbolica import is a
+trusted-generated-data boundary; integrity checks do not upgrade saved rules
+to independently replayed certificates or prove master independence.
+
+## Exact entry scope
+
+The reported maximum rank and power difference are summaries of the recorded
+union. They do not authorize every integral below those maxima. For powers
+`n`, negative-index degree is `R = sum(max(-n_i, 0))`, positive power is
+`A = sum(max(n_i, 0))`, and signed power difference is `D = A - R`.
+For a homogeneous product of `r` momentum scalar products the momentum degree
+is `2r`. Lowering into massive inverse denominators can also produce terms
+with explicit mass factors and smaller negative-index degree. Consequently
+momentum degree, tensor rank and each lowered integral's `R` are reported
+separately; GeV^10 does not mean scalar negative-index degree ten.
+
+Each original region also fixes positive support, coordinate intervals and
+correlated power bounds. Positive coordinates use `n_i - 1`; absent coordinates
+use `-n_i`. `saved_application_domains` preserves those predicates and IDs;
+`saved_application_boundary_witnesses` proposes representable boundary samples
+and verifies them with the native admission service. Sampling is not exhaustive
+enumeration or a new closure proof.
+
+The prepared handle provides two explicit application paths:
+
+- `reduce_linear_combination` checks every original key against the executable
+  union before cancellation or cached reuse, including zero input coefficients.
+- `reduce_routed_linear_combination` first uses installed, verified entry
+  transports and admits every nonzero owner image to that same union. Exact
+  certified-zero images can be removed with their conditions retained.
+  Entry transport and downstream reduction share one operational budget.
+
+`route_entry_to_owner` exposes the scope-checked transport without applying
+IBPs. Literal owners use identity transport. Missing routes, missing owners,
+uncovered rules, invalid coefficients and cycles produce errors; they are not
+converted into new terminal declarations. Descendants of an admitted request
+follow saved rules and are not clipped to starting-domain bounds.
+
+## Prepared Rust use
+
+This example chooses a native-verified witness from the supplied package rather
+than assuming that an arbitrary power tuple belongs to its scope:
+
+```rust
+use std::path::Path;
+use rustred_app::{
+    SavedApplicationOptions, load_saved_application,
+    saved_application_boundary_witnesses, saved_application_domains,
+};
+
+fn apply_one(runtime: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let domain = saved_application_domains::<15>(runtime)?
+        .into_iter()
+        .find(|domain| !domain.is_empty)
+        .ok_or("publication has no nonempty entry domain")?;
+    let witness = saved_application_boundary_witnesses(&domain.region)?
+        .into_iter()
+        .next()
+        .ok_or("domain produced no witness")?;
+
+    let mut options = SavedApplicationOptions::default();
+    // Explicit native-session allowance; not a change to coverage.
+    options.reduction_limits.max_cached_coefficient_bytes =
+        usize::try_from(32_u64 * 1024 * 1024 * 1024)?;
+    // Make bytes the retained coefficient bound for this explicit session.
+    options.reduction_limits.max_cached_coefficient_terms = usize::MAX;
+    let mut prepared = load_saved_application::<15>(runtime, options)?;
+    let one = prepared.family().coefficient_context().one();
+    let result = prepared.reduce_linear_combination([
+        (witness.integral, one),
+    ])?;
+
+    for (terminal, coefficient) in result.terms() {
+        println!("{} {:?}: {coefficient}",
+            terminal.family_fingerprint(), terminal.integral().powers());
+    }
+    println!("required nonzero conditions: {}",
+        result.nonzero_conditions().len());
+    println!("cache: {:?}", prepared.cache_statistics());
+    prepared.clear_cache()?;
+    Ok(())
+}
+```
+
+Coefficients are native exact rational polynomials in the authenticated family
+context. `SavedApplicationIntegral` always carries both a family fingerprint
+and integral powers. `output_family` borrows its definition;
+`output_family_shared` clones the existing `Arc` for another native service.
+Do not reconstruct algebra from printed coefficient or family strings.
+
+The result uses the stored unit-mass, common formal loop-measure convention.
+The embedding frontend retains source mass homogeneity and any external
+measure factors. Product display must not apply the original five-loop mass
+or measure normalization a second time to each factor.
+
+## Guards and product normalization
+
+Every coefficient result includes sufficient generic-parameter nonzero
+conditions. Original source conditions, denominator poles and selected
+exception-branch witnesses are retained even when algebraic coefficients
+cancel. Conditions describe applicability, not a maximal exceptional-parameter
+classification. Consumers must preserve them instead of inferring validity
+only from the final simplified denominators.
+
+`prepare_terminal_products(VacuumProductLimits)` optionally prepares verified
+products of the unchanged remaining terminal keys. `terminal_product` returns
+a coefficient and sorted family-qualified lower-loop factors; repeated factors
+remain repeated. `terminal_product_statistics` reports retained/factored and
+numerator counts, lower-family count and first preparation time. Repeated
+preparation reuses the immutable result. Unsupported or connected terminals
+stay flat. This presentation step does not independently reduce lower factors
+or alter the package's 905-key terminal identity.
+
+For independent factor reduction and exact sum-of-products comparison, the core
+`VacuumProductReducer` accepts an explicit `VacuumFactorProvider`. The provider
+must use existing selected programs, report per-call work and preserve their
+guards under the remaining limits. Same-loop declared terminals stop; verified
+product recursion strictly lowers loop count while preserving its total.
+Products are sorted, multiplied and coalesced with native Symbolica algebra.
+
+Existing candidate reducers provide
+`reduce_unit_mass_guarded(target, remaining_limits)`. Closed artifacts provide
+`Reducer::reduce_artifact_unit_mass_guarded(artifact, target, limits)` without
+allocating a redundant receiver cache. Both return the existing typed
+decomposition, nonzero conditions and per-call statistics. The instance closed
+method additionally deducts its receiver's retained cache from the allowance.
+These interfaces generate no IBPs and do not silently fall back to another CAS.
+
+## Operational budgets and reuse
+
+`SavedApplicationOptions` keeps mathematical scope separate from operational
+limits. Default `ReductionLimits` include a 1 GiB retained coefficient-byte
+allowance and a 16-million retained coefficient-term allowance. Raising only
+the byte allowance does not remove the independent term or work limits.
+Input count, operational-node count, transport work, rule applications,
+coalescing work and pending frames also have explicit bounds.
+
+`cache_representation` defaults to `CandidateCacheRepresentation::Sparse`.
+The opt-in `Factorized` setting uses the existing Symbolica-native factorized
+denominator cache; returned coefficients remain ordinary exact coefficients.
+Its retained-term accounting includes a conservative expanded-size estimate.
+Factorized storage is not an assurance upgrade or a guaranteed speedup. Select
+it before loading a prepared handle; use a separate handle for a matched
+representation comparison.
+
+One handle reuses the same immutable owner/route selection and its mutable
+coefficient cache. `cache_statistics` reports that retained cache;
+`clear_cache` releases reduction memoization while retaining preparation and
+optional terminal-product presentation. A new owner selection or coefficient
+context requires a new handle. Core per-call statistics and
+`terminal_substitution_additions` together describe composition work.
+
+A cache-budget error is an operational failure, not proof of missing rules or
+unsupported scope. A failed request can leave valid completed subresults in
+the cache. Clear between independent cases when measuring separate resource
+requirements. Retained coefficient-byte counters are not process RSS; owner
+programs, family data, native arithmetic scratch space and output materialization
+also consume memory.
+
+Current loading eagerly imports and prepares all selected owners and rule
+coefficients. It shares the native context and verified routes, and later
+applications reuse them. True deferred per-owner preparation remains an unmet
+performance requirement. The lazy coefficient-table facility used by inspection
+views is not the runtime owner loader. Measure cold loading separately from
+first application and warm reuse; do not label a warm reduction as a cold start.
+
+`preparation_statistics()` exposes disjoint cumulative wall durations for
+metadata, terminal maps, owner payload read/decompression/authentication,
+eager owner preparation, route preparation and remaining assembly work, plus
+the overall total. Source preparation includes native terminal verification
+and compact-map checking in its terminal-map phase; runtime preparation includes
+only compact-map import. These receipts do not attribute process RSS to phases.
+
+## Native driver
+
+Build the example with a runtime configuration supporting the physical arity:
+
+```sh
+nix develop --command cargo build --release --locked \
+  -p rustred-app --example saved_application
+```
+
+Its argument forms are:
+
+```text
+saved_application inventory PUBLICATION_OR_RUNTIME
+saved_application terminals RUNTIME
+saved_application export PUBLICATION NEW_RUNTIME_DIRECTORY
+saved_application suite RUNTIME INVENTORY_JSON [OFFSET] [COUNT] [REPEATS] [CACHE_MODE] [CACHE_BYTES] [CACHE_REPRESENTATION] [LIMITS_JSON]
+```
+
+`inventory` writes JSON to standard output. `terminals` reports family-qualified
+remaining keys once loaded, without generating equations. `suite` writes JSONL receipts and
+checks exact coefficient/guard equality on repeated applications. Cache mode is
+`independent` (default, clear between cases) or `shared`; representation is
+`sparse` (default) or `factorized`. The driver's explicit `CACHE_BYTES` override
+also removes its aggregate coefficient-term ceiling while preserving its other
+limits. The Rust API does not make that second change automatically.
+An optional JSON object overrides named operational counts without recompiling,
+for example `{"max_transport_endpoints":40000000}`. Unknown names, rank/scope
+keys and non-integer values are rejected. Complete selected limits appear in
+the preparation receipt. After a failed case the driver records the cache
+census and clears partial memoization before the next case, preventing an
+exhausted shared cache from manufacturing repeated unrelated failures.
+
+Export to a new local directory outside tracked source. Keep that entire
+directory together when hosting it. The current measurements and incomplete
+acceptance items are recorded separately in [CODEX_PROGRESS.md](../CODEX_PROGRESS.md);
+successful sampled reductions do not establish unrestricted family closure.

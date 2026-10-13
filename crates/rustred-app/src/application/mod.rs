@@ -24,6 +24,15 @@ mod options;
 mod producer;
 mod resource_policy;
 mod routed_campaign;
+mod saved_application;
+pub use saved_application::{
+    PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationDomain, SavedApplicationIntegral,
+    SavedApplicationOptions, SavedApplicationReduction, export_saved_application,
+    SavedApplicationProduct, SavedApplicationProductStatistics,
+    SavedApplicationPreparationStatistics,
+    load_saved_application, prepare_saved_application, saved_application_arity, saved_application_domains,
+    SavedApplicationWitness, SavedApplicationWitnessKind, saved_application_boundary_witnesses,
+};
 pub use routed_campaign::{
     OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
     owner_domain_walk_inventory,

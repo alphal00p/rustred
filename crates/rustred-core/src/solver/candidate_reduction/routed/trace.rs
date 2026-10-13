@@ -10,12 +10,12 @@ use crate::reduction::{ReductionRequest, ReductionStatistics};
 use crate::sector::symmetry::integral_transport::ExpansionError;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Node<const N: usize> {
+pub(super) enum Node<const N: usize> {
     Route(IntegralKey),
     Apply([bool; N], IntegralKey),
 }
 impl<const N: usize> Node<N> {
-    fn key(&self) -> &IntegralKey {
+    pub(super) fn key(&self) -> &IntegralKey {
         match self {
             Self::Route(k) | Self::Apply(_, k) => k,
         }
@@ -26,7 +26,7 @@ enum Frame<const N: usize> {
     Leave(Node<N>),
 }
 
-fn charge(
+pub(super) fn charge(
     value: &mut usize,
     addition: usize,
     limit: usize,
@@ -82,11 +82,33 @@ impl<const N: usize> Traversal<N> {
     }
 }
 
-fn support<const N: usize>(key: &IntegralKey) -> [bool; N] {
+pub(super) fn support<const N: usize>(key: &IntegralKey) -> [bool; N] {
     std::array::from_fn(|i| key.powers().get(i).copied().unwrap_or(0) > 0)
 }
-fn count<const N: usize>(mask: &[bool; N]) -> usize {
+pub(super) fn count<const N: usize>(mask: &[bool; N]) -> usize {
     mask.iter().filter(|&&x| x).count()
+}
+
+/// Shared Route/Apply transition policy for traversal and exact application.
+/// Same-owner formula descent is separately checked by CandidateEvaluator.
+pub(super) fn successor<const N: usize>(
+    parent: &IntegralKey,
+    child: IntegralKey,
+    owner: [bool; N],
+) -> Result<Node<N>, CandidateRoutedError> {
+    let child_support = support::<N>(&child);
+    if child_support == owner {
+        return Ok(Node::Apply(owner, child));
+    }
+    if child_support.iter().zip(owner).all(|(&c, o)| !c || o)
+        && count(&child_support) < count(&support::<N>(parent))
+    {
+        return Ok(Node::Route(child));
+    }
+    Err(CandidateRoutedError::UnsupportedSupportTransition {
+        target: parent.clone(),
+        child,
+    })
 }
 
 impl<const N: usize> RoutedCandidateReducer<N> {
@@ -282,22 +304,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                         for endpoint in mapped.terms().iter().rev() {
                             let child = endpoint.key();
                             base.validate_target(child)?;
-                            let child_support = support::<N>(child);
-                            let child_node = if child_support == owner_support {
-                                Node::Apply(owner_support, child.clone())
-                            } else if child_support
-                                .iter()
-                                .zip(owner_support)
-                                .all(|(&c, o)| !c || o)
-                                && count(&child_support) < count(&parent_support)
-                            {
-                                Node::Route(child.clone())
-                            } else {
-                                return Err(CandidateRoutedError::UnsupportedSupportTransition {
-                                    target: key.clone(),
-                                    child: child.clone(),
-                                });
-                            };
+                            let child_node = successor(key, child.clone(), owner_support)?;
                             traversal.schedule(
                                 child_node,
                                 self.limits.max_unique_nodes,
@@ -349,24 +356,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                                 "successful rule applications",
                             )?;
                             for child in terms.into_keys().rev() {
-                                let child_support = support::<N>(&child);
-                                let child_node = if &child_support == owner_sector {
-                                    Node::Apply(*owner_sector, child)
-                                } else if child_support
-                                    .iter()
-                                    .zip(owner_sector)
-                                    .all(|(&c, &o)| !c || o)
-                                    && count(&child_support) < count(owner_sector)
-                                {
-                                    Node::Route(child)
-                                } else {
-                                    return Err(
-                                        CandidateRoutedError::UnsupportedSupportTransition {
-                                            target: key.clone(),
-                                            child,
-                                        },
-                                    );
-                                };
+                                let child_node = successor(key, child, *owner_sector)?;
                                 traversal.schedule(
                                     child_node,
                                     self.limits.max_unique_nodes,

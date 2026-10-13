@@ -1,5 +1,23 @@
 # RustRed project goal
 
+## October 13 — active: five-loop symbolic Vakint application
+
+Authoritative plan: `FIVE_LOOP_VAKINT_PLAN.md`, with progress in
+`CODEX_PROGRESS.md`. Implement exact scoped application of THE_ONE generation54
+saved rules in RustRed and steer it from Vakint, including existing FeynKit DOT
+ingress, generated graph census, pinches, factorized cases and exact symbolic
+terminal outputs. Test only admitted inputs, including GeV^10 and higher
+numerators through recorded domain boundaries; report cold/warm performance
+and cache correctness. No new IBPs, master evaluations or production changes.
+
+The five-loop runtime artifact is **not committed or pushed**: deliver its
+local path and digest for user hosting. Vakint must expose an explicit loader
+and optional artifact-path setting. Without that setting, RustRed does not
+handle five-loop inputs; existing lower-loop behavior/defaults remain intact.
+Delegate orthogonal implementation and independent audits, then commit/push
+tested code/docs only to RustRed main and the Vakint integration branch with
+the requested ValentinHirschi identity. This is the active tool-managed goal.
+
 ## October 8 — completed: fast publication, optional deep verification
 
 Follow `FAST_PUBLICATION_PLAN.md`. Independent graph/reinspection verification

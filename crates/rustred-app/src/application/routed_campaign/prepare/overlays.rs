@@ -4,8 +4,7 @@
 //! exact bytes in selection order; neither a path nor a replay receipt replaces
 //! their identity. A changed selection requires a fresh walk.
 
-use std::fs::File;
-use std::io::Read;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -32,6 +31,7 @@ pub(super) fn read(
     selection: &Selection,
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
+    reader: &mut dyn FnMut(&Path, u64) -> Result<Vec<u8>, AppError>,
 ) -> Result<Option<Vec<Payload>>, AppError> {
     let mut payloads = Vec::new();
     for (ordinal, record) in selection.domain_rule_overlays.iter().enumerate() {
@@ -43,26 +43,7 @@ pub(super) fn read(
             "completed":ordinal, "total":selection.domain_rule_overlays.len()}),
         );
         let path = request.owner_base.join(&record.path);
-        let file = File::open(&path)
-            .map_err(|error| AppError::input(format!("{}: {error}", path.display())))?;
-        if file
-            .metadata()
-            .map_err(|error| AppError::input(error.to_string()))?
-            .len()
-            != record.bytes
-        {
-            return Err(AppError::input(
-                "domain-rule overlay size differs from selection",
-            ));
-        }
-        let mut bytes = Vec::new();
-        let read_limit = record
-            .bytes
-            .checked_add(1)
-            .ok_or_else(|| AppError::limit("domain-rule overlay byte count overflow"))?;
-        file.take(read_limit)
-            .read_to_end(&mut bytes)
-            .map_err(|error| AppError::input(format!("{}: {error}", path.display())))?;
+        let bytes = reader(&path, record.bytes)?;
         if u64::try_from(bytes.len()).ok() != Some(record.bytes) {
             return Err(AppError::input(
                 "domain-rule overlay changed during bounded read",

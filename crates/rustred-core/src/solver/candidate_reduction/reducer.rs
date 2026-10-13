@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
 use crate::algebra::{Coefficient, IndexedCoefficientContext, IndexedPolynomial};
@@ -102,8 +102,68 @@ impl<const N: usize> CandidateReducer<N> {
         &mut self,
         target: &IntegralKey,
     ) -> Result<CandidateDecomposition, CandidateReductionError> {
+        self.reduce_unit_mass_impl(target, false)
+    }
+
+    /// Opt-in exact subtree guards and per-call work for typed factor providers.
+    /// Remaining allowances are intersected with this owner's policy before
+    /// execution. An unguarded cached node is recomputed once when reached;
+    /// guarded calls reuse coefficients and their original domain together.
+    pub fn reduce_unit_mass_guarded(
+        &mut self,
+        target: &IntegralKey,
+        remaining: ReductionLimits,
+    ) -> Result<
+        (
+            CandidateDecomposition,
+            Vec<Coefficient>,
+            ReductionStatistics,
+        ),
+        CandidateReductionError,
+    > {
+        let original_limits = self.limits;
+        let previous_work = self.statistics;
+        self.limits = original_limits.bounded_by(remaining);
+        self.statistics = ReductionStatistics::default();
+        let result = (|| {
+            self.validate_entry_target(target)?;
+            self.cache_budget.replace(
+                0,
+                CacheWeight::default(),
+                0,
+                CacheWeight::default(),
+                self.limits,
+            )?;
+            let result = self.reduce_unit_mass_impl(target, true)?;
+            let conditions = self
+                .cache
+                .get(target)
+                .and_then(|entry| entry.conditions.as_ref())
+                .ok_or(ReductionError::ReducerInvariant {
+                    detail: "guarded candidate root lacks its condition cache",
+                })?
+                .clone();
+            for coefficient in result.terms().values().chain(&conditions) {
+                self.context
+                    .base()
+                    .validate_with_limits(coefficient, self.limits.exact_algebra)?;
+            }
+            Ok((result, conditions, self.statistics))
+        })();
+        let work = self.statistics;
+        self.statistics = previous_work;
+        self.statistics.merge_work(work);
+        self.limits = original_limits;
+        result
+    }
+
+    fn reduce_unit_mass_impl(
+        &mut self,
+        target: &IntegralKey,
+        guarded: bool,
+    ) -> Result<CandidateDecomposition, CandidateReductionError> {
         self.validate_entry_target(target)?;
-        if self.cache.contains_key(target) {
+        if self.cached_for(target, guarded) {
             self.statistics.record_cache_hit();
             return self.materialize_target(target);
         }
@@ -115,11 +175,16 @@ impl<const N: usize> CandidateReducer<N> {
             request.release_pending_frame()?;
             match frame {
                 Frame::Expand(key) => {
-                    if self.cache.contains_key(&key) {
+                    if self.cached_for(&key, guarded) {
                         self.statistics.record_cache_hit();
                         continue;
                     }
-                    self.validate_target(&key)?;
+                    let conditions = if guarded {
+                        Some(self.target_conditions(&key)?)
+                    } else {
+                        self.validate_target(&key)?;
+                        None
+                    };
                     if self.is_zero(&key) {
                         let terms = CachedTerms::from_sparse(
                             BTreeMap::new(),
@@ -127,7 +192,7 @@ impl<const N: usize> CandidateReducer<N> {
                             self.context.base(),
                             self.limits,
                         )?;
-                        self.cache_insert(key, terms)?;
+                        self.cache_insert(key, terms, conditions)?;
                         continue;
                     }
                     if self.terminals.contains(&key) {
@@ -155,14 +220,30 @@ impl<const N: usize> CandidateReducer<N> {
                             self.context.base(),
                             self.limits,
                         )?;
-                        self.cache_insert(key, terms)?;
+                        let mut conditions = conditions;
+                        if let Some(conditions) = conditions.as_mut() {
+                            // The finite normalization factory uses rational
+                            // constant geometry. Retain native output poles as
+                            // well, before any downstream master cancellation.
+                            let sparse = terms.materialize(self.context.base(), self.limits)?;
+                            for coefficient in sparse.values() {
+                                retain_polynomial(conditions, &coefficient.denominator);
+                            }
+                        }
+                        self.cache_insert(key, terms, conditions)?;
                         continue;
                     }
                     if !active.insert(key.clone()) {
                         return Err(ReductionError::CycleDetected { target: key }.into());
                     }
                     request.record_rule_application(self.limits.max_rule_applications)?;
-                    let terms = self.apply_candidate(&key, &mut request)?;
+                    let (terms, conditions) = if guarded {
+                        let (terms, conditions) =
+                            self.apply_guarded_candidate(&key, &mut request)?;
+                        (terms, Some(conditions))
+                    } else {
+                        (self.apply_candidate(&key, &mut request)?, None)
+                    };
                     self.statistics.record_rule_application();
                     let mut children = Vec::new();
                     children.try_reserve_exact(terms.len()).map_err(|_| {
@@ -174,16 +255,52 @@ impl<const N: usize> CandidateReducer<N> {
                     children.extend(terms.keys().cloned());
                     self.push_frame(
                         &mut stack,
-                        Frame::Combine { target: key, terms },
+                        Frame::Combine {
+                            target: key,
+                            terms,
+                            conditions,
+                        },
                         &mut request,
                     )?;
                     for child in children.into_iter().rev() {
-                        if !self.cache.contains_key(&child) {
+                        if !self.cached_for(&child, guarded) {
                             self.push_frame(&mut stack, Frame::Expand(child), &mut request)?;
                         }
                     }
                 }
-                Frame::Combine { target, terms } => {
+                Frame::Combine {
+                    target,
+                    terms,
+                    conditions,
+                } => {
+                    if conditions.is_some()
+                        && terms.keys().any(|key| {
+                            self.cache
+                                .get(key)
+                                .and_then(|entry| entry.conditions.as_ref())
+                                .is_none()
+                        })
+                    {
+                        return Err(ReductionError::ReducerInvariant {
+                            detail: "guarded candidate child lacks its condition cache",
+                        }
+                        .into());
+                    }
+                    let conditions = conditions.map(|local| {
+                        let mut seen = HashSet::new();
+                        let mut output = Vec::new();
+                        for condition in local.iter().chain(terms.keys().flat_map(|key| {
+                            self.cache
+                                .get(key)
+                                .and_then(|entry| entry.conditions.as_deref())
+                                .unwrap_or(&[])
+                        })) {
+                            if seen.insert(condition) {
+                                output.push(condition.clone());
+                            }
+                        }
+                        output
+                    });
                     let output = cache::combine(
                         self.context.base(),
                         &self.cache,
@@ -199,7 +316,7 @@ impl<const N: usize> CandidateReducer<N> {
                         }
                         .into());
                     }
-                    self.cache_insert(target, output)?;
+                    self.cache_insert(target, output, conditions)?;
                 }
             }
         }
@@ -217,6 +334,12 @@ impl<const N: usize> CandidateReducer<N> {
         self.cache.clear();
         self.cache_weight = CacheWeight::default();
         Ok(())
+    }
+
+    fn cached_for(&self, key: &IntegralKey, guarded: bool) -> bool {
+        self.cache
+            .get(key)
+            .is_some_and(|entry| !guarded || entry.conditions.is_some())
     }
 
     /// Check an explicit finite entry set and its reachable successor DAG.
@@ -311,18 +434,31 @@ impl<const N: usize> CandidateReducer<N> {
         &mut self,
         target: IntegralKey,
         terms: CachedTerms,
+        conditions: Option<Vec<Coefficient>>,
     ) -> Result<(), CandidateReductionError> {
         let previous = self.cache.get(&target);
         let previous_count = usize::from(previous.is_some());
         let previous_weight = previous.map(|entry| entry.weight).unwrap_or_default();
-        let weight = terms.weight()?;
+        let mut weight = terms.weight()?;
+        if let Some(conditions) = &conditions {
+            weight = weight.checked_add(crate::reduction::coefficient_cache_weight(
+                conditions.iter(),
+            )?)?;
+        }
         let prospective_weight = self
             .cache_weight
             .checked_sub(previous_weight)?
             .checked_add(weight)?;
         self.cache_budget
             .replace(previous_count, previous_weight, 1, weight, self.limits)?;
-        self.cache.insert(target, CacheEntry { terms, weight });
+        self.cache.insert(
+            target,
+            CacheEntry {
+                terms,
+                weight,
+                conditions,
+            },
+        );
         self.cache_weight = prospective_weight;
         Ok(())
     }
@@ -343,6 +479,68 @@ impl<const N: usize> CandidateReducer<N> {
             terms: entry.terms.materialize(self.context.base(), self.limits)?,
         })
     }
+
+    fn target_conditions(
+        &self,
+        target: &IntegralKey,
+    ) -> Result<Vec<Coefficient>, CandidateReductionError> {
+        let mut conditions = Vec::new();
+        super::evaluator::CandidateEvaluator {
+            context: &self.context,
+            root_sector: self.root_sector,
+            ordering: &self.ordering,
+            rules: &[],
+            whole_piece_alternatives: &[],
+            source_conditions: &self.source_conditions,
+            zero_sectors: &self.zero_sectors,
+            limits: self.limits,
+        }
+        .validate_target_with_conditions(target, &mut |condition| {
+            retain_polynomial(&mut conditions, condition)
+        })?;
+        Ok(conditions)
+    }
+
+    fn apply_guarded_candidate(
+        &mut self,
+        target: &IntegralKey,
+        request: &mut ReductionRequest,
+    ) -> Result<(BTreeMap<IntegralKey, Coefficient>, Vec<Coefficient>), CandidateReductionError>
+    {
+        let sector = std::array::from_fn(|i| target.powers().get(i).copied().unwrap_or(0) > 0);
+        let rules = self
+            .rules
+            .get(&sector)
+            .ok_or_else(|| CandidateReductionError::Uncovered {
+                target: target.clone(),
+            })?;
+        super::evaluator::CandidateEvaluator {
+            context: &self.context,
+            root_sector: self.root_sector,
+            ordering: &self.ordering,
+            rules,
+            whole_piece_alternatives: self
+                .whole_piece_alternatives
+                .get(&sector)
+                .map_or(&[], Vec::as_slice),
+            source_conditions: &self.source_conditions,
+            zero_sectors: &self.zero_sectors,
+            limits: self.limits,
+        }
+        .apply_with_conditions(target, request, &mut self.statistics)
+    }
+}
+
+fn retain_polynomial(
+    conditions: &mut Vec<Coefficient>,
+    polynomial: &crate::algebra::CoefficientPolynomial,
+) {
+    if !polynomial.is_constant() {
+        let coefficient = polynomial.clone().into();
+        if !conditions.contains(&coefficient) {
+            conditions.push(coefficient);
+        }
+    }
 }
 
 enum Frame {
@@ -350,5 +548,90 @@ enum Frame {
     Combine {
         target: IntegralKey,
         terms: BTreeMap<IntegralKey, Coefficient>,
+        conditions: Option<Vec<Coefficient>>,
     },
+}
+
+#[cfg(test)]
+mod guarded_tests {
+    use super::*;
+    use crate::solver::candidate_reduction::owner_test_support::{input, key, rule};
+
+    #[test]
+    fn guarded_candidate_retains_cancelled_original_poles_and_cached_subtree_domain() {
+        let family = crate::solver::tests::tadpole();
+        let record = input(
+            [true],
+            None,
+            vec![
+                rule(&family, [3], &[([2], 1)]),
+                rule(&family, [2], &[([1], 1), ([1], -1)]),
+            ],
+            &[[1]],
+        );
+        let mut reducer = CandidateReducer::try_new(
+            &family,
+            [true],
+            record.ordering,
+            [([true], record.solution)],
+            vec![],
+            Default::default(),
+        )
+        .unwrap();
+        let c = family.coefficient_context();
+        let indexed = reducer.context.clone();
+        let polynomial = |text| {
+            let value = indexed.lift(&c.coefficient_fixture(text)).unwrap();
+            indexed
+                .admit_native_polynomial_result_with_limits(
+                    value.raw().numerator.clone(),
+                    Default::default(),
+                )
+                .unwrap()
+        };
+        reducer.source_conditions.push(polynomial("d-7"));
+        let rules = reducer.rules.get_mut(&[true]).unwrap();
+        rules[0].rhs[0].denominator = polynomial("d-4");
+        rules[1].rhs[0].denominator = polynomial("d-5");
+        rules[1].exceptions = vec![vec![polynomial("d-6"), polynomial("d-8")]];
+        assert!(reducer.reduce_unit_mass(&key([3])).unwrap().is_zero());
+        let (first, conditions, work) = reducer
+            .reduce_unit_mass_guarded(&key([3]), Default::default())
+            .unwrap();
+        assert!(first.is_zero());
+        assert_eq!(work.rule_applications(), 2);
+        for text in ["d-4", "d-5", "d-6", "d-7"] {
+            assert!(conditions.contains(&c.coefficient_fixture(text)), "{text}");
+        }
+        assert!(!conditions.contains(&c.coefficient_fixture("d-8")));
+        let (warm, warm_conditions, warm_work) = reducer
+            .reduce_unit_mass_guarded(
+                &key([3]),
+                ReductionLimits {
+                    max_rule_applications: 0,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(warm, first);
+        assert_eq!(warm_conditions, conditions);
+        assert_eq!(warm_work.rule_applications(), 0);
+        assert_eq!(warm_work.cache_hits(), 1);
+        assert!(reducer.statistics().cached_coefficient_terms() > 0);
+        assert_eq!(reducer.limits(), ReductionLimits::default());
+        reducer.clear_cache().unwrap();
+        assert!(matches!(
+            reducer.reduce_unit_mass_guarded(
+                &key([3]),
+                ReductionLimits {
+                    max_rule_applications: 1,
+                    ..Default::default()
+                }
+            ),
+            Err(CandidateReductionError::Application(
+                ReductionError::RuleApplicationLimit { .. }
+            ))
+        ));
+        assert_eq!(reducer.limits(), ReductionLimits::default());
+    }
 }

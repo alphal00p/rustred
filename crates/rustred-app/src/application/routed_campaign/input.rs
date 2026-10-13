@@ -16,18 +16,18 @@ pub(super) const MAX_ROUTES: usize = 100_000;
 pub(super) const PREFERRED_RULE_SUBSET_POLICY: &str = "saved-ordinal-subset-v1";
 
 #[derive(Debug, Deserialize)]
-pub(super) struct Selection {
+pub(in crate::application) struct Selection {
     pub family_fingerprint: String,
-    pub owners: Vec<Owner>,
+    pub(super) owners: Vec<Owner>,
     /// Ordered source-replayed partial rules. Original owners stay immutable.
     #[serde(default)]
-    pub domain_rule_overlays: Vec<DomainRuleOverlay>,
+    pub(super) domain_rule_overlays: Vec<DomainRuleOverlay>,
     /// Trusted alternatives with the original owner's terminal boundary.
     #[serde(default)]
-    pub preferred_owner_programs: Vec<PreferredOwnerProgram>,
-    pub initial_frontier_routes: Vec<Route>,
+    pub(super) preferred_owner_programs: Vec<PreferredOwnerProgram>,
+    pub(super) initial_frontier_routes: Vec<Route>,
     #[serde(default, deserialize_with = "unique_limits")]
-    pub load_limits: BTreeMap<String, usize>,
+    pub(super) load_limits: BTreeMap<String, usize>,
 }
 
 fn unique_limits<'de, D: Deserializer<'de>>(

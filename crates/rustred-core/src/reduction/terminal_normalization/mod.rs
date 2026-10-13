@@ -17,7 +17,9 @@ mod circuit_equations;
 mod corank_one;
 mod model;
 mod parametric;
+mod product_reduction;
 mod products;
+mod vacuum_products;
 mod weighted;
 
 pub use circuit_equations::{
@@ -30,6 +32,15 @@ pub use model::{
 pub use parametric::{
     VacuumFamilyAliasError, VacuumFamilyAliasLimits, VacuumFamilyAliasPlan, VacuumIntegralKey,
     VacuumParametricLimits, VerifiedFamilyVacuumAlias, VerifiedVacuumParameterMap,
+};
+pub use product_reduction::{
+    VacuumFactor, VacuumFactorProvider, VacuumFactorReduction, VacuumFactorTerm, VacuumFactorWork,
+    VacuumProductCacheStatistics, VacuumProductReducer, VacuumProductReduction,
+    VacuumProductReductionError, VacuumProductReductionLimits, VacuumProductReductionStatistics,
+};
+pub use vacuum_products::{
+    VacuumProductError, VacuumProductLimits, VacuumProductPlan, VacuumProductStatistics,
+    VerifiedVacuumProduct,
 };
 pub use weighted::{
     TerminalNormalizationError, TerminalNormalizationLimits, TerminalNormalizationPlan,

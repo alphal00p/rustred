@@ -1,5 +1,6 @@
-//! Trace-only reuse of immutable sector owners through verified momentum maps.
-//! No coefficient back-substitution or family-closure authority is provided.
+//! Reuse of immutable sector owners through verified momentum maps.
+//! Tracing and exact application retain candidate-only authority.
+mod application;
 mod campaign;
 mod domain_overcover;
 mod entry;
@@ -7,6 +8,10 @@ mod identities;
 mod model;
 mod prepare;
 mod trace;
+
+pub use application::{
+    CandidateRoutedApplicationStatistics, CandidateRoutedReduction, RoutedCandidateApplication,
+};
 
 pub use campaign::{
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,

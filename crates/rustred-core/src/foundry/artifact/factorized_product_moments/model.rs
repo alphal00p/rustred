@@ -335,7 +335,6 @@ impl ProductMomentGuard {
         self.rank
     }
 
-    #[cfg(test)]
     pub(crate) fn nonzero_polynomial(&self) -> &Coefficient {
         &self.nonzero_polynomial
     }

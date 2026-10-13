@@ -366,7 +366,14 @@ impl ProductExecution<'_, '_, '_> {
         // The returned coefficient is an owned exact value; the guards are a
         // cold replay witness and are not needed by the already-authenticated
         // hot program.
-        let _ = angular.finish(&mut budget).map_err(product_error)?;
+        let guards = angular.finish(&mut budget).map_err(product_error)?;
+        if self.request.retains_nonzero_guards() {
+            for guard in guards.iter() {
+                self.request
+                    .retain_nonzero_guard(guard.nonzero_polynomial(), self.limits)?;
+            }
+        }
+        drop(guards);
         if angular_coefficient.is_zero() {
             return Ok(BTreeMap::new());
         }
@@ -434,7 +441,14 @@ impl ProductExecution<'_, '_, '_> {
         // output moment map remains live, so register its complete coefficient
         // payload in the same aggregate cache owner as the parent and all
         // dependency reducers for the duration of those nested calls.
-        let _ = angular.finish().map_err(product_error)?;
+        let guards = angular.finish().map_err(product_error)?;
+        if self.request.retains_nonzero_guards() {
+            for guard in guards.iter() {
+                self.request
+                    .retain_nonzero_guard(guard.nonzero_polynomial(), self.limits)?;
+            }
+        }
+        drop(guards);
         self.cache_budget
             .retain_coefficients(moments.len(), moments.values())?;
         let result = (|| {

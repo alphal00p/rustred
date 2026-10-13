@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::{Arc, Mutex};
 
 use crate::algebra::{
@@ -14,6 +14,55 @@ use super::model::{
     HomogeneousMasterCoefficient, HomogeneousMasterDecomposition, MasterDecomposition,
     ReductionLimits, ReductionStatistics,
 };
+
+impl ReductionLimits {
+    /// Intersect a caller's remaining request budget with an immutable owner
+    /// policy. Neither arithmetic nor retained-cache allowances are enlarged.
+    pub fn bounded_by(self, other: Self) -> Self {
+        fn exact(
+            a: crate::algebra::ExactAlgebraLimits,
+            b: crate::algebra::ExactAlgebraLimits,
+        ) -> crate::algebra::ExactAlgebraLimits {
+            crate::algebra::ExactAlgebraLimits {
+                max_exponent: a.max_exponent.min(b.max_exponent),
+                max_polynomial_terms: a.max_polynomial_terms.min(b.max_polynomial_terms),
+                max_term_operations: a.max_term_operations.min(b.max_term_operations),
+            }
+        }
+        Self {
+            exact_algebra: exact(self.exact_algebra, other.exact_algebra),
+            indexed_algebra: crate::algebra::IndexedAlgebraLimits {
+                exact_algebra: exact(
+                    self.indexed_algebra.exact_algebra,
+                    other.indexed_algebra.exact_algebra,
+                ),
+                max_specialization_power_operations: self
+                    .indexed_algebra
+                    .max_specialization_power_operations
+                    .min(other.indexed_algebra.max_specialization_power_operations),
+                max_specialization_integer_bits: self
+                    .indexed_algebra
+                    .max_specialization_integer_bits
+                    .min(other.indexed_algebra.max_specialization_integer_bits),
+            },
+            max_rule_applications: self.max_rule_applications.min(other.max_rule_applications),
+            max_cached_integrals: self.max_cached_integrals.min(other.max_cached_integrals),
+            max_cached_coefficient_terms: self
+                .max_cached_coefficient_terms
+                .min(other.max_cached_coefficient_terms),
+            max_cached_coefficient_bytes: self
+                .max_cached_coefficient_bytes
+                .min(other.max_cached_coefficient_bytes),
+            max_pending_frames: self.max_pending_frames.min(other.max_pending_frames),
+            max_coalescing_additions: self
+                .max_coalescing_additions
+                .min(other.max_coalescing_additions),
+            max_factorization_terms: self
+                .max_factorization_terms
+                .min(other.max_factorization_terms),
+        }
+    }
+}
 
 #[cfg(test)]
 mod scoped_tests;
@@ -129,6 +178,138 @@ impl<'artifact> Reducer<'artifact> {
     ) -> Result<MasterDecomposition, ReductionError> {
         let mut request = ReductionRequest::default();
         self.reduce_unit_mass_in_request(target, &mut request)
+    }
+
+    /// Typed guarded reduction with a strict remaining work budget. This
+    /// opt-in provider lane uses a fresh reducer, so guard collection describes
+    /// this request alone and cannot inherit unrelated earlier cache history.
+    /// The receiver's existing retained census is deducted from the shared
+    /// allowance. Providers without a receiver should use the artifact entry
+    /// below to avoid allocating a redundant seeded cache.
+    pub fn reduce_unit_mass_guarded(
+        &mut self,
+        target: &IntegralKey,
+        remaining: ReductionLimits,
+    ) -> Result<(MasterDecomposition, Vec<Coefficient>, ReductionStatistics), ReductionError> {
+        let mut limits = self.limits.bounded_by(remaining);
+        self.shared_cache
+            .replace(0, CacheWeight::default(), 0, CacheWeight::default(), limits)?;
+        let retained = self.shared_cache.snapshot();
+        limits.max_cached_integrals -= retained.integrals;
+        limits.max_cached_coefficient_terms -= retained.coefficient_terms;
+        limits.max_cached_coefficient_bytes -= retained.coefficient_bytes;
+        Self::reduce_artifact_unit_mass_guarded(self.artifact, target, limits)
+    }
+
+    /// Reduce a sealed artifact with one fresh guarded cache, without first
+    /// constructing a receiver or allocating its seeded master cache. All
+    /// parent, dependency, moment and guard payloads share the supplied limits.
+    pub fn reduce_artifact_unit_mass_guarded(
+        artifact: &'artifact ClosedArtifact,
+        target: &IntegralKey,
+        limits: ReductionLimits,
+    ) -> Result<(MasterDecomposition, Vec<Coefficient>, ReductionStatistics), ReductionError> {
+        let mut reducer = Self::with_limits(artifact, limits)?;
+        let mut request = ReductionRequest {
+            guarded_conditions: Some(Vec::new()),
+            guarded_condition_budget: Some(GuardedConditionBudget {
+                shared: Arc::clone(&reducer.shared_cache),
+                limits,
+                weight: CacheWeight::default(),
+            }),
+            ..Default::default()
+        };
+        let decomposition = reducer.reduce_unit_mass_in_request(target, &mut request)?;
+        // Coefficients already came from the ordinary checked engine. Inspect
+        // only its retained, completed DAG to preserve selected original poles
+        // even when its final coefficients have cancelled them away.
+        reducer.collect_guarded_dag_conditions(&mut request)?;
+        let conditions = request.guarded_conditions.take().unwrap_or_default();
+        let mut seen = HashSet::new();
+        let conditions = conditions
+            .iter()
+            .filter(|condition| seen.insert(*condition))
+            .cloned()
+            .collect();
+        Ok((decomposition, conditions, reducer.statistics()))
+    }
+
+    fn collect_guarded_dag_conditions(
+        &self,
+        request: &mut ReductionRequest,
+    ) -> Result<(), ReductionError> {
+        for condition in self.artifact.family().domain().conditions() {
+            request.retain_nonzero_guard(&condition.polynomial().clone().into(), self.limits)?;
+        }
+        for target in self.cache.keys() {
+            if self.artifact.masters().contains(target) || self.artifact.is_zero_terminal(target) {
+                continue;
+            }
+            if let Some(selected) = self.select_first_factorization(target)? {
+                let rule = &self.artifact.factorization_rules()[selected.ordinal];
+                request.retain_nonzero_guard(
+                    &rule.normalization().denominator.clone().into(),
+                    self.limits,
+                )?;
+                continue;
+            }
+            let selected = self.select_first_rule(target)?;
+            let guards = match selected.cell_guards {
+                Some(guards) => guards
+                    .iter()
+                    .map(|guard| guard.polynomial())
+                    .collect::<Vec<_>>(),
+                None => selected
+                    .rule
+                    .nonzero_guards()
+                    .iter()
+                    .map(|guard| guard.polynomial())
+                    .collect(),
+            };
+            for guard in guards {
+                let condition = self
+                    .artifact
+                    .indexed_context()
+                    .specialize_polynomial_sealed(
+                        guard,
+                        &selected.assignment,
+                        self.limits.indexed_algebra,
+                    )?;
+                request.retain_nonzero_guard(&condition.into(), self.limits)?;
+            }
+            let retained = selected.retained_terms.map(|terms| {
+                terms
+                    .iter()
+                    .map(RuleCellTerm::source_rhs_ordinal)
+                    .collect::<BTreeSet<_>>()
+            });
+            for (ordinal, term) in selected.rule.right_hand_side().iter().enumerate() {
+                if retained
+                    .as_ref()
+                    .is_some_and(|retained| !retained.contains(&ordinal))
+                {
+                    continue;
+                }
+                let (_, denominator) = self.artifact.indexed_context().specialize_sealed(
+                    term.coefficient(),
+                    &selected.assignment,
+                    self.limits.indexed_algebra,
+                )?;
+                if let Some(denominator) = denominator {
+                    request.retain_nonzero_guard(&denominator.into(), self.limits)?;
+                }
+            }
+        }
+        for dependency in &self.dependency_reducers {
+            // Seeded but unused lower artifacts contribute no application
+            // domain. A used terminal is observable as a native cache hit.
+            if dependency.statistics().rule_applications() != 0
+                || dependency.statistics().cache_hits() != 0
+            {
+                dependency.collect_guarded_dag_conditions(request)?;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn reduce_unit_mass_in_request(
@@ -378,6 +559,7 @@ impl<'artifact> Reducer<'artifact> {
                     rule: cell.rule(),
                     assignment,
                     retained_terms: Some(cell.terms()),
+                    cell_guards: Some(cell.guards()),
                 });
             }
         }
@@ -420,6 +602,7 @@ impl<'artifact> Reducer<'artifact> {
                     rule,
                     assignment,
                     retained_terms: None,
+                    cell_guards: None,
                 });
             }
         }
@@ -843,9 +1026,77 @@ pub(crate) struct ReductionRequest {
     rule_applications: usize,
     coalescing_additions: usize,
     pending_frames: usize,
+    /// Opt-in original angular poles for guarded lower-factor application.
+    guarded_conditions: Option<Vec<Coefficient>>,
+    guarded_condition_budget: Option<GuardedConditionBudget>,
+}
+
+struct GuardedConditionBudget {
+    shared: Arc<SharedCacheBudget>,
+    limits: ReductionLimits,
+    weight: CacheWeight,
+}
+
+impl Drop for GuardedConditionBudget {
+    fn drop(&mut self) {
+        let released = self
+            .shared
+            .replace(0, self.weight, 0, CacheWeight::default(), self.limits);
+        debug_assert!(
+            released.is_ok(),
+            "guarded-condition cache census did not release"
+        );
+    }
 }
 
 impl ReductionRequest {
+    pub(crate) fn retains_nonzero_guards(&self) -> bool {
+        self.guarded_conditions.is_some()
+    }
+    pub(crate) fn retain_nonzero_guard(
+        &mut self,
+        condition: &Coefficient,
+        limits: ReductionLimits,
+    ) -> Result<(), ReductionError> {
+        let Some(conditions) = &mut self.guarded_conditions else {
+            return Ok(());
+        };
+        if condition.is_zero() {
+            return Err(ReductionError::ReducerInvariant {
+                detail: "guarded reduction encountered a zero nonzero-condition",
+            });
+        }
+        if condition.numerator.is_constant() && condition.denominator.is_constant() {
+            return Ok(());
+        }
+        let budget =
+            self.guarded_condition_budget
+                .as_mut()
+                .ok_or(ReductionError::ReducerInvariant {
+                    detail: "guarded conditions have no shared cache budget",
+                })?;
+        let weight = budget
+            .weight
+            .checked_add(coefficient_cache_weight(std::iter::once(condition))?)?;
+        // Guards coexist with the parent, dependencies and moment caches.
+        // Charge their sum against the same owner before retaining the clone.
+        budget.shared.replace(
+            0,
+            budget.weight,
+            0,
+            weight,
+            budget.limits.bounded_by(limits),
+        )?;
+        budget.weight = weight;
+        conditions
+            .try_reserve(1)
+            .map_err(|_| ReductionError::AllocationFailure {
+                resource: "guarded lower-factor conditions",
+                requested: conditions.len().saturating_add(1),
+            })?;
+        conditions.push(condition.clone());
+        Ok(())
+    }
     pub(crate) fn record_rule_application(&mut self, limit: usize) -> Result<(), ReductionError> {
         self.record_rule_applications(1, limit)
     }
@@ -1111,6 +1362,7 @@ pub(super) struct SelectedRule<'rule> {
     pub(super) rule: &'rule ParametricRule,
     assignment: Vec<i64>,
     retained_terms: Option<&'rule [RuleCellTerm]>,
+    cell_guards: Option<&'rule [crate::foundry::cell::RuleCellGuard]>,
 }
 
 pub(super) fn begin_expansion(
@@ -1226,5 +1478,157 @@ fn pow_signed(
         Ok(context.try_div(&context.one(), &result, limits.exact_algebra)?)
     } else {
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod guarded_provider_tests {
+    use super::*;
+    use crate::foundry::artifact::derive_two_loop_unit_mass_sunset;
+
+    #[test]
+    fn retained_guards_share_the_live_coefficient_budget_and_release_on_drop() {
+        let context = CoefficientContext::try_new(["d"]).unwrap();
+        let guard = context.parameter("d").unwrap();
+        let guard_weight = coefficient_cache_weight([&guard]).unwrap();
+        let live = CacheWeight {
+            coefficient_terms: guard_weight.coefficient_terms,
+            coefficient_bytes: guard_weight.coefficient_bytes,
+        };
+        let shared = Arc::new(SharedCacheBudget::default());
+        let limits = ReductionLimits {
+            max_cached_coefficient_bytes: guard_weight.coefficient_bytes * 2 - 1,
+            ..Default::default()
+        };
+        shared
+            .replace(0, CacheWeight::default(), 1, live, limits)
+            .unwrap();
+        let before = shared.snapshot();
+        let mut request = ReductionRequest {
+            guarded_conditions: Some(Vec::new()),
+            guarded_condition_budget: Some(GuardedConditionBudget {
+                shared: shared.clone(),
+                limits,
+                weight: CacheWeight::default(),
+            }),
+            ..Default::default()
+        };
+        assert!(matches!(
+            request.retain_nonzero_guard(&guard, limits),
+            Err(ReductionError::CacheCoefficientByteLimit { .. })
+        ));
+        assert_eq!(shared.snapshot(), before);
+        drop(request);
+        assert_eq!(shared.snapshot(), before);
+        let limits = ReductionLimits {
+            max_cached_coefficient_bytes: guard_weight.coefficient_bytes * 2,
+            ..limits
+        };
+        let mut request = ReductionRequest {
+            guarded_conditions: Some(Vec::new()),
+            guarded_condition_budget: Some(GuardedConditionBudget {
+                shared: shared.clone(),
+                limits,
+                weight: CacheWeight::default(),
+            }),
+            ..Default::default()
+        };
+        request.retain_nonzero_guard(&guard, limits).unwrap();
+        assert_eq!(
+            shared.snapshot().coefficient_bytes,
+            live.coefficient_bytes + guard_weight.coefficient_bytes
+        );
+        assert!(matches!(
+            shared.replace(0, CacheWeight::default(), 1, live, limits),
+            Err(ReductionError::CacheCoefficientByteLimit { .. })
+        ));
+        drop(request);
+        assert_eq!(shared.snapshot(), before);
+    }
+
+    #[test]
+    fn direct_artifact_guarded_entry_avoids_a_second_seeded_receiver_cache() {
+        let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+        let mut receiver = Reducer::new(&artifact).unwrap();
+        let seeded = receiver.statistics().cached_integrals();
+        let target = artifact.masters().iter().next().unwrap();
+        let limits = ReductionLimits {
+            max_cached_integrals: seeded,
+            ..Default::default()
+        };
+        let (direct, _, work) =
+            Reducer::reduce_artifact_unit_mass_guarded(&artifact, target, limits).unwrap();
+        assert_eq!(
+            direct.terms(),
+            receiver.reduce_unit_mass(target).unwrap().terms()
+        );
+        assert_eq!(work.cached_integrals(), seeded);
+        assert!(matches!(
+            receiver.reduce_unit_mass_guarded(target, limits),
+            Err(ReductionError::CacheLimit { .. })
+        ));
+    }
+
+    #[test]
+    fn guarded_closed_provider_matches_native_result_and_keeps_angular_poles() {
+        let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+        let mut reducer = Reducer::new(&artifact).unwrap();
+        let target = IntegralKey::try_new([1, 1, -2]).unwrap();
+        let expected = reducer.reduce_unit_mass(&target).unwrap();
+        let before = reducer.statistics();
+        let (actual, conditions, work) = reducer
+            .reduce_unit_mass_guarded(&target, Default::default())
+            .unwrap();
+        assert_eq!(actual, expected);
+        assert!(work.rule_applications() > 0);
+        let dimension = artifact.family().dimension();
+        assert!(
+            conditions.contains(dimension),
+            "original angular division must remain nonzero"
+        );
+        assert_eq!(
+            reducer.statistics(),
+            before,
+            "guarded provider owns a fresh bounded request"
+        );
+        let (again, repeated_conditions, repeated_work) = reducer
+            .reduce_unit_mass_guarded(&target, Default::default())
+            .unwrap();
+        assert_eq!(again, actual);
+        assert_eq!(repeated_conditions, conditions);
+        assert_eq!(repeated_work, work);
+        assert!(matches!(
+            reducer.reduce_unit_mass_guarded(
+                &target,
+                ReductionLimits {
+                    max_rule_applications: 0,
+                    ..Default::default()
+                }
+            ),
+            Err(ReductionError::RuleApplicationLimit { .. })
+        ));
+        assert_eq!(reducer.statistics(), before);
+    }
+
+    #[test]
+    fn remaining_limits_never_enlarge_immutable_owner_policy() {
+        let owner = ReductionLimits {
+            max_rule_applications: 2,
+            max_coalescing_additions: 3,
+            exact_algebra: crate::algebra::ExactAlgebraLimits {
+                max_polynomial_terms: 7,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let request = ReductionLimits {
+            max_rule_applications: 4,
+            max_coalescing_additions: 1,
+            ..Default::default()
+        };
+        let limited = owner.bounded_by(request);
+        assert_eq!(limited.max_rule_applications, 2);
+        assert_eq!(limited.max_coalescing_additions, 1);
+        assert_eq!(limited.exact_algebra.max_polynomial_terms, 7);
     }
 }

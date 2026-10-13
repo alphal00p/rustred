@@ -135,6 +135,9 @@ pub enum CandidateRoutedError {
     EntryAdmission(super::RootAdmissionError),
     Transport(integral_transport::Error),
     InvalidInput(String),
+    MissingOwner {
+        target: IntegralKey,
+    },
     ResourceLimit {
         resource: &'static str,
         requested: usize,
@@ -175,6 +178,9 @@ impl fmt::Display for CandidateRoutedError {
             Self::EntryAdmission(e) => e.fmt(f),
             Self::Transport(e) => e.fmt(f),
             Self::InvalidInput(e) => write!(f, "invalid routed candidate programs: {e}"),
+            Self::MissingOwner { target } => {
+                write!(f, "no routed candidate owner for {:?}", target.powers())
+            }
             Self::ResourceLimit {
                 resource,
                 requested,
@@ -197,8 +203,9 @@ impl fmt::Display for CandidateRoutedError {
 }
 impl std::error::Error for CandidateRoutedError {}
 
-/// Trace-only owner dispatcher. Programs and maps are immutable and shared;
-/// per-request work is local. This is not a ClosedArtifact or a decomposition.
+/// Immutable owner dispatcher. Traces keep request-local work; `application`
+/// creates a separate exact coefficient cache over this same snapshot.
+/// This is not a ClosedArtifact or a family-closure certificate.
 #[derive(Debug)]
 pub struct RoutedCandidateReducer<const N: usize> {
     pub(super) programs: Arc<CandidateOwnerPrograms<N>>,
