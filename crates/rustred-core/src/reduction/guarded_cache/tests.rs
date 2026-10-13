@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 
 mod descendants;
 mod export_tests;
+mod statistics;
 
 fn key(n: i64) -> IntegralKey {
     IntegralKey::try_new([n]).unwrap()

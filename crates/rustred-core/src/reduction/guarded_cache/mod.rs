@@ -103,8 +103,10 @@ pub struct GuardedRootResult {
     /// Raw exact unit-mass coefficients and the original ordered guards.
     pub record: ApplicationCacheRecord,
     /// Native work for this successful request, never historical cached work.
-    /// For a cold solve, cached_* fields are the aggregate shared-budget
-    /// snapshot before transient reducer cleanup, not final root-cache size.
+    /// Native owner conventions differ: closed cold solves include an
+    /// aggregate shared-budget cached_* snapshot before transient cleanup;
+    /// candidate work receipts leave cached_* at zero. Neither is the final
+    /// outer root-cache size, and aggregation merges work counters only.
     /// Use GuardedRootCache::statistics for that final retained census.
     pub work: ReductionStatistics,
     pub source: GuardedRootSource,

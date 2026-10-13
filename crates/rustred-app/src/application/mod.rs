@@ -1,10 +1,12 @@
 pub(crate) mod atomic_file;
 mod cache_preparation;
 pub use cache_preparation::{
-    CachePreparationBackend, CachePreparationCapabilities, CachePreparationOptions,
-    CachePreparationPrimerBudget, CachePreparationReport, CachePreparationResolvedOptions,
-    CachePreparationStatus, CachePreparationTarget, CachePreparationWorkload, CacheSaveOptions,
-    CacheSaveReport, ClosedApplicationCache, ClosedCachePreparationBackend,
+    CacheLookupBudgetPolicy, CachePreparationBackend, CachePreparationCapabilities,
+    CachePreparationOptions, CachePreparationPrimerBudget, CachePreparationReport,
+    CachePreparationResolvedOptions, CachePreparationStatus, CachePreparationTarget,
+    CachePreparationWorkload, CacheSaveMode, CacheSaveOptions, CacheSaveReport,
+    CandidateApplicationCache, CandidateCachePreparationBackend, ClosedApplicationCache,
+    ClosedCachePreparationBackend, NativeApplicationCache, NativeCachePreparationBackend,
     prepare_application_cache,
 };
 mod campaign {
@@ -45,7 +47,7 @@ pub use routed_campaign::{
 pub use saved_application::{
     PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,
     SavedApplicationCacheBundleWriter, SavedApplicationCacheCopyStatistics,
-    SavedApplicationCachePack, SavedApplicationCachePackLimits,
+    SavedApplicationCacheLookupOutcome, SavedApplicationCachePack, SavedApplicationCachePackLimits,
     SavedApplicationCachePackStatistics, SavedApplicationCacheWriter, SavedApplicationDomain,
     SavedApplicationIntegral, SavedApplicationOptions, SavedApplicationPreparationStatistics,
     SavedApplicationProduct, SavedApplicationProductChartStatistics,

@@ -40,6 +40,45 @@ pub struct GuardedRootCacheStatistics {
     pub work: ReductionStatistics,
 }
 
+impl GuardedRootCacheStatistics {
+    /// Saturating telemetry aggregation across independent cache namespaces.
+    /// Retained fields sum the current outer-root census, not historical
+    /// per-request snapshots or peaks. Only native work counters are merged
+    /// from `work`; its cached_* fields are not added. This report never
+    /// grants a budget or changes a cache's accounting or eviction policy.
+    pub fn saturating_merge(&mut self, other: Self) {
+        self.ram_hits = self.ram_hits.saturating_add(other.ram_hits);
+        self.backing_hits = self.backing_hits.saturating_add(other.backing_hits);
+        self.descendant_ram_hits = self
+            .descendant_ram_hits
+            .saturating_add(other.descendant_ram_hits);
+        self.descendant_backing_hits = self
+            .descendant_backing_hits
+            .saturating_add(other.descendant_backing_hits);
+        self.completed_reductions = self
+            .completed_reductions
+            .saturating_add(other.completed_reductions);
+        self.payload_validations = self
+            .payload_validations
+            .saturating_add(other.payload_validations);
+        self.evicted_entries = self.evicted_entries.saturating_add(other.evicted_entries);
+        self.evicted_coefficient_terms = self
+            .evicted_coefficient_terms
+            .saturating_add(other.evicted_coefficient_terms);
+        self.evicted_coefficient_bytes = self
+            .evicted_coefficient_bytes
+            .saturating_add(other.evicted_coefficient_bytes);
+        self.cached_integrals = self.cached_integrals.saturating_add(other.cached_integrals);
+        self.cached_coefficient_terms = self
+            .cached_coefficient_terms
+            .saturating_add(other.cached_coefficient_terms);
+        self.cached_coefficient_bytes = self
+            .cached_coefficient_bytes
+            .saturating_add(other.cached_coefficient_bytes);
+        self.work.merge_work(other.work);
+    }
+}
+
 struct State {
     policy: CompletedCachePolicy,
     entries: BTreeMap<IntegralKey, Entry>,

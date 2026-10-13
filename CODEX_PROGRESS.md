@@ -1,6 +1,162 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 13 — generic cache session milestone ready for publication
+
+- [M] The expanded native application suite passes **50/50** after the two
+  fixture-setup corrections, including shared Closed/Candidate steering,
+  explicit resident/full snapshots, unloaded namespace preservation,
+  aggregate quotas, typed lookup fallback, strict resume, and corruption/error
+  paths. Compilation was 8m43; the author's test run was 0.22 s. Root's separate
+  CPU-16 rerun also passed all 50 in 9.30 s; these are functional observations,
+  not a paired throughput comparison.
+- Frozen application executable SHA256:
+  `3ed1c43bac16d2f608a33efe343d5c7eac3146cdfd79c00bbaa07a1864657f32`.
+  Receipt: `TMP/five-loop-vakint-20261013/cache-generic-native-app-tests-corrected.json`;
+  root rerun: `TMP/root-generic-cache-app-repeat-20261013.log`.
+  The app source and linked core/Symbolica libraries match the captured baseline.
+  Subsequent collector **source** changes were explicitly released only after
+  the app compiler had captured those libraries; they are not tested by this
+  binary or included in this baseline milestone.
+- [M] Fresh-root guard collection now passes independent source audit and a
+  complete native test source check (1m30). Its optimized core gate is active
+  under Profile on build-0, handle 96306. The implementation reuses the existing
+  exact ordered guard union and shared guard-budget lease, enforcing an empty
+  inner cache. Public subtree-guarded behavior is unchanged. Native runtime
+  equivalence and the same-limit X/38-root reruns remain pending.
+- Delivery is adding the small public Rust cache example and Python/HEPKit
+  prepare/load/save/clear/statistics steering. Exact owns independent API/error
+  review. No network downloader, final cache pack, four-loop completion, or
+  five-loop preparation is claimed by this milestone.
+
+## October 13 — matched guard-census diagnosis and lower-loop regression
+
+- [M] Profile's frozen-library diagnostic on X
+  `[1,1,1,1,1,1,1,1,2,0]` used two fresh sparse native reducers, the same saved
+  program/normalization and identical 16-million-term / 4-billion-byte limits.
+  Ordinary reduction completed in **13.79042 s**: 14 output terms, 86,314 rule
+  applications, 86,759 retained entries, 1,949,470 coefficient terms and
+  100,553,572 retained bytes. Guarded reduction failed after **11.96572 s**:
+  57,480 rule applications, 57,830 entries, 15,999,572 retained terms and
+  860,652,830 retained bytes. The failed timing is not a completed comparison.
+- [I] The guarded traversal's coefficient cache is a prefix of the same
+  deterministic dependency graph. Subtracting the *complete* ordinary term
+  census therefore gives a conservative lower bound of **14,050,102 terms**
+  attributable to guard payload, over 87.8% of the guarded retained total.
+  This is not a direct count of distinct guards or redundant copies.
+  Source inspection independently confirms local-plus-child guard vectors are
+  copied to every node. This justifies testing a request-owned exact guard
+  union for fresh single-root cache preparation, not raising limits blindly.
+  Existing subtree-guard APIs remain needed by other callers and must survive.
+- Diagnostic evidence:
+  `TMP/five-loop-vakint-20261013/x-d9-matched-guard-census-20261013/`;
+  supervised total 30.20011 s, sampled tree peak 2.313 GB, exit zero and no guard
+  stop. Exact independently reviewed the lower-bound and preorder-union argument.
+- [M] Root reran the frozen new Vakint binary on CPU 16: all three existing
+  1--3L fresh-process cache gates plus two four-loop planner/identity tests passed
+  (five parent tests, 15.21 s total). Log:
+  `TMP/lower-cache-generic-repeat-20261013.log`. This does not overturn the failed
+  four-loop application gate.
+- The new application-only fixture gate encountered private test-helper access
+  errors before executing tests. Exact is correcting that test setup and running
+  a source check before retrying. Preserve the failed log
+  `TMP/cache-generic-native-app-tests-20261013.log`; it is not a production
+  reducer failure or a successful application-runtime receipt.
+
+## October 13 20:02 UTC — first four-loop cache run exposed inner guard pressure
+
+- [M] Optimized local-path Vakint executable captured after 11m44 compilation:
+  `TMP/five-loop-vakint-20261013/vakint-four-cache-local-20261013`, SHA256
+  `126871df24f6bf2a39b84ff0713d9ec490d5932b834e51f47c30f89e3e8e482b`.
+  All 2,185 captured source/manifests lines matched before/after the build.
+- [M] The supervised first-38 run **failed operationally**, not by coefficient
+  disagreement: native program loading 6.68080 s, preparation 19.75673 s,
+  7/38 completed and durably saved, then 16,000,086 retained coefficient terms
+  exceeded the native 16,000,000-term allowance. The eighth requested input is
+  X `[1,1,1,1,1,1,1,1,2,0]`. The RAM guard did not trigger; sampled tree peak
+  RSS was 3.103 GB. Native exit 101 followed the unchanged completion assertion;
+  the supervisor drained the owned process group. No fresh-child equivalence,
+  held-out timing or successful four-loop cache delivery is claimed.
+- [M] Evidence and seven-record durable prefix remain in
+  `TMP/five-loop-vakint-20261013/four-cache-first38-local-20261013/`.
+  The pack charged 75,036 bytes. Preparation and attachment budgets remain
+  recorded separately; no limits or assertions were raised to turn this into
+  a pass.
+- [I] Candidate guarded reduction stores cumulative condition vectors at every
+  intermediate integral, whereas the new wrapper uses a fresh session for each
+  single root. Profile is comparing guarded versus ordinary reduction of the
+  exact failing key with identical frozen rules and allowances. If this confirms
+  duplicated guard storage dominates, evaluate a once-per-request exact guard
+  union, preserving all conditions and existing subtree-guard APIs. Exact will
+  audit ordering, cancellation, admission, descent and memory accounting.
+- [M] Root's updated native cache/regression gate passed **163 selected tests**
+  in 0.19 s after 10m28 compilation, including the two aggregate-statistics tests.
+  The four changed core source hashes are unchanged. Frozen executable:
+  `TMP/five-loop-vakint-20261013/rustred-generic-cache-core-tests-20261013`, SHA256
+  `8fc0e8b786c5ebcd1e37d2e77d627e7f1ef2a97aa3cd2e8ad3216b0ced804399`;
+  log `TMP/cache-generic-core-gate-20261013.log`. This count describes the actual
+  current filters, not the earlier distinct 173-test checkpoint.
+- Exact corrected only the two new app fixtures to use the native canonical
+  dimension parameter `d`, with different kinetic coefficients/guard vectors
+  and a separate foreign-context refusal. Application runtime verification is
+  next under the now-released build-0 slot. No production campaign was changed.
+
+## October 13 — four-loop cache integration gate in progress
+
+- [M] The combined four-loop Vakint source check passed in 12.23 s,
+  including the 38-input acceptance module. The optimized local-path build
+  is running under build-1 on CPUs 0--15; no four-loop runtime success is
+  claimed yet. Delivery owns executable capture, Profile owns the subsequent
+  supervised fresh-process test, and Exact independently audited the adapter
+  and test scope. Log: `TMP/five-loop-vakint-20261013/build-four-cache-local.log`.
+- [M] Exact's source audits pass: attachment authenticates all four program
+  namespaces before replacement, reuses immutable program identities, and
+  leaves ordinary evaluation and its global caches untouched. The test checks
+  exact coefficients and ordered guards, masses squared 1 and 4, actual
+  nonterminal reductions, cancellations and held-out cubed propagators.
+- [M] Root launched the updated native cache/regression gate under build-0 on
+  CPUs 32--47, handle 82372. Log: `TMP/cache-generic-core-gate-20261013.log`.
+  Exact will run the application gate after this slot is released and after
+  correcting two new test fixtures to respect the existing unit-mass `d`
+  parameter contract. No production algebra fix is implied by that correction.
+- The default primer enumerates all supplied physical parent pinches, up to
+  two extra positive powers and scalar negative-index degree one. It uses
+  deterministic key order with round-robin family traversal. Four-loop input
+  counting gives 164,352 proposals; the first 38-root gate is deliberately
+  smaller and does not establish completion of that preparation workload.
+- The intended benefit is avoided repeated reduction work per storage byte,
+  not maximum stored key count. Current persistent packs hold completed
+  selected inputs. The closed 1--3L engine can use these as descendants; the
+  initial candidate 4L wrapper has starting-root reuse only. Held-out timing
+  must not be described as descendant-cache acceleration until it exists.
+- Preparation and attachment use different explicit defaults: four-loop
+  preparation has 16,000,000,000 aggregate retained-payload bytes, while a new
+  ordinary attachment defaults to 1,073,741,824 aggregate bytes. Each is
+  partitioned between four namespaces. Neither number is process RSS.
+  The first run is an unpaired functional gate, not an equal-budget speedup.
+- The initially reported second check handle 43176 failed before Cargo because
+  it entered the unrelated GammaLoop Nix shell. Delivery recovered using the
+  RustRed shell, handle 58115, which passed; this was an environment launch
+  error, not a duplicate compiler job or failing source gate.
+
 ## Current cache delivery status — October 13, after access recovery
+
+The subsequent tested native/app snapshot is pushed and remote-verified at
+RustRed `e638d58fe3fb1948f5e668b9cb7ddb0ee92510f9`. It includes the 173-test
+candidate/closed cache gate and the 40-test save/resume/full-copy gate. The
+next working slice registers the generic app session for four-loop Vakint
+integration, adds aggregate cache telemetry, and handles optional backing
+lookup-budget exhaustion without hiding corruption or restarting a reduction.
+
+Current lane ledger (no five-loop warmup):
+
+| Work | Owner | State / next check |
+| --- | --- | --- |
+| Native candidate cache, resident export, refresh, full-base copy | Profile / Delivery / Exact | Delivered in `e638d58f`; 173 core and 40 app tests passed. |
+| Generic Closed/Candidate app sessions and optional-cache lookup fallback | Delivery / Profile | Implemented; combined source check passed; new façade runtime tests pending. |
+| Four-loop Vakint prepare/load/apply/stats/save adapter | Delivery | Wiring landed locally; source check and first real run pending. |
+| Four-family 38-root preparation, fresh-process equivalence and timing tests | Profile | Active test lane, with independent review by Exact/root. |
+| Full-snapshot public mode and aggregate memory/policy checks | Delivery / Exact | Local integration; audit and error-path tests required before publication. |
+| Python/download surfaces, matched LRU/LFU comparisons, final 1--4L packs | Unassigned next slice | Pending after the first four-loop gate; not claimed complete. |
 
 The active implementation priority remains 1--4-loop cache preparation. RustRed
 `main` has the tested compressed-storage/guarded-reuse checkpoint `a0649fed`.

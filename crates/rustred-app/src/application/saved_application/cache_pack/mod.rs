@@ -22,7 +22,7 @@ pub use bundle::{
     SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter,
     SavedApplicationCacheCopyStatistics,
 };
-pub use reader::SavedApplicationCachePack;
+pub use reader::{SavedApplicationCacheLookupOutcome, SavedApplicationCachePack};
 pub use writer::SavedApplicationCacheWriter;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

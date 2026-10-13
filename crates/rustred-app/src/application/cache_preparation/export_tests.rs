@@ -399,3 +399,314 @@ fn failed_live_checkpoint_reports_only_published_prefix_and_can_resume() {
             .is_some()
     );
 }
+
+#[test]
+fn full_snapshot_facade_preserves_unloaded_base_and_reports_failed_overlay() {
+    let (artifact, digest) = fixture();
+    let program = || ClosedUnitMassProgram::new(&artifact, digest);
+    let mut source = ClosedApplicationCache::new(program(), Default::default(), Default::default());
+    source.reduce_guarded_root(&key(4)).unwrap();
+    let scratch = Scratch::new();
+    let base = scratch.0.join("base");
+    let limits = SavedApplicationCachePackLimits::default();
+    source.save_completed(&base, limits, false).unwrap();
+    let mut loaded = ClosedApplicationCache::new(program(), Default::default(), Default::default());
+    loaded.reduce_guarded_root(&key(7)).unwrap();
+    loaded.attach_bundle(&base, limits).unwrap();
+    assert_eq!(loaded.io_statistics().unwrap().chunks_read, 0);
+    let before = loaded.cache_statistics();
+    let output = scratch.0.join("full");
+    let saved = loaded
+        .save_cache(&output, CacheSaveMode::FullSnapshot, limits, false)
+        .unwrap();
+    assert!(saved.complete, "{}", saved.to_document());
+    assert_eq!(saved.base_copy.unwrap().copied_bases, 1);
+    assert_eq!(saved.durable_records, 1);
+    assert_eq!(loaded.cache_statistics(), before);
+    assert_eq!(loaded.io_statistics().unwrap().chunks_read, 0);
+    std::fs::rename(&base, scratch.0.join("source-moved")).unwrap();
+    let mut independent =
+        ClosedApplicationCache::new(program(), Default::default(), Default::default());
+    independent.attach_bundle(&output, limits).unwrap();
+    assert_eq!(
+        independent.reduce_guarded_root(&key(4)).unwrap().source,
+        GuardedRootSource::Backing
+    );
+    assert_eq!(
+        independent.reduce_guarded_root(&key(7)).unwrap().source,
+        GuardedRootSource::Backing
+    );
+
+    loaded.attach_bundle(&output, limits).unwrap();
+    loaded.reduce_guarded_root(&key(8)).unwrap();
+    let mut tight = limits;
+    tight.max_chunks = saved.base_copy.unwrap().copied_chunks + 1;
+    // The copied full base already uses two chunks; no room for a new overlay.
+    assert_eq!(tight.max_chunks, 2);
+    let partial_output = scratch.0.join("partial-overlay");
+    let partial = loaded
+        .save_cache(&partial_output, CacheSaveMode::FullSnapshot, tight, false)
+        .unwrap();
+    assert!(!partial.complete);
+    assert!(partial.base_copy.is_some());
+    assert_eq!(partial.durable_records, 0);
+    assert_eq!(
+        partial.checkpoint_failure.unwrap().kind(),
+        AppErrorKind::Limit
+    );
+    let mut recovered =
+        ClosedApplicationCache::new(program(), Default::default(), Default::default());
+    recovered.attach_bundle(&partial_output, limits).unwrap();
+    assert_eq!(
+        recovered.reduce_guarded_root(&key(4)).unwrap().source,
+        GuardedRootSource::Backing
+    );
+}
+
+#[test]
+fn optional_lookup_budget_falls_back_but_strict_and_corruption_do_not() {
+    let (artifact, digest) = fixture();
+    let program = || ClosedUnitMassProgram::new(&artifact, digest);
+    let mut source = ClosedApplicationCache::new(program(), Default::default(), Default::default());
+    let expected = source.reduce_guarded_root(&key(4)).unwrap().record;
+    let scratch = Scratch::new();
+    let base = scratch.0.join("base");
+    let limits = SavedApplicationCachePackLimits::default();
+    source.save_completed(&base, limits, false).unwrap();
+    let mut no_reads = limits;
+    no_reads.max_lookup_chunks = 0;
+    let mut optional =
+        ClosedApplicationCache::new(program(), Default::default(), Default::default());
+    optional.attach_bundle(&base, no_reads).unwrap();
+    let result = optional.reduce_guarded_root(&key(4)).unwrap();
+    assert_eq!(result.source, GuardedRootSource::Reduced);
+    assert_eq!(result.record, expected);
+    assert!(result.work.rule_applications() > 0);
+    assert_eq!(optional.backing_budget_fallbacks(), 1);
+    assert_eq!(optional.io_statistics().unwrap().chunks_read, 0);
+    let mut strict = ClosedApplicationCache::new(program(), Default::default(), Default::default());
+    strict.set_lookup_budget_policy(CacheLookupBudgetPolicy::Strict);
+    strict.attach_bundle(&base, no_reads).unwrap();
+    assert_eq!(
+        strict.reduce_guarded_root(&key(4)).unwrap_err().kind(),
+        AppErrorKind::Limit
+    );
+    assert_eq!(strict.cache_statistics().completed_reductions, 0);
+    assert_eq!(strict.backing_budget_fallbacks(), 0);
+    let child = std::fs::read_dir(base.join("bindings"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let chunk = std::fs::read_dir(child.join("chunks"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let mut bytes = std::fs::read(&chunk).unwrap();
+    bytes[0] ^= 1;
+    std::fs::write(chunk, bytes).unwrap();
+    let mut corrupt =
+        ClosedApplicationCache::new(program(), Default::default(), Default::default());
+    corrupt.attach_bundle(&base, limits).unwrap();
+    assert_eq!(
+        corrupt.reduce_guarded_root(&key(4)).unwrap_err().kind(),
+        AppErrorKind::Input
+    );
+    assert_eq!(corrupt.backing_budget_fallbacks(), 0);
+    assert_eq!(corrupt.cache_statistics().completed_reductions, 0);
+}
+
+#[test]
+fn preparation_root_resume_budget_refusal_remains_strict() {
+    let (artifact, digest) = fixture();
+    let program = || ClosedUnitMassProgram::new(&artifact, digest);
+    let workload =
+        CachePreparationWorkload::explicit(vec![program().binding().clone()], [(0, key(4))], 1)
+            .unwrap();
+    let scratch = Scratch::new();
+    let output = scratch.0.join("prepared");
+    let mut options = CachePreparationOptions::default()
+        .resolve(1, Default::default())
+        .unwrap();
+    let mut source =
+        ClosedCachePreparationBackend::new(vec![program()], Default::default()).unwrap();
+    assert_eq!(
+        prepare_application_cache(
+            &workload,
+            &options,
+            &output,
+            &AtomicBool::new(false),
+            &mut source,
+            |_| Ok(())
+        )
+        .unwrap()
+        .status,
+        CachePreparationStatus::Complete
+    );
+    options.storage_limits.max_lookup_chunks = 0;
+    let mut fresh =
+        ClosedCachePreparationBackend::new(vec![program()], Default::default()).unwrap();
+    let report = prepare_application_cache(
+        &workload,
+        &options,
+        &output,
+        &AtomicBool::new(false),
+        &mut fresh,
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(report.status, CachePreparationStatus::ResourceRefusal);
+    assert_eq!(report.reused_roots, 0);
+    assert_eq!(report.completed_roots, 0);
+    assert_eq!(report.native_statistics[0]["completed_reductions"], 0);
+    assert_eq!(report.native_statistics[0]["backing_budget_fallbacks"], 0);
+}
+
+#[test]
+fn generic_bundle_export_preserves_distinct_native_namespaces_and_aggregate_budget() {
+    let (one, digest) = fixture();
+    let bytes = rustred::foundry::artifact::derive_two_loop_unit_mass_sunset()
+        .unwrap()
+        .encode_durable()
+        .unwrap();
+    let two = ClosedArtifact::decode_durable(&bytes).unwrap();
+    let mut limits = rustred::reduction::ReductionLimits::default();
+    limits.max_cached_coefficient_bytes = 20_000;
+    let mut backend = ClosedCachePreparationBackend::new(
+        vec![
+            ClosedUnitMassProgram::new(&one, digest),
+            ClosedUnitMassProgram::new(&two, *blake3::hash(&bytes).as_bytes()),
+        ],
+        limits,
+    )
+    .unwrap();
+    assert_eq!(
+        backend
+            .sessions()
+            .iter()
+            .map(|s| s.limits().max_cached_coefficient_bytes)
+            .sum::<usize>(),
+        20_000
+    );
+    let keys = [key(4), IntegralKey::try_new([2, 1, 1]).unwrap()];
+    let expected = keys
+        .iter()
+        .enumerate()
+        .map(|(n, key)| {
+            backend
+                .session_mut(n)
+                .unwrap()
+                .reduce_guarded_root(key)
+                .unwrap()
+                .record
+        })
+        .collect::<Vec<_>>();
+    let before = backend
+        .sessions()
+        .iter()
+        .map(|s| s.cache_statistics())
+        .collect::<Vec<_>>();
+    let scratch = Scratch::new();
+    let output = scratch.0.join("bundle");
+    let storage = SavedApplicationCachePackLimits::default();
+    let report = backend
+        .save_cache(&output, CacheSaveMode::FullSnapshot, storage, false)
+        .unwrap();
+    assert!(report.complete, "{}", report.to_document());
+    assert!(!report.backing_attached);
+    assert_eq!(report.base_copy.unwrap().copied_bases, 0);
+    assert_eq!(report.durable_records, 2);
+    assert_eq!(
+        backend
+            .sessions()
+            .iter()
+            .map(|s| s.cache_statistics())
+            .collect::<Vec<_>>(),
+        before
+    );
+    let bundle =
+        SavedApplicationCacheBundle::open_generated(&output, backend.bindings(), storage).unwrap();
+    for (namespace, target) in keys.iter().enumerate() {
+        let program = backend.session(namespace).unwrap().program();
+        let actual = bundle
+            .open_reader(program.binding())
+            .unwrap()
+            .lookup(
+                &ApplicationCacheKey::guarded_root(target),
+                program.context(),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(actual, expected[namespace]);
+    }
+    let mut attached = ClosedCachePreparationBackend::new(
+        vec![
+            ClosedUnitMassProgram::new(&one, digest),
+            ClosedUnitMassProgram::new(&two, *blake3::hash(&bytes).as_bytes()),
+        ],
+        limits,
+    )
+    .unwrap();
+    attached.attach_bundle(&output, storage).unwrap();
+    let overlay = attached
+        .session_mut(0)
+        .unwrap()
+        .reduce_guarded_root(&key(7))
+        .unwrap()
+        .record;
+    assert_eq!(
+        attached
+            .session(1)
+            .unwrap()
+            .io_statistics()
+            .unwrap()
+            .chunks_read,
+        0
+    );
+    let cloned = scratch.0.join("full-clone");
+    let report = attached
+        .save_cache(&cloned, CacheSaveMode::FullSnapshot, storage, false)
+        .unwrap();
+    assert!(report.complete, "{}", report.to_document());
+    assert_eq!(report.base_copy.unwrap().copied_bases, 2);
+    assert_eq!(
+        attached
+            .session(1)
+            .unwrap()
+            .io_statistics()
+            .unwrap()
+            .chunks_read,
+        0
+    );
+    let copy =
+        SavedApplicationCacheBundle::open_generated(&cloned, backend.bindings(), storage).unwrap();
+    for (namespace, target) in keys.iter().enumerate() {
+        let program = backend.session(namespace).unwrap().program();
+        assert_eq!(
+            copy.open_reader(program.binding())
+                .unwrap()
+                .lookup(
+                    &ApplicationCacheKey::guarded_root(target),
+                    program.context()
+                )
+                .unwrap()
+                .unwrap(),
+            expected[namespace]
+        );
+    }
+    let program = backend.session(0).unwrap().program();
+    assert_eq!(
+        copy.open_reader(program.binding())
+            .unwrap()
+            .lookup(
+                &ApplicationCacheKey::guarded_root(&key(7)),
+                program.context()
+            )
+            .unwrap()
+            .unwrap(),
+        overlay
+    );
+}

@@ -305,7 +305,14 @@ cache covers completed starting roots; inner candidate DAG eviction and prepared
 descendant reuse are not yet implemented. Four-loop performance claims require
 the upcoming actual adapter and held-out tests.
 
-The remaining deliverables are the four-loop adapter, public full-save and
+The generic Closed/Candidate app sessions and public resident/full-save modes
+now pass 50 native application tests. Four-loop adapter code compiles, but its
+first 38-input run saved only seven roots before reaching a native term limit.
+The matched diagnostic confirms guard payload dominates this retention. A
+fresh-root-only guard-union optimization is being tested without increasing
+the allowance or changing the existing subtree-guard API.
+
+The remaining deliverables are successful four-loop application/cache gates,
 download surfaces, Python cache steering, matched LRU/LFU comparisons and the
 final 1--4L preparation workloads/packs. The small passing controls are not a
 substitute for those deliverables or the deferred five-loop acceptance work.

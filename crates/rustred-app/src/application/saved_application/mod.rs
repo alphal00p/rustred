@@ -40,9 +40,9 @@ use crate::{AppError, MasterReductionArtifact};
 
 pub use cache_pack::{
     SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter,
-    SavedApplicationCacheCopyStatistics, SavedApplicationCachePack,
-    SavedApplicationCachePackLimits, SavedApplicationCachePackStatistics,
-    SavedApplicationCacheWriter,
+    SavedApplicationCacheCopyStatistics, SavedApplicationCacheLookupOutcome,
+    SavedApplicationCachePack, SavedApplicationCachePackLimits,
+    SavedApplicationCachePackStatistics, SavedApplicationCacheWriter,
 };
 pub use charts::SavedApplicationProductChartStatistics;
 pub use options::SavedApplicationOptions;

@@ -1,5 +1,5 @@
-//! Thin closed-program steering. Native admission, guarded algebra, RAM
-//! accounting, eviction and mass homogeneity remain in rustred-core.
+//! Shared closed/candidate program steering. Native admission, guarded
+//! algebra, RAM accounting, eviction and homogeneity remain in rustred-core.
 use std::path::Path;
 
 use rustred::{
@@ -14,26 +14,56 @@ use rustred::{
         GuardedRootCacheStatistics, GuardedRootExportError, GuardedRootExportStatistics,
         GuardedRootResult, HomogeneousMasterDecomposition, ReductionError, ReductionLimits,
     },
+    solver::CandidateUnitMassProgram,
 };
 use serde_json::{Value, json};
 
-use super::{CachePreparationBackend, CachePreparationResolvedOptions, CachePreparationTarget};
+use super::{
+    CachePreparationBackend, CachePreparationResolvedOptions, CachePreparationTarget,
+    program::NativeCacheProgram,
+};
 use crate::{
-    AppError, AppErrorKind, SavedApplicationCacheBundle, SavedApplicationCachePack,
-    SavedApplicationCachePackLimits, SavedApplicationCachePackStatistics,
+    AppError, AppErrorKind, SavedApplicationCacheBundle, SavedApplicationCacheLookupOutcome,
+    SavedApplicationCachePack, SavedApplicationCachePackLimits,
+    SavedApplicationCachePackStatistics,
 };
 
-struct ReadOnlyBacking(SavedApplicationCachePack);
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CacheLookupBudgetPolicy {
+    Strict,
+    #[default]
+    ColdOnLookupWorkExhaustion,
+}
+
+struct ReadOnlyBacking {
+    pack: SavedApplicationCachePack,
+    lookup_policy: CacheLookupBudgetPolicy,
+    budget_fallbacks: usize,
+}
 impl GuardedCacheBacking for ReadOnlyBacking {
     fn binding(&self) -> &ApplicationCacheBinding {
-        self.0.binding()
+        self.pack.binding()
     }
     fn lookup(
         &mut self,
         key: &ApplicationCacheKey,
         context: &CoefficientContext,
     ) -> Result<Option<ApplicationCacheRecord>, GuardedCacheBackingError> {
-        self.0.lookup(key, context).map_err(backing_error)
+        if self.lookup_policy == CacheLookupBudgetPolicy::Strict {
+            return self.pack.lookup(key, context).map_err(backing_error);
+        }
+        match self
+            .pack
+            .lookup_outcome(key, context)
+            .map_err(backing_error)?
+        {
+            SavedApplicationCacheLookupOutcome::Hit(record) => Ok(Some(record)),
+            SavedApplicationCacheLookupOutcome::Absent => Ok(None),
+            SavedApplicationCacheLookupOutcome::WorkBudgetExhausted => {
+                self.budget_fallbacks = self.budget_fallbacks.saturating_add(1);
+                Ok(None)
+            }
+        }
     }
     fn store_completed(
         &mut self,
@@ -48,15 +78,20 @@ impl GuardedCacheBacking for ReadOnlyBacking {
 
 /// One borrowed immutable program, explicit native RAM cache and optional
 /// read-only pack. Creating the session performs no disk or network I/O.
-pub struct ClosedApplicationCache<'a> {
-    program: ClosedUnitMassProgram<'a>,
+pub struct NativeApplicationCache<P: NativeCacheProgram> {
+    program: P,
     cache: GuardedRootCache,
     limits: ReductionLimits,
     backing: Option<ReadOnlyBacking>,
+    lookup_policy: CacheLookupBudgetPolicy,
 }
-impl std::fmt::Debug for ClosedApplicationCache<'_> {
+pub type ClosedApplicationCache<'a> = NativeApplicationCache<ClosedUnitMassProgram<'a>>;
+pub type CandidateApplicationCache<const N: usize> =
+    NativeApplicationCache<CandidateUnitMassProgram<N>>;
+
+impl<P: NativeCacheProgram> std::fmt::Debug for NativeApplicationCache<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ClosedApplicationCache")
+        f.debug_struct("NativeApplicationCache")
             .field("binding", self.program.binding())
             .field("limits", &self.limits)
             .field("cache", &self.cache.statistics())
@@ -64,21 +99,18 @@ impl std::fmt::Debug for ClosedApplicationCache<'_> {
             .finish()
     }
 }
-impl<'a> ClosedApplicationCache<'a> {
-    pub fn new(
-        program: ClosedUnitMassProgram<'a>,
-        limits: ReductionLimits,
-        policy: CompletedCachePolicy,
-    ) -> Self {
-        let cache = GuardedRootCache::with_policy(&program, limits, policy);
+impl<P: NativeCacheProgram> NativeApplicationCache<P> {
+    pub fn new(program: P, limits: ReductionLimits, policy: CompletedCachePolicy) -> Self {
+        let cache = program.new_cache(limits, policy);
         Self {
             program,
             cache,
             limits,
             backing: None,
+            lookup_policy: CacheLookupBudgetPolicy::default(),
         }
     }
-    pub fn program(&self) -> &ClosedUnitMassProgram<'a> {
+    pub fn program(&self) -> &P {
         &self.program
     }
     pub fn limits(&self) -> ReductionLimits {
@@ -91,17 +123,37 @@ impl<'a> ClosedApplicationCache<'a> {
         self.cache.statistics()
     }
     pub fn io_statistics(&self) -> Option<SavedApplicationCachePackStatistics> {
-        self.backing.as_ref().map(|backing| backing.0.statistics())
+        self.backing
+            .as_ref()
+            .map(|backing| backing.pack.statistics())
+    }
+    pub fn set_lookup_budget_policy(&mut self, policy: CacheLookupBudgetPolicy) {
+        self.lookup_policy = policy;
+        if let Some(backing) = self.backing.as_mut() {
+            backing.lookup_policy = policy;
+        }
+    }
+    pub fn lookup_budget_policy(&self) -> CacheLookupBudgetPolicy {
+        self.lookup_policy
+    }
+    pub fn backing_budget_fallbacks(&self) -> usize {
+        self.backing
+            .as_ref()
+            .map_or(0, |backing| backing.budget_fallbacks)
     }
     /// Attach a trusted-generated pack for exactly this program without
     /// changing its already configured RAM or native arithmetic/work policy.
     pub fn attach_pack(&mut self, pack: SavedApplicationCachePack) -> Result<(), AppError> {
         if pack.binding() != self.program.binding() {
             return Err(AppError::input(
-                "closed cache pack differs from active program",
+                "cache pack differs from active native program",
             ));
         }
-        self.backing = Some(ReadOnlyBacking(pack));
+        self.backing = Some(ReadOnlyBacking {
+            pack,
+            lookup_policy: self.lookup_policy,
+            budget_fallbacks: 0,
+        });
         Ok(())
     }
     /// One-program convenience. Multi-program callers open their exact bundle
@@ -120,7 +172,7 @@ impl<'a> ClosedApplicationCache<'a> {
     }
     fn refresh_backing(&mut self) -> Result<(), AppError> {
         if let Some(backing) = self.backing.as_mut() {
-            backing.0.refresh()?;
+            backing.pack.refresh()?;
         }
         Ok(())
     }
@@ -133,31 +185,33 @@ impl<'a> ClosedApplicationCache<'a> {
             .as_mut()
             .map(|backing| backing as &mut dyn GuardedCacheBacking);
         self.program
-            .reduce_guarded_root(target, &mut self.cache, self.limits, backing)
-            .map_err(guarded_error)
+            .reduce(target, &mut self.cache, self.limits, backing)
     }
-    pub fn homogeneous_decomposition(
+    pub fn decomposition(
         &self,
         record: &ApplicationCacheRecord,
-    ) -> Result<HomogeneousMasterDecomposition, AppError> {
-        self.program
-            .homogeneous_decomposition(record, self.limits)
-            .map_err(guarded_error)
+    ) -> Result<P::Decomposition, AppError> {
+        self.program.decomposition(record, self.limits)
     }
     /// Native combined entry preserves the validated-result boundary, without
     /// reinterpreting the returned record as arbitrary external input.
-    pub fn reduce_with_common_mass_homogeneity(
+    pub fn reduce_decomposition(
         &mut self,
         target: &IntegralKey,
-    ) -> Result<HomogeneousMasterDecomposition, AppError> {
+    ) -> Result<P::Decomposition, AppError> {
+        self.reduce_guarded_root_with_decomposition(target)
+            .map(|(_, decomposition)| decomposition)
+    }
+    pub fn reduce_guarded_root_with_decomposition(
+        &mut self,
+        target: &IntegralKey,
+    ) -> Result<(GuardedRootResult, P::Decomposition), AppError> {
         let backing = self
             .backing
             .as_mut()
             .map(|backing| backing as &mut dyn GuardedCacheBacking);
         self.program
-            .reduce_guarded_root_with_homogeneity(target, &mut self.cache, self.limits, backing)
-            .map(|(_, homogeneous)| homogeneous)
-            .map_err(guarded_error)
+            .reduce_decomposition(target, &mut self.cache, self.limits, backing)
     }
     pub fn clear_ram(&mut self) -> Result<(), AppError> {
         self.cache.clear().map_err(reduction_error)
@@ -166,24 +220,71 @@ impl<'a> ClosedApplicationCache<'a> {
         &self,
         backing: &mut dyn GuardedCacheBacking,
     ) -> Result<GuardedRootExportStatistics, GuardedRootExportError> {
-        self.program.export_completed(&self.cache, backing)
+        self.program.export(&self.cache, backing)
+    }
+    pub(super) fn backing_pack(&self) -> Option<&SavedApplicationCachePack> {
+        self.backing.as_ref().map(|backing| &backing.pack)
+    }
+}
+
+impl ClosedApplicationCache<'_> {
+    pub fn homogeneous_decomposition(
+        &self,
+        record: &ApplicationCacheRecord,
+    ) -> Result<HomogeneousMasterDecomposition, AppError> {
+        self.decomposition(record)
+    }
+    pub fn reduce_with_common_mass_homogeneity(
+        &mut self,
+        target: &IntegralKey,
+    ) -> Result<HomogeneousMasterDecomposition, AppError> {
+        self.reduce_decomposition(target)
     }
 }
 
 /// Native preparation implementation for one or more already-authenticated
-/// sealed programs. The caller selects finite roots; no rules are generated.
-pub struct ClosedCachePreparationBackend<'a> {
+/// native programs. The caller selects finite roots; no rules are generated.
+/// One aggregate coefficient-byte allowance is partitioned across namespaces;
+/// the other explicitly configured native work ceilings apply per namespace.
+pub struct NativeCachePreparationBackend<P: NativeCacheProgram> {
     bindings: Vec<ApplicationCacheBinding>,
-    sessions: Vec<ClosedApplicationCache<'a>>,
+    sessions: Vec<NativeApplicationCache<P>>,
     native_limits: ReductionLimits,
 }
-impl<'a> ClosedCachePreparationBackend<'a> {
-    pub fn new(
-        programs: Vec<ClosedUnitMassProgram<'a>>,
+impl<P: NativeCacheProgram> std::fmt::Debug for NativeCachePreparationBackend<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NativeCachePreparationBackend")
+            .field("sessions", &self.sessions)
+            .field("native_limits", &self.native_limits)
+            .finish()
+    }
+}
+pub type ClosedCachePreparationBackend<'a> =
+    NativeCachePreparationBackend<ClosedUnitMassProgram<'a>>;
+pub type CandidateCachePreparationBackend<const N: usize> =
+    NativeCachePreparationBackend<CandidateUnitMassProgram<N>>;
+
+impl<P: NativeCacheProgram> NativeCachePreparationBackend<P> {
+    pub fn new(programs: Vec<P>, native_limits: ReductionLimits) -> Result<Self, AppError> {
+        Self::with_policy(
+            programs,
+            native_limits,
+            CompletedCachePolicy::EvictLeastRecentlyUsed,
+        )
+    }
+    pub fn with_policy(
+        programs: Vec<P>,
         native_limits: ReductionLimits,
+        policy: CompletedCachePolicy,
     ) -> Result<Self, AppError> {
         if programs.is_empty() {
-            return Err(AppError::input("closed cache preparation needs a program"));
+            return Err(AppError::input("native cache preparation needs a program"));
+        }
+        let per_namespace = native_limits.max_cached_coefficient_bytes / programs.len();
+        if per_namespace == 0 {
+            return Err(AppError::limit(
+                "RAM budget cannot support every cache namespace",
+            ));
         }
         let bindings = programs
             .iter()
@@ -192,10 +293,13 @@ impl<'a> ClosedCachePreparationBackend<'a> {
         let sessions = programs
             .into_iter()
             .map(|program| {
-                ClosedApplicationCache::new(
+                NativeApplicationCache::new(
                     program,
-                    native_limits,
-                    CompletedCachePolicy::EvictLeastRecentlyUsed,
+                    ReductionLimits {
+                        max_cached_coefficient_bytes: per_namespace,
+                        ..native_limits
+                    },
+                    policy,
                 )
             })
             .collect();
@@ -205,13 +309,62 @@ impl<'a> ClosedCachePreparationBackend<'a> {
             native_limits,
         })
     }
-    fn session(&self, namespace: usize) -> Result<&ClosedApplicationCache<'a>, AppError> {
+    pub fn session(&self, namespace: usize) -> Result<&NativeApplicationCache<P>, AppError> {
         self.sessions
             .get(namespace)
-            .ok_or_else(|| AppError::input("unknown closed cache namespace"))
+            .ok_or_else(|| AppError::input("unknown native cache namespace"))
+    }
+    pub fn session_mut(
+        &mut self,
+        namespace: usize,
+    ) -> Result<&mut NativeApplicationCache<P>, AppError> {
+        self.sessions
+            .get_mut(namespace)
+            .ok_or_else(|| AppError::input("unknown native cache namespace"))
+    }
+    pub fn sessions(&self) -> &[NativeApplicationCache<P>] {
+        &self.sessions
+    }
+    pub fn native_limits(&self) -> ReductionLimits {
+        self.native_limits
+    }
+    pub fn cache_policy(&self) -> CompletedCachePolicy {
+        self.sessions[0].cache_policy()
+    }
+    pub fn set_lookup_budget_policy(&mut self, policy: CacheLookupBudgetPolicy) {
+        for session in &mut self.sessions {
+            session.set_lookup_budget_policy(policy);
+        }
+    }
+    pub fn lookup_budget_policy(&self) -> CacheLookupBudgetPolicy {
+        self.sessions[0].lookup_budget_policy()
+    }
+    pub fn clear_ram(&mut self) -> Result<(), AppError> {
+        for session in &mut self.sessions {
+            session.clear_ram()?;
+        }
+        Ok(())
+    }
+    /// Exact all-namespace attachment. Binding failures occur before any
+    /// session replacement; existing RAM and native policy are not changed.
+    pub fn attach_bundle(
+        &mut self,
+        path: &Path,
+        limits: SavedApplicationCachePackLimits,
+    ) -> Result<(), AppError> {
+        let bundle = SavedApplicationCacheBundle::open_generated(path, &self.bindings, limits)?;
+        let readers = self
+            .bindings
+            .iter()
+            .map(|binding| bundle.open_reader(binding))
+            .collect::<Result<Vec<_>, _>>()?;
+        for (session, reader) in self.sessions.iter_mut().zip(readers) {
+            session.attach_pack(reader)?;
+        }
+        Ok(())
     }
 }
-impl CachePreparationBackend for ClosedCachePreparationBackend<'_> {
+impl<P: NativeCacheProgram> CachePreparationBackend for NativeCachePreparationBackend<P> {
     fn bindings(&self) -> &[ApplicationCacheBinding] {
         &self.bindings
     }
@@ -225,7 +378,7 @@ impl CachePreparationBackend for ClosedCachePreparationBackend<'_> {
     ) -> Result<(), AppError> {
         self.sessions
             .get_mut(namespace)
-            .ok_or_else(|| AppError::input("unknown closed cache namespace"))?
+            .ok_or_else(|| AppError::input("unknown native cache namespace"))?
             .attach_pack(reader)
     }
     fn refresh_completed_caches(&mut self) -> Result<(), AppError> {
@@ -241,7 +394,7 @@ impl CachePreparationBackend for ClosedCachePreparationBackend<'_> {
             .try_fold(0usize, |bytes, statistics| {
                 bytes.checked_add(statistics.directory_owned_bytes)
             })
-            .ok_or_else(|| AppError::limit("closed backing directory byte count overflow"))
+            .ok_or_else(|| AppError::limit("native backing directory byte count overflow"))
     }
     fn configure(&mut self, options: &CachePreparationResolvedOptions) -> Result<(), AppError> {
         // A conservative documented partition bounds the aggregate across
@@ -258,19 +411,18 @@ impl CachePreparationBackend for ClosedCachePreparationBackend<'_> {
                 max_cached_coefficient_bytes: per_namespace,
                 ..self.native_limits
             };
-            session.cache = GuardedRootCache::with_policy(
-                &session.program,
-                session.limits,
-                options.cache_policy,
-            );
+            session.cache = session
+                .program
+                .new_cache(session.limits, options.cache_policy);
         }
+        self.native_limits.max_cached_coefficient_bytes = options.retained_coefficient_bytes;
         Ok(())
     }
     fn validate_entry(&self, target: &CachePreparationTarget) -> Result<(), AppError> {
-        self.session(target.namespace())?
+        let session = self.session(target.namespace())?;
+        session
             .program
-            .validate_entry(target.integral())
-            .map_err(reduction_error)
+            .validate_entry(target.integral(), session.limits)
     }
     fn validate_completed_record(
         &self,
@@ -278,10 +430,7 @@ impl CachePreparationBackend for ClosedCachePreparationBackend<'_> {
         record: &ApplicationCacheRecord,
     ) -> Result<(), AppError> {
         let session = self.session(namespace)?;
-        session
-            .program
-            .validate_completed_record(record, session.limits)
-            .map_err(guarded_error)
+        session.program.validate_record(record, session.limits)
     }
     fn reduce_guarded_root(
         &mut self,
@@ -289,12 +438,12 @@ impl CachePreparationBackend for ClosedCachePreparationBackend<'_> {
     ) -> Result<ApplicationCacheRecord, AppError> {
         self.sessions
             .get_mut(target.namespace())
-            .ok_or_else(|| AppError::input("unknown closed cache namespace"))?
+            .ok_or_else(|| AppError::input("unknown native cache namespace"))?
             .reduce_guarded_root(target.integral())
             .map(|result| result.record)
     }
     fn operational_profile(&self) -> Value {
-        json!({"backend":"native-closed-guarded-root", "ram_partition":"equal-per-namespace",
+        json!({"backend":self.sessions[0].program.kind(), "ram_partition":"equal-per-namespace",
             "native_limits":self.sessions.iter().map(|session| format!("{:?}", session.limits)).collect::<Vec<_>>()})
     }
     fn statistics(&self) -> Value {
@@ -311,13 +460,14 @@ impl CachePreparationBackend for ClosedCachePreparationBackend<'_> {
                     "chunks_read":io.chunks_read, "encoded_bytes_read":io.chunk_bytes_read,
                     "decoded_bytes":io.decoded_chunk_bytes, "hits":io.hits, "misses":io.misses,
                     "lookup_limit_refusals":io.lookup_limit_refusals})),
+                "backing_budget_fallbacks":session.backing_budget_fallbacks(),
                 "rule_applications":stats.work.rule_applications(), "coalescing_additions":stats.work.coalescing_additions()})
         }).collect::<Vec<_>>())
     }
 }
 
-fn reduction_error(error: ReductionError) -> AppError {
-    crate::application::closing::map_reduction_error("guarded closed cache", error)
+pub(super) fn reduction_error(error: ReductionError) -> AppError {
+    crate::application::closing::map_reduction_error("guarded native cache", error)
 }
 pub(super) fn backing_error(error: AppError) -> GuardedCacheBackingError {
     GuardedCacheBackingError {

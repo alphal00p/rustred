@@ -10,6 +10,19 @@ use std::{
 use super::*;
 use crate::AppError;
 
+/// A lookup grant can be exhausted without establishing presence or absence.
+/// This is deliberately distinct from both a miss and a corrupt/invalid pack.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SavedApplicationCacheLookupOutcome {
+    Hit(ApplicationCacheRecord),
+    Absent,
+    /// The next candidate read/decode would exceed configured cumulative work.
+    /// No part of that operation was performed. Already spent work stays in
+    /// the reader's counters; an optional-cache adapter may explicitly choose
+    /// native computation instead, without restarting its reduction request.
+    WorkBudgetExhausted,
+}
+
 /// Immutable on-disk snapshot plus local I/O statistics. Only range descriptors
 /// are retained; every lookup drops its encoded chunk/native decode table.
 pub struct SavedApplicationCachePack {
@@ -114,6 +127,24 @@ impl SavedApplicationCachePack {
         key: &ApplicationCacheKey,
         context: &CoefficientContext,
     ) -> Result<Option<ApplicationCacheRecord>, AppError> {
+        match self.lookup_outcome(key, context)? {
+            SavedApplicationCacheLookupOutcome::Hit(record) => Ok(Some(record)),
+            SavedApplicationCacheLookupOutcome::Absent => Ok(None),
+            SavedApplicationCacheLookupOutcome::WorkBudgetExhausted => Err(AppError::limit(
+                "cache cumulative lookup allowance exceeded",
+            )),
+        }
+    }
+
+    /// Typed optional-cache boundary. Only ordinary cumulative lookup-grant
+    /// exhaustion is an outcome rather than an error. Bad keys/bindings,
+    /// counter overflow, I/O, corruption and native decoding/validation still
+    /// fail. Strict preparation/resume callers should use `lookup`.
+    pub fn lookup_outcome(
+        &mut self,
+        key: &ApplicationCacheKey,
+        context: &CoefficientContext,
+    ) -> Result<SavedApplicationCacheLookupOutcome, AppError> {
         key.validate(self.manifest.binding.physical_arity)
             .map_err(fail)?;
         let mut work = LookupWork::default();
@@ -123,10 +154,16 @@ impl SavedApplicationCachePack {
             let Some(chunk) = run.get(offset).filter(|chunk| chunk.first <= *key) else {
                 continue;
             };
-            if let Err(error) = work.charge(chunk, self.limits) {
-                self.statistics.lookup_limit_refusals =
-                    self.statistics.lookup_limit_refusals.saturating_add(1);
-                return Err(error);
+            match work.charge(chunk, self.limits) {
+                Ok(true) => {}
+                refused => {
+                    self.statistics.lookup_limit_refusals =
+                        self.statistics.lookup_limit_refusals.saturating_add(1);
+                    // Counter overflow remains an error, never an optional
+                    // work-budget fallback, while retaining refusal telemetry.
+                    return refused
+                        .map(|_| SavedApplicationCacheLookupOutcome::WorkBudgetExhausted);
+                }
             }
             self.statistics.lookup_encoded_bytes_charged = self
                 .statistics
@@ -175,11 +212,11 @@ impl SavedApplicationCachePack {
             }
             if let Some(record) = decoded.decode_record(key, context).map_err(fail)? {
                 self.statistics.hits = self.statistics.hits.saturating_add(1);
-                return Ok(Some(record));
+                return Ok(SavedApplicationCacheLookupOutcome::Hit(record));
             }
         }
         self.statistics.misses = self.statistics.misses.saturating_add(1);
-        Ok(None)
+        Ok(SavedApplicationCacheLookupOutcome::Absent)
     }
 }
 
@@ -194,7 +231,7 @@ impl LookupWork {
         &mut self,
         chunk: &index::Chunk,
         limits: SavedApplicationCachePackLimits,
-    ) -> Result<(), AppError> {
+    ) -> Result<bool, AppError> {
         let overflow = || AppError::limit("cache lookup work counter overflow");
         let chunks = self.chunks.checked_add(1).ok_or_else(overflow)?;
         let encoded = self
@@ -211,13 +248,51 @@ impl LookupWork {
             || encoded > limits.max_lookup_encoded_bytes
             || decoded > limits.max_lookup_decoded_bytes
         {
-            return Err(AppError::limit(
-                "cache cumulative lookup allowance exceeded",
-            ));
+            return Ok(false);
         }
         self.chunks = chunks;
         self.encoded = encoded;
         self.decoded = decoded;
-        Ok(())
+        Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod outcome_tests {
+    use super::*;
+
+    #[test]
+    fn lookup_counter_overflow_is_an_error_not_budget_exhaustion() {
+        let key =
+            ApplicationCacheKey::guarded_root(&rustred::family::IntegralKey::try_new([1]).unwrap());
+        let chunk = index::Chunk {
+            digest: [0; 32],
+            bytes: 1,
+            decoded_digest: [0; 32],
+            decoded_bytes: 1,
+            records: 1,
+            first: key.clone(),
+            last: key,
+        };
+        let limits = SavedApplicationCachePackLimits::default();
+        for mut work in [
+            LookupWork {
+                chunks: usize::MAX,
+                ..Default::default()
+            },
+            LookupWork {
+                encoded: u64::MAX,
+                ..Default::default()
+            },
+            LookupWork {
+                decoded: u64::MAX,
+                ..Default::default()
+            },
+        ] {
+            assert_eq!(
+                work.charge(&chunk, limits).unwrap_err().kind(),
+                crate::AppErrorKind::Limit
+            );
+        }
     }
 }

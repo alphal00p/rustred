@@ -379,8 +379,13 @@ complete gzip member and rejects trailing data. The index retains chunk ranges,
 not every coefficient or integral key. Disjoint batches share a sorted run;
 overlapping batches preserve newest-record precedence. A lookup bounds both
 compressed reads and decoded bytes before doing the work. Exceeding a lookup
-allowance is a typed refusal, not a fabricated miss. Compaction of overlapping
-runs and an explicit application-level cold-fallback policy remain future work.
+allowance has a distinct `WorkBudgetExhausted` outcome, not a fabricated absence.
+The strict `lookup` API returns it as a resource error. Ordinary app sessions
+default to `CacheLookupBudgetPolicy::ColdOnLookupWorkExhaustion`: they count
+this optional-cache refusal and continue native reduction without the cached
+record. `Strict` remains selectable, and preparation's resume validation is
+strict. Binding, corruption, decoding, arithmetic and IO errors never trigger
+this fallback. Compaction of overlapping runs remains future work.
 Schema 01 development packs are deliberately incompatible and must be rebuilt.
 
 `CachePreparationWorkload::parent_pinches` accepts explicit physical masks,
@@ -390,6 +395,21 @@ Symbolica combinatorics preflight the proposal count before key allocation.
 Requests beyond the configured allowance are rejected, never silently clipped.
 This plans a finite warmup workload; it neither generates rules nor establishes
 new physics coverage.
+
+The default relative primer has at most two extra denominator powers above
+surviving unit-power lines and scalar negative-index degree one (momentum degree
+two, not tensor rank one). Inputs are deduplicated, sorted by native key inside
+each exact program namespace and visited round-robin between namespaces. This
+balances finite preparation across families; it is not adaptive selection by
+measured cost. The current Vakint four-parent input masks yield 164,352 proposed
+roots. That count alone does not establish successful preparation or backend
+admission of every proposal.
+
+The intended cache benefit is repeated computation avoided per retained byte,
+not a requirement to fill the disk allowance or visit every possible integral.
+Assess it on held-out roots with actual rule counters and timing, separately
+from exact-repeat hits. Persisted records currently describe completed selected
+inputs; they do not automatically include every intermediate node traversed.
 
 Experimental candidate programs also support `CandidateReducer::fork_empty`
 and `fork_empty_with_limits`: independent cache, work and budget state over
@@ -417,6 +437,16 @@ closed-program descendant tests or exact-repeat hits.
 
 ## Explicit cache snapshots and resumable preparation
 
+`NativeApplicationCache<P>` and `NativeCachePreparationBackend<P>` share app
+steering for the existing closed and candidate native programs. The sealed
+program interface delegates algebra and admission to those native engines;
+it does not equate their mathematical authority or decomposition types.
+`ClosedApplicationCache` / `CandidateApplicationCache` and their preparation
+aliases retain those distinctions. A multi-program backend partitions one
+aggregate coefficient-byte allowance across its namespaces; other native work
+limits remain per namespace. Its aggregate statistics sum work counters and
+current retained payload separately, not historical per-reduction cache peaks.
+
 `ClosedApplicationCache::save_completed` exports resident completed roots via
 the bounded native bundle writer. Its report separates callback-accepted records
 from durably published records, and states whether a lazy backing was attached.
@@ -435,6 +465,13 @@ index is published last; an interrupted partial copy is not silently resumed or
 overwritten. Successful base copying alone does not mean a subsequent resident
 overlay succeeded.
 
+The public session/backend `save_cache` selects `CacheSaveMode::ResidentRoots`
+or `FullSnapshot` explicitly. The latter performs the base copy above and then
+exports resident roots under the same quota. Its report separates base-copy
+publication from overlay acceptance and durability. It requires a new
+destination; it does not overwrite a user's existing pack or silently drop
+unloaded records. Neither save mode mutates cache residency or eviction scores.
+
 Preparation attaches the completed pack to its native backend when resuming and
 refreshes those readers after durable batches. A later root can therefore reuse
 saved descendants instead of merely skipping already-completed starting roots.
@@ -445,9 +482,14 @@ readers remain a fixed snapshot for its deduplicated starting workload.
 Vakint's real one-, two- and three-loop prepare/fresh-process-load tests pass,
 including pinches, unit and nonunit masses, exact guards and held-out inputs.
 Their 5/20/256-root workloads are functional controls, not exhaustive integer
-coverage or the final extensive caches. Four-loop end-to-end integration,
-public full-snapshot saving, explicit downloads, LRU/LFU workload comparisons
-and final prepared packs remain pending. The sealed reducer's internal guardless
+coverage or the final extensive caches. The generic app session and public
+full-snapshot façade pass the expanded 50-test native application gate. Four-loop
+integration's first 38-input test saved seven roots, then stopped at the native
+16-million-coefficient-term allowance before reaching fresh-process checks.
+A matched diagnostic identifies subtree-guard storage as the dominant retained
+payload; its optimization and the complete rerun are still pending. Explicit
+downloads, LRU/LFU workload comparisons and final prepared packs also remain
+pending. The sealed reducer's internal guardless
 memoization is not persisted. No claim of bounded 128 GB loading follows from
 the small regression tests. Five-loop cache preparation is deferred pending the
 user's updated D<=10 artifact.
