@@ -1,5 +1,37 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 14, 17:57 Europe/Zurich — safe campaign restart handoff
+
+The requested graceful stop is complete. The native result reports `stopped`,
+generation **83**, `resumable=true`, `paused=true`, 12,957,366 queued nodes and
+zero frontiers. All three campaign processes (wrapper2114053, supervisor2114540,
+native2114542) have exited. Root acquired/released the existing checkpoint and
+dispatcher locks nonblockingly to verify both are free. No process was killed
+forcibly and no checkpoint/input/binary was modified. The user has been told it
+is safe to run `bash TMP/migration-20261014/resume-shared.sh` from the new root
+in their `rustred` session, `5L_incremental` tab. **Do not restart automatically.**
+
+Four-loop cache preparation/validation is complete; compressed local archives
+are in `TMP/cache-delivery-intermediate-index03-20261014/`. All four archives
+passed native import/lazy-load/exact public evaluation. The immutable creation
+manifest predates import; its initial `native_import_validated=false` fields
+are superseded by the separate `native-import-verification.json` receipt, not
+silently rewritten. The four-loop archive is 89,680,390 bytes, SHA256
+`f0b718fe01e6801eb9d3500959fc0087d46a50ec64fd65eced90af18e4942ea2`.
+Independent final runtime/census review passes. RustRed's telemetry fix is
+pushed and remote-verified on main as `e1f39797`.
+
+Vakint's tested local source milestone `b2631ce7` could not be pushed because
+the feature branch advanced independently by nine collaborator commits to
+`15a3467f`. The remote changes include Symbolica/FeynKit revisions and tensor/
+special-function fixes, so the old coherent runtime tests cannot certify their
+integration. Preserve the tested commit on a local backup branch, rebase the
+small pin/documentation change without discarding collaborator work, and run a
+targeted coherent new-stack native build/cache gate before pushing. No force
+push or IBP regeneration is authorized. This integration is the remaining
+delivery step, not a cache-generation failure or a reason to repeat the full
+five-loop campaign. All further work remains inside the new workspace.
+
 ## October 14 — full-cache checks pass; user-requested campaign stop
 
 The user moved the old checkout to `/common/dev/OLD_rustred` and explicitly
