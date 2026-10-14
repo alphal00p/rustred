@@ -1,5 +1,6 @@
 //! Explicit trusted-generated, content-bound cache packs. A reader retains a
-//! bounded chunk-range directory, never every entry key or coefficient payload.
+//! bounded chunk-range directory and optional verified exact-key metadata,
+//! never retained coefficient payloads.
 //! A writer publishes complete immutable chunks through atomic checkpoints.
 //! This module does not grant entry admission or bypass native cache budgets.
 //! Chunks contain one bounded gzip member around the native state-aware codec.
@@ -73,8 +74,8 @@ pub struct SavedApplicationCachePackStatistics {
     pub records: usize,
     pub referenced_chunk_bytes: u64,
     pub manifest_bytes: usize,
-    /// Upper census of decoded directory structs and their owned key/identity
-    /// allocations. No coefficient or complete per-entry index lives here.
+    /// Upper census of decoded directory structs, owned key/identity allocations
+    /// and optional exact chunk-key metadata. No coefficient payload lives here.
     pub directory_owned_bytes: usize,
     pub chunks_read: usize,
     pub chunk_bytes_read: u64,
@@ -86,6 +87,9 @@ pub struct SavedApplicationCachePackStatistics {
     pub lookup_decoded_bytes_charged: u64,
     pub lookup_limit_refusals: usize,
     pub runs_probed: usize,
+    /// Previously verified exact chunk keys rejected a range-only candidate
+    /// without another file read, decompression, or native coefficient import.
+    pub key_index_skips: usize,
     pub hits: usize,
     pub misses: usize,
 }

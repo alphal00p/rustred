@@ -1,5 +1,106 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 14 — exact-key reader gate passes and removes measured I/O regressions
+
+- [M] The optional exact-key metadata optimization passes **62 optimized app
+  tests** in 0.30 s after 10m49 compilation. Root repeats all 62 in 0.44 s;
+  `candidate_descendant_tests` independently repeats the eight new tests on
+  CPU17 in 0.02 s. All nine captured source hashes remain unchanged. Frozen
+  binary SHA256 `5cddf67462f0103d9c5e1acfed885c4af3ad09169b06e4f9f659c1f25bf56731`;
+  receipt `TMP/five-loop-vakint-20261013/key-prefilter-independent-test-receipt-20261014.json`.
+- [M] Four native held-out cases pass exact coefficient/guard equality with
+  unchanged rule counts and descendant hits. Initial observations:
+
+| Parent | Descendant cache, range-only reader (s) | Exact-key reader (s) | Reads before -> after | Decoded bytes before -> after |
+| --- | ---: | ---: | ---: | ---: |
+| H | 4.576 | 3.194 | 12,924 -> 3,293 | 814.37 MB -> 157.76 MB |
+| FG | 0.244 | 0.224 | 1,228 -> 599 | 33.29 MB -> 14.26 MB |
+| BMW | 1.957 | 1.405 | 7,377 -> 1,940 | 372.63 MB -> 57.50 MB |
+| X | 31.323 | 18.028 | 47,593 -> 9,721 | 6,705 MB -> 802.02 MB |
+
+  These are individual shared-host measurements, not statistical speedup
+  guarantees. X explicitly uses LRU in both observations at the same allowance;
+  earlier H/FG/BMW native range-only controls used strict policy without an
+  eviction, so the public LRU-versus-LRU comparison remains the main final table.
+  H retains 4.755 MB directory/key metadata and X 6.744 MB, below their 32 MiB
+  reader limits. Source packs remain unchanged. No warmup or schema migration.
+- The public/native-Atom golden comparison for the prefilter-free `0974effa`
+  engine is complete for all four cases. Final receipt:
+  `TMP/five-loop-vakint-20261013/full4-cache-verification-receipt-20261014.json`.
+  The exact-key version's public probe is still finishing; no unobserved
+  public-interface performance result is claimed here.
+- Next: publish this audited reader slice; pin Vakint and its final isolated
+  Python host to that actual Git revision; finish the corrected native transfer
+  and Python import/download/load/descendant-reuse gates, then push Vakint.
+  Five-loop production and numerical-master data remain untouched.
+
+## October 14 — exact four-loop shortcuts verified; reader optimization gate
+
+- [M] The updated-engine full first38 gate passes: the same 38 records,
+  431 coefficients and 60,007 guards match old-pack and fresh native controls.
+  X also completes with **LRU at the unchanged 256 MiB namespace allowance**:
+  19 coefficients / 4,382 guards match exactly, 105,876 -> 68,124 rules,
+  9,382 descendant backing hits and 6,438 safe evictions. Its first native call
+  is slower (19.8616 -> 31.3225 s), with 47,593 chunk reads, 1.567 GB encoded
+  and 6.705 GB decoded. Warm repeat is 0.01035 s. The earlier strict-policy
+  failure is preserved separately, not relabeled successful.
+- Public comparisons against ordinary evaluation and **native binary Atom**
+  goldens from the frozen old Python host pass H/FG/BMW; X is still pending at
+  this checkpoint. A previous attempt erroneously tried to parse truncated
+  display strings containing `...`; that test-evidence error is preserved and
+  corrected using Symbolica's existing save/import machinery, not a custom
+  serializer. No mathematical mismatch was found in that failed attempt.
+- [A] The measured reader bottleneck has a narrow implementation: lazily retain
+  exact inspected chunk keys inside the existing directory-memory allowance.
+  Known absent keys avoid repeat decompression; possible hits retain ordinary
+  checksum/framing/native validation. No new payload/schema/CAS or cache input
+  workload. Source audits by Root and the separate implementation agent pass;
+  application source check passes in 56.80 s. The optimized application gate is
+  live under handle38215/build-0. Real H/X and other matched timings remain to
+  establish its benefit, rather than inferring speed from fewer reads.
+- [M] Explicit cache-transfer baseline native tests pass 8/8 in 0.56 s and
+  independent repeat 8/8 in 0.43 s, including actual loopback HTTP, exact native
+  import, binding/hash/chunk rejection, quotas and archive-path/padding checks.
+  Binary SHA256 `03fa9839e3210caaec57ee8ed88c98a0a6f101b9ea68d534b61afd84ff8a3175`.
+  Subsequent cfg-only fixes exclude transport dependencies from Emscripten,
+  which reports both `unix` and `wasm32`; target dependency-tree validation
+  passes, not a full WASM build. A test-server accept deadline was also added.
+  The final coupled build must rerun these corrected sources.
+- Clippy failed before lint analysis because the standalone driver could not
+  locate its Rust sysroot. No clean Clippy claim is made. Final explicit-sysroot
+  Clippy/Python runtime checks, current prefilter pin and Vakint push remain
+  pending. The original frozen Python environment and all cache source packs
+  are preserved. Production five-loop work remains untouched.
+
+## October 14 — descendant milestone pushed; first real shortcut measurements
+
+Root committed, pushed and remote-verified the generic descendant reuse at
+`0974effab7bde243e5360c96ae7296639d5018e5` on main. Only owned code/tests/docs
+were staged. The actual-Git Vakint dependency update and transfer API are under
+validation separately; no cache data or production campaign was committed.
+
+- [M] Matched native held-out H/FG/BMW calls preserve exact terms and guards and
+  demonstrate descendant disk hits. H: rules 31,227 -> 18,538, 3,069 hits,
+  3.892 -> 4.576 s (a regression). FG: 4,454 -> 1,313 rules, 534 hits,
+  0.334 -> 0.244 s. BMW: 20,902 -> 9,536 rules, 1,799 hits,
+  2.257 -> 1.957 s. These are individual observations, not repeated statistical
+  speedup claims. H reads 12,924 chunks and decompresses about 814 MB: fewer
+  IBPs do not by themselves ensure lower elapsed time.
+- [M] The X standalone native probe is **resource-censored**, not complete:
+  retained coefficient request 268,503,330 bytes exceeds its 268,435,456-byte
+  namespace allowance. That driver explicitly used `CompletedCachePolicy`
+  default **FailOnLimit**, unlike the actual Vakint LRU default. Preserve this
+  result rather than raising the cap. The actual-LRU public probe and a matched
+  LRU native guard check are pending. No claim of public X success/failure yet.
+- [A] `candidate_descendant_tests` independently investigates a small generic
+  reader improvement for repeated decompression/false-range misses, without
+  changing the artifact, CAS or cached mathematical authority. No reader
+  optimization has been implemented or claimed successful.
+- [M] Explicit transfer implementation with actual-Git `0974effa` passes
+  Python-feature library/test source checking in 1m19. Eight native runtime
+  tests are next; the transfer API is not yet a completed delivery. The staged
+  native pack archives remain local under `cache-delivery-20261014/`.
+
 ## October 14 — descendant-cache core/application gates complete
 
 - [M] The application gate passes **54/54 optimized tests** in 0.27 s after

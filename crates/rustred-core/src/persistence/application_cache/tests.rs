@@ -44,6 +44,11 @@ fn selected_native_records_preserve_empty_outputs_poles_and_guard_order() {
     assert_eq!(inspected.len(), 2);
     assert_eq!(inspected.first_key(), Some(&records[0].key));
     assert_eq!(inspected.last_key(), Some(&records[1].key));
+    assert_eq!(inspected.keys().len(), records.len());
+    assert_eq!(
+        inspected.keys().collect::<Vec<_>>(),
+        records.iter().map(|record| &record.key).collect::<Vec<_>>()
+    );
     for record in &records {
         assert_eq!(
             inspected

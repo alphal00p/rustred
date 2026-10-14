@@ -234,6 +234,12 @@ impl<'a> ApplicationCacheChunk<'a> {
         self.rows.last().map(|row| &row.key)
     }
 
+    /// Complete sorted exact keys from the validated native framing. This
+    /// borrows metadata only and never imports Symbolica state or coefficients.
+    pub fn keys(&self) -> impl ExactSizeIterator<Item = &ApplicationCacheKey> + Clone {
+        self.rows.iter().map(|row| &row.key)
+    }
+
     /// Native import is a trusted-generated boundary, not a hostile parser.
     /// Only coefficients referenced by the selected record are decoded. The
     /// temporary table and its duplicate payloads are dropped on return.

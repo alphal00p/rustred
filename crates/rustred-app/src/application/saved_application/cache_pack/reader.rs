@@ -10,6 +10,9 @@ use std::{
 use super::*;
 use crate::AppError;
 
+mod key_index;
+use key_index::KeyIndex;
+
 /// A lookup grant can be exhausted without establishing presence or absence.
 /// This is deliberately distinct from both a miss and a corrupt/invalid pack.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,13 +26,18 @@ pub enum SavedApplicationCacheLookupOutcome {
     WorkBudgetExhausted,
 }
 
-/// Immutable on-disk snapshot plus local I/O statistics. Only range descriptors
-/// are retained; every lookup drops its encoded chunk/native decode table.
+/// Immutable on-disk snapshot plus local I/O statistics. Verified exact chunk
+/// keys may be retained within the directory-memory allowance to reject known
+/// misses. Such skips use the authenticated immutable snapshot; they do not
+/// reread files to detect later external mutation. Possible hits still perform
+/// normal integrity and native validation. Every lookup drops its encoded
+/// chunk/native decode table.
 pub struct SavedApplicationCachePack {
     directory: PathBuf,
     manifest: Arc<index::Manifest>,
     limits: SavedApplicationCachePackLimits,
     statistics: SavedApplicationCachePackStatistics,
+    key_index: KeyIndex,
 }
 impl SavedApplicationCachePack {
     /// Explicit trusted-native import. Binding equality and content hashes are
@@ -50,6 +58,7 @@ impl SavedApplicationCachePack {
             manifest: Arc::new(manifest),
             limits,
             statistics,
+            key_index: KeyIndex::default(),
         })
     }
     pub fn binding(&self) -> &ApplicationCacheBinding {
@@ -84,6 +93,9 @@ impl SavedApplicationCachePack {
                 "cache refresh changed ownership or rewound/mutated its generation",
             ));
         }
+        if manifest == *self.manifest {
+            return Ok(());
+        }
         let mut statistics = self.statistics;
         statistics.runs = directory.runs;
         statistics.chunks = directory.chunks;
@@ -92,6 +104,7 @@ impl SavedApplicationCachePack {
         statistics.manifest_bytes = directory.manifest_bytes;
         statistics.directory_owned_bytes = directory.directory_owned_bytes;
         self.manifest = Arc::new(manifest);
+        self.key_index = KeyIndex::default();
         self.statistics = statistics;
         Ok(())
     }
@@ -107,6 +120,8 @@ impl SavedApplicationCachePack {
         statistics.lookup_decoded_bytes_charged = 0;
         statistics.lookup_limit_refusals = 0;
         statistics.runs_probed = 0;
+        statistics.key_index_skips = 0;
+        statistics.directory_owned_bytes -= self.key_index.owned_bytes();
         statistics.hits = 0;
         statistics.misses = 0;
         Self {
@@ -114,6 +129,7 @@ impl SavedApplicationCachePack {
             manifest: self.manifest.clone(),
             limits: self.limits,
             statistics,
+            key_index: KeyIndex::default(),
         }
     }
     /// Exact key lookup, newest immutable run first. A matching range is only
@@ -148,12 +164,17 @@ impl SavedApplicationCachePack {
         key.validate(self.manifest.binding.physical_arity)
             .map_err(fail)?;
         let mut work = LookupWork::default();
-        for run in self.manifest.runs.iter().rev() {
+        for (run_index, run) in self.manifest.runs.iter().enumerate().rev() {
             self.statistics.runs_probed = self.statistics.runs_probed.saturating_add(1);
             let offset = run.partition_point(|chunk| chunk.last < *key);
             let Some(chunk) = run.get(offset).filter(|chunk| chunk.first <= *key) else {
                 continue;
             };
+            let slot = (run_index, offset);
+            if self.key_index.contains(slot, key) == Some(false) {
+                self.statistics.key_index_skips = self.statistics.key_index_skips.saturating_add(1);
+                continue;
+            }
             match work.charge(chunk, self.limits) {
                 Ok(true) => {}
                 refused => {
@@ -210,7 +231,19 @@ impl SavedApplicationCachePack {
             {
                 return Err(fail("cache chunk index differs from native framing"));
             }
-            if let Some(record) = decoded.decode_record(key, context).map_err(fail)? {
+            let record = decoded.decode_record(key, context).map_err(fail)?;
+            // Only a fully checked read can install an exact absence proof.
+            // The slot denotes the immutable descriptor in this reader's
+            // authenticated binding; a changed snapshot clears all slots.
+            let directory_bytes =
+                self.statistics.directory_owned_bytes - self.key_index.owned_bytes();
+            self.key_index.retain(
+                slot,
+                decoded.keys(),
+                self.limits.max_directory_owned_bytes - directory_bytes,
+            );
+            self.statistics.directory_owned_bytes = directory_bytes + self.key_index.owned_bytes();
+            if let Some(record) = record {
                 self.statistics.hits = self.statistics.hits.saturating_add(1);
                 return Ok(SavedApplicationCacheLookupOutcome::Hit(record));
             }

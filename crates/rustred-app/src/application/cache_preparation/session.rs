@@ -459,7 +459,8 @@ impl<P: NativeCacheProgram> CachePreparationBackend for NativeCachePreparationBa
                     "directory_owned_bytes":io.directory_owned_bytes,
                     "chunks_read":io.chunks_read, "encoded_bytes_read":io.chunk_bytes_read,
                     "decoded_bytes":io.decoded_chunk_bytes, "hits":io.hits, "misses":io.misses,
-                    "lookup_limit_refusals":io.lookup_limit_refusals})),
+                    "lookup_limit_refusals":io.lookup_limit_refusals,
+                    "key_index_skips":io.key_index_skips})),
                 "backing_budget_fallbacks":session.backing_budget_fallbacks(),
                 "rule_applications":stats.work.rule_applications(), "coalescing_additions":stats.work.coalescing_additions()})
         }).collect::<Vec<_>>())

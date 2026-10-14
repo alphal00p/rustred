@@ -375,9 +375,20 @@ an in-flight native reduction is not a saved instruction-pointer checkpoint.
 
 Cache-pack schema 02 stores bounded gzip chunks around the native Symbolica
 state-aware codec. It checks encoded and decoded lengths/digests, requires one
-complete gzip member and rejects trailing data. The index retains chunk ranges,
-not every coefficient or integral key. Disjoint batches share a sorted run;
-overlapping batches preserve newest-record precedence. A lookup bounds both
+complete gzip member and rejects trailing data. The persistent index stores
+chunk ranges. After a verified read, the reader may retain that chunk's sorted
+exact keys within the remaining `max_directory_owned_bytes` allowance;
+`directory_owned_bytes` includes this metadata. Known absent keys then skip
+repeat reads and decompression, counted by `key_index_skips`. Possible hits
+still receive full integrity and native payload validation. These absence
+proofs belong to the immutable snapshot and do not reread files to detect later
+external mutation. A changed snapshot clears them, a failed or unchanged
+refresh preserves them, and a forked reader starts without them. Insufficient
+metadata allowance leaves ordinary lookup active. No coefficient payload is
+retained, and existing schema-02 packs remain compatible.
+
+Disjoint batches share a sorted run; overlapping batches preserve newest-record
+precedence. A lookup bounds both
 compressed reads and decoded bytes before doing the work. Exceeding a lookup
 allowance has a distinct `WorkBudgetExhausted` outcome, not a fabricated absence.
 The strict `lookup` API returns it as a resource error. Ordinary app sessions

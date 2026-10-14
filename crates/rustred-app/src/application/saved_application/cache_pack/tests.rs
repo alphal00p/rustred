@@ -7,6 +7,7 @@ use rustred::persistence::application_cache::{
 };
 use std::{collections::BTreeMap, fs, path::Path};
 
+mod key_index;
 mod lookup_outcome;
 mod snapshot;
 
