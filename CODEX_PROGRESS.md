@@ -1,5 +1,22 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 14, 18:38 Europe/Zurich — wait for D10 publication
+
+The user explicitly selected **wait for the D<=10 publication** rather than
+resuming generation-54 acceptance. The delivered 1--4-loop cache milestone is
+complete. Do not launch further five-loop application tests, cache preparation,
+or new IBP generation while waiting. Do not change or restart the user's
+production campaign. The read-only D10 diagnosis is recorded above/below in
+this log; its proposed optimizations are not authorized implementation work.
+
+The five-loop goal remains incomplete; this is a dependency wait, not success.
+When D10 is actually published, inspect the current published scope and package
+identity before choosing admitted acceptance cases or exporting an application
+package. A running/stopped checkpoint, a requested D10 cap, or the old completed
+D9 artifact does not establish D10 publication. Keep generation54 unchanged as
+the existing baseline; never silently label it D10 or replace its frozen scope.
+All subsequent work remains under `/shared/codex-2/rustred`.
+
 ## October 14, 18:35 Europe/Zurich — regenerated cache milestone delivered
 
 Vakint's integration is pushed and independently remote-verified at

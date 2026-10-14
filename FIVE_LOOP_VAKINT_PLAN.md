@@ -1,5 +1,17 @@
 # Five-loop symbolic Vakint application of saved RustRed rules
 
+## Current execution directive — October 14
+
+The user selected **wait for the D<=10 publication** after delivery of the
+regenerated 1--4-loop intermediate caches. Keep five-loop application tests and
+cache preparation deferred; do not resume the generation-54 test campaign or
+modify/restart production. The broader goal remains incomplete. The next
+five-loop execution step requires an actual published D10 artifact and a check
+of its recorded admission scope, not merely the requested cap or a resumable
+checkpoint. Generation54 remains the unchanged D9 baseline. The read-only D10
+optimization investigation does not authorize implementing its candidates.
+Use `/shared/codex-2/rustred` for all further work.
+
 ## Accepted scope
 
 Implement the user's October 13 plan: five-loop single-mass vacuum matching,
