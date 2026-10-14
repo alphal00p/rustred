@@ -1,5 +1,65 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 14, 14:31 UTC — cold-use tradeoff measured; full primer next
+
+The preceding migration/cache-gate report is pushed on main as `a2d56e46`.
+All four public held-out four-loop inputs now agree exactly with the ordinary
+native evaluator, using an invalid FORM path. Each first call has zero
+root-cache hits and positive **descendant** backing hits; warm repeats add no
+native rule applications. This validates shortcuts for unseen inputs, not just
+exact repetition. Sampled cold-use performance is mixed and must not be sold
+as a general speedup:
+
+| Input | 64-record chunks, first call | Warm repeat | Ordinary native call | Descendant disk hits |
+| --- | ---: | ---: | ---: | ---: |
+| H, power four, mass parameter 4 | 3.881 s | 0.053 s | 3.781 s | 5,329 |
+| FG, power four, mass parameter 4 | 0.282 s | 0.021 s | 0.302 s | 594 |
+| BMW, power four, mass parameter 4 | 2.323 s | 0.020 s | 2.226 s | 3,975 |
+| X, power four, mass parameter 4 | 25.258 s | 0.094 s | 21.006 s | 19,983 |
+
+These are one-case-per-process measurements on the shared host, excluding
+compilation and initial cache/program loading (about 5.6--6.0 s). They use the
+38-input enriched pilot pack and default application RAM/work limits, **not**
+the full old/new 164,352-input cache comparison or the preparation RAM budget.
+X evicts 12,521 entries during its first call. Native work is avoided, but disk
+decoding and validation can offset the saving. Evidence:
+`TMP/intermediate-cache-index03-four-heldout{0,1,2,3}-20261014/`.
+
+The existing `batch_records=256` option completes the same 38-input preparation
+in 84.848 s, with 26,089,874 B charged disk and the same durable-record counters
+as the 64-record control (94.203 s, 34,303,404 B). However, held-out first calls
+become 5.599 / 0.408 / 3.414 / 32.494 s for H/FG/BMW/X, respectively. Native
+rule/hit counts remain unchanged, while more bytes are decoded per useful
+record. **Reject larger chunks as the delivery default** despite the preparation
+and storage benefit; do not select only the favorable measurement. The pilot
+uses unchanged optimized backend libraries, with only a separately frozen
+measurement-driver option added; its 232.25 s link is excluded from timings.
+Evidence: `TMP/intermediate-cache-index03-four-dense38-batch256-20261014/` and
+`TMP/intermediate-cache-index03-four-batch256-heldout{0,1,2,3}-20261014/`.
+
+Decision: run the full four-loop finite primer with the existing 64-record
+layout and configured resource protection, monitoring index-run headroom. It
+is now running in `TMP/intermediate-cache-index03-four-full-20261014/`, handle
+80041, on CPU16 with 16 GB preparation RAM/disk, a 50 GB process guard, 150 GB
+host reserve and the existing cooperative 10-hour preparation budget. If
+a structural storage cap is actually reached, retain the durable prefix and
+use that evidence to choose a narrow fix; do not raise all quotas speculatively.
+`intermediate_capture_app` owns this run and the separate distinct-key census.
+`cache_python_runtime` owns the fresh private Python release build on CPUs
+32--47/build-0, independently of native preparation on CPU16. The build has
+verified one Symbolica 3.0.1 instance, actual RustRed Git `78cbc5c1`, unchanged
+FeynKit and the current local Vakint integration. No five-loop application or
+cache-preparation job has been launched by these lanes.
+
+Monitoring caveat found by the independent auditor: preparation's live callback
+updates selected/intermediate counts, but its disk/directory/native-statistics
+fields are currently refreshed only at initialization and final return. Thus
+an in-progress `charged_disk_bytes` value can be stale. Actual writer quota
+enforcement and final receipts are unaffected. Use native index/physical-file
+and RSS evidence for the current run's headroom. A throttled root-boundary
+statistics refresh with a focused regression is a pending follow-up, not a
+reason to restart the frozen full preparation or interrupt the Python build.
+
 ## October 14 — relocated campaign resumed; intermediate-cache runtime gates
 
 Development now runs from `/shared/codex-2/rustred`. RustRed main is pushed
