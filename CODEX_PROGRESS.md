@@ -1,5 +1,61 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 14, 18:35 Europe/Zurich — regenerated cache milestone delivered
+
+Vakint's integration is pushed and independently remote-verified at
+`3cd9b1d25bc50a0107c78c2647364a80a7910f7a` on `vakint_rustred`. Its tracked
+worktree is clean. Our two commits use ValentinHirschi / valentin.hirschi@gmail.com
+and preserve collaborator tip `15a3467f` as ancestry, with no force push.
+Only dependency pins, exact cache-transfer test expectations, documentation and
+three migrated master-handoff paths were pushed. No cache, five-loop package,
+campaign data, credentials or reference material were committed.
+
+Final coherent-stack gates (Symbolica `400a53c4`, FeynKit `024f96d6`, RustRed
+`78cbc5c1`) pass: 16 public exact old-binary/fresh-native/warm comparisons,
+86 exact coefficient/guard records, eight transfer tests (0.39 s), three symbol
+initialization tests (0.15 s), and 23 focused tests (0.87 s: five native polygamma,
+18 FORM-less tensor). Five FORM/20k-digit/manual tests were explicitly excluded,
+not claimed passed. The transfer fixture now correctly expects the selected I4
+plus captured I2/I3 and compares all three complete imported records exactly.
+Independent final receipt:
+`TMP/intermediate-cache-regeneration-current-20261014/independent-final-vakint-delivery-audit.json`.
+
+Build failures were tooling-only and retained: first direct test linking lacked
+Cargo macro context; a later concurrent Cargo feature build replaced an rlib
+while a manual link was reading it. The successful retry followed a drained,
+coherent dependency refresh and a non-hardlinked frozen dependency copy. No
+test assertions were relaxed, no mathematical source was patched, and the
+passed gates do not conceal the failed attempts. No owned implementation build
+or test is left running at delivery. Full workspace CI/upload is not claimed.
+
+**Local assets:** `TMP/cache-delivery-intermediate-index03-20261014/README.md`
+lists the 1--4-loop archives, original packs, independently imported snapshots
+and checksums. The exact distinct key counts are 5 / 77 / 2,352 / 286,527.
+The four-loop full primer completed all 164,352 selected inputs in 552.794 s;
+122,175 additional keys were captured. Its archive is 89,680,390 B, SHA256
+`f0b718fe01e6801eb9d3500959fc0087d46a50ec64fd65eced90af18e4942ea2`.
+Packaging manifest SHA256:
+`52f77254f3f39d15a47c3bfcb8f4aa5b2edac5fd1b7cc8c5aed337726d2c84a3`;
+subsequent native-import verification SHA256:
+`f097f7bdfdddad487809fb84378eb487e569d750dfb146ea0d3b557fb5d10ff0`.
+These are local assets, not hosted downloads. Cache coverage remains a finite
+operational primer, not newly proved integral-family closure.
+
+RustRed main also contains the independently tested bounded live-progress fix
+at `e1f39797`; the Vakint dependency deliberately remains the measured `78cbc5c1`
+revision, and its documentation distinguishes that revision's setup/final-only
+preparation telemetry. The later progress fix changes no cache payload/math.
+The private Python host is separately tied to the earlier coherent dependency
+stack in its `DELIVERY.md`; the new native compatibility proof does not pretend
+to be a new Python wheel release.
+
+The broad five-loop application goal is **not complete**. As requested, no new
+five-loop reduction/cache-preparation job was launched while delivering these
+caches. Root has asked whether to keep that acceptance work deferred until the
+D<=10 publication or resume the unfinished tests against pinned generation54.
+The D10 optimization report is read-only, with no new routing implementation or
+campaign restart recommended. The user owns the live production campaign.
+
 ## October 14 — read-only D9-to-D10 diagnosis and independent critique
 
 `d10_extension_diagnosis` delivered its bounded investigation; the independent

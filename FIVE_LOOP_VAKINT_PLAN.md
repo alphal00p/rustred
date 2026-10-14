@@ -244,6 +244,15 @@ against these same packages. That remaining integration must not be mislabeled
 as validated by the earlier runtime. Detailed evidence and the finite-primer
 scope remain in `CODEX_PROGRESS.md`; five-loop acceptance is still incomplete.
 
+Final delivery update: the rebased integration is now tested and pushed at
+`3cd9b1d25bc50a0107c78c2647364a80a7910f7a` on Vakint's `vakint_rustred` branch.
+All 16 public cross-version comparisons, 86 exact coefficient/guard checks,
+eight transfer, three initialization and 23 focused native regression tests
+pass on the updated Symbolica/FeynKit stack. All original cache bytes are
+unchanged and the final four archives pass import/lazy-load/exact evaluation.
+No five-loop package or cache was pushed. This closes the requested 1--4-loop
+intermediate-cache milestone, not the broader five-loop acceptance goal.
+
 ### Delivered one-through-four-loop cache milestone (October 14)
 
 RustRed `301beec66e6a2fcdc12ffe2c665181206615550c` and Vakint branch
