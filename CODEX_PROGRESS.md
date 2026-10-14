@@ -1,5 +1,106 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 14 — one-through-four-loop cache delivery completed and pushed
+
+The scoped cache milestone is delivered. RustRed engine/reader changes are on
+main at `301beec66e6a2fcdc12ffe2c665181206615550c`; Vakint is pushed and
+remote-verified at `e0b6c6b82b197b37cfa2d86a6b29911c8776ff14` on
+`vakint_rustred`, pinned to that actual RustRed Git revision. Both commits use
+ValentinHirschi / valentin.hirschi@gmail.com. The Vakint tracked worktree is clean;
+unrelated untracked receipts and unrelated RustRed work remain untouched.
+No artifact, cache, numerical-master data, credential or private host was pushed.
+
+- [M] Final actual-Git native transfer tests pass 8/8, independently repeated
+  8/8, with the bounded loopback-server fix and native/non-WASM gating included.
+  Matching Clippy and Python-feature source checks pass. Hakari generation is
+  unchanged/verified, and the single exact `just ci-update` attempt succeeds
+  with no generated-file diff. CI remains disabled as requested; no full CI or
+  upload claim is made.
+- [M] The fresh private Python host builds in 1,418.49 s supervised time with
+  14.962 GB sampled peak RSS and no stop. Eleven Python smoke tests pass in
+  0.889 s. The independent nine public delivery jobs all pass: imports at
+  1/2/3/4 loops preserve 5/77/2,320/164,352 records and all original chunks and
+  bindings; prepared outputs agree; four unseen four-loop inputs agree against
+  imported/source caches and the old native Atom goldens; actual loopback HTTP
+  download works. Import never attaches a cache or copies preparation metadata.
+  All groups drained; maximum observed RSS in these public jobs is 2.753 GB.
+- Final independent audit finds no actionable issue. Consolidated receipt:
+  `TMP/community-cache-transfer-final-20261014.HdGogm/cache-transfer-final-runtime-receipt.json`,
+  SHA256 `6a448f88cab6c35c7e197847460e52e5fa78634a07488113b70979543d139cdc`;
+  audit: `TMP/five-loop-vakint-20261013/cache-transfer-final-runtime-audit-20261014.json`.
+- **Environment qualification:** bare Nix Python initially chose libcrypto 3.5
+  while the native module needs OpenSSL 3.6. The successful private-runtime tests
+  use `TMP/five-loop-vakint-20261013/vakint_cache_transfer_toolchain.sh`, which
+  supplies the matching loader paths. This is a validated local runtime, not a
+  portable/PyPI/Community-main release or proof of default-shell import.
+
+Ready local assets, all under `/common/dev/rustred/`:
+
+- Transport archives and checksums:
+  `TMP/five-loop-vakint-20261013/cache-delivery-20261014/manifest.json` and
+  `vakint-native-cache-{1,2,3,4}l-ustar.tar.gz` in that directory.
+- Verified imported evaluation snapshots:
+  `TMP/five-loop-vakint-20261013/cache-transfer-final-public-20261014/imported-{1,2,3,4}`.
+- Original four-loop preparation remains at
+  `TMP/five-loop-vakint-20261013/default-4l-cache-20261013/cache`.
+- Tested Python interpreter:
+  `TMP/community-cache-transfer-final-20261014.HdGogm/venv/bin/python`.
+  Invoke it through the loader helper above. Root additionally verified a fresh
+  four-loop `load_cache` after delivery: 164,352 indexed records, zero chunk
+  reads and zero native rules at attachment, with an invalid FORM path.
+
+The archives are local, not hosted. `import_cache`/`download_cache` and explicit
+`load_cache` are documented in Vakint's `cache_preparation.typ`. Completed roots
+are reusable as intermediate shortcuts; this does not export every transient
+guardless memo entry. Cache preparation is a finite primer, not a new integral
+coverage claim. The broad five-loop admission/application/ladder acceptance
+work is still incomplete and remains deferred by the user's latest cache-only
+priority pending the updated five-loop artifact. The tool-managed goal is not
+marked complete merely because this cache milestone is complete.
+
+## October 14 — optimized reader published; final public comparison complete
+
+Root pushed and remote-verified `301beec66e6a2fcdc12ffe2c665181206615550c`.
+The existing cache packs are unchanged. Additional core-test source checking
+passes in 52.90 s; the eight added reader tests pass their independent rerun.
+
+All four public probes now pass exact comparison to ordinary evaluation and
+the frozen previous Python host's native Atom exports. Comparing the same
+Rust public interface before/after the reader fix, excluding setup:
+
+| Parent | Descendant cache without key index | With bounded key index | Ratio |
+| --- | ---: | ---: | ---: |
+| H | 4.72166 s | 3.34233 s | 1.41x |
+| FG | 0.28129 s | 0.22426 s | 1.25x |
+| BMW | 2.02304 s | 1.40644 s | 1.44x |
+| X | 30.63170 s | 18.15692 s | 1.69x |
+
+These are single fresh-process shared-host samples, not statistical guarantees.
+Rule counts and descendant hit counts are unchanged; reads eliminated equal
+`key_index_skips` exactly. Additional metadata is 0.69--5.78 MB. Receipt:
+`TMP/five-loop-vakint-20261013/full4-prefilter-verification-receipt-20261014.json`.
+All measurement process groups have finished, and source packs, old module
+and older libraries remain unchanged. No further experiments are queued.
+
+The remaining cache delivery is now the final actual-Git `301beec6` Vakint/
+private Python build, corrected transfer tests, all-loop import/load smoke and
+final feature-branch push. `candidate_descendant_impl` owns that build/integration;
+`four_cache_validation` independently audits the final interfaces and receipts.
+The broad five-loop acceptance goal remains deferred/incomplete, not replaced
+by this lower-loop cache milestone.
+
+Final build handles: new private host
+`TMP/community-cache-transfer-final-20261014.HdGogm`, wheel handle84265/build-0,
+native group1568668; corrected eight-test native transfer gate handle92300/build-1.
+The host metadata verifies one Symbolica 3.0.1 instance, unchanged FeynKit source
+and actual-Git `301beec6` for all RustRed crates. Both builds use separate targets;
+the old Python installation and benchmark libraries remain frozen. Python-feature
+library/test checking passes in 55.31 s. Matching-toolchain Clippy now passes in
+9.85 s after selecting the Nix Clippy with the matching sysroot; existing and
+nonfunctional warnings remain, so this is not a warning-free/full-CI claim.
+The final delivery audit finds no source blocker; all-loop Python runtime proof
+and final branch push still await the wheel and corrected native test results.
+
 ## October 14 — exact-key reader gate passes and removes measured I/O regressions
 
 - [M] The optional exact-key metadata optimization passes **62 optimized app

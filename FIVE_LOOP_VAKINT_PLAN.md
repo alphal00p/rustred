@@ -177,6 +177,30 @@ silently switch to the user's live D10 campaign. See `CODEX_PROGRESS.md` and
 
 ## Approved follow-up — persistent reusable application caches
 
+### Delivered one-through-four-loop cache milestone (October 14)
+
+RustRed `301beec66e6a2fcdc12ffe2c665181206615550c` and Vakint branch
+`vakint_rustred` commit `e0b6c6b82b197b37cfa2d86a6b29911c8776ff14` deliver
+the prepared 1--4-loop cache path, guarded intermediate reuse, bounded exact-key
+reader metadata and explicit import/download/load interfaces. The complete
+finite primers contain 5/77/2,320/164,352 records. The original four-loop pack
+was prepared in 3h22m51 and occupies 72,253,397 bytes; it was reused without
+regeneration for the shortcut implementation and all subsequent tests.
+
+Validation includes 121 core tests, the expanded 62-test app cache gate,
+eight native transfer tests with an independent repeat, eleven Python smoke
+tests and nine independent all-loop public import/download/reduction jobs.
+Four genuinely unseen four-loop requests retain exact old results and guards;
+the final reader cuts measured time by 1.25--1.69x against the first descendant-
+reuse version. These are single-case samples, not universal speed guarantees.
+
+All packs and archives remain local and untracked; paths, hashes, comparisons,
+tested invocation and the private OpenSSL 3.6 runtime qualification are in
+`CODEX_PROGRESS.md`. No Community/PyPI publication or unrestricted mathematical
+coverage is claimed. Five-loop cache preparation and the remaining broader
+five-loop acceptance work are still deferred/incomplete, not implicitly
+completed by this lower-loop milestone.
+
 ### October 14 correction: reuse cached reductions inside candidate descent
 
 The user explicitly requires cached results to help an intermediate integral
