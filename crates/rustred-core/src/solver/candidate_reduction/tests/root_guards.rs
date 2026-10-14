@@ -4,7 +4,7 @@ use crate::reduction::{CacheWeight, SharedCacheBudget, coefficient_cache_weight}
 use crate::solver::CandidateCacheRepresentation;
 use crate::solver::candidate_reduction::owner_test_support::{input, rule};
 
-fn guarded_fixture(shared_and_cancelled: bool) -> CandidateReducer<1> {
+pub(super) fn guarded_fixture(shared_and_cancelled: bool) -> CandidateReducer<1> {
     let family = crate::solver::tests::tadpole();
     let rules = if shared_and_cancelled {
         vec![

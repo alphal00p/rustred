@@ -14,7 +14,7 @@ use crate::solver::{
 
 use super::{index_offset, key};
 
-fn fixture() -> (IntegralFamily, BTreeSet<IntegralKey>, IntegralKey) {
+pub(super) fn fixture() -> (IntegralFamily, BTreeSet<IntegralKey>, IntegralKey) {
     let context = CoefficientContext::new(["d"]);
     let rows = [
         [1, 0, 0, 0, 0, 0],

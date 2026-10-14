@@ -22,7 +22,7 @@ pub(super) struct CandidateEvaluator<'a, const N: usize> {
     pub zero_sectors: &'a BTreeSet<[bool; N]>,
     pub limits: ReductionLimits,
 }
-impl<const N: usize> CandidateEvaluator<'_, N> {
+impl<'a, const N: usize> CandidateEvaluator<'a, N> {
     pub(crate) fn validate_target(
         &self,
         target: &IntegralKey,
@@ -94,6 +94,32 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
         statistics: &mut ReductionStatistics,
     ) -> Result<(BTreeMap<IntegralKey, Coefficient>, Vec<Coefficient>), CandidateReductionError>
     {
+        self.apply_with_selection(target, None, request, statistics)
+    }
+
+    /// Apply an already selected native rule after a completed-result miss.
+    /// Selection and its exact applicability checks are shared with ordinary
+    /// application; no coefficient specialization occurs on a cache hit.
+    pub(super) fn apply_selected_with_conditions(
+        &self,
+        target: &IntegralKey,
+        baseline: &PreparedRule<N>,
+        rule: &PreparedRule<N>,
+        request: &mut ReductionRequest,
+        statistics: &mut ReductionStatistics,
+    ) -> Result<(BTreeMap<IntegralKey, Coefficient>, Vec<Coefficient>), CandidateReductionError>
+    {
+        self.apply_with_selection(target, Some((baseline, rule)), request, statistics)
+    }
+
+    fn apply_with_selection(
+        &self,
+        target: &IntegralKey,
+        selected: Option<(&PreparedRule<N>, &PreparedRule<N>)>,
+        request: &mut ReductionRequest,
+        statistics: &mut ReductionStatistics,
+    ) -> Result<(BTreeMap<IntegralKey, Coefficient>, Vec<Coefficient>), CandidateReductionError>
+    {
         let mut conditions = Vec::new();
         let mut nonzero = |condition: &CoefficientPolynomial| {
             if !condition.is_constant() {
@@ -104,7 +130,10 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
             }
         };
         self.validate_target_with_conditions(target, &mut nonzero)?;
-        let (baseline, rule) = self.selected_rule(target)?;
+        let (baseline, rule) = match selected {
+            Some(selected) => selected,
+            None => self.selected_rule(target)?,
+        };
         // Post-baseline alternatives require both the baseline coverage and
         // their own applicability. Rejected candidates contribute no guards.
         self.applicable_with_conditions(baseline, target, &mut nonzero)?;
@@ -115,10 +144,10 @@ impl<const N: usize> CandidateEvaluator<'_, N> {
         Ok((terms, conditions))
     }
 
-    fn selected_rule(
+    pub(super) fn selected_rule(
         &self,
         target: &IntegralKey,
-    ) -> Result<(&PreparedRule<N>, &PreparedRule<N>), CandidateReductionError> {
+    ) -> Result<(&'a PreparedRule<N>, &'a PreparedRule<N>), CandidateReductionError> {
         let mut baseline = None;
         for rule in self.rules {
             if rule.dispatch_policy == crate::solver::RuleDispatchPolicy::Partition

@@ -177,6 +177,44 @@ silently switch to the user's live D10 campaign. See `CODEX_PROGRESS.md` and
 
 ## Approved follow-up — persistent reusable application caches
 
+### October 14 correction: reuse cached reductions inside candidate descent
+
+The user explicitly requires cached results to help an intermediate integral
+even when the requested input has never been reduced. This is now the immediate
+priority. The four-loop candidate wrapper's starting-root-only lookup is an
+implementation gap, not the intended final cache behavior.
+
+- Implement descendant RAM/backing lookup in the generic RustRed candidate
+  application engine, reusing the existing closed-program provider pattern,
+  exact artifact/terminal binding, native coefficient algebra and guard union.
+  Vakint only selects/attaches the cache and steers reduction.
+- Check entry admission for the requested root. Descendant traversal must not
+  be clipped to the starting rank/domain. Import cached descendants only under
+  their valid native authority; a cache hit must not hide missing applicability,
+  source conditions, invalid terminal convention, active cycles or corruption.
+- Carry cached coefficients and all exceptional-domain conditions together,
+  including poles whose contributions cancel in the final answer. Preserve
+  shared memory accounting, dependency safety, LRU/LFU and cleanup on failures.
+- Reuse the completed four-loop pack without regenerating IBPs or warming it
+  from scratch if its unchanged exact record format permits. Retain compatible
+  persisted-root records; this requirement does not mandate persisting every
+  transient internal memo entry.
+- Independently test unseen roots satisfied through cached descendants in RAM
+  and fresh-process disk, with exact output/guard agreement, fewer native rule
+  applications, positive descendant-hit counters and cold/warm timing. Include
+  corrupt/mismatched caches, cancellation guards and root-versus-descendant
+  domain bounds. Use generic tests plus actual four-loop held-out inputs.
+- Delegate engine implementation, independent tests/audit and full-pack Vakint
+  validation separately. Defer the download/import feature until this core
+  cache behavior is correct. Keep five-loop production untouched.
+
+The generic shortcut implementation now passes 121 optimized core tests and
+54 optimized application tests, both independently repeated. The completed
+four-loop pack's 38-record coefficient/guard sample and public two-mass/pinch
+controls pass against the frozen previous engine. Matched new-engine four-loop
+measurements and cache-transfer runtime validation remain in progress; no
+unmeasured speedup or five-loop acceptance completion is implied.
+
 **Latest user priority:** implement and prepare the **1--4-loop caches only**
 for now. Five-loop preparation, new five-loop application pilots and the
 five-loop-specific cache/session wiring are deferred pending the user's D<=10

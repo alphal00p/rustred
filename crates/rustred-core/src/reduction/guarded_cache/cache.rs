@@ -253,7 +253,7 @@ impl GuardedRootCache {
         Ok(())
     }
     #[cfg(test)]
-    pub(super) fn peek(&self, key: &IntegralKey) -> Option<ApplicationCacheRecord> {
+    pub(crate) fn peek(&self, key: &IntegralKey) -> Option<ApplicationCacheRecord> {
         self.state()
             .entries
             .get(key)

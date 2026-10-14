@@ -123,7 +123,7 @@ fn cold_warm_root_results_and_mass_authority_match_native_without_hot_revalidati
 }
 
 #[test]
-fn held_out_candidate_root_remains_cold_and_clear_releases_only_resident_roots() {
+fn held_out_candidate_root_uses_completed_descendant_and_clear_releases_resident_roots() {
     let family = crate::solver::tests::tadpole();
     let source = candidate::<1>(&family, Default::default());
     let program = CandidateUnitMassProgram::new(&source, [2; 32]);
@@ -139,8 +139,10 @@ fn held_out_candidate_root_remains_cold_and_clear_releases_only_resident_roots()
         .reduce_guarded_root(&key([5]), &mut cache, Default::default(), None)
         .unwrap();
     assert_eq!(held_out.record.terms, *expected.0.terms());
-    assert_eq!(held_out.work, expected.2);
-    assert_eq!(cache.statistics().descendant_ram_hits, 0);
+    assert_eq!(held_out.record.nonzero_conditions, expected.1);
+    assert_eq!(held_out.work.rule_applications(), 1);
+    assert!(held_out.work.rule_applications() < expected.2.rule_applications());
+    assert_eq!(cache.statistics().descendant_ram_hits, 1);
     cache.clear().unwrap();
     assert_eq!(cache.shared_budget().snapshot(), Default::default());
     assert_eq!(cache.statistics().completed_reductions, 2);
@@ -413,11 +415,11 @@ fn cold_pressure_evicts_completed_roots_but_never_grants_a_second_native_budget(
             cache.shared_budget().snapshot().integrals,
             cache.statistics().cached_integrals
         );
-        assert!(
-            program
-                .reduce_guarded_root(&key([5]), &mut cache, limits, None)
-                .is_err()
-        );
+        let next = program
+            .reduce_guarded_root(&key([5]), &mut cache, limits, None)
+            .unwrap();
+        assert_eq!(next.work.rule_applications(), 1);
+        assert_eq!(cache.statistics().descendant_ram_hits, 1);
         assert_eq!(
             cache.shared_budget().snapshot().integrals,
             cache.statistics().cached_integrals

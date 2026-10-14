@@ -1,6 +1,6 @@
 use super::CandidateReductionError;
 use super::evaluator::{CandidateEvaluator, validate_entry_rank};
-use super::reducer::CandidateReducer;
+use super::reducer::{CandidateProgram, CandidateReducer};
 use crate::algebra::Coefficient;
 use crate::family::IntegralKey;
 use crate::reduction::{ReductionLimits, ReductionRequest};
@@ -56,26 +56,36 @@ impl<const N: usize> CandidateReducer<N> {
         target: &IntegralKey,
         request: &mut ReductionRequest,
     ) -> Result<BTreeMap<IntegralKey, Coefficient>, CandidateReductionError> {
+        self.program
+            .evaluator(target, self.limits)?
+            .apply(target, request, &mut self.statistics)
+    }
+}
+
+impl<const N: usize> CandidateProgram<N> {
+    pub(super) fn evaluator(
+        &self,
+        target: &IntegralKey,
+        limits: ReductionLimits,
+    ) -> Result<CandidateEvaluator<'_, N>, CandidateReductionError> {
         let sector = std::array::from_fn(|i| target.powers().get(i).copied().unwrap_or(0) > 0);
-        let Some(rules) = self.program.rules.get(&sector) else {
+        let Some(rules) = self.rules.get(&sector) else {
             return Err(CandidateReductionError::Uncovered {
                 target: target.clone(),
             });
         };
-        CandidateEvaluator {
-            context: &self.program.context,
-            root_sector: self.program.root_sector,
-            ordering: &self.program.ordering,
+        Ok(CandidateEvaluator {
+            context: &self.context,
+            root_sector: self.root_sector,
+            ordering: &self.ordering,
             rules,
             whole_piece_alternatives: self
-                .program
                 .whole_piece_alternatives
                 .get(&sector)
                 .map_or(&[], Vec::as_slice),
-            source_conditions: &self.program.source_conditions,
-            zero_sectors: &self.program.zero_sectors,
-            limits: self.limits,
-        }
-        .apply(target, request, &mut self.statistics)
+            source_conditions: &self.source_conditions,
+            zero_sectors: &self.zero_sectors,
+            limits,
+        })
     }
 }

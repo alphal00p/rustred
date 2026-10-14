@@ -429,8 +429,14 @@ cache-key arity. Source conditions and current entry bounds precede every hit;
 unknown leaves remain errors and an imported terminal row must match the
 installed normalization.
 
-This initial candidate wrapper caches completed starting roots only. A cold
-request uses an isolated native session, sharing the outer coefficient budget.
+The candidate wrapper stores completed guarded roots and consults them again
+when they occur as intermediate descendants of a new input. Both RAM and lazy
+backing hits use the existing native record format and exact program/terminal
+binding. This does not require the new starting input to be present in the
+cache. Native zero sectors and declared terminal rows remain cheap direct
+operations, without backing IO.
+
+A cold request uses an isolated native session, sharing the outer coefficient budget.
 For that fresh single-root solve, the native engine retains the exact root guard
 union once instead of copying each subtree's cumulative conditions into every
 memo entry. It uses the same local guard producers and deterministic first-seen
@@ -440,9 +446,22 @@ subtree-guarded API remains unchanged for other callers. The fresh-only mode
 rejects a populated inner memo rather than assuming it has already observed
 the required conditions.
 
-Its inner coefficient DAG retains the existing fail-on-limit policy and does
-not yet consult prepared roots as descendants. Do not infer held-out four-loop
-speedups from the closed-program descendant tests or exact-repeat hits.
+For a nonterminal descendant, the native evaluator checks source conditions,
+active-cycle status and rule applicability before lookup. A hit imports both
+the exact terminal coefficients and their complete nonzero-condition vector;
+the fresh request's ordered guard union also retains cancelled contributions'
+conditions. A miss reuses the selected native rule. Invalid backing data and
+application failures are not converted into missing-cache success.
+
+Root admission remains mandatory. A native descendant exceeding the starting
+rank allowance continues through the existing rules without consulting the
+root-record namespace; it is not clipped or declared a new terminal. Guardless
+inner memo entries are never exported as complete guarded records. The inner
+coefficient DAG retains its existing fail-on-limit policy, distinct from outer
+completed-record LRU/LFU eviction. Descendant hits have their own counters.
+Generic optimized tests cover unseen inputs with RAM/disk descendant reuse;
+real four-loop speedups require the separate held-out measurements, not only
+exact-repeat timing.
 
 ## Explicit cache snapshots and resumable preparation
 

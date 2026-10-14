@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::algebra::{Coefficient, IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::IntegralKey;
+use crate::persistence::application_cache::{ApplicationCacheKey, ApplicationCacheRecord};
 use crate::reduction::terminal_normalization::{TerminalAliasPlan, TerminalNormalizationPlan};
 use crate::reduction::{
     CacheWeight, ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics,
@@ -15,6 +16,11 @@ use super::model::{
     CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
     CandidateReductionError, CandidateStatistics, PreparedRule,
 };
+
+/// A request-scoped lookup of complete, already validated guarded records.
+/// No provider is retained in the reducer or used by its ordinary APIs.
+pub(super) type CandidateGuardedLookup<'a, E> =
+    dyn FnMut(&IntegralKey) -> Result<Option<Arc<ApplicationCacheRecord>>, E> + 'a;
 
 /// Immutable mathematical inputs shared by independent application sessions.
 /// Terminal conventions are shared separately so changing one session's
@@ -186,7 +192,7 @@ impl<const N: usize> CandidateReducer<N> {
         ),
         CandidateReductionError,
     > {
-        self.reduce_guarded_impl(target, remaining, false)
+        self.reduce_guarded_impl(target, remaining, false, None)
     }
 
     /// A single fresh root may retain its complete guard union once instead
@@ -204,43 +210,65 @@ impl<const N: usize> CandidateReducer<N> {
         ),
         CandidateReductionError,
     > {
-        if !self.cache.is_empty() {
-            return Err(ReductionError::ReducerInvariant {
-                detail: "fresh guarded candidate root requires an empty inner cache",
-            }
-            .into());
-        }
-        self.reduce_guarded_impl(target, remaining, true)
+        self.reduce_guarded_impl(target, remaining, true, None)
     }
 
-    fn reduce_guarded_impl(
+    pub(super) fn reduce_fresh_unit_mass_guarded_with_lookup(
         &mut self,
         target: &IntegralKey,
         remaining: ReductionLimits,
-        fresh_root: bool,
+        lookup: &mut CandidateGuardedLookup<'_, super::CandidateGuardedCacheError>,
     ) -> Result<
         (
             CandidateDecomposition,
             Vec<Coefficient>,
             ReductionStatistics,
         ),
-        CandidateReductionError,
+        super::CandidateGuardedCacheError,
     > {
+        self.reduce_guarded_impl(target, remaining, true, Some(lookup))
+    }
+
+    fn reduce_guarded_impl<E: From<CandidateReductionError>>(
+        &mut self,
+        target: &IntegralKey,
+        remaining: ReductionLimits,
+        fresh_root: bool,
+        lookup: Option<&mut CandidateGuardedLookup<'_, E>>,
+    ) -> Result<
+        (
+            CandidateDecomposition,
+            Vec<Coefficient>,
+            ReductionStatistics,
+        ),
+        E,
+    > {
+        if fresh_root && !self.cache.is_empty() {
+            return Err(
+                CandidateReductionError::from(ReductionError::ReducerInvariant {
+                    detail: "fresh guarded candidate root requires an empty inner cache",
+                })
+                .into(),
+            );
+        }
         let original_limits = self.limits;
         let previous_work = self.statistics;
         self.limits = original_limits.bounded_by(remaining);
         self.statistics = ReductionStatistics::default();
-        let result = (|| {
+        let result: Result<_, E> = (|| {
             self.validate_entry_target(target)?;
-            self.cache_budget.replace(
-                0,
-                CacheWeight::default(),
-                0,
-                CacheWeight::default(),
-                self.limits,
-            )?;
+            self.cache_budget
+                .replace(
+                    0,
+                    CacheWeight::default(),
+                    0,
+                    CacheWeight::default(),
+                    self.limits,
+                )
+                .map_err(CandidateReductionError::from)?;
             let (result, conditions, _request_guard_lease) = if fresh_root {
-                let (result, conditions, lease) = self.reduce_with_root_guard_union(target)?;
+                let (result, conditions, lease) =
+                    self.reduce_with_root_guard_union(target, lookup)?;
                 (result, conditions, Some(lease))
             } else {
                 let result = self.reduce_unit_mass_impl(target, true)?;
@@ -248,9 +276,11 @@ impl<const N: usize> CandidateReducer<N> {
                     .cache
                     .get(target)
                     .and_then(|entry| entry.conditions.as_ref())
-                    .ok_or(ReductionError::ReducerInvariant {
-                        detail: "guarded candidate root lacks its condition cache",
-                    })?
+                    .ok_or(CandidateReductionError::from(
+                        ReductionError::ReducerInvariant {
+                            detail: "guarded candidate root lacks its condition cache",
+                        },
+                    ))?
                     .clone();
                 (result, conditions, None)
             };
@@ -258,7 +288,8 @@ impl<const N: usize> CandidateReducer<N> {
                 self.program
                     .context
                     .base()
-                    .validate_with_limits(coefficient, self.limits.exact_algebra)?;
+                    .validate_with_limits(coefficient, self.limits.exact_algebra)
+                    .map_err(CandidateReductionError::from)?;
             }
             Ok((result, conditions, self.statistics))
         })();
@@ -274,40 +305,56 @@ impl<const N: usize> CandidateReducer<N> {
         target: &IntegralKey,
         guarded: bool,
     ) -> Result<CandidateDecomposition, CandidateReductionError> {
-        self.reduce_unit_mass_impl_with_root_guards(target, guarded, None)
+        self.reduce_unit_mass_impl_with_root_guards(target, guarded, None, None)
     }
 
-    pub(super) fn reduce_unit_mass_impl_with_root_guards(
+    pub(super) fn reduce_unit_mass_impl_with_root_guards<E: From<CandidateReductionError>>(
         &mut self,
         target: &IntegralKey,
         guarded: bool,
         mut root_guards: Option<
             &mut dyn FnMut(&[Coefficient]) -> Result<(), CandidateReductionError>,
         >,
-    ) -> Result<CandidateDecomposition, CandidateReductionError> {
-        if root_guards.is_some() && (!guarded || !self.cache.is_empty()) {
-            return Err(ReductionError::ReducerInvariant {
-                detail: "root guard collection requires one fresh guarded candidate request",
-            }
-            .into());
+        mut lookup: Option<&mut CandidateGuardedLookup<'_, E>>,
+    ) -> Result<CandidateDecomposition, E> {
+        if (root_guards.is_some() && (!guarded || !self.cache.is_empty()))
+            || (lookup.is_some() && root_guards.is_none())
+        {
+            return Err(
+                CandidateReductionError::from(ReductionError::ReducerInvariant {
+                    detail: "root guard collection requires one fresh guarded candidate request",
+                })
+                .into(),
+            );
         }
         let subtree_guards = guarded && root_guards.is_none();
         self.validate_entry_target(target)?;
         if self.cached_for(target, subtree_guards) {
             self.statistics.record_cache_hit();
-            return self.materialize_target(target);
+            return self.materialize_target(target).map_err(E::from);
         }
+        let program = Arc::clone(&self.program);
         let mut request = ReductionRequest::default();
         let mut stack = Vec::new();
         let mut active = BTreeSet::new();
         self.push_frame(&mut stack, Frame::Expand(target.clone()), &mut request)?;
         while let Some(frame) = stack.pop() {
-            request.release_pending_frame()?;
+            request
+                .release_pending_frame()
+                .map_err(CandidateReductionError::from)?;
             match frame {
                 Frame::Expand(key) => {
                     if self.cached_for(&key, subtree_guards) {
                         self.statistics.record_cache_hit();
                         continue;
+                    }
+                    if lookup.is_some() && active.contains(&key) {
+                        return Err(
+                            CandidateReductionError::from(ReductionError::CycleDetected {
+                                target: key,
+                            })
+                            .into(),
+                        );
                     }
                     let conditions = if guarded {
                         Some(self.target_conditions(&key)?)
@@ -352,13 +399,48 @@ impl<const N: usize> CandidateReducer<N> {
                         self.cache_insert(key, terms, conditions)?;
                         continue;
                     }
-                    if !active.insert(key.clone()) {
-                        return Err(ReductionError::CycleDetected { target: key }.into());
+                    // Establish native coverage before an external result can
+                    // replace a subtree. Reuse this selection on a miss, and
+                    // never repeat the already attempted starting-root lookup.
+                    // Native zero and terminal rows above require no IO.
+                    let selected = if lookup.is_some() && key != *target {
+                        Some(program.evaluator(&key, self.limits)?.selected_rule(&key)?)
+                    } else {
+                        None
+                    };
+                    if key != *target {
+                        if let Some(provider) = lookup.as_mut() {
+                            if let Some(record) = provider(&key)? {
+                                self.import_guarded_record(&key, &record, &mut root_guards)?;
+                                continue;
+                            }
+                        }
                     }
-                    request.record_rule_application(self.limits.max_rule_applications)?;
+                    if !active.insert(key.clone()) {
+                        return Err(
+                            CandidateReductionError::from(ReductionError::CycleDetected {
+                                target: key,
+                            })
+                            .into(),
+                        );
+                    }
+                    request
+                        .record_rule_application(self.limits.max_rule_applications)
+                        .map_err(CandidateReductionError::from)?;
                     let (terms, conditions) = if guarded {
-                        let (terms, conditions) =
-                            self.apply_guarded_candidate(&key, &mut request)?;
+                        let (terms, conditions) = if let Some((baseline, rule)) = selected {
+                            program
+                                .evaluator(&key, self.limits)?
+                                .apply_selected_with_conditions(
+                                    &key,
+                                    baseline,
+                                    rule,
+                                    &mut request,
+                                    &mut self.statistics,
+                                )?
+                        } else {
+                            self.apply_guarded_candidate(&key, &mut request)?
+                        };
                         (terms, Some(conditions))
                     } else {
                         (self.apply_candidate(&key, &mut request)?, None)
@@ -367,10 +449,10 @@ impl<const N: usize> CandidateReducer<N> {
                     let conditions = retain_root_guards(&mut root_guards, conditions)?;
                     let mut children = Vec::new();
                     children.try_reserve_exact(terms.len()).map_err(|_| {
-                        ReductionError::AllocationFailure {
+                        CandidateReductionError::from(ReductionError::AllocationFailure {
                             resource: "candidate child schedule",
                             requested: terms.len(),
-                        }
+                        })
                     })?;
                     children.extend(terms.keys().cloned());
                     self.push_frame(
@@ -406,9 +488,11 @@ impl<const N: usize> CandidateReducer<N> {
                                 .is_none()
                         })
                     {
-                        return Err(ReductionError::ReducerInvariant {
-                            detail: "guarded candidate child lacks its condition cache",
-                        }
+                        return Err(CandidateReductionError::from(
+                            ReductionError::ReducerInvariant {
+                                detail: "guarded candidate child lacks its condition cache",
+                            },
+                        )
                         .into());
                     }
                     let conditions = conditions.map(|local| {
@@ -436,16 +520,52 @@ impl<const N: usize> CandidateReducer<N> {
                         &mut self.statistics,
                     )?;
                     if !active.remove(&target) {
-                        return Err(ReductionError::ReducerInvariant {
-                            detail: "candidate combine target is not active",
-                        }
+                        return Err(CandidateReductionError::from(
+                            ReductionError::ReducerInvariant {
+                                detail: "candidate combine target is not active",
+                            },
+                        )
                         .into());
                     }
                     self.cache_insert(target, output, conditions)?;
                 }
             }
         }
-        self.materialize_target(target)
+        self.materialize_target(target).map_err(E::from)
+    }
+
+    fn import_guarded_record(
+        &mut self,
+        target: &IntegralKey,
+        record: &ApplicationCacheRecord,
+        root_guards: &mut Option<
+            &mut dyn FnMut(&[Coefficient]) -> Result<(), CandidateReductionError>,
+        >,
+    ) -> Result<(), CandidateReductionError> {
+        if record.key != ApplicationCacheKey::guarded_root(target) {
+            return Err(ReductionError::ReducerInvariant {
+                detail: "candidate guarded provider returned a different exact key",
+            }
+            .into());
+        }
+        let retain = root_guards
+            .as_mut()
+            .ok_or(ReductionError::ReducerInvariant {
+                detail: "candidate guarded provider requires a fresh root guard union",
+            })?;
+        // The provider validates context, terminal convention and payload at
+        // admission. Preserve every supplied obligation, including those of
+        // zero or cancelled subtrees, under the request's shared guard lease.
+        retain(&record.nonzero_conditions)?;
+        let terms = CachedTerms::from_sparse(
+            record.terms.clone(),
+            self.cache_representation,
+            self.program.context.base(),
+            self.limits,
+        )?;
+        self.cache_insert(target.clone(), terms, None)?;
+        self.statistics.record_cache_hit();
+        Ok(())
     }
 
     pub fn clear_cache(&mut self) -> Result<(), CandidateReductionError> {
@@ -667,29 +787,9 @@ impl<const N: usize> CandidateReducer<N> {
         request: &mut ReductionRequest,
     ) -> Result<(BTreeMap<IntegralKey, Coefficient>, Vec<Coefficient>), CandidateReductionError>
     {
-        let sector = std::array::from_fn(|i| target.powers().get(i).copied().unwrap_or(0) > 0);
-        let rules =
-            self.program
-                .rules
-                .get(&sector)
-                .ok_or_else(|| CandidateReductionError::Uncovered {
-                    target: target.clone(),
-                })?;
-        super::evaluator::CandidateEvaluator {
-            context: &self.program.context,
-            root_sector: self.program.root_sector,
-            ordering: &self.program.ordering,
-            rules,
-            whole_piece_alternatives: self
-                .program
-                .whole_piece_alternatives
-                .get(&sector)
-                .map_or(&[], Vec::as_slice),
-            source_conditions: &self.program.source_conditions,
-            zero_sectors: &self.program.zero_sectors,
-            limits: self.limits,
-        }
-        .apply_with_conditions(target, request, &mut self.statistics)
+        self.program
+            .evaluator(target, self.limits)?
+            .apply_with_conditions(target, request, &mut self.statistics)
     }
 }
 

@@ -1,5 +1,174 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 14 — descendant-cache core/application gates complete
+
+- [M] The application gate passes **54/54 optimized tests** in 0.27 s after
+  11m38 compilation, including the new fresh-session native disk descendant
+  test. Root independently repeats all 54 in 0.24 s. Frozen executable:
+  `TMP/five-loop-vakint-20261013/rustred-app-candidate-descendant-tests-20261014`,
+  SHA256 `dd7918eb4e0344259ce5487eb139ff12ad150d906a992d9596896c9dbd335fc3`.
+  Logs: `candidate-descendant-app-gate.log` and
+  `candidate-descendant-app-independent-repeat.log`. Together with the core
+  121-test gate and independent repeat, the generic RAM/backing shortcut is
+  implemented and tested. A test-file header typo was corrected afterward;
+  executable statements and the frozen core sources are unchanged.
+- [M] Full-pack baseline native checks pass: all 38 selected records, 431
+  coefficients and 60,007 guards exactly match the retained first38 pack and
+  fresh no-backing controls (170.38 s, sampled peak RSS 2.00 GB). Four unseen
+  power-four inputs also agree exactly in coefficients/guards and repeat values.
+  Native baseline first-call seconds H/FG/BMW/X: 3.8919/0.3340/2.2567/20.3300;
+  no-backing controls: 3.7846/0.3096/2.2120/20.1203. All have zero descendant
+  hits in the frozen old engine. No new-engine speedup claim is made yet.
+- [A] The isolated matching Symbolica 3.0.1/Vakint build with the new root code
+  succeeds in 266.69 s, peak RSS 8.55 GB, using exactly the old feature set.
+  Old libraries and Python host remain unchanged. Native/public driver links
+  are live under handle62506; the matched four-input updated-engine experiment
+  is the next step. No four-loop warmup is repeated.
+- [M] New local transport archives are available under
+  `TMP/five-loop-vakint-20261013/cache-delivery-20261014/`: standard sorted USTAR
+  gzip, `cache/` root, archive bytes 2,155/3,075/142,000/63,548,634 for 1--4L.
+  Original packs and archives remain untouched. The manifest records all
+  checksums and counts; lower-loop extraction bytes match their sources.
+- [A] Explicit Vakint import/download implementation and eight native tests are
+  drafted and independently source-reviewed. They reuse native snapshot copy,
+  exact namespace binding, bounded standard archive handling and no-replace
+  publication. Python steering and docs are drafted too. Runtime compilation,
+  transfer tests and delivery push are still pending; source review is not
+  equivalent to completed validation.
+
+## October 14 — generic descendant shortcuts implemented, runtime gates active
+
+- [M] Optimized core gate passes **121 tests**, including eleven new descendant
+  tests, in 0.31 s after a 6m30 build. Root independently repeats all 121 in
+  0.17 s with one worker. Source hashes are unchanged; frozen executable:
+  `TMP/five-loop-vakint-20261013/rustred-candidate-descendant-tests-7425e564`,
+  SHA256 `7425e564ae4455ad5b89651e067f8700fcbd51bb37d314eb97bf9ea469cdb387`.
+  Logs: `candidate-descendant-core-gate.log` and
+  `candidate-descendant-core-independent-repeat.log` in the same directory.
+  Application source checking passes in 1m16; the full native application cache
+  regression gate is now live under handle45617, build-0, with the app source
+  frozen. Independent source audit by `candidate_descendant_tests` passes with
+  no blocker. The new app test discards its producer session/program and opens
+  the unchanged native disk pack in a fresh backend before reducing an unseen
+  root through the stored child under a one-rule allowance.
+
+- [A] `candidate_descendant_impl` implemented same-artifact guarded descendant
+  lookup inside the existing candidate traversal, using the shared RAM/backing
+  cache and exact native evaluator. Rule selection precedes lookup and is reused
+  on a miss; a hit skips coefficient back-substitution while retaining the cached
+  guard union. Native zero/terminal rows require no backing IO. Starting-rank
+  admission still precedes root hits but does not clip native descendants.
+  The binary record schema, artifact identity and terminal convention are
+  unchanged. Vakint needs no second scalar reducer.
+- [A] `candidate_descendant_tests` added eleven independent core regressions and
+  an actual app disk-cache test: unseen root via prepared child, sparse and
+  factorized representations, LRU/LFU, exact cancelled/source/weighted-terminal
+  conditions, corruption and typed backing failures, bounds and budget cleanup.
+  Root and the separate test agent's source audits find no blocker so far.
+- [M] Native core and tests source-check successfully in 51.81 s. The initial
+  `nix develop` attempt failed with a daemon connection reset before compiling;
+  using the already installed Nix Cargo/Rust/GCC binaries works without elevated
+  permissions or host changes. The optimized core gate is live at handle 13897,
+  build-0/CPUs32--47; sources are frozen and captured in
+  `TMP/five-loop-vakint-20261013/candidate-descendant-core-sources.sha256`.
+  The subsequently completed runtime gate is recorded above; real four-loop
+  updated-engine timing remains pending.
+- [M] `four_cache_validation` completed a frozen old-engine public baseline on
+  the full pack: all 76 first38/two-mass comparisons, eight cancellation/pinch
+  controls and clear-to-disk reuse pass. Four genuine held-out power-four roots
+  (three extra dots, outside the primer) agree exactly with ordinary reduction.
+  Loaded first-call times H/FG/BMW/X are 4.230/0.400/2.504/21.732 s, versus
+  ordinary 3.861/0.363/2.236/20.585 s. They have zero descendant hits and
+  31,227/4,454/20,902/105,876 native rule applications respectively. These are
+  unpaired baseline timings, not speedup claims. Pack hashes remain unchanged.
+  Evidence: `TMP/five-loop-vakint-20261013/full4-public-power4-baseline-v2-20261014/`.
+- A frozen-library native validation link was terminated with exit143 without
+  a diagnostic or own-resource-guard stop; no root cleanup/kill was issued.
+  The lane preserves that attempt and retries with explicit supervision and a
+  different output name. Native exact guard-record checks and updated-engine
+  matched timings remain pending.
+- The implementation lane proceeds separately with the approved explicit
+  cache transfer API in Vakint while core runtime tests build; no changes to
+  the frozen baseline Python installation, cache data or production campaign.
+- The baseline shipped-table four-case numerical gate also passes using only
+  existing Vakint evaluations. A supervised native-guard-validation link retry
+  first failed *before starting a child* because its declared worker count did
+  not equal the affinity size; corrected retry handle29031 uses CPU0--7/eight
+  workers under build-1. Preserve the original143 and admission-failure receipts;
+  neither is a failed mathematical reduction or a valid timing observation.
+- Next-runtime measurements use a detached `a41758dee` Vakint worktree with
+  local patched core/app sources and a separate target, retaining old libraries
+  and the old Python installation for matched comparison. Transfer implementation
+  proceeds in the original Vakint clone and cannot enter that benchmark build.
+  Native records/guards, cached and uncached exact results, and descendant
+  counters must all agree before reporting a real four-loop shortcut gain.
+
+## October 14 — four-loop pack complete; descendant reuse is now priority
+
+- [M] Reinspection finds the default four-loop preparation **complete**:
+  164,352/164,352 durable roots, 12,171.30 s full wall time (3h22m51),
+  72,253,397 physical/charged bytes and no native or checkpoint failure.
+  Native counters total 122,653,697 rule applications and 41,212 completed-root
+  evictions; the workload survived those evictions. Completion report:
+  `TMP/five-loop-vakint-20261013/default-4l-cache-20261013/native-report.json`.
+  The process finished at 03:57 Zurich time on October 14. No rerun of warmup
+  is needed to recover its output.
+- Telemetry ends after 1,619 s, and the supervisor's final `result.json` is
+  absent. Native completion, final stdout and the cache checkpoint agree, but
+  there is no trustworthy full-run peak RSS or supervisor exit/drain receipt.
+  Do not promote the prefix's observed RSS into a full-run measurement. The
+  full completed pack's independent reload/parity checks remain outstanding.
+- [A] The user correctly requires persistent results to satisfy intermediate
+  integrals too, including unseen starting inputs. Closed-program 1--3L already
+  supports this; the four-loop candidate wrapper did not. This gap is now the
+  immediate implementation priority, ahead of explicit download/import.
+  Engine ownership stays in RustRed, not a new Vakint reducer.
+- New separated lanes: `candidate_descendant_impl` owns generic engine/provider
+  integration; `candidate_descendant_tests` owns independent exact guard,
+  admission, budget and error tests/audit; `four_cache_validation` owns the
+  completed-pack validation and matched real four-loop held-out measurements.
+  Root integrates/reviews and coordinates builds. No active earlier agent or
+  unrecorded successful test is assumed. No IBPs, masters or production inputs
+  will be regenerated/changed.
+- The existing packs contain exact guarded completed-root records; the goal is
+  to reuse those records anywhere valid in native descent, without a schema
+  migration or mandatory warmup rerun. Recording every transient descendant
+  automatically is a separate issue; guardless inner memo entries must not be
+  persisted as exact guarded authority.
+
+## October 13 — Python gates delivered; complete four-loop preparation active
+
+- [M] Vakint's layout milestone is pushed and remote-verified at
+  `a41758deeb06317b600bb1972d889939c0e1bd14` on `vakint_rustred`, using actual-Git
+  RustRed `d44e3bee`. All ten Python cache tests pass in 0.762 s. A genuine
+  pre-change `6a70dcc` 65-record chunk loads and a copy resumes with 65 reused
+  roots plus two new roots under the 64-record target; the original is unchanged.
+  The public Python example also passes. Receipt:
+  `TMP/community-cache-smoke-20261013.8gjsFL/cache-python-layout-runtime-receipt.json`,
+  SHA256 `19866c270df49823997c0807d579854e66178b72e13993582d5bd64d68e499ad`.
+- [M] Root's separate monitoring-only fix is pushed and remote-verified at
+  `315e152add60e6a19fec84c974cd3077674a8aa7`. It does not alter the native binary
+  or require a newer native dependency pin.
+- [A] Profile launched the complete default 164,352-input four-loop preparation
+  at 22:34:11 UTC, owned handle 62195, supervisor 485054/native group 485650.
+  Evidence/pack: `TMP/five-loop-vakint-20261013/default-4l-cache-20261013/` and its
+  `cache/` child. The frozen private host uses installed module SHA256
+  `93f56e9c52190079644bf281b4e919b9bdc73ae3e869650e2b4a692096f13054`.
+  At 130 s including setup, 9,350 roots are durably stored, no checkpoint error
+  is reported, and RSS is about 1.87 GB. Cheap early roots are not representative;
+  do not extrapolate a completion ETA or report a completed four-loop pack.
+- The run uses 16e9 aggregate coefficient-RAM/disk budgets, batch target 64,
+  unchanged native work limits, ten-hour cooperative native preparation budget,
+  no external timeout and explicit resume only. Its supervisor enforces CPU
+  affinity 24--31, 50e9 hard / 47.5e9 soft process-tree RSS and 150e9 host reserve;
+  `request.json` records swap-stop rate zero. No production campaign is modified.
+- Next: Profile monitors this same handle and prepares post-completion checks
+  against the frozen four-loop exact/parity controls. `cache_layout_audit` now
+  implements the previously approved explicit download/import interface after
+  Delivery released source ownership; Root and Delivery will independently
+  review it. The installed host/environment used by the long run must remain
+  frozen. Download implementation and full four-loop completion remain pending.
+
 ## October 13 — RAM-only cache supervisor and rebuilt Python host
 
 - [M] Root found that the generic `generation_guard.run` helper did not forward

@@ -19,6 +19,8 @@ use super::{CandidateReducer, CandidateReductionError};
 
 #[path = "tests/cached_program.rs"]
 mod cached_program;
+#[path = "tests/descendant_cache.rs"]
+mod descendant_cache;
 #[path = "tests/factorized_audit.rs"]
 mod factorized_audit;
 #[path = "tests/root_guards.rs"]

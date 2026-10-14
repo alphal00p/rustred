@@ -1,4 +1,4 @@
-//! Explicit guarded starting-root memoization for immutable candidate programs.
+//! Explicit guarded completed-result reuse for immutable candidate programs.
 //! This does not certify candidate formulas or replace their native evaluator.
 use super::{CandidateDecomposition, CandidateReducer, CandidateReductionError};
 use crate::algebra::CoefficientContext;
@@ -50,13 +50,13 @@ impl std::error::Error for CandidateGuardedCacheError {}
 /// terminal convention. Each cold request gets an isolated empty native
 /// session, with no global reducer lock/clear and no rule-polynomial clone.
 ///
-/// The explicit outer cache stores only completed guarded starting roots.
-/// LRU/LFU applies to those roots; the transient candidate inner DAG retains
+/// The explicit outer cache stores completed guarded starting roots, which
+/// also supply native descendants with the same artifact and convention.
+/// LRU/LFU applies to those records; the transient candidate inner DAG retains
 /// its existing coefficient-only FailOnLimit behavior. A fresh root retains
-/// its complete native guard union once, under the same shared allowance,
-/// instead of retaining duplicate subtree guard vectors at every inner node.
-/// Prepared roots are not yet consulted
-/// as candidate descendants, and no inner-DAG reuse/eviction is claimed.
+/// its complete native guard union once, including imported subtree guards,
+/// under the same shared allowance. Guardless inner memo entries are never
+/// exported as completed guarded records.
 #[derive(Clone)]
 pub struct CandidateUnitMassProgram<const N: usize> {
     snapshot: Arc<CandidateReducer<N>>,
@@ -204,18 +204,9 @@ impl<const N: usize> CandidateUnitMassProgram<N> {
         mut backing: Option<&mut dyn GuardedCacheBacking>,
     ) -> Result<GuardedRootResult, CandidateGuardedCacheError> {
         let limits = limits.bounded_by(cache.limits());
-        self.validate_entry(target, limits)?;
-        if let Some((record, source)) = lookup_bound(
-            &self.binding,
-            self.identity(),
-            self.context(),
-            target,
-            cache,
-            limits,
-            &mut backing,
-            RootUse::Entry,
-            |record| self.validate_completed_record(record, limits),
-        )? {
+        if let Some((record, source)) =
+            self.lookup_completed(target, cache, limits, &mut backing, RootUse::Entry)?
+        {
             let mut work = ReductionStatistics::default();
             work.record_cache_hit();
             return Ok(GuardedRootResult {
@@ -224,11 +215,14 @@ impl<const N: usize> CandidateUnitMassProgram<N> {
                 source,
             });
         }
+        let shared = cache.shared_budget();
         let (unit, nonzero_conditions, work) = {
-            let mut session = self
-                .snapshot
-                .fork_empty_with_shared_budget(limits, cache.shared_budget());
-            session.reduce_fresh_unit_mass_guarded(target, limits)?
+            let mut lookup = |descendant: &IntegralKey| {
+                self.lookup_completed(descendant, cache, limits, &mut backing, RootUse::Descendant)
+                    .map(|found| found.map(|(record, _)| record))
+            };
+            let mut session = self.snapshot.fork_empty_with_shared_budget(limits, shared);
+            session.reduce_fresh_unit_mass_guarded_with_lookup(target, limits, &mut lookup)?
         }; // Drop releases only this native session's retained share.
         cache.completed_reduction(work);
         let record = Arc::new(ApplicationCacheRecord {
@@ -248,6 +242,39 @@ impl<const N: usize> CandidateUnitMassProgram<N> {
             work,
             source: GuardedRootSource::Reduced,
         })
+    }
+
+    pub(super) fn lookup_completed(
+        &self,
+        target: &IntegralKey,
+        cache: &mut GuardedRootCache,
+        limits: ReductionLimits,
+        backing: &mut Option<&mut dyn GuardedCacheBacking>,
+        usage: RootUse,
+    ) -> Result<Option<(Arc<ApplicationCacheRecord>, GuardedRootSource)>, CandidateGuardedCacheError>
+    {
+        if let Err(error) = self.validate_entry(target, limits) {
+            // The serialized namespace contains admitted starting roots.
+            // Exceeding its entry rank does not clip native descendants or
+            // extend the authority of those stored records.
+            if usage == RootUse::Descendant
+                && matches!(error, CandidateReductionError::OutsideNumeratorRank { .. })
+            {
+                return Ok(None);
+            }
+            return Err(error.into());
+        }
+        lookup_bound(
+            &self.binding,
+            self.identity(),
+            self.context(),
+            target,
+            cache,
+            limits,
+            backing,
+            usage,
+            |record| self.validate_completed_record(record, limits),
+        )
     }
 
     fn decomposition_validated(

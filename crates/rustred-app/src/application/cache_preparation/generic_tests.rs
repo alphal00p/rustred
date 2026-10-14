@@ -1,5 +1,5 @@
-//! Independent generic Candidate façade tests. These fixtures declare leaves
-//! only: no rule search or nonterminal-coverage claim is made.
+//! Independent generic Candidate façade tests. Most fixtures declare leaves;
+//! the descendant regression uses the native K1 solver.
 use super::*;
 use crate::{
     AppErrorKind, SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter,
@@ -111,6 +111,96 @@ fn guarded_leaf(program: &CandidateUnitMassProgram<1>, pole: i64) -> Application
         .validate_completed_record(&record, Default::default())
         .unwrap();
     record
+}
+
+#[test]
+fn fresh_candidate_app_session_reduces_unseen_root_through_native_disk_descendant() {
+    use rustred::solver::{SectorConfig, SectorSolveOptions, SectorSolver, SourceSystem};
+
+    let artifact = rustred::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap();
+    let family = artifact.family();
+    let system = SourceSystem::<1>::from_family(family).unwrap();
+    let solution = SectorSolver::new(&system, [true], SectorConfig::default())
+        .unwrap()
+        .solve_sector(SectorSolveOptions::default())
+        .unwrap();
+    let source = CandidateReducer::try_new(
+        family,
+        [true],
+        OrderingPolicy::SpiredUncutV1,
+        [([true], solution)],
+        vec![],
+        Default::default(),
+    )
+    .unwrap();
+    let (expected, mut guards, full_work) = source
+        .fork_empty()
+        .reduce_unit_mass_guarded(&key(5), Default::default())
+        .unwrap();
+    assert!(full_work.rule_applications() > 1);
+    let digest = *blake3::hash(b"native-k1-candidate-descendant-app-regression-v1").as_bytes();
+    let program = CandidateUnitMassProgram::new(&source, digest);
+    let mut prepared = CandidateApplicationCache::new(
+        program.clone(),
+        Default::default(),
+        CompletedCachePolicy::EvictLeastRecentlyUsed,
+    );
+    let mut child = prepared.reduce_guarded_root(&key(4)).unwrap().record;
+    // The ordinary native schema already carries obligations which no longer
+    // occur in final coefficients. Keep one through disk, native import and
+    // parent multiplication without changing any framing or stage tags.
+    let d = program.context().parameter("d").unwrap();
+    let guard = program
+        .context()
+        .try_sub(&d, &program.context().integer(17), Default::default())
+        .unwrap();
+    child.nonzero_conditions.push(guard.clone());
+    guards.push(guard);
+    program
+        .validate_completed_record(&child, Default::default())
+        .unwrap();
+    let scratch = Scratch::new();
+    let destination = scratch.0.join("native-descendant-pack");
+    let storage = SavedApplicationCachePackLimits::default();
+    let mut writer = SavedApplicationCacheBundleWriter::create(
+        &destination,
+        &[program.binding().clone()],
+        storage,
+    )
+    .unwrap();
+    writer
+        .append_completed(program.binding(), &[child], program.context())
+        .unwrap();
+    drop(writer);
+    drop(prepared);
+    drop(program);
+
+    let fresh_program = CandidateUnitMassProgram::new(&source, digest);
+    let one_rule = ReductionLimits {
+        max_rule_applications: 1,
+        ..Default::default()
+    };
+    let mut fresh = CandidateCachePreparationBackend::new(vec![fresh_program], one_rule).unwrap();
+    fresh.attach_bundle(&destination, storage).unwrap();
+    let session = fresh.session_mut(0).unwrap();
+    assert_eq!(session.cache_statistics().cached_integrals, 0);
+    let (result, decomposition) = session
+        .reduce_guarded_root_with_decomposition(&key(5))
+        .unwrap();
+    assert_eq!(result.source, GuardedRootSource::Reduced);
+    assert_eq!(result.record.terms, *expected.terms());
+    assert_eq!(result.record.nonzero_conditions, guards);
+    assert_eq!(decomposition, expected);
+    assert_eq!(
+        decomposition.common_mass_squared_power(&key(1)).unwrap(),
+        -4
+    );
+    assert_eq!(result.work.rule_applications(), 1);
+    assert_eq!(session.cache_statistics().backing_hits, 0);
+    assert_eq!(session.cache_statistics().descendant_backing_hits, 1);
+    assert_eq!(session.cache_statistics().completed_reductions, 1);
+    assert!(session.io_statistics().unwrap().chunks_read > 0);
+    assert_eq!(source.statistics(), Default::default());
 }
 
 #[test]
