@@ -1,5 +1,205 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 14 — soft-counterterm scope analysis and four-loop cache profiling
+
+While five-loop application execution remains deferred, the user requested two
+new, bounded tasks: derive the five-loop input requirements from the paper's
+soft-counterterm R-operation, especially nested self-energies, and profile the
+benefit of existing four-loop caches. This does not authorize changing production,
+generating IBPs, evaluating new masters, or implementing the proposed D10 routing
+optimizations.
+
+`soft_ct_dimension_bound` and `soft_ct_nested_audit` independently read
+arXiv:2203.11038, especially sections 3--5 and appendix B. Root is checking the
+derivations and current input-lowering/forest code. The distinction is between
+physical homogeneous momentum degree and the actual shifted-family index sum;
+explicit auxiliary-mass powers must be retained. A conditional sufficient scope
+after exact forest factorization is being checked, not assumed from a bare-graph
+bound. The whole-paper soft prescription must not be replaced by an argument
+that every ordinary massive Taylor coefficient needs separate integration.
+
+`intermediate_capture_app` profiles the already prepared 4L caches with the
+frozen updated-stack release libraries. Its measurement-only driver adds no
+algebra or solver features. The planned matrix uses fresh processes for no
+persistent cache, old selected-root-only cache and enriched intermediate cache,
+three rotated rounds across H/FG/BMW/X held-outs, plus representative numerator/
+cancellation controls. Program initialization, optional cache loading, first
+application and warm repeats are timed separately, with exact result checks.
+Separate perf sampling is supported without escalation; profiling overhead must
+not enter comparison timings. Production CPUs are excluded. No cache regeneration
+or five-loop application job is part of this work.
+
+### Physics result: a physical grade is not a raw family-index cap
+
+Root and two independent physics agents agree on the following conditional
+analysis of massless renormalizable QCD in Feynman gauge, for integrated
+counterterms rather than a full momentum-dependent amplitude. The paper
+[arXiv:2203.11038](https://arxiv.org/pdf/2203.11038), Eqs. (4.15--4.16) and
+(5.6), uses the combined soft/UV operator; one must not assume all ordinary
+massive q^0/q^1/q^2 Taylor pieces need independent integration. In a nested
+forest the operations remain ordered; standalone vanishing soft pieces cannot
+be discarded before an outer operation changes them. Section 4.1 also requires
+expanding inner auxiliary-mass numerator factors in outer Taylor operations.
+
+For an L-loop projected coefficient, a contribution `(M^2)^j I_D` has engineering
+dimension `L*d - 2D + 2j`. At d=4-2epsilon the dimensionless kinetic coefficient
+therefore obeys **D-j=2L**, or 10 at five loops. The unprojected dimension-two
+piece instead has net grade9. This is a mass-dimension grading, **not** the UV
+degree of each term at fixed M: that degree is `4L-2D`. Nested massless
+counterterms preserve the total grading; they do not add one D per insertion.
+
+A one-loop quark-bubble check, with Delta=k^2-M^2, gives the transverse q^2
+coefficient proportional to
+`4 integral[k^2/Delta^3 - 4(k^2)^2/((d+2)Delta^4)]`.
+Both homogeneous pieces have A-R=2. Replacing k^2=Delta+M^2 gives I2, M^2 I3
+and M^4 I4: raw D=2,3,4 with j=0,1,2. Tadpole IBP reduces the complete
+expression to `(d/3) I2` up to its common coupling/color/sign. Higher raw D is
+already a representation effect without nesting; it is not an extra physical
+UV order or an independence claim for more masters. The current Vakint adapter
+checks surviving lowered keys individually, not a physical numerator's net
+grade. A raw-D10 publication alone consequently proves no complete physical
+coverage theorem.
+
+There is a useful **conditionally sufficient correlated envelope** for the
+genuinely coupled five-loop blocks of UV-divergent kinetic/interaction Green
+functions (not vacuum energy or irrelevant operators). A graph with E=Nb+Nf external legs and V4
+quartic vertices has `I=3L+E-3-V4` original propagator factors, including repeated
+momenta. Highest Taylor order `delta=4-Nb-3Nf/2` yields
+`A0 <= I+delta = 3L+1-Nf/2-V4 <=16` at five loops. After factoring the local
+external operator, `R0=A0-10 <=6`. Linear lowering into shifted quadratics gives
+`D_basis=10+j`, while cancellation cannot increase positive power A. Hence:
+
+`A_basis <=16, 10<=D_basis<=A_basis` (and consequently `R_basis<=6`).
+
+This is **not** a proposed rectangular D<=16/R<=11 campaign or a claim that all
+such keys are necessary. Its sufficiency assumes correct ordered forest
+construction, adapted routing, exact cross-block tensor contractions, and full
+lower-loop support. Every nonempty proper forest separates denominator loop blocks;
+later Taylor derivatives do not recreate mixed denominators. Thus proper
+forests reduce to blocks below five loops, plus the known one-loop localization
+kernels, rather than demanding a new coupled five-loop reduction of their
+flattened product. Without this factorization a full expanded forest can have
+larger raw A/D; sixteen is not a bound on that flattened representation.
+No new gauge-general, massive-OS or oversubtracted-operator claim is made.
+
+For **MS poles only**, a further distinct strategy is available. For an all-
+massive scalar integral of raw D>2L, correct proper subdivergence subtraction
+gives `K_MS R' I=0`, so its bare poles follow from lower-loop proper-forest
+terms. It may be possible to keep the genuinely new five-loop pole problem
+centered on D10, while reconstructing higher-D poles separately. This needs
+graph-aware subtraction, auxiliary-mass counterterms, sufficiently deep lower-
+loop epsilon expansions and correct ordering of tensor contractions. It is not
+implemented by the current campaign. Never drop high-D IBP descendants: a
+later `1/(d-4)` coefficient can make a finite integral contribute to a pole.
+The full finite LU add-back needs finite parts and cannot use this shortcut.
+Primary support: [Chetyrkin--Misiak--Muenz, section2](https://arxiv.org/pdf/hep-ph/9711266),
+[Luthe et al., section2.2](https://arxiv.org/pdf/1709.07718), and
+[Herzog--Ruijl, sections3--4](https://arxiv.org/pdf/1703.03776).
+
+Independent derivation/caveats are preserved in
+`TMP/soft-ct-nested-audit-20261014.md`. This is a theoretical scope analysis,
+not a new five-loop reduction run or proof that the current GammaLoop UV path
+implements every required soft-CT/factorization/pole-only operation. Existing
+source and production inputs were not changed.
+
+### Four-loop cache profile: measured benefit and remaining costs
+
+The read-only study completed 62 native processes, all with exit zero and drained
+groups. Release binaries, identical inputs, physical CPU16 and three rotated
+fresh-process rounds compare no persistent pack, the old full root-only pack,
+and the enriched full pack. Twelve supplementary fresh-process runs isolate a
+program-warm ordinary reference; these supplementary calls follow attached-cache
+application in a fixed order, rather than sharing the rotated main matrix.
+The four stress inputs are H/FG/BMW/X with a
+unit numerator, first physical propagator power four and mass squared four;
+none is a stored starting root. Two expanded-numerator cancellation controls,
+one existing-master numerical comparison per mode, two X RAM sensitivity cases
+and three separately sampled CPU profiles supplement the timing matrix. This
+is **not the full acceptance suite**, no filesystem caches were flushed, and
+the shared host was not idle. Profiling overhead is excluded from timings.
+
+Median initialized-program first applications, seconds:
+
+| Family | No persistent cache | Old full pack | Enriched pack |
+| --- | ---: | ---: | ---: |
+| H | 3.703 | 3.287 | 3.025 |
+| FG | 0.3054 | 0.222 | 0.0508 |
+| BMW | 2.064 | 1.382 | 0.713 |
+| X | 19.630 | 18.182 | 12.458 |
+
+The pack currently prepares all four family programs at attachment, costing
+about 5.6 s. Fresh-process time to the first result (native-entry timer) is
+therefore no-pack/enriched: H 5.080/8.639 s, FG 0.910/5.630 s, BMW 3.062/6.305 s,
+X 22.271/18.068 s. Only X amortizes that startup in this one-input scenario.
+Ordinary Vakint already memoizes within its process-global loaded programs:
+same-input repeats take 18--82 ms without a pack and 19--88 ms with enrichment.
+Do not attribute that existing warm benefit to the persistent cache. A real
+mixed-input GammaLoop workload has not been measured by this study.
+
+All first attached stress calls have zero root hits and positive descendant
+hits. Old/enriched native-rule counts are H 18,538/1,850, FG 1,313/15,
+BMW 9,536/251, X 68,124/6,297. Exact old-native-Atom and warm comparisons pass,
+as do both cancellation controls and the existing numerical-master control.
+The old pack has index02 while the new one has index03: time gains include
+indexing as well as additional intermediate coverage, not an isolated
+capture-only intervention. Inputs and operational budgets are identical; each
+mode uses its own immutable pack across rounds, not identically sized packs.
+
+Separate X `perf` user-cycle samples place about 54% of no-pack self cycles
+in Symbolica/Numerica polynomial/coefficient symbols, versus 13% with the
+enriched pack. The enriched profile instead has 32.23% self cycles in memcmp,
+31.35% explicitly under reader lookup; it probes 2,493 overlapping runs and
+records 5.94 million negative-filter skips. Inflation contributes about 12%
+self cycles. These are sampled cycle fractions, not wall-time percentages or
+additive inclusive stacks. Increasing application RAM from 1 GiB aggregate to
+16 GB removes evictions but changes X from median 12.458 s to one supplemental
+12.359 s sample with unchanged rule/IO work; no substantial RAM speedup is
+demonstrated.
+
+Next performance candidate, **not implemented**: a bounded binding-local
+fingerprint-to-ordered-chunk-candidates index built from existing index03
+metadata, retaining full native key/payload verification, newest precedence and
+legacy fallback. It could remove the measured run-scanning cost without
+regenerating packs. Lazy per-family program preparation is the separate cold-
+startup opportunity. Increasing chunk size was already measured harmful and
+is not recommended. Extra decoded-chunk caching needs an identity-level reuse
+measurement before promising a gain.
+
+Independent audit passes; 18,443 immutable pack-file hashes, source/rlib/job
+bindings and all exact checks are unchanged. No code, production campaign,
+IBP artifact, cache or master value was changed/generated. Full report:
+`TMP/four-loop-cache-profile-20261014/REPORT.md` (SHA256
+`d074ac7a7fa4c5f22259dc524aeea9383397e4a0fb9754ffcfe10dee1473b302`).
+Final receipt: `final-verification.json` in that directory (SHA256
+`02171394116d6ebdd2f79f5133ff3018b9ba6ece3ccae0328aaf529477f4bc58`);
+independent review: `independent-audit.json` in the same directory.
+
+### Follow-up recommendation — preserve the positive-power bound
+
+The user requests excluding program/cache loading from the practical cache
+benefit comparison, since these are amortized fixed overheads. Use the initialized-
+program table above as the primary result for that purpose, while retaining the
+separate cold receipts for reproducibility.
+
+For a new physically targeted five-loop pilot, the proposed input envelope is
+`10<=D<=A<=16`, with `R=A-D<=6`, not just `R<=6, D>=10`. The explicit A cap is
+essential; the latter alone allows arbitrary positive propagator powers. It
+also is not the same as lowering the rank of the existing D<=10 run: it trades
+the broad rank-7--11 input region for mass-weighted D11--16 images at bounded A.
+This is a recommended separate saved-rule pilot, **not a demonstrated speedup**
+or authorization to change production. Proper factorized forest contributions
+must go through verified lower-loop tensor/scalar reduction for the theoretical
+five-loop-block envelope to constitute a complete workflow.
+
+The known hard connected-owner example is already only R<=3 at D10, and legitimate
+descendants exceed the starting rank. Thus R<=6 does not remove every observed
+hard case or bound internal traversal. Compare recursive work on the hard cohort
+before launching a full replacement. Keep the existing run/checkpoint unchanged.
+A global `--rank 6 --max-power-difference 16` alone does not express the proposed
+correlated manifest. If the base envelope closes and extra generality is wanted,
+increase A and the derived rank together (A<=17 permits R<=7 at D>=10); increasing
+R alone while keeping A<=16 and D>=10 changes no admitted point.
+
 ## October 14, 18:38 Europe/Zurich — wait for D10 publication
 
 The user explicitly selected **wait for the D<=10 publication** rather than
