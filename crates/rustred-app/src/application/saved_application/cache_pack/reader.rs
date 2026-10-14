@@ -26,9 +26,10 @@ pub enum SavedApplicationCacheLookupOutcome {
     WorkBudgetExhausted,
 }
 
-/// Immutable on-disk snapshot plus local I/O statistics. Verified exact chunk
-/// keys may be retained within the directory-memory allowance to reject known
-/// misses. Such skips use the authenticated immutable snapshot; they do not
+/// Immutable on-disk snapshot plus local I/O statistics. Persisted compact key
+/// fingerprints (or lazily retained exact keys for legacy chunks) reject known
+/// misses within the directory-memory allowance. Such skips use the trusted
+/// authenticated immutable snapshot; they do not
 /// reread files to detect later external mutation. Possible hits still perform
 /// normal integrity and native validation. Every lookup drops its encoded
 /// chunk/native decode table.
@@ -163,6 +164,20 @@ impl SavedApplicationCachePack {
     ) -> Result<SavedApplicationCacheLookupOutcome, AppError> {
         key.validate(self.manifest.binding.physical_arity)
             .map_err(fail)?;
+        self.lookup_fingerprinted(key, context, index::key_filter::fingerprint(key)?)
+    }
+
+    // The fingerprint can reject candidate reads only. Keeping full-key lookup
+    // in this separate method also lets tests force a hash collision without
+    // weakening, replacing or forging any authenticated chunk metadata.
+    fn lookup_fingerprinted(
+        &mut self,
+        key: &ApplicationCacheKey,
+        context: &CoefficientContext,
+        fingerprint: u64,
+    ) -> Result<SavedApplicationCacheLookupOutcome, AppError> {
+        key.validate(self.manifest.binding.physical_arity)
+            .map_err(fail)?;
         let mut work = LookupWork::default();
         for (run_index, run) in self.manifest.runs.iter().enumerate().rev() {
             self.statistics.runs_probed = self.statistics.runs_probed.saturating_add(1);
@@ -171,7 +186,12 @@ impl SavedApplicationCachePack {
                 continue;
             };
             let slot = (run_index, offset);
-            if self.key_index.contains(slot, key) == Some(false) {
+            if chunk
+                .key_fingerprints
+                .as_ref()
+                .is_some_and(|keys| !index::key_filter::may_contain(keys, fingerprint))
+                || self.key_index.contains(slot, key) == Some(false)
+            {
                 self.statistics.key_index_skips = self.statistics.key_index_skips.saturating_add(1);
                 continue;
             }
@@ -231,17 +251,26 @@ impl SavedApplicationCachePack {
             {
                 return Err(fail("cache chunk index differs from native framing"));
             }
+            if let Some(expected) = &chunk.key_fingerprints {
+                if index::key_filter::collect(decoded.keys())? != *expected {
+                    return Err(fail(
+                        "cache chunk key fingerprints differ from native framing",
+                    ));
+                }
+            }
             let record = decoded.decode_record(key, context).map_err(fail)?;
             // Only a fully checked read can install an exact absence proof.
             // The slot denotes the immutable descriptor in this reader's
             // authenticated binding; a changed snapshot clears all slots.
             let directory_bytes =
                 self.statistics.directory_owned_bytes - self.key_index.owned_bytes();
-            self.key_index.retain(
-                slot,
-                decoded.keys(),
-                self.limits.max_directory_owned_bytes - directory_bytes,
-            );
+            if chunk.key_fingerprints.is_none() {
+                self.key_index.retain(
+                    slot,
+                    decoded.keys(),
+                    self.limits.max_directory_owned_bytes - directory_bytes,
+                );
+            }
             self.statistics.directory_owned_bytes = directory_bytes + self.key_index.owned_bytes();
             if let Some(record) = record {
                 self.statistics.hits = self.statistics.hits.saturating_add(1);
@@ -250,6 +279,16 @@ impl SavedApplicationCachePack {
         }
         self.statistics.misses = self.statistics.misses.saturating_add(1);
         Ok(SavedApplicationCacheLookupOutcome::Absent)
+    }
+
+    #[cfg(test)]
+    pub(super) fn lookup_outcome_with_test_fingerprint(
+        &mut self,
+        key: &ApplicationCacheKey,
+        context: &CoefficientContext,
+        fingerprint: u64,
+    ) -> Result<SavedApplicationCacheLookupOutcome, AppError> {
+        self.lookup_fingerprinted(key, context, fingerprint)
     }
 }
 
@@ -306,6 +345,7 @@ mod outcome_tests {
             records: 1,
             first: key.clone(),
             last: key,
+            key_fingerprints: None,
         };
         let limits = SavedApplicationCachePackLimits::default();
         for mut work in [

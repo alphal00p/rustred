@@ -10,9 +10,17 @@ use rustred::persistence::application_cache::{ApplicationCacheBinding, Applicati
 use super::*;
 use crate::AppError;
 
-const MAGIC: &[u8; 16] = b"RR-CACHE-PACK-02";
+pub(super) mod key_filter;
+mod legacy;
+
+const MAGIC: &[u8; 16] = b"RR-CACHE-PACK-03";
 pub(super) const MANIFEST: &str = "cache.rrindex";
 pub(super) const MAX_FRAME: usize = 64 * 1024 * 1024;
+
+#[cfg(test)]
+pub(super) fn encode_legacy_for_test(manifest: &Manifest) -> Vec<u8> {
+    legacy::encode_for_test(manifest)
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct Chunk {
@@ -23,6 +31,10 @@ pub(super) struct Chunk {
     pub records: usize,
     pub first: ApplicationCacheKey,
     pub last: ApplicationCacheKey,
+    /// Sorted fingerprints of every key, including repetitions on collision.
+    /// None is retained only for legacy chunks. This trusted directory metadata
+    /// can reject absence, but never establishes key equality or a cache hit.
+    pub key_fingerprints: Option<Vec<u64>>,
 }
 impl Chunk {
     pub fn file_name(&self) -> String {
@@ -30,6 +42,21 @@ impl Chunk {
             "{}.rrchunk.gz",
             blake3::Hash::from_bytes(self.digest).to_hex()
         )
+    }
+    /// A legacy descriptor may omit metadata for the very same native chunk.
+    /// This only identifies duplicate files for copying, never lookup results.
+    pub(super) fn compatible_payload(&self, other: &Self) -> bool {
+        self.digest == other.digest
+            && self.bytes == other.bytes
+            && self.decoded_digest == other.decoded_digest
+            && self.decoded_bytes == other.decoded_bytes
+            && self.records == other.records
+            && self.first == other.first
+            && self.last == other.last
+            && match (&self.key_fingerprints, &other.key_fingerprints) {
+                (Some(left), Some(right)) => left == right,
+                _ => true,
+            }
     }
 }
 
@@ -87,6 +114,21 @@ pub(super) fn validate(
                 return Err(fail("invalid, overlapping or unordered cache chunk range"));
             }
             previous = Some(&chunk.last);
+            if let Some(fingerprints) = &chunk.key_fingerprints {
+                if fingerprints.len() != chunk.records
+                    || fingerprints.windows(2).any(|pair| pair[0] > pair[1])
+                    || !key_filter::may_contain(
+                        fingerprints,
+                        key_filter::fingerprint(&chunk.first)?,
+                    )
+                    || !key_filter::may_contain(fingerprints, key_filter::fingerprint(&chunk.last)?)
+                {
+                    return Err(fail("invalid cache chunk key fingerprint directory"));
+                }
+                result.directory_owned_bytes = result
+                    .directory_owned_bytes
+                    .saturating_add(fingerprints.capacity().saturating_mul(size_of::<u64>()));
+            }
             if chunk.bytes == 0
                 || chunk.bytes > limits.max_encoded_chunk_bytes as u64
                 || chunk.decoded_bytes == 0
@@ -155,7 +197,7 @@ pub(super) fn decode(
     if limits.max_manifest_bytes > MAX_FRAME
         || bytes.len() > limits.max_manifest_bytes
         || bytes.len() < MAGIC.len() + 32
-        || !bytes.starts_with(MAGIC)
+        || !(bytes.starts_with(MAGIC) || bytes.starts_with(legacy::MAGIC))
     {
         return Err(fail("invalid cache manifest framing or byte allowance"));
     }
@@ -163,11 +205,15 @@ pub(super) fn decode(
     if blake3::hash(&bytes[..end]).as_bytes() != &bytes[end..] {
         return Err(fail("cache manifest digest mismatch"));
     }
-    let (manifest, consumed): (Manifest, usize) = bincode::decode_from_slice(
-        &bytes[MAGIC.len()..end],
-        bincode::config::standard().with_limit::<MAX_FRAME>(),
-    )
-    .map_err(fail)?;
+    let (manifest, consumed): (Manifest, usize) = if bytes.starts_with(MAGIC) {
+        bincode::decode_from_slice(
+            &bytes[MAGIC.len()..end],
+            bincode::config::standard().with_limit::<MAX_FRAME>(),
+        )
+        .map_err(fail)?
+    } else {
+        legacy::decode(&bytes[MAGIC.len()..end])?
+    };
     if consumed != end - MAGIC.len() {
         return Err(fail("trailing cache manifest bytes"));
     }

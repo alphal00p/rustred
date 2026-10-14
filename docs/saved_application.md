@@ -375,19 +375,31 @@ intermediate-capture offers. If optional provenance is disabled by its memory
 allowance, the current native root returns to boundary-only interruption.
 An in-flight native reduction is not a saved instruction-pointer checkpoint.
 
-Cache-pack schema 02 stores bounded gzip chunks around the native Symbolica
-state-aware codec. It checks encoded and decoded lengths/digests, requires one
-complete gzip member and rejects trailing data. The persistent index stores
-chunk ranges. After a verified read, the reader may retain that chunk's sorted
-exact keys within the remaining `max_directory_owned_bytes` allowance;
-`directory_owned_bytes` includes this metadata. Known absent keys then skip
-repeat reads and decompression, counted by `key_index_skips`. Possible hits
-still receive full integrity and native payload validation. These absence
-proofs belong to the immutable snapshot and do not reread files to detect later
-external mutation. A changed snapshot clears them, a failed or unchanged
-refresh preserves them, and a forked reader starts without them. Insufficient
-metadata allowance leaves ordinary lookup active. No coefficient payload is
-retained, and existing schema-02 packs remain compatible.
+Cache-pack index schema 03 stores bounded gzip chunks around the unchanged
+schema-02 native Symbolica state-aware payload. It checks encoded and decoded
+lengths/digests, requires one complete gzip member and rejects trailing data.
+The persistent index stores chunk ranges and one sorted 64-bit key fingerprint
+per record. These fingerprints use domain-separated BLAKE3 over the structural
+bincode key encoding, not algebra or a process-dependent hash. They let a fresh
+reader reject range-only candidates before spending its read/decode allowance,
+even when captured intermediates create many overlapping immutable runs.
+Collisions can only cause extra candidate reads: a fingerprint match never
+establishes a hit. Every actual read validates the full native key census against
+the recorded fingerprints, then uses full key equality and native validation.
+All fingerprint capacities count against `max_directory_owned_bytes`; no
+coefficient payload is retained. Skipped reads count as `key_index_skips`.
+
+Existing index-02 packs have a bounded read-only decoder and retain their
+ordinary lazy exact-key optimization: after a verified read, the reader may
+retain that chunk's sorted exact keys within the remaining directory allowance.
+Changed snapshots clear this optional legacy metadata; unchanged or failed
+refreshes preserve it, and forked readers start without it. New checkpoints
+and portable copies write index 03, preserving legacy chunks without inventing
+fingerprints or re-encoding their algebra. Newly written chunks always carry
+the compact filter. Both absence mechanisms use the immutable trusted-generated
+snapshot boundary: checksums detect accidental corruption, not a coherently
+forged native index; skipped chunks are not reread to detect later external
+mutation. Possible hits always receive full integrity/native validation.
 
 Disjoint batches share a sorted run; overlapping batches preserve newest-record
 precedence. A lookup bounds both

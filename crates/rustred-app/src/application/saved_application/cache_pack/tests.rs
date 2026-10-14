@@ -7,6 +7,7 @@ use rustred::persistence::application_cache::{
 };
 use std::{collections::BTreeMap, fs, path::Path};
 
+mod key_filter;
 mod key_index;
 mod lookup_outcome;
 mod snapshot;
@@ -57,6 +58,16 @@ fn manifest(path: &Path) -> index::Manifest {
     let bytes =
         index::read_bounded(&path.join(index::MANIFEST), limits.max_manifest_bytes).unwrap();
     index::decode(&bytes, &binding(1), limits).unwrap().0
+}
+// Exercise the original no-persisted-filter reader and its unchanged I/O
+// grants, without weakening the new writer's index03 behavior.
+fn make_legacy(path: &Path) {
+    let decoded = manifest(path);
+    fs::write(
+        path.join(index::MANIFEST),
+        index::encode_legacy_for_test(&decoded),
+    )
+    .unwrap();
 }
 fn child_path(bundle: &Path, expected: &ApplicationCacheBinding) -> std::path::PathBuf {
     fs::read_dir(bundle.join("bindings"))
@@ -570,6 +581,7 @@ fn overlapping_run_misses_charge_cumulative_read_and_decode_before_next_operatio
     }
     writer.checkpoint().unwrap();
     drop(writer);
+    make_legacy(&path);
     let directory = manifest(&path);
     assert_eq!(directory.runs.len(), 3);
     let newest = &directory.runs[2][0];
@@ -660,7 +672,7 @@ fn schema_is_explicit_and_compressed_disk_census_matches_physical_chunks() {
     );
     drop(writer);
     let mut bytes = fs::read(path.join(index::MANIFEST)).unwrap();
-    assert!(bytes.starts_with(b"RR-CACHE-PACK-02"));
+    assert!(bytes.starts_with(b"RR-CACHE-PACK-03"));
     bytes[..16].copy_from_slice(b"RR-CACHE-PACK-01");
     let end = bytes.len() - 32;
     let digest = blake3::hash(&bytes[..end]);
@@ -668,7 +680,7 @@ fn schema_is_explicit_and_compressed_disk_census_matches_physical_chunks() {
     fs::write(path.join(index::MANIFEST), bytes).unwrap();
     assert!(
         SavedApplicationCachePack::open_generated(&path, &binding(1), limits).is_err(),
-        "no silent legacy-format fallback"
+        "unknown schema01 remains rejected"
     );
 }
 

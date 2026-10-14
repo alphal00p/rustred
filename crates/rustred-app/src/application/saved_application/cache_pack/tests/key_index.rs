@@ -7,6 +7,7 @@ fn fixture(path: &Path) -> SavedApplicationCacheWriter {
         .append_completed(&[record(0), record(10)], &context())
         .unwrap();
     writer.checkpoint().unwrap();
+    make_legacy(path);
     writer
 }
 
@@ -92,6 +93,7 @@ fn same_range_chunks_in_different_runs_do_not_alias_exact_membership() {
         .unwrap();
     writer.checkpoint().unwrap();
     drop(writer);
+    make_legacy(&path);
     let mut reader =
         SavedApplicationCachePack::open_generated(&path, &binding(1), Default::default()).unwrap();
     assert_eq!(reader.lookup(&key(6), &context()).unwrap(), None);
@@ -132,6 +134,7 @@ fn fork_noop_changed_and_failed_refresh_keep_snapshot_metadata_ownership_exact()
         .append_completed(&[record(-10), record(-5)], &context())
         .unwrap();
     writer.checkpoint().unwrap();
+    make_legacy(&path);
     reader.refresh().unwrap();
     let fresh =
         SavedApplicationCachePack::open_generated(&path, &binding(1), Default::default()).unwrap();

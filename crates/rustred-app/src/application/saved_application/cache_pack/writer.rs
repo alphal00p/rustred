@@ -169,6 +169,9 @@ impl SavedApplicationCacheWriter {
             records: records.len(),
             first: records.first().expect("nonempty").key.clone(),
             last: records.last().expect("nonempty").key.clone(),
+            key_fingerprints: Some(index::key_filter::collect(
+                records.iter().map(|record| &record.key),
+            )?),
         };
         drop(decoded);
         // No file is created until all prospective range/directory bounds pass.

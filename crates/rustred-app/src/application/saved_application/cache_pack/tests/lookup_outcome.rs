@@ -12,6 +12,7 @@ fn typed_lookup_budget_is_distinct_from_hit_and_verified_absence() {
             .unwrap();
     }
     writer.checkpoint().unwrap();
+    make_legacy(&path);
     let tight = SavedApplicationCachePackLimits {
         max_lookup_chunks: 1,
         ..limits

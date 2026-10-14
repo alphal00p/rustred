@@ -184,8 +184,10 @@ fn child_manifest(
     }
 }
 
-/// Chunk hashes address physical files, but full descriptor equality checks
-/// collisions before deduplication. The original run/index order is untouched.
+/// Chunk hashes address physical files, but immutable payload descriptor checks
+/// reject collisions before deduplication. Legacy descriptors may omit the new
+/// negative filter for an otherwise identical payload. Two supplied filters
+/// must agree. The original run/index order is untouched.
 fn unique_chunks(
     manifest: &index::Manifest,
     limits: SavedApplicationCachePackLimits,
@@ -206,10 +208,13 @@ fn unique_chunks(
     let mut chunks = Vec::new();
     chunks.try_reserve_exact(count).map_err(fail)?;
     chunks.extend(manifest.runs.iter().flatten());
-    chunks.sort_unstable_by_key(|chunk| chunk.digest);
+    // Group present filters together before legacy omissions: otherwise a
+    // None between two contradictory Some filters could hide the mismatch in
+    // the adjacent-descriptor check below. Prefer present metadata on dedup.
+    chunks.sort_unstable_by_key(|chunk| (chunk.digest, chunk.key_fingerprints.is_none()));
     if chunks
         .windows(2)
-        .any(|pair| pair[0].digest == pair[1].digest && pair[0] != pair[1])
+        .any(|pair| pair[0].digest == pair[1].digest && !pair[0].compatible_payload(pair[1]))
     {
         return Err(fail("colliding snapshot chunk descriptors"));
     }
@@ -280,6 +285,7 @@ mod tests {
             records: 1,
             first: key.clone(),
             last: key,
+            key_fingerprints: None,
         };
         let output = scratch.0.join("copied-bytes");
         copy_chunk(&source, &output, &chunk).unwrap();

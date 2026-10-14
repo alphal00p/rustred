@@ -1,5 +1,6 @@
 //! Explicit trusted-generated, content-bound cache packs. A reader retains a
-//! bounded chunk-range directory and optional verified exact-key metadata,
+//! bounded chunk-range directory and compact persisted negative key filters,
+//! with optional verified exact-key metadata for legacy chunks,
 //! never retained coefficient payloads.
 //! A writer publishes complete immutable chunks through atomic checkpoints.
 //! This module does not grant entry admission or bypass native cache budgets.
@@ -87,8 +88,9 @@ pub struct SavedApplicationCachePackStatistics {
     pub lookup_decoded_bytes_charged: u64,
     pub lookup_limit_refusals: usize,
     pub runs_probed: usize,
-    /// Previously verified exact chunk keys rejected a range-only candidate
-    /// without another file read, decompression, or native coefficient import.
+    /// Trusted persisted fingerprints or previously verified exact chunk keys
+    /// rejected a range-only candidate without a file read, decompression, or
+    /// native coefficient import. A fingerprint match never authorizes a hit.
     pub key_index_skips: usize,
     pub hits: usize,
     pub misses: usize,

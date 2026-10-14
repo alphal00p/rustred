@@ -1,6 +1,73 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 14 — real preparation exposes overlapping-run lookup limit
+
+The targeted structural index03 implementation now passes80 focused release
+tests (0.30s), independently repeated80/80 (0.28s), including10 new filter,
+collision, integrity, legacy and snapshot-copy tests. No lookup grants were
+increased. Frozen binary SHA256:
+`8f56876be4b65298ae152d049bad1dc6ffa0dd0df445ed264f080cc371b8172b`.
+Receipts: `TMP/index-filter-app-build-20261014/implementation-gate-receipt.json`
+and `independent-gate-receipt.json` in the same directory. Native Symbolica
+payloads remain02; old indexes remain readable but do not acquire filters
+without rewriting. The next measurement must therefore use a fresh output.
+
+Independent runtime checks also establish that the partial3L pack contains
+useful **non-primer** keys:8 keys excluded from the full2,320-target workload
+match fresh native exact coefficients and guard sets, including a nontrivial
+guard at `[-1,4,1,1,0,0]`. Eight fresh-process public1L/2L cases and5 native
+guard checks pass. These are capture-correctness checks, not3L completion.
+Consolidated receipt: `TMP/intermediate-cache-stage1-gate-20261014.json`.
+
+The actual-Git3fdd/Symbolica3.0.1 public Vakint harness built successfully in
+465.33s under build-1; compilation is excluded below. Dependency/source setup
+was independently audited, including2,206 frozen input/source hashes.
+
+- [M] Full1L primer:5/5 selected roots complete,0 intermediate records,
+  0.004426s native preparation,3,356 charged disk bytes.
+- [M] Full2L primer:77/77 selected roots complete,0 intermediate records,
+  0.008268s native preparation,5,325 charged disk bytes. These small primers
+  already contain the useful descendants reached; zero extra records is not
+  evidence that the producer was disabled.
+- [M] Full3L attempt: **partial**,373/2,320 selected roots (322 new,51 reused),
+  255 durable intermediate-capture records,0.170932s preparation and31,311B.
+  It stops on `cache cumulative lookup allowance exceeded`: the unchanged
+  eight-candidate-chunk grant cannot resolve overlapping descendant ranges.
+  No mathematical reduction or checkpoint failure occurred. The255 records
+  describe capture provenance, not255 guaranteed keys outside the full primer.
+  Evidence: `TMP/intermediate-cache-{1,2,3}l-20261014/native-report.json`.
+
+The full4L run has not started. Do not raise lookup limits blindly or describe
+this censored3L attempt as completion. `capture_index_fix` is implementing a
+compact persisted per-chunk key-fingerprint negative filter: possible matches
+still require exact keys and complete payload validation. Structural index03
+may retain a bounded index02 read path; Symbolica record payloads stay unchanged.
+The independent auditor is reviewing collision handling, corruption, newest
+precedence, quotas and snapshot copying. This is an I/O-index fix, not a CAS or
+IBP algorithm. The failed pack remains untouched as a reproduction case.
+
+The validation lane is preparing exact checks on genuinely non-primer captured
+keys, and one-case-per-process inputs for honest cold timings. A guard-check
+helper build was intentionally cancelled while its new input coverage was being
+frozen; its cancelled receipt is retained, not counted as successful validation.
+Source and final runtime receipts will distinguish preparation from cold loading,
+first/warm application and exact guard checking.
+
 ## October 14 — intermediate capture implemented; real-cache regeneration next
+
+Implementation milestone pushed and remote-verified as
+`3fdd303319c76c67b9c0309692f3771458cb6d4a` on RustRed main. Only the scoped
+engine/app changes and documentation were committed; the user's FeynKit edits,
+untracked research, caches and campaign data remain uncommitted.
+
+Vakint's new-workspace integration clone now pins that actual Git revision;
+its local Cargo/lock update is not yet pushed. The generic native preparation
+harness is compiling under build-1, CPUs0--15/jobs8, handle42940, evidence
+`TMP/intermediate-cache-vakint-native-build-20261014/`. Metadata verifies one
+Symbolica/graphica/numerica3.0.1 at98794d0 and unchanged FeynKit eb744c65.
+Harness inputs and bindings are frozen in
+`TMP/intermediate-cache-regeneration-20261014/binding-before.json`.
+No enriched cache-generation run has started yet.
 
 New source in `/shared/codex-2/rustred` captures computed intermediates through
 the existing native Closed and Candidate evaluators. `intermediate_capture_core`
