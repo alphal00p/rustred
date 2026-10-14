@@ -216,6 +216,17 @@ the frozen campaign binaries and checkpoint; it is not authorization to change
 rules, input scope, rank bounds or native campaign semantics. Development now
 targets the new checkout, leaving the original workspace as a rollback copy.
 
+Implementation checkpoint: generic guarded intermediate capture and the compact
+negative-key chunk index are pushed on RustRed main (`3fdd3033`, `78cbc5c1`).
+The focused release gates pass 139 core tests and 80 application tests, with
+independent repeats. Actual-Git Vakint regeneration completes the 5/77/2,320
+selected-input primers and a 38-input four-loop pilot. The full four-loop
+164,352-input regeneration and final public cache-delivery checks remain
+pending. Captured-record counts are separate from selected-root completion;
+optional provenance-budget exhaustion must never imply that every descendant
+was captured. Detailed measurements and any structural storage-limit findings
+remain in `CODEX_PROGRESS.md`.
+
 ### Delivered one-through-four-loop cache milestone (October 14)
 
 RustRed `301beec66e6a2fcdc12ffe2c665181206615550c` and Vakint branch

@@ -1,5 +1,88 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 14 — relocated campaign resumed; intermediate-cache runtime gates
+
+Development now runs from `/shared/codex-2/rustred`. RustRed main is pushed
+and remote-verified at `78cbc5c1c6e98d057a20390534cae25184e7ab99` (the compact
+negative-key index), following intermediate-capture commit `3fdd3033`. Vakint's
+local `vakint_rustred` dependency update uses that actual Git revision; its
+integration push still awaits the real-cache validation below. Unrelated
+FeynKit edits, research, campaign data and local caches remain uncommitted.
+
+- [M] The finalizer completed its locked, checked final rsync with exit zero,
+  followed by a clean metadata comparison, input hashes, frozen binary hashes
+  and checkpoint-part length checks. The earlier transfer shell returned 143
+  despite a completed-looking rsync log; it is the independently successful
+  final copy, not that shell, which establishes transfer completion.
+- [M] The user-authorized D<=10 production resume launched at 13:58 UTC from
+  generation 81 in `/shared/codex-2/rustred/campaigns/five-loop-rank-ladder-THE-ONE`.
+  The frozen solver/input scope is unchanged: 32 workers on CPUs 64--95,
+  600 GB hard RAM, 570 GB soft RAM, 150 GB host reserve, swap-growth stop disabled.
+  Run directory: `runs/20261014T135815.876110Z`. At 14:11 UTC it is still restoring
+  the 245,855,672-domain checkpoint; do not claim traversal or restore completion.
+  Migration receipts and the attach/resume helpers are in
+  `TMP/migration-20261014/`. The existing Zellij session is
+  `rustred_shared_20261014`, tab `five-loop`; its attach helper selects the
+  Nix-shell socket explicitly. Do not launch another copy.
+- [M] Independent migration audit finds no old-root operational dependency in
+  the relocated campaign or current cache jobs. **Do not remove/move the whole
+  old tree:** the Atlas notebook still reads its source there, and the masters
+  checkout, other campaigns and local branches/worktrees were outside this
+  migration. Keep those until separately coordinated and archived.
+
+Actual-Git index03 regeneration now completes the full 1/2/3-loop finite primers
+without increasing the eight-chunk lookup grant. The 3L report records 2,320/2,320
+selected inputs, 1.5533 s preparation / 2.2822 s including native setup, 162,823 B
+charged disk and 2,352 durable records. Of these, 735 have intermediate-capture
+provenance and 703 selected roots reuse previously captured entries. The record
+count is 32 above the full selected primer; the distinct-key census is pending,
+while 8 genuinely non-primer keys already pass independent exact replay.
+No metadata exhaustion, lookup-budget skip or oversized capture occurred.
+The previous partial 3L pack
+is preserved as the failing pre-index control, not relabeled as successful.
+
+The 4L dense38 pilot also completes: 38/38 selected, 94.203 s preparation / 101.180 s
+including native setup (101.495 s child wall), 3.472 GB sampled peak RSS and
+34,303,404 B charged disk. It stores 134,821 durable record references. Subtracting
+the 38 selected inputs gives 134,783 potential additional keys; a cross-chunk
+key census must establish uniqueness before calling this a distinct-key count.
+Two roots exhaust their optional 32 MiB provenance budget
+and continue successfully; this does not claim all their descendants were
+captured. There are no lookup-limit or oversized-record refusals. Raw evidence:
+`TMP/intermediate-cache-index03-{1,2,3}l-20261014/` and
+`TMP/intermediate-cache-index03-four-dense38-20261014/`.
+
+`intermediate_capture_app` now runs fresh exact coefficient/guard checks and
+public held-out cache comparisons. `intermediate_capture_independent_audit`
+separately verifies input bindings and results. The full 164,352-input 4L run
+has **not** started; it follows those gates. `capture_pack_scale_audit` checks
+whether measured capture expansion threatens structural index limits before
+that larger run. Native/index source is frozen; no new algebra or IBPs are
+generated. Five-loop development/cache execution remains deferred pending
+the updated artifact; the broad application goal remains incomplete/active.
+
+Follow-up scale audit measured H/FG/BMW/X run counts of 430/57/272/1,358,
+respectively, against the unchanged 4,096 per-namespace run allowance. Nearly
+every 64-record X chunk has an overlapping key range. This is a concrete
+structural-cap risk, **not proof the full primer will fail**: that workload
+includes easier pinches and different input order. Each batch also reloads,
+validates and rewrites the current child index; cumulative metadata work grows
+quadratically in the number of batches, although its share of measured runtime
+has not been profiled. No compactor has been implemented or claimed necessary.
+The next smallest comparison uses the already available 256-record batch option
+on the same 38 inputs, retaining all IO, disk and RAM bounds. The measurement
+driver needs only an option-forwarding change; no engine rebuild or new CAS.
+
+The four-loop exact replay gate subsequently passes all 70 records: 38 selected
+inputs plus 8 genuinely nonselected descendant samples per family. Every terminal
+coefficient and complete guard set agrees with a fresh native reduction;
+517 terminal coefficients and 62,271 guard entries are checked. The 166.076 s
+driver runtime is a correctness check, not a preparation-speed comparison.
+Independent receipt:
+`TMP/intermediate-cache-regeneration-20261014/independent-index03-runtime-audit.json`.
+Public held-out descendant-hit tests and full four-loop regeneration remain
+pending; the exact replay does not establish those outcomes.
+
 ## October 14 — real preparation exposes overlapping-run lookup limit
 
 The targeted structural index03 implementation now passes80 focused release
