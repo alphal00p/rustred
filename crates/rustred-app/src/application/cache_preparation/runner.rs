@@ -124,12 +124,60 @@ pub struct CachePreparationReport {
     pub reused_roots: usize,
     pub elapsed: Duration,
     pub charged_disk_bytes: u64,
+    /// Sampled with native statistics at most once per second at selected-root
+    /// boundaries; refreshed for the final report unless the census fails. A long individual
+    /// native reduction does not invoke this runner's observer mid-reduction.
     pub directory_owned_bytes: usize,
     pub options: Value,
     pub native_profile: Value,
+    /// Same sampling boundary as `directory_owned_bytes`, not a live view of
+    /// an in-flight native reduction. Disk charges and durable counts are
+    /// current at every observer callback independently of this sampling.
     pub native_statistics: Value,
     pub failure: Option<AppError>,
     pub checkpoint_failure: Option<AppError>,
+}
+
+/// Keep telemetry work off the per-root hot path while bounding its lag at
+/// existing observer boundaries. This only reads counters and retained index
+/// census; it never refreshes indices from disk or alters reduction state.
+#[derive(Default)]
+struct ProgressRefresh {
+    sampled_at: Option<Duration>,
+}
+impl ProgressRefresh {
+    fn refresh(
+        &mut self,
+        elapsed: Duration,
+        force: bool,
+        report: &mut CachePreparationReport,
+        backend: &impl CachePreparationBackend,
+        writer: &SavedApplicationCacheBundleWriter,
+        readers: &[SavedApplicationCachePack],
+    ) -> Result<(), AppError> {
+        // The aggregate writer quota is already maintained by durable writes;
+        // this is a cheap read, not a directory scan or payload census.
+        report.charged_disk_bytes = writer.charged_disk_bytes()?;
+        if !force
+            && self
+                .sampled_at
+                .is_some_and(|sampled| elapsed.saturating_sub(sampled) < Duration::from_secs(1))
+        {
+            return Ok(());
+        }
+        let runner_directory_bytes = readers
+            .iter()
+            .map(|reader| reader.statistics().directory_owned_bytes)
+            .try_fold(0usize, |sum, bytes| sum.checked_add(bytes))
+            .ok_or_else(|| AppError::limit("cache reader directory byte count overflow"))?;
+        let directory_owned_bytes = runner_directory_bytes
+            .checked_add(backend.completed_cache_directory_bytes()?)
+            .ok_or_else(|| AppError::limit("cache reader directory byte count overflow"))?;
+        report.native_statistics = backend.statistics();
+        report.directory_owned_bytes = directory_owned_bytes;
+        self.sampled_at = Some(elapsed);
+        Ok(())
+    }
 }
 impl CachePreparationReport {
     pub fn to_document(&self) -> Value {
@@ -273,7 +321,29 @@ pub fn prepare_application_cache(
     output: &Path,
     cancellation: &AtomicBool,
     backend: &mut impl CachePreparationBackend,
+    observer: impl FnMut(&CachePreparationReport) -> Result<(), AppError>,
+) -> Result<CachePreparationReport, AppError> {
+    prepare_application_cache_with_progress_clock(
+        workload,
+        options,
+        output,
+        cancellation,
+        backend,
+        observer,
+        |started| started.elapsed(),
+    )
+}
+
+// Only telemetry sampling uses this private clock seam. Time budgets,
+// checkpoints, cancellation and the public observer cadence are unchanged.
+pub(super) fn prepare_application_cache_with_progress_clock(
+    workload: &CachePreparationWorkload,
+    options: &CachePreparationResolvedOptions,
+    output: &Path,
+    cancellation: &AtomicBool,
+    backend: &mut impl CachePreparationBackend,
     mut observer: impl FnMut(&CachePreparationReport) -> Result<(), AppError>,
+    mut progress_clock: impl FnMut(Instant) -> Duration,
 ) -> Result<CachePreparationReport, AppError> {
     options.validate()?;
     if workload.bindings() != backend.bindings() {
@@ -334,11 +404,6 @@ pub fn prepare_application_cache(
     let capture_contexts = (0..workload.bindings().len())
         .map(|namespace| backend.context(namespace).cloned())
         .collect::<Result<Vec<_>, _>>()?;
-    let runner_directory_bytes = readers
-        .iter()
-        .map(|reader| reader.statistics().directory_owned_bytes)
-        .try_fold(0usize, |sum, bytes| sum.checked_add(bytes))
-        .ok_or_else(|| AppError::limit("cache reader directory byte count overflow"))?;
     let mut report = CachePreparationReport {
         status: CachePreparationStatus::Running,
         total_roots: workload.targets().len(),
@@ -353,16 +418,23 @@ pub fn prepare_application_cache(
         capture_metadata_peak_bytes: 0,
         reused_roots: 0,
         elapsed: started.elapsed(),
-        charged_disk_bytes: writer.charged_disk_bytes()?,
-        directory_owned_bytes: runner_directory_bytes
-            .checked_add(backend.completed_cache_directory_bytes()?)
-            .ok_or_else(|| AppError::limit("cache reader directory byte count overflow"))?,
+        charged_disk_bytes: 0,
+        directory_owned_bytes: 0,
         options: options.to_document(),
         native_profile: backend.operational_profile(),
-        native_statistics: backend.statistics(),
+        native_statistics: Value::Null,
         failure: None,
         checkpoint_failure: None,
     };
+    let mut progress = ProgressRefresh::default();
+    progress.refresh(
+        progress_clock(started),
+        true,
+        &mut report,
+        backend,
+        &writer,
+        &readers,
+    )?;
     Checkpoint::publish(workload, &report, &mut writer)?;
     let mut pending = CompletedCacheBatch::new(workload.bindings().len());
     let mut last_checkpoint = started;
@@ -376,6 +448,17 @@ pub fn prepare_application_cache(
         }
         if report.elapsed >= options.time_limit {
             report.status = CachePreparationStatus::TimeBudget;
+            break;
+        }
+        if let Err(error) = progress.refresh(
+            progress_clock(started),
+            false,
+            &mut report,
+            backend,
+            &writer,
+            &readers,
+        ) {
+            report.stop(error, false);
             break;
         }
         if let Err(error) = observer(&report) {
@@ -501,16 +584,20 @@ pub fn prepare_application_cache(
         report.status = CachePreparationStatus::Complete;
     }
     report.elapsed = started.elapsed();
-    report.native_statistics = backend.statistics();
-    let runner_directory_bytes = readers
-        .iter()
-        .map(|reader| reader.statistics().directory_owned_bytes)
-        .try_fold(0usize, |sum, bytes| sum.checked_add(bytes))
-        .ok_or_else(|| AppError::limit("cache reader directory byte count overflow"))?;
-    report.directory_owned_bytes = runner_directory_bytes
-        .checked_add(backend.completed_cache_directory_bytes()?)
-        .ok_or_else(|| AppError::limit("cache reader directory byte count overflow"))?;
-    report.charged_disk_bytes = writer.charged_disk_bytes()?;
+    if let Err(error) = progress.refresh(
+        progress_clock(started),
+        true,
+        &mut report,
+        backend,
+        &writer,
+        &readers,
+    ) {
+        if report.failure.is_none() {
+            report.stop(error, false);
+        }
+        // Preserve an earlier primary failure. A telemetry census failure is
+        // not a failed checkpoint and must not overwrite that separate receipt.
+    }
     if let Err(error) = Checkpoint::publish(workload, &report, &mut writer) {
         report.checkpoint_failure = Some(error);
         if report.status == CachePreparationStatus::Complete {

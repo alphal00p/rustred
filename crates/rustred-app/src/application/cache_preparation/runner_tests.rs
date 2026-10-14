@@ -52,6 +52,8 @@ struct Backend<'a> {
     capture_children: Vec<i64>,
     capture_extra_guards: usize,
     cancel_capture_after: Option<usize>,
+    statistics_samples: std::cell::Cell<usize>,
+    refuse_directory_after_calls: Option<usize>,
 }
 impl Backend<'_> {
     fn new(namespaces: usize) -> Self {
@@ -76,6 +78,8 @@ impl Backend<'_> {
             capture_children: Vec::new(),
             capture_extra_guards: 0,
             cancel_capture_after: None,
+            statistics_samples: 0.into(),
+            refuse_directory_after_calls: None,
         }
     }
     fn workload(&self, powers: &[i64]) -> CachePreparationWorkload {
@@ -186,9 +190,213 @@ impl CachePreparationBackend for Backend<'_> {
     fn operational_profile(&self) -> Value {
         json!({"mock":true})
     }
+    fn completed_cache_directory_bytes(&self) -> Result<usize, AppError> {
+        if self
+            .refuse_directory_after_calls
+            .is_some_and(|calls| self.calls >= calls)
+        {
+            return Err(AppError::limit("mock native directory census refusal"));
+        }
+        Ok(0)
+    }
     fn statistics(&self) -> Value {
+        self.statistics_samples
+            .set(self.statistics_samples.get() + 1);
         json!({"calls":self.calls})
     }
+}
+
+#[test]
+fn live_progress_refreshes_durable_storage_and_throttles_native_statistics() {
+    for cancel_from_live_observer in [false, true] {
+        let scratch = Scratch::new();
+        let output = scratch.0.join("pack");
+        let mut backend = Backend::new(1);
+        let workload = backend.workload(&[1, 2, 3, 4]);
+        let mut selected = options();
+        selected.batch_records = 1;
+        let mut samples = [0, 0, 500, 999, 1_000, 1_000].into_iter();
+        let context = CoefficientContext::try_new(["preparation_runner_d"]).unwrap();
+        let mut observed = Vec::new();
+        let report = super::runner::prepare_application_cache_with_progress_clock(
+            &workload,
+            &selected,
+            &output,
+            &AtomicBool::new(false),
+            &mut backend,
+            |report| {
+                observed.push(report.clone());
+                let bundle = crate::SavedApplicationCacheBundle::open_generated(
+                    &output,
+                    workload.bindings(),
+                    selected.storage_limits,
+                )?;
+                let mut reader = bundle.open_reader(&workload.bindings()[0])?;
+                assert!(bundle.metadata()?.is_some());
+                assert_eq!(reader.statistics().records, report.completed_roots);
+                if report.status == CachePreparationStatus::Running
+                    && report.native_statistics["calls"] == 3
+                {
+                    // Two previous roots are durable; the third is pending.
+                    // This is an actual live report, not final-only evidence.
+                    assert_eq!(report.completed_roots, 2);
+                    assert_eq!(
+                        report.directory_owned_bytes,
+                        reader.statistics().directory_owned_bytes
+                    );
+                    for target in workload.targets().iter().take(2) {
+                        assert!(
+                            reader
+                                .lookup(
+                                    &ApplicationCacheKey::guarded_root(target.integral()),
+                                    &context
+                                )?
+                                .is_some()
+                        );
+                    }
+                    if cancel_from_live_observer {
+                        return Err(AppError::new(
+                            AppErrorKind::Cancelled,
+                            "stop from live progress",
+                        ));
+                    }
+                }
+                Ok(())
+            },
+            |_| std::time::Duration::from_millis(samples.next().unwrap()),
+        )
+        .unwrap();
+        assert!(
+            samples.next().is_none(),
+            "sampling only at existing boundaries"
+        );
+        assert_eq!(
+            backend.statistics_samples.get(),
+            3,
+            "initial, once at 1s, final"
+        );
+        assert_eq!(
+            observed.len(),
+            5,
+            "four existing root callbacks and final callback"
+        );
+        let initial = &observed[0];
+        let subsecond = &observed[2];
+        let current = &observed[3];
+        assert_eq!(subsecond.status, CachePreparationStatus::Running);
+        assert_eq!(subsecond.completed_roots, 1);
+        assert!(subsecond.charged_disk_bytes > initial.charged_disk_bytes);
+        assert_eq!(
+            subsecond.native_statistics["calls"], 0,
+            "not sampled per root"
+        );
+        assert_eq!(current.native_statistics["calls"], 3);
+        assert!(current.directory_owned_bytes > initial.directory_owned_bytes);
+        assert!(current.charged_disk_bytes > subsecond.charged_disk_bytes);
+        assert_eq!(
+            report.completed_roots,
+            if cancel_from_live_observer { 3 } else { 4 }
+        );
+        assert_eq!(report.native_statistics["calls"], report.completed_roots);
+        assert_eq!(
+            report.status,
+            if cancel_from_live_observer {
+                CachePreparationStatus::Cancelled
+            } else {
+                CachePreparationStatus::Complete
+            }
+        );
+        assert_eq!(observed.last().unwrap().status, report.status);
+        assert!(report.checkpoint_failure.is_none());
+        assert_eq!(
+            report.charged_disk_bytes,
+            observed.last().unwrap().charged_disk_bytes
+        );
+        assert_eq!(
+            report.directory_owned_bytes,
+            observed.last().unwrap().directory_owned_bytes
+        );
+    }
+}
+
+#[test]
+fn live_progress_failure_keeps_pending_prefix_and_final_checkpoint() {
+    let scratch = Scratch::new();
+    let output = scratch.0.join("pack");
+    let mut backend = Backend::new(1);
+    backend.refuse_directory_after_calls = Some(2);
+    let workload = backend.workload(&[1, 2, 3]);
+    let mut selected = options();
+    selected.batch_records = 1;
+    let mut samples = [0, 0, 999, 1_000, 1_000].into_iter();
+    let mut observed = Vec::new();
+    let report = super::runner::prepare_application_cache_with_progress_clock(
+        &workload,
+        &selected,
+        &output,
+        &AtomicBool::new(false),
+        &mut backend,
+        |report| {
+            observed.push(report.status);
+            Ok(())
+        },
+        |_| std::time::Duration::from_millis(samples.next().unwrap()),
+    )
+    .unwrap();
+    assert!(samples.next().is_none());
+    assert_eq!(report.status, CachePreparationStatus::ResourceRefusal);
+    assert_eq!(report.completed_roots, 2);
+    assert_eq!(backend.calls, 2);
+    assert!(report.checkpoint_failure.is_none());
+    assert!(
+        report
+            .failure
+            .as_ref()
+            .unwrap()
+            .message()
+            .contains("directory census refusal")
+    );
+    assert_eq!(
+        observed,
+        [
+            CachePreparationStatus::Running,
+            CachePreparationStatus::Running,
+            CachePreparationStatus::ResourceRefusal
+        ]
+    );
+    let bundle = crate::SavedApplicationCacheBundle::open_generated(
+        &output,
+        workload.bindings(),
+        selected.storage_limits,
+    )
+    .unwrap();
+    assert!(bundle.metadata().unwrap().is_some());
+    let mut reader = bundle.open_reader(&workload.bindings()[0]).unwrap();
+    assert_eq!(reader.statistics().records, 2);
+    for target in workload.targets().iter().take(2) {
+        assert!(
+            reader
+                .lookup(
+                    &ApplicationCacheKey::guarded_root(target.integral()),
+                    &backend.context
+                )
+                .unwrap()
+                .is_some()
+        );
+    }
+    let mut resumed = Backend::new(1);
+    let report = prepare_application_cache(
+        &workload,
+        &selected,
+        &output,
+        &AtomicBool::new(false),
+        &mut resumed,
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(report.status, CachePreparationStatus::Complete);
+    assert_eq!(report.reused_roots, 2);
+    assert_eq!(resumed.calls, 1);
 }
 fn options() -> CachePreparationResolvedOptions {
     CachePreparationOptions {

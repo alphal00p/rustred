@@ -375,6 +375,14 @@ intermediate-capture offers. If optional provenance is disabled by its memory
 allowance, the current native root returns to boundary-only interruption.
 An in-flight native reduction is not a saved instruction-pointer checkpoint.
 
+Preparation observers receive current aggregate disk charges and durable root/
+intermediate counts at each existing callback. Native work statistics and
+retained reader-directory bytes are sampled at most once per second at selected-
+root boundaries, then refreshed on finalization unless their census fails.
+This bounds telemetry work without a filesystem scan per input; it is not a
+heartbeat inside one long native algebra call. A telemetry error preserves
+the completed checkpoint prefix and is not reported as a checkpoint-write error.
+
 Cache-pack index schema 03 stores bounded gzip chunks around the unchanged
 schema-02 native Symbolica state-aware payload. It checks encoded and decoded
 lengths/digests, requires one complete gzip member and rejects trailing data.

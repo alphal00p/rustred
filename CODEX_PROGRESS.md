@@ -1,5 +1,108 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 14 — full-cache checks pass; user-requested campaign stop
+
+The user moved the old checkout to `/common/dev/OLD_rustred` and explicitly
+requires **all further work under `/shared/codex-2/rustred`**. Current native,
+Python, build and integration paths already use the new root. On the user's
+request, root sent SIGINT only to the verified five-loop supervisor PID2114540
+at 17:51:51 Europe/Zurich (15:51:51 UTC). Its existing handler wrote the native
+cooperative stop request; no SIGKILL or checkpoint rewrite was used. The
+campaign acknowledged cancellation and entered checkpoint phase. **Restart is
+not yet authorized by this observation**: wait for final checkpoint publication,
+native/supervisor exit and released locks. The user will restart it manually;
+no automatic relaunch is planned.
+
+Full four-loop final validation now passes all 70 exact coefficient/guard checks
+and all eight fresh-process old/full-versus-enriched/full public comparisons.
+The 1--4-loop native preparation outputs and exact key censuses are complete.
+The Python agent's actual-Git private host passes all 11 cache smoke tests and
+its extended public gate; independent final raw-receipt review remains pending.
+The first wheel packaging failed for a missing `patchelf` executable after
+successful compilation. A fresh packaging directory, with the existing Nix
+tool on PATH, reused the compiled code successfully. No engine fix or altered
+algebra was involved; failed packaging evidence remains preserved.
+
+The monitoring correction is compiled in release mode and passes **82 / 82**
+focused application/cache tests in 0.34 s, including the two new deterministic
+live-statistics and failure/resume tests. Source audit caught and corrected a
+diagnostic bug before this build: a statistics-census error must not claim a
+checkpoint-write failure or overwrite an actual storage failure. Frozen binary:
+`TMP/cache-progress-refresh-build-20261014/rustred-app-progress-tests`, SHA256
+`990ddaedda2de765273c4177937984b091955013f61422715e097f98763eabb1`.
+Compilation took 495.306 s and is excluded from test/application timings.
+The independent repeat passes 82/82 in 0.40 s on CPU17; receipt:
+`TMP/cache-progress-refresh-build-20261014/independent-gate-receipt.json`.
+The source-only commit is next. The frozen generated
+packs and runtime measurements use Git `78cbc5c1`; this additive progress fix
+changes no arithmetic, artifact identity or cache record format.
+
+The native app integration agent is preparing compressed local archives and
+the Vakint pin/documentation push. Hakari and Typst pass; exact `just ci-update`
+finishes with exit zero in 83.17 s and no generated configuration change.
+Full CI/upload is not claimed. No cache, application package or production
+output will be committed. The broad five-loop application goal remains active
+and incomplete; development execution there is still deferred by the user's
+cache-first priority.
+
+## October 14 — complete intermediate-enriched four-loop preparation
+
+The full finite primer now completes **164,352 / 164,352 selected inputs**,
+with no mathematical, storage, checkpoint or supervisor error. The report
+records 552.7938 s preparation and 564.8338 s including native setup; the
+supervised process group exits zero and drains in 566.764 s, with a 5.987 GB
+sampled peak RSS. Charged disk is 90,790,870 bytes. Native budget and layout
+remain 16 GB preparation RAM/disk, 64-record batches and the original lookup
+allowances. One request exhausts only optional provenance metadata; its requested
+reduction still completes. No new IBPs or numerical masters were generated.
+Evidence: `TMP/intermediate-cache-index03-four-full-20261014/`.
+
+An exact census through native verified committed snapshots confirms **286,527
+distinct family-qualified keys**, comprising every selected input plus 122,175
+additional intermediate keys. There are no duplicate record references. This
+is a measured key census, not subtraction of write counters:
+
+| Namespace | Selected inputs | Distinct stored keys | Additional keys | Index runs |
+| --- | ---: | ---: | ---: | ---: |
+| H | 56,320 | 82,216 | 25,896 | 1,887 |
+| FG | 25,856 | 31,683 | 5,827 | 778 |
+| BMW | 25,856 | 41,107 | 15,251 | 922 |
+| X | 56,320 | 131,521 | 75,201 | 2,493 |
+
+Every namespace remains below the existing 4,096-run allowance. Thus the
+dense38 layout warning was worth monitoring, but the full workload did **not**
+need a quota increase, compactor or larger chunks. The source pack is preserved
+unchanged. Census evidence:
+`TMP/intermediate-cache-index03-four-full-census-20261014/native-report.json`.
+The smaller census jobs likewise establish 5/77/2,352 distinct keys for 1/2/3
+loops (32 additional at 3L), and 134,821 distinct keys in each dense38 layout.
+
+Matched first-application comparisons now use the **same frozen engine**, one
+fresh process per case and the full old/new packs. All four inputs are absent
+from the entry cache and benefit through descendants. Exact outputs agree:
+
+| Parent | Old full pack | Enriched full pack | Native rules, old -> enriched |
+| --- | ---: | ---: | ---: |
+| H | 3.299 s | 3.044 s | 18,538 -> 1,850 |
+| FG | 0.230 s | 0.0506 s | 1,313 -> 15 |
+| BMW | 1.367 s | 0.709 s | 9,536 -> 251 |
+| X | 17.764 s | 12.391 s | 68,124 -> 6,297 |
+
+These are single alternating paired samples on a shared host with a separate
+correctness check on CPU17, not statistical or universal speedup guarantees.
+Application uses unchanged native defaults; timings exclude initial program/cache
+load. The old full pack was copied into the new workspace and checksum-checked.
+Evidence: `TMP/intermediate-cache-full-pair-{0,1,2,3}-{baseline,enriched}-20261014/`.
+The historical 3h22m preparation used an older implementation; do not present
+that as a matched 22x improvement attributable solely to intermediate capture.
+
+Full-pack exact replay, transport archives, public Python runtime validation
+and the Vakint source-only pin/documentation push remain in progress. The
+monitoring-only root-boundary statistics fix passes independent source audit
+after preserving checkpoint diagnostics; its release compilation is running
+under build-1, handle29444. It does not alter the frozen preparation, native
+formula application, artifact identity or cache payloads.
+
 ## October 14, 14:31 UTC — cold-use tradeoff measured; full primer next
 
 The preceding migration/cache-gate report is pushed on main as `a2d56e46`.
