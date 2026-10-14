@@ -7,7 +7,7 @@ generation **83**, `resumable=true`, `paused=true`, 12,957,366 queued nodes and
 zero frontiers. All three campaign processes (wrapper2114053, supervisor2114540,
 native2114542) have exited. Root acquired/released the existing checkpoint and
 dispatcher locks nonblockingly to verify both are free. No process was killed
-forcibly and no checkpoint/input/binary was modified. The user has been told it
+forcibly and no checkpoint/input/binary was manually rewritten. The user has been told it
 is safe to run `bash TMP/migration-20261014/resume-shared.sh` from the new root
 in their `rustred` session, `5L_incremental` tab. **Do not restart automatically.**
 

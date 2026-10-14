@@ -214,18 +214,35 @@ The user has authorized migrating the development workspace and resuming the
 existing production campaign at `/shared/codex-2/rustred`. Migration preserves
 the frozen campaign binaries and checkpoint; it is not authorization to change
 rules, input scope, rank bounds or native campaign semantics. Development now
-targets the new checkout, leaving the original workspace as a rollback copy.
+targets the new checkout. The user subsequently moved the old checkout to
+`/common/dev/OLD_rustred`; all further work must use `/shared/codex-2/rustred`.
+At the user's request the relocated campaign was stopped gracefully after
+saving resumable generation 83. All campaign processes exited and both locks
+were checked free. The user controls its next manual restart; do not relaunch it.
 
 Implementation checkpoint: generic guarded intermediate capture and the compact
 negative-key chunk index are pushed on RustRed main (`3fdd3033`, `78cbc5c1`).
 The focused release gates pass 139 core tests and 80 application tests, with
-independent repeats. Actual-Git Vakint regeneration completes the 5/77/2,320
-selected-input primers and a 38-input four-loop pilot. The full four-loop
-164,352-input regeneration and final public cache-delivery checks remain
-pending. Captured-record counts are separate from selected-root completion;
-optional provenance-budget exhaustion must never imply that every descendant
-was captured. Detailed measurements and any structural storage-limit findings
-remain in `CODEX_PROGRESS.md`.
+independent repeats; the subsequent bounded live-statistics refresh (`e1f39797`)
+passes 82 application tests and an independent repeat. Actual-Git Vakint
+regeneration completes the full 5/77/2,320/164,352 selected-input primers. Exact
+native committed-key censuses establish 5/77/2,352/286,527 distinct stored keys,
+including 122,175 additional four-loop intermediate keys. The full four-loop
+preparation takes 552.794 s, with 90,790,870 charged disk bytes; its compressed
+delivery archive is 89,680,390 bytes. Selected-root completion never implies
+that every possible descendant was captured: optional provenance exhaustion
+remains explicit and occurred once in the completed four-loop run.
+
+Final native coefficient/guard replay, unseen-input comparisons, private Python
+smoke/public-API tests, and all four delivery-archive imports pass. Assets and
+checksums are local and untracked under
+`TMP/cache-delivery-intermediate-index03-20261014/`. These tests bind the
+recorded Symbolica/FeynKit stack. The intended Vakint source-only push encountered
+new collaborator commits on the feature branch; integrating the cache pin without
+discarding them requires a new coherent dependency build and compatibility test
+against these same packages. That remaining integration must not be mislabeled
+as validated by the earlier runtime. Detailed evidence and the finite-primer
+scope remain in `CODEX_PROGRESS.md`; five-loop acceptance is still incomplete.
 
 ### Delivered one-through-four-loop cache milestone (October 14)
 
