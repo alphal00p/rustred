@@ -1,5 +1,117 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 14 — read-only D9-to-D10 diagnosis and independent critique
+
+`d10_extension_diagnosis` delivered its bounded investigation; the independent
+auditor reviewed the key mathematical claim against native routing code. No
+campaign, checkpoint, source rules, process or input was changed by either
+research lane. The user has independently restarted production in
+`runs/20261014T160407.741803Z`; the observed native process was restoring.
+Do not confuse its new run with the stopped generation-83 invocation.
+
+Amendment12 adds 49 exact-D10 connected/convenience requests, repeats 49 exact
+D9 geometries with new IDs, and widens 18 nested requests to D9--10. The repeated
+D9 rows are semantically identical to amendment11 except IDs; normal aliasing
+handles them, so deleting these rows is not a justified speedup proposal.
+All 920 cumulative rows remain required and there are no auxiliary query roots.
+The global scalar-rank cap stays 11, but individual correlated envelopes grow:
+owner `011101110111000` changes from D9/A<=11/R<=2 (1,000 integer points) to
+D10/A<=13/R<=3 (31,464 newly admitted points). The agent's coordinate-DP census,
+checked against the existing stars-and-bars formula, counts 24,283,653,864 new
+owner-qualified D10 tuples, of which 24,188,255,520 belong to nested requests.
+These counts are **not** distinct integrals modulo symmetry, solver operations,
+upper bounds on successor work, or evidence that nested owners dominate time.
+
+Generation83 has 247,142,604 discovered domains, 200,155,508 native inspections,
+12,957,366 queued nodes and no frontiers/errors. Its latest recorded closure scan
+is stale: 183,425,748 closed is an observation/lower bound, not a current count.
+Across the last two observed scans discovery exceeded closure. Recorded D10
+invocation time totals about 28.5 h including about 2.63 h restoring; the three
+stops were swap growth, host-memory reserve and requested SIGINT, not missing
+rules. None of these observations proves eventual termination or supplies an ETA.
+
+The agent read five fixed 10,000-domain CP83 windows (about 5 MB total), checking
+the structural wire layout against native code and the original 67 JSON roots.
+This is a convenience sample, **not full validation or statistical attribution**.
+It contains descendant envelopes at A16/R5/D11, A23/R0/D23 and A13/R9/D4. The
+tail is Route-heavy and its Apply nodes are connected/convenience owners, not
+nested owners. D4/R9 is not necessarily admitted by the earlier D9 publication:
+that owner's recorded R/A envelope is narrower than the global printed maxima.
+The maximum encountered scalar negative-index degree is 15; this is not physical
+momentum degree 15 and was already present in the D9 run.
+
+Best supported next investigation: reopen the **already registered, not yet
+implemented** per-map envelope proposal in
+`docs/research/routing_envelopes_and_rule_portfolios_2026-09-30.md`, especially
+its homogeneous upper-D section. Existing `mapped_bounds` deliberately replaces
+source upper D with safe upper A because numerator maps can have constants.
+The verified compiler provides an active unit bijection; when every relevant
+inactive row has exactly zero affine constant, expansion preserves total degree
+and hence D=A-R, even after cancellation/pinches. Coordinate caps can likewise
+use the actual contributing source rows. Unit mass alone does not imply this:
+Q=C+1 at numerator power two legitimately generates D, D+1 and D+2. Blanket
+clipping of descendants to D10 would be wrong.
+
+Proposed smallest falsifier is a **read-only native-map shadow** of fixed recent
+Route cohorts, counting nonredundant tighter coordinates/finite homogeneous-D
+opportunities, followed by exact endpoint tests on small representatives. Only
+material opportunities justify a saved-rule recursive pilot: tighter boxes can
+also fragment domains or hurt subsumption. No implementation, demonstrated gain,
+checkpoint compatibility or production restart is approved by this diagnosis.
+
+Secondary candidates are boundary-selective ordinary-IBP combinations that avoid
+numerator or dot growth, following Luthe's TIDE thesis sections 2.3.3 and
+8.1.2--8.1.4 (local `FOR_REFERENCE_ONLY_DO_NOT_PUSH/TIDE_5loops.pdf`; primary
+reference https://noah.nrw/ubbihs/download/pdf/5131192). Common-mass differentiation
+is a weighted Euler/ordinary-IBP relation, not an independent identity solving
+every dotted integral. A checked factorized-component bridge into existing
+lower-loop programs is conditional on actual work attribution; cross-component
+numerators require exact tensor contractions and cannot simply be multiplied away.
+
+Negative/prior evidence retained: generic d is never specialized to 4 in the
+walk, so the logarithmic Euler factor 5d-20 is not identically zero; G2 reuse is
+already active (320,595 full-cover and 33,673 residual plans versus only eight
+point-cap refusals in the checked invocation); global R-primary ordering worsened
+a prior complete D10 single-owner domain count by 3.42%; joint-mask pruning and
+dense global dimensional shifts were previously unhelpful. Do not enable these
+unchanged or narrow the frozen physics scope. The leading recommendation is a
+bounded routing-envelope opportunity test, not a new full campaign yet.
+
+## October 14 — rebased-stack compatibility and D10 diagnosis
+
+The small Vakint cache pin/documentation change rebases cleanly onto collaborator
+tip `15a3467f`, yielding local `cbd22968`. The previous tested commit is preserved
+on `cache-intermediate-tested-78cbc-20261014`; no collaborator changes were
+discarded and no force push was attempted. Independent source review confirms
+the rebase adds only two RustRed dependency pins, three lock references and the
+cache documentation. The new coherent dependency stack has Symbolica
+`400a53c4` and FeynKit `024f96d6`; the recorded earlier timings/Python wheel use
+`98794d0` / `eb744c65` and must keep that qualification.
+
+The new optimized native build completes in 443.293 s with 2,205 source hashes
+unchanged. All **16** fresh-process public compatibility cases pass: twelve
+1--3-loop cases plus H/FG/BMW/X four-loop held-outs. Each loads the original
+generated cache, matches the new uncached evaluator and warm repeat, and agrees
+exactly with a native Atom binary exported by the frozen old-stack Python build.
+No IBPs or caches were regenerated. Old golden manifest:
+`TMP/cache-compatibility-goldens-98794-20261014/manifest.json`, SHA256
+`6ae4a5671d1bd5e6385afd8fe78b722827e3176ac56df6ae8bab56e9cd32c63c`.
+New runtime evidence: `TMP/current-stack-cache-{1,2,3,4}l-case{0,1,2,3}-20261014/`.
+The raw coefficient/guard replay and focused unchanged regression tests remain
+the final new-stack gates before the feature-branch push.
+
+New user-authorized read-only lane: `d10_extension_diagnosis` investigates why
+the existing D<=9 to D<=10 extension is expensive. It compares actual request
+amendments, dominant obligations, routing/guard patterns and reuse of earlier
+closure/refinements, then checks relevant literature and prior rejected
+optimizations. It may propose minimal diagnostic pilots, but it must not change
+inputs, generate rules, start a campaign, alter production, or declare D10
+intrinsically impossible from a growing queue. Starting-domain caps remain
+distinct from descendant traversal and concrete-point counts. All analysis uses
+the new workspace, bounded reads and separate resources. Cache integration
+continues independently; no five-loop reduction/terminal-minimization job is
+authorized by this diagnostic request.
+
 ## October 14, 17:57 Europe/Zurich — safe campaign restart handoff
 
 The requested graceful stop is complete. The native result reports `stopped`,
