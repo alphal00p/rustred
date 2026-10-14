@@ -40,8 +40,10 @@ pub struct CachePreparationOptions {
     /// Cooperative wall budget; one native operation may overrun the deadline.
     pub time_limit_seconds: u64,
     pub checkpoint_interval_seconds: u64,
+    /// Maximum selected warmup roots, not intermediate record count. Captured
+    /// descendants remain subject to the explicit RAM, chunk and disk limits.
     pub max_roots: usize,
-    /// Maximum staged roots across namespaces before a preparation flush.
+    /// Maximum staged completed records across namespaces before a flush.
     /// This layout target does not reduce existing-pack decoding allowances.
     pub batch_records: usize,
     pub resume: bool,
@@ -225,6 +227,8 @@ impl CachePreparationResolvedOptions {
             "checkpoint_interval_seconds": self.checkpoint_interval.as_secs(),
             "max_roots": self.max_roots,
             "batch_records": self.batch_records,
+            "intermediate_capture": true,
+            "capture_metadata_limit_bytes_per_request": self.storage_limits.max_directory_owned_bytes,
             "resume": self.resume,
             "validated_lazy_storage": self.capabilities.has_validated_lazy_storage(),
             "storage_limits": format!("{:?}", self.storage_limits),

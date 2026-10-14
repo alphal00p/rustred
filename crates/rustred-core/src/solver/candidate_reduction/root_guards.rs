@@ -35,7 +35,13 @@ impl<const N: usize> CandidateReducer<N> {
             // deduplication. Every inner hit was first visited in this same
             // request. Imported guarded subtrees retain their complete union
             // through this collector before their coefficient memo is admitted.
-            self.reduce_unit_mass_impl_with_root_guards(target, true, Some(&mut retain), lookup)?
+            self.reduce_unit_mass_impl_with_root_guards(
+                target,
+                true,
+                Some(&mut retain),
+                lookup,
+                None,
+            )?
         };
         // The request lease covers guards concurrently with native memo and
         // outer roots through the whole solve, and releases on error/unwind.

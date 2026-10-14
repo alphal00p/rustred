@@ -10,6 +10,7 @@ use crate::reduction::{
 };
 use std::collections::BTreeMap;
 
+mod capture;
 mod descendants;
 mod export_tests;
 mod statistics;

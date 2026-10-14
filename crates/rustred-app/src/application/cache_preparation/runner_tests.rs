@@ -1,5 +1,8 @@
 //! Orchestration-only controls. The mock does not claim to be an IBP program;
 //! native ClosedUnitMassProgram integration is validated separately.
+#[path = "capture_tests.rs"]
+mod capture_tests;
+
 use super::*;
 use crate::{AppError, AppErrorKind};
 use rustred::{
@@ -46,6 +49,9 @@ struct Backend<'a> {
     fail_late_context: bool,
     cancel: Option<&'a AtomicBool>,
     order: Vec<(usize, i64)>,
+    capture_children: Vec<i64>,
+    capture_extra_guards: usize,
+    cancel_capture_after: Option<usize>,
 }
 impl Backend<'_> {
     fn new(namespaces: usize) -> Self {
@@ -67,6 +73,9 @@ impl Backend<'_> {
             fail_late_context: false,
             cancel: None,
             order: Vec::new(),
+            capture_children: Vec::new(),
+            capture_extra_guards: 0,
+            cancel_capture_after: None,
         }
     }
     fn workload(&self, powers: &[i64]) -> CachePreparationWorkload {
@@ -139,6 +148,40 @@ impl CachePreparationBackend for Backend<'_> {
             },
             nonzero_conditions: vec![self.context.integer(2)],
         })
+    }
+    fn reduce_guarded_root_with_capture(
+        &mut self,
+        target: &CachePreparationTarget,
+        capture: &mut dyn rustred::reduction::GuardedIntermediateCapture,
+    ) -> Result<ApplicationCacheRecord, AppError> {
+        for (index, power) in self.capture_children.iter().enumerate() {
+            let key = ApplicationCacheKey::guarded_root(&IntegralKey::try_new([*power]).unwrap());
+            if capture
+                .wants(&key, &self.context)
+                .map_err(|error| AppError::new(AppErrorKind::Execution, error.to_string()))?
+            {
+                capture
+                    .store_completed(
+                        &ApplicationCacheRecord {
+                            key,
+                            terms: BTreeMap::from([(
+                                IntegralKey::try_new([1]).unwrap(),
+                                self.context.integer(*power),
+                            )]),
+                            nonzero_conditions: vec![
+                                self.context.integer(2);
+                                1 + self.capture_extra_guards
+                            ],
+                        },
+                        &self.context,
+                    )
+                    .map_err(|error| AppError::new(AppErrorKind::Execution, error.to_string()))?;
+            }
+            if self.cancel_capture_after == Some(index + 1) {
+                self.cancel.unwrap().store(true, Ordering::Relaxed);
+            }
+        }
+        self.reduce_guarded_root(target)
     }
     fn operational_profile(&self) -> Value {
         json!({"mock":true})

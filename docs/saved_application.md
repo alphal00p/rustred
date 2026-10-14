@@ -370,8 +370,10 @@ aggregate disk quotas, and a finite `prepare_application_cache` runner. A bundle
 can hold multiple program namespaces; four-loop storage is one aggregate quota,
 not four copies of the advertised allowance. Preparation distinguishes complete,
 cancelled, time/size stops and failures. It emits final completion only after
-the checkpoint is durable. Current cancellation is observed between roots;
-an in-flight native reduction is not a saved instruction-pointer checkpoint.
+the checkpoint is durable. Cancellation is observed between roots and at
+intermediate-capture offers. If optional provenance is disabled by its memory
+allowance, the current native root returns to boundary-only interruption.
+An in-flight native reduction is not a saved instruction-pointer checkpoint.
 
 Cache-pack schema 02 stores bounded gzip chunks around the native Symbolica
 state-aware codec. It checks encoded and decoded lengths/digests, requires one
@@ -419,8 +421,51 @@ admission of every proposal.
 The intended cache benefit is repeated computation avoided per retained byte,
 not a requirement to fill the disk allowance or visit every possible integral.
 Assess it on held-out roots with actual rule counters and timing, separately
-from exact-repeat hits. Persisted records currently describe completed selected
-inputs; they do not automatically include every intermediate node traversed.
+from exact-repeat hits. Native preparation now also captures useful completed
+intermediates, rather than persisting only the selected inputs. Captures remain
+bounded and optional; completion of the selected primer does not mean that
+every transient node was stored.
+
+### Capturing computed intermediate results
+
+`ClosedUnitMassProgram::reduce_guarded_root_with_capture` and
+`CandidateUnitMassProgram::reduce_guarded_root_with_capture` expose the same
+`GuardedIntermediateCapture` sink. The existing ordinary application methods
+remain unchanged. Preparation uses the capturing methods; a later reduction
+can then reuse an intermediate that was never a selected preparation input.
+
+The native evaluator records each node's local guards and direct dependency
+edges in a request-local provenance graph. Exact guard equality uses the
+existing membership index, with one unique guard payload pool; it does not
+create a second algebra engine. Family-qualified nodes distinguish lower
+factor reductions with identical index vectors. Imported cache rows contribute
+their full conditions as opaque completed leaves. Factorization normalization,
+angular poles and conditions from cancelled terms remain attached to the
+particular node that needs them, not indiscriminately to every descendant.
+
+After native admission and the sink's exact-key interest check, a completed
+node's own guard union and canonical coefficients are materialized and streamed
+through the existing bounded writer. Unfinished nodes and guardless memo entries
+are never exported. Descendants outside the external entry namespace continue
+through native descent but are not persisted as falsely admitted starting roots.
+
+Optional graph metadata has a separately bounded, reported allowance; it does
+not consume the coefficient-cache capacity needed by the ordinary reduction.
+Exhaustion disables further capture while preserving the root's complete guard
+union. Optional intermediate materialization and oversized output refusals are
+counted and skipped; semantic, corrupt-data and storage errors remain explicit.
+The mandatory guard pool still uses the native shared coefficient budget.
+Neither allowance is a claim about complete process RSS.
+
+Reports separate selected `completed_roots` from
+`newly_stored_intermediates`, and expose lookup/size/metadata capture refusals.
+Only durably published selected targets advance the preparation progress count.
+A failed parent may leave valid completed descendants on disk without being
+marked complete itself. Preparation checkpoint version 2 identifies this
+capture behavior: use a fresh output directory for old root-only preparations,
+otherwise their root hits would bypass the computation needed for enrichment.
+The evaluation record/chunk schema remains unchanged, so old packs remain
+usable for ordinary application and as comparison baselines.
 
 Experimental candidate programs also support `CandidateReducer::fork_empty`
 and `fork_empty_with_limits`: independent cache, work and budget state over
@@ -515,14 +560,16 @@ Preparation attaches the completed pack to its native backend when resuming and
 refreshes those readers after durable batches. A later root can therefore reuse
 saved descendants instead of merely skipping already-completed starting roots.
 Refreshing authenticates the bounded index and preserves cumulative I/O counters;
-it does not reload every payload or reset the RAM allowance. The runner's initial
-readers remain a fixed snapshot for its deduplicated starting workload.
+it does not reload every payload or reset the RAM allowance. Runner readers
+refresh after intermediate batches as well, so later selected roots can reuse
+already captured records. Native readers refresh at safe root boundaries.
 
-`CachePreparationOptions::batch_records` targets 64 staged roots across all
+`CachePreparationOptions::batch_records` targets 64 staged records across all
 namespaces by default; positive overrides must fit the storage chunk's record
 safety limit. It controls preparation flushing only, not decoding or resume
-limits. Existing packs containing larger chunks therefore remain readable and
-resumable with the smaller target. Reports include the selected target; byte,
+limits. Existing packs containing larger chunks remain readable; preparation
+resume additionally requires the current capture-profile checkpoint. Reports
+include the selected target; byte,
 coefficient and checkpoint limits can also flush a batch earlier. In the measured
 2,320-root three-loop pack, 64-record batches reduced one held-out request's
 median read-through time from 133 ms to 51 ms with unchanged native work and

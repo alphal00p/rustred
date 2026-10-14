@@ -23,6 +23,8 @@ mod cached_program;
 mod descendant_cache;
 #[path = "tests/factorized_audit.rs"]
 mod factorized_audit;
+#[path = "tests/intermediate_capture.rs"]
+mod intermediate_capture;
 #[path = "tests/root_guards.rs"]
 mod root_guards;
 #[path = "tests/session.rs"]

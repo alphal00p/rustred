@@ -1,5 +1,105 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 14 — intermediate capture implemented; real-cache regeneration next
+
+New source in `/shared/codex-2/rustred` captures computed intermediates through
+the existing native Closed and Candidate evaluators. `intermediate_capture_core`
+owns shared exact guard provenance and Candidate hooks;
+`intermediate_capture_design` implemented Closed/factorized hooks;
+`intermediate_capture_app` owns bounded streaming and durable root accounting.
+The implementation authors cross-reviewed disjoint lanes, and
+`intermediate_capture_independent_audit` separately audited the combined change.
+
+- [M] Final focused core gate: **139 passed**, no failures/ignored,0.27s onCPU17.
+  It includes9 Candidate capture,6 Closed capture and3 provenance tests, plus
+  the existing application/guard suites. Frozen test SHA256:
+  `fcc7c13e03da7c67275ca00052169d8c3cacc705203542a2b45a792ee43dcc98`.
+  Receipt/logs: new `TMP/intermediate-capture-core-tests-final-20261014/`.
+  Independent repeat passes139/139 in0.17s; receipt
+  `TMP/intermediate-capture-core-independent-audit-20261014.json` verifies the
+  frozen binary and records19 current core source hashes (post-run, not a
+  pre-build source manifest).
+  The first run's138/1 failure was an obsolete hard-coded metadata threshold;
+  the corrected test derives exhaustion caps from measured peak allocation
+  and preserves every output, guard, skipped-capture and ownership assertion.
+- [M] App gate: **70 passed**, no failures/ignored,0.42s onCPU16; independent
+  repeat70/70 in0.26s onCPU17. Frozen SHA256:
+  `03e6544f06cb87b9f81bb52391cf74e20dfa5858a9be659b67e550422b4e90f9`.
+  Receipts: `TMP/intermediate-capture-app-gate-20261014.json` and
+  `TMP/intermediate-capture-app-independent-audit-20261014.json`.
+- Final formatting only reordered module declarations/re-exports in two module
+  registries after these gates; evaluator and test bodies were unchanged.
+- Source audit caught an optional-capture budget trap: graph metadata and
+  sparse materialization must not make an otherwise fitting native reduction
+  fail. Metadata is separately bounded/reported; typed optional export limits
+  decline a capture. Mathematical/IO errors still fail closed. A new regression
+  covers a factorized intermediate that is too large to export although its
+  parent's exact cancellation succeeds.
+- A genuine branching test retains the original prepared root while a different
+  input uses its newly captured descendant. Other controls cover binary reload,
+  admission, imported guards, sibling guard separation, factorized lower-family
+  obligations, cancellation, valid failure prefixes and memory release.
+- Producer checkpointv2 distinguishes enrichment from old selected-root-only
+  preparations. Native evaluation cache schema02 is unchanged. Selected-root
+  completion and stored-intermediate counters are separate; capture exhaustion
+  never implies that every intermediate was saved.
+
+Next: coherent source milestone/push, then actual
+Vakint3.0.1 integration and fresh1--4-loop cache preparation (3L full primer and
+4L subset before the full4L run). Preserve the original5/77/2,320/164,352-root
+packs as baselines. No regenerated packs or real4L performance benefit are
+claimed yet. `intermediate_capture_app` is preparing a generic native public-API
+harness to avoid an unnecessary Python-extension rebuild before generation.
+
+Migration remains active independently: full THE_ONE copy is about50% complete
+at13:04UTC; finalizer waits before validating and starting the copied frozen
+campaign. No solver or input upgrade is part of that migration.
+
+## October 14 — workspace migration running; intermediate capture remains open
+
+The user authorized execution of the audited migration to
+`/shared/codex-2/rustred`. RustRed main is cloned at `5b614668`, including pinned
+Symbolica; the two unrelated tracked FeynKit edits and selected untracked work
+are copied without committing them. Active Vakint `vakint_rustred` is independently
+cloned at `e0b6c6b8`; Community main and Git-backed references are cloned with
+their real remotes and ValentinHirschi identity. Non-Git research resources,
+gen54 application package and baseline cache archives are checksum-checked.
+
+- [M] `migration_repos_audit` delivered the integration/reference copies. Receipt:
+  `/shared/codex-2/rustred/TMP/migration-20261014/integration-and-references.md`.
+- [M] The full stopped THE_ONE directory is being copied under its source
+  checkpoint/dispatcher locks (rsync handle15893, sender3451451). Generation81
+  remains the source authority; manifest SHA256
+  `926b9b7a3ff519395b01f8e8f6a350897dae0497b2f833a3a5da0dc36755fc1e`.
+  Approximately500GiB physical/2TiB logical files are copied. No native solve
+  or restore has started at the destination at this checkpoint.
+- [M] `migration_campaign_audit` independently reviewed the destination-only
+  finalizer: wait for locked copy, final rsync and metadata comparison, verify
+  source/input hashes, native-part lengths and frozen binaries, rewrite only
+  four launcher pointer files, validate the dry plan, then start the authorized
+  resume in a new unique Zellij session. Destination locks and early session
+  checks prevent retries overwriting a live copy. Syntax and actual-metadata
+  relocation tests pass; full native restore is still pending.
+- Finalizer handle58996/PID3747684 is live, waiting on transfer. Its status and
+  logs live in new `TMP/migration-20261014/`. It retains32 workers/CPUs64--95,
+  600GB RAM ceiling and explicitly disables the swap-only stop. Old workspace
+  and frozen binaries are preserved; no campaign input/IBP changes are made.
+
+The user's latest cache correction remains an unmet producer requirement:
+newly computed intermediate reductions must be captured during preparation,
+then 1--4-loop packs regenerated. Earlier delivery proved guarded lookup of
+stored roots during descent, not this new producer behavior. Root is recording
+that distinction rather than rerunning an unchanged primer. The read-only
+`intermediate_capture_design` lane is inspecting shared guard provenance and
+the existing completion/export boundaries in the new checkout. Neither current
+native path exposes all per-node guards safely; do not export guardless inner
+memo records or restore the prior quadratic guard-vector retention.
+
+Next: finish migration/confirm native resume; implement and independently audit
+bounded exact intermediate capture, focused core/app tests, and new1--4-loop
+cache preparation with held-out cold-load comparisons. Five-loop development
+execution and cache preparation remain deferred; the broad goal stays active.
+
 ## October 14 — one-through-four-loop cache delivery completed and pushed
 
 The scoped cache milestone is delivered. RustRed engine/reader changes are on

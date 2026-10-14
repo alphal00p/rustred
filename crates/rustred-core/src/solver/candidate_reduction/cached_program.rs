@@ -8,9 +8,10 @@ use crate::persistence::application_cache::{
 };
 use crate::reduction::guarded_cache::{RootUse, export_bound, lookup_bound};
 use crate::reduction::{
-    CompletedCachePolicy, GuardedCacheBacking, GuardedCacheError, GuardedRootCache,
-    GuardedRootExportError, GuardedRootExportStatistics, GuardedRootResult, GuardedRootSource,
-    ReductionError, ReductionLimits, ReductionStatistics, coefficient_cache_weight,
+    CompletedCachePolicy, GuardedCacheBacking, GuardedCacheError, GuardedIntermediateCapture,
+    GuardedRootCache, GuardedRootExportError, GuardedRootExportStatistics, GuardedRootResult,
+    GuardedRootSource, ReductionError, ReductionLimits, ReductionStatistics,
+    coefficient_cache_weight,
 };
 use std::sync::Arc;
 
@@ -201,7 +202,33 @@ impl<const N: usize> CandidateUnitMassProgram<N> {
         target: &IntegralKey,
         cache: &mut GuardedRootCache,
         limits: ReductionLimits,
+        backing: Option<&mut dyn GuardedCacheBacking>,
+    ) -> Result<GuardedRootResult, CandidateGuardedCacheError> {
+        self.reduce_guarded_root_impl(target, cache, limits, backing, None)
+    }
+
+    /// Opt-in streaming of newly computed admitted descendants, each with its
+    /// own exact guard provenance. No subtree guard vectors are retained in
+    /// the coefficient memo. A bounded provenance allowance can disable further
+    /// optional capture without interrupting the native requested reduction.
+    pub fn reduce_guarded_root_with_capture(
+        &self,
+        target: &IntegralKey,
+        cache: &mut GuardedRootCache,
+        limits: ReductionLimits,
+        backing: Option<&mut dyn GuardedCacheBacking>,
+        capture: &mut dyn GuardedIntermediateCapture,
+    ) -> Result<GuardedRootResult, CandidateGuardedCacheError> {
+        self.reduce_guarded_root_impl(target, cache, limits, backing, Some(capture))
+    }
+
+    fn reduce_guarded_root_impl(
+        &self,
+        target: &IntegralKey,
+        cache: &mut GuardedRootCache,
+        limits: ReductionLimits,
         mut backing: Option<&mut dyn GuardedCacheBacking>,
+        capture: Option<&mut dyn GuardedIntermediateCapture>,
     ) -> Result<GuardedRootResult, CandidateGuardedCacheError> {
         let limits = limits.bounded_by(cache.limits());
         if let Some((record, source)) =
@@ -221,8 +248,23 @@ impl<const N: usize> CandidateUnitMassProgram<N> {
                 self.lookup_completed(descendant, cache, limits, &mut backing, RootUse::Descendant)
                     .map(|found| found.map(|(record, _)| record))
             };
-            let mut session = self.snapshot.fork_empty_with_shared_budget(limits, shared);
-            session.reduce_fresh_unit_mass_guarded_with_lookup(target, limits, &mut lookup)?
+            let mut session = self
+                .snapshot
+                .fork_empty_with_shared_budget(limits, Arc::clone(&shared));
+            if let Some(sink) = capture {
+                let mut capture =
+                    super::capture::CandidateCapture::new(self, target, sink, shared, limits);
+                let result = session.reduce_fresh_unit_mass_guarded_with_capture(
+                    target,
+                    limits,
+                    &mut lookup,
+                    &mut capture,
+                );
+                capture.report();
+                result?
+            } else {
+                session.reduce_fresh_unit_mass_guarded_with_lookup(target, limits, &mut lookup)?
+            }
         }; // Drop releases only this native session's retained share.
         cache.completed_reduction(work);
         let record = Arc::new(ApplicationCacheRecord {

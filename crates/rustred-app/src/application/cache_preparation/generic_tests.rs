@@ -114,6 +114,91 @@ fn guarded_leaf(program: &CandidateUnitMassProgram<1>, pole: i64) -> Application
 }
 
 #[test]
+fn preparation_captures_unselected_candidate_intermediate_for_fresh_disk_application() {
+    use rustred::solver::{SectorConfig, SectorSolveOptions, SectorSolver, SourceSystem};
+    use std::sync::atomic::AtomicBool;
+    let artifact = rustred::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap();
+    let family = artifact.family();
+    let system = SourceSystem::<1>::from_family(family).unwrap();
+    let solution = SectorSolver::new(&system, [true], SectorConfig::default())
+        .unwrap()
+        .solve_sector(SectorSolveOptions::default())
+        .unwrap();
+    let source = CandidateReducer::try_new(
+        family,
+        [true],
+        OrderingPolicy::SpiredUncutV1,
+        [([true], solution)],
+        vec![],
+        Default::default(),
+    )
+    .unwrap();
+    let program = CandidateUnitMassProgram::new(
+        &source,
+        *blake3::hash(b"candidate-intermediate-preparation-test-v1").as_bytes(),
+    );
+    let mut cold = CandidateApplicationCache::new(
+        program.clone(),
+        Default::default(),
+        CompletedCachePolicy::EvictLeastRecentlyUsed,
+    );
+    let expected = cold.reduce_guarded_root(&key(4)).unwrap().record;
+    let scratch = Scratch::new();
+    let output = scratch.0.join("captured-candidate");
+    let options = CachePreparationOptions::default()
+        .resolve(1, Default::default())
+        .unwrap();
+    let mut backend =
+        CandidateCachePreparationBackend::new(vec![program.clone()], Default::default()).unwrap();
+    let workload =
+        CachePreparationWorkload::explicit(backend.bindings().to_vec(), [(0, key(5))], 1).unwrap();
+    let report = prepare_application_cache(
+        &workload,
+        &options,
+        &output,
+        &AtomicBool::new(false),
+        &mut backend,
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(
+        report.status,
+        CachePreparationStatus::Complete,
+        "{}",
+        report.to_document()
+    );
+    assert_eq!(report.completed_roots, 1);
+    assert_eq!(report.newly_stored_roots, 1);
+    assert!(report.newly_stored_intermediates >= 1);
+    drop(backend);
+    let mut fresh = CandidateApplicationCache::new(
+        program,
+        Default::default(),
+        CompletedCachePolicy::EvictLeastRecentlyUsed,
+    );
+    fresh
+        .attach_bundle(&output, options.storage_limits)
+        .unwrap();
+    let actual = fresh.reduce_guarded_root(&key(4)).unwrap();
+    assert_eq!(actual.source, GuardedRootSource::Backing);
+    assert_eq!(actual.work.rule_applications(), 0);
+    assert_eq!(actual.record.terms, expected.terms);
+    let mut expected_guards = expected.nonzero_conditions;
+    assert_eq!(
+        actual.record.nonzero_conditions.len(),
+        expected_guards.len()
+    );
+    for guard in actual.record.nonzero_conditions {
+        let index = expected_guards
+            .iter()
+            .position(|candidate| *candidate == guard)
+            .expect("same exact local guard obligation");
+        expected_guards.swap_remove(index);
+    }
+    assert!(expected_guards.is_empty());
+}
+
+#[test]
 fn fresh_candidate_app_session_reduces_unseen_root_through_native_disk_descendant() {
     use rustred::solver::{SectorConfig, SectorSolveOptions, SectorSolver, SourceSystem};
 

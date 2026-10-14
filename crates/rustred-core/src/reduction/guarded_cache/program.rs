@@ -9,8 +9,9 @@ use crate::persistence::application_cache::{
     ApplicationCacheBinding, ApplicationCacheKey, ApplicationCacheRecord, ApplicationCacheStage,
 };
 use crate::reduction::{
-    HomogeneousMasterCoefficient, HomogeneousMasterDecomposition, MasterDecomposition, Reducer,
-    ReductionError, ReductionLimits, ReductionStatistics, coefficient_cache_weight,
+    GuardedCaptureStatistics, GuardedIntermediateCapture, HomogeneousMasterCoefficient,
+    HomogeneousMasterDecomposition, MasterDecomposition, Reducer, ReductionError, ReductionLimits,
+    ReductionStatistics, coefficient_cache_weight,
 };
 use std::sync::Arc;
 
@@ -124,7 +125,33 @@ impl<'a> ClosedUnitMassProgram<'a> {
         target: &IntegralKey,
         cache: &mut GuardedRootCache,
         limits: ReductionLimits,
+        backing: Option<&mut dyn GuardedCacheBacking>,
+    ) -> Result<GuardedRootResult, GuardedCacheError> {
+        self.reduce_guarded_root_impl(target, cache, limits, backing, None)
+    }
+
+    /// Explicit preparation mode: stream newly computed, admitted intermediate
+    /// results in the same exact unit-mass/terminal convention. Ordinary calls
+    /// remain read-only with respect to any attached backing pack. Capture is
+    /// optional acceleration, not an extension of certified entry coverage.
+    pub fn reduce_guarded_root_with_capture(
+        &self,
+        target: &IntegralKey,
+        cache: &mut GuardedRootCache,
+        limits: ReductionLimits,
+        backing: Option<&mut dyn GuardedCacheBacking>,
+        capture: &mut dyn GuardedIntermediateCapture,
+    ) -> Result<GuardedRootResult, GuardedCacheError> {
+        self.reduce_guarded_root_impl(target, cache, limits, backing, Some(capture))
+    }
+
+    fn reduce_guarded_root_impl(
+        &self,
+        target: &IntegralKey,
+        cache: &mut GuardedRootCache,
+        limits: ReductionLimits,
         mut backing: Option<&mut dyn GuardedCacheBacking>,
+        mut capture: Option<&mut dyn GuardedIntermediateCapture>,
     ) -> Result<GuardedRootResult, GuardedCacheError> {
         let limits = limits.bounded_by(cache.limits);
         if let Some((record, source)) =
@@ -144,13 +171,65 @@ impl<'a> ClosedUnitMassProgram<'a> {
                 self.lookup_completed(descendant, cache, limits, &mut backing, RootUse::Descendant)
                     .map(|found| found.map(|(record, _)| record))
             };
-            Reducer::reduce_artifact_unit_mass_guarded_with_lookup(
-                self.artifact,
-                target,
-                limits,
-                shared,
-                &mut lookup,
-            )?
+            if let Some(capture) = capture.as_mut() {
+                let metadata_limit = capture.metadata_limit_bytes();
+                let mut statistics = GuardedCaptureStatistics::default();
+                let mut emit = |key: &IntegralKey,
+                                value: &MasterDecomposition,
+                                graph: &mut crate::reduction::guarded_capture::GuardProvenance,
+                                node|
+                 -> Result<(), GuardedCacheError> {
+                    match self.validate_entry(key) {
+                        Ok(()) => {}
+                        Err(
+                            ReductionError::OutsideCertifiedRootDomain { .. }
+                            | ReductionError::OutsideCertifiedTotalExcessDomain { .. },
+                        ) => {
+                            graph.record_skipped();
+                            return Ok(());
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
+                    let record_key = ApplicationCacheKey::guarded_root(key);
+                    if !capture.wants(&record_key, self.context())? {
+                        graph.record_skipped();
+                        return Ok(());
+                    }
+                    if !graph.prepare_export(node)? {
+                        graph.record_skipped();
+                        return Ok(());
+                    }
+                    let record = ApplicationCacheRecord {
+                        key: record_key,
+                        terms: value.terms().clone(),
+                        nonzero_conditions: graph.conditions(node)?,
+                    };
+                    self.validate_completed_record(&record, limits)?;
+                    capture.store_completed(&record, self.context())?;
+                    graph.record_captured();
+                    Ok(())
+                };
+                let result = Reducer::reduce_artifact_unit_mass_guarded_capturing(
+                    self.artifact,
+                    target,
+                    limits,
+                    shared,
+                    &mut lookup,
+                    &mut emit,
+                    metadata_limit,
+                    &mut statistics,
+                );
+                capture.report_statistics(statistics);
+                result?
+            } else {
+                Reducer::reduce_artifact_unit_mass_guarded_with_lookup(
+                    self.artifact,
+                    target,
+                    limits,
+                    shared,
+                    &mut lookup,
+                )?
+            }
         };
         cache.completed_reduction(work);
         let record = Arc::new(ApplicationCacheRecord {

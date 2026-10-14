@@ -10,6 +10,7 @@
 mod application;
 mod cache;
 mod cached_program;
+mod capture;
 mod evaluator;
 mod model;
 mod owners;

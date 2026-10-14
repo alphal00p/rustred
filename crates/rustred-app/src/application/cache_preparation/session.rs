@@ -10,9 +10,10 @@ use rustred::{
     },
     reduction::{
         ClosedUnitMassProgram, CompletedCachePolicy, GuardedCacheBacking, GuardedCacheBackingError,
-        GuardedCacheBackingErrorKind, GuardedCacheError, GuardedRootCache,
-        GuardedRootCacheStatistics, GuardedRootExportError, GuardedRootExportStatistics,
-        GuardedRootResult, HomogeneousMasterDecomposition, ReductionError, ReductionLimits,
+        GuardedCacheBackingErrorKind, GuardedCacheError, GuardedIntermediateCapture,
+        GuardedRootCache, GuardedRootCacheStatistics, GuardedRootExportError,
+        GuardedRootExportStatistics, GuardedRootResult, HomogeneousMasterDecomposition,
+        ReductionError, ReductionLimits,
     },
     solver::CandidateUnitMassProgram,
 };
@@ -186,6 +187,20 @@ impl<P: NativeCacheProgram> NativeApplicationCache<P> {
             .map(|backing| backing as &mut dyn GuardedCacheBacking);
         self.program
             .reduce(target, &mut self.cache, self.limits, backing)
+    }
+    /// Explicit preparation-only capture; ordinary read-only application does
+    /// not construct intermediate provenance or write through to disk.
+    pub fn reduce_guarded_root_with_capture(
+        &mut self,
+        target: &IntegralKey,
+        capture: &mut dyn GuardedIntermediateCapture,
+    ) -> Result<GuardedRootResult, AppError> {
+        let backing = self
+            .backing
+            .as_mut()
+            .map(|backing| backing as &mut dyn GuardedCacheBacking);
+        self.program
+            .reduce_with_capture(target, &mut self.cache, self.limits, backing, capture)
     }
     pub fn decomposition(
         &self,
@@ -440,6 +455,15 @@ impl<P: NativeCacheProgram> CachePreparationBackend for NativeCachePreparationBa
             .get_mut(target.namespace())
             .ok_or_else(|| AppError::input("unknown native cache namespace"))?
             .reduce_guarded_root(target.integral())
+            .map(|result| result.record)
+    }
+    fn reduce_guarded_root_with_capture(
+        &mut self,
+        target: &CachePreparationTarget,
+        capture: &mut dyn GuardedIntermediateCapture,
+    ) -> Result<ApplicationCacheRecord, AppError> {
+        self.session_mut(target.namespace())?
+            .reduce_guarded_root_with_capture(target.integral(), capture)
             .map(|result| result.record)
     }
     fn operational_profile(&self) -> Value {

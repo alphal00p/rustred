@@ -12,6 +12,7 @@ use crate::reduction::{
 use crate::sector::{OrderingPolicy, zero};
 
 use super::cache::{self, CacheEntry, CachedTerms};
+use super::capture::CaptureObserver;
 use super::model::{
     CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
     CandidateReductionError, CandidateStatistics, PreparedRule,
@@ -192,7 +193,7 @@ impl<const N: usize> CandidateReducer<N> {
         ),
         CandidateReductionError,
     > {
-        self.reduce_guarded_impl(target, remaining, false, None)
+        self.reduce_guarded_impl(target, remaining, false, None, None)
     }
 
     /// A single fresh root may retain its complete guard union once instead
@@ -210,7 +211,7 @@ impl<const N: usize> CandidateReducer<N> {
         ),
         CandidateReductionError,
     > {
-        self.reduce_guarded_impl(target, remaining, true, None)
+        self.reduce_guarded_impl(target, remaining, true, None, None)
     }
 
     pub(super) fn reduce_fresh_unit_mass_guarded_with_lookup(
@@ -226,7 +227,24 @@ impl<const N: usize> CandidateReducer<N> {
         ),
         super::CandidateGuardedCacheError,
     > {
-        self.reduce_guarded_impl(target, remaining, true, Some(lookup))
+        self.reduce_guarded_impl(target, remaining, true, Some(lookup), None)
+    }
+
+    pub(super) fn reduce_fresh_unit_mass_guarded_with_capture(
+        &mut self,
+        target: &IntegralKey,
+        remaining: ReductionLimits,
+        lookup: &mut CandidateGuardedLookup<'_, super::CandidateGuardedCacheError>,
+        capture: &mut dyn CaptureObserver<N, super::CandidateGuardedCacheError>,
+    ) -> Result<
+        (
+            CandidateDecomposition,
+            Vec<Coefficient>,
+            ReductionStatistics,
+        ),
+        super::CandidateGuardedCacheError,
+    > {
+        self.reduce_guarded_impl(target, remaining, true, Some(lookup), Some(capture))
     }
 
     fn reduce_guarded_impl<E: From<CandidateReductionError>>(
@@ -235,6 +253,7 @@ impl<const N: usize> CandidateReducer<N> {
         remaining: ReductionLimits,
         fresh_root: bool,
         lookup: Option<&mut CandidateGuardedLookup<'_, E>>,
+        capture: Option<&mut dyn CaptureObserver<N, E>>,
     ) -> Result<
         (
             CandidateDecomposition,
@@ -266,7 +285,16 @@ impl<const N: usize> CandidateReducer<N> {
                     self.limits,
                 )
                 .map_err(CandidateReductionError::from)?;
-            let (result, conditions, _request_guard_lease) = if fresh_root {
+            let (result, conditions, _request_guard_lease) = if let Some(capture) = capture {
+                let result = self.reduce_unit_mass_impl_with_root_guards(
+                    target,
+                    true,
+                    None,
+                    lookup,
+                    Some(capture),
+                )?;
+                (result, capture.root_conditions(), None)
+            } else if fresh_root {
                 let (result, conditions, lease) =
                     self.reduce_with_root_guard_union(target, lookup)?;
                 (result, conditions, Some(lease))
@@ -305,7 +333,7 @@ impl<const N: usize> CandidateReducer<N> {
         target: &IntegralKey,
         guarded: bool,
     ) -> Result<CandidateDecomposition, CandidateReductionError> {
-        self.reduce_unit_mass_impl_with_root_guards(target, guarded, None, None)
+        self.reduce_unit_mass_impl_with_root_guards(target, guarded, None, None, None)
     }
 
     pub(super) fn reduce_unit_mass_impl_with_root_guards<E: From<CandidateReductionError>>(
@@ -316,9 +344,11 @@ impl<const N: usize> CandidateReducer<N> {
             &mut dyn FnMut(&[Coefficient]) -> Result<(), CandidateReductionError>,
         >,
         mut lookup: Option<&mut CandidateGuardedLookup<'_, E>>,
+        mut capture: Option<&mut dyn CaptureObserver<N, E>>,
     ) -> Result<CandidateDecomposition, E> {
         if (root_guards.is_some() && (!guarded || !self.cache.is_empty()))
-            || (lookup.is_some() && root_guards.is_none())
+            || (lookup.is_some() && root_guards.is_none() && capture.is_none())
+            || (capture.is_some() && (!guarded || !self.cache.is_empty() || root_guards.is_some()))
         {
             return Err(
                 CandidateReductionError::from(ReductionError::ReducerInvariant {
@@ -327,7 +357,7 @@ impl<const N: usize> CandidateReducer<N> {
                 .into(),
             );
         }
-        let subtree_guards = guarded && root_guards.is_none();
+        let subtree_guards = guarded && root_guards.is_none() && capture.is_none();
         self.validate_entry_target(target)?;
         if self.cached_for(target, subtree_guards) {
             self.statistics.record_cache_hit();
@@ -369,8 +399,16 @@ impl<const N: usize> CandidateReducer<N> {
                             self.program.context.base(),
                             self.limits,
                         )?;
-                        let conditions = retain_root_guards(&mut root_guards, conditions)?;
-                        self.cache_insert(key, terms, conditions)?;
+                        let conditions = retain_request_guards(
+                            &key,
+                            &mut root_guards,
+                            &mut capture,
+                            conditions,
+                        )?;
+                        self.cache_insert(key.clone(), terms, conditions)?;
+                        if let Some(capture) = capture.as_mut() {
+                            capture.completed(&key, self, false)?;
+                        }
                         continue;
                     }
                     if self.program.terminals.contains(&key) {
@@ -395,8 +433,16 @@ impl<const N: usize> CandidateReducer<N> {
                                 retain_polynomial(conditions, &coefficient.denominator);
                             }
                         }
-                        let conditions = retain_root_guards(&mut root_guards, conditions)?;
-                        self.cache_insert(key, terms, conditions)?;
+                        let conditions = retain_request_guards(
+                            &key,
+                            &mut root_guards,
+                            &mut capture,
+                            conditions,
+                        )?;
+                        self.cache_insert(key.clone(), terms, conditions)?;
+                        if let Some(capture) = capture.as_mut() {
+                            capture.completed(&key, self, false)?;
+                        }
                         continue;
                     }
                     // Establish native coverage before an external result can
@@ -411,7 +457,20 @@ impl<const N: usize> CandidateReducer<N> {
                     if key != *target {
                         if let Some(provider) = lookup.as_mut() {
                             if let Some(record) = provider(&key)? {
-                                self.import_guarded_record(&key, &record, &mut root_guards)?;
+                                if let Some(capture) = capture.as_mut() {
+                                    capture.local(&key, &record.nonzero_conditions)?;
+                                    let terms = CachedTerms::from_sparse(
+                                        record.terms.clone(),
+                                        self.cache_representation,
+                                        self.program.context.base(),
+                                        self.limits,
+                                    )?;
+                                    self.cache_insert(key.clone(), terms, None)?;
+                                    self.statistics.record_cache_hit();
+                                    capture.completed(&key, self, true)?;
+                                } else {
+                                    self.import_guarded_record(&key, &record, &mut root_guards)?;
+                                }
                                 continue;
                             }
                         }
@@ -446,7 +505,13 @@ impl<const N: usize> CandidateReducer<N> {
                         (self.apply_candidate(&key, &mut request)?, None)
                     };
                     self.statistics.record_rule_application();
-                    let conditions = retain_root_guards(&mut root_guards, conditions)?;
+                    let conditions =
+                        retain_request_guards(&key, &mut root_guards, &mut capture, conditions)?;
+                    if let Some(capture) = capture.as_mut() {
+                        for child in terms.keys() {
+                            capture.child(&key, child)?;
+                        }
+                    }
                     let mut children = Vec::new();
                     children.try_reserve_exact(terms.len()).map_err(|_| {
                         CandidateReductionError::from(ReductionError::AllocationFailure {
@@ -527,7 +592,10 @@ impl<const N: usize> CandidateReducer<N> {
                         )
                         .into());
                     }
-                    self.cache_insert(target, output, conditions)?;
+                    self.cache_insert(target.clone(), output, conditions)?;
+                    if let Some(capture) = capture.as_mut() {
+                        capture.completed(&target, self, false)?;
+                    }
                 }
             }
         }
@@ -790,6 +858,20 @@ impl<const N: usize> CandidateReducer<N> {
         self.program
             .evaluator(target, self.limits)?
             .apply_with_conditions(target, request, &mut self.statistics)
+    }
+}
+
+fn retain_request_guards<const N: usize, E: From<CandidateReductionError>>(
+    key: &IntegralKey,
+    root: &mut Option<&mut dyn FnMut(&[Coefficient]) -> Result<(), CandidateReductionError>>,
+    capture: &mut Option<&mut dyn CaptureObserver<N, E>>,
+    conditions: Option<Vec<Coefficient>>,
+) -> Result<Option<Vec<Coefficient>>, E> {
+    if let Some(capture) = capture.as_mut() {
+        capture.local(key, conditions.as_deref().unwrap_or(&[]))?;
+        Ok(None)
+    } else {
+        retain_root_guards(root, conditions).map_err(Into::into)
     }
 }
 

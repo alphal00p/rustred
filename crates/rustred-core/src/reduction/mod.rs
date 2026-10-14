@@ -10,6 +10,7 @@ pub(crate) mod cache_policy;
 mod error;
 pub(crate) mod guard_union;
 pub(crate) mod guarded_cache;
+pub(crate) mod guarded_capture;
 mod model;
 mod reducer;
 pub mod terminal_normalization;
@@ -22,6 +23,7 @@ pub use guarded_cache::{
     GuardedCacheBackingErrorKind, GuardedCacheError, GuardedRootCache, GuardedRootCacheStatistics,
     GuardedRootExportError, GuardedRootExportStatistics, GuardedRootResult, GuardedRootSource,
 };
+pub use guarded_capture::{GuardedCaptureStatistics, GuardedIntermediateCapture};
 pub use model::{
     HomogeneousMasterCoefficient, HomogeneousMasterDecomposition, MasterDecomposition,
     ReductionLimits, ReductionStatistics,

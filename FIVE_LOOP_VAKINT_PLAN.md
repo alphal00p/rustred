@@ -177,6 +177,45 @@ silently switch to the user's live D10 campaign. See `CODEX_PROGRESS.md` and
 
 ## Approved follow-up — persistent reusable application caches
 
+### October 14 priority: capture newly computed intermediate results
+
+The delivered lookup milestone lets an unseen input reuse a prepared root when
+it occurs as a descendant. The user additionally requires preparation to save
+newly computed intermediate reductions themselves. Existing 1--4-loop packs
+contain selected primer roots only; rerunning the unchanged producer would not
+meet this requirement.
+
+- Extend both sealed and candidate native application paths to expose completed
+  intermediate results with their own exact nonzero conditions and canonical
+  terminal coefficients. Do not serialize guardless memo entries or attach an
+  unrelated whole-request condition union as a substitute for subtree provenance.
+- Preserve the request-owned union's memory improvement. Share local guard and
+  dependency provenance; materialize guarded records only at a bounded export
+  boundary, accounting for retained metadata and payloads. No competing CAS or
+  new reconstruction algorithm is needed: use existing Symbolica coefficient
+  operations and RustRed guard unions.
+- Keep entry admission distinct from descendant traversal. Do not grant wider
+  cached authority merely because a native route reached a key. Missing rules,
+  cycles, incomplete results, errors and cancelled work never become masters.
+- Stream completed records through the existing native cache preparation and
+  binary pack infrastructure. Separate selected-root progress from additional
+  intermediate records; preserve partial-load limits, eviction, durable-prefix
+  checkpoints, corruption detection and artifact/terminal binding.
+- Test a persisted intermediate that was never a selected primer root, then
+  cold-load it to shortcut a distinct requested input. Compare exact outputs and
+  guards, including cancelled coefficient contributions, repeated dependencies,
+  finite budgets, interruption/resume and sparse/factorized candidate storage.
+- Regenerate 1--4-loop caches in new directories after focused gates. Retain the
+  old selected-root packs as baselines; report intermediate counts, storage,
+  preparation time/RSS and held-out application benefit. Five-loop cache work
+  and remaining five-loop validation stay deferred pending the updated artifact.
+
+The user has authorized migrating the development workspace and resuming the
+existing production campaign at `/shared/codex-2/rustred`. Migration preserves
+the frozen campaign binaries and checkpoint; it is not authorization to change
+rules, input scope, rank bounds or native campaign semantics. Development now
+targets the new checkout, leaving the original workspace as a rollback copy.
+
 ### Delivered one-through-four-loop cache milestone (October 14)
 
 RustRed `301beec66e6a2fcdc12ffe2c665181206615550c` and Vakint branch

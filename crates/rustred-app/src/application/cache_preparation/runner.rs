@@ -9,12 +9,13 @@ use rustred::{
     persistence::application_cache::{
         ApplicationCacheBinding, ApplicationCacheKey, ApplicationCacheRecord,
     },
+    reduction::GuardedIntermediateCapture,
 };
 use serde_json::{Value, json};
 
 use super::{
     CachePreparationResolvedOptions, CachePreparationTarget, CachePreparationWorkload,
-    batch::CompletedCacheBatch,
+    batch::CompletedCacheBatch, capture::PreparationCapture,
 };
 use crate::{
     AppError, AppErrorKind, SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter,
@@ -63,6 +64,15 @@ pub trait CachePreparationBackend {
         &mut self,
         target: &CachePreparationTarget,
     ) -> Result<ApplicationCacheRecord, AppError>;
+    /// Native implementations override this to emit completed intermediate
+    /// reductions. The runner owns their bounded durable stream, not algebra.
+    fn reduce_guarded_root_with_capture(
+        &mut self,
+        target: &CachePreparationTarget,
+        _capture: &mut dyn GuardedIntermediateCapture,
+    ) -> Result<ApplicationCacheRecord, AppError> {
+        self.reduce_guarded_root(target)
+    }
     /// Full current native operational profile, distinct from entry coverage.
     fn operational_profile(&self) -> Value;
     /// Native counters, not inferred from the number of stored root records.
@@ -93,14 +103,24 @@ impl CachePreparationStatus {
     }
 }
 
-/// A partial report is not successful completion. Only checkpointed records
-/// and validated records already on disk contribute to completed_roots.
+/// A partial report is not successful completion. Only selected workload roots
+/// with checkpointed records or validated records already on disk contribute
+/// to completed_roots. Complete does not assert that every possible internal
+/// node was captured: optional-capture refusal counters remain explicit.
 #[derive(Clone, Debug)]
 pub struct CachePreparationReport {
     pub status: CachePreparationStatus,
     pub total_roots: usize,
     pub completed_roots: usize,
     pub newly_stored_roots: usize,
+    /// Newly durable records which were not selected-root acknowledgements.
+    pub newly_stored_intermediates: usize,
+    pub capture_lookup_budget_skips: usize,
+    pub capture_oversized_records: usize,
+    pub capture_offered_records: usize,
+    pub capture_native_skipped_records: usize,
+    pub capture_metadata_exhausted_roots: usize,
+    pub capture_metadata_peak_bytes: usize,
     pub reused_roots: usize,
     pub elapsed: Duration,
     pub charged_disk_bytes: u64,
@@ -116,6 +136,13 @@ impl CachePreparationReport {
         json!({
             "status": self.status.label(), "total_roots": self.total_roots,
             "completed_roots": self.completed_roots, "newly_stored_roots": self.newly_stored_roots,
+            "newly_stored_intermediates": self.newly_stored_intermediates,
+            "capture_lookup_budget_skips": self.capture_lookup_budget_skips,
+            "capture_oversized_records": self.capture_oversized_records,
+            "capture_offered_records": self.capture_offered_records,
+            "capture_native_skipped_records": self.capture_native_skipped_records,
+            "capture_metadata_exhausted_roots": self.capture_metadata_exhausted_roots,
+            "capture_metadata_peak_bytes": self.capture_metadata_peak_bytes,
             "reused_roots": self.reused_roots, "elapsed_seconds": self.elapsed.as_secs_f64(),
             "charged_disk_bytes": self.charged_disk_bytes,
             "reader_directory_owned_bytes": self.directory_owned_bytes,
@@ -123,7 +150,8 @@ impl CachePreparationReport {
             "native_statistics": self.native_statistics,
             "failure": self.failure.as_ref().map(|e| json!({"kind": e.kind().as_str(), "detail": e.message()})),
             "checkpoint_failure": self.checkpoint_failure.as_ref().map(|e| json!({"kind": e.kind().as_str(), "detail": e.message()})),
-            "resume_semantics": "completed guarded roots only; no in-flight native operation state",
+            "capture_profile": CAPTURE_PROFILE,
+            "resume_semantics": "durable selected roots and guarded intermediates; no in-flight native operation state",
             "coverage_claim": false,
         })
     }
@@ -151,16 +179,27 @@ struct Checkpoint {
     status: String,
     options: String,
     native_profile: String,
+    capture_profile: String,
 }
+const CAPTURE_PROFILE: &str = "completed-intermediates-with-local-guard-provenance-v1";
 impl Checkpoint {
     fn verify(bytes: &[u8], workload: &CachePreparationWorkload) -> Result<(), AppError> {
+        let (version, _): (u32, usize) =
+            bincode::decode_from_slice(bytes, bincode::config::standard())
+                .map_err(|error| AppError::serialization(error.to_string()))?;
+        if version != 2 {
+            return Err(AppError::input(
+                "cache preparation capture profile changed; use a new output directory to capture intermediate descendants",
+            ));
+        }
         let (checkpoint, used): (Self, usize) = bincode::decode_from_slice(
             bytes,
             bincode::config::standard().with_limit::<{ 64 * 1024 * 1024 }>(),
         )
         .map_err(|error| AppError::serialization(error.to_string()))?;
         if used != bytes.len()
-            || checkpoint.version != 1
+            || checkpoint.version != 2
+            || checkpoint.capture_profile != CAPTURE_PROFILE
             || checkpoint.workload != *workload.digest()
             || checkpoint.total != workload.targets().len() as u64
             || checkpoint.completed > checkpoint.total
@@ -177,13 +216,14 @@ impl Checkpoint {
         writer: &mut SavedApplicationCacheBundleWriter,
     ) -> Result<(), AppError> {
         let checkpoint = Self {
-            version: 1,
+            version: 2,
             workload: *workload.digest(),
             total: report.total_roots as u64,
             completed: report.completed_roots as u64,
             status: report.status.label().into(),
             options: report.options.to_string(),
             native_profile: report.native_profile.to_string(),
+            capture_profile: CAPTURE_PROFILE.into(),
         };
         let bytes = bincode::encode_to_vec(checkpoint, bincode::config::standard())
             .map_err(|error| AppError::serialization(error.to_string()))?;
@@ -198,19 +238,26 @@ impl CompletedCacheBatch {
         backend: &mut impl CachePreparationBackend,
         writer: &mut SavedApplicationCacheBundleWriter,
         report: &mut CachePreparationReport,
+        readers: &mut [SavedApplicationCachePack],
     ) -> Result<(), AppError> {
         let before = self.durable_records();
+        let selected_before = self.durable_selected_roots();
         let result = self.flush(workload.bindings(), writer, |namespace| {
             backend.context(namespace)
         });
         // A later namespace may fail after an earlier child was published.
         // Keep that durable prefix in the report even when returning an error.
         let published = self.durable_records() - before;
-        report.completed_roots += published;
-        report.newly_stored_roots += published;
+        let selected = self.durable_selected_roots() - selected_before;
+        report.completed_roots += selected;
+        report.newly_stored_roots += selected;
+        report.newly_stored_intermediates += published - selected;
         result?;
         if published != 0 {
             backend.refresh_completed_caches()?;
+            for reader in readers {
+                reader.refresh()?;
+            }
         }
         Ok(())
     }
@@ -281,6 +328,12 @@ pub fn prepare_application_cache(
     for (namespace, reader) in readers.iter().enumerate() {
         backend.attach_completed_cache(namespace, reader.fork_reader())?;
     }
+    // Contexts share Symbolica variable maps; no source expressions or program
+    // state are cloned. A capture callback may flush while the native backend
+    // is mutably reducing a root, so it cannot borrow that backend again.
+    let capture_contexts = (0..workload.bindings().len())
+        .map(|namespace| backend.context(namespace).cloned())
+        .collect::<Result<Vec<_>, _>>()?;
     let runner_directory_bytes = readers
         .iter()
         .map(|reader| reader.statistics().directory_owned_bytes)
@@ -291,6 +344,13 @@ pub fn prepare_application_cache(
         total_roots: workload.targets().len(),
         completed_roots: 0,
         newly_stored_roots: 0,
+        newly_stored_intermediates: 0,
+        capture_lookup_budget_skips: 0,
+        capture_oversized_records: 0,
+        capture_offered_records: 0,
+        capture_native_skipped_records: 0,
+        capture_metadata_exhausted_roots: 0,
+        capture_metadata_peak_bytes: 0,
         reused_roots: 0,
         elapsed: started.elapsed(),
         charged_disk_bytes: writer.charged_disk_bytes()?,
@@ -322,9 +382,15 @@ pub fn prepare_application_cache(
             report.stop(error, false);
             break;
         }
+        let mut capture_storage_failure = false;
         let result = (|| {
             backend.validate_entry(target)?;
             let key = ApplicationCacheKey::guarded_root(target.integral());
+            if let Some(record) = pending.get(target.namespace(), &key) {
+                backend.validate_completed_record(target.namespace(), record)?;
+                pending.mark_selected_root(target.namespace(), &key)?;
+                return Ok(None);
+            }
             if let Some(record) =
                 readers[target.namespace()].lookup(&key, backend.context(target.namespace())?)?
             {
@@ -333,7 +399,34 @@ pub fn prepare_application_cache(
                 report.completed_roots += 1;
                 return Ok(None);
             }
-            let record = backend.reduce_guarded_root(target)?;
+            let mut capture = PreparationCapture {
+                namespace: target.namespace(),
+                bindings: workload.bindings(),
+                contexts: &capture_contexts,
+                options,
+                cancellation,
+                pending: &mut pending,
+                readers: &mut readers,
+                writer: &mut writer,
+                report: &mut report,
+                failure: None,
+                storage_failed: false,
+                failure_is_storage: false,
+                published: false,
+            };
+            let reduced = backend.reduce_guarded_root_with_capture(target, &mut capture);
+            let capture_failure = capture.failure.take();
+            let published = capture.published;
+            storage_failed |= capture.storage_failed;
+            capture_storage_failure = capture.failure_is_storage;
+            drop(capture);
+            if published {
+                backend.refresh_completed_caches()?;
+            }
+            if let Some(error) = capture_failure {
+                return Err(error);
+            }
+            let record = reduced?;
             if record.key != key {
                 return Err(AppError::internal_invariant(
                     "native prepared root has a different key or stage",
@@ -345,7 +438,7 @@ pub fn prepare_application_cache(
         let record = match result {
             Ok(record) => record,
             Err(error) => {
-                report.stop(error, false);
+                report.stop(error, capture_storage_failure);
                 break;
             }
         };
@@ -360,22 +453,30 @@ pub fn prepare_application_cache(
             if pending.buffered_records() >= options.batch_records
                 || pending.needs_flush(weight, limits)
             {
-                if let Err(error) =
-                    pending.flush_preparation(workload, backend, &mut writer, &mut report)
-                {
+                if let Err(error) = pending.flush_preparation(
+                    workload,
+                    backend,
+                    &mut writer,
+                    &mut report,
+                    &mut readers,
+                ) {
                     report.stop(error, true);
                     storage_failed = true;
                     break;
                 }
             }
-            if let Err(error) = pending.push(target.namespace(), record, weight, limits) {
+            let key = record.key.clone();
+            if let Err(error) = pending
+                .push(target.namespace(), record, weight, limits)
+                .and_then(|()| pending.mark_selected_root(target.namespace(), &key))
+            {
                 report.stop(error, true);
                 break;
             }
         }
         if last_checkpoint.elapsed() >= options.checkpoint_interval {
             let checkpoint = pending
-                .flush_preparation(workload, backend, &mut writer, &mut report)
+                .flush_preparation(workload, backend, &mut writer, &mut report, &mut readers)
                 .and_then(|()| Checkpoint::publish(workload, &report, &mut writer));
             if let Err(error) = checkpoint {
                 report.stop(error, true);
@@ -386,7 +487,9 @@ pub fn prepare_application_cache(
         }
     }
     if !storage_failed {
-        if let Err(error) = pending.flush_preparation(workload, backend, &mut writer, &mut report) {
+        if let Err(error) =
+            pending.flush_preparation(workload, backend, &mut writer, &mut report, &mut readers)
+        {
             if report.failure.is_none() {
                 report.stop(error, true);
             } else {
@@ -399,6 +502,11 @@ pub fn prepare_application_cache(
     }
     report.elapsed = started.elapsed();
     report.native_statistics = backend.statistics();
+    let runner_directory_bytes = readers
+        .iter()
+        .map(|reader| reader.statistics().directory_owned_bytes)
+        .try_fold(0usize, |sum, bytes| sum.checked_add(bytes))
+        .ok_or_else(|| AppError::limit("cache reader directory byte count overflow"))?;
     report.directory_owned_bytes = runner_directory_bytes
         .checked_add(backend.completed_cache_directory_bytes()?)
         .ok_or_else(|| AppError::limit("cache reader directory byte count overflow"))?;

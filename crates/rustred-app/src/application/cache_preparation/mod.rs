@@ -1,6 +1,7 @@
 //! Opt-in preparation policy and finite native workloads. This layer neither
 //! generates rules nor owns a coefficient codec or an eviction algorithm.
 mod batch;
+mod capture;
 mod export;
 mod options;
 mod program;

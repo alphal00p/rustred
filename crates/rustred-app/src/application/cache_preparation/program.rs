@@ -7,9 +7,10 @@ use rustred::{
     family::IntegralKey,
     persistence::application_cache::{ApplicationCacheBinding, ApplicationCacheRecord},
     reduction::{
-        ClosedUnitMassProgram, CompletedCachePolicy, GuardedCacheBacking, GuardedRootCache,
-        GuardedRootExportError, GuardedRootExportStatistics, GuardedRootResult,
-        HomogeneousMasterDecomposition, ReductionError, ReductionLimits,
+        ClosedUnitMassProgram, CompletedCachePolicy, GuardedCacheBacking,
+        GuardedIntermediateCapture, GuardedRootCache, GuardedRootExportError,
+        GuardedRootExportStatistics, GuardedRootResult, HomogeneousMasterDecomposition,
+        ReductionError, ReductionLimits,
     },
     solver::{
         CandidateDecomposition, CandidateGuardedCacheError, CandidateReductionError,
@@ -42,6 +43,14 @@ pub trait NativeCacheProgram: sealed::Sealed {
         cache: &mut GuardedRootCache,
         limits: ReductionLimits,
         backing: Option<&mut dyn GuardedCacheBacking>,
+    ) -> Result<GuardedRootResult, AppError>;
+    fn reduce_with_capture(
+        &self,
+        target: &IntegralKey,
+        cache: &mut GuardedRootCache,
+        limits: ReductionLimits,
+        backing: Option<&mut dyn GuardedCacheBacking>,
+        capture: &mut dyn GuardedIntermediateCapture,
     ) -> Result<GuardedRootResult, AppError>;
     fn reduce_decomposition(
         &self,
@@ -96,6 +105,17 @@ impl NativeCacheProgram for ClosedUnitMassProgram<'_> {
         backing: Option<&mut dyn GuardedCacheBacking>,
     ) -> Result<GuardedRootResult, AppError> {
         self.reduce_guarded_root(target, cache, limits, backing)
+            .map_err(guarded_error)
+    }
+    fn reduce_with_capture(
+        &self,
+        target: &IntegralKey,
+        cache: &mut GuardedRootCache,
+        limits: ReductionLimits,
+        backing: Option<&mut dyn GuardedCacheBacking>,
+        capture: &mut dyn GuardedIntermediateCapture,
+    ) -> Result<GuardedRootResult, AppError> {
+        self.reduce_guarded_root_with_capture(target, cache, limits, backing, capture)
             .map_err(guarded_error)
     }
     fn reduce_decomposition(
@@ -159,6 +179,17 @@ impl<const N: usize> NativeCacheProgram for CandidateUnitMassProgram<N> {
         backing: Option<&mut dyn GuardedCacheBacking>,
     ) -> Result<GuardedRootResult, AppError> {
         self.reduce_guarded_root(target, cache, limits, backing)
+            .map_err(candidate_guarded_error)
+    }
+    fn reduce_with_capture(
+        &self,
+        target: &IntegralKey,
+        cache: &mut GuardedRootCache,
+        limits: ReductionLimits,
+        backing: Option<&mut dyn GuardedCacheBacking>,
+        capture: &mut dyn GuardedIntermediateCapture,
+    ) -> Result<GuardedRootResult, AppError> {
+        self.reduce_guarded_root_with_capture(target, cache, limits, backing, capture)
             .map_err(candidate_guarded_error)
     }
     fn reduce_decomposition(

@@ -11,6 +11,7 @@ use crate::foundry::parametric::ParametricRule;
 use crate::persistence::application_cache::{ApplicationCacheRecord, ApplicationCacheStage};
 
 use super::error::ReductionError;
+use super::guarded_capture::{GuardNodeId, GuardProvenance};
 use super::model::{
     HomogeneousMasterCoefficient, HomogeneousMasterDecomposition, MasterDecomposition,
     ReductionLimits, ReductionStatistics,
@@ -21,6 +22,11 @@ use super::model::{
 /// backing failures without expanding the ordinary public ReductionError.
 pub(crate) type GuardedRootLookup<'a, E> =
     dyn FnMut(&IntegralKey) -> Result<Option<Arc<ApplicationCacheRecord>>, E> + 'a;
+
+/// Preparation-only callback. Native completion and exact provenance precede
+/// this callback; callers decide whether to materialize a particular record.
+pub(crate) type GuardedRootCapture<'a, E> = dyn FnMut(&IntegralKey, &MasterDecomposition, &mut GuardProvenance, GuardNodeId) -> Result<(), E>
+    + 'a;
 
 impl ReductionLimits {
     /// Intersect a caller's remaining request budget with an immutable owner
@@ -73,6 +79,8 @@ impl ReductionLimits {
 
 #[cfg(test)]
 mod scoped_tests;
+
+mod capture;
 
 /// Stateful, topology-independent memoizing applier for one sealed artifact.
 pub struct Reducer<'artifact> {
@@ -297,6 +305,7 @@ impl<'artifact> Reducer<'artifact> {
                 &canonical_target,
                 &mut request,
                 Some(lookup),
+                None,
             )?;
             if canonical_target == *target {
                 canonical
@@ -412,8 +421,12 @@ impl<'artifact> Reducer<'artifact> {
     ) -> Result<MasterDecomposition, ReductionError> {
         self.validate_target(target)?;
         let canonical_target = self.canonicalize(target)?;
-        let canonical =
-            self.reduce_canonical_unit_mass::<ReductionError>(&canonical_target, request, None)?;
+        let canonical = self.reduce_canonical_unit_mass::<ReductionError>(
+            &canonical_target,
+            request,
+            None,
+            None,
+        )?;
         if canonical_target == *target {
             Ok(canonical)
         } else {
@@ -430,7 +443,16 @@ impl<'artifact> Reducer<'artifact> {
         target: &IntegralKey,
         request: &mut ReductionRequest,
         mut lookup: Option<&mut GuardedRootLookup<'_, E>>,
+        mut capture: Option<&mut GuardedRootCapture<'_, E>>,
     ) -> Result<MasterDecomposition, E> {
+        let node = self.prepare_guard_node(target, request)?;
+        if let (Some(parent), Some(child), Some(graph)) = (
+            request.capture_scope,
+            node,
+            request.guard_provenance.as_mut(),
+        ) {
+            graph.add_child(parent, child)?;
+        }
         if let Some(cached) = self.cache.get(target).cloned() {
             self.statistics.record_cache_hit();
             return Ok(cached);
@@ -443,140 +465,182 @@ impl<'artifact> Reducer<'artifact> {
             let mut active = BTreeSet::new();
             while let Some(frame) = stack.pop() {
                 request.release_pending_frame()?;
-                match frame {
-                    Frame::Expand(key) => {
-                        if self.cache.contains_key(&key) {
-                            self.statistics.record_cache_hit();
-                            continue;
-                        }
-                        // A completed external value must not mask an active
-                        // native cycle. Ordinary no-provider behavior remains
-                        // the existing begin_expansion check below.
-                        if lookup.is_some() && active.contains(&key) {
-                            return Err(ReductionError::CycleDetected { target: key }.into());
-                        }
-                        // Native applicability is selected before consulting
-                        // the provider: an uncovered node stays uncovered.
-                        let expansion = if self.artifact.is_zero_terminal(&key) {
-                            Expansion::Zero
-                        } else if let Some(factorization) = self.select_first_factorization(&key)? {
-                            Expansion::Factorization(factorization)
-                        } else {
-                            Expansion::Rule(self.select_first_rule(&key)?)
-                        };
-                        // The guarded outer API already checked the starting
-                        // root. Avoid a second identical backing lookup.
-                        if key != *target {
-                            if let Some(provider) = lookup.as_mut() {
-                                if let Some(record) = provider(&key)? {
-                                    drop(expansion);
-                                    self.import_guarded_root(&key, &record, request)?;
-                                    continue;
+                let frame_key = match &frame {
+                    Frame::Expand(key) => key,
+                    Frame::Combine { target, .. } => target,
+                };
+                let node = self.prepare_guard_node(frame_key, request)?;
+                let previous_scope = request.capture_scope;
+                request.capture_scope = node;
+                let frame_result: Result<(), E> = (|| {
+                    match frame {
+                        Frame::Expand(key) => {
+                            if self.cache.contains_key(&key) {
+                                self.statistics.record_cache_hit();
+                                return Ok(());
+                            }
+                            // A completed external value must not mask an active
+                            // native cycle. Ordinary no-provider behavior remains
+                            // the existing begin_expansion check below.
+                            if lookup.is_some() && active.contains(&key) {
+                                return Err(ReductionError::CycleDetected { target: key }.into());
+                            }
+                            // Native applicability is selected before consulting
+                            // the provider: an uncovered node stays uncovered.
+                            let expansion = if self.artifact.is_zero_terminal(&key) {
+                                Expansion::Zero
+                            } else if let Some(factorization) =
+                                self.select_first_factorization(&key)?
+                            {
+                                Expansion::Factorization(factorization)
+                            } else {
+                                Expansion::Rule(self.select_first_rule(&key)?)
+                            };
+                            // The guarded outer API already checked the starting
+                            // root. Avoid a second identical backing lookup.
+                            if key != *target {
+                                if let Some(provider) = lookup.as_mut() {
+                                    if let Some(record) = provider(&key)? {
+                                        drop(expansion);
+                                        self.import_guarded_root(&key, &record, request)?;
+                                        self.finish_guard_node(&key, request)?;
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                            let selected = match expansion {
+                                Expansion::Zero => {
+                                    self.cache_insert(
+                                        key.clone(),
+                                        MasterDecomposition::new(
+                                            self.family_fingerprint.clone(),
+                                            key.clone(),
+                                            BTreeMap::new(),
+                                        ),
+                                    )?;
+                                    self.finish_guard_node(&key, request)?;
+                                    self.capture_completed_node(
+                                        &key,
+                                        target,
+                                        request,
+                                        &mut capture,
+                                    )?;
+                                    return Ok(());
+                                }
+                                Expansion::Factorization(factorization) => {
+                                    self.retain_factorization_guard(
+                                        factorization.ordinal,
+                                        request,
+                                    )?;
+                                    request.record_rule_application(
+                                        self.limits.max_rule_applications,
+                                    )?;
+                                    let routed = self.apply_factorization(
+                                        &factorization.routed_target,
+                                        factorization.ordinal,
+                                        request,
+                                    )?;
+                                    let expansion = MasterDecomposition::new(
+                                        self.family_fingerprint.clone(),
+                                        key.clone(),
+                                        routed.into_terms(),
+                                    );
+                                    self.statistics.record_rule_application();
+                                    self.cache_insert(key.clone(), expansion)?;
+                                    self.finish_guard_node(&key, request)?;
+                                    self.capture_completed_node(
+                                        &key,
+                                        target,
+                                        request,
+                                        &mut capture,
+                                    )?;
+                                    return Ok(());
+                                }
+                                Expansion::Rule(selected) => selected,
+                            };
+                            begin_expansion(&mut active, &key)?;
+                            request.record_rule_application(self.limits.max_rule_applications)?;
+                            self.retain_selected_rule_guards(&selected, request)?;
+                            let application = self.apply_selected_rule(&key, selected, request)?;
+                            self.statistics.record_rule_application();
+                            let mut children = Vec::new();
+                            children.try_reserve_exact(application.len()).map_err(|_| {
+                                ReductionError::AllocationFailure {
+                                    resource: "applied rule child schedule",
+                                    requested: application.len(),
+                                }
+                            })?;
+                            children.extend(application.iter().map(|(child, _)| child.clone()));
+                            self.push_frame(
+                                &mut stack,
+                                Frame::Combine {
+                                    target: key,
+                                    terms: application,
+                                },
+                                request,
+                            )?;
+                            for child in children.into_iter().rev() {
+                                if !self.cache.contains_key(&child) {
+                                    self.push_frame(&mut stack, Frame::Expand(child), request)?;
                                 }
                             }
                         }
-                        let selected = match expansion {
-                            Expansion::Zero => {
-                                self.cache_insert(
-                                    key.clone(),
-                                    MasterDecomposition::new(
-                                        self.family_fingerprint.clone(),
-                                        key,
-                                        BTreeMap::new(),
-                                    ),
-                                )?;
-                                continue;
-                            }
-                            Expansion::Factorization(factorization) => {
-                                request
-                                    .record_rule_application(self.limits.max_rule_applications)?;
-                                let routed = self.apply_factorization(
-                                    &factorization.routed_target,
-                                    factorization.ordinal,
-                                    request,
-                                )?;
-                                let expansion = MasterDecomposition::new(
-                                    self.family_fingerprint.clone(),
-                                    key.clone(),
-                                    routed.into_terms(),
-                                );
-                                self.statistics.record_rule_application();
-                                self.cache_insert(key, expansion)?;
-                                continue;
-                            }
-                            Expansion::Rule(selected) => selected,
-                        };
-                        begin_expansion(&mut active, &key)?;
-                        request.record_rule_application(self.limits.max_rule_applications)?;
-                        let application = self.apply_selected_rule(&key, selected)?;
-                        self.statistics.record_rule_application();
-                        let mut children = Vec::new();
-                        children.try_reserve_exact(application.len()).map_err(|_| {
-                            ReductionError::AllocationFailure {
-                                resource: "applied rule child schedule",
-                                requested: application.len(),
-                            }
-                        })?;
-                        children.extend(application.iter().map(|(child, _)| child.clone()));
-                        self.push_frame(
-                            &mut stack,
-                            Frame::Combine {
-                                target: key,
-                                terms: application,
-                            },
-                            request,
-                        )?;
-                        for child in children.into_iter().rev() {
-                            if !self.cache.contains_key(&child) {
-                                self.push_frame(&mut stack, Frame::Expand(child), request)?;
-                            }
-                        }
-                    }
-                    Frame::Combine { target, terms } => {
-                        let mut masters = BTreeMap::new();
-                        for (child, rule_coefficient) in terms {
-                            let child_expansion =
-                                self.cache
-                                    .get(&child)
-                                    .ok_or(ReductionError::ReducerInvariant {
+                        Frame::Combine {
+                            target: completed,
+                            terms,
+                        } => {
+                            self.retain_child_guard_nodes(&completed, &terms, request)?;
+                            let mut masters = BTreeMap::new();
+                            for (child, rule_coefficient) in terms {
+                                let child_expansion = self.cache.get(&child).ok_or(
+                                    ReductionError::ReducerInvariant {
                                         detail: "a child expansion is absent at its combine frame",
-                                    })?;
-                            for (master, child_coefficient) in child_expansion.terms() {
-                                let contribution = self
-                                    .artifact
-                                    .coefficient_context()
-                                    .try_mul(
-                                        &rule_coefficient,
-                                        child_coefficient,
-                                        self.limits.exact_algebra,
-                                    )
-                                    .map_err(ReductionError::from)?;
-                                accumulate_master_in_request(
-                                    self.artifact.coefficient_context(),
-                                    &mut masters,
-                                    master,
-                                    contribution,
-                                    self.limits,
-                                    request,
-                                    &mut self.statistics,
+                                    },
                                 )?;
+                                for (master, child_coefficient) in child_expansion.terms() {
+                                    let contribution = self
+                                        .artifact
+                                        .coefficient_context()
+                                        .try_mul(
+                                            &rule_coefficient,
+                                            child_coefficient,
+                                            self.limits.exact_algebra,
+                                        )
+                                        .map_err(ReductionError::from)?;
+                                    accumulate_master_in_request(
+                                        self.artifact.coefficient_context(),
+                                        &mut masters,
+                                        master,
+                                        contribution,
+                                        self.limits,
+                                        request,
+                                        &mut self.statistics,
+                                    )?;
+                                }
                             }
-                        }
-                        if !active.remove(&target) {
-                            return Err(ReductionError::ReducerInvariant {
+                            if !active.remove(&completed) {
+                                return Err(ReductionError::ReducerInvariant {
                                 detail: "a combine frame is not present in the active dependency set",
                             }.into());
+                            }
+                            self.cache_insert(
+                                completed.clone(),
+                                MasterDecomposition::new(
+                                    self.family_fingerprint.clone(),
+                                    completed.clone(),
+                                    masters,
+                                ),
+                            )?;
+                            self.finish_guard_node(&completed, request)?;
+                            // The requested root is published by the public program
+                            // wrapper, not counted again as an intermediate.
+                            self.capture_completed_node(&completed, target, request, &mut capture)?;
                         }
-                        self.cache_insert(
-                            target.clone(),
-                            MasterDecomposition::new(
-                                self.family_fingerprint.clone(),
-                                target,
-                                masters,
-                            ),
-                        )?;
                     }
-                }
+                    Ok(())
+                })();
+                request.capture_scope = previous_scope;
+                frame_result?;
             }
 
             self.cache
@@ -936,6 +1000,7 @@ impl<'artifact> Reducer<'artifact> {
         &self,
         target: &IntegralKey,
         selected: SelectedRule<'_>,
+        request: &mut ReductionRequest,
     ) -> Result<Vec<(IntegralKey, Coefficient)>, ReductionError> {
         let mut terms = Vec::new();
         terms
@@ -990,12 +1055,17 @@ impl<'artifact> Reducer<'artifact> {
             } else {
                 raw_child
             };
-            let (coefficient, _formal_parameter_denominator) =
+            let (coefficient, formal_parameter_denominator) =
                 self.artifact.indexed_context().specialize_sealed(
                     term.coefficient(),
                     &selected.assignment,
                     self.limits.indexed_algebra,
                 )?;
+            if request.guard_provenance.is_some() {
+                if let Some(denominator) = formal_parameter_denominator {
+                    request.retain_nonzero_guard(&denominator.into(), self.limits)?;
+                }
+            }
             if !coefficient.is_zero() {
                 terms.push((child, coefficient));
             }
@@ -1192,6 +1262,10 @@ pub(crate) struct ReductionRequest {
     /// Opt-in original angular poles for guarded lower-factor application.
     guarded_conditions: Option<Vec<Coefficient>>,
     guarded_condition_budget: Option<GuardedConditionBudget>,
+    /// Opt-in preparation provenance. Ordinary application allocates no arena.
+    guard_provenance: Option<GuardProvenance>,
+    /// Local integral currently executing, including nested factorizations.
+    capture_scope: Option<GuardNodeId>,
 }
 
 pub(crate) struct GuardedConditionBudget {
@@ -1264,9 +1338,9 @@ impl ReductionRequest {
         limits: ReductionLimits,
         preserve_constant: bool,
     ) -> Result<(), ReductionError> {
-        let Some(conditions) = &mut self.guarded_conditions else {
+        if self.guarded_conditions.is_none() && self.guard_provenance.is_none() {
             return Ok(());
-        };
+        }
         if condition.is_zero() {
             return Err(ReductionError::ReducerInvariant {
                 detail: "guarded reduction encountered a zero nonzero-condition",
@@ -1278,6 +1352,18 @@ impl ReductionRequest {
         {
             return Ok(());
         }
+        if let Some(graph) = self.guard_provenance.as_mut() {
+            let node = self.capture_scope.ok_or(ReductionError::ReducerInvariant {
+                detail: "captured guard has no active integral scope",
+            })?;
+            return graph.add_local(node, std::slice::from_ref(condition));
+        }
+        let conditions =
+            self.guarded_conditions
+                .as_mut()
+                .ok_or(ReductionError::ReducerInvariant {
+                    detail: "guarded conditions have no output buffer",
+                })?;
         let budget =
             self.guarded_condition_budget
                 .as_mut()

@@ -47,6 +47,69 @@ fn fixture() -> (ClosedArtifact, [u8; 32]) {
 }
 
 #[test]
+fn preparation_captures_unselected_closed_intermediate_for_fresh_disk_application() {
+    let (artifact, digest) = fixture();
+    let program = || ClosedUnitMassProgram::new(&artifact, digest);
+    let mut cold = ClosedApplicationCache::new(
+        program(),
+        Default::default(),
+        CompletedCachePolicy::EvictLeastRecentlyUsed,
+    );
+    let expected = cold.reduce_guarded_root(&key(4)).unwrap().record;
+    let scratch = Scratch::new();
+    let output = scratch.0.join("captured-closed");
+    let options = CachePreparationOptions::default()
+        .resolve(1, Default::default())
+        .unwrap();
+    let mut backend =
+        ClosedCachePreparationBackend::new(vec![program()], Default::default()).unwrap();
+    let workload =
+        CachePreparationWorkload::explicit(backend.bindings().to_vec(), [(0, key(5))], 1).unwrap();
+    let report = prepare_application_cache(
+        &workload,
+        &options,
+        &output,
+        &AtomicBool::new(false),
+        &mut backend,
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(
+        report.status,
+        CachePreparationStatus::Complete,
+        "{}",
+        report.to_document()
+    );
+    assert_eq!(report.completed_roots, 1);
+    assert_eq!(report.newly_stored_roots, 1);
+    assert!(report.newly_stored_intermediates >= 1);
+    drop(backend);
+    let mut fresh = ClosedApplicationCache::new(
+        program(),
+        Default::default(),
+        CompletedCachePolicy::EvictLeastRecentlyUsed,
+    );
+    fresh
+        .attach_bundle(&output, options.storage_limits)
+        .unwrap();
+    let actual = fresh.reduce_guarded_root(&key(4)).unwrap();
+    assert_eq!(actual.source, GuardedRootSource::Backing);
+    assert_eq!(actual.work.rule_applications(), 0);
+    assert_eq!(actual.record.terms, expected.terms);
+    let mut actual_guards = actual.record.nonzero_conditions;
+    let mut expected_guards = expected.nonzero_conditions;
+    assert_eq!(actual_guards.len(), expected_guards.len());
+    for guard in actual_guards.drain(..) {
+        let index = expected_guards
+            .iter()
+            .position(|candidate| *candidate == guard)
+            .expect("same exact local guard obligation");
+        expected_guards.swap_remove(index);
+    }
+    assert!(expected_guards.is_empty());
+}
+
+#[test]
 fn live_export_is_bounded_guard_preserving_and_does_not_touch_ram_policy() {
     let (artifact, digest) = fixture();
     let mut session = ClosedApplicationCache::new(

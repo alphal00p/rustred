@@ -54,8 +54,8 @@ fn ordered_union_matches_legacy_across_overlapping_children_and_vec_growth() {
         for batch in &batches {
             union.extend(batch).unwrap();
         }
-        assert_eq!(union.previous.len(), union.output.len());
-        assert!(union.heads.len() <= union.output.len());
+        assert_eq!(union.index.previous.len(), union.output.len());
+        assert!(union.index.heads.len() <= union.output.len());
     }
     assert_eq!(actual, expected);
     assert_eq!(actual[..2], [guards[200].clone(), guards[3].clone()]);
@@ -73,8 +73,8 @@ fn forced_hash_collisions_use_exact_equality_and_build_index_only_once() {
         let mut union = GuardUnion::with_hasher(&mut output, hashes.clone()).unwrap();
         union.extend(&guards).unwrap();
         union.extend(&guards).unwrap();
-        assert_eq!(union.heads.len(), 1);
-        assert_eq!(union.previous.len(), 32);
+        assert_eq!(union.index.heads.len(), 1);
+        assert_eq!(union.index.previous.len(), 32);
         assert_eq!(hashes.0.load(Ordering::Relaxed), 3 + 32 + 32);
     }
     assert_eq!(output, guards);
@@ -153,7 +153,7 @@ fn payload_admission_runs_only_for_new_guards_and_failure_keeps_membership_reusa
                 .is_err()
         );
         assert_eq!(*union.output, before);
-        assert_eq!(union.previous.len(), 1);
+        assert_eq!(union.index.previous.len(), 1);
         union
             .extend_with(&[b.clone(), a.clone()], |_| {
                 calls += 1;
