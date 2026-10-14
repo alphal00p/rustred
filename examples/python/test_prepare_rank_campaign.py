@@ -137,7 +137,7 @@ class RankCampaignStagingTests(unittest.TestCase):
     def setUpClass(cls):
         PREPARE.WORKSPACE_TEMP.mkdir(exist_ok=True)
 
-    def fixture(self, root):
+    def fixture(self, root, query_document=None):
         owner = root / "owner.rrbin"
         owner.write_bytes(b"fixture only; not native rules")
         overlay = root / "overlay.rrbin"
@@ -152,7 +152,7 @@ class RankCampaignStagingTests(unittest.TestCase):
                                       "bytes": overlay.stat().st_size}],
         }))
         queries = root / "queries.json"
-        queries.write_text(json.dumps(document()))
+        queries.write_text(json.dumps(document() if query_document is None else query_document))
         attachment = root / "proof-provenance.json"
         attachment.write_text('{"opaque":"retain"}\n')
         source = root / "original"
@@ -212,6 +212,174 @@ class RankCampaignStagingTests(unittest.TestCase):
                 PREPARE.prepare(scoped, root / "rank1", 1)
             self.assertEqual(snapshot(scoped), scoped_before)
             self.assertFalse((root / "rank1").exists())
+
+    def scoped_fixture(self, root):
+        source = self.fixture(root)
+        scoped = root / "source-rank0"
+        PREPARE.prepare(source, scoped, 0, max_power_difference=4)
+        return source, scoped
+
+    def replace_attachment(self, campaign, name, raw):
+        """Coherently rewrite only a disposable fixture's outer inventory."""
+        path = campaign / "inputs" / name
+        path.chmod(0o644)
+        path.write_bytes(raw)
+        receipt_path = campaign / "inputs/input-receipt.json"
+        receipt = json.loads(receipt_path.read_bytes())
+        for item in receipt["attachments"]:
+            if item["name"] == name:
+                item.update(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+        receipt_path.write_text(json.dumps(receipt))
+
+    def test_original_query_opt_in_restores_templates_without_copying_checkpoint(self):
+        with tempfile.TemporaryDirectory(dir=PREPARE.WORKSPACE_TEMP) as temporary:
+            root = Path(temporary)
+            source, scoped = self.scoped_fixture(root)
+            (scoped / "checkpoints/main").mkdir(parents=True)
+            (scoped / "checkpoints/main/latest.json").write_text('{"protected":"ledger"}')
+            (scoped / "amendments").mkdir()
+            (scoped / "amendments/amendment-0001.json").write_text('{"protected":"scope"}')
+            before = snapshot(scoped)
+            destination = root / "fresh-rank2"
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(PREPARE.main([
+                    "--source-campaign", str(scoped), "--source-original-queries",
+                    "--destination", str(destination), "--max-numerator-rank", "2",
+                    "--max-power-difference", "6"]), 0)
+            receipt = json.loads(output.getvalue())
+            self.assertEqual(receipt["source_query_mode"], "authenticated-original-attachment")
+            self.assertFalse(receipt["source_checkpoint_reused"])
+            self.assertEqual(receipt["source_campaign_queries_sha256"],
+                             hashlib.sha256(before["inputs/queries.json"]).hexdigest())
+            self.assertEqual(receipt["source_rank_scope_receipt_sha256"],
+                             hashlib.sha256(before[f"inputs/{PREPARE.RECEIPT_NAME}"]).hexdigest())
+            original_bytes = (source / "inputs/queries.json").read_bytes()
+            expected, _ = PREPARE.plan_rank_queries(original_bytes, 2, max_power_difference=6)
+            self.assertEqual((destination / "inputs/queries.json").read_bytes(), expected)
+            self.assertEqual((destination / "inputs" / PREPARE.SOURCE_QUERIES_NAME).read_bytes(),
+                             original_bytes)
+            self.assertEqual([q["max_numerator_rank"] for q in json.loads(expected)["queries"]], [2, 1])
+            self.assertEqual([q["power_bounds"]["max_power_difference"]
+                              for q in json.loads(expected)["queries"]], [6, 6])
+            staged = PREPARE.PRODUCTION.verify_inputs(destination / "inputs")[2]
+            self.assertEqual([item["name"] for item in staged["attachments"]],
+                             ["proof-provenance.json", PREPARE.SOURCE_QUERIES_NAME, PREPARE.RECEIPT_NAME])
+            self.assertEqual((destination / "inputs/selection.json").read_bytes(),
+                             before["inputs/selection.json"])
+            self.assertEqual({path.name for path in destination.iterdir()}, {"inputs"})
+            self.assertEqual(snapshot(scoped), before)
+
+    def test_original_query_mode_requires_one_complete_canonical_attachment_pair(self):
+        for mutation in ("no-pair", "missing-source", "duplicate-source", "duplicate-receipt"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(
+                    dir=PREPARE.WORKSPACE_TEMP) as temporary:
+                root = Path(temporary)
+                source, scoped = self.scoped_fixture(root)
+                if mutation == "no-pair":
+                    scoped = source
+                else:
+                    path = scoped / "inputs/input-receipt.json"
+                    receipt = json.loads(path.read_bytes())
+                    if mutation == "missing-source":
+                        receipt["attachments"] = [item for item in receipt["attachments"]
+                                                  if item["name"] != PREPARE.SOURCE_QUERIES_NAME]
+                    else:
+                        name = (PREPARE.SOURCE_QUERIES_NAME if mutation == "duplicate-source"
+                                else PREPARE.RECEIPT_NAME)
+                        receipt["attachments"].append(copy.deepcopy(next(
+                            item for item in receipt["attachments"] if item["name"] == name)))
+                    path.write_text(json.dumps(receipt))
+                with self.assertRaisesRegex(ValueError, "exactly one canonical"):
+                    PREPARE.prepare(scoped, root / "fresh", 2, source_original_queries=True)
+                self.assertFalse((root / "fresh").exists())
+
+    def test_original_query_opt_in_restores_d10_request_omitted_from_d9_base(self):
+        with tempfile.TemporaryDirectory(dir=PREPARE.WORKSPACE_TEMP) as temporary:
+            root = Path(temporary)
+            original = document()
+            original["queries"][1].update(max_numerator_rank=6, upper=[15, 6])
+            original["queries"][1]["power_bounds"].update(
+                max_positive_power=16, min_power_difference=10, max_power_difference=10)
+            original["queries"][2]["power_bounds"].update(
+                max_positive_power=23, min_power_difference=9, max_power_difference=None)
+            source = self.fixture(root, original)
+            capped = root / "source-d9"
+            PREPARE.prepare(source, capped, 0, max_power_difference=9)
+            self.assertEqual(len(json.loads((capped / "inputs/queries.json").read_bytes())["queries"]), 1)
+            fresh = root / "fresh-d10"
+            PREPARE.prepare(capped, fresh, 6, max_power_difference=10, source_original_queries=True)
+            expected, _ = PREPARE.plan_rank_queries(
+                (source / "inputs/queries.json").read_bytes(), 6, max_power_difference=10)
+            self.assertEqual((fresh / "inputs/queries.json").read_bytes(), expected)
+            self.assertEqual(json.loads(expected)["queries"][0], original["queries"][1])
+            self.assertEqual(len(json.loads(expected)["queries"]), 2)
+
+    def test_original_query_mode_rejects_tampered_or_stale_source_binding(self):
+        for mutation in ("unbound-bytes", "wrong-source-sha", "wrong-base", "wrong-selection", "schema"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(
+                    dir=PREPARE.WORKSPACE_TEMP) as temporary:
+                root = Path(temporary)
+                _, scoped = self.scoped_fixture(root)
+                if mutation == "unbound-bytes":
+                    path = scoped / "inputs" / PREPARE.SOURCE_QUERIES_NAME
+                    path.chmod(0o644)
+                    path.write_bytes(path.read_bytes() + b" ")
+                elif mutation == "wrong-source-sha":
+                    raw = (scoped / "inputs" / PREPARE.SOURCE_QUERIES_NAME).read_bytes() + b" "
+                    self.replace_attachment(scoped, PREPARE.SOURCE_QUERIES_NAME, raw)
+                else:
+                    path = scoped / "inputs" / PREPARE.RECEIPT_NAME
+                    receipt = json.loads(path.read_bytes())
+                    if mutation == "wrong-base":
+                        receipt["max_numerator_rank"] = 2
+                    elif mutation == "wrong-selection":
+                        receipt["source_selection_sha256"] = "0" * 64
+                    else:
+                        receipt["schema"] = "unrecognized"
+                    self.replace_attachment(scoped, PREPARE.RECEIPT_NAME, json.dumps(receipt).encode())
+                before = snapshot(scoped)
+                with self.assertRaises(ValueError):
+                    PREPARE.prepare(scoped, root / "fresh", 2, source_original_queries=True)
+                self.assertEqual(snapshot(scoped), before)
+                self.assertFalse((root / "fresh").exists())
+
+    def test_fresh_original_template_scope_supports_existing_monotone_extension(self):
+        # Native checkpoint bytes below are fixture metadata only, not a replay
+        # or closure certificate. Exercise the actual Python scope-chain API.
+        EXTEND = PREPARE.module("extend_rank_campaign")
+        with tempfile.TemporaryDirectory(dir=PREPARE.WORKSPACE_TEMP) as temporary:
+            root = Path(temporary)
+            _, scoped = self.scoped_fixture(root)
+            fresh = root / "fresh-rank1"
+            PREPARE.prepare(scoped, fresh, 1, max_power_difference=5, source_original_queries=True)
+            checkpoint = fresh / "checkpoints/main"
+            checkpoint.mkdir(parents=True)
+            (checkpoint / "checkpoint.lock").touch()
+            metadata = {"schema": 5, "request": "a" * 64, "initial_admission": "complete",
+                        "processed_queries": 2, "total_queries": 2,
+                        "engine_certification_void": False, "amendments": [], "p0": 1}
+            raw = EXTEND.encoded(metadata)
+            (checkpoint / "metadata.part").write_bytes(raw)
+            (checkpoint / "latest.json").write_bytes(EXTEND.encoded({"manifest": {
+                "format": "RUSTRED-WALK-CP6", "schema": 3, "generation": 1,
+                "resumable": True, "files": [{"key": "meta", "file": "metadata.part", "bytes": len(raw)}]}}))
+            (fresh / "bin").mkdir()
+            (fresh / "bin/steering.json").write_text("{}")
+            before = snapshot(fresh)
+            preview = EXTEND.extend(fresh, 2, max_power_difference=6, dry_run=True)
+            self.assertEqual(snapshot(fresh), before)
+            self.assertEqual(preview["previous_rank"], 1)
+            self.assertEqual(preview["previous_max_power_difference"], 5)
+            self.assertEqual(preview["cumulative_required_queries"], 4)
+            plan = EXTEND.extend(fresh, 2, max_power_difference=6)
+            amendment = json.loads(Path(plan["amendment"]).read_bytes())
+            self.assertEqual([q["max_numerator_rank"] for q in amendment["queries"]], [2, 1])
+            self.assertEqual([q["power_bounds"]["max_power_difference"]
+                              for q in amendment["queries"]], [6, 6])
+            self.assertEqual({key: snapshot(fresh)[key] for key in before}, before)
+            self.assertEqual(set(snapshot(fresh)) - set(before), {"amendments/amendment-0001.json"})
+            with self.assertRaisesRegex(ValueError, "lower"):
+                EXTEND.extend(fresh, 0, max_power_difference=6, dry_run=True)
 
 
 if __name__ == "__main__":

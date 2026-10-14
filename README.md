@@ -337,6 +337,13 @@ verification can upgrade an existing publication without discarding its master
 refinements. The explicit mode is remembered; use `--no-deep-verification` to
 return to ordinary publication on subsequent rank extensions.
 
+To prepare an independent campaign from an existing rank-scoped campaign's
+original saved templates, use `prepare_rank_campaign.py --source-original-queries`
+with a new destination. This copies saved programs, not the traversal checkpoint,
+and preserves topology-specific bounds; it is distinct from `extend`, which
+retains completed work. See the [R6/D10 preparation and launch example](docs/research/minimal_r6_d10_campaign_2026-10-14.md)
+for the audited physical scope, resources and incremental continuation.
+
 Completed ordinary publications also save an optional binary **raw census
 cache**. A subsequent publication can reuse the compatible immutable record
 prefix instead of rematching its old Apply scopes; it still authenticates the

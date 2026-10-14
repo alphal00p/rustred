@@ -6,8 +6,10 @@ retained by exact ID; auxiliary starts are omitted unless --include-auxiliary
 is explicit. Rank and optional D=A-R upper caps intersect the original bounds.
 Coordinate, positive-power and minimum-D bounds are untouched. Proven disjoint
 D intervals are omitted explicitly; other empty intersections stay. Descendants are NOT
-rank-clipped. This fresh-input preparer always derives from the original
-campaign. To retain a completed or paused stage's actual checkpoint work,
+rank-clipped. This fresh-input preparer derives from an original campaign, or
+with --source-original-queries from a rank-scoped campaign's authenticated
+original-query attachment. It never widens the original topology-specific
+bounds. To retain a completed or paused stage's actual checkpoint work,
 use extend_rank_campaign.py instead: it appends required queries without
 rewriting the original request.
 
@@ -155,29 +157,77 @@ def plan_rank_queries(query_bytes, max_numerator_rank, *, include_auxiliary=Fals
     return scoped, receipt
 
 
+def authenticated_original_queries(inputs, original):
+    """Recover frozen templates, not a restricted base or appended scope.
+
+    ``verify_inputs`` has authenticated the attachment bytes against their
+    inventory. Additionally reconstruct the source's base from its receipt so
+    an unrelated, stale or ambiguously attached template is never substituted.
+    """
+    required = {RECEIPT_NAME, SOURCE_QUERIES_NAME}
+    attachments = original.get("attachments", [])
+    for name in required:
+        matches = [row for row in attachments if row["name"] == name]
+        if len(matches) != 1 or matches[0]["path"] != name:
+            raise ValueError("original-query mode requires exactly one canonical "
+                             f"{name} attachment")
+    receipt_bytes = (inputs / RECEIPT_NAME).read_bytes()
+    base = STAGE.ROLES.loads_document(receipt_bytes)
+    if not isinstance(base, dict) or base.get("schema") != "rustred.rank-scoped-starting-queries.v1":
+        raise ValueError("original-query mode requires a supported rank-scope receipt")
+    source = (inputs / SOURCE_QUERIES_NAME).read_bytes()
+    expected, _ = plan_rank_queries(
+        source, base.get("max_numerator_rank"),
+        include_auxiliary=base.get("include_auxiliary"),
+        max_power_difference=base.get("max_power_difference"))
+    if (hashlib.sha256(source).hexdigest() != base.get("source_queries_sha256")
+            or hashlib.sha256(expected).hexdigest() != base.get("queries_sha256")
+            or base.get("queries_sha256") != original["queries_sha256"]
+            or expected != (inputs / "queries.json").read_bytes()
+            or base.get("source_selection_sha256") != original["selection_sha256"]):
+        raise ValueError("original query attachment, rank-scope receipt or frozen source inputs differ")
+    return source, {
+        "source_query_mode": "authenticated-original-attachment",
+        "source_campaign_queries_sha256": original["queries_sha256"],
+        "source_rank_scope_receipt_sha256": hashlib.sha256(receipt_bytes).hexdigest(),
+        "source_checkpoint_reused": False,
+    }
+
+
 def prepare(source_campaign, destination, max_numerator_rank, *, include_auxiliary=False,
-            max_power_difference=None):
+            max_power_difference=None, source_original_queries=False):
     """Reuse the audited saved-input stager; do not freeze or invoke a binary."""
     source_campaign = Path(source_campaign).resolve(strict=True)
     destination = Path(destination)
     inputs = source_campaign / "inputs"
     _, _, original = PRODUCTION.verify_inputs(inputs)
-    if any(row["name"] in {RECEIPT_NAME, SOURCE_QUERIES_NAME}
-           for row in original.get("attachments", [])):
-        raise ValueError("derive each rank stage from the original campaign, not a rank-scoped stage")
-    source_bytes = (inputs / "queries.json").read_bytes()
+    if type(source_original_queries) is not bool:
+        raise ValueError("source_original_queries must be a Boolean")
+    if source_original_queries:
+        source_bytes, source_binding = authenticated_original_queries(inputs, original)
+    else:
+        if any(row["name"] in {RECEIPT_NAME, SOURCE_QUERIES_NAME}
+               for row in original.get("attachments", [])):
+            raise ValueError("derive each rank stage from the original campaign, or use "
+                             "--source-original-queries for authenticated original templates")
+        source_bytes = (inputs / "queries.json").read_bytes()
+        source_binding = {}
     scoped, receipt = plan_rank_queries(
         source_bytes, max_numerator_rank, include_auxiliary=include_auxiliary,
         max_power_difference=max_power_difference)
-    if receipt["source_queries_sha256"] != original["queries_sha256"]:
+    if not source_original_queries and receipt["source_queries_sha256"] != original["queries_sha256"]:
         raise ValueError("source queries changed during rank planning")
     receipt.update({
         "source_campaign": str(source_campaign),
         "source_selection_sha256": original["selection_sha256"],
         "owner_count": original["owner_count"],
         "all_saved_owners_routes_and_rules_retained": True,
+        **source_binding,
     })
-    attachments = [inputs / row["path"] for row in original.get("attachments", [])]
+    # Replace the authenticated old scope pair with this campaign's fresh pair.
+    # Unrelated provenance is retained; no checkpoint or amendment is copied.
+    attachments = [inputs / row["path"] for row in original.get("attachments", [])
+                   if row["name"] not in {RECEIPT_NAME, SOURCE_QUERIES_NAME}]
     # Ignore process-global TMPDIR: this preparer's temporary files must remain
     # in the checkout, even when the caller's environment points at /tmp.
     if WORKSPACE_TEMP.resolve().parent != WORKSPACE:
@@ -203,6 +253,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--source-campaign", type=Path, required=True,
                         help="original saved-owner campaign; read-only source")
+    parser.add_argument("--source-original-queries", action="store_true",
+                        help="derive fresh inputs from an existing rank campaign's authenticated "
+                             "original-query attachment, not its restricted base or amendments")
     parser.add_argument("--destination", type=Path, required=True,
                         help="nonexistent, disjoint campaign directory; inputs only")
     parser.add_argument("--max-numerator-rank", required=True,
@@ -215,7 +268,8 @@ def main(argv=None):
     try:
         receipt = prepare(args.source_campaign, args.destination, args.max_numerator_rank,
                           include_auxiliary=args.include_auxiliary,
-                          max_power_difference=args.max_power_difference)
+                          max_power_difference=args.max_power_difference,
+                          source_original_queries=args.source_original_queries)
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.error(str(error))
     print(json.dumps({"status": "inputs-prepared-no-native-work", **receipt}, indent=2))
