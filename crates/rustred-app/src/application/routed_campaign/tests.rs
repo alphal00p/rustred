@@ -5,6 +5,7 @@ mod bounded_routing;
 mod epoch_walk;
 mod frontier_policy;
 mod finite_demand;
+mod finite_backend;
 mod g2_rescue;
 mod guarded_apply;
 mod index_admission;
