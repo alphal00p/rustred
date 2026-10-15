@@ -15,6 +15,7 @@ use symbolica::domains::integer::Integer;
 
 #[cfg(test)]
 mod tests;
+mod trusted_restore;
 
 const VERSION: u32 = 1;
 const MAX_RECORD_BYTES: usize = 64 * 1024;
