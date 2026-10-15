@@ -275,6 +275,17 @@ impl ValidatedGeneration {
                 ));
             }
         }
+        for page in manifest.raw.pages() {
+            let path = directory
+                .join("raw")
+                .join(wire::name(&page.object.digest, "rrraw"));
+            let metadata = fs::symlink_metadata(path).map_err(io)?;
+            if !metadata.is_file() || metadata.len() != page.object.bytes {
+                return Err(corrupt(
+                    "committed raw page missing/nonregular/wrong length",
+                ));
+            }
+        }
         Ok(Self {
             directory: directory.to_path_buf(),
             digest: tip.manifest.digest,
@@ -287,6 +298,7 @@ pub(super) fn check_directories(directory: &Path) -> Result<()> {
     for path in [
         directory.to_path_buf(),
         directory.join("pages"),
+        directory.join("raw"),
         directory.join("states"),
         directory.join("generations"),
     ] {

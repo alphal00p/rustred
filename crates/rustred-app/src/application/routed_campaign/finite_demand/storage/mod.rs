@@ -1,7 +1,9 @@
 //! Integer-only storage for explicitly trusted-generated finite checkpoints.
 //! Integrity/shape validation is NOT independent closure or IBP verification.
 //! This layer does not yet mint a native completed-baseline capability.
+mod raw;
 mod reader;
+pub(crate) use raw::{RawCensusDirectory, RawCensusLimits, RawCensusSummary, RawKeyKind};
 #[cfg(test)]
 mod tests;
 mod wire;
@@ -56,6 +58,7 @@ fn io(detail: impl ToString) -> StorageError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct StorageLimits {
+    pub raw: RawCensusLimits,
     pub max_arity: usize,
     pub max_delta_records: usize,
     pub max_delta_payload_bytes: usize,
@@ -96,11 +99,16 @@ impl StorageLimits {
             .checked_add(
                 self.max_page_bytes
                     .max(self.max_manifest_bytes)
-                    .max(self.max_state_bytes),
+                    .max(self.max_state_bytes)
+                    .max(self.raw.max_page_bytes),
             )
             .ok_or_else(|| resource("transient decode allowance overflow"))?;
         if self.max_transient_bytes < required {
             return Err(resource("finite-store transient decode allowance"));
+        }
+        raw::validate_directory(&RawCensusDirectory::default(), 1, self.raw)?;
+        if self.raw.max_decode_transient_bytes > self.max_transient_bytes {
+            return Err(resource("raw decoder exceeds store transient allowance"));
         }
         Ok(())
     }
@@ -197,8 +205,7 @@ impl SelectionRecord {
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(crate) struct RawCensus {
-    pub terminals: Vec<Vec<i64>>,
-    pub zeros: Vec<Vec<i64>>,
+    /// Small cumulative selected-rule metadata; raw keys live in typed pages.
     pub selections: Vec<SelectionRecord>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]

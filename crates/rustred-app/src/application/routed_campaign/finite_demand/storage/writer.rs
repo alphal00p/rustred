@@ -46,7 +46,7 @@ impl StoreWriter {
     ) -> Result<Self> {
         wire::binding(&execution, limits)?;
         fs::create_dir(directory).map_err(io)?;
-        for name in ["pages", "states", "generations"] {
+        for name in ["pages", "raw", "states", "generations"] {
             fs::create_dir(directory.join(name)).map_err(io)?;
         }
         File::open(directory)
@@ -168,8 +168,8 @@ impl StoreWriter {
         {
             return Err(corrupt("native delta count/census seal mismatch"));
         }
-        let (work, _) = delta.into_parts();
-        self.commit_inner(work, state, cancel, true)
+        let (work, report) = delta.into_parts();
+        self.commit_inner(work, raw::RawDelta::native(&report), state, cancel, true)
     }
 
     /// Persist one structurally validated generated-state transition. The
@@ -182,11 +182,22 @@ impl StoreWriter {
         state: GenerationState,
         cancel: &AtomicBool,
     ) -> Result<CommitOutcome> {
-        self.commit_inner(delta, state, cancel, false)
+        self.commit_inner(delta, raw::RawDelta::empty(), state, cancel, false)
+    }
+    #[cfg(test)]
+    pub(super) fn commit_generated_with_raw(
+        &mut self,
+        delta: Vec<StoredWork>,
+        raw: raw::RawDelta<'_>,
+        state: GenerationState,
+        cancel: &AtomicBool,
+    ) -> Result<CommitOutcome> {
+        self.commit_inner(delta, raw, state, cancel, false)
     }
     fn commit_inner(
         &mut self,
         mut delta: Vec<StoredWork>,
+        raw_delta: raw::RawDelta<'_>,
         state: GenerationState,
         cancel: &AtomicBool,
         native_excluded_predecessor: bool,
@@ -292,6 +303,24 @@ impl StoreWriter {
         if !run.is_empty() {
             runs.push(run);
         }
+        // Append only new raw delta pages; never clone/encode old physical
+        // terminal/zero keys. The directory still has explicit bounded fan-out.
+        let mut raw = self
+            .current
+            .as_ref()
+            .map_or_else(RawCensusDirectory::default, |old| {
+                old.manifest.raw.as_ref().clone()
+            });
+        for (kind, keys) in [
+            (RawKeyKind::Terminal, raw_delta.terminals),
+            (RawKeyKind::Zero, raw_delta.zeros),
+        ] {
+            let run = self.write_raw_run(kind, keys, cancel)?;
+            if !run.is_empty() {
+                raw.runs_mut(kind).push(run);
+            }
+        }
+        raw::validate_directory(&raw, arity, self.limits.raw)?;
         #[cfg(test)]
         self.fail_before(Stage::AfterPages)?;
         #[cfg(test)]
@@ -329,6 +358,7 @@ impl StoreWriter {
             state: state_ref,
             scope_digest,
             runs: Arc::new(runs),
+            raw: Arc::new(raw),
         };
         wire::validate_manifest(&manifest, &self.execution, self.limits)?;
         let manifest_bytes = wire::encode(
@@ -429,6 +459,92 @@ impl StoreWriter {
             Ok(())
         }
     }
+    fn write_raw_run<'a>(
+        &mut self,
+        kind: RawKeyKind,
+        keys: Box<dyn Iterator<Item = &'a [i64]> + 'a>,
+        cancel: &AtomicBool,
+    ) -> Result<Vec<raw::RawPageRef>> {
+        let mut run = Vec::new();
+        let mut keys = keys.peekable();
+        let mut last = None::<Vec<i64>>;
+        let mut references = 0u64;
+        loop {
+            check(cancel)?;
+            if keys.peek().is_none() {
+                break;
+            }
+            let capacity_payload = raw::page_capacity_payload(
+                self.execution.physical_arity as usize,
+                self.limits.raw,
+            )?;
+            if capacity_payload
+                .checked_add(self.limits.raw.max_page_bytes)
+                .is_none_or(|n| n > self.limits.max_transient_bytes)
+            {
+                return Err(resource("raw page staging transient allowance"));
+            }
+            let mut page = Vec::new();
+            page.try_reserve_exact(self.limits.raw.max_page_records)
+                .map_err(resource)?;
+            if page
+                .capacity()
+                .checked_mul(std::mem::size_of::<Vec<i64>>())
+                .is_none_or(|n| n > capacity_payload)
+            {
+                return Err(resource("raw page actual capacity allowance"));
+            }
+            for powers in keys.by_ref().take(self.limits.raw.max_page_records) {
+                check(cancel)?;
+                if powers.len() != self.execution.physical_arity as usize
+                    || last.as_ref().is_some_and(|old| old.as_slice() >= powers)
+                {
+                    return Err(corrupt("raw native delta arity/order/duplicate"));
+                }
+                references = references
+                    .checked_add(1)
+                    .ok_or_else(|| resource("raw delta reference overflow"))?;
+                if references > self.limits.raw.max_stored_references {
+                    return Err(resource("raw delta reference allowance"));
+                }
+                last = Some(powers.to_vec());
+                page.push(powers.to_vec());
+            }
+            if page.is_empty() {
+                break;
+            }
+            if run.len() >= self.limits.raw.max_pages {
+                return Err(resource("raw delta page allowance"));
+            }
+            let first = page.first().unwrap().clone();
+            let last = page.last().unwrap().clone();
+            let records = page.len() as u64;
+            let bytes = wire::encode(
+                raw::MAGIC,
+                &raw::RawPage {
+                    execution: self.execution.clone(),
+                    kind,
+                    keys: page,
+                },
+                self.limits.raw.max_page_bytes,
+            )?;
+            let decoded: raw::RawPage =
+                wire::decode(raw::MAGIC, &bytes, self.limits.raw.max_page_bytes)?;
+            let payload_bytes = raw::key_payload(&decoded.keys, decoded.keys.capacity())? as u64;
+            drop(decoded);
+            let object = self.install("raw", "rrraw", &bytes)?;
+            run.try_reserve(1).map_err(resource)?;
+            run.push(raw::RawPageRef {
+                kind,
+                object,
+                records,
+                payload_bytes,
+                first,
+                last,
+            });
+        }
+        Ok(run)
+    }
     fn check_current(&mut self) -> Result<()> {
         let result = (|| match (
             &self.current,
@@ -518,6 +634,23 @@ impl StoreWriter {
     pub(super) fn inject_failure(&mut self, stage: Stage) {
         self.fail_at = Some(stage);
     }
+    #[cfg(test)]
+    pub(crate) fn inject_current_uncertainty(&mut self) {
+        self.fail_at = Some(Stage::CurrentUncertain);
+    }
+    /// Synthetic generated-data ingress for source-classification fault tests,
+    /// not a native closure constructor and absent from non-test builds.
+    #[cfg(test)]
+    pub(crate) fn commit_synthetic_raw_keys_for_test(
+        &mut self,
+        work: Vec<StoredWork>,
+        terminals: &[Vec<i64>],
+        zeros: &[Vec<i64>],
+        state: GenerationState,
+        cancel: &AtomicBool,
+    ) -> Result<CommitOutcome> {
+        self.commit_generated_with_raw(work, raw::RawDelta::slices(terminals, zeros), state, cancel)
+    }
 }
 
 fn check(cancel: &AtomicBool) -> Result<()> {
@@ -536,6 +669,7 @@ fn scan(directory: &Path, limits: StorageLimits) -> Result<(u64, usize)> {
     for subdir in [
         directory.to_path_buf(),
         directory.join("pages"),
+        directory.join("raw"),
         directory.join("states"),
         directory.join("generations"),
     ] {
@@ -543,7 +677,7 @@ fn scan(directory: &Path, limits: StorageLimits) -> Result<(u64, usize)> {
             let entry = entry.map_err(io)?;
             let kind = entry.file_type().map_err(io)?;
             if subdir == directory && kind.is_dir() {
-                if ["pages", "states", "generations"]
+                if ["pages", "raw", "states", "generations"]
                     .iter()
                     .any(|name| entry.file_name() == *name)
                 {

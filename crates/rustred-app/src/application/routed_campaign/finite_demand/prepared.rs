@@ -6,8 +6,9 @@ use super::super::{
     prepare,
 };
 use super::storage::{
-    self, CursorRecord, GenerationState, RawCensus, RawExecutionBinding, ScopeBinding,
-    SelectionRecord, StoreWriter, WorkReader,
+    self, CursorRecord, GenerationState, RawCensus, RawCensusLimits, RawCensusSummary,
+    RawExecutionBinding, RawKeyKind, ScopeBinding, SelectionRecord, StoreWriter,
+    ValidatedGeneration, WorkReader,
 };
 use crate::AppError;
 use rustred::{
@@ -20,13 +21,26 @@ use rustred::{
 };
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
+    sync::Arc,
     sync::atomic::{AtomicBool, Ordering},
 };
 
+#[derive(Clone)]
 pub(crate) struct PreparedExecution<const N: usize> {
-    reducer: RoutedCandidateReducer<N>,
+    reducer: Arc<RoutedCandidateReducer<N>>,
     execution: RawExecutionBinding,
+}
+/// Immutable source-authenticated generated provenance. Sharing this token
+/// keeps the SAME actual prepared reducer allocation alive, not just its hash.
+#[derive(Clone)]
+pub(crate) struct PreparedGeneration<const N: usize> {
+    prepared: PreparedExecution<N>,
+    generation: ValidatedGeneration,
+}
+pub(crate) struct PreparedCommit<const N: usize> {
+    pub generation: PreparedGeneration<N>,
+    pub cleanup_warning: Option<String>,
 }
 impl<const N: usize> PreparedExecution<N> {
     pub fn prepare(
@@ -58,7 +72,10 @@ impl<const N: usize> PreparedExecution<N> {
         if cancel.load(Ordering::Acquire) {
             return Ok(None);
         }
-        Ok(Some(Self { reducer, execution }))
+        Ok(Some(Self {
+            reducer: Arc::new(reducer),
+            execution,
+        }))
     }
     pub fn execution(&self) -> &RawExecutionBinding {
         &self.execution
@@ -66,22 +83,20 @@ impl<const N: usize> PreparedExecution<N> {
     pub fn reducer(&self) -> &RoutedCandidateReducer<N> {
         &self.reducer
     }
-    pub fn bind_generation<'a>(
-        &'a self,
-        reader: &'a WorkReader,
+    pub fn authenticate_generation(
+        &self,
+        generation: ValidatedGeneration,
         scope: &ScopeBinding,
-        budget: CandidateRoutedWorkBudget,
-        census: CandidateRoutedTraceCensusLimits,
-        export: CandidateRoutedDeltaExportLimits,
         cancel: &AtomicBool,
-    ) -> Result<CandidateRoutedGeneratedBaseline<'a, N>, AppError> {
-        let generation = reader.snapshot();
+    ) -> Result<PreparedGeneration<N>, AppError> {
         if generation.execution() != &self.execution || &generation.state().scope != scope {
             return Err(AppError::input(
                 "finite generation differs from actual prepared execution/scope",
             ));
         }
-        // Bounded current metadata, not historical seed/Work/algebra replay.
+        // Small current selection metadata only. Raw terminal/zero page bytes
+        // and source classification are deliberately LAZY until exact census
+        // iteration/publication; restore does not claim they were all checked.
         for row in &generation.state().census.selections {
             check(cancel)?;
             self.reducer
@@ -93,33 +108,11 @@ impl<const N: usize> PreparedExecution<N> {
                 )
                 .map_err(generated_failure)?;
         }
-        for powers in &generation.state().census.terminals {
-            check(cancel)?;
-            self.reducer
-                .validate_generated_terminal(
-                    &IntegralKey::try_new(powers.iter().copied()).map_err(failure)?,
-                )
-                .map_err(generated_failure)?;
-        }
-        for powers in &generation.state().census.zeros {
-            check(cancel)?;
-            self.reducer
-                .validate_generated_zero(
-                    &IntegralKey::try_new(powers.iter().copied()).map_err(failure)?,
-                )
-                .map_err(generated_failure)?;
-        }
         check(cancel)?;
-        self.reducer
-            .bind_trusted_generated_baseline(
-                &self.execution,
-                reader.directory(),
-                reader,
-                budget,
-                census,
-                export,
-            )
-            .map_err(generated_failure)
+        Ok(PreparedGeneration {
+            prepared: self.clone(),
+            generation,
+        })
     }
     /// LOW-LEVEL generated metadata join: authenticate the native Work seal's
     /// predecessor/reducer and atomically persist raw census plus supplied
@@ -128,17 +121,20 @@ impl<const N: usize> PreparedExecution<N> {
     /// and admission region to a typed window successor before calling this.
     pub fn commit_delta_with_generated_metadata(
         &self,
+        authenticated: &PreparedGeneration<N>,
         writer: &mut StoreWriter,
         delta: CandidateRoutedCompletedDelta<'_, N>,
         scope: ScopeBinding,
         cursors: Vec<CursorRecord>,
         cancel: &AtomicBool,
-    ) -> Result<storage::CommitOutcome, AppError> {
+    ) -> Result<PreparedCommit<N>, AppError> {
         let previous = writer
             .current()
             .map_err(storage_failure)?
             .ok_or_else(|| AppError::input("initial pending generation missing"))?;
         if !delta.is_for_reducer(&self.reducer)
+            || !Arc::ptr_eq(&self.reducer, &authenticated.prepared.reducer)
+            || previous.digest() != authenticated.generation.digest()
             || delta.execution() != &self.execution
             || previous.execution() != &self.execution
             || previous.digest() != delta.predecessor()
@@ -154,8 +150,6 @@ impl<const N: usize> PreparedExecution<N> {
         let limits = writer.limits();
         let before = previous.state();
         preflight_merge(before, &scope, &cursors, report, limits, cancel)?;
-        let mut terminals: BTreeSet<_> = before.census.terminals.iter().cloned().collect();
-        let mut zeros: BTreeSet<_> = before.census.zeros.iter().cloned().collect();
         let mut selected: BTreeMap<_, u64> = before
             .census
             .selections
@@ -167,16 +161,8 @@ impl<const N: usize> PreparedExecution<N> {
                 )
             })
             .collect();
-        // The bounded first format stages current census metadata, not Work.
-        // It is deliberately O(history metadata), not yet a full-R6 strategy.
-        for key in report.trace().declared_terminals() {
-            check(cancel)?;
-            terminals.insert(key.powers().to_vec());
-        }
-        for key in report.trace().visited_zeros() {
-            check(cancel)?;
-            zeros.insert(key.powers().to_vec());
-        }
+        // Only small selected-rule metadata is cumulative in memory. Native
+        // raw key sets are borrowed/paged by the writer; old pages stay intact.
         for (id, &count) in census.selections() {
             check(cancel)?;
             let key = (
@@ -190,12 +176,7 @@ impl<const N: usize> PreparedExecution<N> {
                 .checked_add(count)
                 .ok_or_else(|| AppError::limit("cumulative selection multiplicity overflow"))?;
         }
-        if terminals
-            .len()
-            .checked_add(zeros.len())
-            .and_then(|n| n.checked_add(selected.len()))
-            .is_none_or(|n| n > limits.max_census_records)
-        {
+        if selected.len() > limits.max_census_records {
             return Err(AppError::limit("cumulative raw census allowance"));
         }
         let state = GenerationState {
@@ -210,8 +191,6 @@ impl<const N: usize> PreparedExecution<N> {
                 .checked_add(u64::try_from(report.snapshot().input_targets).map_err(failure)?)
                 .ok_or_else(|| AppError::limit("cumulative input occurrence overflow"))?,
             census: RawCensus {
-                terminals: terminals.into_iter().collect(),
-                zeros: zeros.into_iter().collect(),
                 selections: selected
                     .into_iter()
                     .map(
@@ -227,8 +206,82 @@ impl<const N: usize> PreparedExecution<N> {
             },
         };
         check(cancel)?;
-        writer
+        let outcome = writer
             .commit_completed(delta, &self.reducer, state, cancel)
+            .map_err(storage_failure)?;
+        // Native delta classification/selection belongs to the SAME engine;
+        // unchanged predecessor pages remain authenticated lazily. No old raw
+        // key or selected-rule rescanning is necessary on hot advancement.
+        Ok(PreparedCommit {
+            generation: PreparedGeneration {
+                prepared: self.clone(),
+                generation: outcome.generation,
+            },
+            cleanup_warning: outcome.cleanup_warning,
+        })
+    }
+}
+impl<const N: usize> PreparedGeneration<N> {
+    pub fn generation(&self) -> &ValidatedGeneration {
+        &self.generation
+    }
+    pub fn bind<'a>(
+        &'a self,
+        reader: &'a WorkReader,
+        budget: CandidateRoutedWorkBudget,
+        census: CandidateRoutedTraceCensusLimits,
+        export: CandidateRoutedDeltaExportLimits,
+        cancel: &AtomicBool,
+    ) -> Result<CandidateRoutedGeneratedBaseline<'a, N>, AppError> {
+        check(cancel)?;
+        if reader.generation() != self.generation.digest()
+            || reader.snapshot().execution() != &self.prepared.execution
+        {
+            return Err(AppError::input(
+                "prepared generation token differs from reader snapshot",
+            ));
+        }
+        self.prepared
+            .reducer
+            .bind_trusted_generated_baseline(
+                &self.prepared.execution,
+                reader.directory(),
+                reader,
+                budget,
+                census,
+                export,
+            )
+            .map_err(generated_failure)
+    }
+    /// Full exact raw census authority requires successful exhaustion of this
+    /// stream. Cold token construction alone has not checked all raw pages.
+    pub fn visit_raw_census(
+        &self,
+        limits: RawCensusLimits,
+        cancel: &AtomicBool,
+        visitor: impl FnMut(RawKeyKind, &[i64]) -> Result<(), storage::StorageError>,
+    ) -> Result<RawCensusSummary, AppError> {
+        self.generation
+            .visit_raw_census(
+                limits,
+                cancel,
+                |kind, powers| {
+                    let key = IntegralKey::try_new(powers.iter().copied()).map_err(|e| {
+                        rustred::persistence::finite_work::GeneratedWorkError::new(
+                            rustred::persistence::finite_work::GeneratedWorkErrorKind::Corrupt,
+                            e,
+                        )
+                    })?;
+                    match kind {
+                        RawKeyKind::Terminal => {
+                            self.prepared.reducer.validate_generated_terminal(&key)
+                        }
+                        RawKeyKind::Zero => self.prepared.reducer.validate_generated_zero(&key),
+                    }
+                    .map_err(Into::into)
+                },
+                visitor,
+            )
             .map_err(storage_failure)
     }
 }
@@ -279,20 +332,11 @@ fn preflight_merge<const N: usize>(
         a.checked_mul(b)
             .ok_or_else(|| AppError::limit("finite census staging payload overflow"))
     };
-    let old_count = add(
-        add(before.census.terminals.len(), before.census.zeros.len())?,
-        before.census.selections.len(),
-    )?;
+    let old_count = before.census.selections.len();
     let census = report
         .complete_census()
         .ok_or_else(|| AppError::input("incomplete census preflight"))?;
-    let new_count = add(
-        add(
-            report.trace().declared_terminals().len(),
-            report.trace().visited_zeros().len(),
-        )?,
-        census.selections().len(),
-    )?;
+    let new_count = census.selections().len();
     if add(old_count, new_count)? > limits.max_census_records
         || scope.rows.len() > limits.max_scope_rows
         || cursors.len() != scope.rows.len()
@@ -302,21 +346,6 @@ fn preflight_merge<const N: usize>(
         ));
     }
     let mut payload = before.payload_bytes().map_err(storage_failure)?;
-    for key in report
-        .trace()
-        .declared_terminals()
-        .iter()
-        .chain(report.trace().visited_zeros())
-    {
-        check(cancel)?;
-        payload = add(
-            payload,
-            add(
-                std::mem::size_of::<Vec<i64>>(),
-                mul(key.powers().len(), std::mem::size_of::<i64>())?,
-            )?,
-        )?;
-    }
     for id in census.selections().keys() {
         check(cancel)?;
         payload = add(

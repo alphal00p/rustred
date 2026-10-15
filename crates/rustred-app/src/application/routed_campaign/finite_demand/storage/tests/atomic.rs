@@ -338,7 +338,13 @@ fn finite_store_directory_delta_and_census_quota_refusals_do_not_commit() {
         let first = commit(&mut writer, vec![key(1)], 1, 1);
         let mut next = state(2, 2);
         if policy.max_census_records == 0 {
-            next.census.terminals.push(vec![2, 1]);
+            next.census.selections.push(SelectionRecord {
+                owner: vec![true, true],
+                batch: 0,
+                baseline: 0,
+                selected: 0,
+                multiplicity: 1,
+            });
         }
         assert_eq!(
             writer

@@ -47,6 +47,7 @@ fn policy(workers: usize) -> Policy {
             max_live_payload_bytes: 1000000,
         },
         storage: StorageLimits {
+            raw: Default::default(),
             max_arity: 16,
             max_delta_records: 1000,
             max_delta_payload_bytes: 1000000,
@@ -136,15 +137,15 @@ fn compare_union(f: &Fixture, generation: &ValidatedGeneration, p: Policy) {
         .unwrap()
         .reader(p.storage)
         .unwrap();
-    let baseline = prepared
-        .bind_generation(
-            &reader,
+    let authenticated = prepared
+        .authenticate_generation(
+            reader.snapshot().clone(),
             &reader.snapshot().state().scope,
-            p.per_batch_work,
-            p.census,
-            p.export,
             &cancel,
         )
+        .unwrap();
+    let baseline = authenticated
+        .bind(&reader, p.per_batch_work, p.census, p.export, &cancel)
         .unwrap();
     let admission = FiniteRootAdmission::try_new(
         [RootRegionInput {
@@ -176,8 +177,16 @@ fn compare_union(f: &Fixture, generation: &ValidatedGeneration, p: Policy) {
         assert_eq!(actual.lookup(key).unwrap(), Lookup::Present);
     }
     let report = delta.report();
+    let census = prepared
+        .authenticate_generation(generation.clone(), &generation.state().scope, &cancel)
+        .unwrap();
+    let mut terminals = Vec::new();
+    let mut zeros = Vec::new();
+    census.visit_raw_census(p.storage.raw,&cancel,|kind,key|{match kind {
+        crate::application::routed_campaign::finite_demand::storage::RawKeyKind::Terminal=>terminals.push(key.to_vec()),
+        crate::application::routed_campaign::finite_demand::storage::RawKeyKind::Zero=>zeros.push(key.to_vec())};Ok(())}).unwrap();
     assert_eq!(
-        generation.state().census.terminals,
+        terminals,
         report
             .trace()
             .declared_terminals()
@@ -186,7 +195,7 @@ fn compare_union(f: &Fixture, generation: &ValidatedGeneration, p: Policy) {
             .collect::<Vec<_>>()
     );
     assert_eq!(
-        generation.state().census.zeros,
+        zeros,
         report
             .trace()
             .visited_zeros()
