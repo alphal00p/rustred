@@ -1,5 +1,31 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — paged raw census approved from the real R1 sizing result
+
+The preceding goal turn produced independently audited fullR1 evidence and
+pushed d4dd452d; this was concrete progress, not a stalled-build restatement.
+The full R6/Vakint goal remains active. Production R4 publication and broadR6
+execution remain separate read-only observations.
+
+Root and the independent auditor reviewed the actual1.11M-zero sizing issue.
+Simply increasing the monolithic decoder would retain full-census copying and
+rewriting per window. Approved the narrow paged-census follow-up, recorded in
+`SHARED_FINITE_DEMAND_PLAN.md` and detailed locally in
+`TMP/finite-demand-paged-census-design-independent-20261015.md`.
+`intermediate_capture_app` implements separately from frozen backend a48a991d:
+tagged raw Terminal/Zero delta pages, bounded exact-union streaming, small
+selection/cursor state and an Arc-owned prepared-generation token. Raw-key
+pages cannot mint completed Work; missing/corrupt data remains an error.
+The code author and mathematical/code auditor remain separate.
+
+Backend app native build96694/PID1217091 remains live on24–27; its planned
+148 executions cover the previously reviewed correctness slice, not yet paged
+R1 capacity. Ladder preparation25381/PID1283153 remains live onCPU20, currently
+in native gamma/color quadratic Taylor algebra at~15GBRSS. Both handles were
+verified directly; neither was restarted. Full SeparateWindows benchmarking
+is deferred until useful for a deployment decision: realR1 persistence and
+then actualR2 scope are higher-priority discriminating gates.
+
 ## October 15 — complete R0+R1 finite-demand trace succeeds
 
 Root session43560 completed successfully: all232 unchanged declarations,

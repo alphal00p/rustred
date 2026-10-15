@@ -20,6 +20,14 @@ The R6 count audit estimates339,607,800 input occurrences across declarations;
 this is neither completed native enumeration nor a global distinct-key count.
 Unbounded eager storage of all starts is therefore inappropriate.
 
+The full cumulative R0+R1 shared diagnostic has now completed:232 declarations,
+60,807 occurrences,488 windows,6,047,386 operational states and683 raw terminals.
+Driver time371.565s on four workers, peak10.144GB. The measured API interval
+exceeded summed native batch snapshots by107.319s; that is not an exclusive
+profile of merging. Three earlier aggregate-budget refusals are retained.
+See `docs/research/shared_finite_r1_pilots_2026-10-15.md` for exact boundaries.
+This is not yet durable publication, a full-R1 matched speedup or R6 closure.
+
 ## Architecture decision
 
 Use a separate, default-off **finite-demand backend**, reusing the native routed
@@ -116,6 +124,39 @@ terminal sets. Distinguish buffered-input, live-work, index and disk grants.
 Memory refusal leaves the current window pending; never deadlock workers that
 hold unfinished expansions or clip descendants to fit a budget.
 
+### Measured R1 census sizing: paged follow-up
+
+The real R1 result contains1,110,963 zero keys:133,315,560 coordinate bytes
+alone. It cannot fit the first durable slice's64MiB state/decoder allowance.
+Keep that slice's small correctness tests, but do not launch a known-to-fail
+full-R1 disk campaign or present its format as production-ready.
+
+Page the raw terminal/zero census using typed, immutable native integer-key
+delta runs. Reuse bounded framing, file installation, read/cache limits and
+atomic CURRENT. Raw-key pages are a separate kind/namespace from completed
+Work pages and can never answer a completed-Work membership query. Keep small
+checked selected-rule multiplicities and cursors in bounded state.
+
+The cumulative census means the exact set union of runs. Stream and deduplicate
+with bounded per-run buffers for inspection/publication; summed run lengths are
+stored references, not distinct keys. Corruption, missing pages and exhausted
+read/fan-in grants fail explicitly. Preserve terminal/zero disjointness and
+existing native terminal/zero classification when decoding raw pages.
+
+Use a private prepared-generation token owning an Arc of the exact immutable
+reducer plus its captured generation. Cold loading validates source/scope and
+small metadata; lazy raw-page validation is explicit, not mislabeled as full
+eager verification. A matching native delta advances this token only after
+atomic persistence. Hot advancement must not clone, reclassify or rewrite all
+prior zero keys. No self-referential structures, unsafe code, caller authority
+booleans, new database or custom CAS are needed.
+
+The next real-workload storage gate is full R1 close→cold reopen→all-hit/append
+with exact streamed raw-set comparison against the accepted in-memory result.
+Measure lookup, raw paging, commit and restore separately. Work-run directory
+size, compaction and the still-live per-window graph remain distinct scaling
+questions; this change does not preemptively claim R6 capacity.
+
 ## Publication and lifecycle
 
 Runtime application uses original owner rules/routes and exact back-substitution;
@@ -162,8 +203,8 @@ baseline one, all-fixed/active/inactive, empty, integer overflow, mutated/skippe
 cursor. Persistence gates: eviction/corruption, crash around commit, changed
 binding, refine-then-extend, cold reload and exact nonterminal application.
 
-Next performance/lifecycle gate is the complete232-row R0+R1 scope, not the
-previous279-point single owner. Keep all116 original and amendment1 geometries
+The complete232-row R0+R1 in-memory gate is passed; its durable lifecycle is the
+next gate, not the previous279-point single owner. Keep all116 original and amendment1 geometries
 and roles. Use an input-controlled optimized runner, not rebuilds for each rank.
 Compare complete native sets/work against separate queries, then isolated
 checkpoint→append→resume→publication/export and exact coefficient canaries.
