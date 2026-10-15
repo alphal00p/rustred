@@ -19,6 +19,7 @@ mod export;
 mod finite;
 mod order;
 mod owners;
+mod owner_fixture_extract;
 mod rank;
 mod saved_program;
 mod selection;
