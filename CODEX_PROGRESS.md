@@ -1,5 +1,45 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — finite publication runtime gates; witness memo reproduced
+
+The preceding implementation turn made progress (A1/A2 source, independent
+audits and native type checks); the user's intervening refinement question was
+answered from the current seed-enumeration code. Root re-read the complete
+assigned goal on continuation. Full R6/D10 closure and its Vakint acceptance
+remain incomplete; neither production campaign was modified.
+
+- Finite census/publication A1/A2 passed independent source audit. Core native
+  test type checking passed in86.186s and app checking in107.239s. The final
+  cold-source validator is included in the ongoing combined optimized test
+  build, started11:54UTC: `TMP/finite-census-release-tests-build-20261015/`,
+  exec session67304, guarded child1179043, CPUs0--15/build-1 lock. The build
+  was verified live by process inspection, not inferred from stale receipts.
+  Focused runtime tests, fresh CLI/exporter compilation, and the existing279-point
+  checkpoint's publication/export/canaries are still pending. Do not label source
+  or type-check success as runtime publication acceptance.
+- The real279-point procedure is prepared in
+  `TMP/finite-census-real279-plan-20261015/PLAN.md`. It reads the existing
+  completed checkpoint without modifying it or regenerating IBPs. The source
+  publication must contain the actual selected-rule census and280 raw terminals;
+  exact coefficient canaries are a separate application gate, not implied by
+  support tracing. SliceB completed-case resume/append remains unimplemented.
+- Vakint's witness memo passed five focused tests, the external exact/mutation
+  test, the existing bounded coefficient-LRU test and the public DOT example.
+  A reversed frozen old/new pair also completed: first application78.374/78.078s,
+  warm76.410/0.022868s, complete example625.756/238.774s. Full witness searches
+  fell6->2, not the size of any individual search; output is identical. Initial
+  cold variation remains documented. Independent paired-result review passed;
+  the seven-file milestone is committed and pushed to `vakint_rustred` as
+  `7b817a99`, with no artifacts/dependencies included. Details and limitations are in
+  `docs/research/vakint_witness_memo_2026-10-15.md`.
+
+Implementation owner: `intermediate_capture_app`; Vakint owner:
+`soft_ct_nested_audit`; independent reviewer: `intermediate_capture_independent_audit`.
+Root owns resource scheduling, final native gates and selected-file commits.
+Unrelated FeynKit/notebook/user changes remain unstaged. No full-R6 ETA, cold
+first-use speedup, high-rank acceptance or campaign-switch recommendation follows
+from these partial results.
+
 ## October 15 — finite-region win, negative geometry result, native DOT delivered
 
 The preceding goal turn made authoritative progress:743ca7aa fixed/tested the
