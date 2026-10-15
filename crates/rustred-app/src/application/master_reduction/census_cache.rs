@@ -1,14 +1,18 @@
-//! Optional raw-census acceleration state, never a master-reduction authority.
+//! Ordinary optional census acceleration and required finite-replay provenance.
 //!
 //! Unlike normalized or inherited terminals, this state records exactly what
 //! the saved-scope census encountered. The native inventory reader checks its
-//! bindings before reuse. Losing this file only costs a fresh census.
+//! bindings before reuse. Losing an ordinary cache only costs a fresh census.
+//! A completed finite recipe instead requires its faithful identity census at
+//! cold source load/export/refinement. It is not accepted for prefix reuse and
+//! is not an independent mathematical authority beyond the originating replay.
 use super::*;
 use crate::{OwnerDomainWalkCensusSource, OwnerDomainWalkInventory};
 
 const FILE: &str = "inventory-census.bin";
 const FIELD: &str = "inventory_census_cache";
 const SCHEMA: &str = "rustred.walk-inventory-census.v1";
+const FINITE_SCHEMA: &str = "rustred.walk-inventory-census.finite.v1";
 const MAX_COPY_BYTES: usize = 256 << 20;
 
 pub(super) fn current(directory: &Path, report: &Value) -> Option<OwnerDomainWalkCensusSource> {
@@ -54,7 +58,13 @@ pub(super) fn save(
             receipt["file"] = json!(FILE);
             report[FIELD] = receipt;
         }
+        Ok(None) if inventory.requires_finite_census_persistence() => {
+            return Err(AppError::execution(
+                "finite inventory cannot be published without its authenticated binary census",
+            ));
+        }
         Ok(None) => {}
+        Err(error) if inventory.requires_finite_census_persistence() => return Err(error),
         Err(error) => {
             report["inventory_census_cache_warning"] = json!(format!(
                 "optional census cache not written; later publication will run a full census: {error}"
@@ -64,6 +74,67 @@ pub(super) fn save(
     Ok(())
 }
 
+/// Validate required finite provenance at a cold source boundary. Ordinary
+/// optional cache metadata remains non-authoritative and is not loaded here.
+/// A runtime application exported from a validated source is self-contained;
+/// this function is deliberately absent from hot application/cache paths.
+pub(super) fn validate_required(directory: &Path, report: &Value) -> Result<(), AppError> {
+    required_bytes(directory, report).map(|_| ())
+}
+
+fn required_bytes(directory: &Path, report: &Value) -> Result<Option<Vec<u8>>, AppError> {
+    let receipt = &report[FIELD];
+    let required = receipt["schema"] == FINITE_SCHEMA
+        || receipt["required_for_finite_inventory"] == true
+        || report["inventory"]["encountered"]["finite_replay"]["invocations"]
+            .as_u64()
+            .is_some_and(|count| count > 0);
+    if !required {
+        return Ok(None);
+    }
+    if receipt["schema"] != FINITE_SCHEMA {
+        return Err(AppError::input(
+            "required finite census has an unsupported or missing schema",
+        ));
+    }
+    if receipt["required_for_finite_inventory"] != true || receipt["prefix_reuse"] != false {
+        return Err(AppError::input(
+            "required finite census receipt policy is malformed",
+        ));
+    }
+    let name = receipt["file"]
+        .as_str()
+        .ok_or_else(|| AppError::input("required finite census file is missing"))?;
+    let path = storage::safe_child(directory, name)?;
+    let size = receipt["bytes"]
+        .as_u64()
+        .filter(|&size| size > 0)
+        .ok_or_else(|| AppError::input("required finite census byte count is missing or empty"))?;
+    if size > MAX_COPY_BYTES as u64 {
+        return Err(AppError::limit("finite census exceeds copy byte limit"));
+    }
+    let digest = receipt["blake3"]
+        .as_str()
+        .ok_or_else(|| AppError::input("required finite census digest is missing"))?;
+    let digest = blake3::Hash::from_hex(digest)
+        .map_err(|_| AppError::input("required finite census digest is malformed"))?;
+    let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
+        AppError::input(format!("required finite census is unavailable: {error}"))
+    })?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() != size {
+        return Err(AppError::input(
+            "required finite census file shape or size differs",
+        ));
+    }
+    let data = storage::read_bounded(&path, MAX_COPY_BYTES)?;
+    if data.len() as u64 != size || blake3::hash(&data) != digest {
+        return Err(AppError::input(
+            "required finite census size or digest differs",
+        ));
+    }
+    Ok(Some(data))
+}
+
 /// A portable refined artifact retains its original *raw* census, not a census
 /// of its reduced master basis. Invalid/missing optional data is discarded.
 pub(super) fn inherit(
@@ -71,6 +142,17 @@ pub(super) fn inherit(
     directory: &Path,
     report: &mut Value,
 ) -> Result<(), AppError> {
+    if let Some(data) = required_bytes(source_directory, report)? {
+        write_file_atomically(&directory.join(FILE), &data, true).map_err(|error| {
+            AppError::execution(format!("required finite census was not copied: {error}"))
+        })?;
+        report[FIELD]["file"] = json!(FILE);
+        report
+            .as_object_mut()
+            .unwrap()
+            .remove("inventory_census_cache_warning");
+        return Ok(());
+    }
     let candidate = current(source_directory, report);
     report.as_object_mut().unwrap().remove(FIELD);
     report
@@ -112,6 +194,54 @@ mod tests {
     fn receipt(data: &[u8]) -> Value {
         json!({FIELD:{"schema":SCHEMA,"file":FILE,"bytes":data.len(),
             "blake3":blake3::hash(data).to_hex().to_string()}})
+    }
+
+    #[test]
+    fn finite_census_inheritance_keeps_original_bytes_scope_and_never_enables_prefix_reuse() {
+        let from = Scratch::new();
+        let to = Scratch::new();
+        let bytes = b"opaque original native finite census; scope identity stays inside";
+        write_file_atomically(&from.0.join(FILE), bytes, true).unwrap();
+        let mut report = receipt(bytes);
+        report[FIELD]["schema"] = json!(FINITE_SCHEMA);
+        report[FIELD]["required_for_finite_inventory"] = json!(true);
+        report[FIELD]["prefix_reuse"] = json!(false);
+        let before = report.clone();
+        inherit(&from.0, &to.0, &mut report).unwrap();
+        assert_eq!(report, before);
+        assert_eq!(std::fs::read(to.0.join(FILE)).unwrap(), bytes);
+        assert!(current(&to.0, &report).is_none());
+        for status in ["published_unrefined", "paused", "failed"] {
+            let mut source = before.clone();
+            source["status"] = json!(status);
+            validate_required(&from.0, &source).unwrap();
+            source[FIELD]["blake3"] = json!("bad-required-digest");
+            assert!(validate_required(&from.0, &source).is_err());
+        }
+        for mutation in 0..4 {
+            let mut bad = before.clone();
+            match mutation {
+                0 => bad[FIELD]["blake3"] = json!("wrong"),
+                1 => bad[FIELD]["bytes"] = json!(bytes.len() + 1),
+                2 => bad[FIELD]["bytes"] = json!(u64::MAX),
+                _ => bad[FIELD]["file"] = json!("../outside"),
+            }
+            assert!(inherit(&from.0, &to.0, &mut bad).is_err());
+            assert_eq!(std::fs::read(from.0.join(FILE)).unwrap(), bytes);
+        }
+        let mut unknown = before;
+        unknown[FIELD]["schema"] = json!("unknown-census-schema");
+        assert!(inherit(&from.0, &to.0, &mut unknown).is_err());
+        unknown[FIELD]
+            .as_object_mut()
+            .unwrap()
+            .remove("required_for_finite_inventory");
+        unknown["inventory"] = json!({"encountered":{"finite_replay":{"invocations":1}}});
+        assert!(inherit(&from.0, &to.0, &mut unknown).is_err());
+        let mut optional = receipt(bytes);
+        optional[FIELD]["schema"] = json!("unknown-optional-schema");
+        inherit(&from.0, &to.0, &mut optional).unwrap();
+        assert!(optional.get(FIELD).is_none());
     }
 
     #[test]

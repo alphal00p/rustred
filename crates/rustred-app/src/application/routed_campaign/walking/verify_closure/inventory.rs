@@ -13,6 +13,7 @@ mod census;
 mod fast;
 #[cfg(all(test, feature = "cli"))]
 mod fast_tests;
+mod finite;
 mod scope;
 pub(super) use fast::run as fast_inventory;
 
@@ -87,6 +88,7 @@ pub struct OwnerDomainWalkInventory {
     terminal_events: u64,
     zero_events: u64,
     census_identity: Option<cache::Identity>,
+    finite: Option<finite::State>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -106,6 +108,7 @@ struct State {
     terminal_events: u64,
     zero_events: u64,
     error: Option<AppError>,
+    finite: Option<finite::State>,
 }
 
 pub(super) struct Collector {
@@ -258,6 +261,7 @@ impl Collector {
             selected_rule_events: state.selected_rule_events,
             terminal_events: state.terminal_events,
             zero_events: state.zero_events,
+            finite: state.finite,
             census_identity: self
                 .census_identity
                 .into_inner()
@@ -403,7 +407,7 @@ impl OwnerDomainWalkInventory {
     }
 
     pub fn summary(&self) -> Value {
-        json!({
+        let mut value = json!({
             "schema":"rustred.walk-inventory.v1",
             "complete":self.complete(),
             "verification_mode":if self.verification["authority"] == "trusted_saved_scope" { "inventory" } else { "independent_replay" },
@@ -426,7 +430,14 @@ impl OwnerDomainWalkInventory {
             },
             "master_minimality_claim":false,"family_closure_claim":false,
             "verification":self.verification,
-        })
+        });
+        if let Some(finite) = &self.finite {
+            value["encountered"]["finite_replay"] = finite.summary();
+            value["encountered"]["scope"] = json!(
+                "union of saved symbolic inspected covers and exact native finite-recipe terminal/selection identities; occurrence units reported separately"
+            );
+        }
+        value
     }
 
     pub fn rules(
@@ -440,7 +451,11 @@ impl OwnerDomainWalkInventory {
             start,
             items: self.rules.iter().skip(start).take(take).map(|(id, events)| {
                 let owner: String = id.owner.iter().map(|&x| if x {'1'} else {'0'}).collect();
-                json!({"owner":owner,"batch":id.batch,"rule":id.rule,"classification_events":events})
+                let mut value=json!({"owner":owner,"batch":id.batch,"rule":id.rule,"classification_events":events});
+                if let Some(finite)=&self.finite {
+                    value["finite_rule_applications"]=json!(finite.selected_uses(id));
+                }
+                value
             }).collect(),
         })
     }

@@ -174,6 +174,7 @@ pub fn load_master_relation_session(path: &Path) -> Result<TerminalRelationSessi
     } else {
         path.parent().unwrap_or(Path::new("."))
     };
+    census_cache::validate_required(directory, &report)?;
     let name = report["native_state"]["file"]
         .as_str()
         .ok_or_else(|| AppError::input("master reduction has not yet prepared native state"))?;

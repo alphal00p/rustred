@@ -1,7 +1,9 @@
 //! Opt-in, whole-initial-domain exact replay. No cross-attempt memo or new terminal.
 
 mod budget;
+mod census;
 mod enumeration;
+pub(super) use census::{CensusLimits, CompletedCensus};
 
 #[cfg(test)]
 mod tests;
@@ -147,6 +149,7 @@ pub(super) enum Outcome {
     Closed {
         recipe: Recipe,
         work: Value,
+        census: Option<CompletedCensus>,
     },
     Declined {
         work: Value,
@@ -261,6 +264,9 @@ pub(super) fn work_json<const N: usize>(
         "reserved_coalescing_additions":s.reserved_coalescing_additions,
         "declared_terminals":s.declared_terminals,"visited_zeros":s.visited_zeros,
         "missing_owners":s.missing_owners,"missing_rules":s.missing_rules,"finished":s.finished,
+        "max_numerator_rank":s.max_numerator_rank.to_string(),
+        "max_dot_excess":s.max_dot_excess.to_string(),
+        "first_failure_work":s.first_failure_work.as_ref().map(super::super::work_json),
         "authority":"diagnostic counters only; cold native replay required"})
 }
 
@@ -307,6 +313,29 @@ pub(super) fn run<const N: usize>(
     recipe: Recipe,
     cancel: &AtomicBool,
     account: Option<&Account>,
+) -> Outcome {
+    run_impl(reducer, domain, recipe, cancel, account, None)
+}
+
+/// Publication obtains exact identities from the very same native replay,
+/// never from its saved diagnostic counters or a second per-key matcher.
+pub(super) fn run_with_census<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    domain: &Domain<N>,
+    recipe: Recipe,
+    cancel: &AtomicBool,
+    limits: CensusLimits,
+) -> Outcome {
+    run_impl(reducer, domain, recipe, cancel, None, Some(limits))
+}
+
+fn run_impl<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    domain: &Domain<N>,
+    recipe: Recipe,
+    cancel: &AtomicBool,
+    account: Option<&Account>,
+    census_limits: Option<CensusLimits>,
 ) -> Outcome {
     let policy = budget::summary(
         recipe.limits,
@@ -356,17 +385,29 @@ pub(super) fn run<const N: usize>(
     };
     // The caller's panic boundary converts a native panic into an error, never
     // a retryable summary miss. No completed-state cache is retained here.
-    let result = reducer.trace_targets_inline_with_entry_admission_and_observer(
-        prepared.targets,
-        CandidateEntryAdmission::ExplicitFinite(&prepared.admission),
-        recipe.limits.budget(),
-        cancel,
-        |snapshot| {
-            if let Some(account) = account {
-                account.record(work(snapshot, "running"));
-            }
-        },
-    );
+    let observe = |snapshot: &CandidateRoutedCampaignSnapshot<N>| {
+        if let Some(account) = account {
+            account.record(work(snapshot, "running"));
+        }
+    };
+    let result = if let Some(limits) = census_limits {
+        reducer.trace_targets_inline_with_entry_admission_and_census_observer(
+            prepared.targets,
+            CandidateEntryAdmission::ExplicitFinite(&prepared.admission),
+            recipe.limits.budget(),
+            limits.rules,
+            cancel,
+            observe,
+        )
+    } else {
+        reducer.trace_targets_inline_with_entry_admission_and_observer(
+            prepared.targets,
+            CandidateEntryAdmission::ExplicitFinite(&prepared.admission),
+            recipe.limits.budget(),
+            cancel,
+            observe,
+        )
+    };
     match result {
         Ok(report) => {
             let s = report.snapshot();
@@ -399,9 +440,30 @@ pub(super) fn run<const N: usize>(
                     work: work(s, "frontier"),
                 }
             } else {
+                let census = match census_limits
+                    .map(|limits| CompletedCensus::from_report(&report, limits))
+                    .transpose()
+                {
+                    Ok(census) => census,
+                    Err(error) => {
+                        return Outcome::Failed {
+                            error,
+                            cancelled: false,
+                            work: work(s, "census_error"),
+                        };
+                    }
+                };
+                if cancel.load(Ordering::Acquire) {
+                    return Outcome::Failed {
+                        error: "finite census cancelled".into(),
+                        cancelled: true,
+                        work: work(s, "cancelled"),
+                    };
+                }
                 Outcome::Closed {
                     recipe,
                     work: work(s, "closed"),
+                    census,
                 }
             }
         }

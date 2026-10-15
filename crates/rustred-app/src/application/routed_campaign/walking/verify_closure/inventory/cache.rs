@@ -16,6 +16,7 @@ use std::sync::atomic::Ordering;
 // This versions both the codec AND classification implementation. Bump it if
 // matcher/census semantics change without a walk-semantics version bump.
 pub(super) const SCHEMA: &str = "rustred.walk-inventory-census.v1";
+pub(super) const FINITE_SCHEMA: &str = "rustred.walk-inventory-census.finite.v1";
 const MAX_BYTES: usize = 256 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +61,84 @@ struct Payload {
     zero_events: u64,
 }
 
+/// A faithful completed finite census is retained for provenance, not accepted
+/// by the older symbolic-prefix reuse reader. No coefficient strings occur.
+#[derive(Serialize, Deserialize)]
+struct FinitePayload {
+    identity: Identity,
+    symbolic_rules: Vec<(RuleIdentity, u64)>,
+    terminals: Vec<Vec<i64>>,
+    symbolic_selected_rule_events: u64,
+    symbolic_terminal_events: u64,
+    symbolic_zero_events: u64,
+    finite: finite::State,
+}
+
+/// Conservative bincode variable-integer/string bound, checked BEFORE cloning
+/// the retained census into its transport shape. Every integer needs at most
+/// ten bytes; no coefficient/algebra object is serialized by this codec.
+fn finite_payload_bound(
+    identity: &Identity,
+    rules: &BTreeMap<RuleIdentity, u64>,
+    terminals: &BTreeSet<IntegralKey>,
+    finite: &finite::State,
+) -> Result<usize, AppError> {
+    let mut bytes = 256usize; // fixed fields, lengths and scalar counters
+    let mut add = |value: usize| {
+        bytes = bytes
+            .checked_add(value)
+            .ok_or_else(|| AppError::limit("finite census binary bound overflow"))?;
+        if bytes > MAX_BYTES {
+            return Err(AppError::limit(
+                "finite census exceeds native binary size limit",
+            ));
+        }
+        Ok(())
+    };
+    for value in [&identity.schema, &identity.classifier, &identity.family] {
+        add(value.len())?;
+    }
+    for value in identity.owners.iter().chain(&identity.scope_extensions) {
+        add(value
+            .len()
+            .checked_add(10)
+            .ok_or_else(|| AppError::limit("finite census string bound overflow"))?)?;
+    }
+    for segment in &identity.segments {
+        add(segment
+            .file
+            .len()
+            .checked_add(segment.blake3.len())
+            .and_then(|n| n.checked_add(60))
+            .ok_or_else(|| AppError::limit("finite census segment bound overflow"))?)?;
+    }
+    for (rule, count) in rules {
+        if *count != 0 {
+            add(rule
+                .owner
+                .len()
+                .checked_add(40)
+                .ok_or_else(|| AppError::limit("finite census rule bound overflow"))?)?;
+        }
+    }
+    for key in terminals {
+        add(key
+            .powers()
+            .len()
+            .checked_mul(10)
+            .and_then(|n| n.checked_add(10))
+            .ok_or_else(|| AppError::limit("finite census terminal bound overflow"))?)?;
+    }
+    for selection in finite.selections.keys() {
+        add(selection
+            .owner
+            .len()
+            .checked_add(50)
+            .ok_or_else(|| AppError::limit("finite census selection bound overflow"))?)?;
+    }
+    Ok(bytes)
+}
+
 pub(super) struct Reuse {
     pub domains: usize,
     pub counts: Counts,
@@ -76,16 +155,37 @@ fn classifier_binding(request: &OwnerDomainWalkRequest) -> String {
     checkpoint::epoch_request_binding(&classifier)
 }
 
+fn census_binding(request: &OwnerDomainWalkRequest, schema: &str) -> String {
+    if schema == FINITE_SCHEMA {
+        // A whole finite recipe depends on its precise source region and roles,
+        // unlike a reusable ordinary classification prefix. Bind the full request.
+        checkpoint::epoch_request_binding(request)
+    } else {
+        classifier_binding(request)
+    }
+}
+
 fn identity<const N: usize>(
     request: &OwnerDomainWalkRequest,
     loaded: &Loaded<N>,
     collector: &Collector,
 ) -> Option<Identity> {
+    if loaded.finite_replay.is_some() {
+        return None;
+    }
+    bound_identity(request, loaded, collector, SCHEMA)
+}
+
+fn bound_identity<const N: usize>(
+    request: &OwnerDomainWalkRequest,
+    loaded: &Loaded<N>,
+    collector: &Collector,
+    schema: &str,
+) -> Option<Identity> {
     let manifest = &loaded.epoch.as_ref()?.manifest;
     if manifest["format"] != "RUSTRED-WALK-CP6"
         || manifest["schema"] != 3
         || loaded.raw.walk_semantics_version != 4
-        || loaded.finite_replay.is_some()
     {
         return None;
     }
@@ -105,8 +205,8 @@ fn identity<const N: usize>(
     let state = collector.state.lock().expect("inventory census binding");
     let family = state.family.as_ref()?;
     Some(Identity {
-        schema: SCHEMA.into(),
-        classifier: classifier_binding(request),
+        schema: schema.into(),
+        classifier: census_binding(request, schema),
         family: family.fingerprint().into(),
         physical_arity: family.denominator_count(),
         owners: loaded.raw.owners.clone(),
@@ -121,6 +221,21 @@ fn identity<const N: usize>(
         segments,
         counts: Counts::default(),
     })
+}
+
+impl Collector {
+    pub(in crate::application::routed_campaign::walking::verify_closure) fn bind_finite_identity<
+        const N: usize,
+    >(
+        &self,
+        request: &OwnerDomainWalkRequest,
+        loaded: &Loaded<N>,
+    ) {
+        if loaded.finite_replay.is_some() {
+            *self.census_identity.lock().expect("finite census identity") =
+                bound_identity(request, loaded, self, FINITE_SCHEMA);
+        }
+    }
 }
 
 fn fully_published<const N: usize>(loaded: &Loaded<N>, cancellation: &AtomicBool) -> bool {
@@ -297,19 +412,64 @@ fn state(payload: Payload, collector: &Collector) -> Result<(State, Identity), &
 }
 
 impl OwnerDomainWalkInventory {
+    pub(crate) fn requires_finite_census_persistence(&self) -> bool {
+        self.finite.is_some()
+    }
     /// Persist a compact derived raw census only for a completed, safe CP6
     /// fast census. The receipt must be retained by the publishing artifact;
     /// the file is never accepted on the strength of a self-checksum alone.
     pub fn write_census(&self, path: impl AsRef<Path>) -> Result<Option<Value>, AppError> {
         if self.creator_pid != std::process::id()
             || !self.complete()
-            || self.verification["verdict"] != "TRUSTED_SAVED_SCOPE"
+            || (self.finite.is_none() && self.verification["verdict"] != "TRUSTED_SAVED_SCOPE")
         {
             return Ok(None);
         }
         let Some(identity) = &self.census_identity else {
             return Ok(None);
         };
+        if let Some(finite) = &self.finite {
+            if identity.schema != FINITE_SCHEMA || finite.invocations == 0 {
+                return Err(AppError::internal_invariant(
+                    "finite census persistence lacks authenticated native replay identity",
+                ));
+            }
+            finite_payload_bound(identity, &self.rules, &self.terminals, finite)?;
+            let payload = FinitePayload {
+                identity: identity.clone(),
+                symbolic_rules: self
+                    .rules
+                    .iter()
+                    .filter(|(_, count)| **count != 0)
+                    .map(|(key, count)| (key.clone(), *count))
+                    .collect(),
+                terminals: self
+                    .terminals
+                    .iter()
+                    .map(|key| key.powers().to_vec())
+                    .collect(),
+                symbolic_selected_rule_events: self.selected_rule_events,
+                symbolic_terminal_events: self.terminal_events,
+                symbolic_zero_events: self.zero_events,
+                finite: finite.clone(),
+            };
+            let bytes = bincode::serde::encode_to_vec(&payload, bincode::config::standard())
+                .map_err(|error| {
+                    AppError::execution(format!("encode finite inventory census: {error}"))
+                })?;
+            if bytes.len() > MAX_BYTES {
+                return Err(AppError::limit(
+                    "finite census exceeds native binary size limit",
+                ));
+            }
+            let digest = blake3::hash(&bytes).to_hex().to_string();
+            crate::application::atomic_file::write_file_atomically(path.as_ref(), &bytes, true)
+                .map_err(AppError::execution)?;
+            return Ok(Some(
+                json!({"schema":FINITE_SCHEMA,"blake3":digest,"bytes":bytes.len(),
+                "required_for_finite_inventory":true,"prefix_reuse":false}),
+            ));
+        }
         let payload = Payload {
             identity: identity.clone(),
             rules: self

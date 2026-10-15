@@ -1,5 +1,28 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — A2 publication/export focused runtime gate passes
+
+Combined optimized core/app test build completed in1013.704s, no resource stop.
+The frozen app test SHA256 is
+`a7a2d15f82e6e66d3bb7368c2ad98c236d1188f9be491a34372307c0b5db8923`.
+All10 finite publication controls passed (3.37s native), including exact
+publication/export/cold application comparison and rejection of missing,
+corrupt or unsupported required finite census at the cold source boundary.
+Another77 disjoint checkpoint/inventory/inheritance/application/CLI tests passed.
+The first regression runner deliberately refused an ignored existing timing
+probe; its receipt is retained. The corrected invocation explicitly ran that
+bounded tiny-fixture probe too, with no ignored or skipped tests. This changed
+only the private test runner, not implementation or assertions.
+
+Independent A2 source/runtime audit passed. Evidence:
+`TMP/finite-census-app-runtime-20261015/` and
+`TMP/finite-census-app-regressions-retry-20261015/`.
+The fresh optimized CLI/export example build is active in
+`TMP/finite-census-cli-export-build-20261015/`, session22620, CPUs0--15/build-1.
+The private public-API comparison helper will use these same production rlibs.
+Real279-point publication/export/coefficients remains a separate pending gate;
+neither a tiny passing test nor source-census counts substitute for it.
+
 ## October 15 — A1 exact trace census passes native regressions
 
 The frozen optimized core test binary

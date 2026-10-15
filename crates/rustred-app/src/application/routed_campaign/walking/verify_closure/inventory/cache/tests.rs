@@ -45,6 +45,79 @@ fn payload() -> Payload {
 }
 
 #[test]
+fn finite_census_identity_binds_exact_queries_while_ordinary_classifier_stays_reusable() {
+    let first = OwnerDomainWalkRequest::new(crate::OwnerDomainMatchRequest::new(
+        "same-selection".into(),
+        "exact-original-query-r0".into(),
+    ));
+    let mut second = first.clone();
+    second.matching.queries_json = "exact-appended-query-r1".into();
+    assert_eq!(
+        census_binding(&first, SCHEMA),
+        census_binding(&second, SCHEMA)
+    );
+    assert_ne!(
+        census_binding(&first, FINITE_SCHEMA),
+        census_binding(&second, FINITE_SCHEMA)
+    );
+    assert_eq!(
+        census_binding(&first, FINITE_SCHEMA),
+        checkpoint::epoch_request_binding(&first)
+    );
+}
+
+#[test]
+fn finite_census_binary_roundtrip_retains_composite_identity_and_cannot_reuse_prefix() {
+    let mut id = identity();
+    id.schema = FINITE_SCHEMA.into();
+    let selection = finite::Selection {
+        owner: vec![true, false, true],
+        batch_ordinal: 2,
+        baseline_rule_ordinal: 7,
+        selected_rule_ordinal: 110,
+    };
+    let payload = FinitePayload {
+        identity: id.clone(),
+        symbolic_rules: vec![],
+        terminals: vec![vec![1, 0, 1]],
+        symbolic_selected_rule_events: 0,
+        symbolic_terminal_events: 0,
+        symbolic_zero_events: 0,
+        finite: finite::State {
+            selections: BTreeMap::from([(selection.clone(), 17)]),
+            invocations: 1,
+            rule_applications: 17,
+            terminal_keys_per_invocation: 1,
+            zero_keys_per_invocation: 3,
+        },
+    };
+    let bytes = bincode::serde::encode_to_vec(&payload, bincode::config::standard()).unwrap();
+    let (decoded, used): (FinitePayload, usize) = bincode::serde::decode_from_slice(
+        &bytes,
+        bincode::config::standard().with_limit::<MAX_BYTES>(),
+    )
+    .unwrap();
+    assert_eq!(used, bytes.len());
+    assert_eq!(decoded.identity.schema, FINITE_SCHEMA);
+    assert_eq!(decoded.finite.selections, BTreeMap::from([(selection, 17)]));
+    assert_eq!(decoded.terminals, vec![vec![1, 0, 1]]);
+    assert_eq!(decoded.symbolic_selected_rule_events, 0);
+    assert!(compatible(&id, &identity()).is_err());
+    let dir = scratch("finite-census-not-symbolic-cache");
+    let path = dir.0.join("census.bin");
+    std::fs::write(&path, &bytes).unwrap();
+    let source = OwnerDomainWalkCensusSource {
+        path,
+        expected_blake3: blake3::hash(&bytes).to_hex().to_string(),
+        bytes: bytes.len() as u64,
+    };
+    assert!(
+        read(&source).is_err(),
+        "finite payload must never be decoded as legacy symbolic prefix"
+    );
+}
+
+#[test]
 fn lineage_requires_exact_immutable_prefix_and_classifier_identity() {
     let old = identity();
     let mut current = old.clone();

@@ -252,6 +252,264 @@ fn finite_replay_zero_budget_fallback_matches_default_off_symbolic_graph() {
 }
 
 #[test]
+fn finite_inventory_fast_and_deep_replay_once_with_exact_separate_census() {
+    let (dir, request) = fixture("finite-inventory-native");
+    let walked = walk(&request);
+    let expected = &walked["finite_replay"]["work"];
+    assert_eq!(expected["status"], "closed");
+    let mut inventories = Vec::new();
+    for deep in [false, true] {
+        let mut options = crate::OwnerDomainWalkInventoryOptions::new(
+            &request.checkpoint.as_ref().unwrap().directory,
+        );
+        options.deep_verification = deep;
+        let inventory =
+            crate::owner_domain_walk_inventory(&request, &options, &AtomicBool::new(false), |_| {})
+                .unwrap();
+        let summary = inventory.summary();
+        assert_eq!(summary["complete"], true, "{summary}");
+        assert_eq!(summary["encountered"]["selected_rule_events"], 0);
+        assert_eq!(summary["encountered"]["terminal_events"], 0);
+        assert_eq!(summary["encountered"]["finite_replay"]["invocations"], 1);
+        assert_eq!(
+            summary["encountered"]["finite_replay"]["rule_applications"],
+            expected["rule_applications"]
+        );
+        assert_eq!(inventory.terminals(0, 100).unwrap().items, vec![vec![1]]);
+        let rules = inventory.rules(0, 100).unwrap().items;
+        assert!(!rules.is_empty());
+        assert!(rules.iter().all(|rule| rule["classification_events"] == 0));
+        assert_eq!(
+            rules
+                .iter()
+                .map(|rule| rule["finite_rule_applications"].as_u64().unwrap())
+                .sum::<u64>(),
+            expected["rule_applications"].as_u64().unwrap()
+        );
+        let output = dir.0.join(if deep {
+            "deep-census.bin"
+        } else {
+            "fast-census.bin"
+        });
+        let receipt = inventory.write_census(&output).unwrap().unwrap();
+        assert_eq!(receipt["schema"], "rustred.walk-inventory-census.finite.v1");
+        assert_eq!(receipt["prefix_reuse"], false);
+        assert_eq!(receipt["required_for_finite_inventory"], true);
+        let bytes = fs::read(&output).unwrap();
+        assert_eq!(receipt["bytes"], bytes.len());
+        assert_eq!(receipt["blake3"], blake3::hash(&bytes).to_hex().to_string());
+        inventories.push(inventory);
+    }
+    assert_eq!(
+        inventories[0].rules(0, 100).unwrap().items,
+        inventories[1].rules(0, 100).unwrap().items
+    );
+    assert_eq!(
+        inventories[0].terminal_keys(),
+        inventories[1].terminal_keys()
+    );
+    // The collector exception does not silently weaken standalone cold policy.
+    let mut bad = options(&request);
+    bad.reference_levers = OwnerDomainWalkVerifyReferenceLevers::AsRun;
+    assert!(
+        owner_domain_walk_verify_closure(&request, &bad, &AtomicBool::new(false), |_| {}).is_err()
+    );
+}
+
+#[test]
+fn finite_inventory_cancellation_never_publishes_completed_provenance() {
+    let (dir, request) = fixture("finite-inventory-cancel");
+    walk(&request);
+    let path = dir.0.join("previous-census.bin");
+    fs::write(&path, b"previous durable artifact").unwrap();
+    let cancel = AtomicBool::new(false);
+    let options = crate::OwnerDomainWalkInventoryOptions::new(
+        &request.checkpoint.as_ref().unwrap().directory,
+    );
+    let result = crate::owner_domain_walk_inventory(&request, &options, &cancel, |event| {
+        if event["event"] == "inventory_finite_replay_started" {
+            cancel.store(true, std::sync::atomic::Ordering::Release);
+        }
+    });
+    if let Ok(inventory) = result {
+        assert_eq!(inventory.summary()["complete"], false);
+        assert!(inventory.write_census(&path).unwrap().is_none());
+    }
+    assert!(cancel.load(std::sync::atomic::Ordering::Acquire));
+    assert_eq!(fs::read(path).unwrap(), b"previous durable artifact");
+}
+
+#[test]
+fn finite_inventory_rejects_source_binding_mutation_instead_of_trusting_counts() {
+    let (_dir, request) = fixture("finite-inventory-binding");
+    walk(&request);
+    let mut altered = request.clone();
+    let mut queries: Value = serde_json::from_str(&altered.matching.queries_json).unwrap();
+    queries["queries"][0]["upper"] = json!([3]);
+    altered.matching.queries_json = queries.to_string();
+    let options = crate::OwnerDomainWalkInventoryOptions::new(
+        &request.checkpoint.as_ref().unwrap().directory,
+    );
+    if let Ok(inventory) =
+        crate::owner_domain_walk_inventory(&altered, &options, &AtomicBool::new(false), |_| {})
+    {
+        assert_eq!(inventory.summary()["complete"], false);
+    }
+}
+
+#[test]
+fn mixed_finite_and_symbolic_inventory_keeps_both_occurrence_units() {
+    let (_dir, mut request) = fixture("finite-inventory-mixed");
+    let mut queries: Value = serde_json::from_str(&request.matching.queries_json).unwrap();
+    queries["queries"].as_array_mut().unwrap().push(json!({
+        "id":"second-root-symbolic","owner":"1","lower":[3],"upper":[3],"max_numerator_rank":0,
+        "power_bounds":{"max_positive_power":4,"min_power_difference":4,"max_power_difference":4}
+    }));
+    request.matching.queries_json = queries.to_string();
+    let walked = walk(&request);
+    assert_eq!(walked["finite_replay"]["work"]["status"], "closed");
+    let options = crate::OwnerDomainWalkInventoryOptions::new(
+        &request.checkpoint.as_ref().unwrap().directory,
+    );
+    let inventory =
+        crate::owner_domain_walk_inventory(&request, &options, &AtomicBool::new(false), |_| {})
+            .unwrap();
+    let summary = inventory.summary();
+    assert_eq!(summary["complete"], true, "{summary}");
+    assert_eq!(summary["encountered"]["finite_replay"]["invocations"], 1);
+    assert!(
+        summary["encountered"]["selected_rule_events"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert_eq!(
+        summary["encountered"]["finite_replay"]["rule_applications"],
+        walked["finite_replay"]["work"]["rule_applications"]
+    );
+    assert_eq!(inventory.terminals(0, 100).unwrap().items, vec![vec![1]]);
+}
+
+#[test]
+fn finite_publication_exports_cold_loads_and_applies_like_symbolic_control() {
+    let mut reductions = Vec::new();
+    for enabled in [false, true] {
+        let (dir, mut request) = fixture(if enabled {
+            "finite-publish-runtime"
+        } else {
+            "symbolic-publish-runtime"
+        });
+        if !enabled {
+            request.finite_replay = None;
+        }
+        walk(&request);
+        let publication = dir.0.join("publication");
+        let mut options = crate::MasterReductionOptions::new(
+            &request.checkpoint.as_ref().unwrap().directory,
+            &publication,
+        );
+        options.operation = crate::MasterReductionOperation::Publish;
+        let report = crate::master_reduce_saved_campaign(
+            &request,
+            &options,
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(report["status"], "published_unrefined", "{report}");
+        if enabled {
+            assert_eq!(
+                report["inventory_census_cache"]["schema"],
+                "rustred.walk-inventory-census.finite.v1"
+            );
+            assert!(publication.join("inventory-census.bin").is_file());
+            let census = publication.join("inventory-census.bin");
+            let held = publication.join("inventory-census.held");
+            let original_census = fs::read(&census).unwrap();
+            let manifest = publication.join("artifact.json");
+            let original_manifest = fs::read(&manifest).unwrap();
+            for mutation in 0..5 {
+                let mut changed: Value = serde_json::from_slice(&original_manifest).unwrap();
+                match mutation {
+                    0 => fs::rename(&census, &held).unwrap(),
+                    1 => {
+                        let mut corrupt = original_census.clone();
+                        corrupt[0] ^= 1;
+                        fs::write(&census, corrupt).unwrap();
+                    }
+                    2 => {
+                        changed["inventory_census_cache"]["schema"] =
+                            json!("unsupported-required-schema")
+                    }
+                    3 => {
+                        changed
+                            .as_object_mut()
+                            .unwrap()
+                            .remove("inventory_census_cache");
+                    }
+                    _ => changed["inventory_census_cache"]["prefix_reuse"] = json!(true),
+                }
+                fs::write(&manifest, serde_json::to_vec(&changed).unwrap()).unwrap();
+                // Inspection remains metadata-only, but native source use must
+                // fail before any runtime package directory is created.
+                assert!(crate::master_reduction_inspect(&manifest).is_ok());
+                let error = crate::load_master_relation_session(&manifest)
+                    .err()
+                    .unwrap();
+                assert!(error.to_string().contains("finite census"), "{error}");
+                let refused = dir.0.join(format!("refused-runtime-{mutation}"));
+                assert!(
+                    crate::export_saved_application::<1>(
+                        &publication,
+                        &refused,
+                        Default::default()
+                    )
+                    .is_err()
+                );
+                assert!(!refused.exists());
+                fs::write(&manifest, &original_manifest).unwrap();
+                if mutation == 0 {
+                    fs::rename(&held, &census).unwrap();
+                } else {
+                    fs::write(&census, &original_census).unwrap();
+                }
+            }
+        }
+        let runtime = dir.0.join("application");
+        crate::export_saved_application::<1>(&publication, &runtime, Default::default()).unwrap();
+        if enabled {
+            // A validated exported runtime is self-contained, with no hot
+            // dependency on the source publication's provenance file.
+            fs::rename(
+                publication.join("inventory-census.bin"),
+                publication.join("inventory-census.after-export"),
+            )
+            .unwrap();
+        }
+        let mut application =
+            crate::load_saved_application::<1>(&runtime, Default::default()).unwrap();
+        let coefficient = application.family().coefficient_context().one();
+        let key = rustred::family::IntegralKey::try_new([3]).unwrap();
+        let result = application
+            .reduce_linear_combination([(key.clone(), coefficient.clone())])
+            .unwrap();
+        assert!(!result.terms().is_empty());
+        let warm = application
+            .reduce_linear_combination([(key, coefficient)])
+            .unwrap();
+        assert_eq!(warm.terms(), result.terms());
+        assert_eq!(warm.nonzero_conditions(), result.nonzero_conditions());
+        assert_eq!(warm.statistics().work.rule_applications(), 0);
+        reductions.push(result);
+    }
+    assert_eq!(reductions[0].terms(), reductions[1].terms());
+    assert_eq!(
+        reductions[0].nonzero_conditions(),
+        reductions[1].nonzero_conditions()
+    );
+}
+
+#[test]
 fn finite_replay_cold_requires_actual_trace_not_success_counters() {
     let (_dir, mut request) = fixture("finite-replay-cold-refusal");
     let mut queries: Value = serde_json::from_str(&request.matching.queries_json).unwrap();
@@ -286,8 +544,38 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
         failing: None,
         count_parity: true,
     };
+    let domain = binding(&ctx, original_recipe).unwrap();
+    let census_limits = finite::CensusLimits {
+        rules: rustred::solver::CandidateRoutedTraceCensusLimits {
+            max_unique_selections: 0,
+            ..Default::default()
+        },
+        max_terminal_keys: 100,
+    };
+    let refused =
+        finite::run_with_census(&reducer, &domain, original_recipe, &cancel, census_limits);
+    assert!(matches!(refused, Outcome::Declined { .. }));
+    assert_eq!(refused.work()["status"], "aggregate_budget");
+    let refused = finite::run_with_census(
+        &reducer,
+        &domain,
+        original_recipe,
+        &cancel,
+        finite::CensusLimits {
+            rules: Default::default(),
+            max_terminal_keys: 0,
+        },
+    );
+    assert!(matches!(
+        refused,
+        Outcome::Failed {
+            cancelled: false,
+            ..
+        }
+    ));
+    assert_eq!(refused.work()["status"], "census_error");
     let mut tally = Tally::default();
-    reinspect(&ctx, original_recipe, &mut tally, &mut violations);
+    reinspect(&ctx, original_recipe, &mut tally, &mut violations, None);
     assert_eq!(tally.errors, 0);
     assert!(violations.is_empty());
 
@@ -297,7 +585,7 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
     };
     let mut old_tally = Tally::default();
     let mut old_errors = Violations::new(50);
-    reinspect(&ctx, old_recipe, &mut old_tally, &mut old_errors);
+    reinspect(&ctx, old_recipe, &mut old_tally, &mut old_errors, None);
     assert_eq!(old_tally.errors, 1);
     assert!(!old_errors.is_empty());
 
@@ -316,7 +604,7 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
     };
     let mut tally = Tally::default();
     let mut errors = Violations::new(50);
-    reinspect(&capped_ctx, recipe, &mut tally, &mut errors);
+    reinspect(&capped_ctx, recipe, &mut tally, &mut errors, None);
     assert_eq!(tally.errors, 1);
     assert!(!errors.is_empty());
     assert_eq!(
@@ -341,7 +629,7 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
         };
         let mut tally = Tally::default();
         let mut errors = Violations::new(50);
-        reinspect(&changed_ctx, changed_recipe, &mut tally, &mut errors);
+        reinspect(&changed_ctx, changed_recipe, &mut tally, &mut errors, None);
         assert_eq!(tally.errors, 1);
         assert!(!errors.is_empty());
     }
@@ -374,7 +662,13 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
     };
     let mut tally = Tally::default();
     let mut errors = Violations::new(50);
-    reinspect(&frontier_ctx, original_recipe, &mut tally, &mut errors);
+    reinspect(
+        &frontier_ctx,
+        original_recipe,
+        &mut tally,
+        &mut errors,
+        None,
+    );
     assert_eq!(tally.errors, 1);
     assert!(!errors.is_empty());
     assert_eq!(tally.finite_replay_work.unwrap()["status"], "frontier");

@@ -4,11 +4,14 @@ Status: A1 and A2 source passed independent review. A1 native runtime acceptance
 passed:528 candidate-reduction tests, including all13 new census tests, no
 failures or ignored tests (0.95s native). Independent runtime audit passed.
 The frozen core test executable is recorded under
-`TMP/releases/20261015-finite-census-tests/`. Eight new app controls and additional
-quota assertions are implemented; A2 optimized compilation/runtime gates remain
-pending. Earlier core/app test type checks passed (86.186s and107.239s). The
-final required-census cold-loader fix is included in the combined native build,
-not the earlier app type-check receipt.
+`TMP/releases/20261015-finite-census-tests/`. A2 native runtime acceptance also
+passed:10 publication/cold-load controls plus77 disjoint inventory, checkpoint,
+portable application and CLI regressions, independently audited. The combined
+release test build took1013.704s. The real279-point publication/export and exact
+coefficient-canary gate still awaits the new production CLI/helper; it is not
+implied by these tiny-fixture passes. Earlier core/app test type checks passed
+(86.186s and107.239s); the final required-census cold-loader fix is included in
+the successful native build, not the earlier app type-check receipt.
 A2 includes mandatory replay, exact binary provenance, portable application
 canaries and fail-closed inheritance. B is not implemented. The coordinator
 controls combined compilation and runtime gates. No new experiment, production

@@ -66,6 +66,34 @@ pub(in crate::application::routed_campaign::walking::verify_closure) fn run<cons
         "edges":edges, "seconds":checks_seconds, "scope_complete":scope.complete,
         "independently_verified":false, "memory":memory_status()}),
     );
+    let mut finite_tally = Tally::default();
+    let finite_started = Instant::now();
+    if let Some(recipe) = loaded.finite_replay
+        && violations.is_empty()
+        && !cancellation.load(Ordering::Relaxed)
+    {
+        observer(json!({"event":"inventory_finite_replay_started","record":0,
+            "policy":"exact_native_no_symbolic_shortcuts"}));
+        let containment = Containment::new(0, 0);
+        let ctx = Ctx {
+            request,
+            reducer,
+            loaded: &loaded,
+            graph: &graph,
+            containment: &containment,
+            cancellation,
+            failing: None,
+            count_parity: true,
+        };
+        finite_replay::reinspect(
+            &ctx,
+            recipe,
+            &mut finite_tally,
+            &mut violations,
+            Some(collector),
+        );
+    }
+    let finite_seconds = finite_started.elapsed().as_secs_f64();
     let census = if violations.is_empty() && !cancellation.load(Ordering::Relaxed) {
         census::run(
             request,
@@ -90,7 +118,7 @@ pub(in crate::application::routed_campaign::walking::verify_closure) fn run<cons
     } else {
         "INCOMPLETE"
     };
-    Ok(json!({
+    let mut report = json!({
         "schema":"rustred.walk-inventory-scope.v1",
         "verdict":verdict,"complete":complete,"authority":"trusted_saved_scope",
         "deep_verification":false,"independently_verified":false,
@@ -128,7 +156,16 @@ pub(in crate::application::routed_campaign::walking::verify_closure) fn run<cons
             "checks_seconds":checks_seconds,"inventory_seconds":census.seconds,
             "reinspect_seconds":0,"total_seconds":started.elapsed().as_secs_f64()},
         "memory":memory_status(),
-    }))
+    });
+    if loaded.finite_replay.is_some() {
+        report["timing"]["finite_replay_seconds"] = json!(finite_seconds);
+        report["reinspection"]["finite_replay"] = json!(finite_tally.finite_replay_work);
+        report["reinspection"]["finite_recipe_replayed"] =
+            json!(finite_tally.errors == 0 && finite_tally.inspected == 1);
+        report["reinspection"]["finite_policy"] =
+            json!("exact_native_no_symbolic_shortcuts; ordinary covers remain trusted saved scope");
+    }
+    Ok(report)
 }
 
 fn validate_shape(domains: usize, nodes: usize, flags: usize) -> Result<(), AppError> {

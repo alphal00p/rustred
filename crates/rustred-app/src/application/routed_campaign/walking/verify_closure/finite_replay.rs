@@ -43,6 +43,7 @@ pub(super) fn reinspect<const N: usize>(
     recipe: Recipe,
     tally: &mut Tally,
     violations: &mut Violations,
+    inventory: Option<&inventory::Collector>,
 ) {
     let started = Instant::now();
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -52,13 +53,19 @@ pub(super) fn reinspect<const N: usize>(
         if ctx.failing.is_some_and(|(id, _)| id == 0) {
             return Err("finite replay forced reference failure".into());
         }
-        Ok::<_, String>(finite::run(
-            ctx.reducer,
-            &domain,
-            recipe,
-            ctx.cancellation,
-            None,
-        ))
+        // This branch always executes the exact finite kernel; no symbolic
+        // AsRun reuse or matching-only census can substitute for this replay.
+        Ok::<_, String>(if let Some(collector) = inventory {
+            finite::run_with_census(
+                ctx.reducer,
+                &domain,
+                recipe,
+                ctx.cancellation,
+                collector.finite_limits(),
+            )
+        } else {
+            finite::run(ctx.reducer, &domain, recipe, ctx.cancellation, None)
+        })
     }));
     let mut local = Tally {
         inspected: 1,
@@ -67,7 +74,20 @@ pub(super) fn reinspect<const N: usize>(
         ..Default::default()
     };
     match outcome {
-        Ok(Ok(Outcome::Closed { work, .. })) => {
+        Ok(Ok(Outcome::Closed { work, census, .. })) => {
+            if let Some(collector) = inventory {
+                let result = census
+                    .ok_or_else(|| {
+                        AppError::internal_invariant(
+                            "finite replay completed without requested census",
+                        )
+                    })
+                    .and_then(|census| collector.record_finite(census, ctx.cancellation));
+                if let Err(error) = result {
+                    local.errors = 1;
+                    violations.add("finite_inventory", || error.to_string());
+                }
+            }
             local.finite_replay_work = Some(work);
         }
         Ok(Ok(other)) => {

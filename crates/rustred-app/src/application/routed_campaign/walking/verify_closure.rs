@@ -1763,7 +1763,7 @@ fn reinspect<const N: usize>(
     if id == 0
         && let Some(recipe) = ctx.loaded.finite_replay
     {
-        finite_replay::reinspect(ctx, recipe, tally, violations);
+        finite_replay::reinspect(ctx, recipe, tally, violations, inventory);
         return;
     }
     let node = ctx.loaded.nodes[id];
@@ -2253,14 +2253,16 @@ fn verify<const N: usize>(
         observer,
     )
     .map_err(AppError::input)?;
-    if inventory.is_some() && loaded.finite_replay.is_some() {
-        return Err(AppError::input(
-            "walk inventory does not yet support finite-replay summary records",
-        ));
-    }
+    // Ordinary inventory stays AsRun, but finite records are always replayed
+    // by the exact native kernel, never classified as symbolic covers. This
+    // narrow collector exception does not change standalone All/Off admission.
+    let finite_inventory_policy = inventory.is_some()
+        && options.reference_levers == OwnerDomainWalkVerifyReferenceLevers::AsRun
+        && options.mutation.is_none();
     if loaded.finite_replay.is_some()
         && (options.reinspect != OwnerDomainWalkVerifyReinspect::All
-            || options.reference_levers != OwnerDomainWalkVerifyReferenceLevers::Off)
+            || (options.reference_levers != OwnerDomainWalkVerifyReferenceLevers::Off
+                && !finite_inventory_policy))
     {
         return Err(AppError::input(
             "finite replay summaries require cold reinspect=All and reference-levers=Off",
@@ -2380,6 +2382,9 @@ fn verify<const N: usize>(
         violations.add("binding", || {
             "owner payload digests differ from the checkpoint".into()
         });
+    }
+    if let Some(collector) = inventory.filter(|_| loaded.finite_replay.is_some()) {
+        collector.bind_finite_identity(request, &loaded);
     }
     if let Some(collector) = inventory.filter(|collector| !collector.deep_verification) {
         return inventory::fast_inventory(
