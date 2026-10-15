@@ -1,5 +1,59 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — exact-window native gate passes; runner advances to native build
+
+Previous goal turn made concrete progress by diagnosing the user's missing
+cumulative-closure telemetry from the actual pinned process/events and retaining
+that distinction. No production restart is needed for mathematical correctness.
+The full scoped-closure/application goal remains active and incomplete.
+
+Prefix/core app build75522 completed normally in1973.067s. Runtime27684 passed
+all six reviewed groups:96 executions/95 distinct tests, zero failures/ignored
+or explicit skips,23.977s inclusive. All groups drained; binary and all3,444
+source/vendor/config paths match. Independent audit approved narrow prefix
+commita1476403 for integration; root separately reran all12 prefix tests, passing
+in0.01s. Details are appended to
+`docs/research/shared_finite_demand_core_2026-10-15.md`.
+
+The generic full-scope runner passed independent source review and release
+typecheck145.290s without a correction. Its local commit7ef85e0b was carried
+into the tested prefix tree as9f4a613d; optimized libtest build3305 now uses
+that same tree/target to retain dependency cache reuse. Frozen prefix evidence
+is preserved. Small runner native tests precede the reviewed all232-row R1
+pilot. The runner records native snapshot time, API time including cumulative
+retention, and whole-side time including enumeration/evidence separately.
+
+Storage implementation is active in `TMP/shared-finite-storage-20261015` under
+`intermediate_capture_app`: native typed pages, bounded exact backing reads,
+cache eviction and atomic generations. It is not yet compiled or accepted;
+core trusted import/export and publication adapters remain separate gates.
+An audit suggestion to forbid i64::MIN keys was rejected after checking that
+native IntegralKey permits them; storage must preserve the native domain.
+Wrong storage arity is still rejected. The implementation does not introduce
+new CAS or a custom reconstruction kernel.
+
+Effective R1 per-batch grants still need explicit review against inherited
+native aggregate limits (including rule applications). A resource refusal is
+not missing IBPs. No pilot, source artifact, new CLI or production campaign
+has been launched or replaced by these changes.
+
+## October 15 — live R4 required-closure display diagnosed
+
+The user's `unknown / 580` bar is a deployment mismatch, not a stopped closure
+scan. Read-only `/proc/3492453/exe` and the launch request confirm the running
+campaign uses its frozen81474511… CLI, which lacks the new required-query
+observer. Its raw heartbeat stream has no cumulative query observation; the
+Python monitor only retains the admission denominator. The newer tested
+92490ebf… CLI contains the observer. Existing Python legacy-binary tests
+deliberately render unknown rather than substitute original-root closure.
+
+At inspection, native scan308 had completed about88 seconds earlier, with the
+next scan throttled normally. The previous R3 artifact still records complete
+coverage of464 cumulative requests; R4 adds116 to580. This does not provide
+the current live numerator. A future user-authorized clean resume with a newer
+solver enables that telemetry; refreshing the dashboard alone cannot add it
+to a running old executable. No campaign was interrupted or modified.
+
 ## October 15 — native shared core passes; integration and R1 runner underway
 
 Core source8d4e1c10 passed optimized build832.666s and all542 candidate tests
@@ -7,8 +61,8 @@ Core source8d4e1c10 passed optimized build832.666s and all542 candidate tests
 runtime audit passed; root also executed the67 tests independently with the
 frozen c976fbd6… binary, all passing in0.04s. See
 `docs/research/shared_finite_demand_core_2026-10-15.md`. This is complete-only
-in-memory sharing, not yet disk-backed campaign delivery. Root is integrating
-this audited slice; the original and corrected typecheck receipts remain.
+in-memory sharing, not yet disk-backed campaign delivery. Root integrated and
+pushed this audited slice as33505aea; both typecheck receipts remain.
 
 Prefix sourcea1476403 passed its updated release check49.233s, then the combined
 core+prefix tree e6219e6a passed app-consumer checking91.250s. Its optimized app

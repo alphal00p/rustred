@@ -3,6 +3,7 @@
 mod domains;
 pub(in crate::application) mod entry;
 mod feedback;
+pub(in crate::application) mod finite_demand;
 mod guarded;
 pub(in crate::application) mod input;
 mod matching;

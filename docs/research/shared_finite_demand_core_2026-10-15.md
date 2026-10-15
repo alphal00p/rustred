@@ -77,3 +77,40 @@ Evidence:
 The next performance gate is the complete cumulative R0+R1 input scope, with
 all 232 declarations, followed by persistence/publication lifecycle controls.
 Neither this slice nor the earlier R0 sharing win establishes R6 feasibility.
+
+## Exact prefix-window adapter: validated follow-up
+
+Source slice `a1476403c77a2d036b4bb7d85b55ac541c787077` adds the app-side
+bounded enumeration adapter. It uses native domain equivalence, Symbolica
+integer counts and existing composition iteration. It partitions a whole
+admitted envelope into disjoint complete windows, retaining a small DFS cursor
+instead of materializing all starts or resuming with a long iterator skip.
+Unsupported geometry is an explicit refusal, never a filtered approximation.
+
+Tests check all eight three-axis support patterns at several window sizes,
+correlated A/R/D bounds, singleton and empty domains, physical-versus-storage
+arity, overflow/resource refusal, interrupted proposals and changed/skipped/
+repeated cursor transitions. A successful enumeration transition is not a
+closed reduction: the caller may commit its successor only with the closed
+batch. The present `audit_restore_cursor` replays prior metadata transitions;
+it is **not** the planned fast trusted-generation restore.
+
+The combined core+prefix app consumer check passed in 91.250 seconds. Its
+optimized native build took 1,973.067 seconds, separately from runtime testing.
+Frozen executable:
+`TMP/finite-prefix-windows-20261015/TMP/frozen-app/rustred-app-tests`, SHA256
+`def13dbf582ea4f80dc08c898da5290a829a88aa29d3803cade8137e0871b267`.
+
+All six selected runtime groups passed: 12 prefix tests, 48 finite-replay,
+6 finite-query lifecycle, 3 entry, 22 inventory and 5 shared-trace tests.
+That is **96 executions of 95 distinct tests**, with zero failures, ignored
+tests or explicit skips. Total supervised runtime was 23.977 seconds; all
+process groups drained without a resource stop. Root independently reran the
+12 prefix tests from the frozen executable; all passed in 0.01 seconds.
+
+Independent audit checked the raw groups, exact test lists, binary and all
+3,444 source/vendor/config paths. Receipt:
+`TMP/finite-prefix-windows-20261015/TMP/runtime-app/independent-audit.json`.
+These validate enumeration and existing lifecycle regressions; they do not
+claim that the new backend itself already supports durable campaign resume,
+publication or the complete R1/R6 workload.
