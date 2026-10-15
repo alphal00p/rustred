@@ -111,7 +111,22 @@ impl PyIbpCertificate {
     /// Residual sectors lie inside any cut, where the uncut count applies.
     fn count(record: &LaportaRecord, seed: u64) -> Result<Vec<SectorCheck>, String> {
         let mut residuals = BTreeMap::<Vec<bool>, usize>::new();
-        for residual in &record.solution.residuals {
+        // Sector counts describe the sector-ordered search basis. An exact
+        // requested basis change may move a master across sectors (e.g. B0
+        // to an IR triangle), without creating an excess master there.
+        let mut search_residuals = record
+            .solution
+            .residuals
+            .iter()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        if let Some(change) = &record.solution.basis_change {
+            for rule in &change.original {
+                search_residuals.remove(&rule.target.iter().map(|p| p.value).collect::<Vec<_>>());
+            }
+            search_residuals.extend(change.replaced.iter().cloned());
+        }
+        for residual in &search_residuals {
             let sector = residual.iter().map(|&power| power > 0).collect();
             *residuals.entry(sector).or_default() += 1;
         }
@@ -191,7 +206,7 @@ impl PyIbpCertificate {
         })
     }
 
-    /// Number of residuals per sector.
+    /// Number of search residuals per sector, before a requested basis change.
     #[getter]
     fn residual_counts<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
         self.sector_dict(py, |check| Some(check.residuals))

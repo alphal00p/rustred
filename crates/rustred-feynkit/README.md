@@ -189,10 +189,10 @@ assert solution.residuals == [[2]] and solution.replaced == [[1]]
 assert (solution.reduce([1], integral=T) - 2 * m2 / (d - 2) * T(2)).together() == E("0")
 ```
 
-Each preferred integral that the search reduces replaces a residual of its own
-sector by an exact basis change: per sector, from the lowest, the reductions
-of its preferred integrals are brought to reduced echelon form over the
-sector's other residuals, hardest residual first. Dividing by a pivot, here
+Each preferred integral that the search reduces replaces an independent
+residual by an exact basis change. The requested integrals' reductions are
+brought to reduced echelon form over the other search residuals, hardest
+residual first. This includes replacements across sectors. Dividing by a pivot, here
 `d - 2`, adds its numerator to the `nonzero_conditions` of every rule that
 uses the replaced residual. Mapping each preferred integral back to its
 original reduction must restore every rule of the search exactly; the bridge
@@ -200,8 +200,10 @@ checks this. A preferred integral that the search leaves unreduced already is
 a residual and stays one; `solution.preferred_masters` reports `"replaced"` or
 `"residual"` for each. `ValueError` is raised, and no basis change returned,
 when a preferred integral is listed twice, lies outside the cut or in a zero
-sector, reduces to zero or only to lower-sector integrals, or depends on other
-preferred integrals of its sector modulo lower sectors. These are exact
+sector, reduces to zero, or depends on other preferred integrals.
+Basis changes may cross sectors: an IR triangle can replace a bubble even
+when the default reduction eliminates it. Sector master counts in certificates
+refer to the original search residuals, before this exact basis change. These are exact
 relations, not depth effects. Masters are counted modulo IBP (and Lorentz)
 identities without symmetries, so integrals equal by a graph symmetry are
 distinct masters. `residuals` may include integrals needed only to express a
