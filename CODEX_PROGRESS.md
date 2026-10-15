@@ -1,5 +1,72 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — actual Vakint gain audited; narrow integration prepared
+
+Actual mixed-numerator pair88325 completed and passed independent audit.
+First complete application723.096→224.959s (3.214×,68.89% less), with package
+load~74s separately measured. Both arms retain the complete144-candidate
+sequence, exact lowered terms/coefficients/guards and strict minimum witness.
+Final master expression, pinched control and warm repeat agree exactly; warm
+12.386→9.333s with the expected cache hit and no new full search. Observer costs
+0.057/0.169s are included. Driver1145.696s, peak3.782GB, no stop, all groups
+drained. This is one instrumented physical fixture, not general campaign or
+whole-suite acceleration. Report:
+`docs/research/rational_weighted_lowering_2026-10-15.md`.
+
+`intermediate_capture_app` prepared a clean latest-main integration in
+`TMP/weighted-rational-integration-20261015`, branch
+`codex/weighted-rational-integration`, base47e1d2d1. Independent drift audit
+passes: nine scalar/feature/test paths only; production/diagnostic bytes match
+the actual Vk-tested delta, five differential tests retained, no old solver,
+cache, schema or lockfile changes. Current-main checks/tests wait for the union
+build's shared target to freeze. No code push or installed-runtime change yet.
+Then Vakint must pin the actual pushed Git revision, without committing local
+dependency overrides, and pass its integration checks.
+
+The corrected union diagnostic passed typecheck59.228s and is building as
+88358 under `TMP/finite-union-diagnostic-20261015/TMP/build-2`. Its earlier
+bookkeeping failure remains preserved; no sharing result is available yet.
+
+## October 15 — union diagnostic bookkeeping correction; actual Vk pair live
+
+Both optimized builds completed successfully. The union app libtest took
+1636.349s and froze as SHA256
+`068cbf33918438569a57803e735df6a6003fd627d3700f802d93620d0b5ada25`.
+No build timeout fired and no fallback was applied to that binary. The actual
+Vk build took783.59s, followed by3/3 protocol and6/6 relevant numerator tests,
+all passing without skips. At this earlier checkpoint its full pair was runtime
+88325 in `TMP/weighted-vakint-gate-20261015/runtime`; generic initialization
+73.961s package load and first application still running at that observation, about
+2.9GB RSS and one core. No actual whole-application speed claim yet.
+
+Union pilot79077 ended **incomplete before any trace**, not from a solver or
+resource failure:136.390s supervised /142.954s overall, peak7.72GB, all owned
+processes drained and source/input bindings unchanged. Exact native enumeration
+accounted for116rows,35empty,81nonempty,2557summed starts and196maximum per row.
+An extra diagnostic assertion incorrectly equated105 distinct native summary
+geometries (24empty) with92 saved queue roots (11empty).
+
+Independent investigation found13 ten-line empty D9 queries that reuse their
+nonempty same-owner D10 roots through exact containment. Queue admission uses
+containment, not summary equality. Both counts are valid but describe different
+objects; the earlier source audit's equality assumption was wrong. The correction
+keeps every substantive input/enumeration/census gate and reports the two layout
+metrics separately, rather than substituting another hard-coded geometry count.
+All failed receipts remain in the isolated worktree's `TMP/runtime`.
+
+One corrected pilot is authorized after audit/check/build. Its test-only body
+uses the same selected capacity16 for the frozen physical15-coordinate fixture,
+with explicit native-capacity and arity checks, avoiding unused monomorphizations
+in this fixed diagnostic. Generic engine dispatch and mathematical inputs do not
+change. Compilation has a separate longer bounded allowance; runtime remains
+within30minutes including preparation and shutdown. No additional retry or
+production deployment is implied.
+
+The independent [conditional-termination audit](docs/research/exact_finite_traversal_termination_2026-10-15.md)
+also distinguishes concrete well-founded descent from symbolic overcover. It
+does not prove successful R6 reduction, supply a useful ETA, or mechanically
+certify IBP identities. Root checked the relevant evaluator/order validation.
+
 ## October 15 — continuation: both isolated runtime gates enter compilation
 
 The preceding goal turn made progress: completed and independently audited

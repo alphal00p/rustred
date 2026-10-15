@@ -146,3 +146,8 @@ A mixed eligible/ineligible query control is staged separately but deferred.
 The other active
 performance lane measures Symbolica's existing rational-coefficient polynomial
 conversion for application, independently of finite traversal.
+
+A separate [code-level termination audit](exact_finite_traversal_termination_2026-10-15.md)
+states the conditional finite-work argument for concrete traversal. It relies
+on the validated owner orders and support/phase checks, not just finite input
+bounds, and provides neither a practical ETA nor guaranteed successful reduction.

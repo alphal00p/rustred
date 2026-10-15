@@ -5,8 +5,10 @@
 A narrow fast path using Symbolica's existing rational polynomial conversion
 passes the automated scalar-lowering tests and six synthetic exact-comparison
 benchmarks. The larger five-loop inputs take about one third of the existing
-generic-coefficient lowering time. **This is not yet a whole-Vakint speedup**,
-and the implementation remains isolated pending the actual witness-search gate.
+generic-coefficient lowering time. The subsequent actual Vakint gate also
+passed: first application on one unchanged mixed-numerator fixture improved
+from 723.096 to 224.959 seconds. Integration and current-main validation remain
+pending; this is not a whole-suite or campaign-generation speedup claim.
 
 The opportunity came from the delivered R2 Vakint cancellation controls:
 repeated weighted polynomial lowering dominated a short profile of a difficult
@@ -110,6 +112,79 @@ selection, compare exact lowering/admission/guard evidence and final master
 coefficients, and report package initialization separately. The override must
 cover every witness-search call, including any threaded execution.
 
-That whole-Vakint test is not yet implemented or passed. No production campaign,
-artifact, numerical master evaluation or default policy was changed by this
-isolated experiment.
+The whole-Vakint test subsequently passed as described below. No production
+campaign, artifact, numerical master evaluation or installed runtime was changed
+by these isolated experiments.
+
+## Actual Vakint comparison: passed
+
+The existing native-DOT `mixed_dotted_lines` fixture uses an expanded P2²P7³
+numerator, scalar degree five / momentum degree ten, with unit common mass.
+Both arms use one optimized binary and fresh engine/package state. The generic
+arm records the complete candidate sequence; the Q arm compares against it
+without changing candidate visitation, admission, or the minimum-witness rule.
+There is no early-winner shortcut, changed work allowance, or new IBP generation.
+
+Seconds, with fixed initialization excluded from the primary application metric:
+
+| Phase | Generic AtomField | Rational Q |
+|---|---:|---:|
+| Package load | 73.961 | 73.994 |
+| Complete initialization, including fixture preparation | 74.099 | 74.118 |
+| First complete application | 723.096 | 224.959 |
+| Observer cost, included in first application | 0.057 | 0.169 |
+| Independently constructed pinched control | 11.247 | 11.018 |
+| Warm repeated mixed input | 12.386 | 9.333 |
+
+First application is **3.214× faster, or 68.89% less wall time**, in this pair.
+Initialization plus first application is 797.195→299.077 seconds. The tiny
+pinched-control difference is not a meaningful performance claim. Warm reuse
+already avoids the full search but revalidates the selected heavy numerator,
+so its gain is smaller.
+
+Both arms completed one full search with 144 candidates and one memo
+insertion/readmission record. Complete ordered typed terms, coefficients,
+spectators, guards, acceptance/rejection outcomes and the strict minimum witness
+agree exactly, including first-on-equal-key tie handling. First-application
+conversion counters are 146 generic / zero Q versus 146 Q / zero generic;
+the extra conversion beyond candidate/recheck recording is final application.
+The first-application, pinched and warm phases check the selected conversion
+mode; initialization and fixture preparation are outside that scoped override.
+
+Final master expressions, guards and family identities agree exactly, as do
+the independently pinched result and each warm repeat. Warm witness statistics
+match: one hit, two misses, zero evictions/invalidations. Assertions verify that
+the repeat adds a hit without another full search. These are exact comparisons,
+not approximate zero tests, text comparisons, or a claim of minimal masters.
+
+The passive census charged 530,876,824 bytes under its 2 GB payload allowance;
+this is not total allocator memory. Peak sampled process-tree RSS was 3.782 GB.
+The native test took 1,142.80 seconds, the guard 1,143.565 seconds, and the driver
+1,145.696 seconds including its binding checks. All processes drained with exit
+zero and no resource stop. The run leased CPUs 20–23 and used roughly one active
+core, with 32 GB RSS and 150 GB host-reserve guards. Compilation is excluded.
+
+This remains one fixed-order, instrumented, same-process pair. Fresh engines
+do not reset global Symbolica or OS state. Generic recording and Q comparison
+have different observer costs, retained in the timings above. No universal,
+parallel-scaling, uninstrumented, or whole-campaign claim follows. Symbolic-d
+or symbolic-mass coefficients can still use the unchanged generic fallback;
+the physical projected ladder has no measured gain here.
+
+Frozen actual-stack executable:
+`TMP/releases/20261015-weighted-vakint-gate/vakint-tests`
+
+SHA256: `598a53d080e1336d3828ac29392878b9052a9d2a84d94929ba76935876ce8d68`.
+
+It uses the actual Symbolica/Graphica/Numerica `400a53c4` / 3.0.1 and FeynKit
+`024f96d6` stack, with only the narrow RustRed delta on the `78cbc5c1` baseline.
+Three instrumentation fault tests and six relevant numerator controls passed
+before the full run. Independent audit rechecked the binary, 2,294 source files,
+four dependency bindings and all 77 files of the unchanged R2/D10 package.
+
+Complete evidence: `TMP/weighted-vakint-gate-20261015/runtime/`.
+The external package remains
+`TMP/r2-vakint-acceptance-20261015/application-r2-d10`; it was not regenerated.
+The optimization is now being integrated separately onto current main, with
+its regression tests and a default-off diagnostic feature. Current-main gates
+and the subsequent published-Git Vakint pin/check precede delivery.
