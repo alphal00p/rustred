@@ -290,6 +290,12 @@ path was exercised. The application package, DOT output and local evidence were
 not committed. Source formatting and diff sanity passed; no full-workspace CI
 or upload claim is made.
 
+The repeated witness-search bottleneck subsequently received a bounded,
+package-owned memo. Its exact safety gates, two frozen timing comparisons and
+retained cold-time qualifications are recorded in
+[the witness-reuse report](vakint_witness_memo_2026-10-15.md). This follow-up
+changes application performance, not the admitted scope or the closure goal.
+
 ## Remaining acceptance obligations
 
 This is a useful R0 application milestone, not completion of the goal. Still

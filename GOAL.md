@@ -15,9 +15,14 @@ and independent mathematical/code audits. Preserve existing 1--4-loop caches
 and completed application foundations; numerical masters, minimality proofs
 and six-loop closure are outside this goal.
 
-First implementation slices: opt-in verified route-image precision, cumulative
-required-query closure monitoring, and deployment of the completed publication
-rule-count reporting. Retain exact descendants, guards, replay and scope binding;
+Delivered first slices: opt-in route-image precision, cumulative required-query
+closure monitoring, and publication rule-count reporting. The measured precision
+pilot was negative and stays default-off. Exact finite replay instead closed a
+279-point R1/D10 region with a publishable, cold-loadable application package;
+this is not full R6 coverage. Current integration work generalizes that finite
+lane to multiple queries, clean-stop/resume and append-only scope extensions,
+with simultaneous admitted Vakint numerator/factorization tests. Retain exact
+descendants, guards, replay and scope binding;
 no inference of closure from finite starting cardinality or zero frontiers.
 The old generation54 R11/D9 application backlog remains explicit and is not
 silently discharged by the different R6/D10 scope. The physical-numerator to

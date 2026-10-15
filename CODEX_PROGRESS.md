@@ -1,5 +1,106 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — R2 physical controls delivered; native B rerun in progress
+
+GammaLoop `vakint_rustred` now contains the audited five-file test/documentation
+milestone `7d2331ef`: native DOT/LMB/scalar preflight plus all nine finite controls
+(six cancellation/nonunit-mass inputs, a homogeneous factor numerator, a genuine
+cross-factor contraction, and a connected irreducible numerator). All processes
+finished within their bounded pilots; exact comparisons and cache checks passed
+independent review. First/warm loaded-package application times are11.042/0.375s,
+13.108/0.384s and70.225/0.865s for the latter three controls. Fixed load/init is
+reported separately (~76--78s). The six cancellation comparisons took1597.940s
+together; this includes a short profile in the first difficult mixed case.
+No artifact was committed. Details, source scope and external package hashes:
+`docs/research/r2_d10_application_acceptance_2026-10-15.md`.
+
+The profile found repeated Symbolica AtomField polynomial lowering during
+witness acceptance (247 samples over5s; overlapping inclusive stacks, not
+whole-run fractions). After auditing pinned/current Symbolica APIs and existing
+RustRed use, a narrow rational-only conversion lane is authorized in isolated
+worktree `TMP/weighted-rational-lowering-20261015`, branch
+`codex/weighted-rational-lowering`, base `af64457c`. It must use Symbolica Q
+conversion and coefficient mapping, retain original guards and variable maps,
+and keep opaque/complex cases on the existing path. Differential tests and a
+matched performance gate precede integration. No custom CAS/reconstruction or
+measured speedup is claimed. Main's B build sources remain separate.
+
+Native B first runtime run passed6/10 new tests; all210 deduplicated existing
+checkpoint/publication regressions passed. Four new fixtures were wrong:
+amendments were requested on fresh checkpoints; an overlap fixture's tracker
+count did not match its aliased roots; and the tiny stop fixture completed before
+the throttled public heartbeat. These are corrected with preserved assertions,
+including a test-only scoped unthrottled observer. An additional malformed-state
+check now rejects multiple outstanding finite roots before session adoption.
+The independent reviewer approved the fixes; they are **not runtime-passed yet**.
+The12-test corrected set is rebuilding in root session10621, guarded child2842127,
+`TMP/finite-initial-queries-native-build-retry-20261015/` (CPUs0--15, eight build
+workers). Initial failed receipts remain intact. Real v3 and four-parent pilots
+are prepared only; neither user campaign has been restarted or upgraded.
+
+## October 15 — multi-query finite mode integration and Python steering
+
+The previous goal turn delivered real A1/A2 publication/export/application
+evidence and pushed `af64457c`; this continuation keeps the full R6/Vakint goal.
+Root re-read the authoritative attachment. No production run was altered.
+
+`intermediate_capture_app` is implementing explicit v3
+`--finite-replay-initial-queries`, initially restricted to rolling FIFO and
+oldest-prefix publication. Legacy v2 and default-off bindings remain separate.
+The coordinator allows one potential finite root outstanding through commit;
+ordinary pending work can pass blocked roots. Completed finite results merge
+as singleton oldest-prefix cuts, without skipping older holes. There are no
+new per-case forced disk saves: clean interruption saves the committed prefix
+and requeues the unfinished case; a hard crash retains only the last durable
+checkpoint. Oversized initial roots may still serialize until their fallback
+inspection commits; this is an explicit mixed-workload performance gate.
+
+Root owns the cold verifier/inventory integration: per-ID recipes, serial
+finite replay to bound arena memory, exact original/amended query bindings,
+and separate original scope versus reference-shortcut policy. Fast publication
+replays each finite record once; ordinary census excludes all such records.
+New tests cover two initial roots and resume with an appended root beyond p0
+plus an alias, including fast/deep census and a reference with joint pruning off.
+These tests are implemented but have not yet run natively.
+
+Independent review found that the first v3 binder wrongly rejected legitimate
+containing aliases. The corrected binder authenticates containment but only
+exact query-origin images become finite-eligible. Restore now requires an exact
+origin witness, not mere input-row membership, before accepting a saved finite
+recipe. The original compiler check failed on a child-module method visibility
+error; both fixes are in the retry check, root session55419:
+`TMP/finite-initial-queries-check-retry-20261015/` (CPUs8--15, four build workers).
+The first failed receipt remains at `TMP/finite-initial-queries-check-20261015/`.
+The retry passed in41.187s and the corrected alias authority passed independent
+source review. Optimized app runtime-test build is now root session26652,
+`TMP/finite-initial-queries-native-build-20261015/`, same CPU/build-worker budget.
+No runtime or deployment acceptance is inferred from the compiler check.
+
+Root added generic Python option plumbing in `finite_replay_steering.py` plus
+the existing supervisor/production drivers. All new work caps are explicit,
+zero retains its native meaning, resume freezes the policy, and default-off
+options/argv remain unchanged. Seven new tests independently passed; the five
+related steering modules passed60 tests in10.176s and saved-workflow/phase
+regressions passed84 in13.114s (144 distinct tests total). Commands ran with
+workspace TMP and no native campaign launch. This is frontend acceptance, not
+native v3 delivery; the changes remain uncommitted until the combined gate.
+Two additional production-plan/supervisor integration tests then passed, bringing
+the distinct related set to146 and the new finite-steering test module to9.
+
+The separate Vakint R2 test lane has passed source/mathematical review and is
+in optimized compilation. It covers native DOT/LMB preparation, six existing
+cancellation controls, a homogeneous numerator, a genuine cross-factor
+contraction, and a later connected-numerator case on actual admitted endpoints.
+A build-CWD fingerprint correction and test-only reused-module import correction
+are retained in the failed receipts; no numerical master or solver changes were
+made. Runtime acceptance and performance are still pending.
+The fast native DOT/LMB/endpoint preflight has now passed in0.08s. External R2
+export completed in300.061s native/303.079s guarded,14.750GB peak, with899 checked
+terminal maps and869 remaining keys. The77-file package is local-only at
+`TMP/r2-vakint-acceptance-20261015/application-r2-d10`. StageA's six cancellation
+controls are running under the agent's session24416; B/C factorized physical
+numerators follow, and the connected case remains separately gated.
+
 ## October 15 — real finite publication/export works; canary fixture corrected
 
 Audited source milestones are pushed: A1 `c9e5c340`, A2 `d74cfad2`.
