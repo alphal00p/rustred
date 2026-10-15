@@ -1,5 +1,56 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — explicit publication rule counts and replacement-goal review
+
+The user requested a copy-paste replacement goal, retaining unfinished five-loop
+Vakint work and prioritizing improvements to the D10/R6 closure campaign. Root
+and `intermediate_capture_independent_audit` reconciled the old tool goal and
+`FIVE_LOOP_VAKINT_PLAN.md`: the application/package/cache foundations and regenerated
+1--4-loop intermediate caches are delivered, but broad five-loop coefficient
+acceptance, physical-input/lowered-key admission, the full projected ladder
+reduction, and later five-loop cache preparation remain open. The R0/D10 publication
+does not satisfy R6 acceptance, and the older R11/D9 inventory is not contained
+in R6/D10. The replacement statement is supplied in chat for user assignment;
+the old paused tool-managed goal has not been silently replaced or completed.
+
+Separately authorized reporting change implemented by `intermediate_capture_app`
+and source-audited independently: native publication/inspection summaries expose
+`published_rule_records` from the stored installed executable owner-program
+inventory, plus separate `observed_cover_rules`. Preferred programs and overlays
+are included; unused embedded bundle sectors, duplicate mathematical identities
+and newly generated rules are not inferred from this number. Inspect derives
+the fields from existing stored metadata without reading owner programs or
+replaying the cover; absent counts stay unknown rather than zero. Lightweight
+native phase events retain the fields after dropping the large inventory object.
+The Python publication/refinement dashboard and plain output show them; the
+native inspect table distinguishes published from merely available records.
+No source-schema migration, campaign mutation or solver-algebra change is involved.
+
+Validation receipts: `TMP/publication-rule-counts-20261015/` contains six passing
+tests of the actual Rust count and table modules, including old metadata and
+unknown counts. Python tests: 67 phase tests and 33 dashboard tests pass.
+The full optimized native application test build (native/capacity-dispatch,
+without the CLI feature) passed in 571.456s; all 51 focused master-reduction
+integration tests pass in 26.91s, including the metadata-only inspection test,
+under `TMP/publication-rule-count-app-tests-20261015/`.
+This does not claim a newly built full CLI executable: running/frozen user
+campaign binaries remain untouched and retain their prior rendering until an
+explicit executable update. Source-only reporting changes are committed separately
+from the proposed broader goal.
+
+User also reported new depth1 terminal relations and slow progress near
+54,137/225,868. A read-only sample found an active exact row-elimination loop,
+roughly one CPU and 0.44GB RSS, about 92,000 columns/1.04M nonzeros; a later
+snapshot had 329->323 candidate terminals. The work counter includes ordinary
+source rows and 8,143 inherited/rebuild units, not equally costly tasks. Recent
+progress was about 0.66 rows/s; this is not a reliable completion ETA. Symbolica's
+forward sparse reducer is called serially in this phase. No process was signalled.
+Finite relations are retained at subsequent publication/refinement through the
+previous artifact, but are not injected into the phase-one parametric walk.
+Thus they preserve a smaller basis without promising faster R1--R6 closure.
+An orderly stop saves at a completed row boundary; partial proved maps can be
+published with `finalize-refinement` before a later extension if the user chooses.
+
 ## October 15 — R0/D10 preparation and renewed workload diagnosis
 
 User reported the independent R6/D10 campaign at about 101M domains with 0/116 roots

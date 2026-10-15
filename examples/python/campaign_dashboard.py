@@ -550,6 +550,11 @@ def render_master_table(frame, width=100, height=24, color=True):
                      "Replay progress" if deep else "Inventory checks")
             if done is not None or total is not None:
                 rows.insert(3, (0, row(label, count(done) + " / " + count(total), "native work counters")))
+    rows.insert(1, (0, row("Published rules" if master.get("artifact") else "Available rules",
+                          count(master.get("published_rule_records")),
+                          "installed executable rule records", "36")))
+    rows.insert(2, (1, row("Observed cover", count(master.get("observed_cover_rules")),
+                          "distinct rules encountered in this scope")))
     collection = master.get("collection", {})
     if collection.get("finite_feedback_stage"):
         rows.insert(1, (0, row("Finite feedback", collection["finite_feedback_stage"],
@@ -597,6 +602,7 @@ def plain_summary(frame):
         master = frame["master_reduction"]
         return [f"RustRed · {frame['phase']} · {frame['state']} · {duration(frame['elapsed_seconds'])}",
                 f"Stage {master['stage']} · {count(master['remaining_terminals'])} remaining terminals (nonminimal)",
+                f"{'Published' if master.get('artifact') else 'Available'} executable rule records {count(master.get('published_rule_records'))} · observed cover rules {count(master.get('observed_cover_rules'))}",
                 f"Relations {count(master['relation_rows'])} · {count(master['eliminated_terminals'])} eliminated",
                 f"Checkpoint {frame['checkpoint']['state']} · {frame['checkpoint']['directory']}",
                 "Retained exact maps; finite search unfinished; no minimality claim" if master.get("partial_refinement") else

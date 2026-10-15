@@ -101,6 +101,19 @@ a new phase-two search scope and passes the prior completed artifact to Rust
 for validated reuse of its exact rows. Depth cannot silently decrease. The
 seed depth is **not** the input numerator-rank cap.
 
+Publication summaries and `inspect` expose `published_rule_records`: the total
+recorded executable owner-program rules in the package's selected programs,
+including preferred programs and overlays. `observed_cover_rules` is the
+separate number of distinct rule records encountered in the saved cover. Neither
+count is the number of newly generated identities, and the former excludes
+uninstalled sectors that may be embedded inside copied source bundles. The
+table labels these **Published rule records**, or **Available rule records**
+before publication. Missing metadata is reported as unknown, not zero. Existing
+artifacts supply these values from their stored inventory without loading rules
+or repeating a census. New native publication events carry the counts directly
+for the live publication/refinement dashboard. Already frozen campaign binaries
+are not automatically replaced by a source update.
+
 `refine --containing-sector-depth 1` adds ordinary IBP source points by setting
 one nonpositive index of each raw terminal directly to `+1`; depth `2` also
 includes every pair of such promotions. This is a different finite source

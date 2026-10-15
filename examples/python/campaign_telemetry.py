@@ -37,6 +37,19 @@ def _numbers(source, keys):
     return {key: number(source.get(key)) for key in keys}
 
 
+def publication_rule_counts(master):
+    """Recorded executable inventory only; no payload or checkpoint reads."""
+    inventory = mapping(master.get("inventory"))
+    result = {}
+    for name, group in (("published_rule_records", "installed"),
+                        ("observed_cover_rules", "encountered")):
+        value = master.get(name)
+        if value is None:
+            value = mapping(inventory.get(group)).get("rules")
+        result[name] = value if type(value) is int and 0 <= value < 2**64 else None
+    return result
+
+
 def completed_scan_ratio(history, now=None):
     """A retained observation between two completed scans, never a live estimate."""
     fields = ("completed_unix_seconds", "total_domains", "total_closed", "initial_closed",
@@ -348,6 +361,8 @@ def normalize_status(status, sequence=None):
         frame["master_reduction"] = {
             "operation": operation,
             "partial_refinement": partial,
+            **publication_rule_counts(master),
+            "published_rule_records_scope": "installed executable owner-program records; not uninstalled embedded sectors or newly generated rules",
             **_numbers(master, ("raw_terminals", "normalized_terminals", "remaining_terminals",
                                 "relation_rows", "eliminated_terminals", "completed_work", "total_work",
                                 "seed_depth", "independent_rows", "auxiliary_columns", "nonzeros")),

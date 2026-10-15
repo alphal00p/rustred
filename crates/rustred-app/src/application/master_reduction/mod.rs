@@ -8,6 +8,7 @@ mod inherited;
 mod partial;
 mod profile;
 mod refine;
+mod report_counts;
 mod storage;
 #[cfg(test)]
 mod tests;
@@ -118,7 +119,7 @@ pub fn master_reduction_inspect(path: &Path) -> Result<Value, AppError> {
     } else {
         path.to_path_buf()
     };
-    let report = read_json(&manifest)?;
+    let mut report = read_json(&manifest)?;
     if report["schema"] != SCHEMA && report["schema"] != LEGACY_SOURCE_SCHEMA {
         return Err(AppError::input("not a master-reduction package"));
     }
@@ -160,6 +161,7 @@ pub fn master_reduction_inspect(path: &Path) -> Result<Value, AppError> {
             ));
         }
     }
+    report_counts::update(&mut report);
     Ok(report)
 }
 
@@ -385,6 +387,7 @@ fn run(
         }
         census_cache::save(&inventory, &options.directory, report)?;
         report["inventory"] = summary;
+        report_counts::update(report);
         report["independently_verified"] = json!(verification::independently_verified(report));
         report["publication_assurance"] = report["inventory"]["authority"].clone();
         report["raw_terminals"] = json!(inventory.terminal_keys().len());
@@ -577,6 +580,7 @@ fn execute_session(
 }
 
 fn publish_final(options: &MasterReductionOptions, report: &mut Value) -> Result<(), AppError> {
+    report_counts::update(report);
     report["artifact"] = json!(options.directory);
     write_json(&options.directory.join("artifact.json"), report)?;
     write_json(&options.directory.join("latest.json"), report)
@@ -593,6 +597,7 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     // The core owns all algebraic counts and work cursors; this is only their
     // presentation/transport boundary, shared by CLI and notebook consumers.
     let stats = session.statistics();
+    report_counts::update(report);
     report["independently_verified"] = json!(verification::independently_verified(report));
     report["publication_assurance"] = json!(if verification::independently_verified(report) {
         "independently_verified"
@@ -713,6 +718,7 @@ fn event(report: &Value, kind: &str, started: Instant) -> Value {
             .collect(),
     );
     result["event"] = json!(kind);
+    report_counts::copy_from_inventory(report, &mut result);
     result["elapsed_seconds"] = json!(started.elapsed().as_secs_f64());
     result
 }

@@ -981,6 +981,32 @@ event('completed_nonminimal' if refine else 'published_unrefined')
 
 
 class MasterDashboardTests(unittest.TestCase):
+    def test_publication_rule_inventory_survives_new_and_legacy_reports(self):
+        for counts in (
+                {"published_rule_records": 9982, "observed_cover_rules": 6698},
+                {"inventory": {"installed": {"rules": 9982}, "encountered": {"rules": 6698}}}):
+            # JSON roundtrip reflects the actual serialized report/event shape.
+            native = json.loads(json.dumps({"operation": "publish", "stage": "published",
+                                           "artifact": "/artifact", **counts}))
+            frame = TELEMETRY.normalize_status({"state": "published_unrefined", "master_reduction": native})
+            self.assertEqual(frame["master_reduction"]["published_rule_records"], 9982)
+            self.assertEqual(frame["master_reduction"]["observed_cover_rules"], 6698)
+            shown = DASHBOARD.render_table(frame, 150, 32, False)
+            self.assertTrue(any("Published rules" in line and "9,982" in line for line in shown))
+            self.assertTrue(any("Observed cover" in line and "6,698" in line for line in shown))
+            self.assertIn("installed executable rule records", "\n".join(shown))
+            self.assertIn("Published executable rule records 9,982", "\n".join(DASHBOARD.plain_summary(frame)))
+        for value in (None, -1, True, "9982", 1.5):
+            frame = TELEMETRY.normalize_status({"master_reduction": {
+                "operation": "publish", "published_rule_records": value}})
+            self.assertIsNone(frame["master_reduction"]["published_rule_records"])
+            self.assertIsNone(frame["master_reduction"]["observed_cover_rules"])
+            shown = DASHBOARD.render_table(frame, 150, 32, False)
+            self.assertTrue(any("Available rules" in line and "unknown" in line for line in shown))
+        frame = TELEMETRY.normalize_status({"master_reduction": {
+            "operation": "publish", "published_rule_records": 0, "observed_cover_rules": 0}})
+        self.assertEqual(frame["master_reduction"]["published_rule_records"], 0)
+
     def test_feedback_native_counts_survive_telemetry_and_table(self):
         frame = TELEMETRY.normalize_status({"state": "running", "master_reduction": {
             "stage": "terminal_collection", "collection": {

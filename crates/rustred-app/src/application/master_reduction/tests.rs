@@ -65,6 +65,27 @@ fn session() -> TerminalRelationSession {
 }
 
 #[test]
+fn inspect_projects_published_rules_from_metadata_without_loading_programs() {
+    let scratch = Scratch::new();
+    let path = scratch.0.join("artifact.json");
+    let source = json!({"schema":SCHEMA,"status":"published_unrefined",
+        "inventory":{"installed":{"rules":9982},"encountered":{"rules":6698}},
+        "inputs":{"selection":"nonexistent-owner-programs.json"}});
+    write_json(&path, &source).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let report = master_reduction_inspect(&scratch.0).unwrap();
+    assert_eq!(report["published_rule_records"], 9982);
+    assert_eq!(report["observed_cover_rules"], 6698);
+    assert_eq!(report["inventory"], source["inventory"]);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(std::fs::read_dir(&scratch.0).unwrap().count(), 1);
+    write_json(&path, &json!({"schema":SCHEMA,"status":"paused"})).unwrap();
+    let unavailable = master_reduction_inspect(&scratch.0).unwrap();
+    assert!(unavailable["published_rule_records"].is_null());
+    assert!(unavailable["observed_cover_rules"].is_null());
+}
+
+#[test]
 fn master_checkpoint_resume_preserves_rows_and_exact_application() {
     let scratch = Scratch::new();
     let options = MasterReductionOptions::new("unused", &scratch.0);

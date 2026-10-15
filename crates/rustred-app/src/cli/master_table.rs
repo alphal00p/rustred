@@ -13,6 +13,14 @@ fn clean(value: &str, limit: usize) -> String {
 
 fn field(summary: &Value, name: &str) -> String {
     let value = name.split('.').fold(summary, |value, key| &value[key]);
+    // Metadata written before the explicit summary fields remains inspectable.
+    let value = if value.is_null() && name == "published_rule_records" {
+        &summary["inventory"]["installed"]["rules"]
+    } else if value.is_null() && name == "observed_cover_rules" {
+        &summary["inventory"]["encountered"]["rules"]
+    } else {
+        value
+    };
     if name == "normalization_profile" && value.is_null() {
         return "conservative-v1 (legacy)".into();
     }
@@ -76,8 +84,8 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
         ("Inventory assurance", "inventory.authority"),
         ("Inventory complete", "inventory.complete"),
         ("Verification verdict", "inventory.verification.verdict"),
-        ("Installed rule records", "inventory.installed.rules"),
-        ("Observed cover rules", "inventory.encountered.rules"),
+        ("Published rule records", "published_rule_records"),
+        ("Observed cover rules", "observed_cover_rules"),
         ("Published R cap", "scope.max_starting_rank"),
         ("Published D cap", "scope.max_starting_d"),
         ("Requested R cap", "requested_scope.max_starting_rank"),
@@ -162,6 +170,8 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
             && summary["collection"]["proof_layers"].as_u64().unwrap_or(0) > 1
         {
             "Historical alias classes"
+        } else if summary["artifact"].is_null() && label == "Published rule records" {
+            "Available rule records"
         } else if summary["artifact"].is_null() && label.starts_with("Published") {
             if label == "Published R cap" {
                 "Inventoried R cap"
@@ -203,13 +213,14 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
     let mut table = builder.build();
     table.with(Style::modern_rounded());
     format!(
-        "{}\n{table}\n{}\n{}\n",
+        "{}\n{table}\n{}\n{}\n{}\n",
         paint("RustRed · Saved campaign artifact", color, "1;36"),
         paint(
             "Normalized terminals are candidate masters, not an independence claim.",
             color,
             "33"
         ),
+        "Rule records count installed executable programs, not uninstalled sectors embedded in source bundles.",
         "Symbolic package only: numerical master values and routed coefficient application are not included."
     )
 }
@@ -217,6 +228,43 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn published_and_observed_rule_counts_are_distinct_for_old_metadata() {
+        let mut summary: Value = serde_json::from_str(
+            r#"{
+            "status":"published_unrefined","artifact":"/artifact",
+            "inventory":{"installed":{"rules":9982},"encountered":{"rules":6698}}
+        }"#,
+        )
+        .unwrap();
+        let table = render_master_table(&summary, false, 110);
+        assert!(
+            table
+                .lines()
+                .any(|line| line.contains("Published rule records") && line.contains("9982"))
+        );
+        assert!(
+            table
+                .lines()
+                .any(|line| line.contains("Observed cover rules") && line.contains("6698"))
+        );
+        assert!(table.contains("installed executable programs"));
+        summary["artifact"] = Value::Null;
+        let unpublished = render_master_table(&summary, false, 110);
+        assert!(
+            unpublished
+                .lines()
+                .any(|line| line.contains("Available rule records") && line.contains("9982"))
+        );
+        summary["inventory"] = Value::Null;
+        let unknown = render_master_table(&summary, false, 110);
+        assert!(
+            unknown.lines().any(
+                |line| line.contains("Available rule records") && line.contains("not reported")
+            )
+        );
+    }
 
     #[test]
     fn summary_is_explicit_bounded_and_colors_are_optional() {
