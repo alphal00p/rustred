@@ -9,6 +9,7 @@ use std::{
 mod atomic;
 mod framing;
 mod lookup;
+mod raw;
 
 struct Scratch(PathBuf);
 impl Scratch {
@@ -36,6 +37,10 @@ impl Drop for Scratch {
 }
 fn limits() -> StorageLimits {
     StorageLimits {
+        raw: RawCensusLimits {
+            max_page_records: 2,
+            ..Default::default()
+        },
         max_arity: 32,
         max_delta_records: 128,
         max_delta_payload_bytes: 1024 * 1024,
@@ -115,6 +120,7 @@ fn physical_bytes(path: &Path) -> u64 {
     [
         path.to_path_buf(),
         path.join("pages"),
+        path.join("raw"),
         path.join("states"),
         path.join("generations"),
     ]

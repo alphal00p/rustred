@@ -9,9 +9,9 @@ use std::{
 pub(super) const MAX_FRAME: usize = rustred::persistence::finite_work::FRAME_LIMIT;
 pub(super) const CURRENT: &str = "CURRENT";
 pub(super) const PAGE_MAGIC: &[u8] = rustred::persistence::finite_work::PAGE_MAGIC;
-pub(super) const STATE_MAGIC: &[u8] = b"RUSTRED-FINITE-STATE-1\0";
-pub(super) const MANIFEST_MAGIC: &[u8] = b"RUSTRED-FINITE-GENERATION-1\0";
-pub(super) const TIP_MAGIC: &[u8] = b"RUSTRED-FINITE-CURRENT-1\0";
+pub(super) const STATE_MAGIC: &[u8] = b"RUSTRED-FINITE-STATE-2\0";
+pub(super) const MANIFEST_MAGIC: &[u8] = b"RUSTRED-FINITE-GENERATION-2\0";
+pub(super) const TIP_MAGIC: &[u8] = b"RUSTRED-FINITE-CURRENT-2\0";
 pub(super) const TIP_LIMIT: usize = 256;
 const MAX_CURSOR: usize = 64 * 1024;
 
@@ -27,6 +27,7 @@ pub(super) struct Manifest {
     pub state: ObjectRef,
     pub scope_digest: Digest,
     pub runs: Arc<Vec<Vec<PageRef>>>,
+    pub raw: Arc<RawCensusDirectory>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct Tip {
@@ -81,9 +82,20 @@ pub(super) fn validate_manifest(
         &manifest.runs,
         limits.directory_limits(),
     )?;
+    let (_, raw_bytes) =
+        raw::validate_directory(&manifest.raw, expected.physical_arity as usize, limits.raw)?;
+    if manifest
+        .raw
+        .stored_references(RawKeyKind::Terminal)?
+        .checked_add(manifest.raw.stored_references(RawKeyKind::Zero)?)
+        .is_none_or(|references| references > stats.records)
+    {
+        return Err(corrupt("raw key references exceed completed Work"));
+    }
     if stats
         .referenced_bytes
         .checked_add(manifest.state.bytes)
+        .and_then(|n| n.checked_add(raw_bytes))
         .is_none_or(|bytes| bytes > limits.max_disk_bytes)
     {
         return Err(resource("finite referenced state/page disk allowance"));
@@ -124,13 +136,7 @@ pub(super) fn validate_state(
     if state.completed_work != records || state.scope.rows.len() != state.cursors.len() {
         return Err(corrupt("finite state membership/cursor count mismatch"));
     }
-    let census_count = state
-        .census
-        .terminals
-        .len()
-        .checked_add(state.census.zeros.len())
-        .and_then(|n| n.checked_add(state.census.selections.len()))
-        .ok_or_else(|| resource("census record overflow"))?;
+    let census_count = state.census.selections.len();
     if state.scope.rows.len() > limits.max_scope_rows
         || census_count > limits.max_census_records
         || state_payload(state)? > limits.max_state_bytes
@@ -154,31 +160,6 @@ pub(super) fn validate_state(
     }
     if occurrences != state.input_occurrences {
         return Err(corrupt("finite input occurrence total mismatch"));
-    }
-    for keys in [&state.census.terminals, &state.census.zeros] {
-        if keys.iter().any(|key| key.len() != arity)
-            || keys.windows(2).any(|pair| pair[0] >= pair[1])
-        {
-            return Err(corrupt("raw census key arity/sort/duplicate"));
-        }
-    }
-    if state
-        .census
-        .terminals
-        .len()
-        .checked_add(state.census.zeros.len())
-        .ok_or_else(|| resource("raw census size overflow"))? as u64
-        > records
-    {
-        return Err(corrupt("raw terminal/zero count exceeds completed Work"));
-    }
-    if state
-        .census
-        .terminals
-        .iter()
-        .any(|key| state.census.zeros.binary_search(key).is_ok())
-    {
-        return Err(corrupt("raw terminal/zero authority overlap"));
     }
     let mut selected = 0u64;
     let mut previous = None;
@@ -224,22 +205,6 @@ pub(super) fn state_payload(state: &GenerationState) -> Result<usize> {
     for cursor in &state.cursors {
         add(&mut bytes, cursor.encoded_cursor.capacity())?;
     }
-    for keys in [&state.census.terminals, &state.census.zeros] {
-        add(
-            &mut bytes,
-            keys.capacity()
-                .checked_mul(size_of::<Vec<i64>>())
-                .ok_or_else(|| resource("census capacity overflow"))?,
-        )?;
-        for key in keys {
-            add(
-                &mut bytes,
-                key.capacity()
-                    .checked_mul(size_of::<i64>())
-                    .ok_or_else(|| resource("census key capacity overflow"))?,
-            )?;
-        }
-    }
     add(
         &mut bytes,
         state
@@ -276,14 +241,6 @@ pub(super) fn validate_extension(old: &GenerationState, new: &GenerationState) -
                 ErrorKind::Stale,
                 "finite cursor moved backwards or changed policy",
             ));
-        }
-    }
-    for (old, new) in [
-        (&old.census.terminals, &new.census.terminals),
-        (&old.census.zeros, &new.census.zeros),
-    ] {
-        if old.iter().any(|key| new.binary_search(key).is_err()) {
-            return Err(corrupt("raw cumulative census lost a key"));
         }
     }
     for selection in &old.census.selections {

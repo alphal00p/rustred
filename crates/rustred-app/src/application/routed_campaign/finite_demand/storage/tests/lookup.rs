@@ -97,22 +97,49 @@ fn finite_store_phases_are_distinct_and_global_zeros_are_a_union() {
         owner: vec![false, false],
         powers: vec![0, 0],
     };
-    let mut first = state(1, 1);
-    first.census.zeros = vec![vec![0, 0]];
+    let first = state(1, 1);
+    let zeros = vec![vec![0, 0]];
     let generation = writer
-        .commit_generated(vec![route.clone()], first, &AtomicBool::new(false))
+        .commit_generated_with_raw(
+            vec![route.clone()],
+            super::super::raw::RawDelta::slices(&[], &zeros),
+            first,
+            &AtomicBool::new(false),
+        )
         .unwrap()
         .generation;
     let reader = generation.reader(limits()).unwrap();
     assert_eq!(reader.lookup(&route).unwrap(), Lookup::Present);
     assert_eq!(reader.lookup(&apply).unwrap(), Lookup::Absent);
-    let mut second = state(2, 2);
-    second.census.zeros = vec![vec![0, 0]];
+    let second = state(2, 2);
     let generation = writer
-        .commit_generated(vec![apply.clone()], second, &AtomicBool::new(false))
+        .commit_generated_with_raw(
+            vec![apply.clone()],
+            super::super::raw::RawDelta::slices(&[], &zeros),
+            second,
+            &AtomicBool::new(false),
+        )
         .unwrap()
         .generation;
-    assert_eq!(generation.state().census.zeros.len(), 1);
+    assert_eq!(
+        generation
+            .raw_census_directory()
+            .stored_references(RawKeyKind::Zero)
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        generation
+            .visit_raw_census(
+                limits().raw,
+                &AtomicBool::new(false),
+                |_, _| Ok(()),
+                |_, _| Ok(())
+            )
+            .unwrap()
+            .zeros,
+        1
+    );
     let reader = generation.reader(limits()).unwrap();
     assert_eq!(reader.lookup(&route).unwrap(), Lookup::Present);
     assert_eq!(reader.lookup(&apply).unwrap(), Lookup::Present);

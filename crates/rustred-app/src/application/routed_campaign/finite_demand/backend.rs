@@ -2,7 +2,7 @@
 //! No public campaign frontend, CP6 adoption or publication/export authority.
 mod errors;
 use super::{
-    prepared::PreparedExecution,
+    prepared::{PreparedExecution, PreparedGeneration},
     storage::{
         self, CursorRecord, GenerationState, RawCensus, ScopeBinding, ScopeRole, ScopeRow,
         StorageLimits, StoreWriter, ValidatedGeneration,
@@ -77,6 +77,7 @@ pub(crate) struct Step {
 /// An error permanently stops this object; cold reopen determines CURRENT.
 pub(crate) struct Session<const N: usize> {
     prepared: PreparedExecution<N>,
+    authenticated: PreparedGeneration<N>,
     scope: ScopeBinding,
     sources: Vec<PrefixWindows<N>>,
     cursors: Vec<PrefixCursor>,
@@ -126,7 +127,18 @@ impl<const N: usize> Session<N> {
         writer
             .commit_generated(Vec::new(), state, cancel)
             .map_err(storage_error)?;
-        Ok(Self::assemble(admitted, writer, policy, path))
+        let authenticated = admitted.prepared.authenticate_generation(
+            writer.current().map_err(storage_error)?.unwrap().clone(),
+            &admitted.scope,
+            cancel,
+        )?;
+        Ok(Self::assemble(
+            admitted,
+            writer,
+            authenticated,
+            policy,
+            path,
+        ))
     }
 
     pub(crate) fn resume(
@@ -162,16 +174,12 @@ impl<const N: usize> Session<N> {
                 )
                 .map_err(window_error)?;
         }
-        let reader = previous.reader(policy.storage).map_err(storage_error)?;
-        // Current-state census authentication only; no historical reseeding.
-        admitted.prepared.bind_generation(
-            &reader,
-            old,
-            policy.per_batch_work,
-            policy.census,
-            policy.export,
-            cancel,
-        )?;
+        // Authenticate current small metadata once; raw pages stay lazy until
+        // exact census iteration/publication, not historical reseeding.
+        let mut authenticated =
+            admitted
+                .prepared
+                .authenticate_generation(previous.clone(), old, cancel)?;
         check(cancel)?;
         let mut writer = StoreWriter::resume_generated(
             path,
@@ -203,13 +211,31 @@ impl<const N: usize> Session<N> {
             writer
                 .commit_generated(Vec::new(), state, cancel)
                 .map_err(storage_error)?;
+            authenticated = admitted.prepared.authenticate_generation(
+                writer.current().map_err(storage_error)?.unwrap().clone(),
+                &admitted.scope,
+                cancel,
+            )?;
         }
-        Ok(Self::assemble(admitted, writer, policy, path))
+        Ok(Self::assemble(
+            admitted,
+            writer,
+            authenticated,
+            policy,
+            path,
+        ))
     }
 
-    fn assemble(admitted: Admitted<N>, writer: StoreWriter, policy: Policy, path: &Path) -> Self {
+    fn assemble(
+        admitted: Admitted<N>,
+        writer: StoreWriter,
+        authenticated: PreparedGeneration<N>,
+        policy: Policy,
+        path: &Path,
+    ) -> Self {
         Self {
             prepared: admitted.prepared,
+            authenticated,
             scope: admitted.scope,
             sources: admitted.sources,
             cursors: admitted.cursors,
@@ -308,11 +334,8 @@ impl<const N: usize> Session<N> {
         let reader = previous
             .reader(self.policy.storage)
             .map_err(storage_error)?;
-        // This conservative first backend revalidates current metadata per
-        // batch. O(census) merge/revalidation and run fan-out remain scale limits.
-        let baseline = self.prepared.bind_generation(
+        let baseline = self.authenticated.bind(
             &reader,
-            &self.scope,
             self.policy.per_batch_work,
             self.policy.census,
             self.policy.export,
@@ -375,6 +398,7 @@ impl<const N: usize> Session<N> {
         );
         check(cancel)?;
         let outcome = self.prepared.commit_delta_with_generated_metadata(
+            &self.authenticated,
             &mut self.writer,
             delta,
             self.scope.clone(),
@@ -383,6 +407,7 @@ impl<const N: usize> Session<N> {
         )?;
         // No fallible work or observer lies between durable commit and adoption.
         self.cursors[index] = successor;
+        self.authenticated = outcome.generation;
         completed.cleanup_warning = outcome.cleanup_warning;
         Ok(Step {
             window: Some(completed),

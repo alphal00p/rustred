@@ -90,14 +90,21 @@ fn finite_store_tiny_frame_with_enormous_native_vector_count_is_bounded() {
 
 #[test]
 fn finite_store_compact_encoded_page_decode_refusal_never_replaces_current() {
-    // An IO-only synthetic arity, not a supported physics family: many zero
-    // varints occupy ~8 MiB but their i64 allocation alone consumes 64 MiB.
-    let arity = wire::MAX_FRAME / std::mem::size_of::<i64>();
+    // An IO-only synthetic arity, not a supported physics family: two keys'
+    // zero varints occupy ~8 MiB but their i64 allocations consume 64 MiB.
+    // A single raw key still fits the separately admitted raw page policy.
+    let arity = wire::MAX_FRAME / (2 * std::mem::size_of::<i64>());
     let binding = RawExecutionBinding {
         physical_arity: arity as u32,
         program_identity: [3; 32],
     };
     let settings = StorageLimits {
+        raw: RawCensusLimits {
+            max_page_records: 1,
+            max_page_bytes: wire::MAX_FRAME,
+            max_decode_transient_bytes: 2 * wire::MAX_FRAME,
+            ..limits().raw
+        },
         max_arity: arity,
         max_delta_payload_bytes: 2 * wire::MAX_FRAME,
         max_page_bytes: wire::MAX_FRAME,
@@ -113,10 +120,13 @@ fn finite_store_compact_encoded_page_decode_refusal_never_replaces_current() {
         .commit_generated(vec![], state(0, 0), &AtomicBool::new(false))
         .unwrap();
     let previous = writer.current().unwrap().unwrap().digest();
+    let first = vec![0; arity];
+    let mut second = first.clone();
+    second[0] = 1;
     let error = writer
         .commit_generated(
-            vec![StoredWork::Route(vec![0; arity])],
-            state(1, 1),
+            vec![StoredWork::Route(first), StoredWork::Route(second)],
+            state(2, 1),
             &AtomicBool::new(false),
         )
         .unwrap_err();
@@ -142,6 +152,7 @@ fn finite_store_manifest_arc_migration_preserves_native_wire_bytes() {
         state: wire::ObjectRef,
         scope_digest: Digest,
         runs: Vec<Vec<wire::PageRef>>,
+        raw: RawCensusDirectory,
     }
     let scratch = Scratch::new();
     let path = scratch.0.join("layout");
@@ -155,6 +166,7 @@ fn finite_store_manifest_arc_migration_preserves_native_wire_bytes() {
         state: manifest.state.clone(),
         scope_digest: manifest.scope_digest,
         runs: manifest.runs.as_ref().clone(),
+        raw: manifest.raw.as_ref().clone(),
     };
     assert_eq!(
         wire::encode(wire::MANIFEST_MAGIC, &legacy, limits().max_manifest_bytes).unwrap(),
