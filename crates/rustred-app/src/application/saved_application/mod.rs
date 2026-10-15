@@ -4,6 +4,8 @@
 //! prepared once. Mutable memoization belongs to the returned handle. Compact
 //! runtime exports retain native Symbolica coefficients and inherited authority;
 //! they are application data, not new source or closure certificates.
+#[cfg(test)]
+mod admission_diagnostic;
 mod cache_pack;
 mod charts;
 mod codec;
