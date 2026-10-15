@@ -4,6 +4,7 @@ use super::super::{input::Selection, prepare, snapshot_json, walking::finite_sco
 use super::windows::{PrefixWindows, WindowLimits};
 use crate::{AppError, AppErrorKind, OwnerDomainWalkRequest, RoutedCampaignRequest};
 use rustred::family::IntegralKey;
+use rustred::reduction::ReductionLimits;
 use rustred::solver::{
     CandidateEntryAdmission, CandidateRoutedCampaignReport, CandidateRoutedCampaignSnapshot,
     CandidateRoutedCompletedTrace, CandidateRoutedCompletedTraceLimits,
@@ -67,6 +68,24 @@ impl From<WorkLimits> for CandidateRoutedWorkBudget {
         }
     }
 }
+
+/// Opt-in diagnostic aggregate policy, applied only after the original scope
+/// and amendment chain have authenticated. No local algebra/scratch override.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReductionAggregateOverrides {
+    pub max_rule_applications: usize,
+    pub max_pending_frames: usize,
+    pub max_coalescing_additions: usize,
+}
+impl ReductionAggregateOverrides {
+    fn apply(self, mut limits: ReductionLimits) -> ReductionLimits {
+        limits.max_rule_applications = self.max_rule_applications;
+        limits.max_pending_frames = self.max_pending_frames;
+        limits.max_coalescing_additions = self.max_coalescing_additions;
+        limits
+    }
+}
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CensusLimits {
@@ -103,6 +122,11 @@ pub(crate) struct Policy {
     pub windows: SeedLimits,
     /// Reset at each bounded native invocation, NOT a campaign-wide work cap.
     pub per_batch_work: WorkLimits,
+    /// None preserves the source defaults and their native min-intersections.
+    /// Zero is an explicit zero grant. MAX removes only that aggregate stop;
+    /// checked counters, local native limits and external RSS/time guards remain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prepared_reduction_aggregates: Option<ReductionAggregateOverrides>,
     pub cumulative_census: CensusLimits,
     /// Per live capability: the whole shared side, but only the fresh current
     /// window in the separate control. Evidence grants bind both whole sides.
@@ -482,6 +506,11 @@ fn run<const N: usize>(
     load.owner_base = request.source.matching.owner_base.clone();
     load.workers = policy.workers;
     load.reduction_limits = request.source.matching.reduction_limits;
+    // run_with_progress already authenticated the ORIGINAL chain. Never mutate
+    // that request or its digest to express this separate execution policy.
+    if let Some(overrides) = policy.prepared_reduction_aggregates {
+        load.reduction_limits = overrides.apply(load.reduction_limits);
+    }
     // Only concrete aggregate slots change. Native local algebra/expansion stays unchanged.
     load.trace_limits.max_input_targets = policy.windows.max_seed_points;
     load.trace_limits.max_unique_nodes = policy.per_batch_work.max_nodes;
@@ -576,12 +605,24 @@ fn run<const N: usize>(
         "authority":"process-local diagnostic only; no checkpoint, publication or durable closure authority",
         "family_closure_claim":false,"coefficient_backsubstitution":false,"work_checkpoint":false,
         "scope_request_binding":scope.request_binding,"sources":scope.sources,
+        "scope_request_binding_is_execution_identity":false,
         "selection_blake3":blake3::hash(request.source.matching.selection_json.as_bytes()).to_hex().to_string(),
         "prepared_owner_payload_blake3":digests,"family_fingerprint":reducer.programs().context().family().fingerprint(),
         "physical_arity":arity,"storage_capacity":N,"policy":policy,"rows":metadata,
         "input_occurrences":occurrences.to_string(),"distinct_start_claim":false,
         "prepared_seconds":prepared_seconds,"preflight_seconds":preflight_seconds,
+        "source_reduction_limits":format!("{:?}",request.source.matching.reduction_limits),
+        "effective_reduction_limits":format!("{:?}",load.reduction_limits),
         "local_reduction_limits":format!("{:?}",load.reduction_limits),
+        "effective_batch_aggregate_limits":{
+            "max_input_targets":load.trace_limits.max_input_targets.min(policy.per_batch_work.max_nodes),
+            "max_unique_nodes":load.trace_limits.max_unique_nodes.min(policy.per_batch_work.max_nodes),
+            "max_rule_applications":load.reduction_limits.max_rule_applications.min(policy.per_batch_work.max_rule_applications),
+            "max_pending_frames":load.reduction_limits.max_pending_frames.min(policy.per_batch_work.max_nodes),
+            "max_coalescing_additions":load.reduction_limits.max_coalescing_additions.min(policy.per_batch_work.max_coalescing_additions),
+            "max_transport_calls":load.trace_limits.max_transport_calls.min(policy.per_batch_work.max_transport_calls),
+            "max_transport_operations":load.trace_limits.max_transport_operations.min(policy.per_batch_work.max_transport_operations),
+            "max_transport_endpoints":load.trace_limits.max_transport_endpoints.min(policy.per_batch_work.max_transport_endpoints)},
         "local_expansion_limits":format!("{:?}",load.trace_limits.expansion),
         "fixed_comparison_order":["separate_windows","shared_windows"],"same_prepared_reducer":true,
         "separate":separate.as_ref().map(Side::json),"shared":shared.as_ref().map(Side::json),"exact_set_parity":parity});
@@ -595,3 +636,6 @@ fn run<const N: usize>(
         document,
     })
 }
+
+#[cfg(test)]
+mod aggregate_policy_tests;
