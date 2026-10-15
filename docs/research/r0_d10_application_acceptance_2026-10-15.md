@@ -169,10 +169,131 @@ unchanged. The independent auditor reviewed this follow-up and confirmed PASS
 with the stated boundaries. It adds one real connected admitted reduction,
 not connected-class exhaustiveness or DOT coverage.
 
+## Native DOT ingress: connected exact acceptance
+
+The follow-up adds a generic `--dot PATH --powers CSV` mode to Vakint's existing
+`five_loop_saved_application` example. Both existing FeynKit DOT dialects use
+the native parser; the adapter selects the built-in scalar model, numerator1
+and unit mass through native substitutions. It does not implement a parser,
+select a topology by name, generate rules, or alter existing named modes.
+
+The new test constructs two native effective vertices joined by six scalar
+edges, exports/reparses DOT and applies powers `(1,1,1,1,1,4)`. This is the
+connected A9/R0/D9 banana above, not a new D10-boundary control. Its independent
+reference has six signed momenta
+`k5`, `k1-k3`, `k2-k3`, `k3-k5`, `-k1-k2+k4`, `k3-k4`;
+they sum to zero and span all five loop variables. The final line has power4.
+Native admission of the known key and actual Vakint admission of the DOT are
+both required. The matched DOT routing includes the simultaneous momentum
+signs; graph isomorphism alone does not authorize the result.
+
+Three fast tests passed (0.02s native): preservation of old modes and option
+ordering, invalid/missing/duplicate options, and native DOT/routing/power-count
+checks. Exactly one ignored external test then actually ran and passed, with
+three unrelated fast tests filtered out. It checks exact value, qualified
+family map and normalized guard-set agreement against the independent
+reference, plus exact warm-repeat agreement. FORM is invalid and numerical
+substitution disabled.
+
+| DOT acceptance measurement | Observed value |
+|---|---:|
+| Package preparation, fresh process |75.014172s|
+| DOT preparation and explicit native match |0.032347s|
+| First complete Vakint application after load |51.866271s|
+| Warm complete Vakint application |50.629558s|
+| Entire external test, including reference and assertions |231.84s native /232.747s supervised|
+| Sampled peak process-tree RSS |2.920GB|
+| Cumulative cache hits / applied rules |47,804 /3,753|
+| Retained integrals / coefficient bytes |7,627 /7,807,476|
+
+The nearly equal first/warm frontend times are important: this test does **not**
+show an end-to-end warm-cache speedup. It did not log separate matching/routing
+and scalar phase costs, so repeated routing overhead is a plausible explanation,
+not an established profile result. These whole-frontend timings must not be
+compared directly with the previous control's scalar-only0.000742s warm figure.
+The final cache statistics are cumulative across the DOT first/warm and reference
+evaluations, not individual application deltas.
+
+The optimized test was thin-linked against the same frozen400/024 libraries;
+its compile/link took466.981s and is excluded from runtime. Binary SHA256:
+`27cf7830cf9e75c97fa346b5f43d16c6e891a13bd275f39da99eadfa6a029efa`.
+The runtime used the same CPUs20--23,32GB RSS/150GB host-reserve guard and an840s
+cooperative deadline, which was not reached. Fast and external process groups
+both drained; total supervised pilot including hash checks was235.852s.
+All77 package files and all source/library bindings remained unchanged.
+
+Evidence is under `TMP/r0-vakint-acceptance-20261015/`: `dot-result.json`,
+`dot-fast/`, `dot-external/`, `rustred_five_loop_dot_tests-binding.json`,
+`build-dot-test/`, `link_dot.py` and `run_dot.py`. The test source is
+`crates/vakint/tests/rustred_five_loop_dot_tests.rs` on the Vakint feature branch.
+The scalar DOT adapter lives in the example's `saved_application/dot.rs` module.
+
+### Public example and measured warm bottleneck
+
+A separate public-example invocation then passed, using a DOT file emitted
+by the same native builder and `to_dot()` API as the test fixture:
+
+```sh
+TMP/r0-vakint-acceptance-20261015/five_loop_saved_application_dot \
+  TMP/r0-vakint-acceptance-20261015/application-r0-d10 \
+  --dot TMP/r0-vakint-acceptance-20261015/scalar-banana-r0.dot \
+  --powers 1,1,1,1,1,4
+```
+
+The example additionally passes standard/detailed API equality, simultaneous
+unimodular basis change, vertex/edge relabeling, orientation reversal, indexed
+notation, native-factored guard-domain parity, path disabling, changed-option
+refusal and cache clearing. The expanded-numerator check is again numerator1,
+not a nontrivial numerator control. Its existing logger gives actual phase
+timings, without a new profiling or solver build:
+
+| Phase | First application | Warm application |
+|---|---:|---:|
+| Entire Vakint frontend and reduction |53.832493s|44.808307s|
+| Admission-aware witness selection |41.044568s|44.788877s|
+| Saved parametric-IBP application |12.708001s|0.000572s|
+| Terminal geometry and lower factors |0.018110s|0.001525s|
+
+Warm admission-aware routing therefore accounts for over99.95% of this
+application's elapsed time. The intermediate coefficient cache works; repeating
+the native witness-selection search is the measured bottleneck here. The
+initial test's51.866/50.630s whole-frontend observations and these phase timings
+come from separate runs on a shared host, not one reconstructed measurement or
+a controlled speed comparison. No routing/cache optimization was included.
+
+Package preparation took73.366379s separately. The complete public example
+finished in353.045s supervised wall with2.884GB sampled peak RSS. Native DOT
+export, run and source/package checks took356.413s altogether. Both process
+groups exited0 and drained before the840s deadline, under the same resource
+allowances. All77 package hashes remained unchanged.
+
+The optimized example link took503.138s, excluded from runtime. Binary SHA256:
+`3b33196e04864f907dc3e5c31ba85b77245a463dab4c3a6c275cbe5ce056535a`.
+The tiny fixture emitter uses native graph APIs only; its first non-LTO link
+was rejected because the frozen libraries contain LLVM bitcode. Re-linking
+with thin LTO succeeded in24.206s. This setup failure did not alter the solver
+or enter any reported runtime.
+
+Evidence: `dot-example-result.json`, `dot-public-example/`,
+`five_loop_saved_application_dot-binding.json`, `emit_r0_dot-binding.json`,
+`scalar-banana-r0.dot`, and `run_dot_example.py` in the same local evidence
+directory. The independent runtime audit is recorded separately from the
+source review; neither audit upgrades the artifact's inherited scope assurance.
+
+Both runtime gates received independent PASS receipts (`dot-independent-audit.json`
+and `dot-example-independent-audit.json`). The four-file example/test/documentation
+slice was committed and pushed to GammaLoop's `vakint_rustred` branch as
+`42a01fc97596fb88c1fa8e05d74d61168532dd65`, preserving the separate collaborator
+FMFT fix `7cecf20f` through a fast-forward. The native application libraries used
+for these gates remain the frozen pre-FMFT-fix stack described above; no FORM
+path was exercised. The application package, DOT output and local evidence were
+not committed. Source formatting and diff sanity passed; no full-workspace CI
+or upload claim is made.
+
 ## Remaining acceptance obligations
 
 This is a useful R0 application milestone, not completion of the goal. Still
-required are DOT reductions, broader connected and per-domain
+required are broader DOT/connected and per-domain
 coverage, nontrivial numerator and cancellation invariance, cross-factor
 contractions, the fully prepared physical ladder, appropriate high-rank/boundary
 cases, full R6 publication and its acceptance/performance delivery. Five-loop

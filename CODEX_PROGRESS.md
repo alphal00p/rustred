@@ -1,5 +1,68 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — finite-region win, negative geometry result, native DOT delivered
+
+The preceding goal turn made authoritative progress:743ca7aa fixed/tested the
+false FAILED handoff and final rule-count output. Root re-read the assigned
+attachment on continuation; the complete R6/D10 plus Vakint goal remains active.
+
+The whole279-point R1/D10 precision comparison is independently audited and
+negative:476,244->505,368 domains,377,541->410,705 native inspections,
+187.500->213.867s traversal. Both cold checks PASS with unchanged69 payloads.
+Tighter images reduce route masks/rank but increase fragmentation/containment
+work. Keep default-off; no campaign-switch recommendation. Four small H/FG/BMW/X
+parent D8/R1 controls pass both arms with identical domain counts. They are not
+the historical common-basis four-all test. The separate broad FG A19/R12/D>=7
+control was censored at600s and saved cleanly; do not erase it with smaller passes.
+
+The existing finite replay first refused4M and8M cumulative endpoint allowances
+after17.48/23.03s, not actual RAM exhaustion; both fallbacks matched baseline
+record/edge digests. After independent cancellation/resource audit, one distinct
+actual-resource-guarded diagnostic removed aggregate proxy ceilings while
+preserving per-operation algebra limits and a32GB/600s/120s-drain envelope.
+It **closed the same279 inputs**:641,239 operational states,639,959 physical keys,
+280 declared terminals,10.543M projected endpoints, zero pending/frontiers/errors.
+Live trace28.774s; cold trace34.137s, with all non-timing counters identical.
+Traversal28.976s versus187.500s; guarded walk+cold366.941s versus555.987s.
+Peak walk7.693GB versus9.011GB. This is a single candidate-only comparison, not
+full five-loop closure or repeated deployment evidence. All experiment groups
+drained; production was not changed.
+
+This exposes real integration work rather than a new CAS need. Existing finite
+summaries cannot publish an inventory or resume/append scopes. The current outer
+rank metric also omits internal finite descendants. The staged plan is now
+`docs/research/finite_demand_integration_plan_2026-10-15.md`: A adds optional exact
+chosen-rule census and replay-to-publication; B adds completed-case resume and
+append-only eligible-query recipes. In-flight finite cases initially restart
+from their last atomic case boundary, not a nonexistent mid-trace checkpoint.
+Default-off behavior and full requested scope remain intact.
+
+Native DOT acceptance is delivered to GammaLoop `vakint_rustred` as42a01fc9,
+preserving collaborator7cecf20f. Three fast tests, a connected external-package
+test and the public DOT example pass exact value/guard/routing comparisons with
+invalid FORM. No artifact was committed. Profiling found warm DOT frontend
+44.808s, of which44.789s is repeated admission-aware witness enumeration and
+only0.000572s is cached IBP application. The existing coefficient cache works;
+the new bottleneck is native matching. A small package/registry/input/policy-
+bound witness memo passed source audit and is now in optimized compilation.
+It will re-admit the selected witness on hits; no first-admitted shortcut or
+change to canonical witness selection is authorized.
+
+| Lane | Responsible agent | State / next gate |
+|---|---|---|
+| Finite trace census / publication | intermediate_capture_app; root app integration | A1 source implementation active after independent plan audit; no production enablement |
+| Witness memo / DOT performance | soft_ct_nested_audit | Actual modified-Vakint build active; runtime exact parity and strict cache-policy gates next |
+| Independent review | intermediate_capture_independent_audit | Audited completed pilots/DOT; review new census and memo diffs/results independently |
+| Full R6/D10 closure | user production, root read-only | Not published; no inferred ETA or automatic restart |
+| Physical lowering, high-rank and ladder acceptance | retained backlog | Not discharged by R0/DOT controls; original gen54 backlog remains explicit |
+| Five-loop persistent cache preparation | deferred | Await suitable publication and application acceptance;1--4-loop delivery unchanged |
+
+Detailed measured tables, failure receipts and scope qualifications:
+`docs/research/precise_route_images_2026-10-15.md` and
+`docs/research/r0_d10_application_acceptance_2026-10-15.md`.
+No new mathematical completion claim, numerical master evaluation or production
+intervention occurred in this milestone.
+
 ## October 15 — R1 succeeded; fix the misleading FAILED label and final summary
 
 The user reported `FAILED / 00:14:15` after R1, had already launched R2, then
