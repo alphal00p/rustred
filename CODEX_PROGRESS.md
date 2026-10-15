@@ -1,5 +1,47 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — native policy and durable-core tests pass; exact lifecycle joins next
+
+The diagnostic aggregate-policy build completed in1155.758s. Its frozen
+791c8276925a153e9bd69bb77043753a79566c5e975733415ba2d529d4e33624 binary
+passed29 distinct tests:9 runner,2 aggregate-policy,12 prefix and6 existing
+lifecycle, none ignored/skipped/failed. Independent audit passed; all groups
+drained in10.978s supervised. Root integrated the three-file e605bced slice;
+ordinary source policy/defaults remain unchanged. Evidence:
+`TMP/finite-demand-aggregate-policy-20261015/TMP/runtime-aggregate-tests/`.
+
+The one resource-governed R1 wrapper is prepared at
+`TMP/full-r1-resource-governed-20261015/run.py`, policy SHA256
+d1716af7ca576286a68ccac24290cc462412d53d6cb7f60893f407806f08e835.
+All traversal-wide aggregate counters are made nonbinding together, with
+checked overflow still enforced. The original232 rows, local algebra/expansion
+limits, seed/census/retention byte grants and32GB/150GB/30-minute supervisor
+are unchanged. This is a new isolated diagnostic execution, not a resumed
+old execution or changed production request. Independent wrapper review passed;
+root launched the single attempt as session43560. Evidence:
+`TMP/full-r1-resource-governed-20261015/runtime/`. Source preparation was live
+on the first check; no completion result is available yet.
+
+Durable core local174a63e7 passed optimized compilation557.418s and550 distinct
+native tests (548 candidate, including6 generated-baseline tests, plus2
+persistence), independently audited. App real-file/reprepare/decoder-stress
+tests remain pending; the entire seam is not integrated yet. Receipt:
+`TMP/finite-demand-durable-core-candidate-runtime-20261015/independent-audit.json`.
+
+Fast cursor local127bd1e4 passed independent source/six-test review; runtime
+remains pending. `weighted_vk_gate_plan` now implements the independently
+reviewed exact query-window→native seal→atomic cursor lifecycle in
+`TMP/finite-demand-window-backend-20261015`. Stable scope identities exclude
+paths; required completion and auxiliary exhaustion remain distinct; ordinary
+resume must preserve the window-partition policy. This private integration
+must pass actual append/cold-resume tests before frontend/publication delivery.
+
+The existing physical ladder prep-only example is being built by
+`intermediate_capture_app` in the clean current Vakint Git integration, with
+no source changes. Its preparation-only runtime will require a separately
+reviewed bounded guard. It does not load an artifact, apply IBPs or establish
+physical R6/D10 coverage. Production campaigns remain untouched.
+
 ## October 15 — aggregate policy separated from mathematical input scope
 
 The previous goal turn made concrete progress: audited runner/storage slices
