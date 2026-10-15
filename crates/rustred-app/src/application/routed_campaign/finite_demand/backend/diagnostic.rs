@@ -90,6 +90,7 @@ pub(super) fn reader_statistics(reader: &storage::WorkReader) -> Value {
             "page_cache_hits":s.page_cache_hits,"evictions":s.evictions,
             "uncached_large_pages":s.uncached_large_pages,"retained_pages":s.retained_pages,
             "retained_page_payload_bytes":s.retained_page_payload_bytes,
+            "retained_cache_metadata_bytes":s.retained_cache_metadata_bytes,
             "convenience_lookup_calls":s.lookups,
             "native_directory_lookup_count":null}),
         Err(e) => json!({"statistics_error":e.to_string()}),
