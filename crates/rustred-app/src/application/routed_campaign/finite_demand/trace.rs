@@ -79,7 +79,7 @@ pub(crate) struct ReductionAggregateOverrides {
     pub max_coalescing_additions: usize,
 }
 impl ReductionAggregateOverrides {
-    fn apply(self, mut limits: ReductionLimits) -> ReductionLimits {
+    pub(super) fn apply(self, mut limits: ReductionLimits) -> ReductionLimits {
         limits.max_rule_applications = self.max_rule_applications;
         limits.max_pending_frames = self.max_pending_frames;
         limits.max_coalescing_additions = self.max_coalescing_additions;
