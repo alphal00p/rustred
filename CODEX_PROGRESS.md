@@ -1,5 +1,66 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — persisted R0 prefix passed; original-zero routing correction integrated
+
+Real durable PhaseA passed independent audit: all232 unchanged declarations,
+81 committed windows / generation82 / 2,557 input occurrences / 300,673 closed
+Work records; 131 exhausted rows means116 R0 rows plus15 initially empty R1
+rows. Driver160.301s, preparation114.182s, steps31.576s, peak8.017GB.
+Native API plus export29.700s; commit1.106s. Disk checkpoint486 files/15.147MB.
+Work backing read73.38MB in3,365 reads with zero evictions, but41.84million page
+cache hits for3.14million completed-baseline hits exposes overlapping-run scan
+amplification. It is not an I/O-volume or memory bottleneck on this small stage.
+Evidence: `TMP/finite-demand-durable-r1-validation-20261015/phase-a/independent-audit.json`.
+Root authorized the unchanged bounded PhaseB fresh-process R1 continuation,
+then completed-scope cold reopen and exact census comparison; no retries or
+resource escalations. Its harder cone is the next performance discriminator.
+
+Root's source-zero fix1ff148a8 passed independent553-test core validation and
+was integrated as67dec9dd. All tests passed without skips; build566.452s,
+runtime5.573s, frozen binaryd32ecf45…efab. No new CAS/zero proof or scope widening.
+The publication agent will include this with capsule/pub sourcecd248401 in one
+combined optimized app build; publication source checks70.215s/41.201s passed,
+while native publication/refine/append/export tests remain pending.
+
+The user explicitly chose a fresh campaign for the optimized backend. There is
+no need for old CP6 Work import or a migration project. Existing owner rules
+and input templates remain reusable; production campaigns stay untouched.
+
+## October 15 — real durable R1 pilot launched; source-zero routing fix under test
+
+The tested paged/driver milestone and R4/ladder reports were pushed to main
+41a943b5. The next concrete performance gate is now running, not merely planned:
+`TMP/finite-demand-durable-r1-policy-20261015/run.py --phase a --start`, session
+24414, four workers on CPUs16–19, 32GB RSS/150GB host reserve and a 30-minute
+inclusive guard. It preserves all232 source declarations and pauses after81
+committed windows (the R0 prefix). Fresh-process R1 continuation is held until
+the exact first-stage result and resource behavior are reviewed. No production
+checkpoint or amendment is written.
+
+Root isolated a generic entry-transport inconsistency from the ladder census:
+installed zero certificates were checked for transported endpoints but not the
+original input before owner lookup, unlike native traversal. Separate source
+1ff148a8 in `TMP/entry-source-zero-20261015` adds that exact certificate check
+after arity, source guards and resource charges. Three tests cover no-owner
+zeros, unchanged unknown-support failures, guard retention through routed
+application, and exact resource/arity/vanishing-condition failures. Independent
+source review passed; normal check passed56.217s, optimized core test build62498
+is active on CPUs24–27. No new zero algorithm or admission-bound widening.
+
+The single refused ladder D10/R0 key has positive support111011000001000. The
+accepted fullR1 native zero census already contains that exact support, and the
+source and R4 package have identical69 ordered payload identities and routes.
+This corroborates an installed certificate, not merely a guessed scaleless
+graph. A current-package original-key application probe remains to be run.
+The fix does not resolve all other ladder routing/geometry/mass-shift refusals.
+
+`intermediate_capture_app` owns the real durable pilot and delivered separate
+raw-only capsule51434a52 (source/typecheck passed; native tests pending).
+`weighted_vk_gate_plan` owns publication integration and its native lifecycle
+tests; `finite_backend_audit` independently reviews both and root's zero fix.
+Public run/extend still selects the old engine; the deployment seam is recorded
+in `TMP/finite-demand-public-entry-plan-20261015.md`, not claimed implemented.
+
 ## October 15 — complete ladder admission census; paged native gate passes
 
 The full ladder diagnostic completed on the existing R4/D10 package: 21

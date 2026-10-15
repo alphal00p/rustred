@@ -179,3 +179,37 @@ Evidence: `TMP/r4-vakint-acceptance-20261015/ladder-preflight-work128m-result.js
 `ladder-full-census.json` and `ladder-preflight-work128m-independent-audit.json`.
 The independent audit checked all 254 bound evidence files, the complete key
 and mass histograms, and the correspondence with the preserved failed prefix.
+
+## Narrow source-zero routing correction
+
+One refusal revealed an application-path inconsistency, not a missing IBP:
+
+```text
+[3,3,1,0,1,1,0,0,0,0,0,1,0,0,0]   (stored R=0, D=10)
+```
+
+Its positive support is `111011000001000`. In this family its active
+denominators do not depend on the fourth loop momentum. More importantly than
+that geometric observation, the accepted full-R1 native trace already recorded
+the same support as a zero, at `[1,2,1,0,1,1,0,0,0,0,0,2,0,0,0]`. The trace and
+R4 application package use identical ordered owner payloads and routes. Native
+traversal classifies these zeros by exact installed support certificates.
+
+Entry transport previously checked those certificates only on transported
+endpoints. The original input could therefore fail for lack of an owner before
+the same certificate was consulted. Main commit `67dec9dd` checks the original
+source's installed certificate after arity, source conditions and resource
+charges, before owner lookup. It retains the nonzero conditions on an empty
+result. It computes no new zero test, drops no uncertified term, and leaves
+every surviving endpoint's published-domain admission unchanged.
+
+The optimized core gate passed 553 distinct tests (551 candidate and two
+persistence), including three new source-zero tests, in 5.573 seconds supervised;
+compilation took 566.452 seconds separately. Tests include cleared-certificate
+missing-owner refusal, vanishing source conditions, malformed arity, exact
+resource refusals, and guard retention through actual routed reduction without
+rule, transport or cache work. Independent audit passed; evidence is
+`TMP/entry-source-zero-validation-20261015/runtime/independent-audit.json`.
+An actual current-package probe of the displayed five-loop key is still a
+separate runtime gate. This small correction does not solve the other rejected
+supports, mass-shifted images, or full ladder application.
