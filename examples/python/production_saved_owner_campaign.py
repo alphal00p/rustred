@@ -67,6 +67,7 @@ FROZEN_OPTIONS = ("workers", "cpus", "checkpoint_interval_seconds", "max_memory_
                   "ram_guard_margin_percent", "apply_subdivision_axis", "apply_subdivision_cut",
                   "apply_cell_refinement_max_cardinality", "publication_policy",
                   "transfer_unreserved_lookahead", "inspection_workers", "frontier_policy", "g2_residual_anchors",
+                  "route_precise_image_bounds",
                   "epoch_inspector_lookup", "epoch_rolling", "epoch_dispatch",
                   "epoch_publication_order", "epoch_cut_size", "epoch_window",
                   "epoch_result_escrow_jobs", "epoch_result_escrow_bytes",
@@ -827,6 +828,12 @@ def frozen_options(policy):
     """Frozen options with v1 defaults for options a v1 steering file never recorded."""
     options = dict(policy["options"])
     command = policy.get("command_arguments", [])
+    precise = options.get("route_precise_image_bounds", False)
+    precise_flag = "--" + SUPERVISOR.DOMAIN.PRECISE_IMAGE_BOUNDS
+    if (type(precise) is not bool or command.count(precise_flag) != int(precise)
+            or any(isinstance(item, str) and item.startswith(precise_flag + "=") for item in command)):
+        raise ValueError("frozen precise route-image policy and command disagree")
+    options["route_precise_image_bounds"] = precise
     # Existing steering without this field remains implicitly Off, with its
     # original options/argv untouched. New opt-in steering binds both copies.
     g2_mode = options.get("g2_residual_anchors", "off")
@@ -927,6 +934,8 @@ def native_command(options, executable, inputs, count, size):
     if options["apply_subdivision_axis"] is not None:
         command += ["--apply-subdivision-axis", str(options["apply_subdivision_axis"]),
                     "--apply-subdivision-cut", str(options["apply_subdivision_cut"])]
+    if options.get("route_precise_image_bounds", False):
+        command.append("--" + SUPERVISOR.DOMAIN.PRECISE_IMAGE_BOUNDS)
     if options["apply_cell_refinement_max_cardinality"] is not None:
         command += ["--apply-cell-refinement-max-cardinality",
                     str(options["apply_cell_refinement_max_cardinality"])]
@@ -982,6 +991,7 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
                 "ram_guard_margin_percent": 5.0, "publication_policy": DEFAULT_PUBLICATION_POLICY,
                 "transfer_unreserved_lookahead": 256, "frontier_policy": DEFAULT_FRONTIER_POLICY,
                 "g2_residual_anchors": "off",
+                "route_precise_image_bounds": False,
                 "host_memory_reserve_bytes": SUPERVISOR.DEFAULT_HOST_MEMORY_RESERVE_BYTES,
                 "swap_growth_stop_bytes_per_second": SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_BYTES_PER_SECOND,
                 "swap_growth_stop_seconds": SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_SECONDS,
@@ -1141,6 +1151,9 @@ def main(argv=None):
                              "walk-semantics-version equals the checkpoint's, or return to a binary that "
                              "bin/executable.json history lists; without --start a read-only dry run")
     parser.add_argument("--workers", type=int, help=f"initial default: at most 50 permitted CPUs (cap {MAX_WORKERS}); frozen for resume")
+    parser.add_argument("--" + SUPERVISOR.DOMAIN.PRECISE_IMAGE_BOUNDS,
+                        action=SUPERVISOR.DOMAIN.StoreTrueOnce, nargs=0, default=None,
+                        help="opt into verified route-image precision; requires a fresh campaign; frozen across resume")
     parser.add_argument("--cpus", help="optional explicit affinity: comma list or ranges (128-177, 0-3,8); exactly --workers IDs")
     parser.add_argument("--run-directory", type=Path)
     parser.add_argument("--publication-policy", choices=("ordered", "ready", "epoch"),

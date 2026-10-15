@@ -126,6 +126,12 @@ pub enum OwnerDomainWalkVerifyReferenceLevers {
 /// when it lands (plan W1.2/W4.3, audit directive "F10 runs with N1/N4 off").
 const REFERENCE_NATIVE_LEVERS: [&str; 1] = ["route_joint_source_support_pruning"];
 
+// `route_precise_image_bounds` is bound routing-cover geometry, not a skipped
+// inspection. Retain it in both reference modes: disabling it would demand a
+// different, broader artificial cover from the same saved dependency graph.
+// Independent finite exact-transport containment tests validate this geometry;
+// cold replay alone is not a second implementation of its mathematical proof.
+
 /// The request the reference inspects under, and the native levers that
 /// were on in the run but are off in the reference.
 fn reference_request(
@@ -4487,13 +4493,16 @@ mod tests {
             reference_request(&run, OwnerDomainWalkVerifyReferenceLevers::Off);
         assert!(!reference.route_joint_source_support_pruning && differing.is_empty());
         run.route_joint_source_support_pruning = true;
+        run.route_precise_image_bounds = true;
         let (reference, differing) =
             reference_request(&run, OwnerDomainWalkVerifyReferenceLevers::Off);
         assert!(!reference.route_joint_source_support_pruning);
+        assert!(reference.route_precise_image_bounds);
         assert_eq!(differing, REFERENCE_NATIVE_LEVERS);
         let (reference, differing) =
             reference_request(&run, OwnerDomainWalkVerifyReferenceLevers::AsRun);
         assert!(reference.route_joint_source_support_pruning && differing.is_empty());
+        assert!(reference.route_precise_image_bounds);
         // Everything that defines the obligations is kept as run.
         assert_eq!(reference.route_domain_overcover, run.route_domain_overcover);
         assert_eq!(reference.max_route_masks, run.max_route_masks);

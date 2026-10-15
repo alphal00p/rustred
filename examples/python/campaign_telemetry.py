@@ -50,6 +50,53 @@ def publication_rule_counts(master):
     return result
 
 
+def required_query_closure(admission, closure):
+    """Normalize a native request census without inventing cumulative closure.
+
+    The numerator comes from the same completed native scan as the ordinary
+    descendant snapshot. A legacy base-prefix count is never substituted.
+    """
+    admission, closure = mapping(admission), mapping(closure)
+    observation = mapping(admission.get("required_closure"))
+    result = {**_numbers(admission, (
+        "required", "original_required", "appended_required", "admitted_required",
+        "unadmitted", "required_closed")),
+        "available": False, "snapshot_stale": None, "snapshot_revision": None,
+        "refresh_count": None, "snapshot_age_seconds": None,
+        "reason": "cumulative required-query closure unavailable in this binary",
+        "method": None}
+    for field in ("required", "original_required", "appended_required", "admitted_required",
+                  "unadmitted", "required_closed"):
+        if type(result[field]) is not int or result[field] < 0:
+            result[field] = None
+    total, admitted, closed = (result[key] for key in
+                               ("required", "admitted_required", "required_closed"))
+    valid = (admission.get("required_closed_evaluated") is True
+             and observation.get("available") is True
+             and observation.get("method") == "closed_containing_input_root"
+             and closure.get("available") is True
+             and all(type(value) is int for value in (total, admitted, closed))
+             and 0 <= closed <= admitted <= total
+             and type(observation.get("required_queries_total")) is int
+             and observation["required_queries_total"] == total
+             and all(type(observation.get(field)) is int and observation[field] >= 0
+                     and observation[field] == closure.get(field)
+                     for field in ("snapshot_revision", "refresh_count"))
+             and observation.get("refresh_count", 0) > 0)
+    if valid:
+        result.update(available=True, snapshot_stale=closure.get("snapshot_stale"),
+            snapshot_revision=observation["snapshot_revision"],
+            refresh_count=observation["refresh_count"],
+            snapshot_age_seconds=number(closure.get("snapshot_age_seconds")),
+            reason=None, method=observation["method"])
+    else:
+        result["required_closed"] = None
+        if observation:
+            result["reason"] = clean(observation.get("reason") or
+                "required-query observation does not match the completed closure scan", 300)
+    return result
+
+
 def completed_scan_ratio(history, now=None):
     """A retained observation between two completed scans, never a live estimate."""
     fields = ("completed_unix_seconds", "total_domains", "total_closed", "initial_closed",
@@ -312,8 +359,7 @@ def normalize_status(status, sequence=None):
         "heartbeat_stale": status.get("heartbeat_stale") is True,
         "heartbeat_age_seconds": number(status.get("heartbeat_age_seconds")),
         "progress_age_seconds": number(progress.get("progress_age_seconds")),
-        "query_scope": _numbers(mapping(progress.get("query_admission")),
-            ("required", "original_required", "appended_required", "admitted_required", "unadmitted")),
+        "query_scope": required_query_closure(progress.get("query_admission"), closure),
         "counts": {**_numbers(work, ("scheduled", "locally_completed", "pending", "pending_descendants", "frontiers")),
                    **closure_counts,
                    "initial_published": number(entry.get("published")),

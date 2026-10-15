@@ -125,6 +125,9 @@ mod bounded;
 #[path = "joint_support_tests.rs"]
 mod joint_support_tests;
 
+#[path = "image_bounds_tests.rs"]
+mod image_bounds_tests;
+
 #[path = "padding_tests.rs"]
 #[cfg(feature = "capacity-dispatch")]
 mod padding_tests;

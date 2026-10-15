@@ -46,6 +46,7 @@ EPOCH_ESCROW_OPTIONS = ("epoch-result-escrow-jobs", "epoch-result-escrow-bytes")
 EPOCH_DATA_OPTIONS = (*EPOCH_BATCH_OPTIONS, *EPOCH_PREPARATION_OPTIONS, *EPOCH_ESCROW_OPTIONS)
 INSPECTION_WORKERS = "inspection-workers"
 APPLICATION_REFINEMENT = "apply-cell-refinement-max-cardinality"
+PRECISE_IMAGE_BOUNDS = "route-precise-image-bounds"
 FRONTIER_POLICY = "frontier-policy"
 FRONTIER_POLICIES = ("record", "stop")
 WALK_ALLOWANCES = ("workers", "max-domains", "max-frontiers", "max-successor-events", "max-containment-checks",
@@ -265,6 +266,8 @@ def main() -> None:
                         help="share admitted route rank overcovers without expanding numerator polynomials")
     parser.add_argument("--" + JOINT_SUPPORT_PRUNING, action=StoreTrueOnce, nargs=0, default=False,
                         help="opt into necessary joint source-support mask pruning; requires route overcover; default off")
+    parser.add_argument("--" + PRECISE_IMAGE_BOUNDS, action=StoreTrueOnce, nargs=0, default=False,
+                        help="retain verified incidence and affine-degree route bounds; default off; checkpoint-bound")
     parser.add_argument("--max-route-masks-per-query", type=positive)
     for option in ALLOWANCES:
         parser.add_argument("--" + option,
@@ -310,7 +313,7 @@ def main() -> None:
         parser.error("checkpoint interval requires --checkpoint or --resume")
     if (args.apply_subdivision_axis is None) != (args.apply_subdivision_cut is None):
         parser.error("subdivision requires both axis and cut")
-    if not args.follow_successors and (args.route_domain_overcover or args.route_joint_source_support_pruning or args.reuse_initial_d_bands or any(
+    if not args.follow_successors and (args.route_domain_overcover or args.route_joint_source_support_pruning or args.route_precise_image_bounds or args.reuse_initial_d_bands or any(
             getattr(args, option.replace("-", "_")) is not None
             for option in (*WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, INSPECTION_WORKERS, APPLICATION_REFINEMENT,
                            FRONTIER_POLICY, "max-route-masks-per-query"))):
@@ -319,6 +322,8 @@ def main() -> None:
         parser.error("route mask allowance requires --route-domain-overcover")
     if args.route_joint_source_support_pruning and not args.route_domain_overcover:
         parser.error("joint source-support pruning requires --route-domain-overcover")
+    if args.route_precise_image_bounds and not args.route_domain_overcover:
+        parser.error("precise route-image bounds require --route-domain-overcover")
     if args.transfer_unreserved_lookahead is not None and args.max_containment_checks not in (None, "unlimited"):
         parser.error("--transfer-unreserved-lookahead requires unlimited containment checks")
     if args.reuse_initial_d_bands and args.transfer_unreserved_lookahead is None:
@@ -367,6 +372,8 @@ def main() -> None:
         command.append("--route-domain-overcover")
     if args.route_joint_source_support_pruning:
         command.append("--" + JOINT_SUPPORT_PRUNING)
+    if args.route_precise_image_bounds:
+        command.append("--" + PRECISE_IMAGE_BOUNDS)
     if args.reuse_initial_d_bands:
         command.append("--" + INITIAL_D_REUSE)
     if args.unbounded_work:

@@ -96,6 +96,12 @@ fn surviving_lower_and_pinch_threshold_do_not_narrow_degree_caps() {
     assert!(degrees.can_pinch(1, u64::MAX));
     assert!(degrees.can_pinch(2, u64::MAX));
     assert!(!degrees.can_pinch(3, 0));
+    assert_eq!(degrees.inactive_upper(0, 1).unwrap(), Some(1));
+    assert!(degrees.inactive_upper(0, 3).is_err());
+    assert_eq!(degrees.inactive_upper(1, 0).unwrap(), None);
+    assert_eq!(degrees.inactive_upper(1, 1).unwrap(), Some(u64::MAX));
+    assert_eq!(degrees.inactive_upper(2, 0).unwrap(), None);
+    assert_eq!(degrees.inactive_upper(3, 0).unwrap(), Some(0));
 }
 
 #[test]

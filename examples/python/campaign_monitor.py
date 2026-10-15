@@ -238,11 +238,26 @@ class EventTail:
         snapshot = snapshot if isinstance(snapshot, dict) else {}
         scope = snapshot.get("query_admission", outer.get("query_admission"))
         if isinstance(scope, dict):
-            # Immutable declared scope survives lean heartbeats. Retain only
-            # bounded scalar counts, never a cached claim that queries closed.
+            # Retain bounded counts and their completed-scan binding. Consumers
+            # reject closure observations if a later lean frame has another
+            # snapshot revision; no stale claim is promoted to fresh evidence.
             self.query_admission = {name: number(scope.get(name)) for name in (
                 "requested", "required", "auxiliary", "original_requested", "original_required",
                 "appended_requested", "appended_required", "admitted_required", "unadmitted")}
+            observation = scope.get("required_closure")
+            if isinstance(observation, dict):
+                self.query_admission.update(
+                    required_closed=number(scope.get("required_closed")),
+                    required_closed_evaluated=scope.get("required_closed_evaluated") is True,
+                    required_closure={
+                        **{name: number(observation.get(name)) for name in (
+                            "snapshot_revision", "refresh_count", "snapshot_age_seconds",
+                            "observed_query_rows", "requested_query_rows", "required_queries_total")},
+                        "available": observation.get("available") is True,
+                        "snapshot_stale": observation.get("snapshot_stale"),
+                        "method": str(observation.get("method", ""))[:100],
+                        "reason": str(observation.get("reason") or "")[:300],
+                    })
 
     def _checkpoint_milestone(self, value):
         progress = value.get("progress", value)

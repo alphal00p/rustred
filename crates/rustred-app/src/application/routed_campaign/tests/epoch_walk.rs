@@ -25,6 +25,52 @@ fn epoch_request(fixture: &Fixture, workers: usize) -> OwnerDomainWalkRequest {
     request
 }
 
+#[test]
+fn precise_route_geometry_cold_replays_and_cannot_reinterpret_other_policy_checkpoint() {
+    let fixture = noninvolutive_route_fixture();
+    for precise in [false, true] {
+        let mut request = route_walk_request(&fixture, 0);
+        request.route_precise_image_bounds = precise;
+        request.publication_policy = OwnerDomainWalkPublicationPolicy::Epoch;
+        request.scheduling_policy = OwnerDomainWalkSchedulingPolicy::TransferUnreserved {
+            lookahead: std::num::NonZeroUsize::new(8).unwrap(),
+        };
+        let directory = fixture
+            .directory
+            .join(if precise { "precise" } else { "baseline" });
+        request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&directory));
+        let result =
+            owner_domain_walk_with_progress(request.clone(), &AtomicBool::new(false), |_| {})
+                .unwrap();
+        assert_eq!(
+            result.document["recursive_worklist_exhausted"], true,
+            "{}",
+            result.document
+        );
+        let mut verify = OwnerDomainWalkVerifyOptions::new(&directory);
+        verify.require_closure = true;
+        let report = crate::owner_domain_walk_verify_closure(
+            &request,
+            &verify,
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(report["verdict"], "PASS", "{report}");
+        request.checkpoint.as_mut().unwrap().resume = true;
+        let mut changed = request.clone();
+        changed.route_precise_image_bounds = !precise;
+        assert!(owner_domain_walk_with_progress(changed, &AtomicBool::new(false), |_| {}).is_err());
+        let resumed =
+            owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
+        assert_eq!(resumed.document["recursive_worklist_exhausted"], true);
+        assert_eq!(
+            resumed.document["scheduled_nodes"],
+            result.document["scheduled_nodes"]
+        );
+    }
+}
+
 fn without_timing(mut value: Value) -> Value {
     fn visit(v: &mut Value) {
         match v {

@@ -28,6 +28,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
+mod required_closure;
+
 /// Request-sized, prepared before the durable state. No arena/root scan in a
 /// saved callback, and aliases/source-frontier rows count as query rows.
 struct Roles {
@@ -434,6 +436,19 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
             .append(&amendment.queries)
             .map_err(|error| AppError::input(error.to_string()))?;
     }
+    let required_closure = RefCell::new(
+        required_closure::Observation::<N>::new(
+            queries
+                .iter()
+                .chain(identity.amendments().iter().flat_map(|a| a.queries.iter())),
+        )
+        .unwrap_or_else(|_| {
+            required_closure::Observation::disabled(
+                roles.total,
+                "required-query observation preparation unavailable",
+            )
+        }),
+    );
     let failed = Cell::new(false);
     let telemetry = RefCell::new(Telemetry::new());
     let reservations = reservation_json(WorkerBudget::for_request(request));
@@ -501,6 +516,16 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         .epoch_base_window(b)
         .map_err(|error| AppError::input(error.to_string()))?;
     restored.window = b;
+    required_closure
+        .borrow_mut()
+        .inputs(&restored.roots.rows, |id| {
+            restored
+                .state
+                .store
+                .domains
+                .get(id)
+                .map(|image| image.expand())
+        });
     let last = RefCell::new(None::<Value>);
     let progress = |state: &epoch::state::EpochState<N>,
                     dispatch: &epoch::dispatch::Dispatch,
@@ -515,6 +540,10 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
             event["telemetry"] = time.json();
             event["parallel"] = activity_json(activity(), phase);
             event["parallel"]["admission_preparation"] = reservations.clone();
+            let mut required = required_closure.borrow_mut();
+            let mut census = roles.json(required.admitted());
+            required.attach(&mut census, state);
+            event["query_admission"] = census;
             event["family_closure_claim"] = json!(false);
             emit(observer, cancellation, &failed, event);
         }
@@ -531,6 +560,16 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         event["full_result_in_output_document"] = json!(false);
         event["full_state_in_checkpoint"] = json!(true);
         event["query_admission"] = roles.json(restored.roots.rows.len());
+        let mut required = required_closure.borrow_mut();
+        required.inputs(&restored.roots.rows, |id| {
+            restored
+                .state
+                .store
+                .domains
+                .get(id)
+                .map(|image| image.expand())
+        });
+        required.attach(&mut event["query_admission"], &restored.state);
         event["parallel"] = json!({"active_workers":null,"workers_joined":false,"observed_cut_started":started_count,
             "observed_cut_returned":returned,"observed_cut_descriptors":status.len(),
             "activity_observation":"saved_cut_observation_not_live","activity_observation_age_seconds":null});
@@ -575,6 +614,16 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
             &mut |restored, receipt| saved(restored, receipt, &[]),
         )
         .map_err(|error| AppError::input(error.to_string()))?;
+        required_closure
+            .borrow_mut()
+            .inputs(&restored.roots.rows, |id| {
+                restored
+                    .state
+                    .store
+                    .domains
+                    .get(id)
+                    .map(|image| image.expand())
+            });
         // Reuse is computed only over validated protected p0, including on a
         // resumed nonzero merge. Do not admit a worker merely because it built.
         let overlap = match admission::resumed_overlap(&restored, request, cancellation, b) {
@@ -620,6 +669,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
                     request,
                     &identity,
                     &roles,
+                    &required_closure,
                     last.into_inner(),
                     &telemetry.into_inner(),
                     false,
@@ -665,6 +715,7 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
         request,
         &identity,
         &roles,
+        &required_closure,
         last.into_inner(),
         &telemetry.into_inner(),
         drained,
@@ -684,6 +735,7 @@ fn finish<const N: usize>(
     request: &OwnerDomainWalkRequest,
     identity: &Identity<'_>,
     roles: &Roles,
+    required_closure: &RefCell<required_closure::Observation<N>>,
     receipt: Option<Value>,
     telemetry: &Telemetry,
     drained: bool,
@@ -716,6 +768,18 @@ fn finish<const N: usize>(
         prepared,
         observer_failed,
     );
+    {
+        let mut required = required_closure.borrow_mut();
+        required.inputs(&restored.roots.rows, |id| {
+            restored
+                .state
+                .store
+                .domains
+                .get(id)
+                .map(|image| image.expand())
+        });
+        required.attach(&mut document["query_admission"], &restored.state);
+    }
     if request.finite_replay.is_some() {
         document["finite_replay"] = finite_account.report();
         document["resume_supported"] = false.into();

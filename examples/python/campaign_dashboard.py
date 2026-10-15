@@ -57,10 +57,31 @@ def extended_scope_line(frame, compact=False):
         return None
     if compact:
         return (f"Required {count(scope.get('required'))} · {count(scope.get('appended_required'))} appended"
-                " · base bar ≠ stage closure; cold verify")
+                + (" · cumulative closure observed" if scope.get("available") else
+                   " · cumulative closure unknown"))
     return (f"Required requests {count(scope.get('required'))} cumulative · "
             f"{count(scope.get('appended_required'))} appended · "
-            "base-root bar is not enlarged-scope closure; cold verification required")
+            + ("closed-containing-root observation; independent verification separate"
+               if scope.get("available") else
+               "cumulative closure unavailable; base roots are not enlarged-scope closure"))
+
+
+def required_progress(frame):
+    """Return the principal bar's honest numerator/denominator and label."""
+    scope = frame.get("query_scope", {})
+    if number(scope.get("required")) is not None:
+        closed = scope.get("required_closed") if scope.get("available") is True else None
+        return ("REQUIRED CLOSURE", closed, scope["required"],
+                "≥" if closed is not None else "", "cumulative requests · recursive")
+    counts = frame["counts"]
+    return ("BASE ROOT CLOSURE", counts["initial_closed"], counts["initial_total"],
+            "≥" if frame["closure_snapshot"].get("stale") is True else "",
+            "base prefix only · required closure unknown")
+
+
+def required_progress_line(frame):
+    label, closed, total, prefix, detail = required_progress(frame)
+    return f"{label}: {prefix}{count(closed)} / {count(total)} · {detail}"
 
 
 def restore_line(frame):
@@ -248,7 +269,14 @@ def dashboard(status: dict) -> list[str]:
     swap_rate = number(resources.get("host_swap_in_bytes_per_second"))
     if swap_rate is not None:
         host_text += f" · host swap-in {swap_rate / 1e6:.1f} MB/s"
-    restoring = restore_line(TELEMETRY.normalize_status(status))
+    frame = TELEMETRY.normalize_status(status)
+    restoring = restore_line(frame)
+    label, required_closed, required_total, required_prefix, required_detail = required_progress(frame)
+    closure_line = (
+        f"{label} {bar(required_closed, required_total, status.get('elapsed_seconds'))} "
+        f"{required_prefix}{count(required_closed)} / {count(required_total)} {required_detail}"
+        if frame["query_scope"].get("required") is not None else
+        f"Closure {closure_bar} {closed_prefix}{count(closure['initial_closed'])} / {count(closure['initial_total'])} initial roots recursively closed{closure_note} · base prefix only; required closure unknown")
     return [
         f"RustRed · {state} · {duration(status.get('elapsed_seconds'))}{stale}",
         *([restoring] if restoring else []),
@@ -257,7 +285,7 @@ def dashboard(status: dict) -> list[str]:
         + (f" · {count(progress['finished_native_awaiting_publication'])} finished waiting"
            if progress.get('finished_native_awaiting_publication') is not None else "")
         + f" · reserved {count(allocation.get('inspectors'))} inspect + {count(allocation.get('admission_helpers'))} admission + {count(allocation.get('coordinator'))} coordinator",
-        f"Closure {closure_bar} {closed_prefix}{count(closure['initial_closed'])} / {count(closure['initial_total'])} initial roots recursively closed{closure_note}",
+        closure_line,
         f"Domains {count(discovered)} discovered · {closed_prefix}{count(closure['total_closed'])} recursively closed · {unresolved_prefix}{count(closure['unresolved_domains'])} unresolved",
         f"Initial {count(entry.get('published'))} / {count(entry.get('total'))} published · initial native inspected {count(entry.get('locally_inspected'))} · not closure",
         f"Queue {count(work.get('pending'))} pending · {count(work.get('locally_completed'))} local completions · {rate_text} local · frontiers {count(work.get('frontiers'))}",
@@ -403,7 +431,8 @@ def render_table(frame, width=100, height=24, color=True):
     title = f"RustRed  /  {state}  /  {duration(frame['elapsed_seconds'])}  /  {frame['phase']}"
     conservative = "≥" if snap["stale"] is True else ""
     unresolved_bound = "≤" if snap["stale"] is True else ""
-    root = f"{conservative}{count(counts['initial_closed'])} / {count(counts['initial_total'])}"
+    root_label, root_closed, root_total, root_prefix, root_detail = required_progress(frame)
+    root = f"{root_prefix}{count(root_closed)} / {count(root_total)}"
     growth = rates["pending_growth_per_completion_1h"]
     growth_text = "unknown" if growth is None else f"{growth:+.2f}"
     ratio = _closure_ratio(frame)
@@ -435,8 +464,10 @@ def render_table(frame, width=100, height=24, color=True):
         checkpoint_text = f"WRITING generation {count(writing['generation'])} · last {checkpoint_text}"
     # Priorities are for terminal-height adaptation, not a progress heuristic.
     rows = [
-        (0, row("BASE ROOT CLOSURE" if extended_scope_line(frame) else "ROOT CLOSURE", root,
-                bar(counts["initial_closed"], counts["initial_total"], frame["elapsed_seconds"]) + " recursive", "94")),
+        (0, row(root_label, root,
+                bar(root_closed, root_total, frame["elapsed_seconds"]) + " " + root_detail, "94")),
+        (3, row("Base roots", f"{conservative}{count(counts['initial_closed'])} / {count(counts['initial_total'])}",
+                "protected original prefix · not cumulative request closure")),
         (1, row("Domains", count(counts["total_domains"]), f"{conservative}{count(counts['total_closed'])} closed · {unresolved_bound}{count(counts['unresolved_domains'])} unresolved")),
         (2, row("Queue / local", count(counts["pending"]) + " pending", f"{count(counts['locally_completed'])} completions · frontiers {count(counts['frontiers'])}")),
         (2, row("Active CPU cores", cpu_text, "observed · " + workers, indicator_color(utilization, "cpu"))),
@@ -628,6 +659,7 @@ def plain_summary(frame):
         checkpoint_text += f" · {checkpoint['duration_seconds']:.2f}s"
     return [f"RustRed · {clean(frame['state']).upper()} · {duration(frame['elapsed_seconds'])}",
             *([restore_line(frame)] if restore_line(frame) else []),
+            required_progress_line(frame),
             *([extended_scope_line(frame)] if extended_scope_line(frame) else []),
             f"Rate {rate} per hour · pending {growth_text} per completion",
             f"Recursive closure {_rate(_closure_rate(frame)['per_second'])} "

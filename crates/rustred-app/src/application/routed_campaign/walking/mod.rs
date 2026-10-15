@@ -189,6 +189,9 @@ pub struct OwnerDomainWalkRequest {
     pub route_domain_overcover: bool,
     /// Opt-in necessary degree bound over the union of source numerator rows.
     pub route_joint_source_support_pruning: bool,
+    /// Opt-in verified incidence/affine-degree route geometry. Bound across
+    /// checkpoint resume; never a constraint on descendant input rank.
+    pub route_precise_image_bounds: bool,
     pub max_route_masks: usize,
     /// Resume-time rescue amendments in chain order (`rescue.rs`); empty for
     /// every unamended walk. Not part of the request binding: each file is
@@ -239,6 +242,7 @@ impl OwnerDomainWalkRequest {
             max_containment_checks: None,
             route_domain_overcover: false,
             route_joint_source_support_pruning: false,
+            route_precise_image_bounds: false,
             max_route_masks: 100_000,
             amendments: Vec::new(),
         }
@@ -853,6 +857,11 @@ fn admit_request(request: &OwnerDomainWalkRequest) -> Result<Option<DiagnosticPa
     if request.route_joint_source_support_pruning && !request.route_domain_overcover {
         return Err(AppError::input(
             "joint source-support pruning requires route domain overcover",
+        ));
+    }
+    if request.route_precise_image_bounds && !request.route_domain_overcover {
+        return Err(AppError::input(
+            "precise route-image bounds require route domain overcover",
         ));
     }
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::Epoch {

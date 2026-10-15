@@ -63,6 +63,23 @@ fn application_cell_refinement_is_positive_opt_in_and_not_a_work_cap() {
 }
 
 #[test]
+fn precise_route_image_bounds_require_explicit_route_walk_and_unique_flag() {
+    assert!(!parse_suffix("").unwrap().route_precise_image_bounds);
+    let args =
+        parse_suffix("--follow-successors --route-domain-overcover --route-precise-image-bounds")
+            .unwrap();
+    assert!(args.route_precise_image_bounds);
+    assert!(!args.route_joint_source_support_pruning);
+    for suffix in [
+        "--route-precise-image-bounds",
+        "--follow-successors --route-precise-image-bounds",
+        "--follow-successors --route-domain-overcover --route-precise-image-bounds --route-precise-image-bounds",
+    ] {
+        assert!(parse_suffix(suffix).is_err(), "{suffix}");
+    }
+}
+
+#[test]
 fn checkpoint_flags_are_explicit_and_order_independent() {
     assert!(parse_suffix("").unwrap().checkpoint.is_none());
     for flag in ["--checkpoint", "--resume"] {

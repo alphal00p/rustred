@@ -64,6 +64,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub epoch_preparation_max_retirements: Option<usize>,
     pub route_domain_overcover: bool,
     pub route_joint_source_support_pruning: bool,
+    pub route_precise_image_bounds: bool,
     pub max_route_masks: usize,
     pub max_rhs_cells: usize,
     pub max_term_visits: usize,
@@ -135,6 +136,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         epoch_preparation_max_retirements: None,
         route_domain_overcover: false,
         route_joint_source_support_pruning: false,
+        route_precise_image_bounds: false,
         max_route_masks: 100_000,
         max_rhs_cells: applied.max_boundary_cells,
         max_term_visits: applied.max_term_visits,
@@ -224,6 +226,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--inspection-workers" => "--inspection-workers",
             "--route-domain-overcover" => "--route-domain-overcover",
             "--route-joint-source-support-pruning" => "--route-joint-source-support-pruning",
+            "--route-precise-image-bounds" => "--route-precise-image-bounds",
             "--max-route-masks-per-query" => "--max-route-masks-per-query",
             "--max-rhs-cells-per-query" => "--max-rhs-cells-per-query",
             "--max-term-visits-per-query" => "--max-term-visits-per-query",
@@ -282,6 +285,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         if name == "--route-joint-source-support-pruning" {
             result.route_joint_source_support_pruning = true;
+            continue;
+        }
+        if name == "--route-precise-image-bounds" {
+            result.route_precise_image_bounds = true;
             continue;
         }
         if name == "--reuse-initial-d-bands" {
@@ -756,6 +763,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--g2-activate-on-resume",
             "--route-domain-overcover",
             "--route-joint-source-support-pruning",
+            "--route-precise-image-bounds",
             "--max-route-masks-per-query",
             "--max-rhs-cells-per-query",
             "--max-term-visits-per-query",
@@ -779,6 +787,11 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     if result.route_joint_source_support_pruning && !result.route_domain_overcover {
         return Err(ArgError::InvalidCombination(
             "joint source-support pruning requires --route-domain-overcover",
+        ));
+    }
+    if result.route_precise_image_bounds && !result.route_domain_overcover {
+        return Err(ArgError::InvalidCombination(
+            "precise route-image bounds require --route-domain-overcover",
         ));
     }
     crate::OwnerDomainWalkRequest::validate_inspection_workers(

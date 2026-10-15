@@ -53,7 +53,10 @@ pub(super) fn inspect<const N: usize>(
         domain.owner, &domain.lower, &domain.upper, domain.rank, domain.powers,
         CandidateDomainRouteLimits { max_masks: request.max_route_masks,
             max_coordinate_cells: request.max_route_masks.saturating_mul(N).saturating_mul(2) },
-        CandidateDomainRouteOptions { joint_source_support_pruning: request.route_joint_source_support_pruning },
+        CandidateDomainRouteOptions {
+            joint_source_support_pruning: request.route_joint_source_support_pruning,
+            precise_image_bounds: request.route_precise_image_bounds,
+        },
         cancellation, |event| {
             let effect = match event {
                 CandidateDomainRouteEvent::Apply { owner_sector, cover } if initial.contains(Phase::Apply, &owner_sector, cover.actual_rank) =>

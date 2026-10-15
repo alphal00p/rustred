@@ -1,7 +1,7 @@
 use super::super::RoutedCandidateReducer;
 use super::model::*;
-use super::power::{mapped_bounds, project_cover};
-use super::support::{JointSourceSupport, NumeratorDegrees};
+use super::power::{mapped_bounds, project_cover, with_constant_degree_bound};
+use super::support::{JointSourceSupport, NumeratorDegrees, constant_degree_cap};
 use crate::solver::candidate_reduction::power_domain::{
     DomainPowerBounds, DomainPowerError, project,
 };
@@ -219,7 +219,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 }
             }
         }
-        let constrained = !power_bounds.is_unconstrained();
+        let constrained = !power_bounds.is_unconstrained() || options.precise_image_bounds;
         let projection = if constrained {
             let Some(projection) = project(&source, &lower, &upper, actual_rank, power_bounds)
                 .map_err(CandidateDomainRouteFailure::PowerDomain)?
@@ -342,19 +342,54 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 "active map does not cover the target root",
             ));
         }
+        // Exact incidence is available for every physical destination axis.
+        // Storage padding is not a numerator coordinate and stays fixed zero.
+        let degree_targets = if options.precise_image_bounds {
+            std::array::from_fn(|axis| axis < physical_arity)
+        } else {
+            root
+        };
         let degrees = projection
             .as_ref()
             .map(|projected| {
                 NumeratorDegrees::from_source(
                     &route.transport,
                     &source,
-                    &root,
+                    &degree_targets,
                     &projected.lower,
                     &projected.upper,
                     projected.numerator_upper,
                 )
             })
             .transpose()?;
+        let constant_degree = if options.precise_image_bounds {
+            constant_degree_cap(
+                &route.transport,
+                &source,
+                &lower,
+                &upper,
+                projection.as_ref().and_then(|p| p.numerator_upper),
+            )?
+        } else {
+            None
+        };
+        if options.precise_image_bounds {
+            let degrees = degrees.as_ref().expect("precise bounds project the source");
+            for axis in 0..physical_arity {
+                if !root[axis] {
+                    target_upper[axis] = degrees.inactive_upper(axis, 0)?;
+                }
+            }
+        }
+        let image_power_bounds = |cost| {
+            mapped_bounds(power_bounds, positive_upper, cost).map(|bounds| {
+                if options.precise_image_bounds {
+                    with_constant_degree_bound(bounds, power_bounds, constant_degree)
+                } else {
+                    bounds
+                }
+            })
+        };
         let target_lower = std::array::from_fn(|axis| {
             degrees
                 .as_ref()
@@ -370,7 +405,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             upper: target_upper,
             actual_rank,
             power_bounds: if constrained {
-                mapped_bounds(power_bounds, positive_upper, 0).expect("zero pinch cost")
+                image_power_bounds(0).expect("zero pinch cost")
             } else {
                 power_bounds
             },
@@ -519,7 +554,21 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                             // through an affine map as if it were a permutation.
                             // Storage padding is not a numerator coordinate;
                             // leave those nonexistent axes fixed at zero.
-                            pinched_upper[axis] = None;
+                            pinched_upper[axis] = if options.precise_image_bounds {
+                                degrees
+                                    .as_ref()
+                                    .expect("precise source degree bounds")
+                                    .inactive_upper(
+                                        axis,
+                                        if root[axis] {
+                                            u128::from(target_lower_cost[axis]) + 1
+                                        } else {
+                                            0
+                                        },
+                                    )?
+                            } else {
+                                None
+                            };
                             pinched_lower[axis] = 0;
                         }
                     }
@@ -530,9 +579,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                         ..cover
                     };
                     let pinched = if constrained {
-                        if let Some(bounds) =
-                            mapped_bounds(power_bounds, positive_upper, pinch_cost)
-                        {
+                        if let Some(bounds) = image_power_bounds(pinch_cost) {
                             project_cover(
                                 &sector,
                                 CandidateDomainRouteCover {

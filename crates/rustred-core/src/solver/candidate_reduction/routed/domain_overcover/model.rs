@@ -19,12 +19,17 @@ impl Default for CandidateDomainRouteLimits {
     }
 }
 
-/// Optional conservative mask exclusions. The default preserves existing covers.
+/// Optional conservative image bounds. The default preserves existing covers.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CandidateDomainRouteOptions {
     /// Reject a multi-axis pinch only when its union of inactive source rows
     /// cannot supply the required total cancellation degree.
     pub joint_source_support_pruning: bool,
+    /// Retain per-target numerator incidence caps and bound signed-power loss
+    /// using all affine-constant source rows. Only verified maps and the
+    /// projected source domain participate; starting limits are never reapplied.
+    /// Callers persisting route results must bind this choice into their recipe.
+    pub precise_image_bounds: bool,
 }
 
 /// A sufficient box cover in destination indexed coordinates. Positive axes

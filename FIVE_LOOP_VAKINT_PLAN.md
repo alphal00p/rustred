@@ -11,6 +11,13 @@ remaining generation54 R11/D9 tests, whose scope is different. Reuse delivered
 application/cache foundations and keep 1--4-loop cache preparation complete.
 Numerical masters and unrestricted higher-loop closure remain out of scope.
 
+The [October15 R0 application pilot](docs/research/r0_d10_application_acceptance_2026-10-15.md)
+now passes: exported329 exact terminal maps; Vakint's admitted D9 five-tadpole
+pipeline passes routing/factorization/mass/cache checks, and a separate native
+D10 boundary passes exact first/warm equality. This is a small factorized R0
+subset, not DOT/connected/high-rank acceptance or completion of R6. Generation54
+and its differently scoped unfinished R11/D9 tests remain unchanged.
+
 ## Current execution directive — October 14
 
 The user selected **wait for the D<=10 publication** after delivery of the

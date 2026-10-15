@@ -77,52 +77,55 @@ fn route_capacity_padding_stays_fixed_under_power_projection_and_joint_pruning()
     let padded = padded_fixture();
     for source in [SOURCE, TARGET] {
         for joint_source_support_pruning in [false, true] {
-            for power_bounds in [
-                crate::solver::DomainPowerBounds::default(),
-                crate::solver::DomainPowerBounds {
-                    max_positive_power: Some(8),
-                    min_power_difference: Some(-2),
-                    max_power_difference: Some(7),
-                },
-            ] {
-                let mut expected = Vec::new();
-                let mut actual = Vec::new();
-                let options = CandidateDomainRouteOptions {
-                    joint_source_support_pruning,
-                };
-                exact
-                    .visit_power_bounded_domain_route_overcover_with_options(
-                        source,
-                        &[0; 3],
-                        &[None; 3],
-                        Some(3),
-                        power_bounds,
-                        Default::default(),
-                        options,
-                        &AtomicBool::new(false),
-                        |event| {
-                            expected.push(event);
-                            ControlFlow::Continue(())
-                        },
-                    )
-                    .unwrap();
-                padded
-                    .visit_power_bounded_domain_route_overcover_with_options(
-                        [source[0], source[1], source[2], false],
-                        &[0; 4],
-                        &[None, None, None, Some(0)],
-                        Some(3),
-                        power_bounds,
-                        Default::default(),
-                        options,
-                        &AtomicBool::new(false),
-                        |event| {
-                            actual.push(narrow(event));
-                            ControlFlow::Continue(())
-                        },
-                    )
-                    .unwrap();
-                assert_eq!(actual, expected);
+            for precise_image_bounds in [false, true] {
+                for power_bounds in [
+                    crate::solver::DomainPowerBounds::default(),
+                    crate::solver::DomainPowerBounds {
+                        max_positive_power: Some(8),
+                        min_power_difference: Some(-2),
+                        max_power_difference: Some(7),
+                    },
+                ] {
+                    let mut expected = Vec::new();
+                    let mut actual = Vec::new();
+                    let options = CandidateDomainRouteOptions {
+                        joint_source_support_pruning,
+                        precise_image_bounds,
+                    };
+                    exact
+                        .visit_power_bounded_domain_route_overcover_with_options(
+                            source,
+                            &[0; 3],
+                            &[None; 3],
+                            Some(3),
+                            power_bounds,
+                            Default::default(),
+                            options,
+                            &AtomicBool::new(false),
+                            |event| {
+                                expected.push(event);
+                                ControlFlow::Continue(())
+                            },
+                        )
+                        .unwrap();
+                    padded
+                        .visit_power_bounded_domain_route_overcover_with_options(
+                            [source[0], source[1], source[2], false],
+                            &[0; 4],
+                            &[None, None, None, Some(0)],
+                            Some(3),
+                            power_bounds,
+                            Default::default(),
+                            options,
+                            &AtomicBool::new(false),
+                            |event| {
+                                actual.push(narrow(event));
+                                ControlFlow::Continue(())
+                            },
+                        )
+                        .unwrap();
+                    assert_eq!(actual, expected);
+                }
             }
         }
     }

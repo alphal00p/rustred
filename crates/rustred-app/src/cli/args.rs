@@ -839,6 +839,12 @@ on resume; the helper count may change within a valid worker partition.
 --route-joint-source-support-pruning enables a conservative shared-numerator
 degree bound for simultaneous propagator pinches. It is off by default and is
 part of the immutable checkpoint policy; it does not clip descendants.
+--route-precise-image-bounds retains verified per-coordinate numerator incidence
+and affine-constant degree bounds when routing symbolic domains. It requires
+--route-domain-overcover, is off by default, and changes checkpoint-bound cover
+geometry: use a fresh campaign to activate it. It never clips descendants to
+starting bounds. Cold replay retains the same geometry in both reference modes;
+separate exact transport tests validate the tighter cover's inclusion premise.
 
 `walk-semantics-version` prints one JSON line with this executable's
 walk_semantics_version, checkpoint_format and checkpoint_schema (the legacy

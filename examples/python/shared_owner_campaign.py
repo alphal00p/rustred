@@ -996,6 +996,8 @@ def main() -> int:
                         help="share admitted symbolic route covers; requires --queries")
     parser.add_argument("--" + DOMAIN.JOINT_SUPPORT_PRUNING, action=DOMAIN.StoreTrueOnce, nargs=0, default=False,
                         help="opt into joint source-support mask pruning; requires --queries and route overcover; default off")
+    parser.add_argument("--" + DOMAIN.PRECISE_IMAGE_BOUNDS, action=DOMAIN.StoreTrueOnce, nargs=0, default=False,
+                        help="retain verified incidence and affine-degree route bounds; default off; checkpoint-bound")
     parser.add_argument("--amend-queries", type=Path, action="append", default=[],
                         help="resume-time rescue amendment (repeatable, chain order; requires --resume and --queries): "
                              "append-only, digest-chained protected queries")
@@ -1033,7 +1035,7 @@ def main() -> int:
     if symbolic and (args.entry_domains is not None or args.expansion_limits is not None or any(
             getattr(args, option.replace("-", "_")) is not None for option in FINITE_ALLOWANCES)):
         parser.error("concrete-target/expansion allowances require --targets")
-    if not symbolic and (args.route_domain_overcover or args.route_joint_source_support_pruning or args.reuse_initial_d_bands
+    if not symbolic and (args.route_domain_overcover or args.route_joint_source_support_pruning or args.route_precise_image_bounds or args.reuse_initial_d_bands
                         or args.g2_residual_anchors is not None or any(
             getattr(args, option.replace("-", "_")) is not None
             for option in (*SYMBOLIC_ALLOWANCES, *SYMBOLIC_POLICIES))):
@@ -1042,6 +1044,8 @@ def main() -> int:
         parser.error("route mask allowance requires --route-domain-overcover")
     if args.route_joint_source_support_pruning and not args.route_domain_overcover:
         parser.error("joint source-support pruning requires --route-domain-overcover")
+    if args.route_precise_image_bounds and not args.route_domain_overcover:
+        parser.error("precise route-image bounds require --route-domain-overcover")
     if args.transfer_unreserved_lookahead is not None and args.max_containment_checks not in (None, "unlimited"):
         parser.error("--transfer-unreserved-lookahead requires unlimited containment checks")
     if args.reuse_initial_d_bands and args.transfer_unreserved_lookahead is None:
@@ -1179,6 +1183,8 @@ def main() -> int:
             command.append("--route-domain-overcover")
         if args.route_joint_source_support_pruning:
             command.append("--" + DOMAIN.JOINT_SUPPORT_PRUNING)
+        if args.route_precise_image_bounds:
+            command.append("--" + DOMAIN.PRECISE_IMAGE_BOUNDS)
         if args.reuse_initial_d_bands:
             command.append("--" + DOMAIN.INITIAL_D_REUSE)
         for option in ("checkpoint", "resume", "checkpoint_interval_seconds",

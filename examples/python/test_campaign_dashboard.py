@@ -450,8 +450,8 @@ class DashboardTests(unittest.TestCase):
         frame = TELEMETRY.normalize_status({"derived": metrics.derived()})
         self.assertEqual(frame["rates"]["completions_per_hour_1h"], -34200)
         self.assertEqual(frame["rates"]["local_completion"]["state"], "counter_reset")
-        self.assertEqual(DASHBOARD.plain_summary(frame)[1],
-                         "Rate unknown per hour · pending unknown per completion")
+        self.assertIn("Rate unknown per hour · pending unknown per completion",
+                      DASHBOARD.plain_summary(frame))
 
     def test_unicode_and_stale_alarm_have_no_layout_escape(self):
         self.assertEqual(DASHBOARD.cell_width(DASHBOARD.fit("中文e\u0301\x1b\n", 8)), 8)

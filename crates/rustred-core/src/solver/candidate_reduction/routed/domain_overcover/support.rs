@@ -137,6 +137,56 @@ impl<const N: usize> NumeratorDegrees<N> {
         // A pinch consumes at least source_lower+1, without overflowing u64.
         self.caps[target].is_none_or(|cap| cap > u128::from(source_lower))
     }
+
+    /// Endpoint numerator degree is e_j-B_j on an inactive destination.
+    /// A wide optional cap is omitted, never narrowed to a machine maximum.
+    pub(super) fn inactive_upper(
+        &self,
+        target: usize,
+        positive_minimum: u128,
+    ) -> Result<Option<u64>, CandidateDomainRouteFailure> {
+        self.caps[target]
+            .map(|cap| {
+                cap.checked_sub(positive_minimum)
+                    .ok_or(CandidateDomainRouteFailure::InvalidDomain(
+                        "pinch degree is below the positive denominator minimum",
+                    ))
+                    .map(|value| u64::try_from(value).ok())
+            })
+            .transpose()
+            .map(Option::flatten)
+    }
+}
+
+/// Only rows with a nonzero affine constant can lose total polynomial degree.
+/// Prepared::compile already validates these constants through Symbolica;
+/// exact is_zero inspects the existing canonical coefficient, without algebra.
+pub(super) fn constant_degree_cap<const N: usize>(
+    transport: &Prepared,
+    source: &[bool; N],
+    lower: &[u64; N],
+    upper: &[Option<u64>; N],
+    rank: Option<u128>,
+) -> Result<Option<u128>, CandidateDomainRouteFailure> {
+    let constants = transport.verified_map().denominators().constant();
+    if constants.len() > N {
+        return Err(CandidateDomainRouteFailure::InvalidAdmittedRoute(
+            "affine constant arity differs",
+        ));
+    }
+    let mut rows = [0_usize; N];
+    let mut count = 0;
+    let mut inactive_lower = 0;
+    for (row, coefficient) in constants.iter().enumerate() {
+        if !source[row] {
+            inactive_lower = checked_sum(inactive_lower, lower[row])?;
+            if !coefficient.is_zero() {
+                rows[count] = row;
+                count += 1;
+            }
+        }
+    }
+    column_cap(lower, upper, inactive_lower, rank, &rows[..count])
 }
 
 fn checked_sum(sum: u128, value: u64) -> Result<u128, CandidateDomainRouteFailure> {

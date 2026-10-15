@@ -2,14 +2,14 @@
 use super::*;
 use crate::solver::DomainPowerBounds;
 
-const SOURCE4: [bool; 10] = [
+pub(super) const SOURCE4: [bool; 10] = [
     false, true, false, true, true, false, false, false, false, true,
 ];
-const ROOT4: [bool; 10] = [
+pub(super) const ROOT4: [bool; 10] = [
     true, true, true, true, false, false, false, false, false, false,
 ];
 
-fn fixture4() -> (
+pub(super) fn fixture4() -> (
     RoutedCandidateReducer<10>,
     Arc<integral_transport::Prepared>,
 ) {
@@ -116,6 +116,7 @@ fn collect4(
             Default::default(),
             CandidateDomainRouteOptions {
                 joint_source_support_pruning: enabled,
+                ..Default::default()
             },
             &AtomicBool::new(false),
             |event| {
@@ -309,6 +310,7 @@ fn joint_support_budget_consumer_stop_and_cancellation_preserve_prefixes() {
                 },
                 CandidateDomainRouteOptions {
                     joint_source_support_pruning: true,
+                    ..Default::default()
                 },
                 &AtomicBool::new(false),
                 |_| {
@@ -340,6 +342,7 @@ fn joint_support_budget_consumer_stop_and_cancellation_preserve_prefixes() {
                 Default::default(),
                 CandidateDomainRouteOptions {
                     joint_source_support_pruning: true,
+                    ..Default::default()
                 },
                 &cancel,
                 |_| {

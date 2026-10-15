@@ -73,7 +73,8 @@ fn power_contains(powers: crate::solver::DomainPowerBounds, key: &IntegralKey) -
             .is_none_or(|d| difference <= i128::from(d))
 }
 
-fn multipinch_fixture() -> (RoutedCandidateReducer<3>, Arc<integral_transport::Prepared>) {
+pub(super) fn multipinch_fixture() -> (RoutedCandidateReducer<3>, Arc<integral_transport::Prepared>)
+{
     let family = Arc::new(crate::solver::tests::sunset());
     let c = family.coefficient_context();
     // D0 -> 2D0+2D1-D2+2m², D1 -> D1, D2 -> D0. The

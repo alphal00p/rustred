@@ -1,5 +1,71 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — native gates, bounded R0 application, and pending matched pilots
+
+Root re-read the complete assigned attachment before continuing. The preceding
+user exchange supplied the requested `finalize-refinement` command; it did not
+change a campaign or claim further implementation progress. The in-flight
+optimized core test build was revalidated through its live process/session,
+not inferred from a lock file. Both user campaigns remain untouched.
+
+Measured work since the previous entry:
+
+- The release app test build completed in 1,052.8 supervised seconds. Eleven
+  required-closure tests and three precision/checkpoint-policy tests passed.
+  A separate auditor ran twenty release regressions, covering actual CP6
+  R0-to-R1-to-R2 extension, cumulative aliases, lifecycle/interruption behavior,
+  cold-verifier policy, and publication-rule counts. All ran with a required
+  license; no ignored tests or resource-skip markers. These overlapping test
+  groups are not summed into a unique test count.
+- Core route tests initially passed 55/57. Both failures were fixture setup,
+  before the endpoint assertions: first an unsupported synthetic family,
+  then an incorrect assertion that affine row 4 had a constant. The corrected
+  determinant-one map has constants `[0,0,0,0,0,3]`; its used numerator row is
+  homogeneous and the unused constant row has exponent zero. No production
+  check or endpoint assertion was weakened. A separate public-API executable
+  checked 3,024 exact native endpoints across 72 inputs successfully, including
+  true pinches. The final complete rerun now passes **57/57**, zero ignored,
+  in0.11s native/1.17s supervised, and was independently audited. The corrected
+  test rebuild took486.52s; the full CLI build is now in progress separately.
+- Python steering/monitoring gates passed. The initial supervisor-test run
+  accidentally allowed only one CPU while two tests requested more; repeating
+  with the specified multi-CPU affinity passed all 27 without changing tests.
+  Preserve the failed run as a harness correction, not an algorithm result.
+- Existing H, FG and BMW four-loop bundles were losslessly projected to native
+  per-sector owner fixtures, with exact cold coefficient/source/exception/
+  residual comparisons. No rules were generated. X hit the helper's default
+  one-million-entry loader budget; explicit bounds matching Vakint's existing
+  four-loop loader profile are implemented but await a rebuilt helper. These
+  fixtures are not the historical common-basis routed four-family benchmark.
+- The immutable completed R0/D9--10 publication passed a bounded FORM-less
+  application pilot and independent raw-result/source/binary audit. Vakint's
+  D9 five-tadpole control passed exact rerouting, relabeling, factor-product,
+  mass-restoration and cache/settings tests. A native D10 boundary control
+  took 20.65 ms first and 15.51 microseconds warm, excluding roughly 73 s of
+  package preparation. Vakint's different D9 workload took 249.2/182.7 ms.
+  These are different timing boundaries/workloads, not a speedup comparison.
+  No DOT, connected high-rank, full R0 inventory, R6, or generation54 acceptance
+  is implied. Five-loop cache preparation remains deferred.
+
+Evidence: `TMP/routing-closure-app-{required,precision,independent}-tests-20261015/`,
+`TMP/route-image-core-tests{,-fixed}-20261015/`,
+`TMP/route-image-core-final-build-20261015/`,
+`TMP/route-image-core-tests-final-20261015/`,
+`TMP/route-image-pilots-20261015/`, and
+`TMP/r0-vakint-acceptance-20261015/independent-audit.json`.
+The latter package is local-only; neither artifacts nor campaign outputs belong
+in Git. Its source publication is generation1/depth0, not the user's ongoing
+depth1 refinement or THE_ONE generation54.
+
+Lane ownership: `intermediate_capture_app` prepares matched complete-cohort
+pilots and four-loop controls; `intermediate_capture_independent_audit` owns
+independent correctness/measurement review; `soft_ct_nested_audit` records
+bounded Vakint acceptance and identifies the next admitted ingress control;
+root owns integration, build/resource coordination, and final verification.
+Next: freeze a complete release CLI, run the same hot
+five-loop R0/R1 query with precise image bounds off/on, and cold-reinspect
+completed controls. No speedup or production-switch recommendation yet.
+
 ## October 15 — replacement goal assigned; routing and cumulative closure lanes active
 
 The user assigned the replacement goal through attachment

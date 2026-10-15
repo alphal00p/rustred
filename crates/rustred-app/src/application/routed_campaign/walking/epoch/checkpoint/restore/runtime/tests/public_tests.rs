@@ -62,7 +62,26 @@ fn assert_summary(result: &crate::OwnerDomainWalkResult, drained: bool) {
     assert_eq!(doc["full_result_in_output_document"], false);
     assert_eq!(doc["full_state_in_checkpoint"], true);
     assert_eq!(doc["finalization"], "not_evaluated");
-    assert_eq!(doc["query_admission"]["required_closed"], Value::Null);
+    let census = &doc["query_admission"];
+    let observation = &census["required_closure"];
+    if observation["available"] == true {
+        assert_eq!(census["required_closed_evaluated"], true);
+        let closed = census["required_closed"].as_u64().unwrap();
+        assert!(closed <= census["admitted_required"].as_u64().unwrap());
+        assert!(
+            census["admitted_required"].as_u64().unwrap() <= census["required"].as_u64().unwrap()
+        );
+        assert_eq!(observation["required_queries_total"], census["required"]);
+        for key in ["snapshot_revision", "refresh_count"] {
+            assert_eq!(observation[key], doc["descendant_closure"][key]);
+        }
+        if drained && doc["descendant_closure"]["snapshot_stale"] == false {
+            assert_eq!(census["required_closed"], census["required"]);
+        }
+    } else {
+        assert_eq!(census["required_closed"], Value::Null);
+        assert_eq!(census["required_closed_evaluated"], false);
+    }
     assert!(doc.get("domains").is_none());
     assert_eq!(doc["checkpoint"]["format"], "RUSTRED-WALK-CP6");
     assert_eq!(doc["checkpoint"]["state"], "saved");
@@ -614,4 +633,95 @@ fn public_prefix_pause_preserves_unknown_closure_and_role_rows() {
     assert_eq!(state.dispatch.checkpoint_snapshot().counter, 0);
     assert!(state.replay.is_empty());
     assert!(state.state.tracker.counters().unavailable.is_none());
+}
+
+#[test]
+fn public_required_closure_counts_appended_aliases_and_matches_final_certifier() {
+    const TEST: &str = "public CP6 cumulative required-query observation";
+    if !crate::test_gates::licensed_or_skip(TEST) {
+        return;
+    }
+    let mut fixture = closed_fixture();
+    options(&mut fixture, false, 1);
+    let initial = run_public(&fixture, &AtomicBool::new(false), &|_| {});
+    assert_summary(&initial, true);
+    assert_eq!(initial.document["query_admission"]["required"], 2);
+    let original_prefix = initial.document["initial_entry_domains_total"].clone();
+    options(&mut fixture, true, 1);
+    let parent = crate::application::routed_campaign::walking::checkpoint::epoch_request_binding(
+        &fixture.request,
+    );
+    fixture
+        .request
+        .amendments
+        .push(crate::OwnerDomainWalkAmendment {
+        path: fixture.directory.0.join("required-extension.json"),
+        text: json!({
+            "schema": crate::application::routed_campaign::walking::rescue::SCOPE_EXTENSION_SCHEMA,
+            "sequence":1, "parent":parent,
+            "queries":[
+                {"id":"extended-1","owner":"1","lower":[5],"upper":[5],"max_numerator_rank":11},
+                {"id":"extended-2","owner":"1","lower":[6],"upper":[6],"max_numerator_rank":11}
+            ],
+            "query_roles":{"required":["extended-1","extended-2"],"auxiliary":[]}
+        })
+        .to_string(),
+    });
+    // Both new requests lie in the original whole-ray root. They remain two
+    // required query rows even if their actual stored root ID is shared.
+    for _ in 0..2 {
+        let events = RefCell::new(Vec::new());
+        // The amended final report already performs the pre-existing exact
+        // required-query certification; this test permits that existing scan.
+        let result = public::run(
+            &fixture.request,
+            &fixture.reducer,
+            &fixture.owners,
+            &fixture.queries,
+            16,
+            Instant::now(),
+            0.0,
+            &AtomicBool::new(false),
+            &|event| events.borrow_mut().push(event),
+        )
+        .unwrap();
+        let doc = &result.document;
+        assert_eq!(doc["recursive_worklist_exhausted"], true);
+        assert_eq!(doc["initial_entry_domains_total"], original_prefix);
+        assert_eq!(doc["query_admission"]["required"], 4);
+        assert_eq!(doc["query_admission"]["auxiliary"], 1);
+        assert_eq!(doc["query_admission"]["appended_required"], 2);
+        assert_eq!(doc["query_admission"]["required_closed"], 4);
+        assert_eq!(doc["query_certification"]["required_queries_certified"], 4);
+        assert_eq!(
+            doc["query_admission"]["required_closed"],
+            doc["query_certification"]["required_queries_certified"]
+        );
+        let events = events.into_inner();
+        assert!(
+            events
+                .iter()
+                .any(|event| event["event"] == "checkpoint_saved")
+        );
+        let completion = events.last().unwrap();
+        assert_eq!(completion["query_admission"]["required_closed"], 4);
+        for event in events
+            .iter()
+            .filter(|event| event["query_admission"].is_object())
+        {
+            let census = &event["query_admission"];
+            assert_eq!(census["required"], 4);
+            if census["required_closure"]["available"] == true {
+                assert!(census["required_closed"].as_u64().unwrap() <= 4);
+                for key in ["snapshot_revision", "refresh_count"] {
+                    assert_eq!(
+                        census["required_closure"][key],
+                        event["descendant_closure"][key]
+                    );
+                }
+            } else {
+                assert_eq!(census["required_closed"], Value::Null);
+            }
+        }
+    }
 }

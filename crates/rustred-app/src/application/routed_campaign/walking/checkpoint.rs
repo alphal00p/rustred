@@ -185,6 +185,7 @@ fn binding_value(request: &OwnerDomainWalkRequest) -> Value {
         "max_queries":request.matching.max_queries,"max_query_bytes":request.matching.max_query_bytes});
     add_preferred_subset_binding(&mut value, request);
     add_finite_replay_binding(&mut value, request);
+    add_route_image_binding(&mut value, request);
     // A10: the stop policy is semantic and bound; Record (the historical
     // behaviour) adds no key, so every existing CP5 binding is unchanged.
     if request.frontier_policy != OwnerDomainWalkFrontierPolicy::Record {
@@ -204,6 +205,13 @@ fn add_preferred_subset_binding(value: &mut Value, request: &OwnerDomainWalkRequ
     if super::super::input::has_preferred_rule_subsets(&request.matching.selection_json) {
         value["preferred_rule_subset_policy"] =
             super::super::input::PREFERRED_RULE_SUBSET_POLICY.into();
+    }
+}
+fn add_route_image_binding(value: &mut Value, request: &OwnerDomainWalkRequest) {
+    // Off preserves previous request identities. On is a different cover
+    // geometry and cannot reinterpret a checkpoint produced with Off.
+    if request.route_precise_image_bounds {
+        value["route_image_bounds"] = json!({"recipe":"verified-incidence-affine-degree-v1"});
     }
 }
 fn add_finite_replay_binding(value: &mut Value, request: &OwnerDomainWalkRequest) {
@@ -1157,6 +1165,7 @@ pub(super) fn epoch_request_binding(request: &OwnerDomainWalkRequest) -> String 
         "frontier_policy":request.frontier_policy.name()});
     add_preferred_subset_binding(&mut value, request);
     add_finite_replay_binding(&mut value, request);
+    add_route_image_binding(&mut value, request);
     // AllMiss preserves the original Epoch binding byte-for-byte. The
     // experimental mode is frozen across resume without a new scalar schema.
     if request.epoch_inspector_lookup != super::OwnerDomainWalkEpochInspectorLookup::AllMiss {
@@ -1693,6 +1702,29 @@ mod tests {
         assert_ne!(binding(&request), off);
         assert!(Store::open(&request).is_err());
         request.route_joint_source_support_pruning = false;
+        drop(Store::open(&request).unwrap().unwrap());
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn precise_route_geometry_is_checkpoint_bound_without_changing_off_identity() {
+        let path = test_directory();
+        let mut request = request(&path);
+        request.route_domain_overcover = true;
+        let off = binding(&request);
+        let epoch_off = epoch_request_binding(&request);
+        assert!(binding_value(&request).get("route_image_bounds").is_none());
+        let mut store = Store::open(&request).unwrap().unwrap();
+        store.bootstrap().unwrap();
+        drop(store);
+        request.checkpoint.as_mut().unwrap().resume = true;
+        request.route_precise_image_bounds = true;
+        assert_ne!(binding(&request), off);
+        assert_ne!(epoch_request_binding(&request), epoch_off);
+        assert!(Store::open(&request).is_err());
+        request.route_precise_image_bounds = false;
+        assert_eq!(binding(&request), off);
+        assert_eq!(epoch_request_binding(&request), epoch_off);
         drop(Store::open(&request).unwrap().unwrap());
         fs::remove_dir_all(path).unwrap();
     }

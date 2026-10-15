@@ -192,7 +192,8 @@ class MonitorTests(unittest.TestCase):
         progress = MONITOR.progress_summary({"descendant_closure": native}, 0, 0)
         line = MONITOR.dashboard({"progress": progress})[3]
         self.assertIn("[────────────────] 0 / 20", line)
-        self.assertNotIn("unknown", line)
+        self.assertNotIn("unknown /", line)
+        self.assertIn("base prefix only; required closure unknown", line)
 
     def test_missing_publication_is_not_replaced_by_native_inspections(self):
         progress = MONITOR.progress_summary({"initial_entry_domains_total": 20,

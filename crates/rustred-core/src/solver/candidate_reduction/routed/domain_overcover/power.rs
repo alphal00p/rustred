@@ -32,6 +32,31 @@ pub(super) fn mapped_bounds(
     })
 }
 
+/// If an expansion monomial has total degree T, its signed index sum is
+/// D'=D+R-T, even after denominator cancellation and pinches. Degree loss R-T
+/// is bounded by the total powers of source rows with nonzero affine constants.
+/// The pinch cost belongs to A', not to this D' bound: never subtract it twice.
+pub(super) fn with_constant_degree_bound(
+    mut mapped: DomainPowerBounds,
+    source: DomainPowerBounds,
+    constant_degree: Option<u128>,
+) -> DomainPowerBounds {
+    let upper = source.max_power_difference.and_then(|upper| {
+        i128::try_from(constant_degree?)
+            .ok()?
+            .checked_add(i128::from(upper))
+            .and_then(|bound| i64::try_from(bound).ok())
+    });
+    if let Some(upper) = upper {
+        mapped.max_power_difference = Some(
+            mapped
+                .max_power_difference
+                .map_or(upper, |old| old.min(upper)),
+        );
+    }
+    mapped
+}
+
 pub(super) fn project_cover<const N: usize>(
     sector: &[bool; N],
     cover: CandidateDomainRouteCover<N>,
