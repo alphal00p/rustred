@@ -1,5 +1,28 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — durable R1 continuation exposes page-lookup CPU amplification
+
+PhaseB42673 is live with the original reviewed source/policy/checkpoint and
+30-minute guard. It committed171 additional windows to generation253 /
+1,250,965 Work and reached hard row156 with no missing rule/owner or other
+native failure. Complete durable R1/cold-census equality remains unproved.
+
+Matched row118 is concrete evidence: identical503,501 new Work,239,050 rule
+applications,6,045,804 endpoints and4,559,042 completed-baseline hits. Old
+in-memory native4.670s versus durable native128.753s (enclosing call+export
+129.469s), with153M cached-page probes but only7.139MB of reads and no evictions.
+Root authorized an isolated indexed-page-LRU correction to the measured linear
+cache lookup/movement; fixed baselineB is unchanged. No new authority/format,
+scope or byte grant. Positive-only/full-resident exact Work cache alternatives
+remain design-only, not assumed performance gains.
+
+App author has source in `TMP/finite-work-indexed-lru-20261015`, with source
+audit and short exact-source IO/native tests before the combined publication
+build. Publication author has passed both normal checks and is adding a minimal
+input-controlled actual-package entry probe before that same optimized link.
+Root's source-zero fix and reports are pushed through9d347d94. New production
+run/extend commands are still pending, and old campaigns remain untouched.
+
 ## October 15 — persisted R0 prefix passed; original-zero routing correction integrated
 
 Real durable PhaseA passed independent audit: all232 unchanged declarations,

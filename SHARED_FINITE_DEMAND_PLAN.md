@@ -41,6 +41,12 @@ append, inspect, publication and manual-refinement dispatch. Unsupported or
 resource-refused windows initially remain pending with a typed reason and exact
 checkpoint. No silent import of approximate symbolic completion is permitted.
 
+The user confirmed a **fresh campaign** for deployment of this backend. Reuse
+the existing owner rules and original input templates, but do not implement a
+CP6 traversal-ledger migration or claim to inherit its closed Work. Preserve
+the original campaign and its publications. Fresh finite checkpoints must still
+support subsequent interruption, resume, rank extension and manual refinement.
+
 Start with independently reviewed core and enumeration slices. Neither alone
 is a production backend or R6 delivery. Persistent authority follows their
 audits; no elaborate compatibility project for old traversal ledgers.
@@ -198,6 +204,21 @@ closure, window/occurrence counts, new Work/reuse hits, census, memory and
 checkpoint age. A prefix or empty local queue is not all-query closure.
 
 ## Ownership and gates
+
+Current delivery status:
+
+- Delivered/pushed: in-memory shared execution, exact prefix windows, generated
+  disk lifecycle, paged raw census and input-steered private durable diagnostic.
+- Passed: full cumulative R1 in-memory trace; 164-execution paged native gate;
+  real durable R0-prefix pause with all232 R0/R1 declarations retained.
+- Active: real fresh-process R1 continuation and complete census comparison;
+  raw-only provenance/publication/refinement/export integration and native gates.
+- Active optimization: indexed Work-page cache, motivated by 41.8 million page
+  cache probes during the R0 prefix despite only73MB of backing reads and no
+  evictions. Keep the fixed pilot as a comparator, with no result/scope changes.
+- Pending: production Rust/CLI/Python finite lifecycle, higher-rank resource
+  controls, complete R6 scoped publication and corresponding Vakint acceptance.
+  No existing `saved_campaign.py extend` invocation enables the private backend.
 
 - `intermediate_capture_app`: core complete-only/shared execution and tests.
 - `weighted_vk_gate_plan`: exact native prefix windows/cursor and tests.

@@ -1,5 +1,51 @@
 # Shared finite-demand tracing: complete R1 input pilots
 
+## Durable follow-up: completed prefix and a measured lookup bottleneck
+
+The separate paged backend passed its 164-execution native gate and a real
+planned pause after the original R0 prefix. It retained all232 R0/R1 query
+declarations and durably saved81 windows /2,557 occurrences /300,673 Work
+records at generation82. The result is correctly **paused**, not complete R1.
+There are131 exhausted rows: the116 originals plus15 already empty R1 rows.
+
+| Durable prefix measurement, four workers | Result |
+|---|---:|
+| Full driver including preparation/checks | 160.301 s |
+| Preparation / exact scope construction | 114.182 s |
+| All steps | 31.576 s |
+| Native calls including delta export, summed | 29.700 s |
+| Commits, summed | 1.106 s |
+| Peak process-tree RSS | 8.017 GB |
+| Checkpoint file bytes | 15,147,445 |
+| Backing page reads | 3,365 / 73.38 MB |
+| Cached-page probes | 41,837,465 |
+| Completed-baseline hits | 3,138,307 |
+| Page evictions | 0 |
+
+Independent audit passed at
+`TMP/finite-demand-durable-r1-validation-20261015/phase-a/independent-audit.json`.
+The same-source fresh-process R1 continuation is running under its separate
+30-minute inclusive guard; no full durable R1 result is claimed yet.
+
+The continuation exposes a CPU-side lookup cost that the in-memory result did
+not measure. For the same51-start row118, both versions close503,501 new Work
+states, apply239,050 rules, visit6,045,804 transport endpoints and reuse4,559,042
+completed states. The in-memory final native snapshot is4.670s; the durable
+final native snapshot is128.753s, with129.469s for the enclosing native call
+plus export and0.970s for its commit. The durable call performs153,004,129
+cached-page probes but only230 reads /7.139MB, with no evictions. This is a
+specific matched-work diagnostic, not a paired whole-campaign timing ratio.
+
+The current directory checks overlapping immutable runs. Its page cache also
+does linear digest lookup and movement in a `VecDeque`, under its existing
+cache mutex, on every hit. An isolated indexed-page-LRU implementation is now
+being tested, without changing the captured generation, format, lookup result,
+scope or byte budget. The fixed baseline continues unchanged. Further positive
+or complete-resident Work membership caching remains a separate design option,
+not an implemented speedup. Negative probes also contribute to the page counts;
+dividing page probes by positive baseline hits is not an exclusive positive-hit
+cost measurement.
+
 ## Follow-up: full cumulative R0+R1 trace completed
 
 A fourth, explicitly resource-governed diagnostic **completed all 232 unchanged
