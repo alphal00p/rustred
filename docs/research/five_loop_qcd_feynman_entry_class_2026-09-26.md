@@ -72,6 +72,15 @@ Result: 67 owners = 41 connected entry + 18 factorized entry + 8 non-entry
 Connected V4min histogram {0: 16, 1: 5, 2: 13, 3: 4, 4: 3}; factorized
 {1: 7, 2: 4, 3: 4, 4: 3}. Queries: 183 = 67 helpers + 41 x 2 + 8 x 2 + 18 x 1.
 
+The **18 factorized entry owners** above do not contradict the TIDE census's
+**19 factorized topology classes**. Representative `29702`, owner
+`101010000110001`, is factorized but has no cubic/quartic starting-skeleton
+realization in this classification. It is one of the eight non-entry owners
+and remains included through both D9 and D10 convenience roots. Thus no class
+is omitted. The planner regression explicitly checks all nineteen flags and
+this retained convenience pair. These are offline classification roles, not
+changes to native integral equivalence or assertions of unrestricted coverage.
+
 ## 3. Classification table (measured class/V4min; derived bounds)
 
 Roots list A_max / R_max and the difference band; the helper rank is the

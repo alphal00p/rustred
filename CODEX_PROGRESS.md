@@ -1,5 +1,57 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — continuation: both isolated runtime gates enter compilation
+
+The preceding goal turn made progress: completed and independently audited
+measurements changed the next experiment, and reports were pushed as `f28666d5`
+and `ef115d03`. The complete R6/D10 closure/application goal remains active.
+
+Read-only observation at approximately 15:47 UTC confirmed the user-started
+R4 extension (run `20261015T145946.137199Z`, PID3492453) alive, with580 cumulative
+requests and the previous R3 publication retained. Broad R6 PID3209036 is also
+alive. Its recursive-closure snapshot was more than five hours old; do not
+interpret its conservative closed count as current progress or derive an ETA.
+No production command, input, executable or checkpoint was changed.
+
+The shared-union ignored native test now passes independent source/protocol
+review and optimized type-checking (47.223s). It preserves all116 input rows,
+exactly enumerates every nonempty region, and compares full native terminal,
+zero and composite-rule sets between separate and shared traces. Initial setup
+and macro-spelling failures are retained under the isolated worktree's TMP;
+they were not engine failures or successful runtime tests. Optimized libtest
+build is session79432, `TMP/finite-union-diagnostic-20261015/TMP/build`,
+CPUs16--19/build0. Production `target/release/rustred` is not a build target.
+
+The actual Vakint Q gate also passes independent source review after fixing a
+test-only statistics getter and adding warm-cache/conversion assertions and
+three cheap instrumentation controls. Its first typecheck retained three
+diagnostic-only typing errors (130.228s); the corrected feature-on check passes
+in10.17s, and feature-off library check in63.19s. Optimized libtest build is now
+session9300, `TMP/weighted-vakint-gate-20261015/build`, CPUs28--35/build1, using
+the existing `TMP/intermediate-cache-current-stack-target`. The dependency graph
+retains Symbolica400a53c/3.0.1 and FeynKit024f96d; only RustRed core/app/order
+sources use the isolated78cbc-based Q change. No external pin or production
+checkout changes. The two builds use different targets and leased resources.
+
+Next executable gates: freeze each successful libtest; run the reviewed union
+pilot and, separately, the cheap Vk protocol controls before its full mixed-DOT
+pair. Whole-pilot limits include setup and shutdown. Independent reviewers must
+check actual completion and exact evidence before any integration or speed claim.
+The projected QCD ladder and physical-to-massive-family admission bridge remain
+open; the rational-only microbenchmark does not establish a benefit for their
+symbolic-dimension coefficients. The old ladder preparation outputs are absent
+from this migrated workspace and are not silently recovered from OLD_rustred.
+
+Root independently reconciled the census's19 factorized classes with the
+planner's18 factorized *entry* roles: representative29702 (owner101010000110001)
+has no cubic/quartic starting realization in the recorded classification, but
+is retained through both convenience roots. Added explicit planner-fixture
+assertions and the clarification to the entry-class document; no planner/input
+or campaign change. Independent reviewer rejoined the source manifests and
+passed both focused tests. Root's full planner/checker modules pass47 tests
+with one explicit slow-enumeration skip (48 discovered,2.135s). This is a scope
+bookkeeping regression, not a new all19-factorized reduction acceptance claim.
+
 ## October 15 — rational lowering mechanism passes; shared-union diagnostic next
 
 The complete six-case rational/AtomField benchmark passed all 36 timed calls,

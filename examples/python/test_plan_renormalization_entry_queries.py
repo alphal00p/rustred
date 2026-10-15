@@ -538,8 +538,21 @@ class FiveLoopTests(unittest.TestCase):
                               "factorized": {"1": 7, "2": 4, "3": 4, "4": 3}})
             self.assertEqual((summary["query_count"], summary["helper_count"], summary["root_count"]), (183, 67, 116))
             self.assertEqual(sorted(o["owner"] for o in receipt["owners"] if o["class"] == "non_entry"), NON_ENTRY)
+            # The census has nineteen factorized classes, but only eighteen
+            # have a cubic/quartic starting-skeleton realization. The remaining
+            # one is retained with convenience roots, not dropped from scope.
+            factorized = [o for o in receipt["owners"] if o["factorized"]]
+            self.assertEqual(len(factorized), 19)
+            factorized_non_entry = [o for o in factorized if not o["entry_capable"]]
+            self.assertEqual([(o["owner"], o["representative"], o["class"])
+                              for o in factorized_non_entry],
+                             [("101010000110001", 29702, "non_entry")])
             rows = load(root / "out" / "queries.json")["queries"]
             by_id = {q["id"]: q for q in rows}
+            self.assertEqual([q["id"] for q in rows if q["owner"] == "101010000110001"],
+                             ["owner-anchor-r6-anone-101010000110001",
+                              "conv-d10-a16-r6-101010000110001",
+                              "conv-d9-a14-r5-101010000110001"])
             # twelve-line connected owner, V4min 0: A <= 16 - 12 dots on active axes, R <= 6 on inactive axes
             self.assertEqual(by_id["phys-d10-a16-r6-111111111101001"]["upper"],
                              [4 if b == "1" else 6 for b in "111111111101001"])
