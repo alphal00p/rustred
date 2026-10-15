@@ -1,8 +1,12 @@
 //! Opt-in, whole-initial-domain exact replay. No cross-attempt memo or new terminal.
 
+mod account;
+mod binding;
 mod budget;
 mod census;
 mod enumeration;
+pub(super) use account::Account;
+pub(super) use binding::InitialBindings;
 pub(super) use census::{CensusLimits, CompletedCensus};
 
 #[cfg(test)]
@@ -55,6 +59,7 @@ impl OwnerDomainWalkFiniteReplayLimits {
 
 /// Opt-in semantic marker. Absent requests retain their existing identity.
 pub const OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION: u32 = 2;
+pub(super) const INITIAL_QUERIES_VERSION: u32 = 3;
 
 pub(super) fn budget_summary(request: &OwnerDomainWalkRequest) -> Option<Value> {
     budget::preparation(request)
@@ -83,39 +88,7 @@ use rustred::solver::{
     CandidateRoutedError, RoutedCandidateReducer,
 };
 use serde_json::{Value, json};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-
-/// Fresh-walk-only reservation and diagnostic account. This stores no keys,
-/// coefficients, domain graph or memoized closure. Enabled resumes are refused.
-pub(super) struct Account {
-    reserved: AtomicBool,
-    work: Mutex<Value>,
-}
-impl Default for Account {
-    fn default() -> Self {
-        Self {
-            reserved: AtomicBool::new(false),
-            work: Mutex::new(json!({"status":"not_attempted"})),
-        }
-    }
-}
-impl Account {
-    pub fn reserve(&self) -> bool {
-        !self.reserved.swap(true, Ordering::AcqRel)
-    }
-    pub fn record(&self, work: Value) {
-        *self
-            .work
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = work;
-    }
-    pub fn report(&self) -> Value {
-        json!({"attempts":usize::from(self.reserved.load(Ordering::Acquire)),
-            "max_attempts":1,"work":self.work.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone(),
-            "scope":"fresh whole initial ID0 only; includes declined or cancelled trace work; not proof"})
-    }
-}
 
 /// The image is the enclosing typed record's exact domain, not another copy
 /// in diagnostic JSON. The immutable pool/request binding supplies all payload,
@@ -138,7 +111,10 @@ pub(super) struct Recipe {
 }
 impl Recipe {
     pub fn validate(self) -> Result<(), &'static str> {
-        if self.version != OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION {
+        if !matches!(
+            self.version,
+            OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION | INITIAL_QUERIES_VERSION
+        ) {
             return Err("unsupported finite replay recipe version");
         }
         Ok(())
@@ -186,6 +162,14 @@ pub(super) fn original_initial<const N: usize>(
     let Some(query) = queries.first() else {
         return Err("missing original finite replay query".into());
     };
+    query_domain(reducer, request, query)
+}
+
+fn query_domain<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    request: &OwnerDomainWalkRequest,
+    query: &matching::input::Query,
+) -> Result<Option<Domain<N>>, String> {
     let installed = reducer.programs().owner_sectors().any(|owner| {
         owner.as_slice()
             == rustred::storage_array::<_, N>(&query.owner, false)
@@ -312,7 +296,7 @@ pub(super) fn run<const N: usize>(
     domain: &Domain<N>,
     recipe: Recipe,
     cancel: &AtomicBool,
-    account: Option<&Account>,
+    account: Option<&Account<N>>,
 ) -> Outcome {
     run_impl(reducer, domain, recipe, cancel, account, None)
 }
@@ -334,7 +318,7 @@ fn run_impl<const N: usize>(
     domain: &Domain<N>,
     recipe: Recipe,
     cancel: &AtomicBool,
-    account: Option<&Account>,
+    account: Option<&Account<N>>,
     census_limits: Option<CensusLimits>,
 ) -> Outcome {
     let policy = budget::summary(

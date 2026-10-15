@@ -124,7 +124,7 @@ fn finite_replay_whole_symbolic_envelope_closes_and_cold_repeats_every_seed() {
     );
     let mut violations = Violations::new(50);
     let loaded = load::<1>(&options(&request), false, &mut violations).unwrap();
-    assert_eq!(loaded.finite_replay.unwrap().version, 2);
+    assert_eq!(loaded.finite_replay[&0].version, 2);
     assert!(loaded.raw.edges.is_empty());
     let original: Value = serde_json::from_str(&request.matching.queries_json).unwrap();
     for key in ["max_positive_layers", "max_seed_points", "max_seed_bytes"] {
@@ -200,7 +200,7 @@ fn finite_replay_cp6_real_success_cold_reexecutes_and_rejects_changed_policy_cap
     let mut errors = Violations::new(50);
     let loaded = load::<1>(&options(&request), false, &mut errors).unwrap();
     assert!(errors.is_empty());
-    assert!(loaded.finite_replay.is_some());
+    assert_eq!(loaded.finite_replay.len(), 1);
     assert!(loaded.raw.edges.is_empty());
     let mut partial = options(&request);
     partial.reinspect = OwnerDomainWalkVerifyReinspect::None;
@@ -243,7 +243,7 @@ fn finite_replay_zero_budget_fallback_matches_default_off_symbolic_graph() {
     let a = load::<1>(&options(&off), false, &mut errors).unwrap();
     let b = load::<1>(&options(&on), false, &mut errors).unwrap();
     assert!(errors.is_empty());
-    assert!(a.finite_replay.is_none() && b.finite_replay.is_none());
+    assert!(a.finite_replay.is_empty() && b.finite_replay.is_empty());
     assert_eq!(a.domains, b.domains);
     assert_eq!(a.raw.edges, b.raw.edges);
     assert_eq!(a.raw.flags, b.raw.flags);
@@ -314,6 +314,132 @@ fn finite_inventory_fast_and_deep_replay_once_with_exact_separate_census() {
     assert!(
         owner_domain_walk_verify_closure(&request, &bad, &AtomicBool::new(false), |_| {}).is_err()
     );
+}
+
+#[test]
+fn initial_queries_replay_every_bound_record_and_census_each_case_once() {
+    let (_dir, mut request) = fixture("finite-initial-queries-cold");
+    request.finite_replay_initial_queries = true;
+    request.epoch_rolling = true;
+    request.route_domain_overcover = true;
+    request.route_joint_source_support_pruning = true;
+    let mut queries: Value = serde_json::from_str(&request.matching.queries_json).unwrap();
+    let mut second = queries["queries"][0].clone();
+    second["id"] = json!("second-whole-query");
+    second["lower"] = json!([3]);
+    second["upper"] = json!([3]);
+    second["power_bounds"] = json!({"max_positive_power":4,
+        "min_power_difference":4,"max_power_difference":4});
+    queries["queries"].as_array_mut().unwrap().push(second);
+    queries["query_roles"] = json!({"required":["root","second-whole-query"],"auxiliary":[]});
+    request.matching.queries_json = queries.to_string();
+    let walked = walk(&request);
+    assert_eq!(walked["queued_nodes"], 0, "{walked}");
+    let mut violations = Violations::new(50);
+    let loaded = load::<1>(&options(&request), false, &mut violations).unwrap();
+    assert!(violations.is_empty());
+    assert_eq!(loaded.finite_replay.len(), 2);
+    assert!(
+        loaded
+            .finite_replay
+            .values()
+            .all(|recipe| recipe.version == finite::INITIAL_QUERIES_VERSION)
+    );
+    let checked = cold(&request);
+    assert_eq!(checked["verdict"], "PASS", "{checked}");
+    let cases = &checked["reinspection"]["tally"]["finite_replay"];
+    assert_eq!(cases["records"], 2, "{checked}");
+    assert_eq!(cases["work_by_record"].as_object().unwrap().len(), 2);
+    for work in cases["work_by_record"].as_object().unwrap().values() {
+        assert_eq!(work["status"], "closed");
+        assert_eq!(work["requested_targets"], 1);
+    }
+    let mut terminal_sets = Vec::new();
+    for deep in [false, true] {
+        let mut opts = crate::OwnerDomainWalkInventoryOptions::new(
+            &request.checkpoint.as_ref().unwrap().directory,
+        );
+        opts.deep_verification = deep;
+        let inventory =
+            crate::owner_domain_walk_inventory(&request, &opts, &AtomicBool::new(false), |_| {})
+                .unwrap();
+        let summary = inventory.summary();
+        assert_eq!(summary["complete"], true, "{summary}");
+        assert_eq!(summary["encountered"]["finite_replay"]["invocations"], 2);
+        assert_eq!(summary["encountered"]["selected_rule_events"], 0);
+        assert_eq!(
+            summary["encountered"]["finite_replay"]["rule_applications"],
+            5
+        );
+        terminal_sets.push(inventory.terminal_keys().clone());
+    }
+    assert_eq!(terminal_sets[0], terminal_sets[1]);
+    assert_eq!(terminal_sets[0].len(), 1);
+
+    // Each whole query is authenticated, not only ID0 or the original prefix.
+    let mut changed = request.clone();
+    queries["queries"][1]["lower"] = json!([4]);
+    changed.matching.queries_json = queries.to_string();
+    rejected(&changed);
+
+    // Appended IDs can lie beyond p0. The amendment binds the original request,
+    // not the reference request with optional joint pruning disabled.
+    request.checkpoint.as_mut().unwrap().resume = true;
+    let parent = checkpoint::epoch_request_binding(&request);
+    request.amendments.push(crate::OwnerDomainWalkAmendment {
+        path: request
+            .checkpoint
+            .as_ref()
+            .unwrap()
+            .directory
+            .join("scope-extension.json"),
+        text: json!({"schema":super::super::super::rescue::SCOPE_EXTENSION_SCHEMA,
+            "sequence":1,"parent":parent,"queries":[{
+                "id":"third-appended-query","owner":"1","lower":[4],"upper":[4],
+                "max_numerator_rank":0,"power_bounds":{"max_positive_power":5,
+                "min_power_difference":5,"max_power_difference":5}},
+                {"id":"appended-alias","owner":"1","lower":[2],"upper":[2],
+                "max_numerator_rank":0,"power_bounds":{"max_positive_power":3,
+                "min_power_difference":3,"max_power_difference":3}}],
+            "query_roles":{"required":["third-appended-query","appended-alias"],"auxiliary":[]}
+        })
+        .to_string(),
+    });
+    let resumed = walk(&request);
+    assert_eq!(resumed["queued_nodes"], 0, "{resumed}");
+    let mut errors = Violations::new(50);
+    let loaded = load::<1>(&options(&request), false, &mut errors).unwrap();
+    assert!(errors.is_empty());
+    assert_eq!(loaded.raw.counters[10], 2);
+    assert_eq!(loaded.raw.inputs.len(), 4);
+    assert_eq!(loaded.finite_replay.len(), 3);
+    assert!(loaded.finite_replay.keys().any(|&id| id >= 2));
+    let checked = cold(&request);
+    assert_eq!(checked["verdict"], "PASS", "{checked}");
+    assert_eq!(
+        checked["reinspection"]["tally"]["finite_replay"]["records"],
+        3
+    );
+    for deep in [false, true] {
+        let mut opts = crate::OwnerDomainWalkInventoryOptions::new(
+            &request.checkpoint.as_ref().unwrap().directory,
+        );
+        opts.deep_verification = deep;
+        let inventory =
+            crate::owner_domain_walk_inventory(&request, &opts, &AtomicBool::new(false), |_| {})
+                .unwrap();
+        let summary = inventory.summary();
+        assert_eq!(summary["complete"], true, "{summary}");
+        assert_eq!(summary["encountered"]["finite_replay"]["invocations"], 3);
+        assert_eq!(
+            summary["encountered"]["finite_replay"]["rule_applications"],
+            9
+        );
+        assert_eq!(inventory.terminal_keys(), &terminal_sets[0]);
+    }
+    let mut missing_amendment = request.clone();
+    missing_amendment.amendments.clear();
+    rejected(&missing_amendment);
 }
 
 #[test]
@@ -522,7 +648,7 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
     let loaded = load::<1>(&options(&request), false, &mut violations).unwrap();
     assert!(violations.is_empty());
 
-    let original_recipe = loaded.finite_replay.unwrap();
+    let original_recipe = loaded.finite_replay[&0];
     let graph = Graph::from_edges(loaded.domains.len(), &loaded.raw.edges).unwrap();
     let containment = Containment::new(0, 0);
     let cancel = AtomicBool::new(false);
@@ -534,8 +660,11 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
     let reducer = prepare::prepare::<1>(&load_request, &selection, limits, &cancel, &|_| {})
         .unwrap()
         .unwrap();
+    let replay_lock = Mutex::new(());
     let ctx = Ctx {
         request: &request,
+        scope_request: &request,
+        finite_replay_lock: &replay_lock,
         reducer: &reducer,
         loaded: &loaded,
         graph: &graph,
@@ -544,7 +673,7 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
         failing: None,
         count_parity: true,
     };
-    let domain = binding(&ctx, original_recipe).unwrap();
+    let domain = binding(&ctx, 0, original_recipe).unwrap();
     let census_limits = finite::CensusLimits {
         rules: rustred::solver::CandidateRoutedTraceCensusLimits {
             max_unique_selections: 0,
@@ -575,7 +704,7 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
     ));
     assert_eq!(refused.work()["status"], "census_error");
     let mut tally = Tally::default();
-    reinspect(&ctx, original_recipe, &mut tally, &mut violations, None);
+    reinspect(&ctx, 0, original_recipe, &mut tally, &mut violations, None);
     assert_eq!(tally.errors, 0);
     assert!(violations.is_empty());
 
@@ -585,7 +714,7 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
     };
     let mut old_tally = Tally::default();
     let mut old_errors = Violations::new(50);
-    reinspect(&ctx, old_recipe, &mut old_tally, &mut old_errors, None);
+    reinspect(&ctx, 0, old_recipe, &mut old_tally, &mut old_errors, None);
     assert_eq!(old_tally.errors, 1);
     assert!(!old_errors.is_empty());
 
@@ -604,7 +733,7 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
     };
     let mut tally = Tally::default();
     let mut errors = Violations::new(50);
-    reinspect(&capped_ctx, recipe, &mut tally, &mut errors, None);
+    reinspect(&capped_ctx, 0, recipe, &mut tally, &mut errors, None);
     assert_eq!(tally.errors, 1);
     assert!(!errors.is_empty());
     assert_eq!(
@@ -629,7 +758,14 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
         };
         let mut tally = Tally::default();
         let mut errors = Violations::new(50);
-        reinspect(&changed_ctx, changed_recipe, &mut tally, &mut errors, None);
+        reinspect(
+            &changed_ctx,
+            0,
+            changed_recipe,
+            &mut tally,
+            &mut errors,
+            None,
+        );
         assert_eq!(tally.errors, 1);
         assert!(!errors.is_empty());
     }
@@ -664,6 +800,7 @@ fn finite_replay_cold_requires_actual_trace_not_success_counters() {
     let mut errors = Violations::new(50);
     reinspect(
         &frontier_ctx,
+        0,
         original_recipe,
         &mut tally,
         &mut errors,

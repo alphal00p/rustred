@@ -29,6 +29,10 @@ pub(super) struct Provisional<const N: usize> {
     pub rescue: Option<super::super::super::rescue::State>,
     pub record_segments:
         Vec<crate::application::routed_campaign::walking::checkpoint::manifest::Segment>,
+    pub finite_records: Vec<(
+        u32,
+        crate::application::routed_campaign::walking::finite_replay::Recipe,
+    )>,
 }
 
 impl<const N: usize> Provisional<N> {
@@ -42,7 +46,7 @@ impl<const N: usize> Provisional<N> {
         reducer: &rustred::solver::RoutedCandidateReducer<N>,
     ) -> io::Result<roots::Roots> {
         identity.validate_saved(&self.scalars, self.scalars.lockstep_b)?;
-        roots::read(
+        let roots = roots::read(
             directory,
             file(&self.manifest, "inputs")?,
             file(&self.manifest, "input-frontiers")?,
@@ -50,7 +54,39 @@ impl<const N: usize> Provisional<N> {
             reducer,
             &self.store,
             self.scalars.p0,
-        )
+        )?;
+        // roots::read authenticates containment, not necessarily equality for
+        // reused/append rows. A finite recipe additionally needs an exact
+        // whole-query witness, never merely a narrower alias to a descendant.
+        let input_ids =
+            if self.finite_records.is_empty() && !identity.finite_replay_resume_supported() {
+                Default::default()
+            } else {
+                roots::exact_input_ids(identity, reducer, &self.store, &roots.rows)?
+            };
+        if self
+            .finite_records
+            .iter()
+            .any(|(id, _)| !input_ids.contains(id))
+        {
+            return Err(invalid(
+                "epoch finite record is not an authenticated whole input query",
+            ));
+        }
+        if identity.finite_replay_resume_supported()
+            && self
+                .dispatch
+                .in_flight
+                .keys()
+                .filter(|id| input_ids.contains(id))
+                .count()
+                > 1
+        {
+            return Err(invalid(
+                "epoch finite checkpoint contains multiple outstanding initial queries",
+            ));
+        }
+        Ok(roots)
     }
 }
 
@@ -383,7 +419,7 @@ pub(super) fn read_manifest_with_control<const N: usize>(
         control,
     )?;
     control.stage("records", 0, edges.runs() as usize)?;
-    let record_segments = record_body::read(
+    let (record_segments, finite_records) = record_body::read(
         directory,
         file(&manifest, "record-segments")?,
         manifest.generation,
@@ -396,6 +432,9 @@ pub(super) fn read_manifest_with_control<const N: usize>(
             counters: &scalars.walk,
             k: scalars.k,
             input_frontiers: scalars.input_frontiers,
+            finite_policy: identity.finite_replay_recipe(),
+            max_finite_records: usize::try_from(file(&manifest, "inputs")?.count)
+                .map_err(|_| invalid("epoch finite input census count range"))?,
         },
     )?;
     control.stage("records", edges.runs() as usize, edges.runs() as usize)?;
@@ -413,6 +452,7 @@ pub(super) fn read_manifest_with_control<const N: usize>(
         dispatch,
         rescue,
         record_segments,
+        finite_records,
     })
 }
 

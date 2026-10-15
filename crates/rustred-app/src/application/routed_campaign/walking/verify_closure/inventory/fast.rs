@@ -68,15 +68,21 @@ pub(in crate::application::routed_campaign::walking::verify_closure) fn run<cons
     );
     let mut finite_tally = Tally::default();
     let finite_started = Instant::now();
-    if let Some(recipe) = loaded.finite_replay
-        && violations.is_empty()
-        && !cancellation.load(Ordering::Relaxed)
-    {
-        observer(json!({"event":"inventory_finite_replay_started","record":0,
-            "policy":"exact_native_no_symbolic_shortcuts"}));
+    let finite_replay_lock = Mutex::new(());
+    for (&id, &recipe) in &loaded.finite_replay {
+        if !violations.is_empty() || cancellation.load(Ordering::Relaxed) {
+            break;
+        }
+        observer(
+            json!({"event":"inventory_finite_replay_started","record":id,
+            "completed":finite_tally.inspected,"total":loaded.finite_replay.len(),
+            "policy":"exact_native_no_symbolic_shortcuts"}),
+        );
         let containment = Containment::new(0, 0);
         let ctx = Ctx {
             request,
+            scope_request: request,
+            finite_replay_lock: &finite_replay_lock,
             reducer,
             loaded: &loaded,
             graph: &graph,
@@ -87,6 +93,7 @@ pub(in crate::application::routed_campaign::walking::verify_closure) fn run<cons
         };
         finite_replay::reinspect(
             &ctx,
+            id,
             recipe,
             &mut finite_tally,
             &mut violations,
@@ -157,11 +164,12 @@ pub(in crate::application::routed_campaign::walking::verify_closure) fn run<cons
             "reinspect_seconds":0,"total_seconds":started.elapsed().as_secs_f64()},
         "memory":memory_status(),
     });
-    if loaded.finite_replay.is_some() {
+    if !loaded.finite_replay.is_empty() {
         report["timing"]["finite_replay_seconds"] = json!(finite_seconds);
-        report["reinspection"]["finite_replay"] = json!(finite_tally.finite_replay_work);
-        report["reinspection"]["finite_recipe_replayed"] =
-            json!(finite_tally.errors == 0 && finite_tally.inspected == 1);
+        report["reinspection"]["finite_replay"] = finite_tally.finite_json();
+        report["reinspection"]["finite_recipe_replayed"] = json!(
+            finite_tally.errors == 0 && finite_tally.inspected == loaded.finite_replay.len() as u64
+        );
         report["reinspection"]["finite_policy"] =
             json!("exact_native_no_symbolic_shortcuts; ordinary covers remain trusted saved scope");
     }

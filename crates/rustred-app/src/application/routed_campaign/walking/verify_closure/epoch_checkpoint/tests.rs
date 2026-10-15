@@ -919,7 +919,7 @@ fn cp6_summary_binding_is_explicitly_incomplete_and_generation_mismatch_is_not_w
         g2: BTreeMap::new(),
         positions: vec![u64::MAX],
         epoch: Some(epoch),
-        finite_replay: None,
+        finite_replay: BTreeMap::new(),
     };
     let path = fixture.directory.join("summary.json");
     for generation in [1, 2] {

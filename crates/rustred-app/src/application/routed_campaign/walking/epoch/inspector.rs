@@ -34,7 +34,7 @@ pub(super) struct Context<'a, const N: usize> {
     pub overlap: &'a InitialOverlapIndex<N>,
     pub cancellation: &'a AtomicBool,
     pub g2: Option<&'a super::super::g2::Store<N>>,
-    pub finite_account: Option<&'a super::super::finite_replay::Account>,
+    pub finite_account: Option<&'a super::super::finite_replay::Account<N>>,
 }
 
 /// A C3 result without stats for a panic outside the native call (result

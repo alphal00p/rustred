@@ -93,7 +93,7 @@ pub(super) fn run<const N: usize>(
         if !node.native() || node.abandoned {
             continue;
         }
-        if id == 0 && loaded.finite_replay.is_some() {
+        if loaded.finite_replay.contains_key(&id) {
             // Already replayed exactly into its separate finite census. A
             // matching-only pass over its initial region would omit descendants.
             continue;

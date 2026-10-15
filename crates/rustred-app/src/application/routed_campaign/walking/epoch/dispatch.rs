@@ -10,6 +10,7 @@ use super::state::{EpochState, JobMeta};
 use std::collections::VecDeque;
 
 pub(super) mod adaptive;
+mod finite;
 
 pub(super) struct Dispatch {
     cursor: u32,
@@ -23,6 +24,9 @@ pub(super) struct Dispatch {
     /// A restored input prefix is saveable, never a complete query set.
     admission_ready: bool,
     adaptive: Option<adaptive::Saved>,
+    /// Ephemeral scan hint only. The persisted cursor never advances beyond a
+    /// blocked Pending initial query, so CP6 does not need a new pending set.
+    finite_scan: u32,
 }
 
 /// Borrowed execution order, not reconstructed from the ledger. Session and
@@ -141,6 +145,7 @@ impl Dispatch {
             replay_pending: false,
             admission_ready: true,
             adaptive: None,
+            finite_scan: 0,
         }
     }
 
@@ -241,6 +246,7 @@ impl Dispatch {
             replay_pending: !jobs.is_empty(),
             admission_ready,
             adaptive,
+            finite_scan: cursor,
         };
         for job in &mut jobs {
             dispatch.counter += 1; // Bounded by the preflighted job count above.
@@ -336,6 +342,9 @@ impl Dispatch {
             return Refill::SequenceExhausted;
         }
         let want = want.min(usize::try_from(remaining).unwrap_or(usize::MAX));
+        if state.finite_roots.is_some() {
+            return self.refill_finite(state, want);
+        }
         let mut jobs = Vec::with_capacity(want);
         if let Some(id) = self.deferred.pop_front() {
             jobs.push(self.job(state, id));
@@ -433,6 +442,75 @@ mod tests {
             .unwrap();
         }
         state
+    }
+
+    #[test]
+    fn finite_gate_keeps_second_root_pending_but_issues_ordinary_descendants() {
+        let mut state = adaptive_state(7);
+        state.finite_roots=Some(std::sync::Arc::new(
+            crate::application::routed_campaign::walking::finite_replay::InitialBindings::from_domains(
+                [0,1,4].map(|id|(id,state.store.domains[id as usize].expand())))));
+        let mut dispatch = Dispatch::new();
+        let Refill::Jobs(first) = dispatch.refill(&mut state, 7) else {
+            panic!("first jobs")
+        };
+        assert_eq!(
+            first.iter().map(|job| job.parent).collect::<Vec<_>>(),
+            [0, 2, 3, 5, 6]
+        );
+        assert_eq!(dispatch.checkpoint_snapshot().cursor, 1);
+        assert!(matches!(state.ledger.get(1), Ok(Entry6::Pending(_))));
+        assert!(matches!(state.ledger.get(4), Ok(Entry6::Pending(_))));
+        assert!(matches!(dispatch.refill(&mut state, 7), Refill::Stalled));
+        // P3 removes the completed case from in_flight. Merely having its
+        // worker result ready did not release the gate above.
+        state.in_flight.remove(&0);
+        let Refill::Jobs(next) = dispatch.refill(&mut state, 7) else {
+            panic!("next root")
+        };
+        assert_eq!(next.iter().map(|job| job.parent).collect::<Vec<_>>(), [1]);
+        assert_eq!(dispatch.checkpoint_snapshot().cursor, 4);
+        state.in_flight.remove(&1);
+        let Refill::Jobs(last) = dispatch.refill(&mut state, 7) else {
+            panic!("last root")
+        };
+        assert_eq!(last.iter().map(|job| job.parent).collect::<Vec<_>>(), [4]);
+    }
+
+    #[test]
+    fn finite_gate_retains_blocked_reserved_retries_in_durable_queues() {
+        let mut state = adaptive_state(4);
+        let roots=std::sync::Arc::new(
+            crate::application::routed_campaign::walking::finite_replay::InitialBindings::from_domains(
+                [0,1].map(|id|(id,state.store.domains[id as usize].expand()))));
+        let mut dispatch = Dispatch::new();
+        let Refill::Jobs(_) = dispatch.refill(&mut state, 2) else {
+            panic!("reserve")
+        };
+        state.in_flight.remove(&1);
+        dispatch.requeue(1, 1);
+        state.finite_roots = Some(roots);
+        let Refill::Jobs(jobs) = dispatch.refill(&mut state, 4) else {
+            panic!("descendants")
+        };
+        assert_eq!(
+            jobs.iter().map(|job| job.parent).collect::<Vec<_>>(),
+            [2, 3]
+        );
+        assert_eq!(
+            dispatch
+                .checkpoint_snapshot()
+                .requeue
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            [1]
+        );
+        state.in_flight.remove(&0);
+        let Refill::Jobs(jobs) = dispatch.refill(&mut state, 4) else {
+            panic!("retry")
+        };
+        assert_eq!(jobs[0].parent, 1);
     }
 
     #[test]

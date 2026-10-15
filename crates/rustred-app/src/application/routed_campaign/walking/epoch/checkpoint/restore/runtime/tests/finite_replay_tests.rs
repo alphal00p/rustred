@@ -12,7 +12,7 @@ use crate::application::routed_campaign::walking::{
 };
 use std::sync::atomic::AtomicBool;
 
-fn limits() -> OwnerDomainWalkFiniteReplayLimits {
+pub(super) fn limits() -> OwnerDomainWalkFiniteReplayLimits {
     OwnerDomainWalkFiniteReplayLimits {
         max_nodes: 1000,
         max_rule_applications: 1000,
@@ -81,7 +81,7 @@ fn job(f: &Fixture) -> Job<1> {
         .unwrap(),
     }
 }
-fn inspect(f: &Fixture, j: &Job<1>, account: &Account, cancel: &AtomicBool) -> JobResult<1> {
+fn inspect(f: &Fixture, j: &Job<1>, account: &Account<1>, cancel: &AtomicBool) -> JobResult<1> {
     let overlap = InitialOverlapIndex::empty();
     JobResult::decode(&inspect_job(
         &Context {

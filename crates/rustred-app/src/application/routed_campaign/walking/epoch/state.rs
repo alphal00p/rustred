@@ -73,6 +73,9 @@ pub(super) struct EpochState<const N: usize> {
     pub anchors: AnchorMap,
     pub merged_view: MergedView,
     pub g2_store: Option<std::sync::Arc<super::super::g2::Store<N>>>,
+    /// Derived from authenticated input/amendment rows, never serialized as
+    /// standalone authority. Rebuilt before inspectors or merge on v3 resume.
+    pub finite_roots: Option<std::sync::Arc<super::super::finite_replay::InitialBindings<N>>>,
     pub rescue: Option<super::rescue::State>,
     pub tracker: Tracker,
     /// Merge counter k (S_k is the state after merge k).
@@ -110,6 +113,7 @@ impl<const N: usize> EpochState<N> {
             anchors: AnchorMap::default(),
             merged_view: MergedView::default(),
             g2_store: None,
+            finite_roots: None,
             rescue: None,
             tracker: Tracker::new(0),
             k: 0,

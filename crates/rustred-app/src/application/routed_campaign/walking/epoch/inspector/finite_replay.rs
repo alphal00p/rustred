@@ -1,4 +1,5 @@
-//! ID0 eligibility and result adaptation; no alternative algebra or scheduler.
+//! Exact initial-query eligibility and result adaptation, using the existing
+//! native trace. V2 retains its original ID0/fresh-only contract.
 use super::super::super::{finite_replay as finite, inspection, queue::Phase};
 use super::super::job::{JobResult, NativeKind};
 use super::{Context, Job};
@@ -10,28 +11,66 @@ pub(super) fn attempt<const N: usize>(
     job: &Job<N>,
 ) -> Option<finite::Outcome> {
     let limits = context.request.finite_replay?;
-    if job.parent != 0 || job.attempts != 0 || job.flags != 0 {
+    if job.flags != 0 {
         return None;
     }
     let domain = job.image.expand();
+    let account = context.finite_account?;
+    let v3 = context.request.finite_replay_initial_queries;
+    let _permit = if v3 {
+        if !account
+            .bindings()
+            .is_some_and(|bindings| bindings.matches(job.parent, &domain))
+        {
+            return None;
+        }
+        match account.acquire(job.parent, context.cancellation) {
+            Ok(Some(permit)) => Some(permit),
+            Ok(None) => return None,
+            Err(()) => {
+                return Some(finite::Outcome::Failed {
+                    error: "finite initial query cancelled before admission".into(),
+                    cancelled: true,
+                    work: serde_json::json!({"status":"cancelled","attempted":false}),
+                });
+            }
+        }
+    } else {
+        if job.parent != 0 || job.attempts != 0 {
+            return None;
+        }
+        None
+    };
     // G2 never applies to a true initial ID; reject a malformed context rather
     // than reinterpreting a partial obligation as a whole-domain summary.
-    if context
-        .g2
-        .is_some_and(|g2| g2.eligible(job.parent as usize, &domain))
-        || (context.request.reuse_initial_d_bands
-            && context
-                .overlap
-                .plan(&domain, context.cancellation)
-                .is_some())
+    if !v3
+        && (context
+            .g2
+            .is_some_and(|g2| g2.eligible(job.parent as usize, &domain))
+            || (context.request.reuse_initial_d_bands
+                && context
+                    .overlap
+                    .plan(&domain, context.cancellation)
+                    .is_some()))
     {
         return None;
     }
-    let account = context.finite_account?;
-    if !account.reserve() {
+    if !v3 && !account.reserve() {
         return None;
     }
     let outcome = catch_unwind(AssertUnwindSafe(|| {
+        if v3 {
+            return finite::run(
+                context.reducer,
+                &domain,
+                finite::Recipe {
+                    version: finite::INITIAL_QUERIES_VERSION,
+                    limits,
+                },
+                context.cancellation,
+                Some(account),
+            );
+        }
         match finite::original_initial(context.reducer, context.request) {
             Ok(Some(original)) if original == domain => finite::run(
                 context.reducer,
@@ -59,6 +98,7 @@ pub(super) fn attempt<const N: usize>(
         work: account.report(),
     });
     account.record(outcome.work().clone());
+    account.completed_attempt(&outcome);
     Some(outcome)
 }
 

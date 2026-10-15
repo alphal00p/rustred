@@ -1,5 +1,28 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — B source/runtime milestone passed; real extension gate next
+
+Corrected optimized app test build passed in793.525s. Frozen binary SHA256
+`759f8f84d71f0ed6ce0767d8eb072e677f59617a1f61b9b6bd2f34fd7184a258`, under
+`TMP/releases/20261015-finite-initial-queries-retry/`. All12 new B tests passed,
+including the exact1-commit→2-resume→1-appended-case lifecycle and pre-session
+malformed-state rejection. All210 disjoint legacy regressions passed. The
+auditor found19 older v2/cold/export/parser/dispatch tests omitted from that
+selection; their supplemental modules also passed. Deduplicated result:
+**241 native tests**, no ignored or skipped cases. Independent source/runtime
+audit approves the source-and-unit milestone, not the pending real-data gate.
+
+Receipts: `TMP/finite-initial-queries-focused-runtime-retry-20261015/`,
+`TMP/finite-initial-queries-legacy-runtime-retry-20261015/`, and
+`TMP/finite-initial-queries-supplemental-runtime-20261015/`.
+The production CLI build passed in289.394s; frozen executable in the same
+release directory has SHA256
+`92490ebf50f32014ae2978e18c95de4fe3638ada7185b9d0a54f0edc00d836d1`.
+No user campaign was upgraded. The next executable step is the audited isolated
+real9-pointR0→unchanged resume→279-pointR1→cold replay protocol in
+`TMP/finite-initial-queries-real-plan-20261015/`. Four-parent whole-input
+comparisons follow separately; neither substitutes for unrestricted closure.
+
 ## October 15 — R2 physical controls delivered; native B rerun in progress
 
 GammaLoop `vakint_rustred` now contains the audited five-file test/documentation

@@ -67,6 +67,46 @@ pub(super) struct Roots {
     pub frontiers: Vec<Value>,
 }
 
+/// Called only after `read` authenticated all rows. Containment aliases are
+/// legitimate input coverage, but cannot authorize a whole-domain recipe.
+pub(super) fn exact_input_ids<const N: usize>(
+    identity: &Identity<'_>,
+    reducer: &RoutedCandidateReducer<N>,
+    store: &Store<N>,
+    rows: &[Value],
+) -> io::Result<std::collections::BTreeSet<u32>> {
+    let mut exact = std::collections::BTreeSet::new();
+    for (row, (query, amendment)) in rows
+        .iter()
+        .zip(identity.query_rows(identity.amendments().len()))
+    {
+        let Some(id) = row["domain"].as_u64().and_then(|id| u32::try_from(id).ok()) else {
+            continue;
+        };
+        let Some(phase) = phase_for(identity, reducer, query, amendment) else {
+            continue;
+        };
+        let domain = Domain {
+            phase,
+            owner: rustred::storage_array(&query.owner, false)
+                .ok_or_else(|| invalid("finite exact input owner arity"))?,
+            lower: rustred::storage_array::<_, N>(&query.lower, 0)
+                .ok_or_else(|| invalid("finite exact input lower arity"))?
+                .to_vec(),
+            upper: rustred::storage_array::<_, N>(&query.upper, Some(0))
+                .ok_or_else(|| invalid("finite exact input upper arity"))?
+                .to_vec(),
+            rank: query.rank,
+            powers: query.powers,
+        };
+        let image = CompactDomain::try_from_domain(&domain).map_err(io::Error::other)?;
+        if store.domains.get(id as usize) == Some(&image) {
+            exact.insert(id);
+        }
+    }
+    Ok(exact)
+}
+
 fn phase_for<const N: usize>(
     identity: &Identity<'_>,
     reducer: &RoutedCandidateReducer<N>,

@@ -128,7 +128,7 @@ pub(super) fn open_with_control<const N: usize>(
     control: &Control<'_>,
 ) -> io::Result<Restored<N>> {
     control.check()?;
-    if identity.finite_replay_enabled() {
+    if identity.finite_replay_enabled() && !identity.finite_replay_resume_supported() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "finite replay runtime resume is unsupported; cold checkpoint verification remains available",
@@ -210,6 +210,7 @@ pub(super) fn open_with_control<const N: usize>(
         anchors,
         merged_view: MergedView::default(),
         g2_store: None,
+        finite_roots: None,
         rescue,
         tracker,
         k: scalars.k,

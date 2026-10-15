@@ -170,7 +170,7 @@ fn identity<const N: usize>(
     loaded: &Loaded<N>,
     collector: &Collector,
 ) -> Option<Identity> {
-    if loaded.finite_replay.is_some() {
+    if !loaded.finite_replay.is_empty() {
         return None;
     }
     bound_identity(request, loaded, collector, SCHEMA)
@@ -231,7 +231,7 @@ impl Collector {
         request: &OwnerDomainWalkRequest,
         loaded: &Loaded<N>,
     ) {
-        if loaded.finite_replay.is_some() {
+        if !loaded.finite_replay.is_empty() {
             *self.census_identity.lock().expect("finite census identity") =
                 bound_identity(request, loaded, self, FINITE_SCHEMA);
         }

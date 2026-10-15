@@ -25,6 +25,7 @@ use std::sync::Arc;
 
 mod admission_tests;
 mod controller_tests;
+mod finite_queries_tests;
 mod finite_replay_tests;
 mod preferred_subset_tests;
 mod public_tests;

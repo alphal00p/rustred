@@ -43,7 +43,7 @@ fn budget_preflight(args: &OwnerDomainMatchArgs) -> Result<(), CliError> {
         .finite_replay_budget_summary()
         .ok_or_else(|| CliError::Input("finite budget preflight requires finite replay".into()))?;
     let document = json!({"schema":"rustred.finite-replay-budget-preflight.v1",
-        "status":"NUMERIC_POLICY_ONLY", "version":crate::OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION,
+        "status":"NUMERIC_POLICY_ONLY", "version":request.finite_replay_version(),
         "budget":budget,"native_prepared":false,"inputs_admitted":false,"checkpoint_created":false});
     crate::application::atomic_file::write_file_atomically_with(&args.output, false, |file| {
         serde_json::to_writer_pretty(&mut *file, &document).map_err(|e| e.to_string())?;
@@ -228,6 +228,7 @@ fn walk_request(
 ) -> OwnerDomainWalkRequest {
     let mut walk = OwnerDomainWalkRequest::new(request);
     walk.finite_replay = args.finite_replay;
+    walk.finite_replay_initial_queries = args.finite_replay_initial_queries;
     walk.workers = args.workers;
     walk.inspection_workers = args.inspection_workers;
     walk.publication_policy = args.publication_policy;

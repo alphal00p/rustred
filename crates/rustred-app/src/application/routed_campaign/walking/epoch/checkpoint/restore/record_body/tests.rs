@@ -141,6 +141,8 @@ fn view(state: &EpochState<2>, input_frontiers: usize) -> View<'_, 2> {
         counters: &state.counters,
         k: state.k,
         input_frontiers,
+        finite_policy: None,
+        max_finite_records: 0,
     }
 }
 
@@ -189,7 +191,7 @@ fn native_body(row: &mut Record) -> &mut Native {
 
 fn check(state: &EpochState<2>, rows: &[Record], initial: usize) -> io::Result<Vec<Segment>> {
     let (directory, file, _) = files(rows);
-    read(&directory.0, &file, 1, view(state, initial))
+    read(&directory.0, &file, 1, view(state, initial)).map(|(segments, _)| segments)
 }
 
 #[test]
@@ -201,7 +203,7 @@ fn actual_merge_and_sidecar_preserve_c2_prefix_and_accepted_counters() {
     assert_eq!(rows[2].project().unwrap()["stats"]["successors"], 2);
     let (directory, file, segments) = files(&rows);
     assert_eq!(
-        read(&directory.0, &file, 1, view(&state, 1)).unwrap(),
+        read(&directory.0, &file, 1, view(&state, 1)).unwrap().0,
         segments
     );
     assert!(check(&state, &rows, 0).is_err());

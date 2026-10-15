@@ -111,6 +111,7 @@ _SUPERVISOR_SPEC = importlib.util.spec_from_file_location(
     "shared_owner_campaign", Path(__file__).with_name("shared_owner_campaign.py"))
 SUPERVISOR = importlib.util.module_from_spec(_SUPERVISOR_SPEC)
 _SUPERVISOR_SPEC.loader.exec_module(SUPERVISOR)
+FROZEN_OPTIONS += SUPERVISOR.FINITE_REPLAY.KEYS
 MAX_WORKERS = SUPERVISOR.MAX_WORKERS
 
 
@@ -915,6 +916,7 @@ def frozen_options(policy):
     options.setdefault("auto_rescue", False)
     options.setdefault("helper_id_prefix", None)
     options.setdefault("max_rescues", None)
+    SUPERVISOR.FINITE_REPLAY.validate_frozen(options, command)
     return options
 
 
@@ -936,6 +938,7 @@ def native_command(options, executable, inputs, count, size):
                     "--apply-subdivision-cut", str(options["apply_subdivision_cut"])]
     if options.get("route_precise_image_bounds", False):
         command.append("--" + SUPERVISOR.DOMAIN.PRECISE_IMAGE_BOUNDS)
+    command += SUPERVISOR.FINITE_REPLAY.arguments(options)
     if options["apply_cell_refinement_max_cardinality"] is not None:
         command += ["--apply-cell-refinement-max-cardinality",
                     str(options["apply_cell_refinement_max_cardinality"])]
@@ -1050,6 +1053,8 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
         raise ValueError("automatic frontier rescue needs a nonempty --helper-id-prefix and --max-rescues >= 1")
     if options["auto_rescue"]:
         SUPERVISOR.ROLES.query_roles(SUPERVISOR.ROLES.loads_document((inputs / "queries.json").read_text()), require_explicit=True)
+    SUPERVISOR.FINITE_REPLAY.validate(options)
+    SUPERVISOR.FINITE_REPLAY.omit_absent(options)
     if options["publication_policy"] != "ordered" and options["apply_subdivision_axis"] is not None:
         raise ValueError("physical subdivision requires --publication-policy ordered")
     SUPERVISOR.validate_g2_residual_anchors(
@@ -1168,6 +1173,7 @@ def main(argv=None):
                         help="pending-job dispatch; adaptive requires rolling; frozen on resume")
     SUPERVISOR.DOMAIN.add_epoch_batch_arguments(parser)
     SUPERVISOR.DOMAIN.add_epoch_preparation_arguments(parser)
+    SUPERVISOR.FINITE_REPLAY.add_arguments(parser, SUPERVISOR.DOMAIN)
     parser.add_argument("--transfer-unreserved-lookahead", type=int,
                         help="initial default: 256 logical dispatch lookahead; frozen for resume")
     parser.add_argument("--g2-residual-anchors", choices=SUPERVISOR.G2_RESIDUAL_MODES,

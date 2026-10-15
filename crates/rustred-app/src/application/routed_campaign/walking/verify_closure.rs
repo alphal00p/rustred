@@ -756,7 +756,7 @@ struct Loaded<const N: usize> {
     /// An epoch (walk semantics 3) S2 export: its raw ledger6, edge runs and
     /// anchors for the epoch-specific re-derivations.
     epoch: Option<epoch_export::EpochSections>,
-    finite_replay: Option<super::finite_replay::Recipe>,
+    finite_replay: BTreeMap<usize, super::finite_replay::Recipe>,
 }
 
 /// Verify one saved walk generation; returns the report (verdict inside).
@@ -942,7 +942,7 @@ fn load_records_with_workers<const N: usize>(
     let mut g2 = BTreeMap::new();
     let mut positions = vec![u64::MAX; total];
     let mut records = 0usize;
-    let mut finite_replay = None;
+    let mut finite_replay = BTreeMap::new();
     let epoch_records = epoch.as_ref().map(epoch_g2::View::new).transpose()?;
     let mut decoder = record_input::Decoder::new(workers, epoch.is_some())?;
     let started = Instant::now();
@@ -1000,13 +1000,16 @@ fn load_records_with_workers<const N: usize>(
                 view.normalize(&mut row, &domains)?;
             }
             if let Some(recipe) = row.finite_replay_recipe {
-                if row.id != 0
+                if recipe.validate().is_err()
+                    || (recipe.version
+                        == super::finite_replay::OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION
+                        && row.id != 0)
                     || row.record_kind != "finite_replay_summary"
                     || epoch.is_none()
-                    || finite_replay.replace(recipe).is_some()
+                    || finite_replay.insert(row.id, recipe).is_some()
                 {
                     violations.add("finite_replay", || {
-                        "summary recipe outside unique CP6 initial ID0".into()
+                        "invalid, duplicated or non-CP6 finite summary recipe".into()
                     });
                 }
             }
@@ -1122,9 +1125,12 @@ fn record_node<const N: usize>(
     match row.record_kind.as_str() {
         "native_inspection" => {}
         "finite_replay_summary" => {
-            if row.id != 0
-                || row.finite_replay_recipe.is_none()
-                || row.initial_overlap.is_some()
+            if row.finite_replay_recipe.is_none_or(|recipe| {
+                recipe.validate().is_err()
+                    || (recipe.version
+                        == super::finite_replay::OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION
+                        && row.id != 0)
+            }) || row.initial_overlap.is_some()
                 || row.g2.is_some()
                 || row.g2_residual_anchors.is_some()
                 || node.error
@@ -1534,6 +1540,10 @@ fn check_g2<const N: usize>(
 
 struct Ctx<'a, const N: usize> {
     request: &'a OwnerDomainWalkRequest,
+    /// Original authenticated scope; reference shortcuts may differ from this.
+    scope_request: &'a OwnerDomainWalkRequest,
+    /// Bound peak memory of concrete finite traces, even in parallel cold checks.
+    finite_replay_lock: &'a Mutex<()>,
     reducer: &'a RoutedCandidateReducer<N>,
     loaded: &'a Loaded<N>,
     graph: &'a Graph,
@@ -1565,6 +1575,7 @@ struct Tally {
     count_mismatches_under_disabled_levers: u64,
     native_seconds: f64,
     finite_replay_work: Option<Value>,
+    finite_replay_cases: BTreeMap<usize, Value>,
 }
 impl Tally {
     fn add(&mut self, other: &Tally) {
@@ -1585,6 +1596,17 @@ impl Tally {
         if other.finite_replay_work.is_some() {
             self.finite_replay_work = other.finite_replay_work.clone();
         }
+        self.finite_replay_cases
+            .extend(other.finite_replay_cases.clone());
+    }
+    fn finite_json(&self) -> Value {
+        self.finite_replay_work.clone().unwrap_or_else(|| {
+            json!({
+                "records": self.finite_replay_cases.len(),
+                "work_by_record": self.finite_replay_cases,
+                "scope": "per-record exact finite replay work; counts are diagnostics, not proof",
+            })
+        })
     }
     fn json(&self) -> Value {
         let mut value = json!({"inspected":self.inspected,"events":self.events,
@@ -1598,8 +1620,8 @@ impl Tally {
             "frontiers":self.frontiers,"errors":self.errors,"native_seconds":self.native_seconds,
             "count_mismatches_under_disabled_levers":self.count_mismatches_under_disabled_levers,
             "definitions":"admitted_domains = every Admit effect (successor domains plus Apply domains routed by Route natives); successor_events = events with successor=true (Admit, Frontier or reuse)"});
-        if let Some(work) = &self.finite_replay_work {
-            value["finite_replay"] = work.clone();
+        if self.finite_replay_work.is_some() || !self.finite_replay_cases.is_empty() {
+            value["finite_replay"] = self.finite_json();
         }
         value
     }
@@ -1760,10 +1782,8 @@ fn reinspect<const N: usize>(
     violations: &mut Violations,
     inventory: Option<&inventory::Collector>,
 ) {
-    if id == 0
-        && let Some(recipe) = ctx.loaded.finite_replay
-    {
-        finite_replay::reinspect(ctx, recipe, tally, violations, inventory);
+    if let Some(&recipe) = ctx.loaded.finite_replay.get(&id) {
+        finite_replay::reinspect(ctx, id, recipe, tally, violations, inventory);
         return;
     }
     let node = ctx.loaded.nodes[id];
@@ -2259,7 +2279,7 @@ fn verify<const N: usize>(
     let finite_inventory_policy = inventory.is_some()
         && options.reference_levers == OwnerDomainWalkVerifyReferenceLevers::AsRun
         && options.mutation.is_none();
-    if loaded.finite_replay.is_some()
+    if !loaded.finite_replay.is_empty()
         && (options.reinspect != OwnerDomainWalkVerifyReinspect::All
             || (options.reference_levers != OwnerDomainWalkVerifyReferenceLevers::Off
                 && !finite_inventory_policy))
@@ -2319,12 +2339,15 @@ fn verify<const N: usize>(
     let mut failing_request = reference.clone();
     failing_request.applied_limits.max_native_operations = 1;
     let mut failing = None;
+    let finite_replay_lock = Mutex::new(());
     let mutation = match options.mutation {
         Some(kind) => {
             let graph = Graph::from_edges(loaded.domains.len(), &loaded.raw.edges)
                 .map_err(AppError::input)?;
             let ctx = Ctx {
                 request: &reference,
+                scope_request: request,
+                finite_replay_lock: &finite_replay_lock,
                 reducer: &reducer,
                 loaded: &loaded,
                 graph: &graph,
@@ -2383,7 +2406,7 @@ fn verify<const N: usize>(
             "owner payload digests differ from the checkpoint".into()
         });
     }
-    if let Some(collector) = inventory.filter(|_| loaded.finite_replay.is_some()) {
+    if let Some(collector) = inventory.filter(|_| !loaded.finite_replay.is_empty()) {
         collector.bind_finite_identity(request, &loaded);
     }
     if let Some(collector) = inventory.filter(|collector| !collector.deep_verification) {
@@ -2830,6 +2853,8 @@ fn verify<const N: usize>(
     // F10 reference re-inspection.
     let ctx = Ctx {
         request: &reference,
+        scope_request: request,
+        finite_replay_lock: &finite_replay_lock,
         reducer: &reducer,
         loaded,
         graph: &graph,

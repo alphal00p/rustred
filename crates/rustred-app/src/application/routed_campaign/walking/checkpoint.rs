@@ -220,8 +220,10 @@ fn add_finite_replay_binding(value: &mut Value, request: &OwnerDomainWalkRequest
     // as an ordinary locally empty inspection under an identical binding.
     if let Some(limits) = request.finite_replay {
         value["finite_replay"] = json!({
-            "version": super::OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION,
-            "scope": "whole_initial_id0_finite_domain",
+            "version": request.finite_replay_version(),
+            "scope": if request.finite_replay_initial_queries {
+                "authenticated_initial_queries_atomic_finite_domains"
+            } else { "whole_initial_id0_finite_domain" },
             "limits": limits,
         });
     }

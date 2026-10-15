@@ -109,6 +109,10 @@ pub struct OwnerDomainWalkRequest {
     /// Requires a fresh CP6 walk; successful summaries are cold-replayed.
     /// None preserves the existing symbolic walk and checkpoint binding.
     pub finite_replay: Option<OwnerDomainWalkFiniteReplayLimits>,
+    /// Opt-in v3: bounded whole authenticated initial queries, including
+    /// append-only scope extensions, with completed-recipe CP6 continuation.
+    /// False retains the explicit legacy v2 single-ID0 contract.
+    pub finite_replay_initial_queries: bool,
     /// Optional supervisor stop-file context for epoch checkpoint diagnostics.
     /// Operational only: excluded from mathematical binding; cancellation is
     /// authoritative even when this file is absent or malformed.
@@ -213,6 +217,7 @@ impl OwnerDomainWalkRequest {
         Self {
             checkpoint: None,
             finite_replay: None,
+            finite_replay_initial_queries: false,
             epoch_stop_file: None,
             apply_subdivision: None,
             matching,
@@ -255,11 +260,53 @@ impl OwnerDomainWalkRequest {
         finite_replay::budget_summary(self)
     }
 
+    pub fn finite_replay_version(&self) -> Option<u32> {
+        self.finite_replay.map(|_| {
+            if self.finite_replay_initial_queries {
+                finite_replay::INITIAL_QUERIES_VERSION
+            } else {
+                finite_replay::OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION
+            }
+        })
+    }
+
     /// Runtime admission for the experimental finite replay path. Offline
     /// verification uses the original fresh request and independently checks
     /// every retained recipe; this is not a resume-capability promise.
     pub fn validate_finite_replay(&self) -> Result<(), &'static str> {
         if self.finite_replay.is_none() {
+            if self.finite_replay_initial_queries {
+                return Err("finite initial-query mode requires explicit finite replay limits");
+            }
+            return Ok(());
+        }
+        if self.finite_replay_initial_queries {
+            if self.publication_policy != OwnerDomainWalkPublicationPolicy::Epoch
+                || self.checkpoint.is_none()
+                || self.g2_activate_on_resume
+            {
+                return Err(
+                    "finite initial queries require an epoch checkpoint and fixed G2 policy",
+                );
+            }
+            if !self.epoch_rolling
+                || self.epoch_dispatch != OwnerDomainWalkEpochDispatchPolicy::Fifo
+                || self.epoch_publication_order
+                    != OwnerDomainWalkEpochPublicationOrder::OldestPrefix
+            {
+                return Err(
+                    "finite initial queries currently require rolling FIFO dispatch and oldest-prefix publication",
+                );
+            }
+            if self.amendments.iter().any(|amendment| {
+                serde_json::from_str::<Value>(&amendment.text)
+                    .ok()
+                    .is_none_or(|value| value["schema"] != rescue::SCOPE_EXTENSION_SCHEMA)
+            }) {
+                return Err(
+                    "finite initial queries support only authenticated scope-extension amendments, not rescue changes",
+                );
+            }
             return Ok(());
         }
         if self.publication_policy != OwnerDomainWalkPublicationPolicy::Epoch
@@ -1028,8 +1075,8 @@ fn walk_with_progress(
     }
     if let Some(limits) = request.finite_replay {
         admitted["finite_replay"] = json!({
-            "version": OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION,
-            "scope": "whole_initial_id0_finite_domain",
+            "version": request.finite_replay_version(),
+            "scope": if request.finite_replay_initial_queries {"authenticated_whole_initial_queries"} else {"whole_initial_id0_finite_domain"},
             "limits": limits,
             "budget": request.finite_replay_budget_summary(),
             "cold_replay_required": true,

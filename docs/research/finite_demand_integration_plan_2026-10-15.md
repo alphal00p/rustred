@@ -7,13 +7,21 @@ The frozen core test executable is recorded under
 `TMP/releases/20261015-finite-census-tests/`. A2 native runtime acceptance also
 passed:10 publication/cold-load controls plus77 disjoint inventory, checkpoint,
 portable application and CLI regressions, independently audited. The combined
-release test build took1013.704s. The real279-point publication/export and exact
-coefficient-canary gate still awaits the new production CLI/helper; it is not
-implied by these tiny-fixture passes. Earlier core/app test type checks passed
+release test build took1013.704s. The real279-point publication/export gate and
+two exact source-publication/runtime canaries subsequently passed, including
+one nontrivial rule application yielding nine terminal terms. The first canary
+is already terminal; it is a round-trip control, not an IBP speed measurement.
+The initially malformed second canary and its corrected retry are both retained
+under `TMP/finite-census-real279-validation-20261015/`. Earlier core/app test type checks passed
 (86.186s and107.239s); the final required-census cold-loader fix is included in
 the successful native build, not the earlier app type-check receipt.
 A2 includes mandatory replay, exact binary provenance, portable application
-canaries and fail-closed inheritance. B is not implemented. The coordinator
+canaries and fail-closed inheritance. B source and unit/runtime gates now pass
+independent review:241 distinct native tests, including12 new acceptance tests,
+plus146 related Python steering/workflow tests. Four initially wrong fixtures
+were corrected without weakening their assertions; receipts are retained.
+The real saved-rule extension and matched control gates remain pending.
+The coordinator
 controls combined compilation and runtime gates. No new experiment, production
 campaign change or default-budget
 change is authorized by this document; the full goal continues beyond these milestones.
@@ -25,7 +33,8 @@ The same279-point hot R1/D10 region closed with existing native finite tracing:
 10,543,465projected endpoints,28.774s live and34.137s cold replay. Both executions
 have identical non-timing counters and the same immutable owner payloads.
 Evidence: `TMP/route-image-pilot-hot-r1-finite-resource-20261015/`.
-This is neither an unrestricted family solve nor a publishable artifact today.
+This is not an unrestricted family solve. A2 now publishes and cold-loads its
+scoped artifact; reusable multi-query/resume integration remains the B gate.
 
 Two separately reviewable slices follow. Keep default-off behavior unchanged;
 no fullR6 box enumeration, per-topology dispatch, new IBPs, terminal minimization
@@ -189,10 +198,14 @@ prefix enumeration or reduction of admitted scope. Keep finite opt-in. Count
 attempted finite work and symbolic fallback separately. Do not automatically set
 all production limits toMAX based on the successful diagnostic.
 
-Multiple initial regions can run at existing inspector concurrency, but inline
-finite attempts each own a physical-key map. Start with one concurrent finite
-attempt to avoid multiplying memory; this is a scheduling knob, not a topology
-special case. Completed recipes can be reused on resume without replaying them
+Ordinary descendant regions retain existing inspector concurrency, but inline
+finite attempts each own a physical-key map. V3 initially admits at most one
+authenticated initial query outstanding through coordinator publication,
+not merely one concurrently computing trace. Other initial queries remain
+Pending; ordinary descendants may pass them without moving the durable FIFO
+cursor beyond a withheld Pending root. An older ordinary prefix drains before
+the finite singleton, never across an older unfinished hole. This is generic
+scheduling, not a topology special case. Completed recipes can be reused on resume without replaying them
 in the live solve; independent cold verification/publication still replays or
 authenticates a matching completed census.
 
@@ -202,13 +215,27 @@ falling back to the expensive symbolic walk solely because another case owns
 the permit. Unsupported or over-budget geometry still uses the ordinary path.
 Record any different fallback policy explicitly if later measurements justify it.
 
+The initial implementation explicitly requires rolling FIFO dispatch and
+oldest-prefix publication; adaptive dispatch and oldest-ready are rejected, not
+silently changed. Reopen those combinations only after filtered-selection,
+replay and interruption tests establish their exact checkpoint semantics.
+Currently even an initial query subsequently declined by finite seed admission
+occupies this coordinator gate until its ordinary fallback commits. This can
+serialize large unsupported initial regions; a mixed eligible/ineligible pilot
+must quantify it before deployment. No coordinator CAS or seed enumeration was
+introduced to hide this limitation.
+
 ### B3. Atomic case boundaries, explicit restart semantics
 
 Use existing atomic merge-boundary CP6 checkpointing. A completed finite recipe
 is published as one authoritative record only after the exact trace succeeds;
-interruption before that commit leaves the original query pending. Resuming may
-restart only that last in-flight finite case, while keeping previously completed
-recipes. Do not serialize transient Symbolica objects or invent a second journal.
+interruption before that commit leaves the original query pending. A cooperative
+Ctrl+C or RAM stop uses the existing clean stop checkpoint, retaining all merged
+recipes and restarting the one uncommitted finite case. Existing periodic
+checkpoint frequency is unchanged: a hard crash preserves only the last durable
+checkpoint and may repeat cases merged since that save. There is no forced full
+checkpoint after every finite singleton. Do not serialize transient Symbolica
+objects or invent a second journal.
 
 The first slice does NOT persist in-flight FIFO/membership; the UI/docs must say
 so. A future true mid-trace checkpoint would additionally persist full-key phase

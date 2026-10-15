@@ -101,7 +101,14 @@ pub(super) fn validate<const N: usize>(
     }
     match (anchored, &native.scope) {
         (None, Scope::Whole) => {}
-        (None, Scope::FiniteReplay(_)) if source == 0 && targets.is_empty() => {}
+        (None, Scope::FiniteReplay(recipe)) if targets.is_empty()
+            && (source==0 || recipe.version==crate::application::routed_campaign::walking::finite_replay::INITIAL_QUERIES_VERSION) => {
+            if view.finite_policy!=Some(*recipe) || totals.finite.len()>=view.max_finite_records {
+                return Err(invalid("epoch finite record policy or input-count bound differs"));
+            }
+            totals.finite.try_reserve(1).map_err(|_|invalid("epoch finite record census allocation"))?;
+            totals.finite.push((source,*recipe));
+        }
         (
             Some(anchor),
             Scope::Initial {

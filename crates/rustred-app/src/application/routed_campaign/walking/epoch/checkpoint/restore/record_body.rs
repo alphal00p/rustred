@@ -15,6 +15,7 @@ use super::super::invalid;
 use super::super::publication::FileRef;
 use super::{EdgeStore, Store, record_segments};
 use crate::application::routed_campaign::walking::checkpoint::manifest::Segment;
+use crate::application::routed_campaign::walking::finite_replay::Recipe;
 use crate::application::routed_campaign::walking::queue::Phase;
 use std::collections::BTreeMap;
 use std::io;
@@ -31,6 +32,8 @@ pub(super) struct View<'a, const N: usize> {
     pub counters: &'a WalkCounters,
     pub k: u64,
     pub input_frontiers: usize,
+    pub finite_policy: Option<Recipe>,
+    pub max_finite_records: usize,
 }
 
 #[derive(Default)]
@@ -42,6 +45,7 @@ struct Totals {
     job_duplicates: u64,
     routed: u64,
     resolver: ResolverCounters,
+    finite: Vec<(u32, Recipe)>,
 }
 fn add(total: &mut u64, value: u64) -> io::Result<()> {
     *total = total
@@ -55,7 +59,7 @@ pub(super) fn read<const N: usize>(
     file: &FileRef,
     generation: u64,
     view: View<'_, N>,
-) -> io::Result<Vec<Segment>> {
+) -> io::Result<(Vec<Segment>, Vec<(u32, Recipe)>)> {
     let mut runs = view.edges.run_iter();
     let mut totals = Totals {
         frontiers: view.input_frontiers as u64,
@@ -88,7 +92,7 @@ pub(super) fn read<const N: usize>(
     {
         return Err(invalid("epoch record-derived aggregate counters differ"));
     }
-    Ok(segments)
+    Ok((segments, totals.finite))
 }
 
 #[cfg(test)]

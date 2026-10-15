@@ -113,9 +113,53 @@ fn select_cut<T>(
     }
 }
 
+/// Finite v3 retires one whole initial case atomically. An older ordinary
+/// prefix is allowed to drain early, but no result crosses an older hole.
+fn select_finite_cut<T>(
+    order: &VecDeque<u64>,
+    results: &BTreeMap<u64, T>,
+    cut_size: usize,
+    finite_sequence: u64,
+) -> Vec<u64> {
+    let Some(position) = order
+        .iter()
+        .position(|&sequence| sequence == finite_sequence)
+    else {
+        return Vec::new();
+    };
+    let count = if position == 0 {
+        1
+    } else {
+        position.min(cut_size)
+    };
+    if order
+        .iter()
+        .take(count)
+        .all(|key| results.contains_key(key))
+    {
+        order.iter().take(count).copied().collect()
+    } else {
+        Vec::new()
+    }
+}
+
 #[cfg(test)]
 mod selection_tests {
     use super::*;
+
+    #[test]
+    fn finite_singleton_waits_for_older_holes_and_drains_older_prefix_first() {
+        let order = (10..15).collect();
+        let mut results: BTreeMap<u64, ()> =
+            BTreeMap::from([(11, ()), (12, ()), (13, ()), (14, ())]);
+        assert!(select_finite_cut(&order, &results, 16, 12).is_empty());
+        results.insert(10, ());
+        assert_eq!(select_finite_cut(&order, &results, 16, 12), vec![10, 11]);
+        let rest = (12..15).collect();
+        assert_eq!(select_finite_cut(&rest, &results, 16, 12), vec![12]);
+        results.remove(&12);
+        assert!(select_finite_cut(&rest, &results, 16, 12).is_empty());
+    }
 
     #[test]
     fn ready_bypasses_a_hole_but_never_turns_a_full_window_into_singleton_cuts() {
@@ -609,13 +653,24 @@ pub(super) fn run<const N: usize>(
                 // fresh pending work. Waiting to fill this cut would deadlock
                 // when the saved unfinished inventory is smaller than B.
                 let replay_barrier = !restored.dispatch.admission_ready();
-                let keys = select_cut(
-                    &order,
-                    &results,
-                    cut_size,
-                    no_unissued || replay_barrier,
-                    publication_order,
-                );
+                let finite_sequence = restored.state.finite_roots.as_ref().and_then(|roots| {
+                    restored
+                        .state
+                        .in_flight
+                        .iter()
+                        .find_map(|(&id, meta)| roots.contains(id).then_some(meta.seq))
+                });
+                let keys = if let Some(sequence) = finite_sequence {
+                    select_finite_cut(&order, &results, cut_size, sequence)
+                } else {
+                    select_cut(
+                        &order,
+                        &results,
+                        cut_size,
+                        no_unissued || replay_barrier,
+                        publication_order,
+                    )
+                };
                 if keys.is_empty() {
                     progress(&restored.state, &restored.dispatch, "inspect", &|| {
                         pool.activity()

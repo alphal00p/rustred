@@ -40,6 +40,10 @@ _DOMAIN_SPEC = importlib.util.spec_from_file_location(
     "owner_domain_steering", Path(__file__).with_name("match_shared_owner_domains.py"))
 DOMAIN = importlib.util.module_from_spec(_DOMAIN_SPEC)
 _DOMAIN_SPEC.loader.exec_module(DOMAIN)
+_FINITE_REPLAY_SPEC = importlib.util.spec_from_file_location(
+    "finite_replay_steering", Path(__file__).with_name("finite_replay_steering.py"))
+FINITE_REPLAY = importlib.util.module_from_spec(_FINITE_REPLAY_SPEC)
+_FINITE_REPLAY_SPEC.loader.exec_module(FINITE_REPLAY)
 _MONITOR_SPEC = importlib.util.spec_from_file_location(
     "campaign_monitor", Path(__file__).with_name("campaign_monitor.py"))
 MONITOR = importlib.util.module_from_spec(_MONITOR_SPEC)
@@ -986,6 +990,7 @@ def main() -> int:
                         action=DOMAIN.StoreOnce, help="pending-job dispatch; adaptive requires rolling CP6")
     DOMAIN.add_epoch_batch_arguments(parser)
     DOMAIN.add_epoch_preparation_arguments(parser)
+    FINITE_REPLAY.add_arguments(parser, DOMAIN)
     parser.add_argument("--" + G2_RESIDUAL_ANCHORS, choices=G2_RESIDUAL_MODES, action=DOMAIN.StoreOnce,
                         help="fresh symbolic walk opt-in (default off); union requires unreserved delegation, "
                              "ordered/ready publication and no physical subdivision; resume must retain its original mode")
@@ -1055,6 +1060,8 @@ def main() -> int:
     if args.reuse_initial_d_bands and args.transfer_unreserved_lookahead is None:
         parser.error("--reuse-initial-d-bands requires --transfer-unreserved-lookahead")
     try:
+        FINITE_REPLAY.validate(vars(args), symbolic=symbolic,
+                               checkpoint=args.checkpoint is not None or args.resume is not None)
         DOMAIN.validate_epoch_inspector_lookup(args.epoch_inspector_lookup, symbolic,
                                                args.publication_policy, args.checkpoint is not None or args.resume is not None)
         DOMAIN.validate_epoch_rolling(args.epoch_rolling, symbolic,
@@ -1174,6 +1181,7 @@ def main() -> int:
                "--stop-file", str(stop_file), "--workers", str(args.workers)]
     if symbolic:
         command += ["--queries", str(args.queries.resolve()), "--follow-successors"]
+        command += FINITE_REPLAY.arguments(vars(args))
         for option in (*SYMBOLIC_ALLOWANCES, *SYMBOLIC_POLICIES):
             if (value := getattr(args, option.replace("-", "_"))) is not None:
                 command += ["--" + option, str(value)]

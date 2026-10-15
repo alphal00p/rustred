@@ -99,6 +99,12 @@ const PHASES: [&str; 10] = [
     "drain_wait",
     "joined",
 ];
+#[cfg(test)]
+thread_local! {
+    /// Deterministic coordinator-boundary cancellation tests must not depend
+    /// on making a tiny native fixture run longer than the UI's five seconds.
+    pub(super) static TEST_UNTHROTTLED_PROGRESS: Cell<bool> = const { Cell::new(false) };
+}
 struct Telemetry {
     phase: usize,
     since: Instant,
@@ -125,6 +131,11 @@ impl Telemetry {
             .position(|name| *name == phase)
             .expect("fixed telemetry phase");
         self.phase = next;
+        #[cfg(test)]
+        if TEST_UNTHROTTLED_PROGRESS.with(Cell::get) {
+            self.emitted = now;
+            return true;
+        }
         // Phase accounting is cheap; JSON/observer work is rate limited even
         // when thousands of tiny cuts change phase within one interval.
         if now.duration_since(self.emitted).as_secs_f64() >= 5.0 {
@@ -601,7 +612,10 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
     } else {
         false
     };
-    let finite_account = Account::default();
+    let mut finite_account = Account::default();
+    if request.finite_replay_initial_queries {
+        finite_account.await_initial_queries();
+    }
     let drained = if admission_stopped {
         false
     } else {
@@ -614,6 +628,31 @@ pub(in crate::application::routed_campaign::walking::epoch) fn run<const N: usiz
             &mut |restored, receipt| saved(restored, receipt, &[]),
         )
         .map_err(|error| AppError::input(error.to_string()))?;
+        if request.finite_replay_initial_queries {
+            let bindings = std::sync::Arc::new(
+                crate::application::routed_campaign::walking::finite_replay::InitialBindings::build(
+                    reducer, request, &restored.roots.rows, |id| {
+                        restored.state.store.domains.get(id as usize).map(|image|image.expand())
+                    },
+                ).map_err(AppError::input)?
+            );
+            if restored
+                .state
+                .in_flight
+                .keys()
+                .filter(|&&id| bindings.contains(id))
+                .count()
+                > 1
+            {
+                return Err(AppError::input(
+                    "finite checkpoint contains multiple outstanding initial queries",
+                ));
+            }
+            finite_account
+                .install_bindings(bindings.clone())
+                .map_err(AppError::input)?;
+            restored.state.finite_roots = Some(bindings);
+        }
         required_closure
             .borrow_mut()
             .inputs(&restored.roots.rows, |id| {
@@ -743,7 +782,7 @@ fn finish<const N: usize>(
     started: Instant,
     prepared: f64,
     observer_failed: bool,
-    finite_account: &Account,
+    finite_account: &Account<N>,
     observer: &impl Fn(Value),
     cancellation: &AtomicBool,
 ) -> Result<OwnerDomainWalkResult, AppError> {
@@ -782,7 +821,7 @@ fn finish<const N: usize>(
     }
     if request.finite_replay.is_some() {
         document["finite_replay"] = finite_account.report();
-        document["resume_supported"] = false.into();
+        document["resume_supported"] = request.finite_replay_initial_queries.into();
     }
     if evaluate_required {
         let rows = identity.query_rows(

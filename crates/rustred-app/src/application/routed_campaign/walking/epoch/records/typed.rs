@@ -286,7 +286,7 @@ impl Authority {
                 }
                 Scope::FiniteReplay(recipe) => {
                     recipe.validate()?;
-                    if self.id != 0
+                    if (recipe.version == crate::application::routed_campaign::walking::finite_replay::OWNER_DOMAIN_WALK_FINITE_REPLAY_VERSION && self.id != 0)
                         || n.kind != job::NativeKind::FiniteReplay as u8
                         || n.class != 0
                         || n.has_error

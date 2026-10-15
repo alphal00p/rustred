@@ -44,6 +44,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub no_progress: bool,
     pub follow_successors: bool,
     pub finite_replay: Option<crate::OwnerDomainWalkFiniteReplayLimits>,
+    pub finite_replay_initial_queries: bool,
     pub finite_replay_budget_preflight: bool,
     pub reduction_max_rule_applications: usize,
     pub reduction_max_pending_frames: usize,
@@ -116,6 +117,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         no_progress: false,
         follow_successors: false,
         finite_replay: None,
+        finite_replay_initial_queries: false,
         finite_replay_budget_preflight: false,
         reduction_max_rule_applications: reduction.max_rule_applications,
         reduction_max_pending_frames: reduction.max_pending_frames,
@@ -269,10 +271,11 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             result.finite_replay_budget_preflight = true;
             continue;
         }
-        if name == finite_replay_args::ENABLE {
+        if name == finite_replay_args::ENABLE || name == finite_replay_args::ENABLE_QUERIES {
             result
                 .finite_replay
                 .get_or_insert_with(finite_replay_args::defaults);
+            result.finite_replay_initial_queries = name == finite_replay_args::ENABLE_QUERIES;
             continue;
         }
         if name == "--epoch-rolling" {

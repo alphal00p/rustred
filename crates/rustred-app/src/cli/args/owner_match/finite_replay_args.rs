@@ -3,6 +3,7 @@ use super::{ArgError, BTreeSet, OwnerDomainMatchArgs};
 use crate::OwnerDomainWalkFiniteReplayLimits;
 
 pub(super) const ENABLE: &str = "--finite-replay-initial-domain";
+pub(super) const ENABLE_QUERIES: &str = "--finite-replay-initial-queries";
 const CAPS: [&str; 9] = [
     "--finite-replay-max-nodes",
     "--finite-replay-max-rule-applications",
@@ -17,6 +18,7 @@ const CAPS: [&str; 9] = [
 
 pub(super) fn option_name(name: &str) -> Option<&'static str> {
     std::iter::once(ENABLE)
+        .chain(std::iter::once(ENABLE_QUERIES))
         .chain(CAPS)
         .find(|&known| known == name)
 }
@@ -61,10 +63,40 @@ pub(super) fn validate(args: &OwnerDomainMatchArgs, seen: &BTreeSet<&str>) -> Re
     if args.finite_replay.is_none() {
         return Ok(());
     }
-    if !seen.contains(ENABLE) {
+    if seen.contains(ENABLE) && seen.contains(ENABLE_QUERIES) {
         return Err(ArgError::InvalidCombination(
-            "finite replay allowances require --finite-replay-initial-domain",
+            "choose legacy finite initial-domain or resumable initial-queries mode, not both",
         ));
+    }
+    if !seen.contains(ENABLE) && !seen.contains(ENABLE_QUERIES) {
+        return Err(ArgError::InvalidCombination(
+            "finite replay allowances require an explicit finite replay mode",
+        ));
+    }
+    if args.finite_replay_initial_queries {
+        if !args.follow_successors
+            || args.publication_policy != crate::OwnerDomainWalkPublicationPolicy::Epoch
+            || args.checkpoint.is_none()
+            || args.g2_activate_on_resume
+        {
+            return Err(ArgError::InvalidCombination(
+                "finite initial queries require --follow-successors, an epoch checkpoint and fixed G2 policy",
+            ));
+        }
+        // Content/chain validation of append-only amendments remains native.
+        if !args.epoch_rolling
+            || args
+                .epoch_dispatch
+                .is_some_and(|policy| policy != crate::OwnerDomainWalkEpochDispatchPolicy::Fifo)
+            || args.epoch_publication_order.is_some_and(|policy| {
+                policy != crate::OwnerDomainWalkEpochPublicationOrder::OldestPrefix
+            })
+        {
+            return Err(ArgError::InvalidCombination(
+                "finite initial queries currently require rolling FIFO dispatch and oldest-prefix publication",
+            ));
+        }
+        return Ok(());
     }
     if !args.follow_successors
         || args.publication_policy != crate::OwnerDomainWalkPublicationPolicy::Epoch
@@ -162,6 +194,33 @@ mod tests {
                 ))
                 .is_err()
             );
+        }
+    }
+
+    #[test]
+    fn finite_queries_requires_explicit_fifo_rolling_but_can_resume_and_extend() {
+        let base = format!("{BASE} --epoch-rolling {ENABLE_QUERIES}");
+        assert!(args(&base).unwrap().finite_replay_initial_queries);
+        assert!(
+            args(&base.replace("--checkpoint cp", "--resume cp"))
+                .unwrap()
+                .finite_replay_initial_queries
+        );
+        assert!(
+            args(&format!(
+                "{} --amend-queries extension.json",
+                base.replace("--checkpoint cp", "--resume cp")
+            ))
+            .is_ok()
+        );
+        assert!(args(&format!("{base} --amend-queries extension.json")).is_err());
+        for bad in [
+            format!("{BASE} {ENABLE_QUERIES}"),
+            format!("{base} {ENABLE}"),
+            format!("{base} --epoch-dispatch adaptive"),
+            format!("{base} --epoch-publication-order oldest-ready"),
+        ] {
+            assert!(args(&bad).is_err(), "{bad}");
         }
     }
 }

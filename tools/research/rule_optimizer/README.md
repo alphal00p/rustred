@@ -132,6 +132,46 @@ This is not a production campaign setting.
 Keep its actual exact-reduction work in performance comparisons: one retained
 recipe does not mean one reduction operation.
 
+### Experimental resumable whole-query mode
+
+`--finite-replay-initial-queries` selects the newer v3 mode instead of the
+single-ID0 mode above. It can attempt each authenticated whole original or
+scope-amended query. Valid containment aliases remain aliases; a broader stored
+domain is not reinterpreted as a finite query without an exact query-origin
+witness. Regions that cannot be enumerated completely within the explicit
+allowances continue through ordinary symbolic inspection. No starting query is
+truncated or dropped.
+
+The initial implementation requires rolling Epoch execution with FIFO dispatch
+and oldest-prefix publication. Automatic rescue/quarantine changes, adaptive
+dispatch and oldest-ready publication are explicitly unsupported. These are
+execution-policy restrictions, not topology or loop-count restrictions.
+Default-off and the explicit legacy v2 mode remain separate.
+
+Only one potential finite root is outstanding through ordered commit; ordinary
+descendant jobs may still be issued. A clean interruption saves the merged
+prefix and returns the unfinished case to pending work. It does not save an
+in-progress exact trace's queue. Hard-crash recovery, as elsewhere, starts from
+the last durable checkpoint and may repeat work since that checkpoint. Existing
+periodic and explicit-stop checkpoint scheduling is retained; there is no full
+checkpoint forced after every finite case.
+
+Both `shared_owner_campaign.py` and `production_saved_owner_campaign.py`
+accept the v3 flag, the nine `--finite-replay-max-*` allowances, and the three
+`--reduction-max-*` aggregate controls listed above. Explicit zero allowances
+retain their native meaning. The policy is frozen on preparation and retained
+by normal resume and `saved_campaign.py extend`; it is not an activation switch
+for an existing off/v2 campaign. RAM limits remain independently configurable.
+
+Native multi-query, clean-stop/resume, append-only scope, alias/mutation and
+cold/publication tests pass. The first real saved-rule R0→R1 extension pilot and
+matched four-parent controls are still pending; this is not yet a production
+switch recommendation. See the
+[integration plan](../../../docs/research/finite_demand_integration_plan_2026-10-15.md)
+and [completed single-region publication](../../../docs/research/finite_demand_publication_2026-10-15.md).
+Internal finite points and rule applications are separate from the summarized
+domain-record count; neither counter alone proves family closure.
+
 ## Native applied-obligation observation
 
 The `rule_optimizer_applied_observer` Cargo example is a read-only research
