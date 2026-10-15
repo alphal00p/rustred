@@ -1,5 +1,61 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — aggregate policy separated from mathematical input scope
+
+The previous goal turn made concrete progress: audited runner/storage slices
+and the complete R1 negative-result report were committed and pushed through
+0ef93663. The full R6/D10 closure and application goal remains active and
+incomplete; no production campaign was restarted or changed.
+
+The override is locally committed as e605bced after independent source review
+and a passing optimized app/CLI test typecheck (68.202s). Its optimized native
+app-test build is live as session30286, child893258, under build0/CPUs16–19.
+Root verified that process alive; evidence is
+`TMP/finite-demand-aggregate-policy-20261015/TMP/build-app/guard/`.
+No new R1 pilot is authorized until the frozen native gates pass.
+
+Independent budget review confirms the next diagnostic should remove all
+aggregate count/proxy stops together while retaining per-expression algebra
+and expansion safeguards, byte-retention allowances and the external RAM/time
+guard. This is one explicit resource-governed experiment, not another sequence
+of one-counter increases. Native checked-counter overflow remains an error.
+
+A provenance pitfall was found before running: the old source amendment binding
+includes ReductionLimits, so appending different aggregate CLI flags would
+invalidate that chain. `weighted_vk_gate_plan` implemented a small default-off
+diagnostic override in `TMP/finite-demand-aggregate-policy-20261015`. It first
+authenticates the unchanged original chain, then changes only the isolated
+prepared request's rule-attempt, pending-frame and coalescing aggregates.
+Original/effective policies and native min-intersections are reported; the
+source scope binding is explicitly not the new execution identity. The
+experiment loads no prior checkpoint or completed baseline. Native tests
+precede the next run; production defaults remain unchanged.
+
+`intermediate_capture_app` continues the durable core seam. The independent
+auditor has checked the early design and is reviewing the coherent source,
+including backing errors, scheduler-lock isolation and completed-delta
+predecessor binding. Fast trusted cursor restore and normal publication remain
+pending. The combined core/app/CLI test typecheck passed initially in66.184s;
+review then retained typed resource/backing failures and added a pre-CURRENT
+native decode check, preventing compact encoded metadata from publishing a
+generation its own bounded decoder cannot reopen. Those narrow corrections
+receive another check before the separate optimized core test build.
+
+The low-level storage format is not a usable saved-campaign backend yet.
+Even the planned native close→persist→cold reload→extend Work tests do not
+replace the later exact query/PrefixWindow/transition join: caller-supplied
+cursor metadata is not proof that those particular input windows were solved.
+Fast trusted cursor restore has passed independent design review and is being
+implemented separately in `TMP/finite-trusted-cursor-20261015`. Ordinary
+restore must not replay all historical windows.
+
+Backend performance cautions retained: validate cumulative census once on cold
+load, not again after every native-sealed commit; preserve immutable page-cache
+residency across committed generations; and measure per-edge owned-key allocation
+before claiming disk-backed tracing retains the in-memory work-sharing gain.
+The current bounded metadata merge/run directory is a first slice, not demonstrated
+full-R6 storage scaling. No additional optimization has been claimed measured.
+
 ## October 15 — full-R1 diagnostics stop at aggregate allowances; exact prefix sharing wins
 
 All three bounded full-R1 diagnostics are finished and their process groups
