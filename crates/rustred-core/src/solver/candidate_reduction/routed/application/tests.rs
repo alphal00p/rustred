@@ -795,6 +795,117 @@ fn omitted_certified_zero_entry_images_keep_their_source_guards() {
 }
 
 #[test]
+fn certified_zero_source_needs_no_owner_route_or_cache() {
+    let routed = weighted::<3>();
+    let application = routed.application();
+    for target in [key([0, 0, 0]), key([-1, 0, -2])] {
+        let result = application.route_entry_to_owner(&target).unwrap();
+        assert!(result.is_zero());
+        assert_eq!(result.statistics().requested_targets, 1);
+        assert_eq!(result.statistics().input_terms, 1);
+        assert_eq!(result.statistics().operational_nodes, 1);
+        assert_eq!(result.statistics().transport_calls, 0);
+        assert_eq!(result.statistics().work.rule_applications(), 0);
+        assert_eq!(application.cache_statistics().cached_integrals(), 0);
+    }
+    let mut uncertified = weighted::<3>();
+    let programs = Arc::get_mut(&mut uncertified.programs).unwrap();
+    Arc::get_mut(&mut programs.context)
+        .unwrap()
+        .shared
+        .zero_sectors
+        .clear();
+    assert!(matches!(
+        uncertified
+            .application()
+            .route_entry_to_owner(&key([0, 0, 0])),
+        Err(CandidateRoutedError::MissingOwner { .. })
+    ));
+}
+
+#[test]
+fn certified_zero_source_keeps_guards_through_routed_reduction() {
+    for vanished in [false, true] {
+        let mut routed = weighted::<3>();
+        let programs = Arc::get_mut(&mut routed.programs).unwrap();
+        let indexed = programs.context.coefficient_context().clone();
+        let d = indexed.base().parameter("d").unwrap();
+        let condition = if vanished {
+            indexed.index(0).unwrap()
+        } else {
+            indexed.lift(&d).unwrap()
+        };
+        Arc::get_mut(&mut programs.context)
+            .unwrap()
+            .shared
+            .source_conditions = vec![
+            indexed
+                .admit_native_polynomial_result_with_limits(
+                    condition.raw().numerator.clone(),
+                    Default::default(),
+                )
+                .unwrap(),
+        ];
+        let mut application = routed.application();
+        let target = key([0, 0, 0]);
+        if vanished {
+            assert!(matches!(
+                application.route_entry_to_owner(&target),
+                Err(CandidateRoutedError::Candidate(
+                    CandidateReductionError::SourceConditionVanished { .. }
+                ))
+            ));
+        } else {
+            let result = application.route_entry_to_owner(&target).unwrap();
+            assert!(result.is_zero());
+            assert_eq!(result.nonzero_conditions(), &[d.clone()]);
+            let result = application
+                .reduce_routed_linear_combination_with_entry_admission(
+                    [(target, indexed.base().one())],
+                    CandidateEntryAdmission::SavedGenerationScope,
+                )
+                .unwrap();
+            assert!(result.is_zero());
+            assert_eq!(result.nonzero_conditions(), &[d]);
+            assert_eq!(result.statistics().transport_calls, 0);
+            assert_eq!(result.statistics().work.rule_applications(), 0);
+            assert_eq!(application.cache_statistics().cached_integrals(), 0);
+        }
+    }
+}
+
+#[test]
+fn certified_zero_source_does_not_bypass_arity_or_resource_limits() {
+    let routed = weighted::<3>();
+    let mut application = routed.application();
+    assert!(matches!(
+        application.route_entry_to_owner(&key([0, 0])),
+        Err(CandidateRoutedError::Candidate(
+            CandidateReductionError::Application(ReductionError::WrongArity { .. })
+        ))
+    ));
+    application.limits.max_input_targets = 0;
+    assert!(matches!(
+        application.route_entry_to_owner(&key([0, 0, 0])),
+        Err(CandidateRoutedError::ResourceLimit {
+            resource: "input targets",
+            requested: 1,
+            limit: 0
+        })
+    ));
+    application.limits.max_input_targets = 1;
+    application.limits.max_unique_nodes = 0;
+    assert!(matches!(
+        application.route_entry_to_owner(&key([0, 0, 0])),
+        Err(CandidateRoutedError::ResourceLimit {
+            resource: "operational nodes",
+            requested: 1,
+            limit: 0
+        })
+    ));
+}
+
+#[test]
 fn factorized_routed_values_match_sparse_cold_warm_and_guarded_cancellation() {
     use crate::solver::CandidateCacheRepresentation;
     let family = Arc::new(crate::solver::tests::tadpole());
