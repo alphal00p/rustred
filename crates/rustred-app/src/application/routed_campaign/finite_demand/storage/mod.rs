@@ -106,101 +106,59 @@ impl StorageLimits {
     }
 }
 
-/// Caller computes this from the immutable family/source conditions, ordered
-/// owner/overlay/route programs and native dispatch/raw-terminal convention.
-/// Downstream refinement settings are deliberately not part of this identity.
-#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-pub(crate) struct RawExecutionBinding {
-    pub physical_arity: u32,
-    pub program_identity: Digest,
-}
+use rustred::persistence::finite_work::{
+    GeneratedDirectoryLimits, GeneratedPageProvider, GeneratedPageReadUsage, GeneratedWorkError,
+    GeneratedWorkErrorKind, TrustedGeneratedWorkDirectory, ValidatedWorkPage,
+};
+pub(crate) use rustred::persistence::finite_work::{
+    GeneratedExecutionBinding as RawExecutionBinding, GeneratedWorkKey as StoredWork,
+};
 
-/// This wire order is identical to CandidateRoutedWork: Route before Apply,
-/// then the exact literal owner (Apply), then lexicographic native powers.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, bincode::Encode, bincode::Decode)]
-pub(crate) enum StoredWork {
-    Route(Vec<i64>),
-    Apply { owner: Vec<bool>, powers: Vec<i64> },
-}
-impl StoredWork {
-    pub fn from_native<const N: usize>(
-        work: &rustred::solver::CandidateRoutedWork<N>,
-    ) -> Result<Self> {
-        use rustred::solver::CandidateRoutedWork;
-        let arity = work.target().powers().len();
-        if !rustred::fits_storage(arity, N) {
-            return Err(corrupt("native Work has invalid storage arity"));
-        }
-        let value = match work {
-            CandidateRoutedWork::Route(key) => Self::Route(key.powers().to_vec()),
-            CandidateRoutedWork::Apply {
-                owner_sector,
-                target,
-            } => {
-                if !rustred::fits_storage(arity, N)
-                    || owner_sector[arity..].iter().any(|&active| active)
-                {
-                    return Err(corrupt("nonzero or invalid stored owner padding"));
-                }
-                Self::Apply {
-                    owner: owner_sector[..arity].to_vec(),
-                    powers: target.powers().to_vec(),
-                }
-            }
-        };
-        value.validate(arity)?;
-        Ok(value)
-    }
-    pub fn to_native<const N: usize>(&self) -> Result<rustred::solver::CandidateRoutedWork<N>> {
-        use rustred::{family::IntegralKey, solver::CandidateRoutedWork};
-        let arity = self.powers().len();
-        self.validate(arity)?;
-        if !rustred::fits_storage(arity, N) {
-            return Err(corrupt("stored Work exceeds native storage arity"));
-        }
-        let key = IntegralKey::try_new(self.powers().iter().copied()).map_err(corrupt)?;
-        Ok(match self {
-            Self::Route(_) => CandidateRoutedWork::Route(key),
-            Self::Apply { owner, .. } => CandidateRoutedWork::Apply {
-                owner_sector: std::array::from_fn(|i| owner.get(i).copied().unwrap_or(false)),
-                target: key,
+impl From<GeneratedWorkError> for StorageError {
+    fn from(error: GeneratedWorkError) -> Self {
+        Self::new(
+            match error.kind {
+                GeneratedWorkErrorKind::Corrupt => ErrorKind::Corrupt,
+                GeneratedWorkErrorKind::Resource => ErrorKind::Resource,
+                GeneratedWorkErrorKind::Io => ErrorKind::Io,
+                GeneratedWorkErrorKind::Cancelled => ErrorKind::Cancelled,
             },
-        })
-    }
-    pub fn powers(&self) -> &[i64] {
-        match self {
-            Self::Route(powers) | Self::Apply { powers, .. } => powers,
-        }
-    }
-    fn validate(&self, arity: usize) -> Result<()> {
-        if arity == 0 || self.powers().len() != arity {
-            return Err(corrupt("stored Work arity"));
-        }
-        if let Self::Apply { owner, powers } = self {
-            if owner.len() != arity
-                || owner
-                    .iter()
-                    .zip(powers)
-                    .any(|(&active, &power)| active != (power > 0))
-            {
-                return Err(corrupt("stored Apply owner differs from physical support"));
-            }
-        }
-        Ok(())
-    }
-    fn heap_bytes(&self) -> Result<usize> {
-        let (powers, owner) = match self {
-            Self::Route(powers) => (powers, 0),
-            Self::Apply { owner, powers } => (powers, owner.capacity()),
-        };
-        powers
-            .capacity()
-            .checked_mul(std::mem::size_of::<i64>())
-            .and_then(|n| n.checked_add(owner))
-            .ok_or_else(|| resource("stored key payload overflow"))
+            error,
+        )
     }
 }
-
+impl From<StorageError> for GeneratedWorkError {
+    fn from(error: StorageError) -> Self {
+        Self::new(
+            match error.kind {
+                ErrorKind::Resource => GeneratedWorkErrorKind::Resource,
+                ErrorKind::Cancelled => GeneratedWorkErrorKind::Cancelled,
+                ErrorKind::Io | ErrorKind::Locked | ErrorKind::Indeterminate => {
+                    GeneratedWorkErrorKind::Io
+                }
+                _ => GeneratedWorkErrorKind::Corrupt,
+            },
+            error,
+        )
+    }
+}
+impl StorageLimits {
+    pub(super) fn directory_limits(self) -> GeneratedDirectoryLimits {
+        GeneratedDirectoryLimits {
+            max_arity: self.max_arity,
+            max_runs: self.max_runs,
+            max_pages: self.max_pages,
+            max_directory_payload_bytes: self
+                .max_directory_bytes
+                .saturating_sub(std::mem::size_of::<wire::Manifest>()),
+            max_page_records: self.max_page_records,
+            max_page_bytes: self.max_page_bytes,
+            max_referenced_bytes: self.max_disk_bytes,
+            max_lookup_pages: self.max_lookup_pages,
+            max_lookup_bytes: self.max_lookup_bytes,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(crate) enum ScopeRole {
     Required,
@@ -252,6 +210,11 @@ pub(crate) struct GenerationState {
     pub completed_work: u64,
     pub input_occurrences: u64,
     pub census: RawCensus,
+}
+impl GenerationState {
+    pub(crate) fn payload_bytes(&self) -> Result<usize> {
+        wire::state_payload(self)
+    }
 }
 
 /// Captured immutable generation, validated as TRUSTED-GENERATED state.

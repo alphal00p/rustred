@@ -58,6 +58,7 @@ pub use routed::{
     CandidateRoutedCacheCensus, CandidateRoutedCachePolicy, CandidateRoutedCacheStatistics,
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
     CandidateRoutedCampaignSnapshot, CandidateRoutedCompletedTrace,
+    CandidateRoutedCompletedDelta, CandidateRoutedDeltaExportLimits, CandidateRoutedGeneratedBaseline,
     CandidateRoutedCompletedTraceError, CandidateRoutedCompletedTraceLimits, CandidateRoutedError,
     CandidateRoutedFrontier, CandidateRoutedFrontierReason, CandidateRoutedIdentity,
     CandidateRoutedReduction, CandidateRoutedSelectionIdentity, CandidateRoutedTraceCensus,

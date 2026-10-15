@@ -134,6 +134,43 @@ impl StoreWriter {
     pub fn is_poisoned(&self) -> bool {
         self.poisoned
     }
+    pub(crate) fn limits(&self) -> StorageLimits {
+        self.limits
+    }
+
+    /// Only an actual native seal for this precise prepared reducer and CURRENT
+    /// may skip the redundant old-key read pass. Core already exhaustively
+    /// excluded this immutable predecessor before scheduling every delta key.
+    pub(crate) fn commit_completed<const N: usize>(
+        &mut self,
+        delta: rustred::solver::CandidateRoutedCompletedDelta<'_, N>,
+        reducer: &rustred::solver::RoutedCandidateReducer<N>,
+        state: GenerationState,
+        cancel: &AtomicBool,
+    ) -> Result<CommitOutcome> {
+        self.healthy()?;
+        self.check_current()?;
+        let old = self
+            .current
+            .as_ref()
+            .ok_or_else(|| corrupt("native delta requires initial committed generation"))?;
+        if !delta.is_for_reducer(reducer) || delta.execution() != &self.execution {
+            return Err(corrupt("native delta differs from prepared execution"));
+        }
+        if delta.predecessor() != old.digest {
+            return Err(StorageError::new(
+                ErrorKind::Stale,
+                "native delta predecessor is no longer CURRENT",
+            ));
+        }
+        if delta.work().len() != delta.report().snapshot().scheduled_nodes
+            || delta.report().complete_census().is_none()
+        {
+            return Err(corrupt("native delta count/census seal mismatch"));
+        }
+        let (work, _) = delta.into_parts();
+        self.commit_inner(work, state, cancel, true)
+    }
 
     /// Persist one structurally validated generated-state transition. The
     /// caller must stop tracing if this fails: the proposed cursor is not
@@ -141,9 +178,18 @@ impl StoreWriter {
     /// an indeterminate installation). No files are garbage-collected here.
     pub fn commit_generated(
         &mut self,
+        delta: Vec<StoredWork>,
+        state: GenerationState,
+        cancel: &AtomicBool,
+    ) -> Result<CommitOutcome> {
+        self.commit_inner(delta, state, cancel, false)
+    }
+    fn commit_inner(
+        &mut self,
         mut delta: Vec<StoredWork>,
         state: GenerationState,
         cancel: &AtomicBool,
+        native_excluded_predecessor: bool,
     ) -> Result<CommitOutcome> {
         self.healthy()?;
         check(cancel)?;
@@ -172,11 +218,13 @@ impl StoreWriter {
         wire::validate_state(&state, &self.execution, records, self.limits)?;
         if let Some(old) = &self.current {
             wire::validate_extension(&old.state, &state)?;
-            let reader = old.reader(self.limits)?;
-            for key in &delta {
-                check(cancel)?;
-                if reader.lookup(key)? == Lookup::Present {
-                    return Err(corrupt("completed delta repeats earlier Work"));
+            if !native_excluded_predecessor {
+                let reader = old.reader(self.limits)?;
+                for key in &delta {
+                    check(cancel)?;
+                    if reader.lookup(key)? == Lookup::Present {
+                        return Err(corrupt("completed delta repeats earlier Work"));
+                    }
                 }
             }
         }
@@ -188,7 +236,7 @@ impl StoreWriter {
         let mut runs = self
             .current
             .as_ref()
-            .map_or_else(Vec::new, |old| old.manifest.runs.clone());
+            .map_or_else(Vec::new, |old| old.manifest.runs.as_ref().clone());
         let page_count = delta.len().div_ceil(self.limits.max_page_records);
         let old_pages = runs
             .iter()
@@ -226,6 +274,13 @@ impl StoreWriter {
                 },
                 self.limits.max_page_bytes,
             )?;
+            // Compact varints can fit the encoded-byte cap while their native
+            // decoded allocations exceed bincode's independent FRAME_LIMIT.
+            // Refuse before installing a page/CURRENT that our reader cannot
+            // reopen under the same decoder policy.
+            let checked_page: wire::Page =
+                wire::decode(wire::PAGE_MAGIC, &bytes, self.limits.max_page_bytes)?;
+            drop(checked_page);
             let object = self.install("pages", "rrwork", &bytes)?;
             run.push(wire::PageRef {
                 object,
@@ -259,6 +314,9 @@ impl StoreWriter {
         };
         let state_bytes =
             wire::encode(wire::STATE_MAGIC, &state_file, self.limits.max_state_bytes)?;
+        drop(state_file);
+        let state_file: wire::StateFile =
+            wire::decode(wire::STATE_MAGIC, &state_bytes, self.limits.max_state_bytes)?;
         let state_ref = self.install("states", "rrstate", &state_bytes)?;
         drop(state_bytes);
         #[cfg(test)]
@@ -270,12 +328,18 @@ impl StoreWriter {
             previous: self.current.as_ref().map(|old| old.digest),
             state: state_ref,
             scope_digest,
-            runs,
+            runs: Arc::new(runs),
         };
         wire::validate_manifest(&manifest, &self.execution, self.limits)?;
         let manifest_bytes = wire::encode(
             wire::MANIFEST_MAGIC,
             &manifest,
+            self.limits.max_manifest_bytes,
+        )?;
+        drop(manifest);
+        let manifest: wire::Manifest = wire::decode(
+            wire::MANIFEST_MAGIC,
+            &manifest_bytes,
             self.limits.max_manifest_bytes,
         )?;
         let reference = self.install("generations", "rrgen", &manifest_bytes)?;
@@ -289,6 +353,7 @@ impl StoreWriter {
             manifest: reference.clone(),
         };
         let tip_bytes = wire::encode(wire::TIP_MAGIC, &tip, wire::TIP_LIMIT)?;
+        let _: wire::Tip = wire::decode(wire::TIP_MAGIC, &tip_bytes, wire::TIP_LIMIT)?;
         let old_tip_bytes = if self.current.is_some() {
             fs::symlink_metadata(self.directory.join(wire::CURRENT))
                 .map_err(io)?

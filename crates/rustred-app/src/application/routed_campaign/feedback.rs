@@ -756,6 +756,7 @@ fn feedback_snapshot<const N: usize>(
         let mut value = bounded_debug(failure, cap);
         value["kind"] = json!(match failure {
             CandidateRoutedCampaignFailure::Trace(_) => "trace",
+            CandidateRoutedCampaignFailure::Backing(_) => "backing",
             CandidateRoutedCampaignFailure::Cancelled => "cancelled",
             CandidateRoutedCampaignFailure::WorkerPanicked => "worker_panicked",
         });

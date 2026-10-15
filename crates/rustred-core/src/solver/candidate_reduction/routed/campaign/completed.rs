@@ -175,7 +175,8 @@ impl<const N: usize> CandidateRoutedCompletedTrace<'_, N> {
                 workers,
                 Some(self.budget),
                 Some(self.census_limits),
-                (self.completed_work != 0).then_some(&self.membership),
+                (self.completed_work != 0)
+                    .then_some(super::scheduler::CompletedBaseline::Memory(&self.membership)),
                 cancellation,
                 &mut observer,
             )
@@ -297,7 +298,7 @@ impl<const N: usize> CandidateRoutedCompletedTrace<'_, N> {
     }
 }
 
-fn cancelled<const N: usize>(
+pub(super) fn cancelled<const N: usize>(
     mut report: CandidateRoutedCampaignReport<N>,
 ) -> CandidateRoutedCompletedTraceError<N> {
     report.snapshot.finished = false;
@@ -308,7 +309,7 @@ fn cancelled<const N: usize>(
     })
 }
 
-fn retention_error<const N: usize>(
+pub(super) fn retention_error<const N: usize>(
     mut report: CandidateRoutedCampaignReport<N>,
     reason: super::super::CandidateRoutedError,
 ) -> CandidateRoutedCompletedTraceError<N> {

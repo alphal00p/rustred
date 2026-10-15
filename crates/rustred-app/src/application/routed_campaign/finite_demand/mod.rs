@@ -4,4 +4,5 @@
 mod diagnostic;
 pub(crate) mod storage;
 pub(crate) mod trace;
+pub(crate) mod prepared;
 pub(crate) mod windows;

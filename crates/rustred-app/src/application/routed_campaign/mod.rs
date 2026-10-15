@@ -241,6 +241,7 @@ fn snapshot_json<const N: usize>(s: &CandidateRoutedCampaignSnapshot<N>) -> Valu
     let failure = s.first_failure.as_ref().map(|failure| {
         json!({
         "kind":match failure { CandidateRoutedCampaignFailure::Trace(_) => "trace",
+            CandidateRoutedCampaignFailure::Backing(_) => "backing",
             CandidateRoutedCampaignFailure::Cancelled => "cancelled",
             CandidateRoutedCampaignFailure::WorkerPanicked => "worker_panicked" },
         "detail":format!("{failure:?}")})

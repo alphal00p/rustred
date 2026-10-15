@@ -5,6 +5,7 @@
 //! import is explicitly a generated-data boundary, not a hostile-input parser.
 
 pub mod application_cache;
+pub mod finite_work;
 mod atoms;
 mod catalog;
 mod compare;

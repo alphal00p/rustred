@@ -8,6 +8,8 @@ pub(crate) enum Lookup {
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ReaderStatistics {
+    /// Convenience `WorkReader::lookup` calls only. Native generated tracing
+    /// uses core's directory directly; page IO/cache counters below cover both.
     pub lookups: u64,
     pub present: u64,
     pub absent: u64,
@@ -21,7 +23,7 @@ pub(crate) struct ReaderStatistics {
 }
 struct CachedPage {
     digest: Digest,
-    records: Vec<StoredWork>,
+    page: ValidatedWorkPage,
     bytes: usize,
 }
 struct ReaderState {
@@ -34,6 +36,7 @@ struct ReaderState {
 /// A zero resident cache allowance is supported: every hit is read exactly.
 pub(crate) struct WorkReader {
     generation: ValidatedGeneration,
+    directory: TrustedGeneratedWorkDirectory,
     limits: StorageLimits,
     state: Mutex<ReaderState>,
 }
@@ -42,8 +45,15 @@ impl WorkReader {
         let (records, _) =
             wire::validate_manifest(&generation.manifest, generation.execution(), limits)?;
         wire::validate_state(&generation.state, generation.execution(), records, limits)?;
+        let directory = TrustedGeneratedWorkDirectory::try_from_trusted_generated(
+            generation.execution().clone(),
+            generation.digest,
+            generation.manifest.runs.clone(),
+            limits.directory_limits(),
+        )?;
         Ok(Self {
             generation,
+            directory,
             limits,
             state: Mutex::new(ReaderState {
                 cache: VecDeque::new(),
@@ -53,6 +63,12 @@ impl WorkReader {
     }
     pub fn generation(&self) -> Digest {
         self.generation.digest
+    }
+    pub(crate) fn directory(&self) -> &TrustedGeneratedWorkDirectory {
+        &self.directory
+    }
+    pub(crate) fn snapshot(&self) -> &ValidatedGeneration {
+        &self.generation
     }
     pub fn statistics(&self) -> Result<ReaderStatistics> {
         Ok(self
@@ -74,102 +90,124 @@ impl WorkReader {
     }
     pub fn lookup(&self, key: &StoredWork) -> Result<Lookup> {
         key.validate(self.generation.execution().physical_arity as usize)?;
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| io("finite reader state poisoned"))?;
+            increment(&mut state.statistics.lookups, 1)?;
+        }
+        // Core owns all range selection and exact membership, including the
+        // exhaustive negative. The provider below supplies pages, never hits.
+        let outcome = self.directory.lookup(key, self)?;
         let mut state = self
             .state
             .lock()
             .map_err(|_| io("finite reader state poisoned"))?;
-        increment(&mut state.statistics.lookups, 1)?;
-        let mut pages = 0usize;
-        let mut bytes = 0u64;
-        for run in &self.generation.manifest.runs {
-            let index = run.partition_point(|page| &page.last < key);
-            let Some(reference) = run.get(index).filter(|page| &page.first <= key) else {
-                continue;
-            };
-            pages = pages
-                .checked_add(1)
-                .ok_or_else(|| resource("lookup page counter overflow"))?;
-            if pages > self.limits.max_lookup_pages {
-                return Err(resource("finite lookup page allowance"));
-            }
-            let found = if let Some(index) = state
-                .cache
-                .iter()
-                .position(|page| page.digest == reference.object.digest)
-            {
-                let cached = state.cache.remove(index).expect("position exists");
-                let found = cached.records.binary_search(key).is_ok();
-                state.cache.push_back(cached);
-                increment(&mut state.statistics.page_cache_hits, 1)?;
-                found
-            } else {
-                bytes = bytes
-                    .checked_add(reference.object.bytes)
-                    .ok_or_else(|| resource("lookup byte counter overflow"))?;
-                if bytes > self.limits.max_lookup_bytes {
-                    return Err(resource("finite lookup byte allowance"));
-                }
-                let frame = wire::read_object(
-                    &self.generation.directory,
-                    "pages",
-                    "rrwork",
-                    &reference.object,
-                    self.limits.max_page_bytes,
-                )?;
-                increment(&mut state.statistics.page_reads, 1)?;
-                increment(&mut state.statistics.page_bytes_read, frame.len() as u64)?;
-                let page: wire::Page =
-                    wire::decode(wire::PAGE_MAGIC, &frame, self.limits.max_page_bytes)?;
-                let payload = wire::validate_page(
-                    &page,
-                    reference,
-                    self.generation.execution(),
-                    self.limits,
-                )?;
-                let found = page.records.binary_search(key).is_ok();
-                if self.limits.max_cached_pages == 0 || payload > self.limits.max_cached_page_bytes
-                {
-                    increment(&mut state.statistics.uncached_large_pages, 1)?;
-                } else {
-                    while state.cache.len() >= self.limits.max_cached_pages
-                        || payload
-                            > self
-                                .limits
-                                .max_cached_page_bytes
-                                .saturating_sub(state.statistics.retained_page_payload_bytes)
-                    {
-                        let old = state
-                            .cache
-                            .pop_front()
-                            .ok_or_else(|| corrupt("finite cache byte accounting"))?;
-                        state.statistics.retained_page_payload_bytes -= old.bytes;
-                        state.statistics.retained_pages = state.cache.len();
-                        increment(&mut state.statistics.evictions, 1)?;
-                    }
-                    state.cache.try_reserve(1).map_err(resource)?;
-                    state.statistics.retained_page_payload_bytes = state
-                        .statistics
-                        .retained_page_payload_bytes
-                        .checked_add(payload)
-                        .ok_or_else(|| resource("resident page byte overflow"))?;
-                    state.cache.push_back(CachedPage {
-                        digest: reference.object.digest,
-                        records: page.records,
-                        bytes: payload,
-                    });
-                }
-                state.statistics.retained_pages = state.cache.len();
-                found
-            };
-            if found {
-                increment(&mut state.statistics.present, 1)?;
-                return Ok(Lookup::Present);
-            }
+        if outcome.present {
+            increment(&mut state.statistics.present, 1)?;
+            Ok(Lookup::Present)
+        } else {
+            increment(&mut state.statistics.absent, 1)?;
+            Ok(Lookup::Absent)
         }
-        // Only exact range exclusions and fully validated candidate pages can
-        // establish absence. No read/resource/corruption error reaches here.
-        increment(&mut state.statistics.absent, 1)?;
-        Ok(Lookup::Absent)
+    }
+}
+impl GeneratedPageProvider for WorkReader {
+    fn visit_validated_page(
+        &self,
+        expected: &wire::PageRef,
+        remaining_read_bytes: u64,
+        visitor: &mut dyn FnMut(&ValidatedWorkPage),
+    ) -> std::result::Result<GeneratedPageReadUsage, GeneratedWorkError> {
+        self.visit_page(expected, remaining_read_bytes, visitor)
+            .map_err(Into::into)
+    }
+}
+impl WorkReader {
+    fn visit_page(
+        &self,
+        expected: &wire::PageRef,
+        remaining_read_bytes: u64,
+        visitor: &mut dyn FnMut(&ValidatedWorkPage),
+    ) -> Result<GeneratedPageReadUsage> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| io("finite reader state poisoned"))?;
+        if let Some(index) = state
+            .cache
+            .iter()
+            .position(|page| page.digest == expected.object.digest)
+        {
+            let cached = state.cache.remove(index).expect("position exists");
+            // Keep the page borrowed under the cache mutex, so eviction cannot
+            // leave per-worker uncharged retained Arc pages behind.
+            visitor(&cached.page);
+            state.cache.push_back(cached);
+            increment(&mut state.statistics.page_cache_hits, 1)?;
+            return Ok(GeneratedPageReadUsage {
+                disk_bytes: 0,
+                cache_hit: true,
+            });
+        }
+        if expected.object.bytes > remaining_read_bytes {
+            return Err(resource("finite lookup byte allowance"));
+        }
+        let frame = wire::read_object(
+            &self.generation.directory,
+            "pages",
+            "rrwork",
+            &expected.object,
+            self.limits.max_page_bytes,
+        )?;
+        increment(&mut state.statistics.page_reads, 1)?;
+        increment(&mut state.statistics.page_bytes_read, frame.len() as u64)?;
+        let page = ValidatedWorkPage::decode_generated(
+            &frame,
+            expected,
+            self.generation.execution(),
+            self.limits.max_page_bytes,
+            self.limits.max_page_records,
+        )?;
+        drop(frame);
+        let payload = page.payload_bytes();
+        visitor(&page);
+        if self.limits.max_cached_pages == 0 || payload > self.limits.max_cached_page_bytes {
+            increment(&mut state.statistics.uncached_large_pages, 1)?;
+        } else {
+            while state.cache.len() >= self.limits.max_cached_pages
+                || payload
+                    > self
+                        .limits
+                        .max_cached_page_bytes
+                        .saturating_sub(state.statistics.retained_page_payload_bytes)
+            {
+                let old = state
+                    .cache
+                    .pop_front()
+                    .ok_or_else(|| corrupt("finite cache byte accounting"))?;
+                state.statistics.retained_page_payload_bytes -= old.bytes;
+                state.statistics.retained_pages = state.cache.len();
+                increment(&mut state.statistics.evictions, 1)?;
+            }
+            state.cache.try_reserve(1).map_err(resource)?;
+            state.statistics.retained_page_payload_bytes = state
+                .statistics
+                .retained_page_payload_bytes
+                .checked_add(payload)
+                .ok_or_else(|| resource("resident page byte overflow"))?;
+            state.cache.push_back(CachedPage {
+                digest: expected.object.digest,
+                page,
+                bytes: payload,
+            });
+        }
+        state.statistics.retained_pages = state.cache.len();
+        Ok(GeneratedPageReadUsage {
+            disk_bytes: expected.object.bytes,
+            cache_hit: false,
+        })
     }
 }
 fn increment(value: &mut u64, amount: u64) -> Result<()> {

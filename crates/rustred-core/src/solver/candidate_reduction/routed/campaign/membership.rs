@@ -44,6 +44,144 @@ pub(super) struct Shard<'a, const N: usize, H> {
 }
 
 impl<const N: usize> Membership<N> {
+    /// Consume only the new completed membership, moving physical keys except
+    /// when both Route and Apply require separate wire keys. Reserve and charge
+    /// the full exported vector plus both key payloads before beginning moves.
+    pub(in super::super) fn into_generated_work(
+        self,
+        expected: usize,
+        limits: super::super::generated::CandidateRoutedDeltaExportLimits,
+        check: &mut dyn FnMut() -> Result<
+            (),
+            crate::solver::candidate_reduction::routed::CandidateRoutedError,
+        >,
+    ) -> Result<
+        Vec<crate::persistence::finite_work::GeneratedWorkKey>,
+        crate::solver::candidate_reduction::routed::CandidateRoutedError,
+    > {
+        use crate::persistence::finite_work::GeneratedWorkKey as Key;
+        use crate::solver::candidate_reduction::routed::CandidateRoutedError as Error;
+        let quota = |resource, requested, limit| Error::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        };
+        if expected > limits.max_records {
+            return Err(quota(
+                "completed delta Work export",
+                expected,
+                limits.max_records,
+            ));
+        }
+        let mut count = 0usize;
+        let mut export_bytes = expected
+            .checked_mul(std::mem::size_of::<Key>())
+            .ok_or_else(|| {
+                quota(
+                    "completed delta export payload",
+                    usize::MAX,
+                    limits.max_live_payload_bytes,
+                )
+            })?;
+        let membership_bytes = self.payload_bytes(check)?;
+        for shard in &self.shards {
+            let shard = shard
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for (key, phases) in shard.iter() {
+                check()?;
+                let copies = usize::from(phases.route) + usize::from(phases.apply_owner.is_some());
+                count = count.checked_add(copies).ok_or_else(|| {
+                    quota(
+                        "completed delta Work export",
+                        usize::MAX,
+                        limits.max_records,
+                    )
+                })?;
+                let bytes = key
+                    .powers()
+                    .len()
+                    .checked_mul(std::mem::size_of::<i64>())
+                    .and_then(|n| n.checked_mul(copies))
+                    .and_then(|n| {
+                        n.checked_add(if phases.apply_owner.is_some() {
+                            key.powers().len()
+                        } else {
+                            0
+                        })
+                    })
+                    .ok_or_else(|| {
+                        quota(
+                            "completed delta export payload",
+                            usize::MAX,
+                            limits.max_live_payload_bytes,
+                        )
+                    })?;
+                export_bytes = export_bytes.checked_add(bytes).ok_or_else(|| {
+                    quota(
+                        "completed delta export payload",
+                        usize::MAX,
+                        limits.max_live_payload_bytes,
+                    )
+                })?;
+            }
+        }
+        if count != expected {
+            return Err(Error::InvalidInput(
+                "completed delta phase count differs from scheduled Work".into(),
+            ));
+        }
+        let live = export_bytes.checked_add(membership_bytes).ok_or_else(|| {
+            quota(
+                "completed delta export live payload",
+                usize::MAX,
+                limits.max_live_payload_bytes,
+            )
+        })?;
+        if live > limits.max_live_payload_bytes {
+            return Err(quota(
+                "completed delta export live payload",
+                live,
+                limits.max_live_payload_bytes,
+            ));
+        }
+        let mut result = Vec::new();
+        result.try_reserve_exact(expected).map_err(|error| {
+            Error::InvalidInput(format!("cannot reserve completed Work export: {error}"))
+        })?;
+        for shard in self.shards {
+            for (key, phases) in shard
+                .into_inner()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+            {
+                check()?;
+                let powers = key.into_powers();
+                if let Some(owner) = phases.apply_owner {
+                    if phases.route {
+                        result.push(Key::Route(powers.clone()));
+                    }
+                    result.push(Key::Apply {
+                        owner: owner[..powers.len()].to_vec(),
+                        powers,
+                    });
+                } else if phases.route {
+                    result.push(Key::Route(powers));
+                }
+            }
+        }
+        // In-place unstable sort has no second O(n) scratch vector. Keys are
+        // unique by phase/owner, so stability carries no semantic information.
+        check()?;
+        result.sort_unstable();
+        check()?;
+        if result.len() != expected || result.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err(Error::InvalidInput(
+                "completed Work export is not unique".into(),
+            ));
+        }
+        Ok(result)
+    }
+
     pub(in super::super) fn new() -> Self {
         // Independent selectors/table seeds avoid pinning the same hash
         // bucket bits in every key that lands in one membership shard.

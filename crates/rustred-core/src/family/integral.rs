@@ -34,6 +34,9 @@ impl IntegralKey {
     pub fn powers(&self) -> &[i64] {
         &self.0
     }
+    pub(crate) fn into_powers(self) -> Vec<i64> {
+        self.0
+    }
 }
 
 /// Typed failures while constructing one exact integral key.
