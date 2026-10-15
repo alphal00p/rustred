@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(all(feature = "cli", target_os = "linux"))]
+#[path = "union_diagnostic.rs"]
+mod union_diagnostic;
+
 #[test]
 fn finite_replay_late_cancel_prevents_resource_fallback_without_masking_hard_error() {
     let resource = CandidateRoutedCampaignFailure::Trace(CandidateRoutedError::ResourceLimit {
