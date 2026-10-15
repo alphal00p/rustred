@@ -84,6 +84,165 @@ fn source(f: &Fixture) -> OwnerDomainWalkRequest {
     matching.owner_base = f.directory.clone();
     OwnerDomainWalkRequest::new(matching)
 }
+
+#[test]
+fn durable_driver_pending_pause_cold_reopen_and_exact_stream_match_uninterrupted() {
+    use crate::application::routed_campaign::finite_demand::backend::diagnostic::{
+        Mode, OutputBudget, drive,
+    };
+    let f = Fixture::new();
+    let source = source(&f);
+    let p = policy(1);
+    let cancel = AtomicBool::new(false);
+    let path = f.directory.join("driver-cold");
+    let run = |mode, stop, checkpoint: &Path, label: &str| {
+        let output = f.directory.join(label);
+        fs::create_dir(&output).unwrap();
+        let result = drive::<1>(
+            &source,
+            p,
+            mode,
+            checkpoint,
+            stop,
+            &output,
+            &OutputBudget::new(1048576),
+            &cancel,
+            &|_| {},
+        )
+        .unwrap();
+        (result, output)
+    };
+    let (initial, _) = run(Mode::Create, Some(0), &path, "driver-initial");
+    assert_eq!(initial["status"], "paused");
+    assert_eq!(initial["progress"]["input_occurrences"], 0);
+    assert!(path.join("CURRENT").exists());
+    let (paused, _) = run(Mode::Resume, Some(1), &path, "driver-paused");
+    assert_eq!(paused["status"], "paused");
+    assert_eq!(paused["progress"]["input_occurrences"], 1);
+    let (completed, output) = run(Mode::Resume, None, &path, "driver-finished");
+    assert_eq!(completed["status"], "complete");
+    assert_eq!(completed["progress"]["input_occurrences"], 3);
+    let (control, control_output) = run(
+        Mode::Create,
+        None,
+        &f.directory.join("driver-control"),
+        "driver-control-output",
+    );
+    assert_eq!(control["status"], "complete");
+    // Compare all native key and full identity/multiplicity bytes, not hashes/counts.
+    for name in ["terminals.jsonl", "zeros.jsonl", "selections.jsonl"] {
+        assert_eq!(
+            fs::read(output.join(name)).unwrap(),
+            fs::read(control_output.join(name)).unwrap()
+        );
+    }
+    // Already-exhausted reopen is only metadata/census replay, not a native all-hit test.
+    let (reopened, _) = run(Mode::Resume, None, &path, "driver-exhausted");
+    assert_eq!(reopened["committed_windows_this_process"], 0);
+    assert_eq!(reopened["status"], "complete");
+    let (last_boundary, _) = run(
+        Mode::Create,
+        Some(3),
+        &f.directory.join("driver-last-boundary"),
+        "driver-last-boundary-output",
+    );
+    assert_eq!(last_boundary["status"], "paused");
+    assert_eq!(last_boundary["progress"]["all_rows_exhausted"], true);
+    assert!(last_boundary["census"].is_null());
+    let mut empty_source = source.clone();
+    empty_source.matching.queries_json = json!({
+        "schema":"rustred.owner-domain-queries.json.v2", "queries":[query("empty",0)],
+        "query_roles":{"required":["empty"],"auxiliary":[]}
+    })
+    .to_string();
+    let empty_output = f.directory.join("driver-empty-output");
+    fs::create_dir(&empty_output).unwrap();
+    let empty = drive::<1>(
+        &empty_source,
+        p,
+        Mode::Create,
+        &f.directory.join("driver-empty"),
+        Some(0),
+        &empty_output,
+        &OutputBudget::new(1048576),
+        &cancel,
+        &|_| {},
+    )
+    .unwrap();
+    assert_eq!(empty["status"], "paused");
+    assert_eq!(empty["progress"]["all_rows_exhausted"], true);
+    assert!(empty["census"].is_null());
+}
+
+#[test]
+fn durable_driver_output_refusal_and_cancel_never_report_complete() {
+    use crate::application::routed_campaign::finite_demand::backend::diagnostic::{
+        Mode, OutputBudget, drive,
+    };
+    let f = Fixture::new();
+    let source = source(&f);
+    let p = policy(1);
+    let cancel = AtomicBool::new(false);
+    let checkpoint = f.directory.join("driver-output-limit");
+    let output = f.directory.join("driver-output-limit-result");
+    fs::create_dir(&output).unwrap();
+    let result = drive::<1>(
+        &source,
+        p,
+        Mode::Create,
+        &checkpoint,
+        None,
+        &output,
+        &OutputBudget::new(0),
+        &cancel,
+        &|_| {},
+    )
+    .unwrap();
+    assert_eq!(result["status"], "incomplete");
+    assert_eq!(result["error_kind"], "Limit");
+    assert_eq!(result["progress"]["all_rows_exhausted"], true);
+    assert!(result["census"].is_null());
+    let before = tree(&checkpoint);
+    let output = f.directory.join("driver-output-retry");
+    fs::create_dir(&output).unwrap();
+    let result = drive::<1>(
+        &source,
+        p,
+        Mode::Resume,
+        &checkpoint,
+        None,
+        &output,
+        &OutputBudget::new(1048576),
+        &cancel,
+        &|_| {},
+    )
+    .unwrap();
+    assert_eq!(result["status"], "complete");
+    assert_eq!(tree(&checkpoint), before);
+    let checkpoint = f.directory.join("driver-cancel");
+    let output = f.directory.join("driver-cancel-output");
+    fs::create_dir(&output).unwrap();
+    let result = drive::<1>(
+        &source,
+        p,
+        Mode::Create,
+        &checkpoint,
+        None,
+        &output,
+        &OutputBudget::new(1048576),
+        &cancel,
+        &|event| {
+            if event["event"] == "finite_backend_before_commit" {
+                cancel.store(true, Ordering::Release);
+            }
+        },
+    )
+    .unwrap();
+    assert_eq!(result["status"], "incomplete");
+    assert_eq!(result["error_kind"], "Cancelled");
+    assert_eq!(result["progress"]["input_occurrences"], 0);
+    assert_eq!(result["progress"]["no_active_native_work"], true);
+}
 fn append(source: &mut OwnerDomainWalkRequest, path: PathBuf) {
     source.amendments.push(OwnerDomainWalkAmendment {path,text:json!({"schema":OWNER_DOMAIN_WALK_SCOPE_EXTENSION_SCHEMA,
         "sequence":1,"parent":source.checkpoint_binding(),"queries":[query("rank-or-power-extension",5)],
