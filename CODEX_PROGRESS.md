@@ -1,5 +1,51 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — full-R1 diagnostics stop at aggregate allowances; exact prefix sharing wins
+
+All three bounded full-R1 diagnostics are finished and their process groups
+drained. The current evidence and qualifications are consolidated in
+`docs/research/shared_finite_r1_pilots_2026-10-15.md`. The earlier entry saying
+runner build3305 continues is historical: that build and its 24-test native
+gate passed. Root integrated the audited runner as0a6a8192 and storage as235ddf86;
+the sole conflict was the additive module registration. Combined normal
+app/CLI release test typechecking passed in85.212s, with no resource stop
+(`TMP/shared-finite-runner-storage-main-check-20261015/`). No production CLI
+was rebuilt or replaced. Root also reran the11 cumulative-closure dashboard
+tests, all passing in0.011s. The independently audited building blocks and
+pilot report are ready for push; durable backend delivery remains pending.
+
+The unchanged232-row R0+R1 scope passes native exact-envelope checks. Separate
+and shared tracing complete the same first156 rows/26,161 input occurrences,
+with identical549 terminal keys,169,488 zeros and3,739 selected-rule identities.
+Shared new Work falls12,269,817→1,250,965 (89.8% less); rule applications
+5,685,673→529,893 (90.7% less). These are complete-prefix work comparisons,
+not full-R1 timing, closure or R6 projections.
+
+All attempts stop on the same four-input rank-one row156. The first two hit
+the32M aggregate routed-endpoint allowance. One explicitly reviewed correction
+to128M then hits the500M routed-operation allowance. This final run takes
+197.366s driver-inclusive, peak8.520GB, with no missing owner/rule, timeout or
+RAM stop. Its failed window is uncommitted. Independent audits pass the negative
+result and exact common-prefix interpretation. No further cap staircase or
+run has been started; runner and audit agents now distinguish aggregate
+policy from local expansion/algebra safeguards before the next decision.
+
+Storage slice b37f5866 passed normal app/CLI release checking and22 native
+exact-source storage tests (0.11s native,1.159s guarded; independent audit).
+Its low-level format is now integrated, but not wired into saved campaigns.
+`intermediate_capture_app` now implements
+the approved durable core seam in `TMP/finite-demand-durable-core-20261015`:
+validated native Work pages, exact backing lookup, sealed complete deltas,
+execution binding and atomic cursor adoption. This remains source-only;
+cold-reload/extend native gates and publication integration are outstanding.
+
+Root rechecked live R4 read-only: its frozen81474511… executable still emits
+only original-root telemetry. Native recursive scans continue (scan318 seen),
+but there is no cumulative numerator for the dashboard's580 requests. The
+newer observer needs a future user-authorized executable resume. Main's
+ecf64b92 dashboard wording fix is already pushed; no production process,
+checkpoint, scope or binary was changed.
+
 ## October 15 — dashboard clarification and full-R1 gate preparation
 
 The exact-window adapter is integrated and pushed as6a7a0b12. Runner build3305
