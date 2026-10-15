@@ -1,5 +1,48 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — both measured wins delivered; shared production design next
+
+Narrow Q integration passed556/556 release tests (28scalar+528candidate,
+no failures/ignores),2.00s native, with the diagnostic feature OFF. Independent
+source/runtime/commit audit passed. Root cherry-picked the nine-file local
+commit onto current main and pushed `74a83e94`; tested scalar files match
+byte-for-byte. No solver, artifact or cache schema changes and no five-loop
+artifact regeneration. Vakint now locally pins that published Git revision;
+metadata and feature-on/off checks pass (116.23s/60.20s), with Symbolica400a53c
+and FeynKit024f96d unchanged. Its final actual-Git libtest build13611 and short
+R2 homogeneous-factor package canary remain before feature-branch delivery.
+
+The corrected shared-union pilot82390 passed independent full-set audit:
+
+| Measurement | 81 separate traces | One shared trace |
+|---|---:|---:|
+| Native call wall time |51.705816s|13.077615s|
+| Native call CPU time |51.213991s|12.966571s|
+| Operational states |1,215,215|300,673|
+| Physical-key visits |1,211,505|297,712|
+| Rule applications |536,591|118,655|
+
+All116 rows remain accounted for,35 proved empty; the81 nonempty regions
+enumerate2,557distinct starting keys. Complete312terminal,91,063zero and
+1,964composite-rule identity sets agree exactly. This is real75.4%physical-work
+sharing, not record compression. Preparation122.347s is separate; the whole
+single-order same-process pilot took201.596s and peaked7.731GB. No resource
+stop or source/input mutation; all owned processes drained. Initial bookkeeping
+failure and both frozen binaries remain preserved.
+
+Root pushed the audited diagnostic and protocol as `526bf8f4`; see
+`docs/research/finite_union_diagnostic_2026-10-15.md`. This is NOT yet a
+checkpointable production grouped mode, a coefficient back-substitution test,
+or full R6 coverage. `weighted_vk_gate_plan` now designs the smallest generic
+shared finite-demand extension, including exact unions, completed-work reuse,
+bounded streaming for large finite scopes, interrupt/restore, publication
+census and input-steered R1 follow-up pilots. Independent critique precedes
+implementation; no production campaign may be replaced automatically.
+
+The active full goal, physical admission bridge/projected ladder, remaining
+Vakint census/high-rank acceptance and later five-loop cache preparation remain
+open. Production campaigns and their frozen binaries remain untouched.
+
 ## October 15 — actual Vakint gain audited; narrow integration prepared
 
 Actual mixed-numerator pair88325 completed and passed independent audit.
@@ -18,14 +61,19 @@ whole-suite acceleration. Report:
 `codex/weighted-rational-integration`, base47e1d2d1. Independent drift audit
 passes: nine scalar/feature/test paths only; production/diagnostic bytes match
 the actual Vk-tested delta, five differential tests retained, no old solver,
-cache, schema or lockfile changes. Current-main checks/tests wait for the union
-build's shared target to freeze. No code push or installed-runtime change yet.
+cache, schema or lockfile changes. Current-main feature-enabled checking now
+passes127.27s; the normal feature-off optimized core libtest build is94860,
+`TMP/weighted-rational-integration-build-20261015`, on the separate existing
+current-stack target/build1, with main's explicit ef0db/3.0.0 override. This
+avoids modifying the union build's shared target. Scalar and candidate-reduction
+runtime regressions follow. No code push or installed-runtime change yet.
 Then Vakint must pin the actual pushed Git revision, without committing local
 dependency overrides, and pass its integration checks.
 
 The corrected union diagnostic passed typecheck59.228s and is building as
 88358 under `TMP/finite-union-diagnostic-20261015/TMP/build-2`. Its earlier
 bookkeeping failure remains preserved; no sharing result is available yet.
+The measured-result and termination reports were pushed to main as `c9bc35fb`.
 
 ## October 15 — union diagnostic bookkeeping correction; actual Vk pair live
 

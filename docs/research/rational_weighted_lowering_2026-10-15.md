@@ -7,8 +7,10 @@ passes the automated scalar-lowering tests and six synthetic exact-comparison
 benchmarks. The larger five-loop inputs take about one third of the existing
 generic-coefficient lowering time. The subsequent actual Vakint gate also
 passed: first application on one unchanged mixed-numerator fixture improved
-from 723.096 to 224.959 seconds. Integration and current-main validation remain
-pending; this is not a whole-suite or campaign-generation speedup claim.
+from 723.096 to 224.959 seconds. Current-main integration subsequently passed
+556 release regressions and was pushed as `74a83e94`; final Git-pinned Vakint
+delivery remains pending. This is not a whole-suite or campaign-generation
+speedup claim.
 
 The opportunity came from the delivered R2 Vakint cancellation controls:
 repeated weighted polynomial lowering dominated a short profile of a difficult
@@ -185,6 +187,7 @@ four dependency bindings and all 77 files of the unchanged R2/D10 package.
 Complete evidence: `TMP/weighted-vakint-gate-20261015/runtime/`.
 The external package remains
 `TMP/r2-vakint-acceptance-20261015/application-r2-d10`; it was not regenerated.
-The optimization is now being integrated separately onto current main, with
-its regression tests and a default-off diagnostic feature. Current-main gates
-and the subsequent published-Git Vakint pin/check precede delivery.
+The narrow optimization is now pushed to current main as `74a83e94`, with its
+regression tests and default-off diagnostic feature. All556 scalar/candidate
+release regressions passed with that feature disabled. Vakint's published-Git
+pin/check and short package canary still precede its feature-branch delivery.
