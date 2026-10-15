@@ -8,8 +8,8 @@ benchmarks. The larger five-loop inputs take about one third of the existing
 generic-coefficient lowering time. The subsequent actual Vakint gate also
 passed: first application on one unchanged mixed-numerator fixture improved
 from 723.096 to 224.959 seconds. Current-main integration subsequently passed
-556 release regressions and was pushed as `74a83e94`; final Git-pinned Vakint
-delivery remains pending. This is not a whole-suite or campaign-generation
+556 release regressions and was pushed as `74a83e94`; Git-pinned Vakint delivery
+is pushed as `c4e1185a` on `vakint_rustred`. This is not a whole-suite or campaign-generation
 speedup claim.
 
 The opportunity came from the delivered R2 Vakint cancellation controls:
@@ -190,4 +190,23 @@ The external package remains
 The narrow optimization is now pushed to current main as `74a83e94`, with its
 regression tests and default-off diagnostic feature. All556 scalar/candidate
 release regressions passed with that feature disabled. Vakint's published-Git
-pin/check and short package canary still precede its feature-branch delivery.
+pin/check and short package canary also passed before feature-branch delivery
+as `c4e1185a2b61f249bcb7a80b4095a9017afcab9c`.
+
+## Published-Git integration canary
+
+The delivered GammaLoop commit pins RustRed74a83e94 and retains Symbolica400a53c
+and FeynKit024f96d. Feature-on/off compilation and nine focused tests passed.
+Its optimized executable has SHA256
+`e6f4f69b146823b8e14db5f36d55150b8d7781c0f101a8439e56c90a77287b3a`.
+The existing R2 homogeneous-factor canary also passed with an invalid FORM path:
+package load83.929586s, first application10.339983s, warm repeat0.365535s.
+Independent factor/piece/guard parity, two admitted keys, nine rule applications,
+five coefficient-cache hits and one witness-cache hit were checked. Total driver
+time119.206s and peak RSS2.478GB are separate from application-only measurements.
+
+An independent auditor verified the binary,2,308 source files, dependency pins
+and all77 unchanged package files. Evidence is in
+`TMP/weighted-vakint-git74-canary-20261015/independent-audit.json`.
+This verifies the actual Git pin, not a second full mixed-input benchmark or
+exhaustive five-loop acceptance. The external package is not committed.

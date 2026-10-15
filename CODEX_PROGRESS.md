@@ -1,5 +1,40 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 18:05 UTC — actual-Git Vakint delivered; shared finite slices active
+
+Root reviewed and pushed GammaLoop `vakint_rustred` commit
+`c4e1185a2b61f249bcb7a80b4095a9017afcab9c`. It pins published RustRed74a83e94,
+keeps Symbolica400a53c/FeynKit024f96d, and includes the default-off exact
+weighted-lowering diagnostic. Actual-Git feature-on/off checks, nine focused
+tests and the existing R2 homogeneous-factor package canary passed independent
+audit. Canary package load83.930s, first10.340s, warm0.366s; exact independent
+factor/piece/guard parity and expected cache reuse passed. These are not another
+full mixed-input timing pair. Receipt:
+`TMP/weighted-vakint-git74-canary-20261015/independent-audit.json`.
+All owned processes drained; no five-loop artifact/local dependency patch was
+committed. Both author and committer use the requested ValentinHirschi identity.
+
+Independent design review approved native complete-only and exact-prefix slices,
+with two corrections: a fresh explicit finite-demand backend avoids CP6's
+single-parent assumptions; eviction must consult exact backing storage rather
+than pretend a miss while claiming unique Work counts. Raw closure stays separate
+from downstream master refinement. The implementation decision and gates are in
+`SHARED_FINITE_DEMAND_PLAN.md`.
+
+Active lanes: `intermediate_capture_app` owns core parallel census and safe
+complete-only in-memory Work reuse; `weighted_vk_gate_plan` owns exact native
+prefix windows/cursors; the independent auditor reviews both and storage reuse.
+No production change or durable new backend is delivered yet. Persistence and
+publication integration await these interfaces/audits. Full232-row R1 remains
+the next performance/lifecycle gate before larger scopes.
+
+Read-only answer to the user's rank-count question: R2/R3 publication JSONs
+both report9,982 installed parametric rules. Encountered rules6,495→6,818;
+raw terminals899→935; retained30 relations leave869→905. Extensions reuse
+parametric programs, not one newly generated rule per encountered integral.
+More terminal keys do not prove more independent masters. Source artifacts
+14b5bd1e/5a5eaef0 are unchanged; R4 status is a separate observation.
+
 ## October 15 — both measured wins delivered; shared production design next
 
 Narrow Q integration passed556/556 release tests (28scalar+528candidate,

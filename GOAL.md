@@ -31,6 +31,14 @@ The old generation54 R11/D9 application backlog remains explicit and is not
 silently discharged by the different R6/D10 scope. The physical-numerator to
 shifted-family admission distinction is a required integration obligation.
 
+Current closure implementation follows `SHARED_FINITE_DEMAND_PLAN.md`: an
+opt-in exact finite-demand backend with shared completed Work and bounded
+native enumeration, preserving symbolic/v3 defaults and existing campaigns.
+Its shared-R0 diagnostic is promising but does not establish R6 feasibility.
+The independently tested rational-only scalar-lowering optimization is pushed
+to RustRed main and pinned on GammaLoop `vakint_rustred` (`c4e1185a`); full
+five-loop acceptance and the physical admission/ladder obligations remain open.
+
 ## October 13 — active: five-loop symbolic Vakint application
 
 Authoritative plan: `FIVE_LOOP_VAKINT_PLAN.md`, with progress in
