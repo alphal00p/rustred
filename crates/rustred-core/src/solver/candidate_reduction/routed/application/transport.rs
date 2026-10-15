@@ -11,12 +11,12 @@ use crate::solver::candidate_reduction::routed::trace::{charge, successor, suppo
 use std::collections::BTreeMap;
 
 impl<const N: usize> RoutedCandidateApplication<N> {
-    /// Return only the installed verified entry transport. Literal owners take
-    /// precedence and return the identity. No rule, cache, terminal substitution
+    /// Return only the installed verified entry transport. For nonzero sources,
+    /// literal owners take precedence and return the identity. No rule, cache, terminal substitution
     /// or entry admission is applied. The caller must separately admit every
     /// nonzero endpoint against its original entry union before reducing it.
-    /// Endpoints covered by installed zero certificates are omitted after
-    /// their source guards and resource charges have been retained.
+    /// Sources and endpoints covered by installed zero certificates are omitted
+    /// after their source guards and resource charges have been retained.
     pub fn route_entry_to_owner(
         &self,
         target: &IntegralKey,
@@ -65,7 +65,12 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         )?;
         statistics.requested_targets = 1;
         let support = support::<N>(target);
-        let terms = if self.owners.contains(&support) {
+        let terms = if evaluator.is_zero(target) {
+            // The same installed certificate used by native traversal also
+            // applies before owner routing. A proved zero needs no owner or
+            // transport, but validation and input charges must still precede it.
+            BTreeMap::new()
+        } else if self.owners.contains(&support) {
             BTreeMap::from([(target.clone(), shared.context.base().one())])
         } else {
             let route =
