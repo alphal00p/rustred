@@ -1,5 +1,7 @@
 use super::*;
-use crate::application::routed_campaign::finite_demand::trace::{self, Mode, Policy, Request};
+use crate::application::routed_campaign::finite_demand::trace::{
+    self, Mode, Policy, ReductionAggregateOverrides, Request, WorkLimits,
+};
 use crate::application::routed_campaign::walking::finite_scope;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -17,11 +19,19 @@ fn query(id: &str, a: u64) -> Value {
     "max_numerator_rank":0,"power_bounds":{"max_positive_power":a,"min_power_difference":0,"max_power_difference":10}})
 }
 fn source(f: &Fixture) -> OwnerDomainWalkRequest {
+    source_with_reduction(f, f.request.reduction_limits)
+}
+fn source_with_reduction(
+    f: &Fixture,
+    limits: rustred::reduction::ReductionLimits,
+) -> OwnerDomainWalkRequest {
     let document = json!({"schema":"rustred.owner-domain-queries.json.v2","queries":[query("original",4),query("empty",0)],
         "query_roles":{"required":["original","empty"],"auxiliary":[]}});
     let mut matching =
         OwnerDomainMatchRequest::new(f.request.selection_json.clone(), document.to_string());
     matching.owner_base = f.directory.clone();
+    // Synthetic source policy is fixed BEFORE constructing its amendment chain.
+    matching.reduction_limits = limits;
     let mut source = OwnerDomainWalkRequest::new(matching);
     source.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(
         f.directory.join("must-not-open"),
@@ -149,7 +159,9 @@ fn finite_demand_failed_and_cancelled_windows_never_report_full_scope_complete()
 #[test]
 fn finite_demand_policy_is_strict_and_does_not_rename_per_batch_caps_as_total_grants() {
     let p = policy(2);
+    assert!(p.prepared_reduction_aggregates.is_none());
     let mut value = serde_json::to_value(&p).unwrap();
+    assert!(value.get("prepared_reduction_aggregates").is_none());
     value["total_work"] = value["per_batch_work"].clone();
     assert!(serde_json::from_value::<Policy>(value).is_err());
 }
@@ -221,5 +233,144 @@ fn finite_demand_per_batch_rule_grant_reaches_native_nonterminal_work() {
             .as_str()
             .unwrap()
             .contains("rule")
+    );
+}
+
+fn no_batch_count_stops(p: &mut Policy) {
+    p.per_batch_work = WorkLimits {
+        max_nodes: usize::MAX,
+        max_rule_applications: usize::MAX,
+        max_transport_calls: usize::MAX,
+        max_transport_operations: usize::MAX,
+        max_transport_endpoints: usize::MAX,
+        max_coalescing_additions: usize::MAX,
+    };
+}
+
+#[test]
+fn finite_demand_explicit_aggregate_override_preserves_authenticated_source_and_raw_census() {
+    let f = Fixture::new();
+    let mut zero_limits = f.request.reduction_limits;
+    zero_limits.max_rule_applications = 0;
+    let source = source_with_reduction(&f, zero_limits);
+    let binding = source.checkpoint_binding();
+    let original_amendment = source.amendments[0].text.clone();
+    let mut p = policy(2);
+    p.mode = Mode::SharedWindows;
+    no_batch_count_stops(&mut p);
+    let run = |source: &OwnerDomainWalkRequest, policy: &Policy| {
+        trace::run_with_progress(Request { source, policy }, &AtomicBool::new(false), |_| {})
+            .unwrap()
+    };
+    // All per-batch counters at MAX do NOT silently override the source's zero.
+    let refused = run(&source, &p);
+    assert!(!refused.completed);
+    assert_eq!(
+        refused.document["effective_batch_aggregate_limits"]["max_rule_applications"],
+        0
+    );
+    let funded_source = source_with_reduction(&f, f.request.reduction_limits);
+    let control = run(&funded_source, &p);
+    assert!(control.completed);
+    p.prepared_reduction_aggregates = Some(ReductionAggregateOverrides {
+        max_rule_applications: usize::MAX,
+        max_pending_frames: usize::MAX,
+        max_coalescing_additions: usize::MAX,
+    });
+    let result = run(&source, &p);
+    assert!(result.completed, "{}", result.document);
+    assert_eq!(source.matching.reduction_limits, zero_limits);
+    assert_eq!(source.amendments[0].text, original_amendment);
+    assert_eq!(source.checkpoint_binding(), binding);
+    assert_eq!(result.document["scope_request_binding"], binding);
+    assert_eq!(
+        result.document["scope_request_binding_is_execution_identity"],
+        false
+    );
+    assert_eq!(
+        result.document["source_reduction_limits"],
+        format!("{zero_limits:?}")
+    );
+    assert_eq!(result.document["rows"], control.document["rows"]);
+    assert_eq!(
+        result.document["shared"]["evidence"],
+        control.document["shared"]["evidence"]
+    );
+    assert_eq!(
+        result.document["local_expansion_limits"],
+        control.document["local_expansion_limits"]
+    );
+    let effective = &result.document["effective_batch_aggregate_limits"];
+    assert_eq!(effective["max_input_targets"], 2);
+    for field in [
+        "max_unique_nodes",
+        "max_rule_applications",
+        "max_pending_frames",
+        "max_coalescing_additions",
+        "max_transport_calls",
+        "max_transport_operations",
+        "max_transport_endpoints",
+    ] {
+        assert_eq!(effective[field], json!(usize::MAX), "{field}");
+    }
+    assert!(!f.directory.join("must-not-open").exists());
+}
+
+#[test]
+fn finite_demand_aggregate_override_cannot_repair_or_bypass_an_invalid_original_chain() {
+    let f = Fixture::new();
+    let mut source = source(&f);
+    // Invalidates the pre-existing chain: the diagnostic override must NOT rebind it.
+    source.matching.reduction_limits.max_rule_applications = 0;
+    let mut p = policy(2);
+    p.prepared_reduction_aggregates = Some(ReductionAggregateOverrides {
+        max_rule_applications: usize::MAX,
+        max_pending_frames: usize::MAX,
+        max_coalescing_additions: usize::MAX,
+    });
+    let observed = AtomicBool::new(false);
+    let result = trace::run_with_progress(
+        Request {
+            source: &source,
+            policy: &p,
+        },
+        &AtomicBool::new(false),
+        |_| {
+            observed.store(true, Ordering::Release);
+        },
+    );
+    assert!(result.is_err());
+    assert!(!observed.load(Ordering::Acquire));
+    assert!(!f.directory.join("must-not-open").exists());
+}
+
+#[test]
+fn finite_demand_override_zero_remains_zero_and_effective_native_minima_are_reported() {
+    let f = Fixture::new();
+    let source = source(&f);
+    let mut p = policy(2);
+    p.mode = Mode::SharedWindows;
+    p.prepared_reduction_aggregates = Some(ReductionAggregateOverrides {
+        max_rule_applications: 0,
+        max_pending_frames: 20_000,
+        max_coalescing_additions: 20_000,
+    });
+    let result = trace::run_with_progress(
+        Request {
+            source: &source,
+            policy: &p,
+        },
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    assert!(!result.completed);
+    let effective = &result.document["effective_batch_aggregate_limits"];
+    assert_eq!(effective["max_rule_applications"], 0);
+    assert_eq!(effective["max_pending_frames"], 10_000);
+    assert_eq!(effective["max_coalescing_additions"], 20_000);
+    assert_ne!(
+        result.document["source_reduction_limits"],
+        result.document["effective_reduction_limits"]
     );
 }
