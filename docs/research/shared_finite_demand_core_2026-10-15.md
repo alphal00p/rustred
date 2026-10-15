@@ -78,6 +78,78 @@ The next performance gate is the complete cumulative R0+R1 input scope, with
 all 232 declarations, followed by persistence/publication lifecycle controls.
 Neither this slice nor the earlier R0 sharing win establishes R6 feasibility.
 
+## Durable exact-window lifecycle: native correctness gate
+
+The follow-up now joins an actual input window to its native completed delta
+and atomic checkpoint transition. It is integrated as private application
+building blocks, not yet exposed as a production saved-campaign backend.
+
+- A prepared execution binds the owner payloads, source conditions, routes,
+  ordering and raw terminal convention actually loaded. Backing-store reuse
+  is explicitly trusted-generated, not an independent replay proof.
+- Completed Work pages preserve full key, Route/Apply phase and literal owner.
+  Exact lookup falls back to validated disk pages after eviction; missing,
+  corrupt or resource-refused pages cannot be treated as absence. Blocking
+  storage reads do not hold the scheduler's global mutex.
+- A sealed native delta is produced only after a globally completed,
+  frontier-free batch. It retains the exact predecessor and reducer identity.
+  Stale deltas cannot be attached to a later checkpoint.
+- The private backend selects the next exact `PrefixWindow`, passes precisely
+  its targets and explicit admission to that reducer, and commits precisely
+  its successor cursor with the delta. Callers cannot supply arbitrary starts
+  or cursor bytes to this committing operation.
+- Cold restore checks the captured generation, scope and current cursor using
+  the native count/extrema machinery. It does not replay historical windows.
+  Appended requests preserve every original row; a newly nonempty rank region
+  is an appended row, not an edit to an earlier closed region.
+- A pending initial generation exists before the first trace. Errors and
+  cancellation retain the last committed cursor. Encoded output must be
+  readable by the bounded native decoder before CURRENT can be advanced.
+
+Source slices: durable core/application `174a63e7`, fast cursor `127bd1e4`,
+exact-window backend `a48a991d`. Main integration is byte-identical in the core
+and app subtrees to the tested combined source; only the additive module
+registration required conflict resolution.
+
+Core native validation passed **550 distinct tests**:548 candidate-reduction
+tests, including six new generated-baseline tests, plus two persistence tests.
+The separate application gate passed **148 executions /147 distinct tests**,
+none failed, ignored or skipped, in46.730s supervised:
+
+| Application group | Executions |
+|---|---:|
+| Exact window backend | 6 |
+| Fast trusted cursor restore | 6 |
+| Prefix windows | 12 |
+| Shared diagnostic runner | 9 |
+| Aggregate policy | 2 |
+| Storage, including decoder allocation limits | 24 |
+| Prepared identity | 3 |
+| Actual files and cold re-preparation | 2 |
+| Existing finite-query lifecycle | 6 |
+| Existing finite replay | 48 |
+| Entry admission | 3 |
+| Inventory | 22 |
+| Existing shared tracing | 5 |
+
+All groups drained without a resource stop. Independent source and runtime
+reviews passed. Core compilation took557.418s and combined app compilation
+1168.766s; those are build costs, not solver timings.
+
+Frozen combined app binary SHA256:
+`bec26f999e44019b9492673aeb7bee52f96a69a5b800ad818630e2890bead0c2`.
+Receipts:
+`TMP/finite-demand-durable-core-candidate-runtime-20261015/independent-audit.json`
+and
+`TMP/finite-demand-window-backend-20261015/TMP/runtime-backend-tests/independent-audit.json`.
+
+The real full-R1 in-memory result is documented separately in
+`shared_finite_r1_pilots_2026-10-15.md`. Its1.11million zero keys exceed this
+first durable format's64MiB state/decoder limit. Therefore these small native
+tests do **not** establish full-R1 persistence, full-R6 capacity, CLI delivery
+or application publication. The measured next change is paged raw census and
+hot prepared-generation reuse, followed by a real-R1 cold-resume gate.
+
 ## Exact prefix-window adapter: validated follow-up
 
 Source slice `a1476403c77a2d036b4bb7d85b55ac541c787077` adds the app-side

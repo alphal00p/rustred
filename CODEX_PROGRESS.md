@@ -1,5 +1,47 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — exact-window durable correctness integrated; production R4 publication ready
+
+Optimized combined app build96694 passed1168.766s. Native gate63216 passed
+all13 groups:148 executions/147 distinct tests, zero failures/ignored/skips,
+46.730s inclusive with all owned groups drained. Independent review confirmed
+actual listed tests, raw outputs and frozen bec26f99… binary/source identity.
+This includes real query/window→native delta→disk→cold resume→append controls,
+fast cursor restoration and all24 storage regressions. The separate550-test
+core gate remains valid. Evidence and limits are documented in
+`docs/research/shared_finite_demand_core_2026-10-15.md`.
+
+Root integrated durable174a63e7 as3f00487e, cursor127bd1e4 as8f3c989a and
+backend a48a991d as7a57f611. The only conflict was additive module registration;
+`git diff a48a991d HEAD -- crates/rustred-core crates/rustred-app` is empty.
+The paged-census implementation is isolated in
+`TMP/finite-demand-paged-census-20261015`, not yet compiled or approved. No
+large durable R1 run, production backend replacement or artifact publication
+is inferred from the small correctness gates.
+
+The previous auditor thread reached its tool thread limit. New independent
+agent `finite_backend_audit` received the evidence/goal handoff and audited
+the native gate; earlier completed audit receipts were preserved, not rerun.
+`intermediate_capture_app` owns paged census and the live ladder prep;
+`weighted_vk_gate_plan` now prepares an isolated export of the newly published
+R4 artifact, followed by existing exact acceptance controls where admitted.
+No export or new reduction has been launched yet.
+
+Production R4 publication completed read-only: immutable source a82a7db4…,
+`published_unrefined`,580 recorded requests,R4/D10,938 raw/normalized keys,
+908 remaining after30 inherited relations,9,982 installed rule records and
+6,856 encountered rules. Source campaign generation18; publication generation3.
+It remains a recorded-domain union, not blanket R/D coverage. The broadR6
+campaign continues. No production process or source artifact was modified.
+
+Root also performed a native count-only R2 preflight onCPU21:14 groups in0.768s,
+all116 amendment2 rows preserved, including intrinsic rank-one caps. It found
+641,165 envelope occurrences,112 nonempty/4 empty rows; eight twelve-line
+query rows account for24 occurrences. Evidence:
+`TMP/full-r2-native-envelope-preflight-20261015/counts.json`.
+No enumeration/reduction or exact coordinate-envelope equality is claimed;
+the latter still requires native PrefixWindows on every row before a run.
+
 ## October 15 — paged raw census approved from the real R1 sizing result
 
 The preceding goal turn produced independently audited fullR1 evidence and
