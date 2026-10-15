@@ -150,6 +150,39 @@ tests do **not** establish full-R1 persistence, full-R6 capacity, CLI delivery
 or application publication. The measured next change is paged raw census and
 hot prepared-generation reuse, followed by a real-R1 cold-resume gate.
 
+## Paged census and durable diagnostic: integrated native gate
+
+Main commits `5425c5d2` and `c68b789d` integrate the independently tested
+`80441e77` and `1659cfd4` slices. The core/app trees are byte-identical to the
+tested combined source. Typed terminal and zero pages are separate from closed
+Work pages. A bounded merge streams their exact union; summed run references
+are not reported as distinct terminals or zeros. Prepared generation tokens
+avoid repeatedly classifying and copying the entire cumulative raw census
+after each hot commit. Cold full-census checking remains explicit.
+
+The input-steered diagnostic uses the real durable Session, not the older
+in-memory runner. It supports a planned stop after committed windows and
+fresh-process resume, reports effective resource grants and backing-store
+statistics, and streams complete keys for independent comparison. It remains
+test-only: no public campaign command or publication path is enabled by this
+commit alone.
+
+The optimized native gate passed **164 executions / 163 distinct tests** in
+44.533 seconds, with zero failures, ignored tests or skipped-license markers.
+This includes 32 storage tests, eight backend tests, six actual-disk/native
+tests and the existing prefix, finite-replay, admission and inventory controls.
+The real 1000-zero/tiny-state/cold-all-hit test checks that raw data no longer
+has to fit inside the small mutable state frame. All process groups drained;
+the independent auditor checked the frozen executable and source bindings.
+Compilation took 1247.845 seconds, separately from runtime.
+
+Frozen binary SHA256:
+`cec6ef804e068c622af35ba55444ef86dbdcb43f1b424867a17976a5fb52755e`.
+Evidence:
+`TMP/finite-demand-paged-census-20261015/TMP/runtime-paged-tests/independent-audit.json`.
+The full R1 disk/resource pilot, required publication provenance, public
+run/extend integration and R6/application acceptance remain unfinished.
+
 ## Exact prefix-window adapter: validated follow-up
 
 Source slice `a1476403c77a2d036b4bb7d85b55ac541c787077` adds the app-side

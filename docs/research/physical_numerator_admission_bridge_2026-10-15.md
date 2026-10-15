@@ -118,20 +118,64 @@ described as five distinct poles.
 The frozen example uses the unchanged GammaLoop/Vakint `c4e1185a` integration,
 RustRed Git `74a83e94`, Symbolica `400a53c` and FeynKit `024f96d`. Binary SHA256:
 `b1f28ea2b5864f2b44c13a050a797cc37afb6c7f592392cb5aa279c8c95597f4`.
-The run completed under the explicit 32 GB RAM/30-minute pilot guard, with no
-resource stop and all processes drained. Independent audit checked the source
-bindings, raw output inventory and all 48 evidence-file hashes.
 
+The preparation run completed under the explicit 32 GB RAM/30-minute pilot
+guard, with no resource stop and all processes drained. Independent audit
+checked the source bindings, raw inventory and all 48 evidence-file hashes.
 Evidence lives at `TMP/ladder-preparation-current-runtime-20261015/evidence/`;
-its parent contains `summary.json` and `independent-audit.json`. In particular,
-`vakint-input.symbolica` and `projected-vacuum-*.dot` can now feed a separate
-prepared-input diagnostic without repeating this 21-minute preparation.
-The full slow acceptance test still regenerates its numerator as required.
+its parent contains `summary.json` and `independent-audit.json`. The full slow
+acceptance test still regenerates its numerator as required; manual diagnostics
+can reuse this saved input without repeating the 21-minute preparation.
 
-This proves preparation, not artifact admission, scalar reduction, a numerical
-value or complete beta-function extraction. The existing ignored
-`prepared_ladder_weighted_preflight_without_ibps` diagnostic can collect actual
-mass-graded lowered images and test the chosen published admission union.
-Refusal for one geometric routing witness does not exclude another exact
-witness; no failed raw key may be admitted solely from the physical D−j=10
-identity. That application boundary remains open.
+## Complete lowering/admission diagnostic on the published R4 scope
+
+The existing prepared-input diagnostic completed all 21 Taylor contributions
+against the R4/D10 package, without applying IBPs. It preserves the physical
+numerator and checks the original poles and exact mass homogeneity using
+Symbolica. One geometric matching witness is used per contribution; this is
+not a search over every alternative routing.
+
+The initial default-limit run stopped at 16,000,001 weighted term operations
+against its 16,000,000 allowance. Its seven completed contributions and failure
+evidence are retained. One explicitly bounded diagnostic rerun used the existing
+`VAKINT_QCD_DIAGNOSTIC_MAX_WORK=128000000` override, leaving production defaults,
+all other algebra/expansion limits and the saved input scope unchanged. It
+completed in 548.889 seconds under the native supervisor, 552.065 seconds
+including driver checks, with 3.252 GB peak process-tree RSS. Both runs used the
+same frozen binary and prepared input. Contribution indices are run-local;
+the auditor matched the old prefix by exact recorded input signatures, not by
+assuming the indices stayed fixed.
+
+The complete result contains 75,643 lowered occurrences and 27,812 distinct
+integer tuples in this common family. Of these, 6,547 occurrences (1,240 distinct
+keys) pass the native owner-transport and recorded-domain admission check.
+
+| Raw stored D | Explicit power j of mUV² | Occurrences |
+|---|---:|---:|
+| 10 | 0 | 20,842 |
+| 11 | 1 | 27,852 |
+| 12 | 2 | 18,140 |
+| 13 | 3 | 6,998 |
+| 14 | 4 | 1,595 |
+| 15 | 5 | 202 |
+| 16 | 6 | 14 |
+
+Every mass-graded term satisfies **D−j=10** exactly. This confirms the physical
+logarithmic grading while showing why that grading alone is not admission of
+the separate massive-family keys. All raw D>10 occurrences are unadmitted by
+this package. Even at D=10, 14,295 occurrences are unadmitted; their stored
+scalar ranks are already at most four (counts for R=0..4 are
+1, 7,559, 5,698, 1,014 and 23). Raising the scalar-rank cap alone therefore does
+not explain these refusals. Exact support, routing and the recorded query
+geometry must be examined, rather than replacing admission with R/D maxima.
+
+This diagnostic coalesces each contribution's polynomial, but does not collect
+coefficients across all 21 differently presented contributions. It neither
+proves that every rejected key survives the full sum nor that an alternative
+exact witness also fails. It is not a completed ladder reduction, a missing-IBP
+diagnosis, or authority to widen the campaign to a raw D=16 rectangle.
+
+Evidence: `TMP/r4-vakint-acceptance-20261015/ladder-preflight-work128m-result.json`,
+`ladder-full-census.json` and `ladder-preflight-work128m-independent-audit.json`.
+The independent audit checked all 254 bound evidence files, the complete key
+and mass histograms, and the correspondence with the preserved failed prefix.

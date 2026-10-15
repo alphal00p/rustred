@@ -151,9 +151,18 @@ atomic persistence. Hot advancement must not clone, reclassify or rewrite all
 prior zero keys. No self-referential structures, unsafe code, caller authority
 booleans, new database or custom CAS are needed.
 
-The next real-workload storage gate is full R1 close→cold reopen→all-hit/append
-with exact streamed raw-set comparison against the accepted in-memory result.
-Measure lookup, raw paging, commit and restore separately. Work-run directory
+The paged-census and prepared-token implementation now passes its native
+correctness gate (164 executions / 163 distinct tests), including a real
+1000-zero, tiny-state, cold-all-hit fixture. The next real-workload gate is an
+R0-prefix planned pause followed by fresh-process continuation of the unchanged
+cumulative R1 scope, then a completed-scope cold reopen and exact streamed
+raw-set comparison. The completed-scope reopen is not a native all-hit run;
+the R1 continuation supplies actual descendant reuse. Append is covered by
+separate native lifecycle tests, not this same-scope pilot.
+
+Report the actual timing boundaries: combined preparation/restore, native API
+plus export, aggregate commit, census streaming/output and complete wall time.
+Backing read/hit/eviction counts are not exclusive I/O wall time. Work-run directory
 size, compaction and the still-live per-window graph remain distinct scaling
 questions; this change does not preemptively claim R6 capacity.
 
@@ -192,8 +201,9 @@ checkpoint age. A prefix or empty local queue is not all-query closure.
 
 - `intermediate_capture_app`: core complete-only/shared execution and tests.
 - `weighted_vk_gate_plan`: exact native prefix windows/cursor and tests.
-- `intermediate_capture_independent_audit`: independent mathematical/code/runtime
-  review, with no self-approval of implementation.
+- `finite_backend_audit`: current independent mathematical/code/runtime review;
+  preserves earlier `intermediate_capture_independent_audit` receipts, with no
+  self-approval of implementation.
 - Root: integration, resource coordination, lifecycle/publication and delivery.
 
 Core gates: local-done with unresolved child, cancel/failure at drain, phase/

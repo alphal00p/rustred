@@ -1,5 +1,110 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — complete ladder admission census; paged native gate passes
+
+The full ladder diagnostic completed on the existing R4/D10 package: 21
+contributions, 75,643 lowered occurrences, 27,812 distinct integer keys; 6,547
+occurrences / 1,240 distinct keys admitted. Native guard 548.889s, complete
+driver 552.065s, peak 3.252GB. Independent audit passed all 254 bound files.
+Every coefficient's exact mass grading satisfies D−j=10, but raw D spans
+10..16. The D10 refusals alone total 14,295 occurrences, all already R≤4;
+rank widening alone does not explain this geometry/routing admission gap.
+No cross-contribution coefficient collection, alternate-witness exhaustion or
+IBP application was performed. The default 16M-work negative remains recorded;
+the successful run used one explicit 128M diagnostic override, not new defaults.
+Detailed outcome: `docs/research/physical_numerator_admission_bridge_2026-10-15.md`.
+
+Paged census + durable driver source 1659cfd4 compiled in 1247.845s. Its frozen
+cec6ef80… native gate passed 164 executions / 163 distinct tests across 14
+groups in 44.533s, zero ignored/skipped/failing tests and all groups drained.
+Independent final audit passed; source 80441e77/1659cfd4 was integrated as
+5425c5d2/c68b789d with identical core/app subtrees. The real R1 staged
+disk pilot is not launched: first persist the R0 prefix, review its resource
+behavior, then cold-resume the unchanged cumulative R1 request and compare full
+raw sets. Capsule source and publication integration remain separate drafts.
+
+User-facing deployment distinction was clarified: main through 4d8d3417 is
+pushed, but `saved_campaign.py extend` still selects the original symbolic
+backend. R5 can reuse the existing R4 campaign there; the new finite backend
+needs its separate checkpoint namespace and public lifecycle integration.
+No production campaign was restarted, extended or otherwise modified by us.
+
+## October 15 — all nine exact controls pass on the five-loop rank-four package
+
+R4 here is rank-four, not four loops. Independent audit confirms all nine
+existing exact compatibility cases pass on the exported five-loop a82a7db4…
+package. The initial batch's737.673s wrapper false-negative demanded the wrong
+success label from C, although its independent factor identity/native test
+passed. A/B/C were checked from preserved outputs, not rerun. Only D was then
+launched separately (session36762), passing in234.515s driver time.
+No native assertion was changed. Final evidence:
+`TMP/r4-vakint-acceptance-20261015/controls-final-independent-audit.json`.
+
+First/warm application times excluding package load: homogeneous factor
+9.165/0.345s; cross-factor9.943/0.343s; connected irreducible61.721/0.771s.
+All use exact coefficients/guards, no numerical masters and an invalid FORM
+path. Updated detailed coverage/timing report:
+`docs/research/r4_d10_application_acceptance_2026-10-15.md`.
+These are admitted R2 compatibility inputs on the newer package, not exhaustive
+R4/R6 boundary coverage. The real ladder's default-limit no-IBP admission
+diagnostic is now prepared for independent review, with no preparation repeat.
+
+Durable-driver first normal check failed68.197s on a missing String→AppError
+conversion only. Corrected check passed37.174s; source audit also fixed no-CLI
+gating and explicit stop-count precedence. Localcfc42ea2 was carried into the
+paged build tree as1659cfd4; final combined check8175 is active before the single
+optimized app link. Target is164 executions/163 distinct native tests, then a
+separately reviewed realR1 persisted/resumed comparison. No such large durable
+run or new backend publication exists yet.
+
+Publication adapter's final design is approved for a separate worktree: opaque
+complete source capture, non-generic existing master/refinement tail, exact raw
+census separate from inherited session overcoverage, and mandatory finite-only
+v3 provenance staged before resumable metadata is exposed. No CP6 impersonation,
+new CAS or coefficient reducer. Paging/driver native gates stay ahead of it.
+
+## October 15 — paged IO passes; R4 exact controls and durable-driver integration active
+
+Paged source80441e77 passed corrected combined typechecking38.151s. The earlier
+97.186s check failed only two test-module name-resolution errors; both receipts
+remain. Its exact-source native IO harness then passed32/32 tests,0.55s native,
+1.137s supervised,~104MiB peak, independently audited. Build266.269s is recorded
+separately. Evidence:
+`TMP/finite-demand-paged-storage-io-runtime-20261015/independent-audit.json`.
+Full application gates remain pending; notably, the real1000-zero/tiny-state/
+cold-all-hit fixture is compiled but has not yet executed in this paged version.
+
+Before another long app link, root identified a missing test surface: the
+existing ignored steering entry invokes only the in-memory runner. Weighted
+agent now implements a small strict input-steered **durable Session** diagnostic
+in `TMP/finite-demand-durable-driver-20261015`, using the existing4/8/16 storage
+dispatch, authenticated command/scope, explicit resource policy, clean pending
+checkpoints and bounded streamed full-key output. The independently reviewed
+design is `TMP/finite-demand-durable-driver-plan-20261015.md`. It will be included
+in the same next app build as paging, avoiding a second expensive link merely
+to run the realR1 persistence gate. No large durable pilot has started.
+Fresh-process completed-scope reopen is not called a native all-hit test;
+staged R0→R1 or an authenticated append supplies actual reused native work.
+
+The R4 application export passed and was independently audited:222.633s driver,
+15.358GB peak,77 portable files,69 ordered owner payloads,580 exact recorded
+queries,938 checked source keys/908 remaining. Manifest SHA256
+92c762c2ddb6d6c86f63b54e27d63a699eaa3ef9f6ed3672584d2fe7d556f423;
+path `TMP/r4-vakint-acceptance-20261015/application-r4-d10`.
+Source inputs stayed unchanged. Nine existing exact compatibility controls are
+running as session42660 on16–19; all six numerator-cancellation cases have now
+passed, including mixed dotted lines223.711s and multiple nonunit-mass lines
+219.818s. These case times exclude the separately recorded73.153s package load.
+The three numerator/factor controls remain pending; no fullR4 boundary or R6
+application coverage is claimed.
+
+Publication-adapter design is reviewed directionally and retained at
+`TMP/finite-demand-publication-adapter-plan-20261015.md`. Implementation waits
+behind the small durable driver; reuse the existing non-generic refinement/
+application tail and preserve prior raw overcoverage/refinements. New finite
+source provenance must finish staging before a resumable v3 manifest is visible.
+No new CAS, master evaluation, production mutation or input-scope widening.
+
 ## October 15 — physical ladder prepared; R4 package export in progress
 
 Ladder prep-only session25381 completed and passed independent audit: native
