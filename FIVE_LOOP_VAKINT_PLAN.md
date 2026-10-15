@@ -1,5 +1,16 @@
 # Five-loop symbolic Vakint application of saved RustRed rules
 
+## Current execution directive — October 15
+
+`FIVE_LOOP_CLOSURE_DELIVERY_PLAN.md` is now assigned and authoritative. Its
+scoped D10/R6 optimization and application objectives supersede the waiting
+directive below, without authorizing production lifecycle changes. Existing
+published R0/D10 data may support its own admitted acceptance subset; the full
+R6 gate still requires the broader publication. Do not silently discard the
+remaining generation54 R11/D9 tests, whose scope is different. Reuse delivered
+application/cache foundations and keep 1--4-loop cache preparation complete.
+Numerical masters and unrestricted higher-loop closure remain out of scope.
+
 ## Current execution directive — October 14
 
 The user selected **wait for the D<=10 publication** after delivery of the

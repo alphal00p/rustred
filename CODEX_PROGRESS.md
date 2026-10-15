@@ -1,5 +1,50 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — replacement goal assigned; routing and cumulative closure lanes active
+
+The user assigned the replacement goal through attachment
+`3da9eebb-75d1-4656-a97e-63f70f4aefef/pasted-text-1.txt`; root read it fully and
+copied it into `FIVE_LOOP_CLOSURE_DELIVERY_PLAN.md`. `GOAL.md` and the Vakint
+plan now point to this authoritative directive. The tool goal is active. The
+preceding goal turn is classified as progress: publication rule-count code,
+tests and documentation were committed/pushed as c5602557, not merely planned.
+
+Starting state was rechecked: main contains c5602557; unrelated dirty FeynKit
+and untracked collaborator files are preserved. User R6/D10 native PID3209036
+is live on CPUs96--127, and the user's R0/D10 depth1 refinement PID702115 is
+live separately. No lifecycle signal or input change was made. At the starting
+read-only sample R6 had106.23M domains,16.20M pending,0frontiers,0/116recorded
+closed roots and167.7GB aggregate RSS; the closed snapshot remained stale.
+These values are observations, not an ETA or a completion verdict.
+
+| Lane | Owner | State | Next evidence / constraint |
+|---|---|---|---|
+| Verified route-image bounds | intermediate_capture_app; root app/CLI integration | active, source ready | Run exact native endpoint and padding/guard tests, then paired fixed-scope pilots |
+| Cumulative required closure | soft_ct_nested_audit | active implementation | Snapshot-bound counts for all amendments, explicit stale/unknown fallback, no whole-ledger heartbeat scan |
+| Independent math/code audit | intermediate_capture_independent_audit | active review | Geometry source audit passes;141,364 finite formal endpoint choices passed; native tests pending |
+| Deployment of rule-count summaries | root | source delivered c5602557; full CLI pending | Consolidate into the next tested CLI build without upgrading live campaigns |
+| Selective finite demand | backlog | pending | Use existing fresh-first-query diagnostic on fixed small roots; no production resume switch |
+| Taylor-jet physical profile / boundary blocks | backlog | pending research implementation decision | Preserve current116requests; replacement physical scope requires explicit approval |
+| Five-loop Vakint acceptance | backlog | pending scoped execution | R0publication allows its own subset only; retain oldR11/D9 backlog; fullR6publication not yet available |
+| Five-loop cache preparation | backlog | deferred | Reopen after suitable publication/application validation;1--4loop caches remain delivered |
+
+Route implementation introduces default-off `route_precise_image_bounds` /
+`--route-precise-image-bounds`. It reuses native verified map incidence and
+existing source-subset degree arithmetic, not a new CAS service. Both CP5 and
+CP6 request bindings acquire a versioned geometry marker only when enabled;
+old off identities remain unchanged, and an off checkpoint cannot be silently
+resumed as on. The native reference keeps this bound geometry in both Off and
+AsRun modes: turning it off would ask for a different, broader cover, not
+independently verify the recorded graph. Separate exact endpoint tests establish
+the geometry premise. No cold-verifier obligations are filtered away.
+
+Root added Rust/CLI request forwarding, checkpoint-policy tests and public Python
+steering support. Initial focused Python gate:63tests passed in1.421s. Core tests
+and the cumulative display slice are not yet claimed runtime-validated. No
+production recommendation or speedup claim is made before matched complete
+cohort controls. Compilations and isolated pilots will exclude CPUs64--127;
+production remains user-controlled.
+
 ## October 15 — explicit publication rule counts and replacement-goal review
 
 The user requested a copy-paste replacement goal, retaining unfinished five-loop

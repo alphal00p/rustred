@@ -1,5 +1,28 @@
 # RustRed project goal
 
+## October 15 — active: scoped D10/R6 closure and five-loop Vakint delivery
+
+Authoritative assigned goal: `FIVE_LOOP_CLOSURE_DELIVERY_PLAN.md`, reproduced
+from the user's replacement-goal attachment. This supersedes the older paused
+execution directive below; retain historical sections as delivery provenance,
+not instructions to reimplement completed work.
+
+Prioritize generic, measured improvements to the frozen original-QCD D9/D10
+template union at R<=6, followed by exact FORM-less five-loop Vakint acceptance
+on actual completed publications. Keep the user's production runs untouched.
+Use `/shared/codex-2/rustred` exclusively. Root orchestrates separate implementation
+and independent mathematical/code audits. Preserve existing 1--4-loop caches
+and completed application foundations; numerical masters, minimality proofs
+and six-loop closure are outside this goal.
+
+First implementation slices: opt-in verified route-image precision, cumulative
+required-query closure monitoring, and deployment of the completed publication
+rule-count reporting. Retain exact descendants, guards, replay and scope binding;
+no inference of closure from finite starting cardinality or zero frontiers.
+The old generation54 R11/D9 application backlog remains explicit and is not
+silently discharged by the different R6/D10 scope. The physical-numerator to
+shifted-family admission distinction is a required integration obligation.
+
 ## October 13 — active: five-loop symbolic Vakint application
 
 Authoritative plan: `FIVE_LOOP_VAKINT_PLAN.md`, with progress in
