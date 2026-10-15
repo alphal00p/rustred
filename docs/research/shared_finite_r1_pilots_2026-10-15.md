@@ -24,8 +24,23 @@ There are131 exhausted rows: the116 originals plus15 already empty R1 rows.
 
 Independent audit passed at
 `TMP/finite-demand-durable-r1-validation-20261015/phase-a/independent-audit.json`.
-The same-source fresh-process R1 continuation is running under its separate
-30-minute inclusive guard; no full durable R1 result is claimed yet.
+The same-source fresh-process R1 continuation **hit its planned pilot deadline**,
+not a missing-rule or memory failure. Its independent audit is
+`TMP/finite-demand-durable-r1-validation-20261015/phase-b/independent-audit.json`.
+It committed171 additional windows, reaching generation253 /1,250,965 Work
+records /26,161 input occurrences. Row156/window0 was cancelled and not
+committed. The last completed generation remains available; no fresh native
+reopen of that final generation is claimed yet.
+
+The 1620-second timer requested SIGTERM; all owned processes drained, and
+inclusive time was1632.754s with8.385GB peak RSS. The run performed1,049,117,546
+cached-page probes but read424.5MB from disk, with no page evictions. The hard
+window alone consumed1098.196s before cancellation:699,479 local expansions
+out of984,639 scheduled nodes,693,893,718 page-cache probes,29.69MB read. Those
+local expansion counters are not recursively closed work and were not added to
+the retained baseline. The full raw-census comparison and second fresh-process
+cold-open phase were **not run**. This is a censored performance result, not
+complete durable R1, a mathematical obstruction, or a reason to raise a cap.
 
 The continuation exposes a CPU-side lookup cost that the in-memory result did
 not measure. For the same51-start row118, both versions close503,501 new Work
@@ -38,9 +53,12 @@ specific matched-work diagnostic, not a paired whole-campaign timing ratio.
 
 The current directory checks overlapping immutable runs. Its page cache also
 does linear digest lookup and movement in a `VecDeque`, under its existing
-cache mutex, on every hit. An isolated indexed-page-LRU implementation is now
-being tested, without changing the captured generation, format, lookup result,
-scope or byte budget. The fixed baseline continues unchanged. Further positive
+cache mutex, on every hit. The isolated indexed-page-LRU slice `c010d50c` passed
+35 focused IO tests, including three new eviction/index/budget controls, and
+independent source/runtime review. Its normal combined app check also passed;
+the combined optimized native gate and matched performance test remain pending.
+It does not change the captured generation, format, lookup result, scope or
+byte budget. The completed fixed baseline was never modified. Further positive
 or complete-resident Work membership caching remains a separate design option,
 not an implemented speedup. Negative probes also contribute to the page counts;
 dividing page probes by positive baseline hits is not an exclusive positive-hit

@@ -1,5 +1,32 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — persistence baseline censored; indexed cache and publication build advance
+
+PhaseB42673 terminated at its planned1620-second timer, not a mathematical or
+RAM failure. Independent audit accepted the censored receipt:1632.754s inclusive,
+8.385GB peak, all owned processes drained. Its171 completed windows advanced
+the checkpoint to generation253 /1,250,965 Work /26,161 input occurrences.
+Hard row156/window0 remained pending; its699,479 local expansions were not
+published as closed Work. The full census comparison and subsequent cold-open
+phase did not run. CURRENT and all receipts are preserved unchanged. WholeB
+performed1.049billion cached-page probes /424.5MB backing reads /zero evictions.
+
+Indexed page-LRU sourcec010d50c passed independent35-test IO validation
+(281.318s build,1.176s guard), with no performance claim yet. Publication author
+combined it with capsule/pub/source-zero/entry-probe source at cleanb42b7d98.
+Check3's two private-field getter mistakes in the probe were corrected using
+the existing public accessor; its72.216s failure is retained. Final combined
+check4 passed40.200s. Authorized optimized app-libtest build73740 is live on
+build1/CPUs28–31; source is frozen. No production binary is overwritten.
+
+App author now owns the native public lifecycle in separate
+`TMP/finite-demand-public-lifecycle-20261015` fromb42b7d98; publication author
+owns the orthogonal Python dispatch/supervision/rank-stage factoring after the
+frozen build starts. Native arity registry, portable source references, direct
+bounded generation/cursor inspection, fresh-engine namespaces and unchanged
+legacy behavior are required. No CP6 Work import or Python binary decoder.
+The independent auditor reviews contracts and runtime gates separately.
+
 ## October 15 — durable R1 continuation exposes page-lookup CPU amplification
 
 PhaseB42673 is live with the original reviewed source/policy/checkpoint and
