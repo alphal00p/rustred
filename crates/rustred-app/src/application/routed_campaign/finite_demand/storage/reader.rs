@@ -230,38 +230,7 @@ impl ValidatedGeneration {
         let tip_bytes = wire::read(&directory.join(wire::CURRENT), wire::TIP_LIMIT)?;
         let tip: wire::Tip = wire::decode(wire::TIP_MAGIC, &tip_bytes, wire::TIP_LIMIT)?;
         drop(tip_bytes);
-        let bytes = wire::read_object(
-            directory,
-            "generations",
-            "rrgen",
-            &tip.manifest,
-            limits.max_manifest_bytes,
-        )?;
-        let manifest: wire::Manifest =
-            wire::decode(wire::MANIFEST_MAGIC, &bytes, limits.max_manifest_bytes)?;
-        drop(bytes);
-        let (records, _) = wire::validate_manifest(&manifest, expected, limits)?;
-        if tip.generation != manifest.generation {
-            return Err(corrupt("CURRENT generation differs from manifest"));
-        }
-        let state_bytes = wire::read_object(
-            directory,
-            "states",
-            "rrstate",
-            &manifest.state,
-            limits.max_state_bytes,
-        )?;
-        let state: wire::StateFile =
-            wire::decode(wire::STATE_MAGIC, &state_bytes, limits.max_state_bytes)?;
-        drop(state_bytes);
-        if state.execution != *expected || state.generation != manifest.generation {
-            return Err(corrupt("finite state execution/generation/scope mismatch"));
-        }
-        wire::validate_state(&state.state, expected, records, limits)?;
-        if wire::scope_digest(&state.state.scope, limits.max_state_bytes)? != manifest.scope_digest
-        {
-            return Err(corrupt("finite state scope binding mismatch"));
-        }
+        let (manifest, state) = read_metadata(directory, &tip, expected, limits)?;
         // Required file metadata is bounded by the admitted page directory.
         // Content validation is lazy; no old Work is re-enumerated or reduced.
         for page in manifest.runs.iter().flatten() {
@@ -275,24 +244,70 @@ impl ValidatedGeneration {
                 ));
             }
         }
-        for page in manifest.raw.pages() {
-            let path = directory
-                .join("raw")
-                .join(wire::name(&page.object.digest, "rrraw"));
-            let metadata = fs::symlink_metadata(path).map_err(io)?;
-            if !metadata.is_file() || metadata.len() != page.object.bytes {
-                return Err(corrupt(
-                    "committed raw page missing/nonregular/wrong length",
-                ));
-            }
-        }
+        check_raw_files(directory, &manifest)?;
         Ok(Self {
             directory: directory.to_path_buf(),
             digest: tip.manifest.digest,
             manifest: Arc::new(manifest),
-            state: Arc::new(state.state),
+            state: Arc::new(state),
         })
     }
+}
+/// Metadata decoding is shared, not completion authority. Callers separately
+/// validate the file namespace appropriate to their distinct capability type.
+pub(super) fn read_metadata(
+    directory: &Path,
+    tip: &wire::Tip,
+    expected: &RawExecutionBinding,
+    limits: StorageLimits,
+) -> Result<(wire::Manifest, GenerationState)> {
+    let bytes = wire::read_object(
+        directory,
+        "generations",
+        "rrgen",
+        &tip.manifest,
+        limits.max_manifest_bytes,
+    )?;
+    let manifest: wire::Manifest =
+        wire::decode(wire::MANIFEST_MAGIC, &bytes, limits.max_manifest_bytes)?;
+    drop(bytes);
+    let (records, _) = wire::validate_manifest(&manifest, expected, limits)?;
+    if tip.generation != manifest.generation {
+        return Err(corrupt("generation marker differs from manifest"));
+    }
+    let bytes = wire::read_object(
+        directory,
+        "states",
+        "rrstate",
+        &manifest.state,
+        limits.max_state_bytes,
+    )?;
+    let state: wire::StateFile = wire::decode(wire::STATE_MAGIC, &bytes, limits.max_state_bytes)?;
+    drop(bytes);
+    if state.execution != *expected || state.generation != manifest.generation {
+        return Err(corrupt("finite state execution/generation/scope mismatch"));
+    }
+    wire::validate_state(&state.state, expected, records, limits)?;
+    if wire::scope_digest(&state.state.scope, limits.max_state_bytes)? != manifest.scope_digest {
+        return Err(corrupt("finite state scope binding mismatch"));
+    }
+    Ok((manifest, state.state))
+}
+pub(super) fn check_raw_files(directory: &Path, manifest: &wire::Manifest) -> Result<()> {
+    for page in manifest.raw.pages() {
+        let metadata = fs::symlink_metadata(
+            directory
+                .join("raw")
+                .join(wire::name(&page.object.digest, "rrraw")),
+        )
+        .map_err(io)?;
+        if !metadata.is_file() || metadata.len() != page.object.bytes {
+            return Err(corrupt(
+                "committed raw page missing/nonregular/wrong length",
+            ));
+        }
+    }
+    Ok(())
 }
 pub(super) fn check_directories(directory: &Path) -> Result<()> {
     for path in [

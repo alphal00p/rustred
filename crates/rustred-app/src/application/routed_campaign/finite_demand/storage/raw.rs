@@ -290,7 +290,23 @@ pub(super) fn decode_page(
         &reference.object,
         limits.max_page_bytes,
     )?;
-    let page: RawPage = wire::decode(MAGIC, &bytes, limits.max_page_bytes)?;
+    decode_page_bytes(&bytes, reference, execution, limits)
+}
+pub(super) fn decode_page_bytes(
+    bytes: &[u8],
+    reference: &RawPageRef,
+    execution: &RawExecutionBinding,
+    limits: RawCensusLimits,
+) -> Result<RawPage> {
+    if reference.records > limits.max_page_records as u64 {
+        return Err(resource("raw page record allowance"));
+    }
+    if bytes.len() as u64 != reference.object.bytes
+        || blake3::hash(bytes).as_bytes() != &reference.object.digest
+    {
+        return Err(corrupt("raw page object hash/length mismatch"));
+    }
+    let page: RawPage = wire::decode(MAGIC, bytes, limits.max_page_bytes)?;
     if page.execution != *execution
         || page.kind != reference.kind
         || page.keys.len() as u64 != reference.records
@@ -315,8 +331,14 @@ struct CachedRaw {
     page: RawPage,
     payload: usize,
 }
+#[derive(Clone, Copy)]
+pub(super) struct RawView<'a> {
+    pub directory: &'a PathBuf,
+    pub execution: &'a RawExecutionBinding,
+    pub raw: &'a RawCensusDirectory,
+}
 struct PageCache<'a> {
-    generation: &'a ValidatedGeneration,
+    source: RawView<'a>,
     limits: RawCensusLimits,
     metadata: usize,
     pages: VecDeque<CachedRaw>,
@@ -386,9 +408,9 @@ impl PageCache<'_> {
             self.summary.page_evictions += 1;
         }
         let page = decode_page(
-            &self.generation.directory,
+            self.source.directory,
             reference,
-            self.generation.execution(),
+            self.source.execution,
             self.limits,
         )?;
         // Source classification runs only on a freshly decoded page, not
@@ -515,10 +537,26 @@ impl ValidatedGeneration {
     pub fn raw_census_directory(&self) -> &RawCensusDirectory {
         &self.manifest.raw
     }
+    pub fn visit_raw_census(
+        &self,
+        limits: RawCensusLimits,
+        cancel: &AtomicBool,
+        classify: impl FnMut(RawKeyKind, &[i64]) -> Result<()>,
+        visitor: impl FnMut(RawKeyKind, &[i64]) -> Result<()>,
+    ) -> Result<RawCensusSummary> {
+        RawView {
+            directory: &self.directory,
+            execution: self.execution(),
+            raw: &self.manifest.raw,
+        }
+        .visit_raw_census(limits, cancel, classify, visitor)
+    }
+}
+impl RawView<'_> {
     /// Stream every referenced page and the sorted exact union. Conflicts
     /// between raw terminal/zero classifications fail, including across runs.
     /// The callback owns source classification; integrity alone is not proof.
-    pub fn visit_raw_census(
+    pub(super) fn visit_raw_census(
         &self,
         limits: RawCensusLimits,
         cancel: &AtomicBool,
@@ -531,22 +569,17 @@ impl ValidatedGeneration {
                 "raw census iteration cancelled",
             ));
         }
-        validate_directory(
-            &self.manifest.raw,
-            self.execution().physical_arity as usize,
-            limits,
-        )?;
+        validate_directory(self.raw, self.execution.physical_arity as usize, limits)?;
         let runs = self
-            .manifest
             .raw
             .terminals
             .len()
-            .checked_add(self.manifest.raw.zeros.len())
+            .checked_add(self.raw.zeros.len())
             .ok_or_else(|| resource("raw merge run count overflow"))?;
         if runs > limits.max_merge_runs {
             return Err(resource("raw exact merge fan-in allowance"));
         }
-        let arity = self.execution().physical_arity as usize;
+        let arity = self.execution.physical_arity as usize;
         // One full key/head and exact page/row cursor per run, never one whole
         // page per run. Four output/dedup key buffers are charged separately.
         let metadata = runs
@@ -565,15 +598,15 @@ impl ValidatedGeneration {
             return Err(resource("raw exact merge head allowance"));
         }
         let mut cache = PageCache {
-            generation: self,
+            source: *self,
             limits,
             metadata,
             pages: VecDeque::new(),
             resident: 0,
             summary: RawCensusSummary::default(),
         };
-        let mut terminals = Merge::new(&self.manifest.raw.terminals)?;
-        let mut zeros = Merge::new(&self.manifest.raw.zeros)?;
+        let mut terminals = Merge::new(&self.raw.terminals)?;
+        let mut zeros = Merge::new(&self.raw.zeros)?;
         cache
             .pages
             .try_reserve_exact(limits.max_merge_cached_pages)

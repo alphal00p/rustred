@@ -1,8 +1,10 @@
 //! Integer-only storage for explicitly trusted-generated finite checkpoints.
 //! Integrity/shape validation is NOT independent closure or IBP verification.
 //! This layer does not yet mint a native completed-baseline capability.
+mod provenance;
 mod raw;
 mod reader;
+pub(crate) use provenance::RawProvenance;
 pub(crate) use raw::{RawCensusDirectory, RawCensusLimits, RawCensusSummary, RawKeyKind};
 #[cfg(test)]
 mod tests;

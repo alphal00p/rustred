@@ -755,3 +755,73 @@ fn native_thousand_zero_pages_exceed_state_cap_cold_resume_and_all_hit_succeed()
     assert_eq!((summary.zeros, summary.terminals), (1000, 0));
     assert!(summary.pages_read > 1);
 }
+
+#[test]
+fn raw_capsule_native_source_classification_equals_captured_generation() {
+    let fixture = Fixture::new();
+    let cancel = AtomicBool::new(false);
+    let prepared = PreparedExecution::<1>::prepare(&fixture.request, &cancel, &|_| {})
+        .unwrap()
+        .unwrap();
+    let source = fixture.directory.join("capsule-native-source");
+    let state = initial();
+    let scope = state.scope.clone();
+    let mut writer = StoreWriter::create(&source, prepared.execution().clone(), limits()).unwrap();
+    writer.commit_generated(vec![], state, &cancel).unwrap();
+    let reader = writer.current().unwrap().unwrap().reader(limits()).unwrap();
+    let token = prepared
+        .authenticate_generation(reader.snapshot().clone(), &scope, &cancel)
+        .unwrap();
+    let baseline = token
+        .bind(&reader, budget(), Default::default(), export(), &cancel)
+        .unwrap();
+    let delta = baseline
+        .trace_batch(
+            [key(2), key(0)],
+            CandidateEntryAdmission::SavedGenerationScope,
+            1,
+            &cancel,
+            |_| {},
+        )
+        .unwrap();
+    let completed = prepared
+        .commit_delta_with_generated_metadata(
+            &token,
+            &mut writer,
+            delta,
+            scope,
+            cursor(1, 2),
+            &cancel,
+        )
+        .unwrap();
+    let expected = completed
+        .generation
+        .visit_raw_census(limits().raw, &cancel, |_, _| Ok(()))
+        .unwrap();
+    let raw = RawProvenance::capture(completed.generation.generation());
+    let dest = fixture.directory.join("raw-capsule");
+    raw.copy_capsule(&dest, limits(), &cancel).unwrap();
+    let cold =
+        RawProvenance::open_capsule(&dest, prepared.execution(), raw.digest(), limits()).unwrap();
+    let actual = cold
+        .visit_raw_census(
+            limits().raw,
+            &cancel,
+            |kind, powers| {
+                let key = IntegralKey::try_new(powers.iter().copied()).unwrap();
+                match kind {
+                    RawKeyKind::Terminal => prepared.reducer().validate_generated_terminal(&key),
+                    RawKeyKind::Zero => prepared.reducer().validate_generated_zero(&key),
+                }
+                .map_err(Into::into)
+            },
+            |_, _| Ok(()),
+        )
+        .unwrap();
+    assert_eq!(
+        (actual.terminals, actual.zeros),
+        (expected.terminals, expected.zeros)
+    );
+    assert_eq!((actual.terminals, actual.zeros), (1, 1));
+    assert!(!dest.join("pages").exists());
+}
