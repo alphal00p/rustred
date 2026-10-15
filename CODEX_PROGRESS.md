@@ -1,5 +1,57 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — R3 publication and successful real finite-query extension
+
+The user reported R3 complete. Root verified source campaign generation11:
+37,745,993/37,745,993 domains closed,464/464 cumulative required requests,
+zero pending/frontiers; source run7533.328s (~2h5m33s). Publication scope
+`5a5eaef0f729c5e66541fd48561080f7684055d35e61c33377a30efef4aa60fc`
+is `published_unrefined`, R3/D10,935 raw/905 remaining terminal keys.
+The retained30 eliminations remain. Installed rules stay9,982 because extension
+reuses a fixed parametric pool; encountered rule records increase6,495→6,818
+fromR2, and encountered terminals899→935 (the pool declares939 records).
+This is not master independence or a guarantee for all arbitrary R3/D10 inputs.
+
+Opt-in finite-v3 source/unit delivery is committed/pushed as `afac5ecd`.
+The isolated real pilot then passed9-pointR0→unchanged resume→append279-pointR1
+and coldAll/Off verification. R0 performs1finite attempt; unchanged resume0;
+R1 adds1, retaining the original sealed record. Both required roots cold-verify,
+with all69 native payload digests unchanged. R1 native trace29.537s versus
+166.378s guarded full extension; total four-process pilot627.519s, including
+repeated owner preparation. No new matched performance claim follows.
+Independent audit passed in
+`TMP/finite-initial-queries-real-r0-r1-20261015/independent-audit.json`.
+
+The following separate v3 publication/export/exact-canary pilot passed in
+543.127s: `TMP/finite-initial-queries-publication-20261015/`, CPUs16--19.
+Fresh v3 CLI derives the two-record census; the frozen A2 application helper is
+reused transparently because core/saved_application/master_reduction code has
+no d74→afac differences. The independent reviewer approved this reuse. This
+does not relabel an old helper as rebuilt or bypass the mandatory census check.
+Publication took175.054s native/176.396s guarded, export142.413s guarded, and
+the source/runtime comparison222.526s guarded. Both required queries survive;
+two finite census invocations collect280 unique terminals from289 per-case
+terminal occurrences. Installed/encountered rules remain9,982/1,774. The
+nonterminal canary again executes1rule→9master terms, exact coefficients and
+guards agree, and its warm repeat executes0rules. All owned groups drained,
+source checkpoint and binaries unchanged. Final independent audit passed,
+including73 immutable-file checks,69 native owner-payload identities and both
+nonvacuous exact canary assertions. The extended package manifest hash and
+timing details are added to `docs/research/finite_demand_publication_2026-10-15.md`.
+
+Four-parent controls run separately on20--23 under the same guard; FG passed
+both arms/cold/publication and H is underway. The finite representation has
+19,159 internal states versus11,025 symbolic domains forFG: those are different
+units, so the compressed outer single-record count is not a work-reduction claim.
+
+The isolated rational-lowering full automated suite passed28/28 (1.21s native),
+excluding only the pre-existing manual captured-input diagnostic. Independent
+hash/source/runtime audit passed; the actual dependency is vendor ef0db/3.0.0,
+not Vakint's400a/3.0.1 stack. Q conversion uses incremental polynomial addition
+for some forms, so unchanged front-end allowance accounting does not imply
+unchanged native work. A paired, representative conversion benchmark is required
+before any integration or speed claim.
+
 ## October 15 — B source/runtime milestone passed; real extension gate next
 
 Corrected optimized app test build passed in793.525s. Frozen binary SHA256

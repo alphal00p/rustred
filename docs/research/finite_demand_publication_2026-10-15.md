@@ -120,9 +120,63 @@ immutability checks). Frozen executables and compiler receipts are recorded in
 `TMP/finite-census-real279-plan-20261015/` and
 `TMP/releases/20261015-finite-census-tests/`.
 
-The next implementation slice generalizes finite replay beyond a single initial
-root and supports completed-case checkpoint resume and append-only rank extension.
-In-flight finite traces will initially restart at their atomic case boundary;
-there is no mid-trace queue checkpoint yet. Large regions still require the
-symbolic path or another sound decomposition: this result does not justify
-enumerating the fullR6 input lattice, nor recommend restarting production now.
+## Resumable multi-query follow-up
+
+The v3 implementation (`afac5ecd`) passed241 distinct native checks and146
+related Python tests, then a real R0→resume→R1 experiment on the same input
+family. A fresh nine-point scalar region closes; resuming it unchanged performs
+zero new finite attempts; appending the279-point R1 region performs exactly one
+new attempt while preserving the original sealed record. Cold replay verifies
+both required queries, with identical live/cold non-timing trace counters and
+all69 owner-payload digests unchanged.
+
+| Phase | Guarded whole-process time | Native finite trace |
+|---|---:|---:|
+| Fresh R0 |156.369s|0.005s|
+| Unchanged R0 resume |144.378s|No new attempt|
+| Append R1 |166.378s|29.537s|
+| Cold replay of both records |158.458s|28.679s for R1|
+
+The complete four-process functional pilot took627.519s, including repeated
+owner preparation. This is not a new matched speedup measurement. The R1 trace
+deliberately includes the nine R0 points again; no cross-query point memo is
+claimed. One finite kernel is serial, despite the four-worker preparation budget.
+
+A separate543.127s publication/export/application pilot then passed, with an
+independent audit. Publication took175.054s native/176.396s guarded; export
+took142.413s guarded. Two native census invocations contribute289 terminal
+occurrences but280 unique terminal keys and267,695 total rule applications.
+The required binary census is52,527bytes. Installed/encountered rules remain
+9,982/1,774. Both corrected canaries have identical exact source/runtime/warm
+coefficients and conditions; the second executes one IBP to nine master terms,
+then zero rules on its warm repeat (12.71ms first runtime/4.93ms warm after
+owner preparation). The first terminal-only runtime call includes40.435s of
+deferred preparation and must not be interpreted as IBP arithmetic cost.
+
+The v3 local package is:
+
+```text
+/shared/codex-2/rustred/TMP/finite-initial-queries-publication-20261015/application
+application.json SHA256 7f2738bcf575829177ad9d69936ef2b2ee3f12483d8bf8b1a3cdc7feffe75684
+```
+
+Evidence: `TMP/finite-initial-queries-real-r0-r1-20261015/` and
+`TMP/finite-initial-queries-publication-20261015/`, each with an independent
+audit receipt. The fresh v3 CLI derives the inventory; the frozen A2 application
+helper is transparently reused because core and application/export code are
+unchanged between the two revisions. No source checkpoint or production
+campaign was modified; all owned processes drained.
+
+The mode currently requires rolling FIFO/oldest-prefix execution, rejects
+unsupported rescue-policy changes, and binds the exact original/amended query
+images while preserving valid containment aliases. A clean stop saves merged
+finite cases; the unfinished trace restarts at its case boundary. A hard crash
+retains only the latest durable checkpoint, not every subsequent merge. There
+is no mid-trace queue checkpoint or forced disk save after every case. Existing
+default-off/v2 execution is unchanged.
+
+Large regions still require the symbolic path or another sound decomposition.
+Potential finite roots are currently gated until ordinary fallback commits,
+even when too large for enumeration; mixed eligible/ineligible performance is
+therefore still a deployment gate. These successes do not justify enumerating
+the fullR6 input lattice or restarting production automatically.
