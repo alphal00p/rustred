@@ -1,5 +1,36 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — rational lowering mechanism passes; shared-union diagnostic next
+
+The complete six-case rational/AtomField benchmark passed all 36 timed calls,
+six exact gates, and a fresh 28-test scalar suite; independent runtime/source
+audit passed. On the 2,156-term five-loop inputs, median lowering is
+0.514759→0.157667s and 0.535922→0.167245s (unit/non-unit mass). This is a
+synthetic native conversion result, not full Vakint timing or campaign closure.
+The original 10,752-term preflight failure remains recorded. Details:
+`docs/research/rational_weighted_lowering_2026-10-15.md`.
+
+`intermediate_capture_app` now owns the separate actual Vakint gate, following
+the completed read-only plan from `weighted_vk_gate_plan`: same expanded
+mixed-denominator DOT fixture, actual Symbolica 3.0.1/FeynKit stack, exact
+candidate/minimum-witness/guard comparison, and fresh application state in each
+arm. Source and independent audit precede builds. No main integration yet.
+
+`weighted_vk_gate_plan` now implements the diagnostic shared-union trace in
+`TMP/finite-union-diagnostic-20261015`, branch `codex/finite-union-diagnostic`
+at `f28666d5`. It uses one prepared immutable reducer for sequential per-query
+and joint traces, with exact native union admission and complete terminal,
+zero and composite-rule identity set comparisons. The initial per-case census
+is 81 nonempty queries / 2,557 summed starts; all 116 requests, including the
+35 provably empty rows, remain accounted for. It must not manufacture a hull,
+publish a checkpoint or reuse partial results as closure. Independent auditor
+owns the source/runtime gate. The 4-CPU outer grant is not four-way inline
+trace parallelism. Both implementation lanes remain isolated from production.
+
+The audited complete-R0 negative/corrected report and updated goal status were
+committed and pushed to main as `f28666d5`; no default change or user campaign
+restart is recommended. Main retains unrelated collaborator edits untouched.
+
 ## October 15 — full116-query R0 comparison: correctness passes, default mode slower
 
 The broader paired pilot completed in738.181s under the existing4-worker,
