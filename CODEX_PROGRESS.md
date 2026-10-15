@@ -1,5 +1,51 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — complete R0+R1 finite-demand trace succeeds
+
+Root session43560 completed successfully: all232 unchanged declarations,
+60,807 input occurrences in488 windows,6,047,386 new operational states,
+2,354,285 rule applications,683 raw terminal keys and1,110,963 zero keys.
+The four-start row156 that stopped all three earlier attempts is complete.
+Original source/amendment/payload hashes and local algebra/expansion limits
+remain unchanged; checked aggregate counter policy was explicit and separate.
+
+Four-worker driver wall371.565s, peak tree RSS10.144GB. Source preparation
+112.847s; summed native batch snapshots126.068s; API calls including retained
+state233.387s; whole trace side239.712s. Guarded full result validation passed,
+all groups drained, no timeout/RAM stop. Raw proof and timing evidence:
+`TMP/full-r1-resource-governed-20261015/runtime/`. The result remains a diagnostic
+native finite-scope trace, not a saved application publication or fullR6 result.
+Independent final review passed all232 source rows and full census arrays.
+The formerly blocked row156 completed4,711,319 operational states in111.304s
+native batch time. No matched full separate-window
+timing exists; do not turn the earlier89.8% prefix-work saving into a full-run
+speedup claim. The technical report now retains both success and prior failures.
+
+The measured~107.3s API-minus-native interval warrants census/retention profiling.
+Also,1,110,963×15×8 =133,315,560 zero-coordinate bytes alone exceed the first
+durable format's64MiB framing/decoder allowance. No fullR1 disk-backed pilot
+will be launched against a known insufficient format. The independently
+reviewed query/window lifecycle has passed combined compilation78.207s;
+optimized app build96694 is active on24–27, with148 planned test executions
+covering the actual cold-file/append/window/cursor/storage regressions.
+
+Ladder preparation-only example build passed682.487s. The frozen unchanged
+Vakint Git integration example passed final binding review; one bounded
+preparation run is now live as session25381, child1283153, CPU20,32GB/150GB,
+under `TMP/ladder-preparation-current-runtime-20261015/`. No numerical masters,
+application to unsupported keys or new IBPs are included.
+
+Read-only production observation: the R4 native solve has now finished,
+checkpoint18. Its final result at
+`campaigns/five-loop-minimal-r0-d10-incremental/runs/20261015T145946.137199Z/result.json`
+has580/580 required requests certified,85,505,098/85,505,098 recursive domains
+closed, zero queue/frontiers. Legacy top-level `status=incomplete` and
+`family_closure_claim=false` do not negate those exact scoped-worklist fields;
+they are not unrestricted-family/deep-certification claims. Its automatic
+publication is still running separately (inventory stage, PID1184510, scope
+a82a7db4…). No new R4 publication or runtime package is claimed ready yet.
+Production campaigns remain read-only; the broad R6 run continues.
+
 ## October 15 — native policy and durable-core tests pass; exact lifecycle joins next
 
 The diagnostic aggregate-policy build completed in1155.758s. Its frozen

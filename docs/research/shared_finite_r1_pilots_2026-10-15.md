@@ -1,6 +1,83 @@
 # Shared finite-demand tracing: complete R1 input pilots
 
-## Result and scope
+## Follow-up: full cumulative R0+R1 trace completed
+
+A fourth, explicitly resource-governed diagnostic **completed all 232 unchanged
+declarations**, including the four-start case that stopped the earlier pilots.
+The original request/amendment chain was authenticated before changing an
+isolated copy of the aggregate execution allowances. No source geometry,
+owner/rule/routing policy, per-expression algebra/expansion limit or production
+campaign was changed.
+
+The six aggregate work counters and three prepared reduction aggregate counters
+were made nonbinding together, with checked overflow still enforced. The
+512-point windows, census/retention byte allowances, 32 GB RSS guard, 150 GB host
+reserve and 30-minute inclusive ceiling remained unchanged. This was a fresh
+in-memory diagnostic, not reuse of a prior checkpoint or a larger-limit retry
+of a live production process.
+
+| Measurement | Completed shared trace, four workers |
+|---|---:|
+| Required query declarations | 232 / 232 |
+| Starting occurrences, including overlap | 60,807 |
+| Complete windows | 488 |
+| New operational states | 6,047,386 |
+| Rule applications | 2,354,285 |
+| Completed-baseline hits | 252,397,738 |
+| Raw terminal keys | 683 |
+| Raw zero keys | 1,110,963 |
+| Composite selected-rule identities | 5,023 |
+| Source preparation | 112.847 s |
+| Native batch snapshot time, summed | 126.068 s |
+| API calls including completed-state retention | 233.387 s |
+| Whole trace side | 239.712 s |
+| Complete driver, including preparation and output checks | 371.565 s |
+| Peak process-tree RSS | 10.144 GB |
+
+The guarded native process and output verifier both exited successfully, with
+all process groups drained and no resource stop. Every row exhausted its exact
+native count; complete census multiplicities match rule-application counts.
+The recorded input union has 58,250 points after removing R0/R1 overlap. No
+global distinct-start counter is inferred from the occurrence counter.
+
+The formerly blocked four-start row completed 4,711,319 operational states,
+525,244,721 routed endpoints and 1,710,456,345 aggregate operation charges in
+111.304 seconds of native batch time. This confirms that its earlier aggregate
+refusals were not missing-rule failures. It does not imply that every later
+rank can finish within the same resources.
+
+This is **complete finite-scope tracing**, not a durable saved-campaign artifact,
+an independent mathematical replay of every IBP, coefficient back-substitution,
+a minimal master basis or full R6 closure. There is no completed matched
+separate-window run for a full-R1 timing ratio. The previously measured 89.8%
+work saving remains a comparison of the identical completed prefix only.
+
+The API time exceeds native snapshot time by about 107.3 seconds. That establishes
+material overhead outside the batch scheduler interval; retention/merge/export
+and teardown are plausible contributors, not separately profiled percentages.
+In particular, the in-memory implementation stages cumulative census metadata
+at every window. The new disk backend must not multiply that cost with repeated
+cold validation or page-cache reconstruction.
+
+This workload also exposes a concrete persistence sizing issue: the zero-key
+coordinates alone need 133,315,560 uncompressed bytes, before vector/index
+overhead. The first durable slice's 64 MiB state/decoder bound cannot store the
+full R1 census. It must refuse safely until a bounded, properly sized or paged
+census solution is implemented; compression alone does not address decoded RAM.
+The native disk/cursor correctness gates remain useful but do not establish
+that a full R1 durable run fits that first format.
+
+Evidence: `TMP/full-r1-resource-governed-20261015/runtime/`, including
+`summary.json`, `verified.json`, raw events and `native/result.json`.
+Frozen optimized binary SHA256:
+`791c8276925a153e9bd69bb77043753a79566c5e975733415ba2d529d4e33624`.
+Policy SHA256:
+`d1716af7ca576286a68ccac24290cc462412d53d6cb7f60893f407806f08e835`.
+The associated 29-test native implementation gate passed before launch.
+Independent final review passed the full input/census/completion and timing
+interpretation; its receipt is retained beside the runtime evidence.
+
+## Earlier incomplete attempts: result and scope
 
 The new exact finite-demand runner has been exercised on the unchanged
 cumulative R0+R1 input: all 116 original declarations and all 116 rank-one
