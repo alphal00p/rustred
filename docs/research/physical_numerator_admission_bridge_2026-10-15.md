@@ -1,6 +1,6 @@
 # Physical numerators and saved massive-family admission
 
-15 October 2026. Read-only boundary audit; no admission policy, campaign,
+15 October 2026. Boundary audit and native preparation measurement; no admission policy, campaign,
 artifact, rule generation or numerical master evaluation was changed.
 
 ## Current behavior is consistent with the actual saved scope
@@ -90,3 +90,48 @@ package/scope separation, and numerical-rank-zero through rank-two physical
 numerators whose *actual* lowered endpoints are admitted by a completed saved
 publication. No new CAS or broad certification framework is required for that
 diagnostic/collection slice.
+
+## Physical ladder preparation reproduced on the current integration
+
+The existing standalone `five_loop_qcd_ladder` example completed native
+preparation from its DOT/model input, including symbolic-d gamma/color algebra,
+quadratic Taylor expansion and the transverse q² projector. This was the full
+preparation path, not the `--dress-only` shortcut, and it loaded no RustRed
+application artifact or FORM executable.
+
+| Measurement | Result |
+|---|---:|
+| Native preparation time | 1,254.947 s (20m55s) |
+| Driver including evidence checks | 1,259.621 s |
+| Workers | 1 |
+| Peak process-tree RSS | 15.456 GB |
+| Taylor contributions | 21 |
+| Reported scalar terms | 8,306 |
+| Final Vakint input | 34,795,612 bytes |
+
+All 21 contribution indices have a DOT and a prepared numerator. The exact
+physical power inventory records A=14..16 and A−R=10, with scalar ranks
+R=4 (one contribution), R=5 (five), and R=6 (fifteen). Five preparation
+condition records were saved; these include unity/redundancy and must not be
+described as five distinct poles.
+
+The frozen example uses the unchanged GammaLoop/Vakint `c4e1185a` integration,
+RustRed Git `74a83e94`, Symbolica `400a53c` and FeynKit `024f96d`. Binary SHA256:
+`b1f28ea2b5864f2b44c13a050a797cc37afb6c7f592392cb5aa279c8c95597f4`.
+The run completed under the explicit 32 GB RAM/30-minute pilot guard, with no
+resource stop and all processes drained. Independent audit checked the source
+bindings, raw output inventory and all 48 evidence-file hashes.
+
+Evidence lives at `TMP/ladder-preparation-current-runtime-20261015/evidence/`;
+its parent contains `summary.json` and `independent-audit.json`. In particular,
+`vakint-input.symbolica` and `projected-vacuum-*.dot` can now feed a separate
+prepared-input diagnostic without repeating this 21-minute preparation.
+The full slow acceptance test still regenerates its numerator as required.
+
+This proves preparation, not artifact admission, scalar reduction, a numerical
+value or complete beta-function extraction. The existing ignored
+`prepared_ladder_weighted_preflight_without_ibps` diagnostic can collect actual
+mass-graded lowered images and test the chosen published admission union.
+Refusal for one geometric routing witness does not exclude another exact
+witness; no failed raw key may be admitted solely from the physical D−j=10
+identity. That application boundary remains open.

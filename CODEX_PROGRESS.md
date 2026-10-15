@@ -1,5 +1,35 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — physical ladder prepared; R4 package export in progress
+
+Ladder prep-only session25381 completed and passed independent audit: native
+1254.946501s, driver1259.620562s, peak15.456GB onone worker; all21 contributions,
+8306 terms and34,795,612-byte Vakint input. The physical inventory has A14..16,
+D10 and scalar ranks4/5/6 with1/5/15 contributions respectively. Five saved
+condition records include unity/redundancy, not five distinct poles. All48
+evidence files and actual Git74/400a/024f bindings checked; no reduction or
+numerical masters were attempted. Updated
+`docs/research/physical_numerator_admission_bridge_2026-10-15.md`.
+
+The immutable prepared input is now available for the existing no-IBP weighted
+image/admission diagnostic; the full slow acceptance test continues to prepare
+its own numerator. Root has not authorized admission bypass or a broader D
+rectangle. The R4 source covers only its recorded input union, not the whole
+physical ladder's R6 inputs or every mass-shifted endpoint.
+
+R4 export session75386 is live under the independently reviewed wrapper at
+`TMP/r4-vakint-acceptance-20261015/export.py`: unchanged existing exporter,
+immutable completed source a82a7db4…, fresh TMP destination, CPU16–19,
+32GB/150GB/30-minute guard. No production writes or rule generation. On success,
+reuse existing exact R2 controls on this new package as compatibility tests,
+then the separately bounded prepared-input admission diagnostic. Neither gate
+will be labeled exhaustive R4/R6 application coverage.
+
+Paged-census author is now cleared for a normal combined release typecheck on
+build1/CPUs28–31. New raw-page crash/corruption/source-classification tests and
+the optimized native gate still precede integration or a real durable R1 run.
+The previously tested exact-window code/report were pushed through56408a2d.
+
 ## October 15 — exact-window durable correctness integrated; production R4 publication ready
 
 Optimized combined app build96694 passed1168.766s. Native gate63216 passed
