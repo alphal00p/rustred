@@ -97,6 +97,8 @@ impl<const N: usize> CandidateRoutedCampaignReport<N> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CandidateRoutedCampaignFailure {
     Trace(CandidateRoutedError),
+    /// Trusted-generated page lookup failed; this is never an absent key.
+    Backing(crate::persistence::finite_work::GeneratedWorkError),
     Cancelled,
     WorkerPanicked,
 }

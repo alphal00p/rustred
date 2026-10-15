@@ -12,6 +12,7 @@ mod observer_boundary;
 mod owner_batches;
 mod power_domains;
 mod preparation;
+mod generated_checkpoint;
 mod record_sidecar;
 mod rescue;
 mod scope_extension;

@@ -49,6 +49,7 @@ pub use candidate_reduction::{
     CandidateRoutedCacheCensus, CandidateRoutedCachePolicy, CandidateRoutedCacheStatistics,
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
     CandidateRoutedCampaignSnapshot, CandidateRoutedCompletedTrace,
+    CandidateRoutedCompletedDelta, CandidateRoutedDeltaExportLimits, CandidateRoutedGeneratedBaseline,
     CandidateRoutedCompletedTraceError, CandidateRoutedCompletedTraceLimits, CandidateRoutedError,
     CandidateRoutedFrontier, CandidateRoutedFrontierReason, CandidateRoutedIdentity,
     CandidateRoutedReduction, CandidateRoutedSelectionIdentity, CandidateRoutedTraceCensus,

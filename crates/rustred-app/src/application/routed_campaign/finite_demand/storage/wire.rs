@@ -1,32 +1,24 @@
 use super::*;
 use std::{
     fs::{self, File},
-    io::{Read, Write},
+    io::Read,
     mem::size_of,
     path::Path,
 };
 
-pub(super) const MAX_FRAME: usize = 64 * 1024 * 1024;
+pub(super) const MAX_FRAME: usize = rustred::persistence::finite_work::FRAME_LIMIT;
 pub(super) const CURRENT: &str = "CURRENT";
-pub(super) const PAGE_MAGIC: &[u8] = b"RUSTRED-FINITE-WORK-1\0";
+pub(super) const PAGE_MAGIC: &[u8] = rustred::persistence::finite_work::PAGE_MAGIC;
 pub(super) const STATE_MAGIC: &[u8] = b"RUSTRED-FINITE-STATE-1\0";
 pub(super) const MANIFEST_MAGIC: &[u8] = b"RUSTRED-FINITE-GENERATION-1\0";
 pub(super) const TIP_MAGIC: &[u8] = b"RUSTRED-FINITE-CURRENT-1\0";
 pub(super) const TIP_LIMIT: usize = 256;
 const MAX_CURSOR: usize = 64 * 1024;
 
-#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-pub(super) struct ObjectRef {
-    pub digest: Digest,
-    pub bytes: u64,
-}
-#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-pub(super) struct PageRef {
-    pub object: ObjectRef,
-    pub records: u64,
-    pub first: StoredWork,
-    pub last: StoredWork,
-}
+pub(super) use rustred::persistence::finite_work::{
+    GeneratedObjectRef as ObjectRef, GeneratedWorkPageRecord as Page,
+    GeneratedWorkPageRef as PageRef,
+};
 #[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct Manifest {
     pub execution: RawExecutionBinding,
@@ -34,18 +26,14 @@ pub(super) struct Manifest {
     pub previous: Option<Digest>,
     pub state: ObjectRef,
     pub scope_digest: Digest,
-    pub runs: Vec<Vec<PageRef>>,
+    pub runs: Arc<Vec<Vec<PageRef>>>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct Tip {
     pub generation: u64,
     pub manifest: ObjectRef,
 }
-#[derive(bincode::Encode, bincode::Decode)]
-pub(super) struct Page {
-    pub execution: RawExecutionBinding,
-    pub records: Vec<StoredWork>,
-}
+
 #[derive(bincode::Encode, bincode::Decode)]
 pub(super) struct StateFile {
     pub execution: RawExecutionBinding,
@@ -71,101 +59,42 @@ fn add(total: &mut usize, amount: usize) -> Result<()> {
     Ok(())
 }
 pub(super) fn work_payload(records: &[StoredWork], capacity: usize) -> Result<usize> {
-    let mut bytes = capacity
-        .checked_mul(size_of::<StoredWork>())
-        .ok_or_else(|| resource("page capacity overflow"))?;
-    for record in records {
-        add(&mut bytes, record.heap_bytes()?)?;
-    }
-    Ok(bytes)
+    rustred::persistence::finite_work::work_payload_bytes(records, capacity).map_err(Into::into)
 }
 pub(super) fn validate_manifest(
     manifest: &Manifest,
     expected: &RawExecutionBinding,
     limits: StorageLimits,
 ) -> Result<(u64, usize)> {
-    let arity = binding(expected, limits)?;
+    binding(expected, limits)?;
     if &manifest.execution != expected
         || manifest.generation == 0
         || (manifest.generation == 1) != manifest.previous.is_none()
     {
         return Err(corrupt("finite generation execution/ancestry binding"));
     }
-    if manifest.runs.len() > limits.max_runs {
-        return Err(resource("finite run directory"));
-    }
     if manifest.state.bytes == 0 || manifest.state.bytes > limits.max_state_bytes as u64 {
         return Err(resource("finite state bytes"));
     }
-    let mut pages = 0usize;
-    let mut records = 0u64;
-    let mut disk = manifest.state.bytes;
-    let mut digests = std::collections::BTreeSet::new();
-    let mut bytes = size_of::<Manifest>();
-    add(
-        &mut bytes,
-        manifest
-            .runs
-            .capacity()
-            .checked_mul(size_of::<Vec<PageRef>>())
-            .ok_or_else(|| resource("run directory overflow"))?,
+    let stats = rustred::persistence::finite_work::validate_directory(
+        expected,
+        &manifest.runs,
+        limits.directory_limits(),
     )?;
-    for run in &manifest.runs {
-        if run.is_empty() {
-            return Err(corrupt("empty finite run"));
-        }
-        add(
-            &mut bytes,
-            run.capacity()
-                .checked_mul(size_of::<PageRef>())
-                .ok_or_else(|| resource("page directory overflow"))?,
-        )?;
-        let mut previous = None;
-        for page in run {
-            page.first.validate(arity)?;
-            page.last.validate(arity)?;
-            if page.records > limits.max_page_records as u64
-                || page.object.bytes > limits.max_page_bytes as u64
-            {
-                return Err(resource("finite page record/byte allowance"));
-            }
-            if page.records == 0
-                || page.object.bytes == 0
-                || page.first > page.last
-                || previous.is_some_and(|old| old >= &page.first)
-            {
-                return Err(corrupt("invalid finite page range/count/frame"));
-            }
-            previous = Some(&page.last);
-            pages = pages
-                .checked_add(1)
-                .ok_or_else(|| resource("finite page count overflow"))?;
-            if pages > limits.max_pages {
-                return Err(resource("finite page count allowance"));
-            }
-            if !digests.insert(page.object.digest) {
-                return Err(corrupt("duplicate referenced finite page"));
-            }
-            records = records
-                .checked_add(page.records)
-                .ok_or_else(|| resource("finite Work count overflow"))?;
-            disk = disk
-                .checked_add(page.object.bytes)
-                .ok_or_else(|| resource("referenced finite disk overflow"))?;
-            add(&mut bytes, page.first.heap_bytes()?)?;
-            add(&mut bytes, page.last.heap_bytes()?)?;
-            // Includes the bounded validation-only digest set payload; tree
-            // allocator overhead is not advertised as exact process RSS.
-            add(&mut bytes, size_of::<Digest>())?;
-            if bytes > limits.max_directory_bytes || disk > limits.max_disk_bytes {
-                return Err(resource("finite directory/referenced disk allowance"));
-            }
-        }
+    if stats
+        .referenced_bytes
+        .checked_add(manifest.state.bytes)
+        .is_none_or(|bytes| bytes > limits.max_disk_bytes)
+    {
+        return Err(resource("finite referenced state/page disk allowance"));
     }
-    if pages > limits.max_pages || bytes > limits.max_directory_bytes {
-        return Err(resource("finite page/index allowance"));
-    }
-    Ok((records, bytes))
+    Ok((
+        stats.records,
+        stats
+            .payload_bytes
+            .checked_add(size_of::<Manifest>())
+            .ok_or_else(|| resource("manifest payload overflow"))?,
+    ))
 }
 pub(super) fn validate_page(
     page: &Page,
@@ -173,23 +102,14 @@ pub(super) fn validate_page(
     execution: &RawExecutionBinding,
     limits: StorageLimits,
 ) -> Result<usize> {
-    let arity = binding(execution, limits)?;
-    if page.execution != *execution
-        || page.records.len() as u64 != reference.records
-        || page.records.first() != Some(&reference.first)
-        || page.records.last() != Some(&reference.last)
-        || page.records.is_empty()
-        || page.records.len() > limits.max_page_records
-        || page.records.windows(2).any(|pair| pair[0] >= pair[1])
-    {
-        return Err(corrupt(
-            "finite page execution/range/sort/duplicate mismatch",
-        ));
-    }
-    for work in &page.records {
-        work.validate(arity)?;
-    }
-    work_payload(&page.records, page.records.capacity())
+    binding(execution, limits)?;
+    rustred::persistence::finite_work::validate_page_record(
+        page,
+        reference,
+        execution,
+        limits.max_page_records,
+    )
+    .map_err(Into::into)
 }
 pub(super) fn scope_digest(scope: &ScopeBinding, limit: usize) -> Result<Digest> {
     Ok(*blake3::hash(&encode(b"RUSTRED-FINITE-SCOPE-1\0", scope, limit)?).as_bytes())
@@ -279,7 +199,7 @@ pub(super) fn validate_state(
     }
     Ok(())
 }
-fn state_payload(state: &GenerationState) -> Result<usize> {
+pub(super) fn state_payload(state: &GenerationState) -> Result<usize> {
     let mut bytes = size_of::<GenerationState>();
     add(
         &mut bytes,
@@ -382,51 +302,19 @@ pub(super) fn validate_extension(old: &GenerationState, new: &GenerationState) -
     Ok(())
 }
 
-/// The same bounded native bincode framing pattern as existing cache indexes.
-pub(super) fn encode(
-    value_magic: &[u8],
-    value: &impl bincode::Encode,
-    limit: usize,
-) -> Result<Vec<u8>> {
-    if limit > MAX_FRAME || limit < value_magic.len() + 32 {
-        return Err(resource("finite frame allowance"));
-    }
-    let mut writer = BoundedBytes {
-        bytes: Vec::new(),
-        limit: limit - 32,
-    };
-    writer.write_all(value_magic).map_err(io)?;
-    bincode::encode_into_std_write(value, &mut writer, bincode::config::standard())
-        .map_err(resource)?;
-    let digest = blake3::hash(&writer.bytes);
-    writer.bytes.extend_from_slice(digest.as_bytes());
-    Ok(writer.bytes)
+// The page and state framing share the core's bounded integer codec; only
+// filesystem/generation metadata remain here.
+pub(super) fn encode(magic: &[u8], value: &impl bincode::Encode, limit: usize) -> Result<Vec<u8>> {
+    rustred::persistence::finite_work::encode_metadata_frame(magic, value, limit)
+        .map_err(Into::into)
 }
 pub(super) fn decode<T: bincode::Decode<()>>(
     magic: &[u8],
     bytes: &[u8],
     limit: usize,
 ) -> Result<T> {
-    if limit > MAX_FRAME
-        || bytes.len() > limit
-        || bytes.len() < magic.len() + 32
-        || !bytes.starts_with(magic)
-    {
-        return Err(corrupt("finite frame magic/length"));
-    }
-    let end = bytes.len() - 32;
-    if blake3::hash(&bytes[..end]).as_bytes() != &bytes[end..] {
-        return Err(corrupt("finite frame digest"));
-    }
-    let (value, consumed) = bincode::decode_from_slice(
-        &bytes[magic.len()..end],
-        bincode::config::standard().with_limit::<MAX_FRAME>(),
-    )
-    .map_err(corrupt)?;
-    if consumed != end - magic.len() {
-        return Err(corrupt("trailing finite frame bytes"));
-    }
-    Ok(value)
+    rustred::persistence::finite_work::decode_metadata_frame(magic, bytes, limit)
+        .map_err(Into::into)
 }
 pub(super) fn read(path: &Path, limit: usize) -> Result<Vec<u8>> {
     let metadata = fs::symlink_metadata(path).map_err(io)?;
@@ -463,33 +351,4 @@ pub(super) fn read_object(
         return Err(corrupt("finite object reference digest/length mismatch"));
     }
     Ok(bytes)
-}
-struct BoundedBytes {
-    bytes: Vec<u8>,
-    limit: usize,
-}
-impl Write for BoundedBytes {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        let length = self
-            .bytes
-            .len()
-            .checked_add(bytes.len())
-            .ok_or_else(|| std::io::Error::other("finite frame overflow"))?;
-        if length > self.limit {
-            return Err(std::io::Error::other("finite frame allowance exceeded"));
-        }
-        if length > self.bytes.capacity() {
-            let capacity = length
-                .max(self.bytes.capacity().saturating_mul(2))
-                .min(self.limit);
-            self.bytes
-                .try_reserve_exact(capacity - self.bytes.len())
-                .map_err(std::io::Error::other)?;
-        }
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
 }

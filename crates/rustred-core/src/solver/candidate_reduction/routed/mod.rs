@@ -17,6 +17,7 @@ pub use application::{
 };
 
 pub use campaign::{
+    CandidateRoutedCompletedDelta, CandidateRoutedDeltaExportLimits, CandidateRoutedGeneratedBaseline,
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
     CandidateRoutedCampaignSnapshot, CandidateRoutedCompletedTrace,
     CandidateRoutedCompletedTraceError, CandidateRoutedCompletedTraceLimits,

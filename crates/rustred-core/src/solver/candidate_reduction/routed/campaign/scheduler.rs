@@ -14,7 +14,19 @@ pub(super) type Work<const N: usize> = CandidateRoutedWork<N>;
 
 #[path = "membership.rs"]
 pub(super) mod membership;
+use crate::persistence::finite_work::{
+    GeneratedPageProvider, GeneratedWorkKey, TrustedGeneratedWorkDirectory,
+};
 use membership::Membership;
+
+#[derive(Clone, Copy)]
+pub(super) enum CompletedBaseline<'a, const N: usize> {
+    Memory(&'a Membership<N>),
+    Generated {
+        directory: &'a TrustedGeneratedWorkDirectory,
+        provider: &'a dyn GeneratedPageProvider,
+    },
+}
 
 /// Bounds publication work and transient child staging, not native expansion.
 /// Hash-table/queue growth can occasionally reallocate more than one batch.
@@ -78,7 +90,7 @@ struct State<const N: usize> {
 pub(super) struct Shared<'a, const N: usize> {
     state: Mutex<State<N>>,
     membership: Membership<N>,
-    completed_baseline: Option<&'a Membership<N>>,
+    completed_baseline: Option<CompletedBaseline<'a, N>>,
     wake: Condvar,
     progress: Condvar,
     start: Instant,
@@ -128,7 +140,7 @@ impl<'a, const N: usize> Shared<'a, N> {
             census_limits: None,
         }
     }
-    pub(super) fn set_completed_baseline(&mut self, baseline: Option<&'a Membership<N>>) {
+    pub(super) fn set_completed_baseline(&mut self, baseline: Option<CompletedBaseline<'a, N>>) {
         self.completed_baseline = baseline;
     }
     pub(super) fn apply_budget(&mut self, budget: CandidateRoutedWorkBudget) {
@@ -295,10 +307,26 @@ impl<'a, const N: usize> Shared<'a, N> {
     /// Caller validates the edge before this identity lookup. A shared in-flight
     /// join is not a cycle; support/phase/order descent proves acyclicity.
     pub(super) fn schedule(&self, node: Work<N>) -> Result<(), Failure> {
+        // Generated pages can block on storage. Validate and probe outside the
+        // scheduler lock, then recheck cancellation/live membership under it.
+        // Preserve the existing memory-only ordering and cheap locked probe.
+        let generated_hit = if matches!(
+            self.completed_baseline,
+            Some(CompletedBaseline::Generated { .. })
+        ) {
+            self.check()?;
+            Self::validate_node(&node)?;
+            Some(self.baseline_contains(&node)?)
+        } else {
+            None
+        };
         let mut state = self.lock();
         self.check_locked(&mut state)?;
         Self::validate_node(&node)?;
-        if self.baseline_contains(&node) {
+        if match generated_hit {
+            Some(hit) => hit,
+            None => self.baseline_contains(&node)?,
+        } {
             Self::baseline_hit(&mut state)?;
             return Ok(());
         }
@@ -310,9 +338,23 @@ impl<'a, const N: usize> Shared<'a, N> {
         }
         Ok(())
     }
-    fn baseline_contains(&self, node: &Work<N>) -> bool {
-        self.completed_baseline
-            .is_some_and(|baseline| baseline.probe(node).1)
+    fn baseline_contains(&self, node: &Work<N>) -> Result<bool, Failure> {
+        match self.completed_baseline {
+            None => Ok(false),
+            Some(CompletedBaseline::Memory(baseline)) => Ok(baseline.probe(node).1),
+            Some(CompletedBaseline::Generated {
+                directory,
+                provider,
+            }) => {
+                let key = GeneratedWorkKey::from_native(node).map_err(Failure::Backing)?;
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    directory.lookup(&key, provider)
+                }))
+                .map_err(|_| Failure::WorkerPanicked)?
+                .map(|result| result.present)
+                .map_err(Failure::Backing)
+            }
+        }
     }
     fn baseline_hit(state: &mut State<N>) -> Result<(), Failure> {
         state.baseline_hits = limit(
@@ -345,9 +387,16 @@ impl<'a, const N: usize> Shared<'a, N> {
                 batch.push(ProbedWork::Invalid(error));
                 break;
             }
-            if self.baseline_contains(&node) {
-                batch.push(ProbedWork::CompletedBaseline);
-                continue;
+            match self.baseline_contains(&node) {
+                Ok(true) => {
+                    batch.push(ProbedWork::CompletedBaseline);
+                    continue;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    batch.push(ProbedWork::Invalid(error));
+                    break;
+                }
             }
             let (shard, present) = self.membership.probe(&node);
             if present {

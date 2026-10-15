@@ -2,6 +2,7 @@
 //! entries. Algebra is local to a worker; only scheduling/accounting is locked.
 mod census;
 mod completed;
+mod generated;
 mod inline;
 pub use census::{
     CandidateRoutedSelectionIdentity, CandidateRoutedTraceCensus, CandidateRoutedTraceCensusLimits,
@@ -10,6 +11,8 @@ pub use completed::{
     CandidateRoutedCompletedTrace, CandidateRoutedCompletedTraceError,
     CandidateRoutedCompletedTraceLimits,
 };
+pub use generated::{CandidateRoutedCompletedDelta, CandidateRoutedDeltaExportLimits,
+    CandidateRoutedGeneratedBaseline};
 mod model;
 pub use inline::CandidateRoutedWorkBudget;
 mod scheduler;
@@ -118,7 +121,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         workers: usize,
         budget: Option<CandidateRoutedWorkBudget>,
         census: Option<CandidateRoutedTraceCensusLimits>,
-        baseline: Option<&scheduler::membership::Membership<N>>,
+        baseline: Option<scheduler::CompletedBaseline<'_, N>>,
         cancellation: &AtomicBool,
         mut observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
     ) -> Result<

@@ -84,8 +84,87 @@ fn finite_store_tiny_frame_with_enormous_native_vector_count_is_bounded() {
         Ok(_) => panic!("huge vector length was accepted"),
         Err(error) => error,
     };
-    assert_eq!(error.kind, ErrorKind::Corrupt);
+    assert_eq!(error.kind, ErrorKind::Resource);
     assert!(error.to_string().contains("LimitExceeded"), "{error}");
+}
+
+#[test]
+fn finite_store_compact_encoded_page_decode_refusal_never_replaces_current() {
+    // An IO-only synthetic arity, not a supported physics family: many zero
+    // varints occupy ~8 MiB but their i64 allocation alone consumes 64 MiB.
+    let arity = wire::MAX_FRAME / std::mem::size_of::<i64>();
+    let binding = RawExecutionBinding {
+        physical_arity: arity as u32,
+        program_identity: [3; 32],
+    };
+    let settings = StorageLimits {
+        max_arity: arity,
+        max_delta_payload_bytes: 2 * wire::MAX_FRAME,
+        max_page_bytes: wire::MAX_FRAME,
+        max_manifest_bytes: wire::MAX_FRAME,
+        max_directory_bytes: 4 * wire::MAX_FRAME,
+        max_disk_bytes: 4 * wire::MAX_FRAME as u64,
+        ..limits()
+    };
+    let scratch = Scratch::new();
+    let path = scratch.0.join("compact");
+    let mut writer = StoreWriter::create(&path, binding.clone(), settings).unwrap();
+    writer
+        .commit_generated(vec![], state(0, 0), &AtomicBool::new(false))
+        .unwrap();
+    let previous = writer.current().unwrap().unwrap().digest();
+    let error = writer
+        .commit_generated(
+            vec![StoredWork::Route(vec![0; arity])],
+            state(1, 1),
+            &AtomicBool::new(false),
+        )
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Resource);
+    assert!(error.to_string().contains("LimitExceeded"), "{error}");
+    assert_eq!(writer.current().unwrap().unwrap().digest(), previous);
+    drop(writer);
+    assert_eq!(
+        ValidatedGeneration::open_generated(&path, &binding, settings)
+            .unwrap()
+            .digest(),
+        previous
+    );
+}
+
+#[test]
+fn finite_store_manifest_arc_migration_preserves_native_wire_bytes() {
+    #[derive(bincode::Encode)]
+    struct LegacyManifest {
+        execution: RawExecutionBinding,
+        generation: u64,
+        previous: Option<Digest>,
+        state: wire::ObjectRef,
+        scope_digest: Digest,
+        runs: Vec<Vec<wire::PageRef>>,
+    }
+    let scratch = Scratch::new();
+    let path = scratch.0.join("layout");
+    let mut writer = StoreWriter::create(&path, binding(), limits()).unwrap();
+    let generation = commit(&mut writer, vec![key(1), key(2)], 2, 1);
+    let manifest = &generation.manifest;
+    let legacy = LegacyManifest {
+        execution: manifest.execution.clone(),
+        generation: manifest.generation,
+        previous: manifest.previous,
+        state: manifest.state.clone(),
+        scope_digest: manifest.scope_digest,
+        runs: manifest.runs.as_ref().clone(),
+    };
+    assert_eq!(
+        wire::encode(wire::MANIFEST_MAGIC, &legacy, limits().max_manifest_bytes).unwrap(),
+        wire::encode(
+            wire::MANIFEST_MAGIC,
+            manifest.as_ref(),
+            limits().max_manifest_bytes
+        )
+        .unwrap()
+    );
 }
 
 #[test]
