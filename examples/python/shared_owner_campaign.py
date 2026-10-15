@@ -152,7 +152,11 @@ def terminal_state(status, policy, event, progress, checkpoint, operator_stop):
             if (progress.get("native_status") == "incomplete"
                     and native.get("recursive_worklist_exhausted") is True
                     and native.get("all_scheduled_domains_resolved") is False
-                    and native.get("finalization") == "not_evaluated"):
+                    and native.get("finalization") in (
+                        "not_evaluated", "required_query_coverage_evaluated_not_independent")):
+                # Amended CP6 scopes can evaluate every required query while
+                # still returning the intentional checkpoint-only exit 4.
+                # Publication remains a separate phase, not a solver failure.
                 return "checkpoint_only"
             if progress.get("native_status") == "stopped":
                 return ("paused" if progress.get("native_stop_reason") == "paused"

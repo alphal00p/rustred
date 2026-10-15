@@ -873,7 +873,8 @@ if expected_profile is not None:
 profile = (expected_profile or 'conservative') + '-v1'
 metadata = {'normalization_profile': profile, 'normalization_limits': {'fixture': True}}
 metadata.update(finite_feedback=refine, finite_feedback_recipe='finite-row-feedback-v1')
-metadata.update(deep_verification=expected_deep, inventory={'complete': True, 'independently_verified': expected_deep})
+metadata.update(deep_verification=expected_deep, inventory={'complete': True, 'independently_verified': expected_deep,
+    'installed': {'rules': 9982}, 'encountered': {'rules': 6698}})
 assert ('--containing-sector-depth' in args) == bool(expected_containing_depth)
 if expected_containing_depth:
     assert int(args[args.index('--containing-sector-depth') + 1]) == expected_containing_depth
@@ -886,7 +887,8 @@ assert all(__import__('os').environ[x] == '1' for x in ['RAYON_NUM_THREADS','OMP
 def event(status):
     with events.open('a') as out:
         out.write(json.dumps({'event':'master_reduction_progress','phase':'Master reduction',
-            'stage':'elimination','status':status,'remaining_terminals':3,'artifact':str(directory), **metadata,
+            'stage':'elimination','status':status,'remaining_terminals':3,'artifact':str(directory),
+            **{k:v for k,v in metadata.items() if k != 'inventory'},
             'checkpoint':{'state':'saved','generation':1,'directory':str(directory),'bytes':20}})+'\\n')
 if '--resume' not in args:
     while not stop.exists(): time.sleep(.01)
@@ -926,7 +928,7 @@ event('completed_nonminimal' if refine else 'published_unrefined')
         directory = self.campaign / "master-reduction/scopes" / binding["key"]
         directory.mkdir(parents=True)
         timer = threading.Timer(.4, lambda: os.kill(os.getpid(), signal.SIGINT))
-        with patch.object(PHASES.sys, "stderr", io.StringIO()), patch.object(PHASES.sys, "stdout", io.StringIO()):
+        with patch.object(PHASES.sys, "stderr", io.StringIO()), patch.object(PHASES.sys, "stdout", io.StringIO()) as output:
             timer.start()
             try:
                 self.assertEqual(PHASES.phase_two(plan, native_policy, self.campaign / "runs/first/request.json", binding, directory, driver), 4)
@@ -952,6 +954,8 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                     # Effective policy remains pinned when the requested option is omitted on resume.
                     native_policy.pop("normalization_profile")
             self.assertEqual(PHASES.phase_two(plan, native_policy, self.campaign / "runs/first/request.json", binding, directory, driver), 0)
+            self.assertIn("Published executable rule records: 9,982", output.getvalue())
+            self.assertIn("Encountered cover rule records: 6,698", output.getvalue())
         self.assertTrue((directory / "artifact.json").exists())
         pointer = PHASES.read_json(self.campaign / "master-reduction/active-phase.json")
         observer = PRODUCTION.SUPERVISOR.MONITOR
@@ -960,6 +964,8 @@ event('completed_nonminimal' if refine else 'published_unrefined')
         expected = "published_unrefined" if operation == "publish" else "completed_nonminimal"
         self.assertEqual(status["state"], expected)
         self.assertEqual(status["master_reduction"]["remaining_terminals"], 3)
+        self.assertEqual(status["master_reduction"]["published_rule_records"], 9982)
+        self.assertEqual(status["master_reduction"]["observed_cover_rules"], 6698)
         self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["status"],
                          "completed_nonminimal" if preserve_refined else expected)
         if preserve_refined:

@@ -200,6 +200,26 @@ class EpochCheckpointSteeringTests(unittest.TestCase):
         self.assertEqual(restarted[restarted.index("--resume") + 1], "/saved")
         self.assertNotIn("--auto-rescue", restarted)
 
+    def test_amended_drained_scope_is_checkpoint_only_not_failed_or_published(self):
+        checkpoint = {"state": "saved", "format": "RUSTRED-WALK-CP6",
+                      "generation": 3, "resumable": True}
+        native = {"event": "finished", "status": "incomplete",
+                  "full_result_in_output_document": False, "full_state_in_checkpoint": True,
+                  "recursive_worklist_exhausted": True, "all_scheduled_domains_resolved": False,
+                  "finalization": "required_query_coverage_evaluated_not_independent",
+                  "required_queries_resolved": True, "checkpoint": checkpoint}
+        for resolved in (True, False):
+            row = dict(native, required_queries_resolved=resolved)
+            event = {"progress": row}
+            progress = MONITOR.progress_summary(event, 0, 0)
+            self.assertEqual(SUPERVISOR.terminal_checkpoint("epoch", 4, event, checkpoint), checkpoint)
+            self.assertEqual(SUPERVISOR.terminal_state(
+                4, "epoch", event, progress, checkpoint, None), "checkpoint_only")
+        unknown = {"progress": dict(native, finalization="unknown_finalization")}
+        progress = MONITOR.progress_summary(unknown, 0, 0)
+        self.assertEqual(SUPERVISOR.terminal_state(
+            4, "epoch", unknown, progress, checkpoint, None), "failed")
+
     def test_cp6_poison_and_missing_terminal_handoff_invalidate_stale_saved_receipts(self):
         saved = {"state": "saved", "format": "RUSTRED-WALK-CP6", "generation": 3, "resumable": True}
         poison = dict(saved, state="poisoned", resumable=False, generation=None)

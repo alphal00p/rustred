@@ -1,5 +1,54 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — R1 succeeded; fix the misleading FAILED label and final summary
+
+The user reported `FAILED / 00:14:15` after R1, had already launched R2, then
+stopped R2 cleanly. Read-only investigation confirmed R1 **succeeded**, including
+publication: run `20261015T091509.807327Z` exhausted its queue with all3,125,894
+domains closed, zero frontiers, and232/232 cumulative required requests resolved.
+Generation3 was published at09:33:59UTC as scope
+`0df0c25c836b85ec1afa15819d53a7a34bf91344a288ad93e1ade26452958771`:
+R1/D10,702 raw terminal keys,672 remaining keys,9,982 executable rule records,
+5,190 encountered cover rules. It retained the proved partial refinement maps.
+This is saved-scope publication, not independent deep certification.
+
+Root's initial hypothesis that publication had not occurred was corrected after
+reading both durable pointers and the artifact itself. The real defect was only
+the supervisor display classifier: it recognized `finalization=not_evaluated`
+but not the amended-scope result
+`required_query_coverage_evaluated_not_independent`. Both intentionally return
+native exit4/checkpoint-only before the separate publisher runs. The latter now
+displays `checkpoint_only`, not `failed`, without claiming publication or closure.
+Unknown finalization and invalid/poisoned checkpoint behavior stay unchanged.
+Nine focused steering tests pass, and the independent auditor checked the actual
+stored R1 receipt classifies correctly without modifying it.
+
+The user's R2 stop is generation5, resumable,112,404 pending domains. No rollback,
+amendment deletion, or R1 rerun is needed: `saved_campaign.py run --campaign ...
+--resume` continues the existing R2 scope. The query denominator counts cumulative
+request rows:116 atR0,232 atR1,348 atR2. The freshR6 campaign has116 independently
+broader requests. These are not counts of topology classes. Publication remains
+R1 while requested scope isR2, which native `artifact-inspect` displays correctly.
+
+Final post-publication status/dashboard now refresh rule counts from the already
+loaded artifact metadata and print explicit total/encountered count lines. This
+also works with older native events that omit inventory. No owner payloads or
+ledger are read for these summary counts. All67 phase tests pass (13.201s),
+including mocked pause/resume publication with counts absent from events but
+present in the artifact. Independent source audit passed. Native inspect on the
+actual R1 artifact confirms9,982/5,190, publishedR1/requestedR2.
+
+Other ongoing goal evidence: the hot-R0 off/on pilot's corrected cold checks both
+PASS;2domains/20events each means no route-image performance effect, not a claimed
+gain. Inclusive runtime including the preserved erroneous cold invocations was
+879.78s. The hot-R1 comparison is running on isolated16--19cores. X extraction
+now also passes after an explicit8M-entry/512MiB coefficient budget:328 owners,
+19,907 preserved rules,165,372,706 output bytes,82.319s supervised/2.095GB peak.
+All four extracted families passed exact formula round trips; actual four-loop
+walk comparisons remain pending. The generic native Vakint DOT example/test
+draft passed independent source audit but is not compiled/runtime-validated yet.
+Production campaigns have not been modified or restarted by this session.
+
 ## October 15 — first tested feature push and connected R0 cache acceptance
 
 Committed and pushed the opt-in precise route images, cumulative required-query

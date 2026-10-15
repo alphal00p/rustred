@@ -727,9 +727,19 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 "schema": SCHEMA, "directory": str(directory), "scope_binding": binding,
                 **({"finite_search_complete": False, "refinement_complete": False} if finalizing else {}),
                 "completed_unix_time": time.time(), "master_minimality_claim": False})
+            # Older native events omit the inventory even though artifact.json
+            # contains it. Refresh the final dashboard and persistent status
+            # from that already loaded metadata; never replay owner payloads.
+            counts = telemetry.publication_rule_counts(native_artifact)
+            latest.update(counts)
+            publish(finished_state, force=True)
             print("Proved refinement maps published; finite search remains incomplete and its cursor is retained." if finalizing else
                   "Scoped artifact published; master refinement was not requested." if publishing else
                   "Explicit master refinement completed (bounded search, not a minimality proof).", flush=True)
+            for label, key in (("Published executable rule records", "published_rule_records"),
+                               ("Encountered cover rule records", "observed_cover_rules")):
+                value = counts[key]
+                print(f"{label}: {value:,}" if value is not None else f"{label}: unknown", flush=True)
             if latest.get("artifact"):
                 print("Symbolic artifact: " + str(latest["artifact"]), flush=True)
         else:
