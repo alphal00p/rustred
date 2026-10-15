@@ -42,6 +42,9 @@ fn source(s: &Scratch) -> OwnerDomainWalkRequest {
     ));
     request.matching.owner_base = s.0.clone();
     request.publication_policy = crate::OwnerDomainWalkPublicationPolicy::Epoch;
+    request.scheduling_policy = crate::OwnerDomainWalkSchedulingPolicy::TransferUnreserved {
+        lookahead: std::num::NonZeroUsize::new(1).unwrap(),
+    };
     request
 }
 fn policy() -> Policy {
