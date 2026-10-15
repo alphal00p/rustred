@@ -19,9 +19,12 @@ Delivered first slices: opt-in route-image precision, cumulative required-query
 closure monitoring, and publication rule-count reporting. The measured precision
 pilot was negative and stays default-off. Exact finite replay instead closed a
 279-point R1/D10 region with a publishable, cold-loadable application package;
-this is not full R6 coverage. Current integration work generalizes that finite
-lane to multiple queries, clean-stop/resume and append-only scope extensions,
-with simultaneous admitted Vakint numerator/factorization tests. Retain exact
+this is not full R6 coverage. Multi-query finite replay, clean-stop/resume,
+append-only extension and publication/export now pass focused native and real
+data gates. Narrow four-loop controls improve, but the full116-query scalar
+control shows no whole-pipeline gain; keep the mode opt-in rather than silently
+changing production. Nine admitted R2 Vakint controls pass, while full physical
+coverage and the projected ladder remain open. Retain exact
 descendants, guards, replay and scope binding;
 no inference of closure from finite starting cardinality or zero frontiers.
 The old generation54 R11/D9 application backlog remains explicit and is not

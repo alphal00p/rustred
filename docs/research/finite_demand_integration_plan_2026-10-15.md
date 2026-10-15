@@ -20,7 +20,13 @@ canaries and fail-closed inheritance. B source and unit/runtime gates now pass
 independent review:241 distinct native tests, including12 new acceptance tests,
 plus146 related Python steering/workflow tests. Four initially wrong fixtures
 were corrected without weakening their assertions; receipts are retained.
-The real saved-rule extension and matched control gates remain pending.
+The real9-point R0→unchanged resume→279-point R1 extension, publication/export
+and exact canaries now pass. Six narrow four-parent matched pairs also pass,
+with repeated H/X benefits. The full116-query scalar comparison passes
+correctness but regresses with default finite budgets; its single explicit
+aggregate-budget correction does not demonstrate a whole-pipeline win. See
+`finite_initial_queries_controls_2026-10-15.md` and
+`finite_initial_queries_full_r0_2026-10-15.md`. Deployment remains opt-in.
 The coordinator
 controls combined compilation and runtime gates. No new experiment, production
 campaign change or default-budget

@@ -1,5 +1,69 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — full116-query R0 comparison: correctness passes, default mode slower
+
+The broader paired pilot completed in738.181s under the existing4-worker,
+32GB/150GB resource envelope, with no stops. Both ordinary and finite-v3 arms
+closed all116 unchanged starting requests and independently cold-verified92
+distinct input roots. The candidate is a **hybrid success**, not116 finite solves:
+92attempts,80closed finite cases,12declines,0failures. Evidence:
+`TMP/finite-v3-full-r0-pair1-20261015/`.
+
+| Metric | Ordinary | Finite-v3 default limits |
+|---|---:|---:|
+| Native preparation |127.829s|129.530s|
+| Native traversal |43.910s|79.382s|
+| Native whole walk |171.738s|208.912s|
+| Guarded walk+cold |333.059s|402.959s|
+| Peak sampled RSS over both phases |8.512GB|8.436GB|
+
+The native coordinator's merge stages were slightly cheaper in the candidate;
+the increased cost is in inspector/prefix wait, not owner loading or P1/P2/P3.
+The candidate still required144,314 outer CP6 records, including80finite
+summaries (versus167,591 ordinary records), in addition to the work inside those
+finite summaries. Do not hide this regression behind
+compressed record counts or the earlier successful narrow-parent comparisons.
+
+Independent native cold/root metadata identifies11 declined emptyR0 regions
+and one nonempty rootID60, owner101011111001010, exactly9starting points.
+Standard read-only `strings` extraction of the saved diagnostic JSON corroborates
+one aggregate endpoint refusal:4,001,967requested versus4,000,000allowed after
+10.566s, with3,870pending nodes and no missing owner/rule. That forensics is not
+a binary authority decoder or a closure proof. Successful80 finite traces sum
+28.694s live diagnostic time and922,186 per-case physical-key visits; these are
+not globally unique visits and cannot be substituted for whole-walk wall time.
+Eliminating the10.566s failed attempt alone cannot explain the35.472s traversal
+regression; its large ordinary fallback cone and cross-case repetition matter.
+
+One evidence-backed candidate-only correction completed as root1710:
+`TMP/finite-v3-full-r0-resource-correction-20261015/`. It explicitly selects the
+previous diagnostic aggregate-MAX policy while preserving the exact116queries,
+seed1024/layer64/1MiB limits, native per-operation algebra limits and the same
+actual RSS/time guards. No production defaults or campaigns changed. It is not
+a second matched pair. All81nonempty finite roots completed, with11empty
+declines,92summarized records and all116queries cold-verified. Native traversal
+40.475s is only7.8% below the43.910s baseline; guarded walk+cold378.910s remains
+13.8% slower than333.059s. Native preparation143.289s and cold replay46.826s
+also matter. Driver total380.102s; peak sampledRSS7.762GB; no resource stop.
+Independent review passed the complete receipts. Root60 required4,652,550
+endpoints; every other original aggregate allowance sufficed across all81cases.
+The audit recommends no globalMAX defaults. One exact native multi-target union
+trace is registered as the next discriminating experiment: compare actual
+shared work/terminal sets before designing persistent cross-case memoization.
+Its adapter is still design-only. No production restart or default-cap change
+is recommended. Full report:
+`docs/research/finite_initial_queries_full_r0_2026-10-15.md`.
+
+The separate mixed-three-query pilot is staged but deferred: the fullR0 run
+already exposes a genuine fallback regression. The isolated rational-lowering
+benchmark's first complete runtime failed an oversized synthetic dense fixture's
+existing16M work limit before conversion;4of6cases passed but are not a complete
+benchmark. One independently reviewed test-only correction uses modest signed
+unimodular shears, preserving all budgets and the failed receipt. Its optimized
+test build is running. Root delegated a read-only actual-Vakint gate plan to
+`weighted_vk_gate_plan`; this cannot substitute synthetic measurements for the
+actual Symbolica3.0.1/FeynKit integration. No production code integration yet.
+
 ## October 15 — six matched four-loop controls pass; broader R0 test prepared
 
 Independent audit passed all six four-parent pairs (FG/BMW once, H/X twice in
