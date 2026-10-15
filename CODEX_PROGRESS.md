@@ -1,5 +1,53 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — real finite publication/export works; canary fixture corrected
+
+Audited source milestones are pushed: A1 `c9e5c340`, A2 `d74cfad2`.
+The production CLI/export example build passed in399.498s, the small public-API
+comparison helper in278.553s. Frozen CLI SHA256
+`7ea342aed5d8fd41319683c0943c8b86fb82f03a5491cb1609e8318f321b1c01`,
+helper `470f5ab8ac8d794aac5e3a47a9527227b8a4808d932c7a114db22c8fdb9e398b`.
+
+The existing279-point checkpoint successfully published without a new walk or
+IBP generation:200.427s native/202.473s guarded,7.701GB peak. Its mandatory
+finite trace took35.1335s and reproduced all641,239 completed operational states,
+267,694 rule applications and280 terminals, with no queued/failed/missing work.
+The publication has9,982 installed rules,1,774 encountered rule identities and
+1,782 composite baseline/selection identities. The required binary census is
+52,358bytes. Export passed too (148.399s guarded, including136.214s source
+preparation and5.796s serialization). Input checkpoint and frozen binaries
+remained unchanged. Local evidence:
+`TMP/finite-census-real279-validation-20261015/`.
+
+The combined canary phase failed safely on a **test-vector typo**, not a native
+coverage disagreement. Its second vector placed an extra positive power on an
+inactive coordinate12 instead of raising active coordinate11; the malformed
+vector also had an extra padding coordinate and D11 rather than the promisedD10.
+Native entry admission rejected it. Preserve the original fixture and failed
+receipt. First-case exact source/runtime/warm parity passed, but its zero rule
+applications identify it as a terminal roundtrip/cache control, not proof of
+nontrivial IBP back-substitution.
+
+A new corrected fixture retains both intended R0/A10/D10 inputs. Compare-only
+retry completed successfully in249.286s under
+`TMP/finite-census-real279-canaries-corrected-20261015/`, with the same frozen
+helper and unchanged publication/runtime. No republication or export was
+repeated. The corrected second case applies1rule and yields9 master terms,
+with exact source/runtime coefficient/guard equality and a zero-rule warm hit.
+It took24.58ms source/13.99ms runtime/8.685ms warm; the first terminal case's
+42.162s runtime call includes deferred owner preparation, not coefficient work.
+Both outputs are nonempty and master-only. Final independent real-data review
+passed, including81 publication/runtime/helper file checks and24 original
+checkpoint/input file checks. This does not validate back-substitution for all279 points.
+Detailed evidence and external package hashes are in
+`docs/research/finite_demand_publication_2026-10-15.md`.
+
+Meanwhile `intermediate_capture_app` has started B's opt-in multi-query/resume
+implementation, with independent audit of root identities, overlap/G2 precedence
+and cancellation-safe permit release before ordered publication. The Vakint lane
+is preparing exact admitted R2 numerator/factorization controls without changing
+the admission union or production campaigns. FullR6 remains outstanding.
+
 ## October 15 — A2 publication/export focused runtime gate passes
 
 Combined optimized core/app test build completed in1013.704s, no resource stop.
