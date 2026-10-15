@@ -18,8 +18,10 @@ pub use application::{
 
 pub use campaign::{
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
-    CandidateRoutedCampaignSnapshot, CandidateRoutedSelectionIdentity, CandidateRoutedTraceCensus,
-    CandidateRoutedTraceCensusLimits, CandidateRoutedWork, CandidateRoutedWorkBudget,
+    CandidateRoutedCampaignSnapshot, CandidateRoutedCompletedTrace,
+    CandidateRoutedCompletedTraceError, CandidateRoutedCompletedTraceLimits,
+    CandidateRoutedSelectionIdentity, CandidateRoutedTraceCensus, CandidateRoutedTraceCensusLimits,
+    CandidateRoutedWork, CandidateRoutedWorkBudget,
 };
 pub use domain_overcover::{
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,

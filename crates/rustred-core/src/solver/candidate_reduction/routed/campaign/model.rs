@@ -35,6 +35,9 @@ pub struct CandidateRoutedCampaignSnapshot<const N: usize> {
     pub completed_nodes: usize,
     pub failed_nodes: usize,
     pub deduplication_hits: usize,
+    /// Validated edges/starts resolved by an earlier globally completed batch.
+    /// These dependencies are not new terminals or newly scheduled Work.
+    pub completed_baseline_hits: usize,
     pub reachable_integrals: usize,
     pub rule_attempts: usize,
     pub rule_applications: usize,
@@ -79,6 +82,9 @@ impl<const N: usize> CandidateRoutedCampaignReport<N> {
     }
     /// No partial, cancelled, failed or frontier-bearing result can supply a
     /// complete census. None also denotes an ordinary census-disabled trace.
+    /// When `completed_baseline_hits` is nonzero this is only the newly executed
+    /// delta census, NOT an independent closure or empty-terminal reduction of
+    /// its inputs. Cumulative raw closure lives on CandidateRoutedCompletedTrace.
     pub fn complete_census(&self) -> Option<&super::CandidateRoutedTraceCensus> {
         if self.snapshot.finished && self.trace.frontier().is_empty() {
             self.census.as_ref()

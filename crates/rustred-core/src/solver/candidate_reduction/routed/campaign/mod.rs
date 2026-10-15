@@ -1,9 +1,14 @@
 //! Shared finite-target closure: one FIFO and one identity set across all
 //! entries. Algebra is local to a worker; only scheduling/accounting is locked.
 mod census;
+mod completed;
 mod inline;
 pub use census::{
     CandidateRoutedSelectionIdentity, CandidateRoutedTraceCensus, CandidateRoutedTraceCensusLimits,
+};
+pub use completed::{
+    CandidateRoutedCompletedTrace, CandidateRoutedCompletedTraceError,
+    CandidateRoutedCompletedTraceLimits,
 };
 mod model;
 pub use inline::CandidateRoutedWorkBudget;
@@ -66,13 +71,75 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         admission: CandidateEntryAdmission<'_, N>,
         workers: usize,
         cancellation: &AtomicBool,
-        mut observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
+        observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
     ) -> Result<CandidateRoutedCampaignReport<N>, CandidateRoutedCampaignError<N>> {
-        let shared = Shared::new(self, workers, cancellation);
+        self.trace_parallel(
+            targets,
+            admission,
+            workers,
+            None,
+            None,
+            None,
+            cancellation,
+            observer,
+        )
+        .map(|(report, _)| report)
+    }
+
+    /// Same shared native kernel with bounded exact selected-rule census.
+    /// Census multiplicities count successful deduplicated Work, not inputs.
+    pub fn trace_targets_parallel_with_entry_admission_and_census_observer(
+        &self,
+        targets: impl IntoIterator<Item = IntegralKey>,
+        admission: CandidateEntryAdmission<'_, N>,
+        workers: usize,
+        budget: CandidateRoutedWorkBudget,
+        census: CandidateRoutedTraceCensusLimits,
+        cancellation: &AtomicBool,
+        observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
+    ) -> Result<CandidateRoutedCampaignReport<N>, CandidateRoutedCampaignError<N>> {
+        self.trace_parallel(
+            targets,
+            admission,
+            workers,
+            Some(budget),
+            Some(census),
+            None,
+            cancellation,
+            observer,
+        )
+        .map(|(report, _)| report)
+    }
+
+    fn trace_parallel(
+        &self,
+        targets: impl IntoIterator<Item = IntegralKey>,
+        admission: CandidateEntryAdmission<'_, N>,
+        workers: usize,
+        budget: Option<CandidateRoutedWorkBudget>,
+        census: Option<CandidateRoutedTraceCensusLimits>,
+        baseline: Option<&scheduler::membership::Membership<N>>,
+        cancellation: &AtomicBool,
+        mut observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
+    ) -> Result<
+        (
+            CandidateRoutedCampaignReport<N>,
+            scheduler::membership::Membership<N>,
+        ),
+        CandidateRoutedCampaignError<N>,
+    > {
+        let mut shared = Shared::new(self, workers, cancellation);
+        if let Some(budget) = budget {
+            shared.apply_budget(budget);
+        }
+        if let Some(census) = census {
+            shared.enable_census(census);
+        }
+        shared.set_completed_baseline(baseline);
         let preparation = shared.prepare_with_entry_admission(self, targets, admission);
         if let Err(error) = preparation {
             shared.fail(error);
-            let result = shared.into_result();
+            let result = shared.into_result_with_membership();
             observer(
                 result
                     .as_ref()
@@ -117,6 +184,6 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 std::panic::resume_unwind(panic);
             }
         });
-        shared.into_result()
+        shared.into_result_with_membership()
     }
 }

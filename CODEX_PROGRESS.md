@@ -1,5 +1,85 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — native shared core passes; integration and R1 runner underway
+
+Core source8d4e1c10 passed optimized build832.666s and all542 candidate tests
+(67 shared-campaign subset), no ignored tests. Independent source/binding/raw
+runtime audit passed; root also executed the67 tests independently with the
+frozen c976fbd6… binary, all passing in0.04s. See
+`docs/research/shared_finite_demand_core_2026-10-15.md`. This is complete-only
+in-memory sharing, not yet disk-backed campaign delivery. Root is integrating
+this audited slice; the original and corrected typecheck receipts remain.
+
+Prefix sourcea1476403 passed its updated release check49.233s, then the combined
+core+prefix tree e6219e6a passed app-consumer checking91.250s. Its optimized app
+libtest build75522 is active under slot0/CPUs16–19; no CLI target was selected.
+`weighted_vk_gate_plan` is separately building the generic input-steered runner
+in `TMP/finite-demand-runner-20261015`, preserving frozen build source. It uses
+the existing strict query/amendment authority, original per-operation limits,
+explicit per-batch work grants and cumulative retention/census. Refusals remain
+incomplete; no silent request omission or publication claim.
+
+The independent native R1 count preflight completed in1.012s, peak28.4MB,
+without enumerating or reducing targets. Original116 rows have2,557 envelope
+occurrences; amendment1 has58,250. Across232 declarations there are60,807
+occurrences,182 nonempty and50 empty envelopes. The largest row has3,584 points.
+Original rows are contained in their R1 counterparts; the R1 support/D slabs
+are disjoint, giving58,250 union-envelope points. Coordinate caps remain intact:
+the new prefix adapter must still prove exact envelope equality for all rows.
+Evidence: `TMP/full-r1-native-envelope-preflight-20261015/evidence/native-counts.json`.
+This is input sizing, not a reduction timing or closure result.
+
+Next storage lane (`intermediate_capture_app`) starts in a new worktree, with
+design/API review before code: exact typed Work pages and bounded backing-store
+lookup, then atomic generation/cursor/census and fast trusted restore. Root and
+auditor identified the narrow publication-source adapter that reuses existing
+TerminalRelationSession/refinement/export without fabricating CP6 evidence.
+No production campaign, installed binary or artifact has been modified.
+
+## October 15 18:23 UTC — first shared finite-demand code passes source/check gates
+
+Previous goal turn made progress: plan/decisions and actual-Git Vakint delivery
+were committed and pushed as8ff49d9a, not merely restated. The full goal stays
+active; scoped R6 closure, complete Vakint acceptance and durable shared finite
+execution are not yet achieved.
+
+`intermediate_capture_app` implemented the native complete-only capability,
+parallel census and cross-batch reuse in `TMP/shared-finite-core-20261015`.
+It borrows one immutable reducer, retains exact Route/Apply/owner identity,
+checks every starting admission before a hit, and stages the cumulative raw
+census/membership before an atomic semantic commit. Failure, frontier, quotas
+or cancellation retain the previous completed baseline. No disk restore or
+master-refinement rewriting is included. Local commit8d4e1c10 is source/check
+validated only; optimized native runtime remains pending before integration.
+
+`weighted_vk_gate_plan` implemented native prefix windows in
+`TMP/finite-prefix-windows-20261015`. Whole-envelope equality and Symbolica
+counts/compositions preserve the exact query; physical padding is excluded,
+and refusal cannot advance the cursor. Root caught an invalid empty-key
+construction for singleton leaves; it was corrected to scatter an empty free
+slice into the original-arity key before checking. Existing source-bound
+cursor transitions support deep/audit restore without replaying prior seeds.
+Fast trusted-generation restore is still a later backend obligation, not an
+O(history) audit mislabeled as bounded restart.
+
+Independent full source review passed both build gates:
+`TMP/shared-finite-core-and-prefix-source-independent-audit-20261015.md`.
+Core release typecheck initially failed one new test-helper privacy error
+(113.250s); corrected check passed83.225s. Prefix release typecheck passed
+98.293s. Receipts are `TMP/shared-finite-core-check{,-fixed}-20261015/` and
+`TMP/finite-prefix-windows-20261015/TMP/check-1/`. These are compilation checks,
+not runtime test passes or speed measurements. The core local commit is being
+shared with the prefix lane for combined app-consumer checking and one app
+libtest build; core native tests use the separate slot1 target. Existing frozen
+CLI binaries and production campaigns remain untouched.
+
+Next executable steps: optimized native capability/window/legacy regressions,
+independent runtime audit, then the input-steered complete232-row R1 comparison.
+Bounded exact disk membership, atomic window/census generation, normal fast
+restore and publication/export remain pending, with their acceptance gates in
+`SHARED_FINITE_DEMAND_PLAN.md`. The shared-R0 timing remains the only full-union
+performance evidence; no full-R1 or R6 extrapolation is made.
+
 ## October 15 18:05 UTC — actual-Git Vakint delivered; shared finite slices active
 
 Root reviewed and pushed GammaLoop `vakint_rustred` commit

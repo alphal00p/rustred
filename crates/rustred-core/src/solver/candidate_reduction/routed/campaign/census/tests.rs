@@ -404,6 +404,27 @@ fn census_multiplicity_overflow_preserves_the_existing_prefix() {
 }
 
 #[test]
+fn cumulative_census_merge_overflow_preserves_both_inputs() {
+    let mut old = CandidateRoutedTraceCensus::default();
+    let mut delta = CandidateRoutedTraceCensus::default();
+    let limits = CandidateRoutedTraceCensusLimits::default();
+    old.record(&[true], 0, 0, 110, limits).unwrap();
+    delta.record(&[true], 0, 0, 110, limits).unwrap();
+    *old.selections.values_mut().next().unwrap() = u64::MAX;
+    let before = old.clone();
+    let delta_before = delta.clone();
+    assert!(matches!(
+        old.merged(&delta, limits, &mut || Ok(())),
+        Err(CandidateRoutedError::ResourceLimit {
+            resource: "trace census selection multiplicity",
+            ..
+        })
+    ));
+    assert_eq!(old, before);
+    assert_eq!(delta, delta_before);
+}
+
+#[test]
 fn census_does_not_turn_original_pole_on_zero_coefficient_into_success() {
     // Reuse the ordinary inline trace's exact native denominator-pole fixture.
     let mut reducer = super::super::tests::diamond(Default::default(), Default::default());

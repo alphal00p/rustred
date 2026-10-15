@@ -13,7 +13,7 @@ pub(super) type Failure = CandidateRoutedCampaignFailure;
 pub(super) type Work<const N: usize> = CandidateRoutedWork<N>;
 
 #[path = "membership.rs"]
-mod membership;
+pub(super) mod membership;
 use membership::Membership;
 
 /// Bounds publication work and transient child staging, not native expansion.
@@ -24,6 +24,7 @@ pub(super) const PUBLICATION_BATCH_SIZE: usize = 256;
 // constructs these, after the same bounded-batch and intrinsic input admission.
 enum ProbedWork<const N: usize> {
     KnownPresent,
+    CompletedBaseline,
     NeedsCommit { node: Work<N>, shard: usize },
     Invalid(Failure),
 }
@@ -63,6 +64,7 @@ struct State<const N: usize> {
     completed: usize,
     failed: usize,
     dedup: usize,
+    baseline_hits: usize,
     rule_attempts: usize,
     coalescing: usize,
     reserved_coalescing: usize,
@@ -76,6 +78,7 @@ struct State<const N: usize> {
 pub(super) struct Shared<'a, const N: usize> {
     state: Mutex<State<N>>,
     membership: Membership<N>,
+    completed_baseline: Option<&'a Membership<N>>,
     wake: Condvar,
     progress: Condvar,
     start: Instant,
@@ -103,6 +106,7 @@ impl<'a, const N: usize> Shared<'a, N> {
                 completed: 0,
                 failed: 0,
                 dedup: 0,
+                baseline_hits: 0,
                 rule_attempts: 0,
                 coalescing: 0,
                 reserved_coalescing: 0,
@@ -113,6 +117,7 @@ impl<'a, const N: usize> Shared<'a, N> {
                 census: None,
             }),
             membership: Membership::new(),
+            completed_baseline: None,
             wake: Condvar::new(),
             progress: Condvar::new(),
             start: Instant::now(),
@@ -122,6 +127,34 @@ impl<'a, const N: usize> Shared<'a, N> {
             reduction: reducer.programs.context.limits,
             census_limits: None,
         }
+    }
+    pub(super) fn set_completed_baseline(&mut self, baseline: Option<&'a Membership<N>>) {
+        self.completed_baseline = baseline;
+    }
+    pub(super) fn apply_budget(&mut self, budget: CandidateRoutedWorkBudget) {
+        self.limits.max_input_targets = self.limits.max_input_targets.min(budget.max_nodes);
+        self.limits.max_unique_nodes = self.limits.max_unique_nodes.min(budget.max_nodes);
+        self.limits.max_transport_calls = self
+            .limits
+            .max_transport_calls
+            .min(budget.max_transport_calls);
+        self.limits.max_transport_operations = self
+            .limits
+            .max_transport_operations
+            .min(budget.max_transport_operations);
+        self.limits.max_transport_endpoints = self
+            .limits
+            .max_transport_endpoints
+            .min(budget.max_transport_endpoints);
+        self.reduction.max_pending_frames = self.reduction.max_pending_frames.min(budget.max_nodes);
+        self.reduction.max_rule_applications = self
+            .reduction
+            .max_rule_applications
+            .min(budget.max_rule_applications);
+        self.reduction.max_coalescing_additions = self
+            .reduction
+            .max_coalescing_additions
+            .min(budget.max_coalescing_additions);
     }
     pub(super) fn enable_census(&mut self, limits: CandidateRoutedTraceCensusLimits) {
         self.census_limits = Some(limits);
@@ -265,12 +298,29 @@ impl<'a, const N: usize> Shared<'a, N> {
         let mut state = self.lock();
         self.check_locked(&mut state)?;
         Self::validate_node(&node)?;
+        if self.baseline_contains(&node) {
+            Self::baseline_hit(&mut state)?;
+            return Ok(());
+        }
         let shard = self.membership.shard_index(&node);
         let admitted = self.schedule_locked(&mut state, node, shard)?;
         drop(state);
         if admitted {
             self.wake.notify_all();
         }
+        Ok(())
+    }
+    fn baseline_contains(&self, node: &Work<N>) -> bool {
+        self.completed_baseline
+            .is_some_and(|baseline| baseline.probe(node).1)
+    }
+    fn baseline_hit(state: &mut State<N>) -> Result<(), Failure> {
+        state.baseline_hits = limit(
+            state.baseline_hits,
+            1,
+            usize::MAX,
+            "completed baseline hit counter",
+        )?;
         Ok(())
     }
     /// The Vec contains already-validated children, not a lazy iterator that
@@ -295,6 +345,10 @@ impl<'a, const N: usize> Shared<'a, N> {
                 batch.push(ProbedWork::Invalid(error));
                 break;
             }
+            if self.baseline_contains(&node) {
+                batch.push(ProbedWork::CompletedBaseline);
+                continue;
+            }
             let (shard, present) = self.membership.probe(&node);
             if present {
                 batch.push(ProbedWork::KnownPresent);
@@ -313,6 +367,10 @@ impl<'a, const N: usize> Shared<'a, N> {
             // Do not aggregate duplicate counters ahead of a possible cap,
             // invalid-input or cancellation failure later in this same batch.
             let admitted = self.check_locked(&mut state).and_then(|()| match marker {
+                ProbedWork::CompletedBaseline => {
+                    Self::baseline_hit(&mut state)?;
+                    Ok(false)
+                }
                 ProbedWork::KnownPresent => {
                     state.dedup = limit(state.dedup, 1, usize::MAX, "deduplication counter")?;
                     Ok(false)
@@ -599,6 +657,7 @@ impl<'a, const N: usize> Shared<'a, N> {
             completed_nodes: state.completed,
             failed_nodes: state.failed,
             deduplication_hits: state.dedup,
+            completed_baseline_hits: state.baseline_hits,
             reachable_integrals: state.physical_seen,
             rule_attempts: state.rule_attempts,
             rule_applications: state.trace.rule_applications,
@@ -647,6 +706,12 @@ impl<'a, const N: usize> Shared<'a, N> {
     pub(super) fn into_result(
         self,
     ) -> Result<CandidateRoutedCampaignReport<N>, CandidateRoutedCampaignError<N>> {
+        self.into_result_with_membership().map(|(report, _)| report)
+    }
+    pub(super) fn into_result_with_membership(
+        self,
+    ) -> Result<(CandidateRoutedCampaignReport<N>, Membership<N>), CandidateRoutedCampaignError<N>>
+    {
         {
             let mut state = self.lock();
             self.check_locked(&mut state).ok();
@@ -680,7 +745,7 @@ impl<'a, const N: usize> Shared<'a, N> {
                 reason,
                 partial: report,
             }),
-            None => Ok(report),
+            None => Ok((report, self.membership)),
         }
     }
 }

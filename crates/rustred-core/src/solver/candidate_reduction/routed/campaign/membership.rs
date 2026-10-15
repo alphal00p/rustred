@@ -34,7 +34,7 @@ impl<const N: usize> SeenPhases<N> {
     }
 }
 
-pub(super) struct Membership<const N: usize, H = RandomState> {
+pub(in super::super) struct Membership<const N: usize, H = RandomState> {
     shards: [Mutex<HashMap<IntegralKey, SeenPhases<N>, H>>; SHARDS],
     hasher: H,
 }
@@ -44,10 +44,116 @@ pub(super) struct Shard<'a, const N: usize, H> {
 }
 
 impl<const N: usize> Membership<N> {
-    pub(super) fn new() -> Self {
+    pub(in super::super) fn new() -> Self {
         // Independent selectors/table seeds avoid pinning the same hash
         // bucket bits in every key that lands in one membership shard.
         Self::with_hashers(RandomState::new(), RandomState::new)
+    }
+
+    /// Reserve before a completed-generation commit. No key or phase is moved
+    /// until every shard has passed validation and fallible allocation.
+    pub(in super::super) fn reserve_completed(
+        &mut self,
+        delta: &Self,
+        check: &mut dyn FnMut() -> Result<
+            (),
+            crate::solver::candidate_reduction::routed::CandidateRoutedError,
+        >,
+    ) -> Result<(), crate::solver::candidate_reduction::routed::CandidateRoutedError> {
+        use crate::solver::candidate_reduction::routed::CandidateRoutedError;
+        let mut additions = [0usize; SHARDS];
+        // Delta and baseline selectors have different seeds. Determine the
+        // destination from the baseline selector, never the delta shard index.
+        for source in &delta.shards {
+            let source = source
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for (key, phases) in source.iter() {
+                check()?;
+                let index = self.hasher.hash_one(key) as usize & (SHARDS - 1);
+                let target = self.shards[index]
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if let Some(old) = target.get(key) {
+                    if (old.route && phases.route)
+                        || old.apply_owner.zip(phases.apply_owner).is_some()
+                    {
+                        return Err(CandidateRoutedError::InvalidInput(
+                            "completed Work delta repeats or conflicts with a baseline phase"
+                                .into(),
+                        ));
+                    }
+                } else {
+                    additions[index] = additions[index].checked_add(1).ok_or_else(|| {
+                        CandidateRoutedError::InvalidInput(
+                            "completed membership reservation overflow".into(),
+                        )
+                    })?;
+                }
+            }
+        }
+        for (shard, extra) in self.shards.iter_mut().zip(additions) {
+            check()?;
+            shard
+                .get_mut()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .try_reserve(extra)
+                .map_err(|error| {
+                    CandidateRoutedError::InvalidInput(format!(
+                        "cannot reserve completed membership: {error}"
+                    ))
+                })?;
+        }
+        check()?;
+        Ok(())
+    }
+
+    /// Infallible logical commit after reserve_completed; moves physical keys
+    /// rather than materializing a second full operational-key census.
+    pub(in super::super) fn append_completed(&mut self, delta: Self) {
+        for shard in delta.shards {
+            for (key, phases) in shard
+                .into_inner()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+            {
+                let index = self.hasher.hash_one(&key) as usize & (SHARDS - 1);
+                let target = self.shards[index]
+                    .get_mut()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if let Some(old) = target.get_mut(&key) {
+                    old.route |= phases.route;
+                    if let Some(owner) = phases.apply_owner {
+                        old.apply_owner = Some(owner);
+                    }
+                } else {
+                    target.insert(key, phases);
+                }
+            }
+        }
+    }
+
+    pub(in super::super) fn payload_bytes(
+        &self,
+        check: &mut dyn FnMut() -> Result<
+            (),
+            crate::solver::candidate_reduction::routed::CandidateRoutedError,
+        >,
+    ) -> Result<usize, crate::solver::candidate_reduction::routed::CandidateRoutedError> {
+        let mut bytes = 0usize;
+        for shard in &self.shards {
+            let shard = shard
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for key in shard.keys() {
+                check()?;
+                bytes = bytes.checked_add(std::mem::size_of::<(IntegralKey, SeenPhases<N>)>())
+                    .and_then(|bytes| key.powers().len().checked_mul(std::mem::size_of::<i64>()).and_then(|key| bytes.checked_add(key)))
+                    .ok_or_else(|| crate::solver::candidate_reduction::routed::CandidateRoutedError::ResourceLimit {
+                        resource: "completed membership payload", requested: usize::MAX, limit: usize::MAX,
+                    })?;
+            }
+        }
+        Ok(bytes)
     }
 }
 
@@ -66,7 +172,7 @@ impl<const N: usize, H: BuildHasher> Membership<N, H> {
 
     /// A false result is only a hint: another publisher may commit afterwards.
     /// A true result stays true for this immutable campaign's lifetime.
-    pub(super) fn probe(&self, node: &Work<N>) -> (usize, bool) {
+    pub(in super::super) fn probe(&self, node: &Work<N>) -> (usize, bool) {
         let index = self.shard_index(node);
         let present = self.lock_shard(index).contains(node);
         (index, present)
@@ -182,5 +288,74 @@ mod tests {
                 index as u64 + 1
             );
         }
+    }
+
+    #[test]
+    fn completed_membership_merge_preserves_phases_and_refuses_owner_overwrite() {
+        let key = IntegralKey::try_new([1, 0]).unwrap();
+        let route = Work::Route(key.clone());
+        let apply = Work::Apply {
+            owner_sector: [true, false],
+            target: key.clone(),
+        };
+        let conflict = Work::Apply {
+            owner_sector: [false, true],
+            target: key,
+        };
+        let mut old = Membership::<2>::new();
+        old.lock_shard(old.shard_index(&route)).insert(&route);
+        let delta = Membership::new();
+        delta.lock_shard(delta.shard_index(&apply)).insert(&apply);
+        old.reserve_completed(&delta, &mut || Ok(())).unwrap();
+        old.append_completed(delta);
+        assert!(old.probe(&route).1 && old.probe(&apply).1);
+        assert!(!old.probe(&conflict).1);
+        let bad = Membership::new();
+        bad.lock_shard(bad.shard_index(&conflict)).insert(&conflict);
+        assert!(old.reserve_completed(&bad, &mut || Ok(())).is_err());
+        assert!(old.probe(&route).1 && old.probe(&apply).1);
+        assert!(!old.probe(&conflict).1);
+        let duplicate = Membership::new();
+        duplicate
+            .lock_shard(duplicate.shard_index(&route))
+            .insert(&route);
+        assert!(old.reserve_completed(&duplicate, &mut || Ok(())).is_err());
+        assert!(old.probe(&route).1 && old.probe(&apply).1);
+        let equal_apply = Membership::new();
+        equal_apply
+            .lock_shard(equal_apply.shard_index(&apply))
+            .insert(&apply);
+        assert!(old.reserve_completed(&equal_apply, &mut || Ok(())).is_err());
+        assert!(old.probe(&route).1 && old.probe(&apply).1);
+    }
+
+    #[test]
+    fn completed_membership_reservation_check_failure_moves_no_keys() {
+        use crate::solver::candidate_reduction::routed::CandidateRoutedError;
+        let a = Work::Route(IntegralKey::try_new([1, 0]).unwrap());
+        let b = Work::Route(IntegralKey::try_new([2, 0]).unwrap());
+        let mut old = Membership::<2>::new();
+        old.lock_shard(old.shard_index(&a)).insert(&a);
+        let delta = Membership::new();
+        delta.lock_shard(delta.shard_index(&b)).insert(&b);
+        let mut checks = 0;
+        let error = old.reserve_completed(&delta, &mut || {
+            checks += 1;
+            if checks == 2 {
+                Err(CandidateRoutedError::InvalidInput(
+                    "injected cancellation".into(),
+                ))
+            } else {
+                Ok(())
+            }
+        });
+        assert!(error.is_err());
+        assert_eq!(checks, 2);
+        assert!(old.probe(&a).1);
+        assert!(!old.probe(&b).1);
+        assert!(delta.probe(&b).1);
+        old.reserve_completed(&delta, &mut || Ok(())).unwrap();
+        old.append_completed(delta);
+        assert!(old.probe(&a).1 && old.probe(&b).1);
     }
 }

@@ -447,6 +447,39 @@ fn native_affine_route_and_pinch_match_legacy_with_shared_transport_budgets() {
             .unwrap();
         assert_eq!(result.trace(), &old);
         assert_eq!(result.snapshot().transport_calls, 1);
+        let (mut completed, exact) = reducer
+            .trace_targets_completed_with_entry_admission_and_observer(
+                [target.clone(), target.clone()],
+                CandidateEntryAdmission::SavedGenerationScope,
+                workers,
+                inline_budget,
+                Default::default(),
+                CandidateRoutedCompletedTraceLimits {
+                    max_completed_work: 10_000,
+                    max_merge_payload_bytes: 10_000_000,
+                },
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap();
+        assert_eq!(exact.trace(), &old);
+        assert_eq!(completed.declared_terminals(), old.declared_terminals());
+        assert_eq!(completed.visited_zeros(), old.visited_zeros());
+        let reused = completed
+            .trace_batch(
+                [target.clone()],
+                CandidateEntryAdmission::SavedGenerationScope,
+                workers,
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap();
+        assert_eq!(reused.snapshot().scheduled_nodes, 0);
+        assert_eq!(reused.snapshot().completed_baseline_hits, 1);
+        assert!(reused.trace().declared_terminals().is_empty());
+        assert!(reused.trace().visited_zeros().is_empty());
+        assert_eq!(completed.declared_terminals(), old.declared_terminals());
+        assert_eq!(completed.visited_zeros(), old.visited_zeros());
         for caps in [
             RoutedCandidateLimits {
                 max_transport_calls: 1,

@@ -124,6 +124,25 @@ Preserve optional manual refinement through append/resume. Distinguish fast
 trusted-checkpoint loading from optional deep replay: hashes/structure are
 integrity checks, not independent IBP derivation proofs.
 
+Keep publication integration narrow: a private source adapter selects the
+existing walk inventory or a validated finite-demand generation inventory.
+Both supply the family, raw terminals, installed/observed rule counts, ordered
+owner payload identities, assurance and mandatory provenance to the existing
+`TerminalRelationSession`, collection and application-export pipeline. Do not
+manufacture CP6 verification JSON or expose an arbitrary-census constructor.
+Retain the old finite-v1 prohibition on prefix reuse; the new backend needs a
+distinct required-provenance discriminator and fail-closed source loader.
+Portable runtime packages omit completed-Work storage and history, as they
+already omit traversal ledgers and refinement search matrices.
+
+Ordinary generated-checkpoint restore must be bounded by the live cursor and
+required metadata, not by replay of every historical window. The first prefix
+adapter's transition-chain replay is explicitly **audit/deep restore only**.
+Its successful tests alone cannot satisfy the normal fast-resume requirement.
+Likewise, the first in-memory core capability stages cumulative raw census
+metadata on each merge; measure that cost separately and do not present it as
+the final bounded-disk solution.
+
 Expose consistent Rust and saved-campaign steering, with full required-query
 closure, window/occurrence counts, new Work/reuse hits, census, memory and
 checkpoint age. A prefix or empty local queue is not all-query closure.

@@ -49,6 +49,73 @@ impl CandidateRoutedTraceCensus {
         self.identity_payload_bytes
     }
 
+    /// Stage the complete cumulative census before any membership mutation.
+    pub(super) fn merged(
+        &self,
+        delta: &Self,
+        limits: CandidateRoutedTraceCensusLimits,
+        check: &mut dyn FnMut() -> Result<(), CandidateRoutedError>,
+    ) -> Result<Self, CandidateRoutedError> {
+        let mut count = self.selections.len();
+        let mut bytes = self.identity_payload_bytes;
+        for (identity, addition) in &delta.selections {
+            check()?;
+            if let Some(old) = self.selections.get(identity) {
+                old.checked_add(*addition).ok_or_else(|| {
+                    limit(
+                        "trace census selection multiplicity",
+                        usize::MAX,
+                        usize::MAX,
+                    )
+                })?;
+            } else {
+                count = count.checked_add(1).ok_or_else(|| {
+                    limit(
+                        "trace census unique selections",
+                        usize::MAX,
+                        limits.max_unique_selections,
+                    )
+                })?;
+                bytes = bytes
+                    .checked_add(std::mem::size_of::<(CandidateRoutedSelectionIdentity, u64)>())
+                    .and_then(|n| n.checked_add(identity.owner.len()))
+                    .ok_or_else(|| {
+                        limit(
+                            "trace census identity payload bytes",
+                            usize::MAX,
+                            limits.max_identity_payload_bytes,
+                        )
+                    })?;
+            }
+        }
+        if count > limits.max_unique_selections {
+            return Err(limit(
+                "trace census unique selections",
+                count,
+                limits.max_unique_selections,
+            ));
+        }
+        if bytes > limits.max_identity_payload_bytes {
+            return Err(limit(
+                "trace census identity payload bytes",
+                bytes,
+                limits.max_identity_payload_bytes,
+            ));
+        }
+        let mut merged = Self::default();
+        for (identity, count) in &self.selections {
+            check()?;
+            merged.selections.insert(identity.clone(), *count);
+        }
+        for (identity, addition) in &delta.selections {
+            check()?;
+            *merged.selections.entry(identity.clone()).or_default() += addition;
+        }
+        merged.identity_payload_bytes = bytes;
+        check()?;
+        Ok(merged)
+    }
+
     pub(super) fn record(
         &mut self,
         owner: &[bool],

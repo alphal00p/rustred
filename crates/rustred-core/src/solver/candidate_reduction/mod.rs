@@ -57,13 +57,14 @@ pub use routed::{
     CandidateRoutedApplicationStatistics, CandidateRoutedApplicationStatus,
     CandidateRoutedCacheCensus, CandidateRoutedCachePolicy, CandidateRoutedCacheStatistics,
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
-    CandidateRoutedCampaignSnapshot, CandidateRoutedError, CandidateRoutedFrontier,
-    CandidateRoutedFrontierReason, CandidateRoutedIdentity, CandidateRoutedReduction,
-    CandidateRoutedSelectionIdentity, CandidateRoutedTraceCensus, CandidateRoutedTraceCensusLimits,
-    CandidateRoutedTraceReport, CandidateRoutedWork, CandidateRoutedWorkBudget, EntryWitnessError,
-    EntryWitnessLimits, EntryWitnessOutcome, FiniteRootAdmission, RootAdmissionError,
-    RootRegionInput, RoutedCandidateApplication, RoutedCandidateLimits, RoutedCandidateReducer,
-    pick_entry_intersection_witness,
+    CandidateRoutedCampaignSnapshot, CandidateRoutedCompletedTrace,
+    CandidateRoutedCompletedTraceError, CandidateRoutedCompletedTraceLimits, CandidateRoutedError,
+    CandidateRoutedFrontier, CandidateRoutedFrontierReason, CandidateRoutedIdentity,
+    CandidateRoutedReduction, CandidateRoutedSelectionIdentity, CandidateRoutedTraceCensus,
+    CandidateRoutedTraceCensusLimits, CandidateRoutedTraceReport, CandidateRoutedWork,
+    CandidateRoutedWorkBudget, EntryWitnessError, EntryWitnessLimits, EntryWitnessOutcome,
+    FiniteRootAdmission, RootAdmissionError, RootRegionInput, RoutedCandidateApplication,
+    RoutedCandidateLimits, RoutedCandidateReducer, pick_entry_intersection_witness,
 };
 pub use trace::{CandidateTraceLimits, CandidateTraceReport};
 
