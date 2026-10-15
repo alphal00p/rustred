@@ -1,5 +1,34 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — six matched four-loop controls pass; broader R0 test prepared
+
+Independent audit passed all six four-parent pairs (FG/BMW once, H/X twice in
+opposite execution orders). Both arms cold-verify and publish, with identical
+final native terminal/normalization bytes in every pair. X reproduces21.0--22.7%
+less complete walk+cold+publication time and33.5--35.4% less native walk time;
+H18.4--18.5% and27.9--29.3% respectively. Measured table and scope distinctions:
+`docs/research/finite_initial_queries_controls_2026-10-15.md`. These are narrow
+own-basis controls, not the historical combined four-all campaign or a proof
+that the full five-loop scope will finish faster.
+
+The next prepared, not-yet-run root pilot uses **all116 unchanged R0/D9-D10
+requests** from the incremental campaign, rather than only the hot owner.
+It compares the same frozen92490eb CLI off/v3 with native default finite caps,
+four workers16--19,32GB RSS/150GB reserve,600s phase/1440s whole cooperative
+deadline plus120s cleanup. Only isolated TMP outputs are created. All source
+programs and templates stay unchanged; no new IBPs or helpers. Driver:
+`TMP/finite-initial-queries-real-plan-20261015/full_r0_pair.py`. This broader
+case exercises aliases and empty/nonempty inputs and reports declined/fallback
+attempts explicitly. Plan-only invocation succeeded; a broken stdout pipe from
+previewing it with head did not launch native work or create output artifacts.
+
+The isolated rational-lowering benchmark source passed independent review.
+It compares generic/Q conversion in one binary on synthetic4L/5L unit/nonunit
+mass and dense unimodular-routing inputs, with exact parity before each timing
+and alternating lane order. An optimized build and externally guarded run are
+authorized on28--35/28--31, separate from the R0 experiment. It is not a full
+Vakint witness-selection test; no performance conclusion or main integration yet.
+
 ## October 15 — R3 publication and successful real finite-query extension
 
 The user reported R3 complete. Root verified source campaign generation11:
