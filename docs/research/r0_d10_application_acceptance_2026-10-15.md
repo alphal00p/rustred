@@ -130,10 +130,49 @@ The frozen binaries can be rerun with the existing local toolchain wrapper;
 the complete commands and supervision script are recorded in the local README.
 Do not rerun the export pipeline into its already existing destination.
 
+## Follow-up: connected topology with actual cache eviction
+
+A separately authorized unchanged native test,
+`external_package_bounded_lru_cache_preserves_admitted_repeats`, then ran against
+this R0 package. Its second input is
+`[0,0,0,0,1,1,0,0,1,0,0,1,0,1,4]`: a connected six-line five-loop banana,
+owner `000011001001011`, TIDE representative28686, A9/R0/D9. Its first input
+is the five-tadpole control above. Both keys were checked against the published
+coordinate/A/R/D predicates before execution and admitted again by the native
+test. The historical generation54 annotation is not a scope override; no
+generation-specific count is asserted by this test.
+
+The frozen current-stack unit binary SHA256 is
+`d3e54edf8bd1a8f513bf1adbfda688a526c48b00f1cfc0b584ebe66e8c4c44f3`,
+identical to the original Cargo test output. Exactly **one test passed**, zero
+failed or ignored;143 unrelated tests were filtered out. Native test90.59s,
+supervised wall91.393s, sampled aggregate RSS2.911GB. CPUs20--23,32GB allowance
+and150GB host reserve were retained; the840s deadline was not reached and all
+owned processes drained.
+
+The **4MiB** cache limit caused4,842 evictions (4,059,928 coefficient bytes)
+and815 recomputed nodes. Both inputs' exact repeated expressions, guards and
+qualified-family maps nevertheless agree. A tightened scalar-numerator policy
+correctly refuses before warm reuse; clearing removes every retained application
+entry. FORM is invalid and numerical substitution disabled throughout.
+
+Debug timings separate native package load74.361958s from the connected input's
+saved-rule application12.313639s on first use and0.000742s on repeat. These are
+**scalar-phase** times, not complete frontend timings: warm canonicalization,
+witness search, scalar lowering and terminal handling add approximately0.772s,
+including0.754302s for witness search alone. No no-eviction baseline comparison
+was performed in this invocation.
+
+Evidence: `TMP/r0-vakint-acceptance-20261015/connected-result.json`,
+`run_connected.py` and `vakint-connected-lru/`. All77 package hashes remained
+unchanged. The independent auditor reviewed this follow-up and confirmed PASS
+with the stated boundaries. It adds one real connected admitted reduction,
+not connected-class exhaustiveness or DOT coverage.
+
 ## Remaining acceptance obligations
 
 This is a useful R0 application milestone, not completion of the goal. Still
-required are actual admitted connected/DOT reductions, broader per-domain
+required are DOT reductions, broader connected and per-domain
 coverage, nontrivial numerator and cancellation invariance, cross-factor
 contractions, the fully prepared physical ladder, appropriate high-rank/boundary
 cases, full R6 publication and its acceptance/performance delivery. Five-loop

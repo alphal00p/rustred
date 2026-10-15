@@ -1,5 +1,53 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — first tested feature push and connected R0 cache acceptance
+
+Committed and pushed the opt-in precise route images, cumulative required-query
+monitoring and bounded R0 report as **29e4044f**. The complete optimized CLI
+then built successfully in320.37s and is frozen at
+`TMP/releases/20261015-precise-route/rustred`, SHA256
+`c9fa26af80738a032fb80d1aef7175005330085118af34db9cb3e40ecff78b6f`.
+It reports9,982 published executable rule records versus2,165 encountered cover
+records for the immutable R0/depth0 artifact. No production executable, manifest,
+checkpoint or process was replaced.
+
+The existing native Vakint test
+`external_package_bounded_lru_cache_preserves_admitted_repeats` now passes on
+that R0 package, with exactly one test executed and no skip. Its second input
+is a connected six-line banana with A9/R0/D9, explicitly admitted by the saved
+query union. A4MiB cache incurred4,842 evictions and815 recomputations without
+aborting; repeated exact values, guards and family identities agreed, and
+tightened scalar options were checked before cache hits. The scalar stage was
+12.313639s first/0.000742s warm; warm frontend matching still cost about0.77s.
+Preparation took74.362s; the whole test90.59s/91.393s supervised,2.911GB peak.
+This is not an uncached-versus-cached independent timing pair or a DOT/R6 test.
+An independent audit checked actual source assertions and binary/package bindings:
+`TMP/r0-vakint-acceptance-20261015/connected-independent-audit.json`.
+
+The matched hot-R0 nine-point routing control drained both walks with2 native
+domains and20 events. It exercises no affine routing and supplies no work-reduction
+evidence. The original cold commands incorrectly supplied the checkpoint-only
+summary as a full result record; both returned INCOMPLETE with no violations and
+all natives inspected. Existing verifier instructions require `--no-result` for
+this mode. Preserve those receipts. After independent review, only the two cold
+phases are being rerun against unchanged authoritative CP6 ledgers, within the
+original30-minute inclusive envelope. No traversal was restarted or reinterpreted.
+The more relevant R1 pair follows after those gates pass.
+
+Pilot supervision also acquired an optional stop-file-first mode for native walks;
+generation's default signal behavior is unchanged. Five actual child-process tests
+pass independently, including checkpoint acknowledgment, grace expiry, and rejecting
+unrelated paths. A requested stop never proves checkpoint durability: that still
+requires the native save receipt. Current first-pair receipts retain their older
+loaded supervisor wording with an explicit qualification; later runs use corrected
+mode-specific metadata. Evidence: `TMP/route-pilot-stop-independent-tests-20261015/`.
+
+Active next steps: matched R1 geometry measurements; finish the X fixture's explicit
+loader-budget gate; draft the smallest native generic DOT acceptance option on the
+existing Vakint branch. Broad R6 closure, lowering admission, high-rank/ladder tests
+and subsequent five-loop cache preparation remain open. No production restart
+recommendation is justified by the tiny R0 control.
+
 ## October 15 — native gates, bounded R0 application, and pending matched pilots
 
 Root re-read the complete assigned attachment before continuing. The preceding

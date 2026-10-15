@@ -45,11 +45,28 @@ def group_running(group):
     return False
 
 
-def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0):
-    """No deadline. Own process-group drain, finite RSS/host guards, no CAS."""
+def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
+        cooperative_stop_file=None):
+    """Own process-group drain and finite RSS/host guards, without CAS.
+
+    Default generation children receive SIGTERM. A caller supervising a native
+    owner walk may instead supply its stop-file in this new job's directory or
+    immediate parent. Such walks poll the file but do not handle SIGTERM: give
+    them the full grace before owned-group SIGKILL. No checkpoint success is
+    inferred from requesting a stop. The read-only cold verifier has no stop-file.
+    """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=False)
+    checkpoint_metadata = ({"completed_sector_checkpoint_only": None, "in_sector_resume": None,
+                            "stop_mechanism": "native_stop_file_then_owned_group_cleanup",
+                            "checkpoint_evidence_required": True, "checkpoint_durability_claim": False}
+                           if cooperative_stop_file is not None else
+                           {"completed_sector_checkpoint_only": True, "in_sector_resume": False})
     try:
+        if cooperative_stop_file is not None:
+            cooperative_stop_file = Path(cooperative_stop_file).absolute()
+            if cooperative_stop_file.parent.resolve() not in (directory.resolve(), directory.parent.resolve()):
+                raise ValueError("native stop-file must be local to this owned job")
         cpus = SUPERVISOR.parse_cpu_set(resources["cpus"])
         if len(cpus) != resources["workers"] or not cpus <= os.sched_getaffinity(0):
             raise ValueError("exactly workers permitted CPUs required")
@@ -68,7 +85,9 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0):
     request = dict(command=command, cpus=sorted(cpus), started_unix=time.time(),
         memory=SUPERVISOR.memory_admission_record(resources["max_memory_bytes"], host, floor, hard, soft),
         ram_guard=guard.policy(),
-        stop_contract="SIGTERM then owned-group drain; only completed sector shards are resumable",
+        stop_contract=("native stop-file then bounded owned-group cleanup; native results alone attest checkpoint durability"
+                       if cooperative_stop_file is not None else
+                       "SIGTERM then owned-group drain; only completed sector shards are resumable"),
         hard_timeout=None, environment_recorded=False)
     (directory / "request.json").write_text(json.dumps(request, indent=2) + "\n")
     reason, stopping, child = None, None, None
@@ -84,7 +103,20 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0):
         nonlocal reason, stopping
         if reason is None:
             reason, stopping = why, time.monotonic()
-            send(signal.SIGTERM)
+            if cooperative_stop_file is not None:
+                try:
+                    with cooperative_stop_file.open("x") as stream:
+                        json.dump({"reason": why, "requested_unix": time.time()}, stream)
+                        stream.write("\n")
+                        stream.flush()
+                except FileExistsError:
+                    pass  # An existing owned stop request already cancels work.
+                except OSError:
+                    reason += ":stop_file_unavailable"
+                    stopping -= grace_seconds
+                    send(signal.SIGKILL)
+            else:
+                send(signal.SIGTERM)
 
     previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
     for sig in previous:
@@ -107,7 +139,7 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0):
                 collector.register(child.pid)
             except (OSError, ValueError):
                 pass  # A very short command can exit before its first sample.
-            if reason:
+            if reason and cooperative_stop_file is None:
                 send(signal.SIGTERM)
             while child.poll() is None or group_running(child.pid):
                 now = time.monotonic()
@@ -154,7 +186,7 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0):
             code = child.wait()
             result = dict(exit_code=code, stop_reason=reason, elapsed_seconds=time.monotonic()-started,
                           sampled_peak_tree_rss_bytes=peak, owned_group_drained=True,
-                          completed_sector_checkpoint_only=True, in_sector_resume=False)
+                          **checkpoint_metadata)
     except BaseException as error:
         failure = error
         stop(f"supervisor_exception: {type(error).__name__}: {error}")
@@ -170,11 +202,13 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0):
         result = dict(exit_code=None if child is None else child.returncode, stop_reason=reason,
                       elapsed_seconds=time.monotonic()-started, sampled_peak_tree_rss_bytes=peak,
                       owned_group_drained=child is None or not group_running(child.pid),
-                      child_started=child is not None, completed_sector_checkpoint_only=True, in_sector_resume=False)
+                      child_started=child is not None, **checkpoint_metadata)
     (directory / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     if failure is not None:
         raise RuntimeError(f"supervisor failed after draining owned children: {directory / 'result.json'}") from failure
     if result["exit_code"] != 0 or reason is not None:
         raise RuntimeError(f"native phase stopped/failed: {directory / 'result.json'}; "
-                           "completed sector shards are kept; an unfinished sector must restart")
+                           + ("inspect native checkpoint evidence; requesting a stop does not establish durable completion"
+                              if cooperative_stop_file is not None else
+                              "completed sector shards are kept; an unfinished sector must restart"))
     return result

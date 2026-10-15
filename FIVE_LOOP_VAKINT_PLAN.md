@@ -15,8 +15,13 @@ The [October15 R0 application pilot](docs/research/r0_d10_application_acceptance
 now passes: exported329 exact terminal maps; Vakint's admitted D9 five-tadpole
 pipeline passes routing/factorization/mass/cache checks, and a separate native
 D10 boundary passes exact first/warm equality. This is a small factorized R0
-subset, not DOT/connected/high-rank acceptance or completion of R6. Generation54
+subset, not DOT/high-rank acceptance or completion of R6. Generation54
 and its differently scoped unfinished R11/D9 tests remain unchanged.
+
+A separate unchanged native test also passes one admitted connected six-line
+R0/D9 banana plus the factorized control, including actual4MiB cache eviction
+and exact repeats. Broader connected/DOT/numerator coverage and the full R6
+gate remain outstanding; see the same evidence report.
 
 ## Current execution directive — October 14
 
