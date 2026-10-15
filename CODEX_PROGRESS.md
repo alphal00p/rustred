@@ -1,5 +1,65 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — R0/D10 preparation and renewed workload diagnosis
+
+User reported the independent R6/D10 campaign at about 101M domains with 0/116 roots
+closed, stopped THE_ONE themselves, requested a physics-focused deep dive, and
+asked for another fresh R0/D<=10 campaign to extend progressively to R6. Root
+prepared `campaigns/five-loop-minimal-r0-d10-incremental`, reusing existing rules
+and original templates but no ledger/checkpoints/amendments. Native solver 814745
+and publisher fe3f1d are copied within the new directory. Resource policy: 32 cores,
+CPUs 64--95, 600 GB requested, 150 GB host floor, hourly checkpoints, swap stop 0,
+inherited
+from the previous manual allocation. R6 runs separately on 96--127. THE_ONE's
+result was checked stopped/resumable at generation 98; no signal was sent.
+
+`intermediate_capture_independent_audit` verified the staged bytes/policies and
+exact integer counts, independently cross-checked using native `entry-domain-plan`:
+old R0/D9 has 637 inputs, new R0/D9--10 has 2,557. All 116 templates/67 owners remain
+present, but R0 has 81 nonempty rows/56 owners; R1 has 101 rows/63 owners and R2 has
+112 rows/all 67 owners. At R6 all 116 rows are nonempty. Seven 11-line and four 12-line
+classes therefore activate automatically on R1/R2 extension, respectively.
+The broad R6 scope has 339,607,800 owner-qualified starting tuples; point counts are
+not timing predictions. Original topology caps and actual D9/D10 bands remain
+explicit; no blanket all-D<=10 physical-lowering coverage is claimed.
+
+Root checked the actual Nix public-wrapper command with `--dry-run` and provided
+the manual launch plus rank-extension commands. The user may launch while this
+read-only research is finishing. This session did not start the new campaign.
+The earlier requested broad Vakint goal remains paused; this is the user's
+explicit narrower preparation/research task.
+
+`intermediate_capture_app` sampled exactly 8 MiB of sealed CP10/11 record sidecars:
+21,972 records. R6 at ~13 h had 102.38M domains, 62.48M inspections, 16.19M pending,
+3.568M recorded closed, 0/116 roots, 0 frontiers, ~160 GB RSS, 2.80 lifetime average cores.
+The last two closure scans added 16.748M domains and 484,575 closures over 2h23m09s:
+34.56 discoveries per closure. A 130.36 s scan plus the 1% duty policy explains the
+next ~3h37m eligibility delay, not actual absence of closures between scans. In the
+biased sample Route dominated counts but Apply dominated recorded inspection time;
+connected owner 011101110111000 accounted for 44% of sampled inspection seconds.
+Its D12--13 G2 residual sample had 12,647 emitted edges/1,001 distinct despite the
+original D10/A13/R3 request. This does not prove those descendants spurious or
+attribute their root ancestry. No restored ledger or full memory census was performed.
+
+`soft_ct_nested_audit` reread primary TIDE/Kira3/Blade evidence and prior local
+negative experiments. Recommended discriminators: (1) tiny whole-root exact
+finite-replay versus symbolic traversal using existing experimental v2, then
+checkpointed selective finite discharge only if beneficial; (2) exact per-axis
+route-incidence bounds and upper D bounded by degree lost to affine constants;
+(3) original graph/multiplicity/Taylor-jet demand profiles before target-local
+boundary block relations. A new physical profile needs an explicit coverage claim,
+not silent narrowing of 116 roots. Current v2 is one fresh initial query only/no resume,
+and is not enabled in the incremental campaign. No new solve/benchmark/IBP generation
+or feature implementation was launched for this diagnosis. Previous finite
+replay had mixed results, not an established whole-campaign speedup.
+
+Reports: `docs/research/r0_d10_campaign_and_live_diagnosis_2026-10-15.md` and
+`docs/research/r6_d10_physics_reduction_strategy_2026-10-15.md`; the former lists
+all exact launch/extension commands and local evidence. New queries SHA:
+5b3be93a905f99ddf0e7fa7b9bc6cb6433a92a5879adea66907acbcdaa96d99f. Pending
+research has clear bounded tests; no campaign change or completion ETA is justified
+until those tests or the user's R0 run provide further evidence.
+
 ## October 14 — independent R6/D10 campaign ready for manual launch
 
 User clarified original QCD inputs without numerator--denominator cancellation,
