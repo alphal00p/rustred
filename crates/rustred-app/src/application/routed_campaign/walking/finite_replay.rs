@@ -165,7 +165,7 @@ pub(super) fn original_initial<const N: usize>(
     query_domain(reducer, request, query)
 }
 
-fn query_domain<const N: usize>(
+pub(super) fn query_domain<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
     request: &OwnerDomainWalkRequest,
     query: &matching::input::Query,

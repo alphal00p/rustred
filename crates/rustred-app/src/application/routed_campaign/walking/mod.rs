@@ -11,6 +11,7 @@ pub(super) use epoch::force_resolver_break;
 mod epoch_lookup_tests;
 mod execution;
 mod finite_replay;
+pub(in crate::application::routed_campaign) mod finite_scope;
 mod g2;
 mod index_report;
 mod initial_orthants;

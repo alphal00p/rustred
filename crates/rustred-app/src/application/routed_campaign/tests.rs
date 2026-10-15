@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 mod bounded_routing;
 mod epoch_walk;
 mod frontier_policy;
+mod finite_demand;
 mod g2_rescue;
 mod guarded_apply;
 mod index_admission;
