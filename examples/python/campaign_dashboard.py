@@ -71,8 +71,14 @@ def required_progress(frame):
     scope = frame.get("query_scope", {})
     if number(scope.get("required")) is not None:
         closed = scope.get("required_closed") if scope.get("available") is True else None
+        detail = "cumulative requests · recursive"
+        if closed is None:
+            reason = scope.get("reason")
+            if reason == "cumulative required-query closure unavailable in this binary":
+                reason = "solver does not emit live query counts"
+            detail = "cumulative requests · " + clean(reason or "closure observation unavailable")
         return ("REQUIRED CLOSURE", closed, scope["required"],
-                "≥" if closed is not None else "", "cumulative requests · recursive")
+                "≥" if closed is not None else "", detail)
     counts = frame["counts"]
     return ("BASE ROOT CLOSURE", counts["initial_closed"], counts["initial_total"],
             "≥" if frame["closure_snapshot"].get("stale") is True else "",

@@ -64,7 +64,21 @@ class RequiredClosureTests(unittest.TestCase):
         frame = TELEMETRY.normalize_status(value)
         self.assertIsNone(frame["query_scope"]["required_closed"])
         self.assertIn("unknown / 402", DASHBOARD.required_progress_line(frame))
+        self.assertIn("solver does not emit live query counts", DASHBOARD.required_progress_line(frame))
         self.assertIn("cumulative closure unavailable", DASHBOARD.extended_scope_line(frame))
+
+    def test_unknown_cumulative_bar_explains_native_scan_reason(self):
+        value = status()
+        observation = value["progress"]["query_admission"]["required_closure"]
+        observation.update(available=False, reason="awaiting first completed closure scan")
+        frame = TELEMETRY.normalize_status(value)
+        line = DASHBOARD.required_progress_line(frame)
+        self.assertIn("unknown / 402", line)
+        self.assertIn("awaiting first completed closure scan", line)
+        self.assertNotIn("solver does not emit", line)
+        for width in (80, 100, 160):
+            lines = DASHBOARD.render_table(frame, width=width, height=40, color=False)
+            self.assertTrue(all(DASHBOARD.cell_width(line) == width for line in lines))
 
     def test_mixed_completed_scans_cannot_reuse_old_query_numerator(self):
         for field in ("snapshot_revision", "refresh_count"):

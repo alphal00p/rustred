@@ -1,5 +1,25 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — dashboard clarification and full-R1 gate preparation
+
+The exact-window adapter is integrated and pushed as6a7a0b12. Runner build3305
+continues from the already tested source tree; its full232-row pilot is
+conditionally authorized only after the frozen small native test gate and
+independent receipt review. The one-pilot policy is frozen asSHA256
+b6f7bc6fbc86bf9fbcfbce816426a8a70b9ca913521a219594691355bc4e7655.
+It uses512-point windows,4workers,32GB process-tree RSS and150GB host reserve,
+with1620+120+60 seconds inclusive. No automatic quota increase or retry follows
+a failure. Exact output verification stays inside that same resource guard.
+
+The dashboard's unknown numerator now explains missing native telemetry with
+`solver does not emit live query counts`; a genuine native scan-unavailable
+reason is displayed instead when supplied. Counts, ratios, scope admission and
+the refusal to substitute the base-root bar are unchanged. Root55 focused
+tests pass; an independent55-test rerun and source/width review pass. Receipt:
+`TMP/dashboard-missing-query-telemetry-independent-audit-20261015.md`.
+This clarifies future monitor renders; it cannot retrofit the observer into
+the user's running81474511… solver. No production campaign was modified.
+
 ## October 15 — exact-window native gate passes; runner advances to native build
 
 Previous goal turn made concrete progress by diagnosing the user's missing
