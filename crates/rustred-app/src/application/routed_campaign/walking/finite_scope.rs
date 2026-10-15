@@ -22,29 +22,46 @@ pub(in crate::application::routed_campaign) fn parse(
     max_rows: usize,
     max_source_bytes: usize,
 ) -> Result<Scope, AppError> {
-    let bytes = request
-        .amendments
-        .iter()
-        .try_fold(request.matching.queries_json.len(), |sum, amendment| {
-            sum.checked_add(amendment.text.len())
-        });
-    if bytes.is_none_or(|bytes| bytes > max_source_bytes)
-        || request.amendments.len() > rescue::MAX_AMENDMENTS
-    {
-        return Err(AppError::limit("finite demand source allowance exceeded"));
-    }
-    let originals = matching::input::parse(
+    parse_bound_sources(
         &request.matching.queries_json,
+        &request.amendments,
+        request.checkpoint_binding(),
         arity,
         request.matching.max_queries,
         request.matching.max_query_bytes,
-    )?;
-    let amendments = request
-        .amendments
+        max_rows,
+        max_source_bytes,
+    )
+}
+
+/// Reuse the same strict row/role and amendment-chain parser for a portable
+/// captured source. The supplied binding must separately match its generation.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::application::routed_campaign) fn parse_bound_sources(
+    original: &str,
+    amendments: &[crate::OwnerDomainWalkAmendment],
+    request_binding: String,
+    arity: usize,
+    max_queries: usize,
+    max_query_bytes: usize,
+    max_rows: usize,
+    max_source_bytes: usize,
+) -> Result<Scope, AppError> {
+    let bytes = amendments
+        .iter()
+        .try_fold(original.len(), |sum, amendment| {
+            sum.checked_add(amendment.text.len())
+        });
+    if bytes.is_none_or(|bytes| bytes > max_source_bytes)
+        || amendments.len() > rescue::MAX_AMENDMENTS
+    {
+        return Err(AppError::limit("finite demand source allowance exceeded"));
+    }
+    let originals = matching::input::parse(original, arity, max_queries, max_query_bytes)?;
+    let amendments = amendments
         .iter()
         .map(|amendment| rescue::parse(amendment, arity).map_err(AppError::input))
         .collect::<Result<Vec<_>, _>>()?;
-    let request_binding = request.checkpoint_binding();
     rescue::check_chain(&[], &amendments, &request_binding, &originals).map_err(AppError::input)?;
     let row_count = amendments
         .iter()
@@ -63,7 +80,7 @@ pub(in crate::application::routed_campaign) fn parse(
     rows.try_reserve_exact(row_count.unwrap())
         .map_err(|_| AppError::limit("cannot reserve admitted finite demand rows"))?;
     let mut sources = vec![json!({"ordinal":0,"kind":"original_queries",
-        "blake3":blake3::hash(request.matching.queries_json.as_bytes()).to_hex().to_string(),
+        "blake3":blake3::hash(original.as_bytes()).to_hex().to_string(),
         "rows":originals.len()})];
     rows.extend(originals.into_iter().map(|query| Row { query, source: 0 }));
     for amendment in amendments {

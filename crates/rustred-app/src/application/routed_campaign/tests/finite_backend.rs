@@ -259,6 +259,70 @@ fn finish<const N: usize>(session: &mut Session<N>) {
     }
     panic!("finite fixture did not finish within test iteration bound");
 }
+
+#[test]
+fn finite_publication_capture_requires_complete_no_aux_and_bounded_exact_raw_stream() {
+    use crate::application::routed_campaign::finite_demand::backend::publication::CaptureLimits;
+    let f = Fixture::new();
+    let mut source = source(&f);
+    let p = policy(1);
+    let cancel = AtomicBool::new(false);
+    let limits = CaptureLimits {
+        max_terminal_keys: 100,
+        max_terminal_payload_bytes: 65536,
+    };
+    let path = f.directory.join("capture");
+    let mut session = Session::<1>::create(&source, p, &path, &cancel, &|_| {}).unwrap();
+    assert!(session.capture_completed_source(limits, &cancel).is_err());
+    finish(&mut session);
+    let original_generation = session.generation().unwrap().digest();
+    assert!(
+        session
+            .capture_completed_source(
+                CaptureLimits {
+                    max_terminal_keys: 0,
+                    ..limits
+                },
+                &cancel
+            )
+            .is_err()
+    );
+    assert_eq!(session.generation().unwrap().digest(), original_generation);
+    let captured = session.capture_completed_source(limits, &cancel).unwrap();
+    assert_eq!(captured.summary()["complete"], true);
+    assert_eq!(captured.summary()["independently_verified"], false);
+    assert_eq!(
+        captured.summary()["encountered"]["terminals"],
+        captured.terminal_keys().len()
+    );
+    assert_eq!(captured.owner_payload_digests().len(), 1);
+    drop(session);
+    append(&mut source, f.directory.join("capture-append.json"));
+    let mut extended = Session::<1>::resume(&source, p, &path, &cancel, &|_| {}).unwrap();
+    finish(&mut extended);
+    assert_ne!(
+        captured.source_identity(),
+        extended.generation().unwrap().digest()
+    );
+    assert!(captured.request().amendments.is_empty());
+    assert_eq!(captured.source_identity(), original_generation);
+
+    let mut auxiliary = source.clone();
+    auxiliary.amendments.clear();
+    let mut queries: Value = serde_json::from_str(&auxiliary.matching.queries_json).unwrap();
+    queries["query_roles"] = json!({"required":["empty"],"auxiliary":["original"]});
+    auxiliary.matching.queries_json = queries.to_string();
+    let mut session = Session::<1>::create(
+        &auxiliary,
+        p,
+        &f.directory.join("capture-aux"),
+        &cancel,
+        &|_| {},
+    )
+    .unwrap();
+    finish(&mut session);
+    assert!(session.capture_completed_source(limits, &cancel).is_err());
+}
 fn tree(path: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut result = BTreeMap::new();
     for entry in fs::read_dir(path).unwrap() {

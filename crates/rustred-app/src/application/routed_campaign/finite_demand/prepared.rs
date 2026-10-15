@@ -30,6 +30,8 @@ use std::{
 pub(crate) struct PreparedExecution<const N: usize> {
     reducer: Arc<RoutedCandidateReducer<N>>,
     execution: RawExecutionBinding,
+    owner_payload_digests: Arc<[String]>,
+    execution_identity: Arc<Value>,
 }
 /// Immutable source-authenticated generated provenance. Sharing this token
 /// keeps the SAME actual prepared reducer allocation alive, not just its hash.
@@ -69,12 +71,15 @@ impl<const N: usize> PreparedExecution<N> {
         let fingerprints =
             fingerprints.ok_or_else(|| AppError::input("prepared payload binding missing"))?;
         let execution = execution_binding(request, &selection, arity, &fingerprints)?;
+        let identity = execution_identity(request, &selection, arity, &fingerprints)?;
         if cancel.load(Ordering::Acquire) {
             return Ok(None);
         }
         Ok(Some(Self {
             reducer: Arc::new(reducer),
             execution,
+            owner_payload_digests: fingerprints.into(),
+            execution_identity: Arc::new(identity),
         }))
     }
     pub fn execution(&self) -> &RawExecutionBinding {
@@ -82,6 +87,14 @@ impl<const N: usize> PreparedExecution<N> {
     }
     pub fn reducer(&self) -> &RoutedCandidateReducer<N> {
         &self.reducer
+    }
+    /// Exact ordered callback vector from THIS native preparation, not a later
+    /// re-read or a caller-supplied identity for a different reducer.
+    pub fn owner_payload_digests(&self) -> &Arc<[String]> {
+        &self.owner_payload_digests
+    }
+    pub fn execution_identity(&self) -> &Arc<Value> {
+        &self.execution_identity
     }
     pub fn authenticate_generation(
         &self,
@@ -399,6 +412,36 @@ fn execution_binding(
     arity: usize,
     fingerprints: &[String],
 ) -> Result<RawExecutionBinding, AppError> {
+    let identity = execution_identity(request, selection, arity, fingerprints)?;
+    let bytes = serde_json::to_vec(&identity).map_err(failure)?;
+    Ok(RawExecutionBinding {
+        physical_arity: u32::try_from(arity).map_err(failure)?,
+        program_identity: *blake3::hash(&bytes).as_bytes(),
+    })
+}
+fn execution_identity(
+    request: &RoutedCampaignRequest,
+    selection: &Selection,
+    arity: usize,
+    fingerprints: &[String],
+) -> Result<Value, AppError> {
+    semantic_identity(
+        selection,
+        arity,
+        fingerprints,
+        &format!("{:?}", request.reduction_limits.exact_algebra),
+        &format!("{:?}", request.reduction_limits.indexed_algebra),
+        &format!("{:?}", request.trace_limits.expansion),
+    )
+}
+fn semantic_identity(
+    selection: &Selection,
+    arity: usize,
+    fingerprints: &[String],
+    exact: &str,
+    indexed: &str,
+    expansion: &str,
+) -> Result<Value, AppError> {
     let expected = selection
         .owners
         .len()
@@ -425,15 +468,45 @@ fn execution_binding(
         "routes":selection.initial_frontier_routes.iter().map(|r| json!({"source":r.source_mask,
             "owner":r.owner_mask,"transport":r.requires_transport,"source_map":r.source_to_representative,
             "owner_map":r.owner_to_representative})).collect::<Vec<_>>(),
-        "exact_algebra":format!("{:?}",request.reduction_limits.exact_algebra),
-        "indexed_algebra":format!("{:?}",request.reduction_limits.indexed_algebra),
-        "transport_expansion":format!("{:?}",request.trace_limits.expansion),
+        "exact_algebra":exact,
+        "indexed_algebra":indexed,
+        "transport_expansion":expansion,
     });
-    let bytes = serde_json::to_vec(&identity).map_err(failure)?;
-    Ok(RawExecutionBinding {
-        physical_arity: u32::try_from(arity).map_err(failure)?,
-        program_identity: *blake3::hash(&bytes).as_bytes(),
-    })
+    Ok(identity)
+}
+
+/// Recompute the SAME semantic identity against an immutable raw commitment.
+/// No native engine is relabelled or imported and no closure is minted here.
+pub(crate) fn validate_portable_execution(
+    selection_json: &str,
+    fingerprints: &[String],
+    identity: &Value,
+    expected: &RawExecutionBinding,
+) -> Result<(), AppError> {
+    let (selection, arity, _) = Selection::parse(selection_json)?;
+    let policy = |name| {
+        identity[name]
+            .as_str()
+            .ok_or_else(|| AppError::input("finite execution policy absent"))
+    };
+    let actual = semantic_identity(
+        &selection,
+        arity,
+        fingerprints,
+        policy("exact_algebra")?,
+        policy("indexed_algebra")?,
+        policy("transport_expansion")?,
+    )?;
+    if &actual != identity
+        || u32::try_from(arity).ok() != Some(expected.physical_arity)
+        || blake3::hash(&serde_json::to_vec(&actual).map_err(failure)?).as_bytes()
+            != &expected.program_identity
+    {
+        return Err(AppError::input(
+            "portable selection differs from captured native execution identity",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

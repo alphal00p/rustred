@@ -8,6 +8,8 @@ use std::sync::Arc;
 mod collection_audit;
 #[path = "tests/collection.rs"]
 mod collection_tests;
+#[path = "tests/finite_source.rs"]
+mod finite_source_tests;
 #[path = "tests/inherited.rs"]
 mod inherited_tests;
 #[path = "tests/profile.rs"]

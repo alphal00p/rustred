@@ -4,11 +4,13 @@ mod assistance;
 mod budget;
 mod census_cache;
 mod collection;
+mod finite_provenance;
 mod inherited;
 mod partial;
 mod profile;
 mod refine;
 mod report_counts;
+mod source;
 mod storage;
 #[cfg(test)]
 mod tests;
@@ -32,6 +34,7 @@ pub use profile::MasterNormalizationProfile;
 pub use refine::master_refine_published_artifact;
 
 const SCHEMA: &str = "rustred.master-reduction.v2";
+const FINITE_SCHEMA: &str = "rustred.master-reduction.v3";
 const LEGACY_SOURCE_SCHEMA: &str = "rustred.master-reduction.v1";
 
 /// Publication packages existing knowledge without searching for new IBPs.
@@ -120,9 +123,13 @@ pub fn master_reduction_inspect(path: &Path) -> Result<Value, AppError> {
         path.to_path_buf()
     };
     let mut report = read_json(&manifest)?;
-    if report["schema"] != SCHEMA && report["schema"] != LEGACY_SOURCE_SCHEMA {
+    if report["schema"] != SCHEMA
+        && report["schema"] != LEGACY_SOURCE_SCHEMA
+        && report["schema"] != FINITE_SCHEMA
+    {
         return Err(AppError::input("not a master-reduction package"));
     }
+    finite_provenance::validate_marker(&report)?;
     // Legacy finite publications remain readable as refinement inputs. New
     // collection packages must not be relabelled as a format whose consumers
     // would silently apply only the pre-collection session.
@@ -134,6 +141,7 @@ pub fn master_reduction_inspect(path: &Path) -> Result<Value, AppError> {
         ));
     }
     let parent = manifest.parent().unwrap_or(Path::new("."));
+    finite_provenance::validate_required(parent, &report)?;
     if let Some(name) = report["native_state"]["file"].as_str() {
         let state = storage::safe_child(parent, name)?;
         if std::fs::metadata(state).map_err(io)?.len()
@@ -184,12 +192,28 @@ pub fn load_master_relation_session(path: &Path) -> Result<TerminalRelationSessi
     if Some(blake3::hash(&bytes).to_hex().as_str()) != report["native_state"]["blake3"].as_str() {
         return Err(AppError::input("native master state digest mismatch"));
     }
-    TerminalRelationSession::from_native_bytes(
+    let session = TerminalRelationSession::from_native_bytes(
         &bytes,
         profile::from_report(&report)?.relation_limits(),
         limits,
     )
-    .map_err(io)
+    .map_err(io)?;
+    finite_provenance::validate_session(directory, &report, &session)?;
+    Ok(session)
+}
+
+pub(crate) fn validate_required_source(directory: &Path, report: &Value) -> Result<(), AppError> {
+    finite_provenance::validate_marker(report)?;
+    census_cache::validate_required(directory, report)
+}
+
+fn current_schema(report: &Value) -> Result<&'static str, AppError> {
+    finite_provenance::validate_marker(report)?;
+    Ok(if report["schema"] == FINITE_SCHEMA {
+        FINITE_SCHEMA
+    } else {
+        SCHEMA
+    })
 }
 
 pub fn master_reduce_saved_campaign(
@@ -198,6 +222,36 @@ pub fn master_reduce_saved_campaign(
     cancellation: &AtomicBool,
     observer: impl Fn(Value),
 ) -> Result<Value, AppError> {
+    master_reduce_source(
+        source::SourceRequest::Walk(request),
+        options,
+        cancellation,
+        observer,
+    )
+}
+
+/// Private complete-generation adapter; no traversal command or new public CLI.
+pub(crate) fn master_reduce_finite_demand(
+    source: &crate::application::routed_campaign::finite_demand::backend::publication::CompletedFiniteSource,
+    options: &MasterReductionOptions,
+    cancellation: &AtomicBool,
+    observer: impl Fn(Value),
+) -> Result<Value, AppError> {
+    master_reduce_source(
+        source::SourceRequest::Finite(source),
+        options,
+        cancellation,
+        observer,
+    )
+}
+
+fn master_reduce_source(
+    source: source::SourceRequest<'_>,
+    options: &MasterReductionOptions,
+    cancellation: &AtomicBool,
+    observer: impl Fn(Value),
+) -> Result<Value, AppError> {
+    let request = source.request();
     if !options.collection_artifacts.is_empty() {
         return Err(AppError::input(
             "additional collection artifacts require refinement from a published artifact",
@@ -237,18 +291,14 @@ pub fn master_reduce_saved_campaign(
     };
     let finite_feedback = collection::feedback_for_phase(options, resumed.as_ref())?;
     let deep_verification = verification::for_phase(options, resumed.as_ref())?;
-    let binding = storage::scope_binding(
-        request,
-        &options.checkpoint,
-        options.seed_depth,
-        options.containing_sector_depth,
-        options.circuit_symmetry_assistance,
+    let binding = source.binding(
+        options,
         finite_feedback,
         deep_verification,
         normalization_profile,
     )?;
     let mut report = if let Some(report) = resumed {
-        if report["schema"] != SCHEMA || report["scope_binding"] != binding {
+        if report["schema"] != source.schema() || report["scope_binding"] != binding {
             return Err(AppError::input(
                 "master checkpoint belongs to a different scope or seed depth; start a new phase directory",
             ));
@@ -270,7 +320,7 @@ pub fn master_reduce_saved_campaign(
         if manifest_path.exists() {
             return Err(AppError::input("master checkpoint exists; use --resume"));
         }
-        let mut report = json!({"schema":SCHEMA,"phase":"Master reduction","stage":"inventory","status":"running",
+        let mut report = json!({"schema":source.schema(),"phase":"Master reduction","stage":"inventory","status":"running",
             "scope_binding":binding,"seed_depth":options.seed_depth,"checkpoint":{"generation":0},
             "scope":{"queries":"inputs/queries.json","amendments":"inputs/amendments.json"},
             "raw_terminals":null,"normalized_terminals":null,"remaining_terminals":null,
@@ -306,10 +356,23 @@ pub fn master_reduce_saved_campaign(
     verification::record(&mut report, deep_verification);
     report["status"] = json!("running");
     report["scope"] = storage::scope_summary(request)?;
+    source.prepare_provenance(&options.directory, &mut report, cancellation)?;
+    if matches!(source, source::SourceRequest::Finite(_)) {
+        observer(
+            json!({"event":"finite_source_staged","generation":report["finite_source"]["generation"],
+            "status":"complete_source_not_yet_referenced_by_latest"}),
+        );
+        if cancellation.load(Ordering::Acquire) {
+            return Err(AppError::new(
+                crate::AppErrorKind::Cancelled,
+                "paused before finite source publication marker",
+            ));
+        }
+    }
     write_json(&manifest_path, &report)?;
     observer(event(&report, "master_reduction_progress", started));
     let result = run(
-        request,
+        source,
         options,
         cancellation,
         &observer,
@@ -340,13 +403,14 @@ pub fn master_reduce_saved_campaign(
 }
 
 fn run(
-    request: &OwnerDomainWalkRequest,
+    source: source::SourceRequest<'_>,
     options: &MasterReductionOptions,
     cancel: &AtomicBool,
     observer: &impl Fn(Value),
     started: Instant,
     report: &mut Value,
 ) -> Result<(), AppError> {
+    let request = source.request();
     let mut session = if report["native_state"].is_object() {
         load_master_relation_session(&options.directory)?
     } else {
@@ -368,25 +432,29 @@ fn run(
                         .and_then(census_cache::previous)
                 });
         }
-        let inventory =
-            owner_domain_walk_inventory(request, &inventory_options, cancel, |native| {
-                let mut output = event(report, "master_reduction_progress", started);
-                if let Some(stage) = native["event"].as_str() {
-                    if stage.starts_with("inventory_") || stage.starts_with("verify_") {
-                        output["stage"] = json!(stage);
+        let inventory = match source {
+            source::SourceRequest::Finite(captured) => source::SourceInventory::Finite(captured),
+            source::SourceRequest::Walk(_) => source::SourceInventory::Walk(
+                owner_domain_walk_inventory(request, &inventory_options, cancel, |native| {
+                    let mut output = event(report, "master_reduction_progress", started);
+                    if let Some(stage) = native["event"].as_str() {
+                        if stage.starts_with("inventory_") || stage.starts_with("verify_") {
+                            output["stage"] = json!(stage);
+                        }
                     }
-                }
-                output["verification_progress"] = native.clone();
-                output["inventory_event"] = native;
-                observer(output);
-            })?;
+                    output["verification_progress"] = native.clone();
+                    output["inventory_event"] = native;
+                    observer(output);
+                })?,
+            ),
+        };
         let summary = inventory.summary();
         if summary["complete"] != true {
             return Err(AppError::input(
                 "master reduction requires a complete exact saved-scope inventory",
             ));
         }
-        census_cache::save(&inventory, &options.directory, report)?;
+        inventory.save(&options.directory, report)?;
         report["inventory"] = summary;
         report_counts::update(report);
         report["independently_verified"] = json!(verification::independently_verified(report));
@@ -403,21 +471,13 @@ fn run(
         }
         report["stage"] = json!("normalize");
         observer(event(report, "master_reduction_progress", started));
-        let digests: Vec<String> = serde_json::from_value(
-            report["inventory"]["verification"]["checkpoint"]["prepared_owner_payload_blake3"]
-                .clone(),
-        )
-        .map_err(|_| {
-            AppError::input("inventory extraction did not return prepared owner identities")
-        })?;
-        report["inputs"] = storage::package_inputs(request, &options.directory, &digests)?;
+        let digests = inventory.payload_digests()?;
+        if matches!(source, source::SourceRequest::Walk(_)) {
+            report["inputs"] = storage::package_inputs(request, &options.directory, &digests)?;
+        }
         let normalization_profile = profile::from_report(report)?;
-        if storage::scope_binding(
-            request,
-            &options.checkpoint,
-            options.seed_depth,
-            options.containing_sector_depth,
-            options.circuit_symmetry_assistance,
+        if source.binding(
+            options,
             collection::feedback_for_phase(options, Some(report))?,
             deep_verification,
             normalization_profile,
@@ -440,6 +500,13 @@ fn run(
                 ));
             }
             let mut previous_session = load_master_relation_session(previous)?;
+            finite_provenance::inherit_previous(
+                previous,
+                &options.directory,
+                &previous_report,
+                report,
+                cancel,
+            )?;
             if previous_report["finite_search_complete"] == false {
                 if let Some(provenance) = previous_report.get("partial_refinement_source") {
                     report["partial_refinement_source"] = provenance.clone();
@@ -581,6 +648,7 @@ fn execute_session(
 }
 
 fn publish_final(options: &MasterReductionOptions, report: &mut Value) -> Result<(), AppError> {
+    finite_provenance::validate_required(&options.directory, report)?;
     report_counts::update(report);
     report["artifact"] = json!(options.directory);
     write_json(&options.directory.join("artifact.json"), report)?;
@@ -602,6 +670,8 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     report["independently_verified"] = json!(verification::independently_verified(report));
     report["publication_assurance"] = json!(if verification::independently_verified(report) {
         "independently_verified"
+    } else if report["schema"] == FINITE_SCHEMA && report["inventory"]["complete"] == true {
+        "trusted_generated"
     } else if report["inventory"]["complete"] == true {
         "trusted_saved_scope"
     } else {
@@ -681,7 +751,7 @@ fn save(
     observer: &impl Fn(Value),
 ) -> Result<(), AppError> {
     let save_start = Instant::now();
-    report["schema"] = json!(SCHEMA);
+    report["schema"] = json!(current_schema(report)?);
     let generation = report["checkpoint"]["generation"]
         .as_u64()
         .unwrap_or(0)

@@ -20,7 +20,18 @@ mod trusted_restore;
 const VERSION: u32 = 1;
 const MAX_RECORD_BYTES: usize = 64 * 1024;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    bincode::Encode,
+    bincode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct WindowLimits {
     pub max_seed_points: usize,
     /// Vec/key/coordinate payload, not allocator overhead or process RSS.
@@ -263,32 +274,14 @@ impl<const N: usize> PrefixWindows<N> {
                 ));
             }
         }
-        let binding_bytes = bincode::encode_to_vec(
-            (
-                VERSION,
-                origin,
-                physical_arity,
-                region.support.to_vec(),
-                &region.lower,
-                &region.upper,
-                region.rank,
-                (
-                    region.powers.max_positive_power,
-                    region.powers.min_power_difference,
-                    region.powers.max_power_difference,
-                ),
-                limits,
-            ),
-            bincode::config::standard(),
-        )
-        .map_err(|error| Error::new(ErrorKind::Input, error))?;
+        let binding = Self::source_binding(origin, &region, physical_arity, limits)?;
         let mut source = Self {
             region,
             arity: physical_arity,
             limits,
             singleton,
             total: Integer::from(0),
-            binding: *blake3::hash(&binding_bytes).as_bytes(),
+            binding,
             original_admission: None,
         };
         if !native.is_empty() {
@@ -311,6 +304,36 @@ impl<const N: usize> PrefixWindows<N> {
         }
         check(cancel)?;
         Ok(source)
+    }
+
+    /// Metadata commitment only; lets portable readers reject contradictory
+    /// source/window metadata before performing any native count operation.
+    pub(crate) fn source_binding(
+        origin: &str,
+        region: &RootRegionInput<N>,
+        physical_arity: usize,
+        limits: WindowLimits,
+    ) -> Result<[u8; 32]> {
+        let binding_bytes = bincode::encode_to_vec(
+            (
+                VERSION,
+                origin,
+                physical_arity,
+                region.support.to_vec(),
+                &region.lower,
+                &region.upper,
+                region.rank,
+                (
+                    region.powers.max_positive_power,
+                    region.powers.min_power_difference,
+                    region.powers.max_power_difference,
+                ),
+                limits,
+            ),
+            bincode::config::standard(),
+        )
+        .map_err(|error| Error::new(ErrorKind::Input, error))?;
+        Ok(*blake3::hash(&binding_bytes).as_bytes())
     }
 
     pub fn total_count(&self) -> &Integer {

@@ -3,6 +3,7 @@
 #[cfg(test)]
 pub(crate) mod diagnostic;
 mod errors;
+pub(crate) mod publication;
 use super::{
     prepared::{PreparedExecution, PreparedGeneration},
     storage::{
@@ -78,6 +79,7 @@ pub(crate) struct Step {
 /// No operation accepts caller-supplied starts, seals or successor bytes.
 /// An error permanently stops this object; cold reopen determines CURRENT.
 pub(crate) struct Session<const N: usize> {
+    source: OwnerDomainWalkRequest,
     prepared: PreparedExecution<N>,
     authenticated: PreparedGeneration<N>,
     scope: ScopeBinding,
@@ -92,6 +94,7 @@ pub(crate) struct Session<const N: usize> {
 }
 
 struct Admitted<const N: usize> {
+    source: OwnerDomainWalkRequest,
     prepared: PreparedExecution<N>,
     scope: ScopeBinding,
     sources: Vec<PrefixWindows<N>>,
@@ -236,6 +239,7 @@ impl<const N: usize> Session<N> {
         path: &Path,
     ) -> Self {
         Self {
+            source: admitted.source,
             prepared: admitted.prepared,
             authenticated,
             scope: admitted.scope,
@@ -486,27 +490,15 @@ fn admit<const N: usize>(
         let source_digest = parsed.sources[row.source]["blake3"]
             .as_str()
             .ok_or_else(|| AppError::internal_invariant("query source digest absent"))?;
-        let origin = blake3::Hash::from(digest(&(
-            1u32,
+        let origin = origin_identity(
             row.source,
             source_digest,
             ordinal,
             &row.query.id,
             row.query.auxiliary,
             row.query.role_declared,
-        ))?)
-        .to_hex()
-        .to_string();
-        let exact_domain = digest(&(
-            arity,
-            region.support.to_vec(),
-            &region.lower,
-            &region.upper,
-            region.rank,
-            region.powers.max_positive_power,
-            region.powers.min_power_difference,
-            region.powers.max_power_difference,
-        ))?;
+        )?;
+        let exact_domain = domain_identity(arity, &region)?;
         let windows = PrefixWindows::try_new(&origin, region, arity, policy.windows, cancel)
             .map_err(window_error)?;
         cursors.push(windows.initial_cursor());
@@ -523,6 +515,7 @@ fn admit<const N: usize>(
     }
     check(cancel)?;
     Ok(Admitted {
+        source: source.clone(),
         prepared,
         scope,
         sources,
@@ -530,6 +523,41 @@ fn admit<const N: usize>(
         source_reduction: source.matching.reduction_limits,
         effective_reduction: load.reduction_limits,
     })
+}
+fn origin_identity(
+    source: usize,
+    source_digest: &str,
+    ordinal: usize,
+    id: &str,
+    auxiliary: bool,
+    role_declared: bool,
+) -> Result<String, AppError> {
+    Ok(blake3::Hash::from(digest(&(
+        1u32,
+        source,
+        source_digest,
+        ordinal,
+        id,
+        auxiliary,
+        role_declared,
+    ))?)
+    .to_hex()
+    .to_string())
+}
+fn domain_identity<const N: usize>(
+    arity: usize,
+    region: &rustred::solver::RootRegionInput<N>,
+) -> Result<[u8; 32], AppError> {
+    digest(&(
+        arity,
+        region.support.to_vec(),
+        &region.lower,
+        &region.upper,
+        region.rank,
+        region.powers.max_positive_power,
+        region.powers.min_power_difference,
+        region.powers.max_power_difference,
+    ))
 }
 fn digest(value: &impl bincode::Encode) -> Result<[u8; 32], AppError> {
     bincode::encode_to_vec(value, bincode::config::standard())

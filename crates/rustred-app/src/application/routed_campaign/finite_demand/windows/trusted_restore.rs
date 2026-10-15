@@ -7,6 +7,26 @@ use crate::application::routed_campaign::finite_demand::storage::{
 };
 
 impl<const N: usize> PrefixWindows<N> {
+    /// Read-only portable completed-cursor check. This returns no cursor,
+    /// resume token or reduction capability; it only cross-checks committed
+    /// bytes against this exact native counted source/window policy.
+    pub(crate) fn validate_completed_commitment(
+        &self,
+        encoded: &[u8],
+        windows: u64,
+        occurrences: u64,
+        cancel: &AtomicBool,
+    ) -> Result<()> {
+        let record: CursorRecord = decode(encoded)?;
+        if record.windows != windows || record.emitted != Integer::from(occurrences) {
+            return Err(invalid("completed portable cursor counter mismatch"));
+        }
+        let (cursor, _) = self.validate_generated_cursor(record, cancel)?;
+        if !cursor.is_exhausted() {
+            return Err(invalid("portable source cursor is not exhausted"));
+        }
+        Ok(())
+    }
     /// Binding for a generated cursor record, not an authority constructor.
     pub(crate) fn source_policy_binding(&self) -> [u8; 32] {
         self.binding

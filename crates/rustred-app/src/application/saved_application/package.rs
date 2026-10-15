@@ -134,7 +134,10 @@ pub fn prepare_saved_application<const N: usize>(
         "physical_arity":arity,
         "source_manifest_blake3":blake3::hash(&bytes).to_hex().to_string(),
         "source_scope_binding":report["scope_binding"],
-        "source_generation":report["inventory"]["verification"]["checkpoint"]["generation"],
+        "source_generation":if report["schema"]=="rustred.master-reduction.v3" {
+            &report["finite_source"]["generation"]
+        } else {&report["inventory"]["verification"]["checkpoint"]["generation"]},
+        "source_kind":if report["schema"]=="rustred.master-reduction.v3" {"finite-demand-generated-v1"} else {"saved-walk"},
         "publication_assurance":report["publication_assurance"],
         "publication_verification_mode":report["publication_verification_mode"],
         "relation_authority":report["relation_authority"],
@@ -295,12 +298,15 @@ fn publication_manifest(path: &Path) -> PathBuf {
 }
 
 fn publication_inputs(manifest: &Path, report: &Value) -> Result<ApplicationInputs, AppError> {
-    if report["schema"] != "rustred.master-reduction.v2" {
+    if report["schema"] != "rustred.master-reduction.v2"
+        && report["schema"] != "rustred.master-reduction.v3"
+    {
         return Err(AppError::input(
-            "saved application requires a published master-reduction v2 artifact",
+            "saved application requires a published master-reduction v2 or v3 artifact",
         ));
     }
     let directory = manifest.parent().unwrap_or(Path::new("."));
+    crate::application::master_reduction::validate_required_source(directory, report)?;
     let inputs = &report["inputs"];
     let selection_path = safe_child(directory, required_string(inputs, "selection")?)?;
     let selection_bytes = read_bounded(&selection_path, MAX_METADATA)?;

@@ -93,7 +93,9 @@ pub fn master_refine_published_artifact(
     let binding = hash.finalize().to_hex().to_string();
     let started = Instant::now();
     let (mut report, mut session) = if let Some(report) = resumed {
-        if report["schema"] != SCHEMA || report["refinement_binding"] != binding {
+        if (report["schema"] != SCHEMA && report["schema"] != FINITE_SCHEMA)
+            || report["refinement_binding"] != binding
+        {
             return Err(AppError::input(
                 "refinement checkpoint has a different source or requested seed depth",
             ));
@@ -124,8 +126,13 @@ pub fn master_refine_published_artifact(
         }
         storage::clone_inputs(&source_directory, &options.directory, &source_report)?;
         let mut report = source_report.clone();
-        census_cache::inherit(&source_directory, &options.directory, &mut report)?;
-        report["schema"] = json!(SCHEMA);
+        census_cache::inherit_with_cancel(
+            &source_directory,
+            &options.directory,
+            &mut report,
+            cancellation,
+        )?;
+        report["schema"] = json!(current_schema(&report)?);
         report
             .as_object_mut()
             .ok_or_else(|| AppError::input("artifact report is not an object"))?
