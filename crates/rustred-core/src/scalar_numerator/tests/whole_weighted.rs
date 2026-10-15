@@ -8,7 +8,7 @@ use symbolica::{
     parser::ParseSettings,
 };
 
-fn family(loops: usize) -> (IntegralFamily, Vec<Vec<i64>>) {
+pub(super) fn family(loops: usize) -> (IntegralFamily, Vec<Vec<i64>>) {
     let c = CoefficientContext::try_new(["d"]).unwrap();
     let coordinates = (0..loops)
         .flat_map(|i| (i..loops).map(move |j| (i, j)))

@@ -22,6 +22,8 @@ wasm = ["symbolica/wasm"]
 reconstruction = []
 # Optional shared inline storage for smaller physical families.
 capacity-dispatch = []
+# Private dependent-libtest measurement surface; never part of default builds.
+weighted-lowering-diagnostics = []
 # Explicit permission to restrict/extend the runtime arity registry at build time.
 runtime-arity-selection = []
 

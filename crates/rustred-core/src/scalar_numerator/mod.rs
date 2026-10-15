@@ -9,6 +9,9 @@
 
 mod error;
 mod lowering;
+#[cfg(feature = "weighted-lowering-diagnostics")]
+#[doc(hidden)]
+pub mod lowering_diagnostics;
 mod model;
 mod service;
 mod syntax;

@@ -21,6 +21,8 @@ struct Shape {
     terms: usize,
     degree: usize,
     variables: BTreeSet<usize>,
+    /// Proven by this existing bounded syntax walk, never by sampling.
+    real_rational_coefficients: bool,
 }
 impl Shape {
     fn constant(zero: bool) -> Self {
@@ -28,6 +30,7 @@ impl Shape {
             terms: usize::from(!zero),
             degree: 0,
             variables: BTreeSet::new(),
+            real_rational_coefficients: true,
         }
     }
 }
@@ -78,6 +81,8 @@ fn product(
             terms: usize::from(a.terms != 0 && b.terms != 0),
             degree,
             variables,
+            real_rational_coefficients: a.real_rational_coefficients
+                && b.real_rational_coefficients,
         });
     }
     let pairs = checked_mul("weighted denominator product work", a.terms, b.terms)?;
@@ -96,6 +101,7 @@ fn product(
         terms,
         degree,
         variables,
+        real_rational_coefficients: a.real_rational_coefficients && b.real_rational_coefficients,
     })
 }
 
@@ -108,7 +114,11 @@ fn shape(
 ) -> Result<Shape, Error> {
     work.charge(1)?;
     match atom {
-        AtomView::Num(_) => Ok(Shape::constant(atom.is_zero())),
+        AtomView::Num(_) => {
+            let mut result = Shape::constant(atom.is_zero());
+            result.real_rational_coefficients = Rational::try_from(atom).is_ok();
+            Ok(result)
+        }
         AtomView::Var(_) | AtomView::Fun(_) => {
             for (index, variable) in prepared.scalar_products.iter().enumerate() {
                 if comparisons.equals(atom, variable.as_view())? {
@@ -116,6 +126,7 @@ fn shape(
                         terms: 1,
                         degree: 1,
                         variables: BTreeSet::from([index]),
+                        real_rational_coefficients: true,
                     });
                 }
             }
@@ -130,7 +141,9 @@ fn shape(
                     });
                 }
             }
-            Ok(Shape::constant(false))
+            let mut result = Shape::constant(false);
+            result.real_rational_coefficients = false;
+            Ok(result)
         }
         AtomView::Add(sum) => {
             if admit {
@@ -144,6 +157,7 @@ fn shape(
             for term in sum.iter() {
                 let next = shape(term, prepared, comparisons, work, admit)?;
                 result.degree = result.degree.max(next.degree);
+                result.real_rational_coefficients &= next.real_rational_coefficients;
                 result.variables.extend(next.variables);
                 let sum = checked_add("weighted denominator sum work", result.terms, next.terms)?;
                 // Native Add appends child coefficient lists and sorts once;
@@ -189,7 +203,9 @@ fn shape(
                 });
             }
             if base.variables.is_empty() {
-                return Ok(Shape::constant(atom.is_zero()));
+                let mut result = Shape::constant(atom.is_zero());
+                result.real_rational_coefficients = Rational::try_from(atom).is_ok();
+                return Ok(result);
             }
             let exponent = Rational::try_from(power.get_exp()).map_err(|_| {
                 Error::NonPolynomialScalarProducts {
@@ -220,6 +236,7 @@ fn shape(
                     terms: 1,
                     degree,
                     variables: base.variables,
+                    real_rational_coefficients: base.real_rational_coefficients,
                 });
             }
             let mut base = base;
@@ -238,6 +255,11 @@ fn shape(
     }
 }
 
+pub(super) struct Translated {
+    pub atom: Atom,
+    pub real_rational_coefficients: bool,
+}
+
 pub(super) fn translate(
     prepared: &PreparedScalarProducts,
     family: &IntegralFamily,
@@ -245,7 +267,7 @@ pub(super) fn translate(
     mass: &Atom,
     work: &mut Work,
     comparisons: &mut ExactComparisonBudget,
-) -> Result<Atom, Error> {
+) -> Result<Translated, Error> {
     // Grammar/degree validation precedes every rewrite, but a Gram expansion
     // support estimate is deliberately not used to admit a Den-basis result.
     let input_terms = match numerator.as_view() {
@@ -319,8 +341,11 @@ pub(super) fn translate(
     )?;
     #[cfg(test)]
     work.set_diagnostic_phase("denominator polynomial admission");
-    shape(translated.as_view(), prepared, comparisons, work, true)?;
-    Ok(translated)
+    let admitted = shape(translated.as_view(), prepared, comparisons, work, true)?;
+    Ok(Translated {
+        atom: translated,
+        real_rational_coefficients: admitted.real_rational_coefficients,
+    })
 }
 
 pub(super) fn validate_coefficient(

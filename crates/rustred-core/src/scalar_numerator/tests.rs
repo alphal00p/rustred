@@ -12,6 +12,7 @@ use crate::reduction::Reducer;
 
 use super::*;
 
+mod rational_weighted;
 mod scoped;
 mod weighted;
 mod whole_weighted;

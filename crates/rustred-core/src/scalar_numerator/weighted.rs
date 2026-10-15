@@ -1,6 +1,7 @@
 //! Exact collection of complete physical prefactors, before entry admission.
 pub(super) mod bounds;
 mod denominator;
+pub(super) mod polynomial;
 
 use std::collections::{BTreeMap, BTreeSet};
 use symbolica::atom::{Atom, AtomCore, AtomView};
@@ -177,9 +178,7 @@ pub(super) fn lower_weighted_in_request(
         work,
         &mut comparisons,
     )?;
-    let polynomial = native("whole denominator polynomial conversion", || {
-        translated.to_polynomial_in_vars::<u32>(prepared.scalar_product_variables.clone())
-    })?;
+    let polynomial = polynomial::collect(prepared, &translated)?;
     check_limit(
         "weighted denominator polynomial terms",
         polynomial.coefficients.len(),
