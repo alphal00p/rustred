@@ -1,6 +1,139 @@
 use super::*;
 
 #[test]
+fn finite_store_indexed_cache_promotes_hits_reuses_slots_and_keeps_clear_capacity_charged() {
+    let scratch = Scratch::new();
+    let policy = StorageLimits {
+        max_page_records: 1,
+        max_cached_pages: 3,
+        ..limits()
+    };
+    let mut writer = StoreWriter::create(&scratch.0.join("store"), binding(), policy).unwrap();
+    let generation = commit(&mut writer, (0..5).map(key).collect(), 5, 1);
+    let reader = generation.reader(policy).unwrap();
+    let metadata = reader.statistics().unwrap().retained_cache_metadata_bytes;
+    assert!(metadata > 0);
+    for n in [0, 1, 2, 0, 3, 0, 2] {
+        assert_eq!(reader.lookup(&key(n)).unwrap(), Lookup::Present);
+        reader.assert_cache_consistent();
+    }
+    let stats = reader.statistics().unwrap();
+    assert_eq!(
+        (stats.page_reads, stats.page_cache_hits, stats.evictions),
+        (4, 3, 1)
+    );
+    assert_eq!(stats.retained_pages, 3);
+    assert_eq!(reader.lookup(&key(1)).unwrap(), Lookup::Present); // LRU, not the promoted0.
+    assert_eq!(reader.statistics().unwrap().page_reads, 5);
+    for _ in 0..4 {
+        reader.clear_pages().unwrap();
+        reader.assert_cache_consistent();
+        let empty = reader.statistics().unwrap();
+        assert_eq!(empty.retained_page_payload_bytes, 0);
+        assert_eq!(empty.retained_cache_metadata_bytes, metadata);
+        for n in (0..40).map(|n| n % 5) {
+            assert_eq!(reader.lookup(&key(n)).unwrap(), Lookup::Present);
+            reader.assert_cache_consistent();
+            let stats = reader.statistics().unwrap();
+            assert_eq!(stats.retained_cache_metadata_bytes, metadata);
+            assert!(stats.retained_page_payload_bytes + metadata <= policy.max_cached_page_bytes);
+        }
+    }
+}
+
+#[test]
+fn finite_store_indexed_cache_tiny_grants_and_extreme_page_ceiling_are_bounded() {
+    let scratch = Scratch::new();
+    let mut writer = StoreWriter::create(&scratch.0.join("store"), binding(), limits()).unwrap();
+    let generation = commit(&mut writer, vec![key(0), key(2)], 2, 1);
+    for (pages, bytes) in [(0, usize::MAX), (usize::MAX, 0), (usize::MAX, 1)] {
+        let reader = generation
+            .reader(StorageLimits {
+                max_cached_pages: pages,
+                max_cached_page_bytes: bytes,
+                ..limits()
+            })
+            .unwrap();
+        for _ in 0..2 {
+            assert_eq!(reader.lookup(&key(0)).unwrap(), Lookup::Present);
+        }
+        reader.assert_cache_consistent();
+        let stats = reader.statistics().unwrap();
+        assert_eq!(
+            (
+                stats.page_reads,
+                stats.page_cache_hits,
+                stats.retained_pages
+            ),
+            (2, 0, 0)
+        );
+        assert_eq!(stats.retained_cache_metadata_bytes, 0);
+    }
+    let reader = generation
+        .reader(StorageLimits {
+            max_cached_pages: usize::MAX,
+            ..limits()
+        })
+        .unwrap();
+    assert_eq!(reader.lookup(&key(0)).unwrap(), Lookup::Present);
+    assert_eq!(reader.lookup(&key(0)).unwrap(), Lookup::Present);
+    reader.assert_cache_consistent();
+    let stats = reader.statistics().unwrap();
+    assert_eq!(
+        (
+            stats.retained_pages,
+            stats.page_reads,
+            stats.page_cache_hits
+        ),
+        (1, 1, 1)
+    );
+    assert!(
+        stats.retained_cache_metadata_bytes + stats.retained_page_payload_bytes
+            <= limits().max_cached_page_bytes
+    );
+}
+
+#[test]
+fn finite_store_indexed_cache_byte_eviction_is_exact_after_metadata_charge() {
+    let scratch = Scratch::new();
+    let policy = StorageLimits {
+        max_page_records: 1,
+        max_cached_pages: 3,
+        ..limits()
+    };
+    let mut writer = StoreWriter::create(&scratch.0.join("store"), binding(), policy).unwrap();
+    let generation = commit(&mut writer, (0..4).map(key).collect(), 4, 1);
+    let probe = generation.reader(policy).unwrap();
+    assert_eq!(probe.lookup(&key(0)).unwrap(), Lookup::Present);
+    let stats = probe.statistics().unwrap();
+    let reader = generation
+        .reader(StorageLimits {
+            max_cached_page_bytes: stats.retained_cache_metadata_bytes
+                + stats.retained_page_payload_bytes,
+            ..policy
+        })
+        .unwrap();
+    for n in [0, 1, 2, 3, 0] {
+        assert_eq!(reader.lookup(&key(n)).unwrap(), Lookup::Present);
+        reader.assert_cache_consistent();
+    }
+    let actual = reader.statistics().unwrap();
+    assert_eq!(
+        actual.retained_cache_metadata_bytes,
+        stats.retained_cache_metadata_bytes
+    );
+    assert_eq!(
+        (
+            actual.page_reads,
+            actual.page_cache_hits,
+            actual.evictions,
+            actual.retained_pages
+        ),
+        (5, 0, 4, 1)
+    );
+}
+
+#[test]
 fn finite_store_no_cache_and_eviction_still_use_exact_authoritative_disk() {
     let scratch = Scratch::new();
     let path = scratch.0.join("store");

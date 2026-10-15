@@ -67,6 +67,8 @@ pub(crate) struct StorageLimits {
     pub max_page_records: usize,
     pub max_page_bytes: usize,
     pub max_cached_pages: usize,
+    /// Resident decoded-page payload plus reserved index/slot capacity payload.
+    /// This is not process RSS (allocator/hash control slack is excluded).
     pub max_cached_page_bytes: usize,
     pub max_directory_bytes: usize,
     pub max_manifest_bytes: usize,

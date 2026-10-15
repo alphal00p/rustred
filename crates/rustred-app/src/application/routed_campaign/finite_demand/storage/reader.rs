@@ -1,5 +1,7 @@
 use super::*;
-use std::{collections::VecDeque, fs, path::Path, sync::Mutex};
+use std::{fs, path::Path, sync::Mutex};
+mod cache;
+use cache::PageCache;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Lookup {
@@ -20,6 +22,9 @@ pub(crate) struct ReaderStatistics {
     pub uncached_large_pages: u64,
     pub retained_pages: usize,
     pub retained_page_payload_bytes: usize,
+    /// Reserved slot/index capacity payload, also charged to the existing
+    /// cache byte allowance. Excludes hash control bytes and allocator slack.
+    pub retained_cache_metadata_bytes: usize,
 }
 struct CachedPage {
     digest: Digest,
@@ -27,7 +32,7 @@ struct CachedPage {
     bytes: usize,
 }
 struct ReaderState {
-    cache: VecDeque<CachedPage>,
+    cache: PageCache,
     statistics: ReaderStatistics,
 }
 
@@ -51,14 +56,20 @@ impl WorkReader {
             generation.manifest.runs.clone(),
             limits.directory_limits(),
         )?;
+        let cache = PageCache::new(
+            limits.max_cached_pages.min(directory.statistics().pages),
+            limits.max_cached_page_bytes,
+            &generation.manifest.runs,
+        )?;
+        let statistics = ReaderStatistics {
+            retained_cache_metadata_bytes: cache.metadata_bytes(),
+            ..Default::default()
+        };
         Ok(Self {
             generation,
             directory,
             limits,
-            state: Mutex::new(ReaderState {
-                cache: VecDeque::new(),
-                statistics: ReaderStatistics::default(),
-            }),
+            state: Mutex::new(ReaderState { cache, statistics }),
         })
     }
     pub fn generation(&self) -> Digest {
@@ -87,6 +98,10 @@ impl WorkReader {
         state.statistics.retained_pages = 0;
         state.statistics.retained_page_payload_bytes = 0;
         Ok(())
+    }
+    #[cfg(test)]
+    pub(super) fn assert_cache_consistent(&self) {
+        self.state.lock().unwrap().cache.assert_consistent();
     }
     pub fn lookup(&self, key: &StoredWork) -> Result<Lookup> {
         key.validate(self.generation.execution().physical_arity as usize)?;
@@ -135,16 +150,10 @@ impl WorkReader {
             .state
             .lock()
             .map_err(|_| io("finite reader state poisoned"))?;
-        if let Some(index) = state
-            .cache
-            .iter()
-            .position(|page| page.digest == expected.object.digest)
-        {
-            let cached = state.cache.remove(index).expect("position exists");
+        if let Some(page) = state.cache.get(&expected.object.digest) {
             // Keep the page borrowed under the cache mutex, so eviction cannot
             // leave per-worker uncharged retained Arc pages behind.
-            visitor(&cached.page);
-            state.cache.push_back(cached);
+            visitor(page);
             increment(&mut state.statistics.page_cache_hits, 1)?;
             return Ok(GeneratedPageReadUsage {
                 disk_bytes: 0,
@@ -173,35 +182,28 @@ impl WorkReader {
         drop(frame);
         let payload = page.payload_bytes();
         visitor(&page);
-        if self.limits.max_cached_pages == 0 || payload > self.limits.max_cached_page_bytes {
+        if !state.cache.can_store(
+            &expected.object.digest,
+            payload,
+            self.limits.max_cached_page_bytes,
+        ) {
             increment(&mut state.statistics.uncached_large_pages, 1)?;
         } else {
-            while state.cache.len() >= self.limits.max_cached_pages
-                || payload
-                    > self
-                        .limits
-                        .max_cached_page_bytes
-                        .saturating_sub(state.statistics.retained_page_payload_bytes)
+            while state
+                .cache
+                .needs_eviction(payload, self.limits.max_cached_page_bytes)
             {
-                let old = state
-                    .cache
-                    .pop_front()
-                    .ok_or_else(|| corrupt("finite cache byte accounting"))?;
-                state.statistics.retained_page_payload_bytes -= old.bytes;
+                state.cache.evict()?;
+                state.statistics.retained_page_payload_bytes = state.cache.page_bytes();
                 state.statistics.retained_pages = state.cache.len();
                 increment(&mut state.statistics.evictions, 1)?;
             }
-            state.cache.try_reserve(1).map_err(resource)?;
-            state.statistics.retained_page_payload_bytes = state
-                .statistics
-                .retained_page_payload_bytes
-                .checked_add(payload)
-                .ok_or_else(|| resource("resident page byte overflow"))?;
-            state.cache.push_back(CachedPage {
+            state.cache.insert(CachedPage {
                 digest: expected.object.digest,
                 page,
                 bytes: payload,
-            });
+            })?;
+            state.statistics.retained_page_payload_bytes = state.cache.page_bytes();
         }
         state.statistics.retained_pages = state.cache.len();
         Ok(GeneratedPageReadUsage {
