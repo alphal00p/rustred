@@ -1,5 +1,7 @@
 //! Private exact-window -> native seal -> atomic generated cursor lifecycle.
 //! No public campaign frontend, CP6 adoption or publication/export authority.
+#[cfg(test)]
+pub(crate) mod diagnostic;
 mod errors;
 use super::{
     prepared::{PreparedExecution, PreparedGeneration},
@@ -343,7 +345,9 @@ impl<const N: usize> Session<N> {
         )?;
         let admission = FiniteRootAdmission::try_new([window.region().clone()], 1)
             .map_err(|e| AppError::input(e.to_string()))?;
-        let delta = baseline
+        #[cfg(test)]
+        let native_started = std::time::Instant::now();
+        let delta_result = baseline
             .trace_batch(
                 window.targets().iter().cloned(),
                 CandidateEntryAdmission::ExplicitFinite(&admission),
@@ -354,7 +358,14 @@ impl<const N: usize> Session<N> {
                 "window":self.cursors[index].windows(),"native":snapshot_json(s)}))
                 },
             )
-            .map_err(errors::completed)?;
+            .map_err(errors::completed);
+        #[cfg(test)]
+        observer(
+            json!({"event":"finite_backend_native_call_finished","row":index,
+            "seconds":native_started.elapsed().as_secs_f64(),"succeeded":delta_result.is_ok(),
+            "reader":diagnostic::reader_statistics(&reader)}),
+        );
+        let delta = delta_result?;
         let snapshot = delta.report().snapshot();
         let multiplicity = delta
             .report()
@@ -397,6 +408,8 @@ impl<const N: usize> Session<N> {
             "inputs":completed.inputs,"new_work":completed.new_work,"baseline_hits":completed.baseline_hits}),
         );
         check(cancel)?;
+        #[cfg(test)]
+        let commit_started = std::time::Instant::now();
         let outcome = self.prepared.commit_delta_with_generated_metadata(
             &self.authenticated,
             &mut self.writer,
@@ -409,6 +422,10 @@ impl<const N: usize> Session<N> {
         self.cursors[index] = successor;
         self.authenticated = outcome.generation;
         completed.cleanup_warning = outcome.cleanup_warning;
+        #[cfg(test)]
+        observer(json!({"event":"finite_backend_commit_finished","row":index,
+            "seconds":commit_started.elapsed().as_secs_f64(),
+            "generation":self.authenticated.generation().generation()}));
         Ok(Step {
             window: Some(completed),
             progress: self.progress()?,
