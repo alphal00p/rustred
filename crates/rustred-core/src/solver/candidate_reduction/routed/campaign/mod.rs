@@ -1,6 +1,10 @@
 //! Shared finite-target closure: one FIFO and one identity set across all
 //! entries. Algebra is local to a worker; only scheduling/accounting is locked.
+mod census;
 mod inline;
+pub use census::{
+    CandidateRoutedSelectionIdentity, CandidateRoutedTraceCensus, CandidateRoutedTraceCensusLimits,
+};
 mod model;
 pub use inline::CandidateRoutedWorkBudget;
 mod scheduler;

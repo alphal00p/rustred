@@ -30,9 +30,53 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         admission: CandidateEntryAdmission<'_, N>,
         budget: CandidateRoutedWorkBudget,
         cancellation: &AtomicBool,
+        observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
+    ) -> Result<CandidateRoutedCampaignReport<N>, CandidateRoutedCampaignError<N>> {
+        self.trace_inline_with_optional_census(
+            targets,
+            admission,
+            budget,
+            None,
+            cancellation,
+            observer,
+        )
+    }
+
+    /// The same finite native kernel, retaining a bounded exact dispatch census.
+    /// A complete census is available only for a completed, frontier-free trace;
+    /// caller cancellation and application-level failures remain authoritative.
+    pub fn trace_targets_inline_with_entry_admission_and_census_observer(
+        &self,
+        targets: impl IntoIterator<Item = IntegralKey>,
+        admission: CandidateEntryAdmission<'_, N>,
+        budget: CandidateRoutedWorkBudget,
+        census: CandidateRoutedTraceCensusLimits,
+        cancellation: &AtomicBool,
+        observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
+    ) -> Result<CandidateRoutedCampaignReport<N>, CandidateRoutedCampaignError<N>> {
+        self.trace_inline_with_optional_census(
+            targets,
+            admission,
+            budget,
+            Some(census),
+            cancellation,
+            observer,
+        )
+    }
+
+    fn trace_inline_with_optional_census(
+        &self,
+        targets: impl IntoIterator<Item = IntegralKey>,
+        admission: CandidateEntryAdmission<'_, N>,
+        budget: CandidateRoutedWorkBudget,
+        census: Option<CandidateRoutedTraceCensusLimits>,
+        cancellation: &AtomicBool,
         mut observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
     ) -> Result<CandidateRoutedCampaignReport<N>, CandidateRoutedCampaignError<N>> {
         let mut shared = Shared::new(self, 1, cancellation);
+        if let Some(limits) = census {
+            shared.enable_census(limits);
+        }
         shared.limits.max_input_targets = shared.limits.max_input_targets.min(budget.max_nodes);
         shared.limits.max_unique_nodes = shared.limits.max_unique_nodes.min(budget.max_nodes);
         shared.limits.max_transport_calls = shared

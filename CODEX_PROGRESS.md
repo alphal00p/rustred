@@ -1,5 +1,38 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 15 — A1 exact trace census passes native regressions
+
+The frozen optimized core test binary
+`TMP/releases/20261015-finite-census-tests/rustred-core-tests` has SHA256
+`2f51e150aa16531771c65442cd0271739b560c2fe678a0773399bcd501f8b3f2`.
+All528 candidate-reduction tests passed (0.95s native/1.181s guarded), including
+the13 new optional-census controls; none were ignored. The preceding53-test
+routed campaign group is a subset, not an additional count. Exact source/pole/
+exception, preferred-rule precedence, cancellation, cache and routing regressions
+passed. Expected caught panic fixtures are recorded in stderr, not test failures.
+Independent source and runtime audits passed. Receipts:
+`TMP/finite-census-core-{runtime,regressions}-20261015/`.
+
+A1 records the actual selected owner/batch/baseline/winner identity without a
+second algebraic pass; ordinary tracing leaves census disabled. Partial traces,
+budget exhaustion and missing-rule leaves cannot supply a complete census.
+This is the core prerequisite, not completed finite publication: A2 native
+linking, publication/export tests and the real279-point run remain pending.
+No production executable or campaign has been replaced.
+
+## October 15 — user R2 publication completed
+
+Read-only verification of the user's incremental run
+`20261015T104800.345587Z` confirmed all16,585,823 discovered domains closed,
+348/348 cumulative required queries resolved, zero pending/frontiers, generation8.
+The supervisor measured3986.636s for this resumed invocation, with no resource
+stop. Publication completed as
+`14b5bd1ebf34d50913b4a6bd49a5180e476fa8126f074b3bcdc854364a2d2029`,
+status `published_unrefined`,9,982 installed executable rule records. This is
+R2 on the frozen physical templates, not the fullR6 goal or arbitrary inputs
+below an aggregate maximum. The user was given the R3 extension command;
+root did not execute it. Retained R2 publication remains valid during extension.
+
 ## October 15 — finite publication runtime gates; witness memo reproduced
 
 The preceding implementation turn made progress (A1/A2 source, independent

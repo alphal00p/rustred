@@ -191,33 +191,52 @@ fn process<const N: usize>(
             }
             shared.begin_apply()?;
             let context = &reducer.programs.context.shared;
-            let result = owner.evaluate_step::<Failure>(key, |batch| {
-                let bound = batch.coalescing_bound;
-                shared.reserve_apply(bound)?;
-                let mut local_limits = reducer.programs.context.limits;
-                local_limits.max_coalescing_additions = bound;
-                let evaluator = CandidateEvaluator {
-                    context: &context.context,
-                    root_sector: owner.root,
-                    ordering: &owner.ordering,
-                    rules: &batch.rules,
-                    whole_piece_alternatives: &batch.whole_piece_alternatives,
-                    source_conditions: &context.source_conditions,
-                    zero_sectors: &context.zero_sectors,
-                    limits: local_limits,
-                };
-                let mut request = ReductionRequest::default();
-                let mut stats = ReductionStatistics::default();
-                // Settle each batch even on a native panic. A later expensive
-                // batch cannot enlarge an earlier formula's reservation.
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    evaluator.apply(key, &mut request, &mut stats)
-                }));
-                let successful = matches!(&result, Ok(Ok(_)));
-                shared.settle_apply(bound, stats.coalescing_additions(), successful)?;
-                shared.check()?;
-                result.map_err(|_| Failure::WorkerPanicked)
-            })?;
+            let result =
+                owner.evaluate_step_with_ordinal::<Failure>(key, |batch_ordinal, batch| {
+                    let bound = batch.coalescing_bound;
+                    shared.reserve_apply(bound)?;
+                    let mut local_limits = reducer.programs.context.limits;
+                    local_limits.max_coalescing_additions = bound;
+                    let evaluator = CandidateEvaluator {
+                        context: &context.context,
+                        root_sector: owner.root,
+                        ordering: &owner.ordering,
+                        rules: &batch.rules,
+                        whole_piece_alternatives: &batch.whole_piece_alternatives,
+                        source_conditions: &context.source_conditions,
+                        zero_sectors: &context.zero_sectors,
+                        limits: local_limits,
+                    };
+                    let mut request = ReductionRequest::default();
+                    let mut stats = ReductionStatistics::default();
+                    // Settle each batch even on a native panic. A later expensive
+                    // batch cannot enlarge an earlier formula's reservation.
+                    let mut selection = None;
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        if shared.census_enabled() {
+                            evaluator
+                                .apply_with_rule_identity(key, &mut request, &mut stats)
+                                .map(|(terms, baseline, selected)| {
+                                    selection = Some((baseline, selected));
+                                    terms
+                                })
+                        } else {
+                            evaluator.apply(key, &mut request, &mut stats)
+                        }
+                    }));
+                    let successful = matches!(&result, Ok(Ok(_)));
+                    shared.settle_apply(bound, stats.coalescing_additions(), successful)?;
+                    shared.check()?;
+                    if successful && let Some((baseline, selected)) = selection {
+                        shared.selected_rule(
+                            &owner_sector[..key.powers().len()],
+                            batch_ordinal,
+                            baseline,
+                            selected,
+                        )?;
+                    }
+                    result.map_err(|_| Failure::WorkerPanicked)
+                })?;
             shared.check()?;
             match result {
                 OwnerStep::Applied(terms) => {

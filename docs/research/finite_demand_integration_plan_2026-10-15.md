@@ -1,9 +1,19 @@
 # Finite replay: smallest publishable and resumable integration
 
-Status: A1 implementation is pending independent interface and mathematical
-review. The coordinator will authorize combined compilation after A1/A2 source
-review. No new experiment, production campaign change or default-budget change
-is authorized by this document; the full goal continues beyond these milestones.
+Status: A1 and A2 source passed independent review. A1 native runtime acceptance
+passed:528 candidate-reduction tests, including all13 new census tests, no
+failures or ignored tests (0.95s native). Independent runtime audit passed.
+The frozen core test executable is recorded under
+`TMP/releases/20261015-finite-census-tests/`. Eight new app controls and additional
+quota assertions are implemented; A2 optimized compilation/runtime gates remain
+pending. Earlier core/app test type checks passed (86.186s and107.239s). The
+final required-census cold-loader fix is included in the combined native build,
+not the earlier app type-check receipt.
+A2 includes mandatory replay, exact binary provenance, portable application
+canaries and fail-closed inheritance. B is not implemented. The coordinator
+controls combined compilation and runtime gates. No new experiment, production
+campaign change or default-budget
+change is authorized by this document; the full goal continues beyond these milestones.
 
 ## Evidence and scope
 
@@ -27,8 +37,9 @@ sets. It lacks selected owner/batch/rule identities. The app discards the sets
 when adapting the result to `Outcome::Closed { recipe, work }`.
 
 Add an optional trace census, disabled for existing ordinary methods. Proposed
-plain data interface: rule identity `(physical_owner, batch_ordinal,
-saved_rule_ordinal)` with checked event multiplicity, plus existing terminal and
+plain data interface: selection identity `(physical_owner, batch_ordinal,
+baseline_rule_ordinal, selected_rule_ordinal)` with checked event multiplicity,
+plus existing terminal and
 zero keys. Use `PreparedRule.ordinal`, not its current vector position (preferred
 subsets/overlays make those different). Bounds are maximum distinct identities
 and bytes/entries, with a typed incomplete/error outcome if exhausted.
@@ -37,7 +48,8 @@ Record actual chosen-rule identity at the existing selection/application point,
 only after successful native application. Do not rematch each integral, compute
 all applicable identities, or build equations just to learn provenance. Keep
 the native baseline/alternative dispatch and its applicability checks untouched.
-Selected-rule census retains the same meaning as current inventory: chosen rule,
+The composite identity retains both baseline and selected saved ordinals. Its
+selected-rule inventory projection retains the existing meaning: chosen rule,
 not every baseline guard that was checked. All original guard-bearing programs
 remain in the package, so census does not replace source/guard authority.
 
@@ -105,6 +117,11 @@ dot excess, actual completed/scheduled/queued states, failure work and phase.
 One CP6 recipe must be displayed separately from hundreds of thousands of
 internal exact expansions. Rule/terminal counts are concrete identities, not
 independence claims. No top-k transport-cost framework is needed for sliceA.
+
+Current A2 source exposes full final internal rank/work/failure data and a
+separate finite-replay timing boundary. Publication emits start/end state but
+does not yet stream internal exact-trace updates; that UI limitation does not
+relax native replay or turn a recipe count into a physical-work count.
 
 ### A acceptance
 
@@ -176,6 +193,12 @@ special case. Completed recipes can be reused on resume without replaying them
 in the live solve; independent cold verification/publication still replays or
 authenticates a matching completed census.
 
+Independent review identified an important scheduling requirement: an eligible
+case must wait when that finite-attempt permit is busy, rather than silently
+falling back to the expensive symbolic walk solely because another case owns
+the permit. Unsupported or over-budget geometry still uses the ordinary path.
+Record any different fallback policy explicitly if later measurements justify it.
+
 ### B3. Atomic case boundaries, explicit restart semantics
 
 Use existing atomic merge-boundary CP6 checkpointing. A completed finite recipe
@@ -193,6 +216,9 @@ An interrupted/declined attempt must not be installed as a failed permanent
 native record that prevents retry. Track attempts by domain/invocation and allow
 unfinished cases to restart on resume; prevent endless same-invocation retries.
 Completed and failed provenance must not be inferred from diagnostic counters.
+In particular, a resumed pending job may already have a nonzero scheduling
+attempt count: the current v2 `attempts == 0` shortcut cannot serve as its
+retry/eligibility policy. Keep source-validity failures distinct from interruption.
 
 ### B4. Append-only R0→R1
 
@@ -202,6 +228,11 @@ change source templates. Reconstruct eligible domains from both original and
 appended query rows. Already-closed aliased domains need no new work. New finite
 regions may initially re-enumerate overlap (e.g. the9R0points within279R1points);
 do not introduce a cross-request point memo in this minimal slice.
+
+Initially support only authenticated scope-extension amendments. Rescue changes
+to owners or quarantine require separate provenance revalidation and tests;
+reject unsupported combinations explicitly rather than assuming that an old
+completed finite recipe remains authoritative under changed rule selection.
 
 ### B acceptance
 

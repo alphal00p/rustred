@@ -85,6 +85,20 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
         self.apply_selected(rule, target, request, statistics, &mut |_| {})
     }
 
+    /// The ordinary one-step kernel, additionally returning its actual saved
+    /// selection identities. Selection runs once; no equation is rematerialized
+    /// and no applicability or guard check is replaced by this bookkeeping.
+    pub(super) fn apply_with_rule_identity(
+        &self,
+        target: &IntegralKey,
+        request: &mut ReductionRequest,
+        statistics: &mut ReductionStatistics,
+    ) -> Result<(BTreeMap<IntegralKey, Coefficient>, usize, usize), CandidateReductionError> {
+        let (baseline, selected) = self.selected_rule(target)?;
+        let terms = self.apply_selected(selected, target, request, statistics, &mut |_| {})?;
+        Ok((terms, baseline.ordinal, selected.ordinal))
+    }
+
     /// The same ordered dispatch and strict descent as `apply`, retaining the
     /// generic conditions needed for exact coefficient back-substitution.
     pub(super) fn apply_with_conditions(

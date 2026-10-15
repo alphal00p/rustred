@@ -59,6 +59,7 @@ pub use routed::{
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
     CandidateRoutedCampaignSnapshot, CandidateRoutedError, CandidateRoutedFrontier,
     CandidateRoutedFrontierReason, CandidateRoutedIdentity, CandidateRoutedReduction,
+    CandidateRoutedSelectionIdentity, CandidateRoutedTraceCensus, CandidateRoutedTraceCensusLimits,
     CandidateRoutedTraceReport, CandidateRoutedWork, CandidateRoutedWorkBudget, EntryWitnessError,
     EntryWitnessLimits, EntryWitnessOutcome, FiniteRootAdmission, RootAdmissionError,
     RootRegionInput, RoutedCandidateApplication, RoutedCandidateLimits, RoutedCandidateReducer,

@@ -70,6 +70,7 @@ struct State<const N: usize> {
     missing_rules: usize,
     failure: Option<Failure>,
     first_failure_work: Option<Work<N>>,
+    census: Option<CandidateRoutedTraceCensus>,
 }
 
 pub(super) struct Shared<'a, const N: usize> {
@@ -82,6 +83,7 @@ pub(super) struct Shared<'a, const N: usize> {
     cancellation: &'a AtomicBool,
     pub(super) limits: super::super::RoutedCandidateLimits,
     pub(super) reduction: ReductionLimits,
+    census_limits: Option<CandidateRoutedTraceCensusLimits>,
 }
 impl<'a, const N: usize> Shared<'a, N> {
     pub(super) fn new(
@@ -108,6 +110,7 @@ impl<'a, const N: usize> Shared<'a, N> {
                 missing_rules: 0,
                 failure: None,
                 first_failure_work: None,
+                census: None,
             }),
             membership: Membership::new(),
             wake: Condvar::new(),
@@ -117,7 +120,37 @@ impl<'a, const N: usize> Shared<'a, N> {
             cancellation,
             limits: reducer.limits,
             reduction: reducer.programs.context.limits,
+            census_limits: None,
         }
+    }
+    pub(super) fn enable_census(&mut self, limits: CandidateRoutedTraceCensusLimits) {
+        self.census_limits = Some(limits);
+        self.state
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .census = Some(CandidateRoutedTraceCensus::default());
+    }
+    pub(super) fn census_enabled(&self) -> bool {
+        self.census_limits.is_some()
+    }
+    pub(super) fn selected_rule(
+        &self,
+        owner: &[bool],
+        batch: usize,
+        baseline: usize,
+        selected: usize,
+    ) -> Result<(), Failure> {
+        let Some(limits) = self.census_limits else {
+            return Ok(());
+        };
+        let mut state = self.lock();
+        self.check_locked(&mut state)?;
+        state
+            .census
+            .as_mut()
+            .expect("enabled trace census")
+            .record(owner, batch, baseline, selected, limits)
+            .map_err(Failure::from)
     }
     fn lock(&self) -> MutexGuard<'_, State<N>> {
         self.state
@@ -640,6 +673,7 @@ impl<'a, const N: usize> Shared<'a, N> {
         let report = CandidateRoutedCampaignReport {
             trace: state.trace,
             snapshot,
+            census: state.census,
         };
         match state.failure {
             Some(reason) => Err(CandidateRoutedCampaignError {

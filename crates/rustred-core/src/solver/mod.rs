@@ -50,6 +50,7 @@ pub use candidate_reduction::{
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
     CandidateRoutedCampaignSnapshot, CandidateRoutedError, CandidateRoutedFrontier,
     CandidateRoutedFrontierReason, CandidateRoutedIdentity, CandidateRoutedReduction,
+    CandidateRoutedSelectionIdentity, CandidateRoutedTraceCensus, CandidateRoutedTraceCensusLimits,
     CandidateRoutedTraceReport, CandidateRoutedWork, CandidateRoutedWorkBudget,
     CandidateStatistics, CandidateTraceLimits, CandidateTraceReport, CandidateUnitMassProgram,
     DeferredCandidateOwnerDescriptor, DeferredCandidateOwnerLoader, DeferredCandidateOwnerPrograms,

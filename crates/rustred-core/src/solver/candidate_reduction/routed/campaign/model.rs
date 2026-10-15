@@ -68,6 +68,7 @@ pub struct CandidateRoutedCampaignSnapshot<const N: usize> {
 pub struct CandidateRoutedCampaignReport<const N: usize> {
     pub(super) trace: CandidateRoutedTraceReport<N>,
     pub(super) snapshot: CandidateRoutedCampaignSnapshot<N>,
+    pub(super) census: Option<super::CandidateRoutedTraceCensus>,
 }
 impl<const N: usize> CandidateRoutedCampaignReport<N> {
     pub fn trace(&self) -> &CandidateRoutedTraceReport<N> {
@@ -75,6 +76,15 @@ impl<const N: usize> CandidateRoutedCampaignReport<N> {
     }
     pub fn snapshot(&self) -> &CandidateRoutedCampaignSnapshot<N> {
         &self.snapshot
+    }
+    /// No partial, cancelled, failed or frontier-bearing result can supply a
+    /// complete census. None also denotes an ordinary census-disabled trace.
+    pub fn complete_census(&self) -> Option<&super::CandidateRoutedTraceCensus> {
+        if self.snapshot.finished && self.trace.frontier().is_empty() {
+            self.census.as_ref()
+        } else {
+            None
+        }
     }
 }
 

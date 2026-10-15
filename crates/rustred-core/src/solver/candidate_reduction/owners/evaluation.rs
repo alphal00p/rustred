@@ -61,7 +61,26 @@ impl<const N: usize> PreparedOwner<N> {
     where
         E: From<CandidateReductionError>,
     {
-        for batch in &self.batches {
+        self.evaluate_step_with_ordinal(key, |_, batch| evaluate(batch))
+    }
+
+    /// Identical ordered dispatch with its actual immutable batch ordinal.
+    /// Ordinary callers use `evaluate_step` and retain no census state.
+    pub(in crate::solver::candidate_reduction) fn evaluate_step_with_ordinal<E>(
+        &self,
+        key: &IntegralKey,
+        mut evaluate: impl FnMut(
+            usize,
+            &PreparedOwnerBatch<N>,
+        ) -> Result<
+            Result<BTreeMap<IntegralKey, Coefficient>, CandidateReductionError>,
+            E,
+        >,
+    ) -> Result<OwnerStep, E>
+    where
+        E: From<CandidateReductionError>,
+    {
+        for (ordinal, batch) in self.batches.iter().enumerate() {
             if batch.terminals.contains(key) {
                 return Ok(OwnerStep::Terminal);
             }
@@ -72,7 +91,7 @@ impl<const N: usize> PreparedOwner<N> {
             {
                 continue;
             }
-            match evaluate(batch)? {
+            match evaluate(ordinal, batch)? {
                 Ok(terms) => return Ok(OwnerStep::Applied(terms)),
                 Err(CandidateReductionError::Uncovered { .. }) => {}
                 Err(error) => return Err(error.into()),
