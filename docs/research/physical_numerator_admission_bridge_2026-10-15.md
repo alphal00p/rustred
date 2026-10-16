@@ -210,6 +210,18 @@ missing-owner refusal, vanishing source conditions, malformed arity, exact
 resource refusals, and guard retention through actual routed reduction without
 rule, transport or cache work. Independent audit passed; evidence is
 `TMP/entry-source-zero-validation-20261015/runtime/independent-audit.json`.
-An actual current-package probe of the displayed five-loop key is still a
-separate runtime gate. This small correction does not solve the other rejected
-supports, mass-shifted images, or full ladder application.
+The actual current-package K15 probe subsequently passed independent review:
+the displayed key and a D11 key with the same installed zero support both
+return exact zero. A D10 control not classified as zero routes to its unchanged key
+with coefficient one, whereas its D11 counterpart still fails admission. This
+is entry routing, not reduction of that key to masters or proof that the final
+integral is nonzero. Malformed arity is
+rejected before owner preparation. Rule-application
+counters remain zero throughout. Package preparation took 40.245 s; the whole
+guarded driver took 47.829 s and peaked at 2.551 GB. Evidence:
+`TMP/r4-saved-entry-probe-20261015/runtime/`.
+
+This confirms that one concrete application defect is fixed without broadening
+nonzero admission. It is not a rerun of the full 75,643-occurrence census and
+does not solve the other rejected supports, mass-shifted images, or full
+ladder application.

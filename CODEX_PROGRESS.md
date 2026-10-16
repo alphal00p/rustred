@@ -1,5 +1,56 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 16 — fresh deployment agreed; indexed persistence helps but is not ready
+
+The user confirmed that the optimized backend may start a **fresh campaign**.
+Reuse the existing owner programs and input templates, not the old CP6 Work
+ledger; leave all production campaigns and published artifacts untouched. No
+new production launch is authorized or recommended yet.
+
+The frozen combined app binary from source `b42b7d98` built successfully in
+1305.871 s. Its finite component passed 173 test executions / 172 distinct
+tests, and a separate saved-application continuation passed 63 tests. The full
+publication gate is **not passed**: one new fixture invoked an Epoch control
+with the unsupported default inspection policy. The fixture-only correction
+is in the public-lifecycle worktree; its positive publication/refine/extend
+test still needs the next native build. No assertion or engine guard was
+weakened. The exact-source indexed-cache IO gate passed 35 tests independently.
+
+Indexed durable R1 Phase A preserved the exact baseline generation/digest and
+300,673 completed Work. Native call/export time fell from 29.700 to 22.022 s,
+but full driver time rose from 160.301 to 165.983 s because preparation took
+longer: **no whole-run win**. Phase B again reached its planned pilot deadline,
+with exactly the same 171 committed windows, generation 253, 1,250,965 Work
+and 26,161 input occurrences as the baseline. The matched expensive row118
+fell from 129.469 to 68.372 s (call plus export); all completed Phase-B calls
+fell from 380.453 to 163.855 s. The hard row156 remained uncommitted. Its larger
+partial expansion count is not closure or a matched full-window speedup.
+Inclusive Phase-B time was 1635.016 s, peak RSS 8.474 GB, with all owned
+processes drained. No missing-rule, missing-owner or RAM failure was observed.
+
+The separate in-memory R2 diagnostic also hit its planned deadline: 1653.228 s,
+16.568 GB, 253/348 rows and 202,630 occurrences completed. Its completed prefix
+retains 23,799,934 Work, 862 terminals and 4,348,444 zeros; the cancelled
+six-input row253 is excluded. This is neither full R2 nor a durable checkpoint.
+Independent compact evidence:
+`TMP/full-r2-resource-governed-20261015/runtime/independent-audit.json`.
+
+Public Python lifecycle implementation `e6f130ab` passed independent source
+audit and 114 tests (17 new finite / 97 existing), in 14.738 s. Initial native
+lifecycle typechecking passed; final native integration, interrupted-preparation repair,
+relocation and publication tests remain pending. Responsible agents:
+`intermediate_capture_app` (native), `weighted_vk_gate_plan` (Python, delivered),
+`finite_backend_audit` (independent gates). A new `finite_resident_work` lane is
+designing an explicitly memory-bounded exact completed-Work index to avoid the
+remaining overlapping-run scans; it is not yet implemented or measured.
+
+The actual K15 source-zero probe also passed: the formerly rejected ladder
+key now returns exact zero using its installed certificate, with zero IBP
+applications. A nonzero D10 control succeeds and its D11 counterpart still
+fails admission. Full ladder reduction remains outstanding. Detailed reports:
+`docs/research/shared_finite_r1_pilots_2026-10-15.md` and
+`docs/research/physical_numerator_admission_bridge_2026-10-15.md`.
+
 ## October 15 — persistence baseline censored; indexed cache and publication build advance
 
 PhaseB42673 terminated at its planned1620-second timer, not a mathematical or

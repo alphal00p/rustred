@@ -1,5 +1,66 @@
 # Shared finite-demand tracing: complete R1 input pilots
 
+## October 16: indexed persistence and higher-rank diagnostic
+
+The indexed page LRU passed its 35-test IO gate and the combined binary's
+finite-component gate (173 executions / 172 distinct tests). The latter is
+not approval of the full publication adapter: a separate new fixture setup
+failed, was corrected, and awaits its next native run. The matched tracing
+pilots below used the frozen finite component, not an untested production CLI.
+
+| Same-source durable measurement, four workers | Original page cache | Indexed page cache |
+|---|---:|---:|
+| R0-prefix full driver | 160.301 s | 165.983 s |
+| R0-prefix preparation | 114.182 s | 126.646 s |
+| R0-prefix native calls plus export | 29.700 s | 22.022 s |
+| R0-prefix retained Work | 300,673 | 300,673 |
+| R1 continuation completed windows | 171 | 171 |
+| R1 continuation completed call/export sum | 380.453 s | 163.855 s |
+| Matched row118 call/export | 129.469 s | 68.372 s |
+| R1 continuation complete driver, censored | 1,632.754 s | 1,635.016 s |
+| R1 continuation peak RSS | 8.385 GB | 8.474 GB |
+
+The same 171 continuation windows have identical input counts, new Work,
+baseline hits and page IO counts. Both checkpoints end at generation253 /
+1,250,965 Work /26,161 input occurrences, with CURRENT digest
+`20ee1589529d1dbe13dd4bf7410ada753a6ea7cd1be9b48c22225818d4b371d7`.
+The index cuts row118's measured call-plus-export interval by approximately
+47%, but **neither
+durable run completes R1** within the pilot. Indexed row156 reached 2,261,050
+scheduled states and 1,950,895 local expansions before cancellation; none of
+that unfinished window entered the committed census. Comparing this unequal
+partial progress with the baseline is not a full-window speedup measurement.
+
+There was no RAM stop or observed missing rule/owner. Both owned process groups
+drained. The remaining bottleneck is repeated exact lookup through overlapping
+runs, even with constant-time page-cache indexing. A bounded resident exact
+Work index is the next candidate, not an implemented or proven optimization.
+Evidence: `TMP/finite-demand-indexed-r1-validation-20261015/phase-a/` and
+`phase-b/`, with independently audited native receipts. Full publication and
+fresh-process full-R1 census comparison remain pending.
+
+A separate higher-rank diagnostic kept the accepted **in-memory** R1 binary
+and policy, appending the actual second amendment without changing its bounds.
+All 348 cumulative declarations passed native geometry/count preflight:
+701,972 occurrences, 54 empty rows. Its planned 1,620-second stop produced an
+inclusive 1,653.228-second censored run, peaking at 16.568 GB. The independent
+audit accepts only the completed prefix:
+
+- 253/348 rows (all 232 R0/R1 declarations and 21 amendment-two rows);
+- 1,330 complete windows /202,630 occurrences, including 141,823 from R2;
+- 23,799,934 retained Work, 862 terminals and 4,348,444 zero keys;
+- 6,128 selected-rule identities /10,108,567 rule applications.
+
+The next row's six-input window was cancelled after 328.600 seconds. Its
+5,298,918 scheduled states and 4,840,354 local expansions are excluded from
+those completed totals. No missing rule/owner or memory stop was observed.
+The ordinary full-result postverifier did not run after wrapper termination;
+the independent read-only audit checked source bindings, all input geometries,
+the completed prefix and cancellation accounting. This JSON evidence is not a
+resumable Work checkpoint, full R2 closure, coefficient reduction or an R6 ETA.
+Compact receipt:
+`TMP/full-r2-resource-governed-20261015/runtime/independent-audit.json`.
+
 ## Durable follow-up: completed prefix and a measured lookup bottleneck
 
 The separate paged backend passed its 164-execution native gate and a real
@@ -56,7 +117,7 @@ does linear digest lookup and movement in a `VecDeque`, under its existing
 cache mutex, on every hit. The isolated indexed-page-LRU slice `c010d50c` passed
 35 focused IO tests, including three new eviction/index/budget controls, and
 independent source/runtime review. Its normal combined app check also passed;
-the combined optimized native gate and matched performance test remain pending.
+the subsequent finite native gate and matched measurements are recorded above.
 It does not change the captured generation, format, lookup result, scope or
 byte budget. The completed fixed baseline was never modified. Further positive
 or complete-resident Work membership caching remains a separate design option,
