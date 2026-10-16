@@ -54,6 +54,11 @@ fn write_record(events: &mut dyn Write, record: &Value) -> io::Result<()> {
     events.flush()
 }
 
+// serde_json emits many tiny writes per record. Buffer them without delaying
+// visibility: write_record still flushes every complete record and propagates
+// both write and flush errors to the campaign's cancellation path.
+const EVENT_BUFFER_BYTES: usize = 64 * 1024;
+
 /// Display metadata supplied by the process supervisor, never memory policy.
 fn parse_progress_memory_bytes(value: Option<&str>) -> Option<u64> {
     value?.parse::<u64>().ok().filter(|bytes| *bytes > 0)
@@ -88,13 +93,14 @@ impl RoutedProgress {
     }
 
     fn start_with_mode(
-        mut events: Box<dyn Write + Send>,
+        events: Box<dyn Write + Send>,
         tty: bool,
         cancellation: Arc<AtomicBool>,
         stop_file: Option<PathBuf>,
         reserved_workers: Option<usize>,
         progress_enabled: bool,
     ) -> Self {
+        let mut events = io::BufWriter::with_capacity(EVENT_BUFFER_BYTES, events);
         let finite_mode = reserved_workers.is_some();
         let process_memory_limit_bytes = parse_progress_memory_bytes(
             std::env::var("RUSTRED_PROGRESS_MEMORY_LIMIT_BYTES")
@@ -143,11 +149,12 @@ impl RoutedProgress {
             let mut previous = None;
             let mut previous_cpu = process_cpu_seconds().map(|cpu| (started, cpu));
             let mut last_plain = None::<Instant>;
+            let mut chase = finite::ChaseProgress::default();
             loop {
                 let finished = match receiver.recv_timeout(Duration::from_secs(1)) {
                     Ok(Control::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => true,
                     Ok(Control::Checkpoint(event)) => {
-                        if let Err(error) = write_record(&mut *events, &event) {
+                        if let Err(error) = write_record(&mut events, &event) {
                             cancellation.store(true, Ordering::Relaxed);
                             return Err(error);
                         }
@@ -193,10 +200,11 @@ impl RoutedProgress {
                     record["host_total_bytes"] = json!(host.total_bytes);
                     record["process_memory_limit_bytes"] = json!(process_memory_limit_bytes);
                     record["process_memory_soft_bytes"] = json!(process_memory_soft_bytes);
+                    chase.annotate(&mut record);
                 }
                 add_worker_summary(&mut record);
                 finite::annotate_heartbeat(&mut record);
-                if let Err(error) = write_record(&mut *events, &record) {
+                if let Err(error) = write_record(&mut events, &record) {
                     cancellation.store(true, Ordering::Relaxed);
                     return Err(error);
                 }
@@ -739,6 +747,91 @@ fn match_dashboard(record: &Value) -> [String; 6] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Default)]
+    struct CountingJournal {
+        bytes: Vec<u8>,
+        writes: usize,
+        flushes: usize,
+        fail_write: bool,
+        fail_flush: bool,
+    }
+
+    impl Write for CountingJournal {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.writes += 1;
+            if self.fail_write {
+                return Err(io::Error::other("counting journal write failure"));
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushes += 1;
+            if self.fail_flush {
+                return Err(io::Error::other("counting journal flush failure"));
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn buffered_journal_preserves_record_bytes_and_immediate_visibility() {
+        let records = [
+            json!({"event":"finite_checkpoint_saved","generation":42}),
+            json!({"event":"heartbeat","active":(0..150).map(|i|
+                json!({"worker":i,"phase":"route","target":[1,-1,2,0,1,-2,1]}))
+                .collect::<Vec<_>>()}),
+        ];
+        let mut direct = CountingJournal::default();
+        let mut buffered =
+            io::BufWriter::with_capacity(EVENT_BUFFER_BYTES, CountingJournal::default());
+        for (index, record) in records.iter().enumerate() {
+            write_record(&mut direct, record).unwrap();
+            write_record(&mut buffered, record).unwrap();
+            assert!(buffered.buffer().is_empty());
+            assert_eq!(buffered.get_ref().bytes, direct.bytes);
+            assert_eq!(buffered.get_ref().flushes, index + 1);
+            assert_eq!(buffered.get_ref().flushes, direct.flushes);
+        }
+        assert_eq!(buffered.get_ref().writes, records.len());
+        assert!(direct.writes > buffered.get_ref().writes * 100);
+    }
+
+    #[test]
+    fn buffered_journal_preserves_write_and_flush_failures() {
+        for fail_write in [true, false] {
+            let journal = || CountingJournal {
+                fail_write,
+                fail_flush: !fail_write,
+                ..Default::default()
+            };
+            let record = json!({"event":"finite_checkpoint_saved","generation":42});
+            let direct = write_record(&mut journal(), &record).unwrap_err();
+            let mut buffered = io::BufWriter::with_capacity(EVENT_BUFFER_BYTES, journal());
+            let actual = write_record(&mut buffered, &record).unwrap_err();
+            assert_eq!(actual.kind(), direct.kind());
+            assert_eq!(actual.to_string(), direct.to_string());
+        }
+    }
+
+    #[test]
+    fn buffered_journal_flush_failure_cancels_campaign_and_is_returned() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let monitor = RoutedProgress::start(
+            Box::new(CountingJournal {
+                fail_flush: true,
+                ..Default::default()
+            }),
+            false,
+            Arc::clone(&cancelled),
+            None,
+        );
+        monitor.observe(json!({"event":"checkpoint_saved"}));
+        assert!(monitor.finish().is_err());
+        assert!(cancelled.load(Ordering::Relaxed));
+    }
 
     #[test]
     fn display_memory_limit_is_optional_and_preserves_requested_bytes() {

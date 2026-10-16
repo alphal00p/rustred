@@ -179,6 +179,118 @@ fn append(request: &mut FiniteDemandRunRequest) {
 }
 
 #[test]
+fn public_finite_rejects_zero_workers_without_preparing_source() {
+    let mut value: Value = serde_json::from_slice(&policy().to_json().unwrap()).unwrap();
+    value["workers"] = json!(0);
+    let error = FiniteDemandPolicy::from_json(&serde_json::to_vec(&value).unwrap()).unwrap_err();
+    assert_eq!(error.kind(), crate::AppErrorKind::Input);
+    assert!(error.to_string().contains("positive"));
+}
+
+/// Uses the actual public lifecycle and native routed scheduler, not a mocked
+/// worker count. On smaller hosts the visible skip must not count as evidence
+/// that a 150-worker run was tested.
+#[test]
+fn public_finite_150_workers_resume_from_32_preserves_work_and_execution_binding() {
+    if !crate::test_gates::workers_or_skip("finite 32-to-150 worker resume", 150) {
+        return;
+    }
+    let f = Fixture::new();
+    let mut request = request(&f);
+    let set_workers = |request: &mut FiniteDemandRunRequest, workers: usize| {
+        let mut value: Value = serde_json::from_slice(&request.policy.to_json().unwrap()).unwrap();
+        value["workers"] = json!(workers);
+        request.policy =
+            FiniteDemandPolicy::from_json(&serde_json::to_vec(&value).unwrap()).unwrap();
+    };
+    set_workers(&mut request, 32);
+    let cancel = AtomicBool::new(false);
+    let error = run_finite_demand_with_progress(request.clone(), &cancel, |event| {
+        if event["event"] == "finite_checkpoint_saved" && event["generation_number"] == 2 {
+            cancel.store(true, Ordering::Release);
+        }
+    })
+    .unwrap_err();
+    assert_eq!(error.kind(), crate::AppErrorKind::Cancelled);
+    let before = inspect_finite_demand(&request.directory).unwrap();
+    assert_eq!(before["committed"]["input_occurrences"], 1);
+    let execution = fs::read(request.directory.join("execution.json")).unwrap();
+
+    cancel.store(false, Ordering::Release);
+    request.mode = FiniteDemandMode::Resume;
+    set_workers(&mut request, 150);
+    let saw_native = AtomicBool::new(false);
+    let finished = run_finite_demand_with_progress(request.clone(), &cancel, |event| {
+        if event["event"] == "finite_backend_native" {
+            assert_eq!(event["native"]["workers"], 150);
+            saw_native.store(true, Ordering::Release);
+        }
+    })
+    .unwrap();
+    assert!(saw_native.load(Ordering::Acquire));
+    assert!(finished.complete);
+    assert_eq!(finished.document["committed"]["input_occurrences"], 3);
+    assert_eq!(
+        fs::read(request.directory.join("execution.json")).unwrap(),
+        execution
+    );
+
+    append(&mut request);
+    let extended = run_finite_demand_with_progress(request.clone(), &cancel, |_| {}).unwrap();
+    assert!(extended.complete);
+    assert_eq!(extended.document["committed"]["input_occurrences"], 7);
+    assert_eq!(
+        fs::read(request.directory.join("execution.json")).unwrap(),
+        execution
+    );
+
+    // Independent serial replay of exactly the same source/amendment must have
+    // identical mathematical results and the same execution identity.
+    let mut serial = request;
+    serial.directory = f.directory.join("finite-serial-control");
+    serial.mode = FiniteDemandMode::Create;
+    set_workers(&mut serial, 1);
+    let storage_limits = serial.policy.native().storage;
+    let reference = run_finite_demand_with_progress(serial, &cancel, |_| {}).unwrap();
+    assert!(reference.complete);
+    assert_eq!(
+        extended.document["committed"],
+        reference.document["committed"]
+    );
+    // An append adds a metadata-only generation; compare execution and the
+    // completed Work/census through inspection rather than generation numbers.
+    let resumed = inspect_finite_demand(&f.directory.join("finite")).unwrap();
+    let serial = inspect_finite_demand(&f.directory.join("finite-serial-control")).unwrap();
+    assert_eq!(
+        fs::read(f.directory.join("finite-serial-control/execution.json")).unwrap(),
+        execution
+    );
+    assert_eq!(resumed["committed"], serial["committed"]);
+    use crate::application::routed_campaign::finite_demand::storage::{
+        RawExecutionBinding, ValidatedGeneration,
+    };
+    let execution_value: Value = serde_json::from_slice(&execution).unwrap();
+    let binding = RawExecutionBinding {
+        physical_arity: serde_json::from_value(execution_value["physical_arity"].clone()).unwrap(),
+        program_identity: serde_json::from_value(execution_value["program_identity"].clone())
+            .unwrap(),
+    };
+    let resumed = ValidatedGeneration::open_generated(
+        &f.directory.join("finite/store"),
+        &binding,
+        storage_limits,
+    )
+    .unwrap();
+    let serial = ValidatedGeneration::open_generated(
+        &f.directory.join("finite-serial-control/store"),
+        &binding,
+        storage_limits,
+    )
+    .unwrap();
+    assert_eq!(resumed.state(), serial.state());
+}
+
+#[test]
 fn public_finite_cancel_resume_append_and_owner_load_free_status() {
     let f = Fixture::new();
     let mut request = request(&f);

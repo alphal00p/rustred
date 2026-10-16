@@ -162,8 +162,8 @@ pub(crate) fn run_with_progress(
     cancel: &AtomicBool,
     observer: impl Fn(Value),
 ) -> Result<ResultDocument, AppError> {
-    if !(1..=64).contains(&request.policy.workers) {
-        return Err(AppError::input("finite demand workers must be in 1..=64"));
+    if request.policy.workers == 0 {
+        return Err(AppError::input("finite demand workers must be positive"));
     }
     rustred::campaign::ParallelExecution::preflight_requested_core_budget(request.policy.workers)
         .map_err(|e| AppError::input(e.to_string()))?;

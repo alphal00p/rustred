@@ -267,10 +267,12 @@ powers=[1]
         self.assertIn(b"Process RAM cap", after)
         self.assertIn(b"600.00 GB", after)
         self.assertIn(b"Input occurrences", after)
-        # Inline viewport is19 rows in this32-row terminal. Cleanup must land
+        self.assertIn(b"Chase elapsed", after)
+        self.assertIn(b"Convergence", after)
+        # Inline viewport is21 rows in this32-row terminal. Cleanup must land
         # at the viewport bottom, not scroll the whole screen's last row.
         self.assertNotIn(b"\x1b[32;1H", self.last_display)
-        self.assertIn(b"\x1b[19;1H", self.last_display)
+        self.assertIn(b"\x1b[21;1H", self.last_display)
 
     def test_native_cancellation_keeps_display_and_drains_group(self):
         display, replies, receipt = self.run_guard("cancelled", cancelled=True)

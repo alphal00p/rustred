@@ -120,6 +120,9 @@ impl GeneratedPageProvider for Pages {
 fn generated_native_delta_then_cold_page_reuse_matches_one_union_w1_w4() {
     let reducer = super::super::tests::diamond(Default::default(), Default::default());
     for workers in [1, 4] {
+        if !crate::test_gates::workers_or_skip("generated native delta and cold reuse", workers) {
+            continue;
+        }
         let mut pages = Pages::default();
         let empty = pages.directory(vec![], 1);
         let baseline = reducer

@@ -32,6 +32,9 @@ fn shared_diamond_matches_legacy_and_parallel_union_without_repeated_work() {
     let legacy = reducer.trace_targets(targets.clone()).unwrap();
     let cancel = AtomicBool::new(false);
     for workers in [1, 2, 6] {
+        if !crate::test_gates::workers_or_skip("shared diamond scheduler", workers) {
+            continue;
+        }
         for _ in 0..3 {
             let mut observed = Vec::new();
             let result = reducer
@@ -59,6 +62,9 @@ fn shared_diamond_matches_legacy_and_parallel_union_without_repeated_work() {
 
 #[test]
 fn aggregate_shared_work_succeeds_where_independent_totals_exceed_allowance() {
+    if !crate::test_gates::workers_or_skip("shared aggregate allowance", 6) {
+        return;
+    }
     let reducer = diamond(
         ReductionLimits {
             max_rule_applications: 5,
@@ -80,6 +86,9 @@ fn aggregate_shared_work_succeeds_where_independent_totals_exceed_allowance() {
 
 #[test]
 fn missing_rules_and_owners_are_frontiers_not_errors_or_terminals() {
+    if !crate::test_gates::workers_or_skip("shared missing rules and owners", 3) {
+        return;
+    }
     let family = Arc::new(crate::solver::tests::sunset());
     let reducer = RoutedCandidateReducer::try_new(
         programs(
@@ -109,6 +118,9 @@ fn missing_rules_and_owners_are_frontiers_not_errors_or_terminals() {
 
 #[test]
 fn children_above_input_rank_survive_and_late_invalid_input_prevents_work() {
+    if !crate::test_gates::workers_or_skip("shared input rank admission", 3) {
+        return;
+    }
     let family = Arc::new(crate::solver::tests::sunset());
     let owners = vec![
         input(
@@ -151,6 +163,9 @@ fn children_above_input_rank_survive_and_late_invalid_input_prevents_work() {
 
 #[test]
 fn cancellation_is_typed_and_never_success() {
+    if !crate::test_gates::workers_or_skip("shared cancellation", 2) {
+        return;
+    }
     let reducer = diamond(Default::default(), Default::default());
     let cancel = AtomicBool::new(true);
     let error = reducer
@@ -171,6 +186,9 @@ fn cancellation_is_typed_and_never_success() {
 
 #[test]
 fn aggregate_node_pending_rule_and_input_limits_fail_closed() {
+    if !crate::test_gates::workers_or_skip("shared aggregate limits", 3) {
+        return;
+    }
     use super::super::RoutedCandidateLimits;
     for (reduction, routing) in [
         (
@@ -252,6 +270,9 @@ fn coalescing_is_aggregate_and_local_cancellation_precedes_dedup() {
     };
     let cancel = AtomicBool::new(false);
     for workers in [1, 4] {
+        if !crate::test_gates::workers_or_skip("shared coalescing budget", workers) {
+            continue;
+        }
         let result = make(2)
             .trace_targets_parallel_with_observer([key([4]), key([3])], workers, &cancel, |_| {})
             .unwrap();
@@ -280,13 +301,27 @@ fn coalescing_is_aggregate_and_local_cancellation_precedes_dedup() {
 #[test]
 fn workers_and_empty_campaign_are_explicit() {
     let reducer = diamond(Default::default(), Default::default());
-    for workers in [0, 65] {
-        assert!(
-            reducer
-                .trace_targets_parallel_with_observer([], workers, &AtomicBool::new(false), |_| {})
-                .is_err()
-        );
-    }
+    let error = reducer
+        .trace_targets_parallel_with_observer([], 0, &AtomicBool::new(false), |_| {})
+        .unwrap_err();
+    assert!(matches!(
+        error.reason(),
+        CandidateRoutedCampaignFailure::Trace(super::super::CandidateRoutedError::InvalidInput(_))
+    ));
+    assert_eq!(error.snapshot().scheduled_nodes, 0);
+    let error = reducer
+        .trace_targets_parallel_with_observer(
+            [key([6])],
+            usize::MAX,
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error.reason(),
+        CandidateRoutedCampaignFailure::Trace(super::super::CandidateRoutedError::InvalidInput(_))
+    ));
+    assert_eq!(error.snapshot().scheduled_nodes, 0);
     let result = reducer
         .trace_targets_parallel_with_observer([], 1, &AtomicBool::new(false), |_| {})
         .unwrap();
@@ -437,6 +472,9 @@ fn native_affine_route_and_pinch_match_legacy_with_shared_transport_budgets() {
         assert!(error.snapshot().transport_endpoints <= budget.max_transport_endpoints);
     }
     for workers in [1, 4] {
+        if !crate::test_gates::workers_or_skip("shared transport and completed reuse", workers) {
+            continue;
+        }
         let result = reducer
             .trace_targets_parallel_with_observer(
                 [target.clone(), target.clone()],
@@ -837,6 +875,9 @@ fn publication_large_exact_rhs_matches_legacy_for_serial_and_parallel_workers() 
     let targets = [key([10, 10, 10]), key([10, 10, 10])];
     let legacy = reducer.trace_targets(targets.clone()).unwrap();
     for workers in [1, 6] {
+        if !crate::test_gates::workers_or_skip("shared wide publication", workers) {
+            continue;
+        }
         let result = reducer
             .trace_targets_parallel_with_observer(
                 targets.clone(),

@@ -55,7 +55,8 @@ def main(argv=None):
         if action != "inspect":
             sub.epilog = ("Finite engine: first run --engine finite-demand --finite-policy POLICY.json "
                           "--cpus CPUSET --max-memory-bytes BYTES --host-memory-reserve-bytes BYTES. "
-                          "Subsequent finite commands retain these settings; explicit policy/RAM overrides "
+                          "Subsequent finite commands retain these settings; --workers N with --cpus CPUSET "
+                          "changes the reserved worker budget. Explicit policy/RAM overrides "
                           "are operational, while window partition settings are immutable. "
                           "Inputs must already be staged; no legacy checkpoint import. "
                           "An interrupted initial preparation can be retried explicitly with "

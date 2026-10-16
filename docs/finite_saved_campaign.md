@@ -46,6 +46,17 @@ available host memory instead, explicitly use `--memory-policy host-aware`
 with `--host-memory-reserve-bytes BYTES`; that mode may lower the effective cap.
 The selected memory policy is saved for later runs.
 
+Worker counts are operational, not part of the saved mathematical scope.
+For a later extension, `--workers N --cpus CPUSET` freezes a new policy with
+that worker count while retaining every other policy field. The CPU set must
+contain exactly N permitted CPUs. The former64-worker library ceiling is gone;
+positive counts are checked against actual CPU availability and the Symbolica
+license. On multi-threaded CPUs, select distinct physical cores deliberately;
+the generic affinity check does not distinguish physical cores from SMT siblings.
+The window partition remains unchanged. An explicit `--executable NEW_BINARY`
+selects the new build for that launch and later invocations; do not overwrite an
+in-use content-addressed executable or edit the campaign's frozen `bin/` files.
+
 These commands launch work; they are not preparation-only commands. The saved
 engine and policy are reused by later invocations:
 
@@ -195,6 +206,21 @@ windows and last-window new Work/reuse hits come from checkpoint metadata.
 Heartbeats retain these summaries without rerunning native counts or scanning
 the legacy closure ledger. CPU usage, process RSS, the requested cap and stop
 threshold, and host available/total RAM remain visible; RAM uses decimal GB.
+
+`Chase elapsed` is native elapsed time for the current finite window, separate
+from overall process elapsed time. `Chase gap` is discovered minus expanded
+Work, including active work. `Convergence · 5 min` and `Convergence · 30 min`
+compare this gap to its recorded value that long ago:
+`(gap_now - gap_then) / (gap_now + gap_then)`, or zero for a zero denominator.
+Negative is green (shrinking); positive up to0.5 is yellow; above0.5 is red;
+zero is neutral. These are backlog trends, not completion fractions or ETAs.
+History warms up after each window/restart, is bounded to30minutes plus a sample,
+and does not fabricate fresh observations from stale native snapshots. All
+consumers receive the same `finite_chase` structured heartbeat fields.
+
+The event journal is buffered in64KiB while still flushing every complete
+record. Write/flush failures retain the existing cancellation behavior; this
+does not defer checkpoints or change their durability contract.
 
 Before the native dashboard starts, the launcher reports startup phases and
 elapsed time on stderr (input checks, executable freezing and scope validation).

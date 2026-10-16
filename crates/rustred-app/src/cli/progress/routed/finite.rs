@@ -9,8 +9,10 @@ use ratatui::{
     widgets::{Block, BorderType, Cell, Gauge, Padding, Paragraph, Row, Table, Wrap},
 };
 use serde_json::{Value, json};
+mod chase;
+pub(super) use chase::ChaseProgress;
 
-pub(in crate::cli::progress) const HEIGHT: u16 = 19;
+pub(in crate::cli::progress) const HEIGHT: u16 = 21;
 
 fn memory_gb(value: &Value) -> String {
     value.as_u64().map_or_else(
@@ -125,9 +127,53 @@ fn cpu_color(cores: Option<f64>, workers: Option<u64>) -> Color {
     }
 }
 
+fn convergence_color(chase: &Value, field: &str) -> Color {
+    if chase["snapshot_stale"] == true {
+        return Color::Gray;
+    }
+    match chase[field]["value"].as_f64() {
+        Some(value) if value > 0.5 => Color::Red,
+        Some(value) if value > 0. => Color::Yellow,
+        Some(value) if value < 0. => Color::Green,
+        _ => Color::Gray,
+    }
+}
+
+fn convergence_text(chase: &Value, field: &str) -> String {
+    let metric = &chase[field];
+    let label = match metric["status"].as_str() {
+        Some("available") => metric["value"]
+            .as_f64()
+            .map_or_else(|| "—".into(), |value| format!("{value:+.3}")),
+        Some("warming_up") => "warming up".into(),
+        Some("history_gap") => "history gap".into(),
+        _ => "—".into(),
+    };
+    if chase["snapshot_stale"] == true {
+        format!("{label} · stale")
+    } else {
+        label
+    }
+}
+
+fn chase_elapsed(chase: &Value) -> String {
+    chase["elapsed_seconds"].as_f64().map_or_else(
+        || "—".into(),
+        |elapsed| {
+            let label = duration(elapsed);
+            if chase["snapshot_stale"] == true {
+                format!("{label} · stale")
+            } else {
+                label
+            }
+        },
+    )
+}
+
 pub(super) fn plain_status(record: &Value) -> String {
     let event = &record["progress"];
     let committed = &event["finite_committed"];
+    let chase = &record["finite_chase"];
     let cpu = record["process_cpu_cores"]
         .as_f64()
         .map_or_else(|| "—".into(), |n| format!("{n:.2}"));
@@ -144,7 +190,7 @@ pub(super) fn plain_status(record: &Value) -> String {
             )
         });
     format!(
-        "RustRed finite | {} | committed {}/{} rows | inputs {} occurrences (overlap counted) | generation {} / {} committed windows | last window new Work {} / reuse hits {} | CPU {}/{} cores | RSS {} | process RAM cap {} | stop threshold {} | host available {} / {} total | elapsed {}{error}",
+        "RustRed finite | {} | committed {}/{} rows | inputs {} occurrences (overlap counted) | generation {} / {} committed windows | last window new Work {} / reuse hits {} | chase gap {} / elapsed {} | convergence 5 min {} / 30 min {} (negative: shrinking gap, not closure) | CPU {}/{} cores | RSS {} | process RAM cap {} | stop threshold {} | host available {} / {} total | elapsed {}{error}",
         stage(event),
         number(&committed["exhausted_required_rows"]),
         number(&committed["required_rows"]),
@@ -153,6 +199,10 @@ pub(super) fn plain_status(record: &Value) -> String {
         number(&committed["committed_windows"]),
         number(&event["finite_last_window"]["new_work"]),
         number(&event["finite_last_window"]["baseline_hits"]),
+        number(&chase["gap"]),
+        chase_elapsed(chase),
+        convergence_text(chase, "five_minutes"),
+        convergence_text(chase, "thirty_minutes"),
         cpu,
         number(&record["reserved_workers"]),
         memory_gb(&record["process_rss_bytes"]),
@@ -171,6 +221,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
     let committed = &event["finite_committed"];
     let local = &event["finite_local"];
     let snapshot = &local["snapshot"];
+    let chase = &record["finite_chase"];
     let failure = event["result"]["error"]
         .as_str()
         .or(snapshot["first_failure"]["detail"].as_str());
@@ -209,7 +260,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
-        Constraint::Length(11),
+        Constraint::Length(13),
         Constraint::Length(1),
         Constraint::Min(0),
     ])
@@ -321,6 +372,18 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
             ),
         ),
         (
+            "Chase gap",
+            number(&chase["gap"]),
+            "Chase elapsed",
+            chase_elapsed(chase),
+        ),
+        (
+            "Convergence · 5 min",
+            convergence_text(chase, "five_minutes"),
+            "Convergence · 30 min",
+            convergence_text(chase, "thirty_minutes"),
+        ),
+        (
             "CPU / reserved",
             format!(
                 "{} / {}",
@@ -363,17 +426,20 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         Cell::from(Text::from(text).alignment(Alignment::Right)).style(paint(tone))
     };
     let rows = metrics.into_iter().map(|(left, lv, right, rv)| {
-        let tone = if left == "CPU / reserved" {
-            cpu_tone
-        } else {
-            Color::White
+        let (left_tone, right_tone) = match left {
+            "CPU / reserved" => (cpu_tone, cpu_tone),
+            "Convergence · 5 min" => (
+                convergence_color(chase, "five_minutes"),
+                convergence_color(chase, "thirty_minutes"),
+            ),
+            _ => (Color::White, Color::White),
         };
         if wide {
             Row::new(vec![
                 Cell::from(left).style(paint(Color::Gray)),
-                value(lv, tone),
+                value(lv, left_tone),
                 Cell::from(right).style(paint(Color::Gray)),
-                value(rv, tone),
+                value(rv, right_tone),
             ])
         } else {
             let label = match left {
@@ -384,6 +450,8 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
                 "Row (0-based)" => "Row / window (0)",
                 "Expanded nodes" => "Expanded / seen",
                 "Queued nodes" => "Queue / busy",
+                "Chase gap" => "Gap / chase time",
+                "Convergence · 5 min" => "Converg 5m / 30m",
                 "CPU / reserved" => "CPU / reserved",
                 "Elapsed" => "Elapsed / RSS",
                 "Process RAM cap" => "RAM cap / stop",
@@ -392,15 +460,22 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
             };
             Row::new(vec![
                 Cell::from(label).style(paint(Color::Gray)),
-                value(format!("{lv}  │  {rv}"), tone),
+                Cell::from(
+                    Text::from(Line::from(vec![
+                        Span::styled(lv, paint(left_tone)),
+                        Span::raw("  │  "),
+                        Span::styled(rv, paint(right_tone)),
+                    ]))
+                    .alignment(Alignment::Right),
+                ),
             ])
         }
     });
     let widths = if wide {
         vec![
-            Constraint::Length(17),
+            Constraint::Length(20),
             Constraint::Fill(1),
-            Constraint::Length(17),
+            Constraint::Length(20),
             Constraint::Fill(1),
         ]
     } else {
@@ -421,7 +496,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         sections[4],
     );
     let footer = failure.map_or_else(
-        || "Inputs count occurrences, including overlap. Window nodes are local; row closure is committed. Native busy counts tasks, not CPU.".to_string(),
+        || "Convergence < 0: shrinking gap, not closure/ETA. Inputs include overlap; row closure is committed. Native busy counts tasks, not CPU.".to_string(),
         |detail| format!("{} · {}", detail.chars().filter(|c| !c.is_control()).collect::<String>(), checkpoint_note(event)),
     );
     frame.render_widget(
@@ -644,7 +719,10 @@ mod tests {
             "process_cpu_cores":6.5,"reserved_workers":8,
             "process_memory_limit_bytes":600_000_000_000u64,"process_memory_soft_bytes":570_000_000_000u64,
             "host_available_bytes":100_000_000_000u64,"host_total_bytes":1_024_000_000_000u64,
-            "recent_nodes_per_second":125.5,"progress_age_seconds":0.2});
+            "recent_nodes_per_second":125.5,"progress_age_seconds":0.2,
+            "finite_chase":{"status":"active","elapsed_seconds":1832.,"gap":12000,
+                "five_minutes":{"status":"available","value":-0.25},
+                "thirty_minutes":{"status":"available","value":0.75}}});
         for (width, height) in [(120, HEIGHT), (80, HEIGHT), (40, HEIGHT), (10, 8), (1, 1)] {
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             terminal
@@ -680,6 +758,10 @@ mod tests {
                     "Gen / closed win",
                     "Last new Work",
                     "Last reuse hits",
+                    "Chase gap",
+                    "Chase elapsed",
+                    "Convergence · 5 min",
+                    "Convergence · 30 min",
                 ] {
                     assert!(text.contains(label), "{text}");
                 }
@@ -693,6 +775,8 @@ mod tests {
                 assert!(text.contains("12,387 / 50,000"), "{text}");
                 assert!(text.contains("777") && text.contains("333"), "{text}");
                 assert!(text.contains("01:02:03"), "{text}");
+                assert!(text.contains("00:30:32"), "{text}");
+                assert!(text.contains("-0.250") && text.contains("+0.750"), "{text}");
                 assert!(text.contains("6.50 / 8"), "{text}");
                 assert!(text.contains("81.2%"), "{text}");
                 for memory in [
@@ -711,6 +795,36 @@ mod tests {
                 assert!(text.contains("╭") && text.contains("╰"), "{text}");
             }
         }
+    }
+
+    #[test]
+    fn finite_convergence_color_thresholds_and_staleness_are_explicit() {
+        for (value, expected) in [
+            (-1., Color::Green),
+            (-0.001, Color::Green),
+            (0., Color::Gray),
+            (0.001, Color::Yellow),
+            (0.5, Color::Yellow),
+            (0.501, Color::Red),
+            (1., Color::Red),
+        ] {
+            let chase = json!({"five_minutes":{"status":"available","value":value}});
+            assert_eq!(convergence_color(&chase, "five_minutes"), expected);
+        }
+        let mut chase = json!({"elapsed_seconds":301.,
+            "five_minutes":{"status":"available","value":-0.25},
+            "thirty_minutes":{"status":"warming_up"}});
+        assert_eq!(convergence_text(&chase, "five_minutes"), "-0.250");
+        assert_eq!(convergence_text(&chase, "thirty_minutes"), "warming up");
+        chase["snapshot_stale"] = json!(true);
+        assert_eq!(convergence_text(&chase, "five_minutes"), "-0.250 · stale");
+        assert_eq!(convergence_color(&chase, "five_minutes"), Color::Gray);
+        assert_eq!(chase_elapsed(&chase), "00:05:01 · stale");
+        assert_eq!(chase_elapsed(&json!({"status":"inactive"})), "—");
+        let plain = plain_status(&json!({"progress":{"operation":"finite_demand"},
+            "finite_chase":chase}));
+        assert!(plain.contains("convergence 5 min -0.250 · stale / 30 min warming up · stale"));
+        assert!(plain.contains("not closure"));
     }
 
     #[test]

@@ -356,6 +356,9 @@ def launch_plan(args, campaign, binary, *, apply, startup_progress=None):
             raise ValueError("first finite run requires --finite-policy with explicit native grants")
         policy_path = campaign / saved["policy"]
     policy = require_policy(read(policy_path))
+    workers = getattr(args, "workers", None)
+    if workers is not None:
+        policy = require_policy({**policy, "workers": workers})
     if saved is not None and policy["windows"] != saved["window_policy"]:
         raise ValueError("finite window/partition policy cannot change on resume")
     resources = dict((saved or {}).get("resources", {}))
@@ -471,6 +474,7 @@ def execute(path):
 def public_main(args, extra):
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument("--finite-policy", type=Path)
+    parser.add_argument("--workers", type=int)
     parser.add_argument("--cpus")
     parser.add_argument("--max-memory-bytes", type=int)
     parser.add_argument("--host-memory-reserve-bytes", type=int)
@@ -479,6 +483,8 @@ def public_main(args, extra):
     parser.add_argument("--stop-grace-seconds", type=float)
     parser.add_argument("--repair-preparation", action="store_true")
     finite_args = parser.parse_args(extra)
+    if finite_args.workers is not None and finite_args.workers <= 0:
+        raise ValueError("finite workers must be positive")
     if args.action == "inspect" and any(value is not None and value is not False
                                         for name, value in vars(finite_args).items() if name != "finite_policy"):
         raise ValueError("finite inspect accepts only --finite-policy, not launch-policy overrides")

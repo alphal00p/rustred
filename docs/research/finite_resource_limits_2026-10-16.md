@@ -1,5 +1,39 @@
 # User-controlled finite campaign limits and dashboard
 
+## Next extension: chase monitoring and 150 workers
+
+The follow-up adds5/30-minute gap convergence and current-chase elapsed time,
+removes the fixed64-worker ceiling in favor of actual CPU/license admission,
+and permits a Python `--workers` override without editing frozen policy files.
+It also skips redundant resident-baseline probes on known live duplicates and
+buffers the event journal while flushing every complete record. These changes
+do not alter the admitted scope, rules, terminal convention or checkpoint schema.
+
+After the current rank4 run **and its publication** have finished, select the
+new optimized executable explicitly for the next extension:
+
+```bash
+cd /shared/codex-2/rustred
+export RUSTRED_CAMPAIGN="$PWD/campaigns/five-loop-finite-r0-d10-resident-fixed-20261016"
+nix develop --command python -B examples/python/saved_campaign.py extend \
+  --campaign "$RUSTRED_CAMPAIGN" --rank 5 \
+  --executable "$PWD/TMP/releases/20261016-finite-convergence-150/rustred" \
+  --workers 150 --cpus 0-63,96-181 \
+  --max-memory-bytes 600000000000 --memory-policy process-limit
+```
+
+This command retains D≤10 and prior completed work. It freezes/selects the new
+executable at that future launch; do not overwrite the running campaign's binary
+or change its current steering. Subsequent extensions retain the selected build
+and150-worker policy. No `--resume` is needed with `extend`; after an interrupted
+stage, use `run --resume` without appending a second rank stage.
+
+On this host the selected CPU IDs are150 distinct physical cores and avoid the
+older campaign's64–95 reservation. This is not an exclusive host reservation or
+a promise of proportional speedup; shared membership, memory bandwidth and serial
+commit work can limit scaling. Full validation and executable identity are in
+the latest `CODEX_PROGRESS.md` delivery entry.
+
 ## What changed
 
 The earlier R2 run stopped at its configured4096 immutable Work segments:

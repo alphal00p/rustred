@@ -73,6 +73,49 @@ fn finite_demand_shared_windows_match_separate_full_sets_across_append_and_empty
 }
 
 #[test]
+fn finite_demand_150_workers_matches_exact_serial_sets_and_rejects_zero() {
+    if !crate::test_gates::workers_or_skip("finite diagnostic 150-worker trace", 150) {
+        return;
+    }
+    let f = Fixture::new();
+    let source = source(&f);
+    let mut policy = policy(9);
+    let run = |policy: &Policy| {
+        trace::run_with_progress(
+            Request {
+                source: &source,
+                policy,
+            },
+            &AtomicBool::new(false),
+            |_| {},
+        )
+    };
+    let serial = run(&policy).unwrap();
+    policy.workers = 150;
+    let parallel = run(&policy).unwrap();
+    assert!(serial.completed && parallel.completed);
+    for name in ["terminals", "visited_zeros", "composite_rule_identity_sets"] {
+        assert_eq!(parallel.document["exact_set_parity"][name], true);
+    }
+    assert_eq!(
+        serial.document["input_occurrences"],
+        parallel.document["input_occurrences"]
+    );
+    for side in ["shared", "separate"] {
+        for name in ["terminals", "visited_zeros", "selections"] {
+            assert_eq!(
+                serial.document[side]["evidence"][name],
+                parallel.document[side]["evidence"][name]
+            );
+        }
+    }
+    policy.workers = 0;
+    let error = run(&policy).err().expect("zero workers rejected");
+    assert_eq!(error.kind(), crate::AppErrorKind::Input);
+    assert!(error.to_string().contains("positive"));
+}
+
+#[test]
 fn finite_demand_source_bridge_rejects_chain_role_and_budget_mutations_before_owner_load() {
     let f = Fixture::new();
     let source = source(&f);

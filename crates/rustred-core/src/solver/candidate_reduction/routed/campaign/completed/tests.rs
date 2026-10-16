@@ -57,6 +57,9 @@ fn completed_parallel_census_matches_inline_and_legacy_at_one_and_four_workers()
         )
         .unwrap();
     for workers in [1, 4] {
+        if !crate::test_gates::workers_or_skip("completed parallel census", workers) {
+            continue;
+        }
         let plain = reducer
             .trace_targets_parallel_with_observer(
                 targets.clone(),
@@ -92,6 +95,9 @@ fn completed_sequential_batches_equal_union_without_reexecuting_shared_descendan
     let reducer = super::super::tests::diamond(Default::default(), Default::default());
     let targets = vec![key([6]), key([5]), key([4]), key([6])];
     for workers in [1, 4] {
+        if !crate::test_gates::workers_or_skip("completed sequential batches", workers) {
+            continue;
+        }
         let (whole, _) = begin(&reducer, targets.clone(), workers).unwrap();
         let (mut closed, first) = begin(&reducer, vec![key([6])], workers).unwrap();
         assert_eq!(first.snapshot().scheduled_nodes, 5);

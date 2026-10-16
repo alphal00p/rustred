@@ -156,6 +156,38 @@ class FiniteCampaignTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "resident Work allowance"):
                 FIN.require_policy({**self.policy, "max_resident_work_bytes": grant})
 
+    def test_worker_override_is_saved_without_mutating_input_or_window_policy(self):
+        original = self.policy_path.read_bytes()
+        self.args.workers = 150
+        self.args.cpus = "0-149"
+        with patch.object(FIN.os, "sched_getaffinity", return_value=set(range(150))):
+            plan = self.plan()
+            self.assertEqual(plan["requested_workers"], 150)
+            self.assertEqual(plan["supervisor_ram_policy"]["workers"], 150)
+            frozen = FIN.read(plan["finite_policy"])
+            self.assertEqual(frozen, {**self.policy, "workers": 150})
+            self.assertEqual(self.policy_path.read_bytes(), original)
+            self.namespace()
+            self.args.workers = self.args.cpus = self.args.finite_policy = None
+            self.args.resume = True
+            resumed = self.plan(apply=False)
+            self.assertEqual(resumed["requested_workers"], 150)
+            self.assertEqual(resumed["cpus"], "0-149")
+            self.assertEqual(FIN.read(resumed["finite_policy"]), frozen)
+
+    def test_worker_override_keeps_positive_and_affinity_checks(self):
+        before = FIXTURE.snapshot(self.campaign)
+        for bad in (0, -1, True, 1.5):
+            self.args.workers = bad
+            with self.assertRaisesRegex(ValueError, "positive workers"):
+                self.plan(apply=False)
+        self.args.workers = 150
+        self.args.cpus = "0-148"
+        with patch.object(FIN.os, "sched_getaffinity", return_value=set(range(150))):
+            with self.assertRaisesRegex(ValueError, "reserved permitted CPU count"):
+                self.plan(apply=False)
+        self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
     def test_uncapped_operational_policy_is_frozen_without_changing_windows(self):
         self.plan()
         self.namespace()

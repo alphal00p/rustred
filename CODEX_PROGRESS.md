@@ -1,5 +1,151 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 16 — chase trends, 150-worker extension and duplicate-routing audit
+
+User requests the next optimized executable, not a restart of the active R4
+campaign. Scope: add 5-minute and 30-minute normalized gap convergence, a
+current-window elapsed timer, support150 reserved physical cores for the next
+rank5 extension, and audit the current expensive descendant chase for small
+safe improvements. The active campaign remains read-only; its frozen executable
+and steering must not be overwritten. Next launch will explicitly select the
+new release, allowing the normal atomic executable-freezing path to update
+the saved selection only when the user launches it.
+
+Assignments: `chase_metrics` owns native progress producer/renderer/tests;
+`worker150` owns core worker admission and a150-worker lifecycle regression;
+`resident_uncapped_audit` identified avoidable baseline lookups on live duplicate
+keys, and now owns a narrow resident-only optimization with differential tests.
+Root integrates Python worker overrides, build/test coordination, independent
+review, documentation and final delivery. Worker/admission and duplicate patches
+receive separate independent reviews before release.
+
+Convergence uses g=discovered−expanded in the current window and
+C=(g_now−g_old)/(g_now+g_old), zero when both gaps are zero. Red>0.5, orange/yellow
+for0<C≤0.5, green<0, neutral0. Samples warm up separately for5/30minutes and
+reset on window/restart; the metric is a backlog trend, not a closure proof or
+an ETA. Timer uses native current-window time, not total campaign duration.
+
+Read-only live evidence before implementation: row244/window0 comprises294
+starting inputs from the R4/D10 ten-line sector010011111101011. Roughly9billion
+deduplication hits and32 route workers at~28 observed cores suggest that avoiding
+duplicate key allocation/hash work is worth checking. This is a hypothesis,
+not a measured speedup. No novel CAS primitive or reconstruction is involved.
+
+Delivery is validated below. Next allocation `0-63,96-181` supplies150
+distinct physical cores while avoiding the older campaign's64-95 reservation;
+it is not an exclusive host reservation. Keep the requested600GB RAM ceiling.
+
+### Three additional independent audits requested by the user
+
+- `audit_live_scheduler`: one8-second19Hz user-mode perf sample,3,932 samples,
+  no losses, no signals or interruption. Evidence in
+  `TMP/audit-live-scheduler-20261016-oAh0GD/REPORT.md` and `perf-flat.csv`.
+  Flat samples: live membership19.05%, immutable baseline lookup18.08%,
+  memcmp12.46%, membership probe7.07%, Symbolica multiplication6.61%, mutex
+  contention4.17%. This supports the resident live-first shortcut, but is not
+  an end-to-end speedup measurement. Further candidates: faster randomized
+  ephemeral hashers with exact equality; grouped readonly shard probes with
+  original ordered commits; bounded worker-local positive exact membership.
+- `audit_transport`: duplicate endpoint scheduling, not new IBP generation,
+  dominates this window. Over99% of offered children are already known.
+  Recommended candidates: exact worker-local membership cache (locality must
+  first be measured), borrowed endpoint powers until an actual miss, and
+  bounded exact route-polynomial caching by immutable map plus negative-power
+  vector. Pinned Symbolica already supplies the required polynomial primitives.
+  Important: transport endpoint/operation counters are prospective structural
+  charges, NOT measured counts of materialized endpoints or multiplications.
+- `audit_persistence_monitor`: current chase is not blocked on checkpoint IO.
+  Passive `/proc` evidence found57,012,334 monitor writes for167,424,891 bytes
+  (~2.94bytes/write),404 CPU seconds. Authorized narrow follow-up implemented
+  a64KiB event BufWriter, retaining per-record flush and error/cancel handling.
+  Three new tests cover bytes/visibility and errors. Other candidates deferred:
+  skip unused resident Work hydration during publication, and avoid duplicate
+  sorting on the already native-sealed delta path. Cumulative manifest rewrites
+  are a larger architectural issue, not an excuse to remove durability checks.
+
+These audits also found stale resident-size telemetry from initial hydration;
+it is not evidence of missing resident entries. The new convergence history is
+bounded (~58KiB/1,803 samples) and is not a meaningful bottleneck. Full150-core
+five-loop scaling remains unmeasured. No further speculative engine changes are
+included in this delivery.
+
+### Validation and delivery
+
+Python steering/guard/publication gate:219 tests passed. App gate:340 native
+tests passed (four explicitly ignored); both150-worker tests reran with
+`--nocapture` under CPU affinity96–245 and actually executed, not skipped.
+Those tests cover exact serial agreement and32→150 checkpoint resume/append.
+The first optimized build passed three real-terminal tests (21-row cleanup,
+cancellation, write-only descriptor reopening); root visually inspected the
+new aligned labels. Its binary predates only the buffered journal addition,
+which is covered by the app gate and the pending final optimized rebuild.
+
+Actual150-worker full R0 CLI smoke passed at
+`TMP/r0-150-public-smoke-SGjxOr/verification.json`:116/116 rows,2557 inputs,
+300673 Work,81 windows,9982 published rules. Both native solve and cold
+publication created150 named worker threads; CPU snapshot peaked131.33 cores.
+Solve158.675s/7.683GB peak; publication164.214s/7.729GB peak; cold inspect0.930s.
+The original32-worker policy file was untouched; only the newly frozen runtime
+policy changed workers to150. Requested600GB cap/570GB soft stop remained exact.
+This is shared-host correctness evidence, not a matched scaling benchmark.
+
+The initial gate still needed optimized core differential tests, the final
+buffered executable and cold/TTY checks; those results follow.
+
+First optimized core check found a new test-fixture error: its cap case supplied
+five children to a batch allowance of three, so it tested the earlier batch
+size guard instead of the intended mid-prefix node cap. The fixture was
+corrected to three children; no assertion or production guard was weakened.
+The other76 routed-core tests passed. Exact differential old/new duplicate and
+baseline cases also passed. Initial timing (`preprobe-timing.stderr` under
+`TMP/chase150-core-test-results-20261016`) showed a real trade-off: duplicate
+preprobes104.5ms→71.1ms (~32% faster), but baseline-hit probes68.1ms→88.3ms
+(~30% slower), in a one-index microbenchmark, not a whole five-loop solve.
+
+One bounded correction: retain baseline-first initially and choose live-first
+only when the current window's committed duplicate-hit count exceeds its
+baseline-hit count. A single relaxed atomic hint is updated under the already
+held batch-commit lock; lookup order alone changes, not validation, prefix
+admission, accounting or mathematical authority. Both modes and preference
+transitions require differential checks. No further tuning is planned here:
+if the baseline-heavy penalty remains material, omit the shortcut instead.
+
+Correction validated:78 routed-core tests passed (one timing fixture explicitly
+ignored in the correctness gate), three resident tests passed, and the timing
+fixture passed when invoked explicitly. Evidence:
+`TMP/chase150-adaptive-core-test-results-20261016/`. Duplicate-heavy preprobe
+timing remained roughly32% lower; baseline-heavy overhead fell to roughly0–4%
+over three short counterbalanced probes (individual arms are noisy). This
+removes the earlier30% regression; no whole-campaign speedup is claimed.
+Both native lookup orders preserve exact results, FIFO, counters, validation,
+failure prefixes and paged-provider errors. Independent worker150 review passed.
+
+Final optimized executable built in302.319s:
+`TMP/releases/20261016-finite-convergence-150/rustred`, SHA256
+`a13942f17a33a2d882c066a78a7ec08254919e825bee50cd4e86adcdede9b1c2`.
+Its actual-native PTY gate passed all three checks; root visually inspected
+`TMP/chase150-final-tty-20261016/terminal-descriptors.png`. Real scratch rank1
+extension using this binary at150 workers completed232/232 rows,60,807 inputs,
+6,047,386 Work and488 windows in281.132s with11.709GB sampled peak RSS. This
+matches the prior finite R1 reference exactly and exercises upgrading an
+existing checkpoint to this executable. Publication and cold inspection passed:
+9,982 rules,166.092s publication with8.718GB peak RSS,2.432s fresh inspection.
+Complete public extension wall time was451.789s. Old R0 input files/publication
+and the original32-worker profile were unchanged. Buffered solve journal:
+1,083 valid JSON records /4,703,080 bytes. Evidence:
+`TMP/r1-150-extension-Ytijn1/verification.json`. These are correctness timings
+under shared-host contention, not proof that150 cores beats32 on the full chase.
+
+The tested source and next-launch instructions are delivered on main. Current
+production R4 remains on its original d044f0a… executable and is never modified
+in place. The explicit `extend --rank 5 --executable NEW --workers 150 --cpus
+0-63,96-181` command in `docs/research/finite_resource_limits_2026-10-16.md`
+selects/freezes the new executable at the user's next launch, retains D≤10,
+and leaves the window partition and mathematical scope rules intact. Further
+audited optimization candidates remain deferred, not silently implemented.
+Unrelated FeynKit changes and all reference/campaign/output files are excluded
+from this commit. The broader paused goal remains paused.
+
 ## October 16 — explicit elapsed-time label (Python-only)
 
 User requested a quick dashboard change without compilation or tests. Added

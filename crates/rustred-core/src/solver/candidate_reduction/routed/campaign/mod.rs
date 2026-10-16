@@ -11,8 +11,10 @@ pub use completed::{
     CandidateRoutedCompletedTrace, CandidateRoutedCompletedTraceError,
     CandidateRoutedCompletedTraceLimits,
 };
-pub use generated::{CandidateRoutedCompletedDelta, CandidateRoutedDeltaExportLimits,
-    CandidateRoutedGeneratedBaseline};
+pub use generated::{
+    CandidateRoutedCompletedDelta, CandidateRoutedDeltaExportLimits,
+    CandidateRoutedGeneratedBaseline,
+};
 mod model;
 pub use inline::CandidateRoutedWorkBudget;
 mod scheduler;
@@ -32,7 +34,11 @@ use std::time::Duration;
 impl<const N: usize> RoutedCandidateReducer<N> {
     /// Trace every entry through one shared canonical worklist. All limits are
     /// campaign-aggregate, except the existing per-formula native algebra caps.
-    /// `workers` must be in 1..=64; one uses exactly the same scheduler.
+    /// `workers` must be positive; one uses exactly the same scheduler. Native
+    /// worker counts are caller-controlled, with no fixed library ceiling.
+    /// The request must fit the calling process's available CPU affinity and
+    /// Symbolica license; preflight occurs before admitting any starting Work.
+    /// WebAssembly requires exactly one inline worker.
     ///
     /// The observer runs on the calling thread at roughly 250 ms intervals,
     /// including while workers execute native algebra. Cancellation is checked

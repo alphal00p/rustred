@@ -93,6 +93,8 @@ pub(super) struct Shared<'a, const N: usize> {
     state: Mutex<State<N>>,
     membership: Membership<N>,
     completed_baseline: Option<CompletedBaseline<'a, N>>,
+    // Lookup-order hint only; stale reads cannot alter admission or counters.
+    prefer_live_membership: AtomicBool,
     wake: Condvar,
     progress: Condvar,
     start: Instant,
@@ -132,6 +134,7 @@ impl<'a, const N: usize> Shared<'a, N> {
             }),
             membership: Membership::new(),
             completed_baseline: None,
+            prefer_live_membership: AtomicBool::new(false),
             wake: Condvar::new(),
             progress: Condvar::new(),
             start: Instant::now(),
@@ -254,9 +257,9 @@ impl<'a, const N: usize> Shared<'a, N> {
         targets: impl IntoIterator<Item = IntegralKey>,
         admission: CandidateEntryAdmission<'_, N>,
     ) -> Result<(), Failure> {
-        if !(1..=64).contains(&self.workers) {
+        if self.workers == 0 {
             return Err(CandidateRoutedError::InvalidInput(
-                "campaign workers must be in 1..=64".into(),
+                "campaign workers must be positive".into(),
             )
             .into());
         }
@@ -266,6 +269,12 @@ impl<'a, const N: usize> Shared<'a, N> {
             )
             .into());
         }
+        // Bound native thread creation by the caller's actual CPU affinity and
+        // licensed Symbolica budget, not a fixed machine-independent ceiling.
+        // This also rejects absurd counts before entering the spawn loop or
+        // admitting any starting Work.
+        crate::campaign::ParallelExecution::preflight_requested_core_budget(self.workers)
+            .map_err(|error| CandidateRoutedError::InvalidInput(error.to_string()))?;
         let evaluator = worker::base(reducer);
         let mut entries = BTreeSet::new();
         for target in targets {
@@ -384,6 +393,13 @@ impl<'a, const N: usize> Shared<'a, N> {
             "publication batch",
         )?;
         let mut batch = Vec::with_capacity(nodes.len());
+        let probe_live_first = matches!(
+            self.completed_baseline,
+            Some(CompletedBaseline::Generated {
+                resident: Some(_),
+                ..
+            })
+        ) && self.prefer_live_membership.load(Ordering::Relaxed);
         for node in nodes {
             // Intrinsic validation is before membership, even for a duplicate.
             // Keep an error marker instead of returning early: earlier valid
@@ -391,6 +407,16 @@ impl<'a, const N: usize> Shared<'a, N> {
             if let Err(error) = Self::validate_node(&node) {
                 batch.push(ProbedWork::Invalid(error));
                 break;
+            }
+            // Live membership is monotonic and contains only keys excluded
+            // from this immutable resident baseline at admission. A full
+            // phase/owner hit therefore needs no allocated wire-key lookup.
+            // Keep provider-backed probes in their original order: even a
+            // duplicate must not hide a later backing I/O/integrity failure.
+            let live_probe = probe_live_first.then(|| self.membership.probe(&node));
+            if live_probe.is_some_and(|(_, present)| present) {
+                batch.push(ProbedWork::KnownPresent);
+                continue;
             }
             match self.baseline_contains(&node) {
                 Ok(true) => {
@@ -403,7 +429,7 @@ impl<'a, const N: usize> Shared<'a, N> {
                     break;
                 }
             }
-            let (shard, present) = self.membership.probe(&node);
+            let (shard, present) = live_probe.unwrap_or_else(|| self.membership.probe(&node));
             if present {
                 batch.push(ProbedWork::KnownPresent);
                 // Discard duplicate key storage outside the global state lock.
@@ -442,6 +468,11 @@ impl<'a, const N: usize> Shared<'a, N> {
                 }
             }
         }
+        // Use only counters from the committed prefix, including on failure.
+        // Start baseline-first and avoid an extra live probe when saved hits
+        // dominate. This update shares the existing scheduler critical section.
+        self.prefer_live_membership
+            .store(state.dedup > state.baseline_hits, Ordering::Relaxed);
         drop(state);
         // A valid prefix must wake workers even when a later node hit a cap.
         if published {
