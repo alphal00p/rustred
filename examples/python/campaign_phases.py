@@ -848,10 +848,13 @@ def phase_source_lock(plan, directory, driver, held, dispatcher_held=False):
             yield
 
 
-def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=False):
+def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=False, startup_progress=None):
     campaign, checkpoint = Path(plan["campaign_directory"]), Path(plan["checkpoint_directory"])
     directory = campaign / "master-reduction"
     with ExitStack() as held:
+        if startup_progress is not None:
+            held.callback(startup_progress.stop)
+            startup_progress.phase("checking campaign phase locks")
         # Same acquisition order as the rank-extension helper. Creating the
         # first dispatcher.lock is serialized against an existing CP6 lock,
         # closing the first-opt-in race with an amendment publication. Release
@@ -862,9 +865,13 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                 raise ValueError("campaign is still running: " + "; ".join(evidence))
             if plan.get("engine") == "rustred.finite-demand.v1" and policy.get("executable"):
                 finite_output_path(plan, directory / policy["executable"]["path"])
+            if startup_progress is not None:
+                startup_progress.phase("freezing publication executable")
             freeze_master_executable(directory, policy, driver)
             driver.write_json(directory / "policy.json", {key: value for key, value in policy.items()
                               if key not in ("operation", "source_artifact", "previous_artifact", "preserved_refinement")})
+            if startup_progress is not None:
+                startup_progress.phase("validating current input scope")
             binding = (None if plan.get("engine") == "rustred.finite-demand.v1" and plan.get("repair_preparation")
                        else phase_scope_binding(plan, driver))
             request = phase_completed_request(plan, binding, driver) if (resume or postprocess_only) and binding else None
@@ -872,7 +879,11 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
         if operation == "finalize-refinement":
             if not binding or request is None:
                 raise ValueError("finalize-refinement requires the completed current input scope")
+            if startup_progress is not None:
+                startup_progress.stop()
             return finalize_refinement(plan, policy, binding, request, driver)
+        if startup_progress is not None:
+            startup_progress.phase("checking existing publication")
         if operation == "refine":
             previous = completed_artifact(campaign)
             if not previous or not binding or not same_input_scope(previous.get("scope_binding", {}), binding):
@@ -914,6 +925,8 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                     and refinement.get("circuit_symmetry_assistance", False) == policy.get("circuit_symmetry_assistance", False)
                     and previous["normalization_profile"] == effective_profile
                     and refinement.get("saved_rule_assistance", False) == policy.get("saved_rule_assistance", False)):
+                if startup_progress is not None:
+                    startup_progress.stop()
                 print("Requested refinement already completed: " + str(previous["resolved_directory"]), flush=True)
                 return 0
             policy = {**policy, "source_artifact": str(previous["resolved_directory"]),
@@ -928,6 +941,8 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                 policy = {**policy, "previous_artifact": str(previous["resolved_directory"]),
                           "preserved_refinement": previous.get("refinement") if previous.get("operation") == "refine" else None}
             elif same_scope:
+                if startup_progress is not None:
+                    startup_progress.stop()
                 print("Current scope already published: " + str(previous["resolved_directory"]), flush=True)
                 active_path = directory / "active-phase.json"
                 try:
@@ -946,6 +961,8 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
             driver.write_json(campaign / "active-run.json", plan)
             driver.write_json(directory / "active-phase.json", {"schema": SCHEMA, "phase": "IBP closure",
                               "run_directory": plan["run_directory"]})
+            if startup_progress is not None:
+                startup_progress.stop()
             status, stopped = phase_one(plan["command"])
             if stopped:
                 # Native phase one may have finished just before Ctrl+C.
@@ -954,11 +971,17 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                 return status  # Even a complete prior CURRENT cannot turn refusal into publication.
             if status not in (0, 4):
                 return status
+            if startup_progress is not None:
+                startup_progress.phase("validating completed input scope")
             binding = phase_scope_binding(plan, driver)
             request = phase_completed_request(plan, binding, driver) if binding else None
             if request is None:
+                if startup_progress is not None:
+                    startup_progress.stop()
                 print("IBP campaign remains paused/incomplete; no final artifact was published.", flush=True)
                 return status if status else 4
+        if startup_progress is not None:
+            startup_progress.phase("preparing publication launch")
         if plan.get("engine") == "rustred.finite-demand.v1" and operation == "publish":
             previous = completed_artifact(campaign)
             if previous and previous.get("operation") == "refine":
@@ -1015,4 +1038,6 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
         finite_output_path(plan, target / "steering-binding.json")
         target.mkdir(parents=True, exist_ok=True)
         driver.write_json(target / "steering-binding.json", {"scope_binding": binding, **identity})
+        if startup_progress is not None:
+            startup_progress.stop()
         return phase_two(plan, policy, request, binding, target, driver)

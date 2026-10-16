@@ -124,21 +124,46 @@ class NativeStopFileTests(unittest.TestCase):
                 child.poll.side_effect = [None, 0, 0]
                 child.wait.return_value = 0
                 output = io.StringIO()
+                terminal_input = io.BytesIO()
                 with patch.object(GUARD.SUPERVISOR, "RamGuard", ObserveGuard), \
                      patch.object(GUARD.subprocess, "Popen", return_value=child) as popen, \
                      patch.object(GUARD, "group_running", return_value=False), \
                      patch.object(GUARD.os, "isatty", return_value=terminal), \
+                     patch.object(GUARD, "terminal_input", return_value=terminal_input), \
                      redirect_stdout(output):
                     options = {"native_tty_progress":True} if requested else {}
                     result = GUARD.run(["mock-native"], directory, self.resources,
                         poll_seconds=0, **options)
                 self.assertEqual(popen.call_args.kwargs["stderr"] is None, inherited)
+                self.assertEqual(popen.call_args.kwargs["stdin"], terminal_input if inherited else subprocess.DEVNULL)
+                self.assertEqual(terminal_input.closed, inherited)
+                self.assertEqual(popen.call_args.kwargs["stdout"] == 2, inherited)
+                self.assertTrue(popen.call_args.kwargs["start_new_session"])
                 self.assertEqual("Generation/admission" in output.getvalue(), not inherited)
                 request = json.loads((directory / "request.json").read_text())
                 self.assertEqual(request["native_stderr"], "inherited_tty" if inherited else "captured_file")
+                self.assertEqual(request["native_stdin"], "stderr_tty" if inherited else "devnull")
+                self.assertEqual(request["native_stdout"], "stderr_tty" if inherited else "captured_file")
                 self.assertTrue(result["owned_group_drained"])
                 self.assertTrue((directory / "resources.jsonl").read_text())
                 self.assertTrue((directory / "stderr").is_file())
+
+    def test_terminal_open_failure_falls_back_without_failing_work(self):
+        directory = self.folder / "tty-unavailable"
+        output = io.StringIO()
+        with patch.object(GUARD.SUPERVISOR, "RamGuard", ObserveGuard), \
+             patch.object(GUARD.os, "isatty", return_value=True), \
+             patch.object(GUARD, "terminal_input", side_effect=OSError("unavailable test tty")), \
+             redirect_stdout(output):
+            result = GUARD.run([sys.executable, "-B", "-c", "print('captured output')"],
+                directory, self.resources, poll_seconds=.02, native_tty_progress=True)
+        self.assertEqual(result["exit_code"], 0)
+        self.assertIn("using periodic progress", output.getvalue())
+        self.assertIn("Generation/admission", output.getvalue())
+        self.assertEqual((directory / "stdout").read_text(), "captured output\n")
+        request = json.loads((directory / "request.json").read_text())
+        self.assertEqual(request["native_stderr"], "captured_file")
+        self.assertIn("unavailable test tty", request["native_tty_error"])
 
     @unittest.skipUnless(os.name == "posix", "PTY requires POSIX")
     def test_opted_in_child_sees_real_tty_without_guard_output_competing(self):
@@ -154,7 +179,7 @@ class NativeStopFileTests(unittest.TestCase):
 from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('test_guard',sys.argv[1])
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
-code=\"import os,sys,time;print('NATIVE_TTY='+str(os.isatty(2)),file=sys.stderr,flush=True);time.sleep(.1)\"
+code=\"import os,sys,time;print('NATIVE_TTY='+str([os.isatty(fd) for fd in (0,1,2)]),file=sys.stderr,flush=True);time.sleep(.1)\"
 with patch.object(m.GUARD.SUPERVISOR,'RamGuard',m.ObserveGuard):
  m.GUARD.run([sys.executable,'-B','-c',code],sys.argv[2],json.loads(sys.argv[3]),poll_seconds=.02,native_tty_progress=True)
 """
@@ -164,9 +189,10 @@ with patch.object(m.GUARD.SUPERVISOR,'RamGuard',m.ObserveGuard):
         self.assertEqual(completed.stdout, b"")
         os.set_blocking(master, False)
         displayed = os.read(master, 65536)
-        self.assertIn(b"NATIVE_TTY=True", displayed)
+        self.assertIn(b"NATIVE_TTY=[True, True, True]", displayed)
         self.assertNotIn(b"Generation/admission", displayed)
         self.assertEqual((directory / "stderr").read_bytes(), b"")
+        self.assertEqual((directory / "stdout").read_bytes(), b"")
         self.assertTrue((directory / "resources.jsonl").read_text())
         self.assertTrue(json.loads((directory / "result.json").read_text())["owned_group_drained"])
 

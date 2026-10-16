@@ -4,6 +4,7 @@ Unlike the owner walker, family-candidates cannot save a live sector on request.
 A guarded stop preserves only previously completed native sector checkpoints.
 """
 import importlib.util
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -45,6 +46,13 @@ def group_running(group):
     return False
 
 
+def terminal_input():
+    # stderr may itself be write-only (e.g. `2>/dev/tty`). Reopen the same
+    # device for cursor replies; never acquire/steal a controlling terminal.
+    return open(os.ttyname(2), "rb", buffering=0,
+                opener=lambda path, flags: os.open(path, flags | os.O_NOCTTY))
+
+
 def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
         cooperative_stop_file=None, native_tty_progress=False):
     """Own process-group drain and finite RSS/host guards, without CAS.
@@ -55,11 +63,14 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
     them the full grace before owned-group SIGKILL. No checkpoint success is
     inferred from requesting a stop. The read-only cold verifier has no stop-file.
 
-    Opted-in terminal callers let the native CLI render directly to inherited
-    stderr. Its structured events remain in the caller's native events file;
-    this guard's stderr file is empty in that mode. Resource telemetry and all
-    stop/drain guards remain active. Non-TTY and default callers capture stderr
-    and retain the periodic guard summary.
+    Opted-in terminal callers connect all native standard descriptors to the
+    caller's stderr terminal. Crossterm's inline viewport reads terminal replies
+    on stdin and writes its cursor-position query on stdout, even when rendering
+    to stderr. Merely inheriting stderr makes that viewport silently fail under
+    the isolated session. This mode is only for commands with structured output
+    in separate files: the guard's stdout/stderr captures remain empty. Resource
+    telemetry and all stop/drain guards remain active. Non-TTY and default
+    callers keep file capture and the periodic guard summary.
     """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=False)
@@ -97,7 +108,9 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
                        "SIGTERM then owned-group drain; only completed sector shards are resumable"),
         hard_timeout=None, environment_recorded=False,
         native_tty_progress_requested=bool(native_tty_progress),
-        native_stderr="inherited_tty" if native_tty else "captured_file")
+        native_stderr="inherited_tty" if native_tty else "captured_file",
+        native_stdin="stderr_tty" if native_tty else "devnull",
+        native_stdout="stderr_tty" if native_tty else "captured_file")
     (directory / "request.json").write_text(json.dumps(request, indent=2) + "\n")
     reason, stopping, child = None, None, None
 
@@ -139,9 +152,23 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
         collector = SUPERVISOR.ProcessTreeCollector()
         collector.register(os.getpid())
         with (directory / "stdout").open("xb") as stdout, (directory / "stderr").open("xb") as stderr, \
-                (directory / "resources.jsonl").open("x") as telemetry:
-            child = subprocess.Popen(command, cwd=ROOT, env=environment, stdin=subprocess.DEVNULL,
-                stdout=stdout, stderr=None if native_tty else stderr, start_new_session=True,
+                (directory / "resources.jsonl").open("x") as telemetry, ExitStack() as descriptors:
+            native_input = subprocess.DEVNULL
+            if native_tty:
+                try:
+                    native_input = descriptors.enter_context(terminal_input())
+                except OSError as error:
+                    # Losing interactive display must not prevent a reduction.
+                    # Fall back to captured output and the periodic summary.
+                    native_tty = False
+                    request.update(native_stdin="devnull", native_stdout="captured_file",
+                                   native_stderr="captured_file", native_tty_error=str(error))
+                    (directory / "request.json").write_text(json.dumps(request, indent=2) + "\n")
+                    print(f"RustRed: native terminal unavailable ({error}); using periodic progress.", flush=True)
+            child = subprocess.Popen(command, cwd=ROOT, env=environment,
+                stdin=native_input,
+                stdout=2 if native_tty else stdout, stderr=None if native_tty else stderr,
+                start_new_session=True,
                 preexec_fn=lambda: os.sched_setaffinity(0, cpus))
             (directory / "child.json").write_text(json.dumps(dict(pid=child.pid, process_group=child.pid)) + "\n")
             try:

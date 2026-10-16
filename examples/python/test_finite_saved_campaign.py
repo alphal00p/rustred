@@ -343,6 +343,7 @@ class FiniteCampaignTests(unittest.TestCase):
         plan = self.plan()
         run = Path(plan["run_directory"])
         def native_guard(command, directory, resources, **options):
+            self.assertFalse(any(t.name == "finite-startup-progress" for t in threading.enumerate()))
             self.assertEqual(command, plan["native_command"])
             self.assertEqual(options["cooperative_stop_file"], run / "stop-request.json")
             self.assertIs(options["native_tty_progress"], True)
@@ -457,6 +458,88 @@ while not stop.exists(): time.sleep(.01)
                 else:
                     inspect.assert_called_once()
                     publish.assert_called_once()
+
+    def test_extension_startup_reports_phases_then_joins_before_solve(self):
+        self.namespace()
+        self.args.action = "extend"
+        self.args.rank = 1
+        self.args.unbounded_power_difference = False
+        self.args.max_power_difference = None
+        self.args.repair_preparation = False
+        receipt = {"status": "amendment-prepared-no-native-work"}
+        stdout, stderr = io.StringIO(), io.StringIO()
+        progress = FIN.STARTUP.StartupProgress(stream=stderr, log_interval=60)
+        self.addCleanup(progress.stop)
+        configure = FIN.PHASES.configuration
+        freeze = FIN.PHASES.freeze_master_executable
+
+        def configuration(*args, **kwargs):
+            self.assertEqual(json.loads(stdout.getvalue()), receipt)
+            self.assertTrue(progress._thread.is_alive())
+            self.assertIn("checking publication configuration", stderr.getvalue())
+            return configure(*args, **kwargs)
+
+        def freeze_executable(*args, **kwargs):
+            self.assertTrue(progress._thread.is_alive())
+            self.assertIn("freezing publication executable", stderr.getvalue())
+            return freeze(*args, **kwargs)
+
+        def solve(_):
+            self.assertIsNone(progress._thread)
+            self.assertFalse(any(t.name == "finite-startup-progress" for t in threading.enumerate()))
+            return 8, False
+
+        with redirect_stdout(stdout), \
+             patch.object(FIN.STARTUP, "StartupProgress", return_value=progress), \
+             patch.object(FIN, "extension", return_value=receipt), \
+             patch.object(FIN, "inspect", return_value=self.native), \
+             patch.object(FIN.PHASES, "configuration", side_effect=configuration), \
+             patch.object(FIN.PHASES, "freeze_master_executable", side_effect=freeze_executable), \
+             patch.object(FIN.PHASES, "phase_one", side_effect=solve):
+            self.assertEqual(FIN.public_locked(self.args, self.campaign, self.binary, apply=True), 8)
+        self.assertEqual(json.loads(stdout.getvalue()), receipt)
+        for phase in ("acquiring finite control lock", "inspecting finite checkpoint",
+                      "validating committed input sources", "verifying campaign inputs",
+                      "freezing solve executable", "validating current input scope"):
+            self.assertIn(phase, stderr.getvalue())
+
+    def test_startup_joins_before_publication_and_finalize_refinement(self):
+        self.namespace()
+        self.native["committed"].update(required_complete=True, all_rows_exhausted=True)
+        plan = self.plan()
+        for operation, launcher in (("publish", "phase_two"), ("finalize-refinement", "finalize_refinement")):
+            with self.subTest(operation=operation):
+                progress = FIN.STARTUP.StartupProgress(stream=io.StringIO(), log_interval=60)
+                self.addCleanup(progress.stop)
+                policy = {**FIN.PHASES.configuration(self.campaign), "operation": operation}
+
+                def launch(*_):
+                    self.assertIsNone(progress._thread)
+                    self.assertFalse(any(t.name == "finite-startup-progress" for t in threading.enumerate()))
+                    return 0
+
+                with patch.object(FIN, "inspect", return_value=self.native), \
+                     patch.object(FIN.PHASES, launcher, side_effect=launch):
+                    self.assertEqual(FIN.PHASES.run(plan, policy, True, FIN, startup_progress=progress), 0)
+
+    def test_startup_cleanup_on_planning_failure_and_dry_run_silence(self):
+        self.args.repair_preparation = False
+        for error in (ValueError("configuration failed"), KeyboardInterrupt()):
+            with self.subTest(error=type(error).__name__):
+                progress = FIN.STARTUP.StartupProgress(stream=io.StringIO(), log_interval=60)
+                self.addCleanup(progress.stop)
+                with patch.object(FIN.STARTUP, "StartupProgress", return_value=progress), \
+                     patch.object(FIN.PHASES, "configuration", side_effect=error), \
+                     self.assertRaises(type(error)):
+                    FIN.public_locked(self.args, self.campaign, self.binary, apply=True)
+                self.assertIsNone(progress._thread)
+                self.assertFalse(any(t.name == "finite-startup-progress" for t in threading.enumerate()))
+        self.args.dry_run = True
+        stderr, stdout = io.StringIO(), io.StringIO()
+        with patch.object(FIN.STARTUP.sys, "stderr", stderr), redirect_stdout(stdout):
+            self.assertEqual(FIN.public_locked(self.args, self.campaign, self.binary, apply=False), 0)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertIn("No native work launched.", stdout.getvalue())
 
 
 if __name__ == "__main__":

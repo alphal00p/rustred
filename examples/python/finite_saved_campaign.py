@@ -32,6 +32,7 @@ def sibling(name):
 
 
 PRODUCTION = sibling("production_saved_owner_campaign")
+STARTUP = sibling("finite_startup_progress")
 PHASES = PRODUCTION.PHASES
 SUPERVISOR = PRODUCTION.SUPERVISOR
 ENGINE = "rustred.finite-demand.v1"
@@ -319,9 +320,11 @@ def executable(campaign, supplied):
     return result
 
 
-def launch_plan(args, campaign, binary, *, apply):
+def launch_plan(args, campaign, binary, *, apply, startup_progress=None):
     saved_path = campaign / "bin/steering.json"
     saved = read(saved_path) if saved_path.is_file() else None
+    if startup_progress is not None:
+        startup_progress.phase("verifying campaign inputs")
     count, size, receipt = PRODUCTION.verify_inputs(campaign / "inputs")
     reject_auxiliary(campaign)
     if saved is not None and (saved.get("schema") != STEERING or saved.get("engine") != ENGINE):
@@ -365,12 +368,16 @@ def launch_plan(args, campaign, binary, *, apply):
     repair = getattr(args, "repair_preparation", False)
     if repair and not namespace.exists():
         raise ValueError("preparation repair requires an existing interrupted finite namespace")
+    if startup_progress is not None:
+        startup_progress.phase("freezing solve executable" if apply else "checking solve executable")
     if apply:
         (campaign / "bin").mkdir(parents=True, exist_ok=True)
         binary, binary_sha = PRODUCTION.copy_executable(campaign / "bin", binary)
         PRODUCTION.write_json(campaign / "bin/executable.json", {"file": binary.name, "sha256": binary_sha})
     else:
         binary_sha = PHASES.digest(binary)
+    if startup_progress is not None:
+        startup_progress.phase("saving launch plan")
     amendments = sorted((campaign / "amendments").glob("amendment-*.json"))
     carrier = source_command(campaign, count, size, amendments)
     source_path = immutable_json(campaign, "finite-source", carrier, apply)
@@ -406,16 +413,20 @@ def launch_plan(args, campaign, binary, *, apply):
 
 
 def execute(path):
-    plan = read(path)
-    if plan.get("engine") != ENGINE or PHASES.digest(plan["native_executable"]) != plan["executable_sha256"]:
-        raise ValueError("finite launch executable/engine binding differs")
-    guard_path = Path(__file__).resolve().parents[2] / "tools/research/runtime_order/generation_guard.py"
-    spec = importlib.util.spec_from_file_location("finite_campaign_guard", guard_path)
-    guard = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(guard)
-    for name in SUPERVISOR.DIAGNOSTIC_ONLY_ENVIRONMENT:
-        os.environ.pop(name, None)
-    run = Path(plan["run_directory"])
+    with STARTUP.StartupProgress() as progress:
+        progress.phase("checking native launch executable")
+        plan = read(path)
+        if plan.get("engine") != ENGINE or PHASES.digest(plan["native_executable"]) != plan["executable_sha256"]:
+            raise ValueError("finite launch executable/engine binding differs")
+        progress.phase("preparing native process guard")
+        guard_path = Path(__file__).resolve().parents[2] / "tools/research/runtime_order/generation_guard.py"
+        spec = importlib.util.spec_from_file_location("finite_campaign_guard", guard_path)
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        for name in SUPERVISOR.DIAGNOSTIC_ONLY_ENVIRONMENT:
+            os.environ.pop(name, None)
+        run = Path(plan["run_directory"])
+    # The guard's preexec_fn must run without a live reporter thread.
     try:
         guard.run(plan["native_command"], run / "guard", plan["supervisor_ram_policy"],
             grace_seconds=plan["stop_grace_seconds"], cooperative_stop_file=run / "stop-request.json",
@@ -471,6 +482,11 @@ def public_main(args, extra):
 
 
 def public_locked(args, campaign, binary, *, apply):
+    with STARTUP.StartupProgress(enabled=apply and not args.dry_run) as progress:
+        return _public_locked(args, campaign, binary, apply=apply, startup_progress=progress)
+
+
+def _public_locked(args, campaign, binary, *, apply, startup_progress):
     if args.action == "extend":
         helper = sibling("extend_rank_campaign")
         difference = (None if args.unbounded_power_difference else args.max_power_difference
@@ -479,6 +495,7 @@ def public_locked(args, campaign, binary, *, apply):
         print(json.dumps(receipt, indent=2), flush=True)
         if args.dry_run:
             return 0
+    startup_progress.phase("checking publication configuration")
     policy = PHASES.configuration(campaign, enabled=args.action == "refine", executable=binary,
         seed_depth=getattr(args, "seed_depth", None), saved_rule_assistance=getattr(args, "saved_rule_assistance", None),
         containing_sector_depth=getattr(args, "containing_sector_depth", None),
@@ -490,21 +507,24 @@ def public_locked(args, campaign, binary, *, apply):
         max_relation_columns=getattr(args, "max_relation_columns", None))
     if args.action == "finalize-refinement":
         policy["operation"] = "finalize-refinement"
+    startup_progress.phase("acquiring finite control lock")
     with control_lock(campaign / "finite-demand"):
         if (campaign / "finite-demand").exists() and not args.repair_preparation:
+            startup_progress.phase("inspecting finite checkpoint")
             status = inspect(campaign, binary)
             require_prepared_namespace(status)
             if status["source"]["status"] != "bound" and args.action != "run":
                 raise ValueError("native source metadata is not bound; run with unchanged source to repair it first")
             if status["source"]["status"] == "bound":
+                startup_progress.phase("validating committed input sources")
                 validate_committed_sources(campaign, status)
-        plan = launch_plan(args, campaign, binary, apply=apply)
+        plan = launch_plan(args, campaign, binary, apply=apply, startup_progress=startup_progress)
     if args.dry_run:
         print("No native work launched. Native source command: " + shlex.join(plan["native_command"]))
         return 0
     return PHASES.run(plan, policy, Path(plan["checkpoint_directory"]).exists(), sys.modules[__name__],
                       postprocess_only=args.action in ("publish", "refine", "finalize-refinement"),
-                      dispatcher_held=True)
+                      dispatcher_held=True, startup_progress=startup_progress)
 
 
 if __name__ == "__main__":

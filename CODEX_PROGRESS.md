@@ -1,5 +1,58 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 16 — finite startup and missing solve display follow-up
+
+The broader goal remains paused. This user-requested follow-up only repairs
+monitoring; no production campaign was started, stopped, resumed or edited.
+
+- Read-only evidence from the user's rank-one run
+  `campaigns/five-loop-finite-r0-d10-20261016/runs/20261016T102936.075836Z`:
+  native solve/restore completed in **230.439s**, exit0, generation490,
+  **232/232 required rows exhausted**, 60,807 input occurrences and6,047,386
+  completed Work keys. Native preparation occupied roughly the first134s;
+  these are sampled phase boundaries, not exact phase timings. Publication
+  subsequently reached `published_unrefined` in **159.511s** (supervisor time).
+  These are scoped completion/publication results, not unrestricted closure.
+- The guard receipt said `native_stderr=inherited_tty`, but inheriting stderr
+  alone was insufficient. Pinned Crossterm0.28.1 reads cursor replies on stdin
+  and sends its cursor query on stdout, while the guard supplied `/dev/null`
+  and a log file. Ratatui initialization failed silently; the solve continued
+  normally and wrote structured heartbeat/checkpoint events throughout.
+- Root repaired the opted-in terminal descriptor plumbing without changing
+  the frozen Rust binary, process-group ownership or RAM/stop behavior. The
+  native terminal input is reopened without acquiring a controlling terminal;
+  reopening failure falls back to periodic captured-output monitoring.
+- Agent `startup_progress_impl` implemented finite-only startup phase/elapsed
+  reporting, with no invented progress fraction, unchanged JSON/dry-run output
+  and explicit reporter shutdown before native/publication launch.
+- Independent agent `startup_progress_audit` traced the pinned terminal-library
+  failure and verified the real native inline dashboard under a PTY; the
+  previous PTY test only checked `isatty`, not successful Ratatui rendering.
+  The new test reproduces the old missing display with a successful tiny K1
+  solve, then verifies the corrected display, cancellation/group drain,
+  write-only stderr and restored terminal settings. No Rust rebuild was needed.
+- Root's combined regression gate: **150 tests PASS in20.885s**, including all
+  67 existing phase-dispatch tests,29 finite/startup tests,43 saved/extension/
+  preparation tests,8 guard tests and3 actual-native PTY tests. CPU32 was used,
+  outside the new campaign's0–31 reservation. Independent code audit PASS;
+  unrelated FeynKit edits and untracked work remain untouched.
+
+Reproduce the complete narrow gate from the repository root:
+
+```bash
+taskset -c 32 env TMPDIR="$PWD/TMP" PYTHONPATH=examples/python \
+  RUSTRED_NATIVE_TTY_TEST_BINARY="$PWD/TMP/releases/20261016-finite-demand/rustred" \
+  /nix/store/3gzjs8czrk47y7cpmr44jc568vqpb2p5-python3-3.13.15/bin/python3 -B -m unittest \
+  test_finite_startup_progress test_finite_saved_campaign test_campaign_phases \
+  test_saved_campaign test_extend_rank_campaign test_prepare_rank_campaign \
+  tools.research.runtime_order.test_generation_guard \
+  tools.research.runtime_order.test_generation_guard_native_tty
+```
+
+This is a launcher-only follow-up. The same user commands and frozen native
+binary pick up the fix on their next invocation from the updated main checkout;
+already-running processes are not changed. The broader paused goal stays paused.
+
 ## October 16 — user-requested next stopping milestone
 
 Finish the optimized fresh-campaign build, verify native/public lifecycle and

@@ -131,6 +131,21 @@ scope**. Current-window scheduled/expanded nodes are displayed separately and
 do not count as completed starting requests. Empty recorded rows can be closed
 without native reductions. No ETA follows solely from either counter.
 
+Before the native dashboard starts, the launcher reports startup phases and
+elapsed time on stderr (input checks, executable freezing and scope validation).
+This is activity reporting, not a percentage-complete estimate. Interactive
+runs then hand the terminal to the native solve dashboard, followed by the
+separate **Artifact publication** dashboard. Non-interactive runs keep bounded
+periodic log messages. `inspect --format json` and dry-run output are unchanged.
+
+The terminal supervisor connects the native cursor-query input/output as well
+as its dashboard output to the same terminal; structured solve events and
+results remain in their explicit files. In this interactive mode the guard's
+`stdout`/`stderr` capture files are empty. Process-group isolation, Ctrl+C,
+checkpoint requests and RAM supervision are unchanged. The October 16 launcher
+fix works with the existing frozen finite-demand executable: no solver rebuild
+or campaign restart is required to use it on the next invocation.
+
 Publication reuses the existing normalization/refinement and portable
 application format, with native finite-source provenance. It does not package
 the large Work ledger into an ordinary application artifact. The finite engine
