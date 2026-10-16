@@ -358,7 +358,8 @@ host available RAM is reported separately. Use `--memory-policy host-aware`
 explicitly to reduce the cap using available host memory and a reserve.
 The native dashboard shows committed rows, cached processed/total input
 occurrences (including overlaps), completed windows, last-window Work/reuse,
-current-chase elapsed time and5/30-minute backlog convergence, measured CPU
+current-chase elapsed time,5/30-minute backlog convergence, a rough input ETA
+from whole-invocation throughput (excluding publication), measured CPU
 usage and memory. Later finite extensions may select `--workers N --cpus CPUSET`
 without rebuilding or changing their saved scope/window partition. See the
 [configurable-limit release and fresh launch instructions](docs/research/finite_resource_limits_2026-10-16.md).

@@ -197,7 +197,8 @@ do not establish capacity or completion time for rank six.
 The principal progress bar counts required query rows closed in the **committed
 scope**. Current-window scheduled/expanded nodes are displayed separately and
 do not count as completed starting requests. Empty recorded rows can be closed
-without native reductions. No ETA follows solely from either counter.
+without native reductions. Neither counter alone provides a reliable completion
+time; the input ETA below is only a rough extrapolation using elapsed time.
 
 The table also shows committed input occurrences over the cached starting-input
 total. Overlapping rank requests count separately; this is not a unique-integral
@@ -217,6 +218,18 @@ zero is neutral. These are backlog trends, not completion fractions or ETAs.
 History warms up after each window/restart, is bounded to30minutes plus a sample,
 and does not fabricate fresh observations from stale native snapshots. All
 consumers receive the same `finite_chase` structured heartbeat fields.
+
+`ETA · run average` is a deliberately rough remaining **solve** duration based
+on the displayed committed input-occurrence count, not recent progress:
+`elapsed * (total - committed) / (committed - initial_committed)`. Elapsed time
+covers the whole native monitored invocation, including preparation/restore.
+The initial checkpoint supplies the retained prefix; earlier ranks and earlier
+invocations are not incorrectly counted as new throughput. `Inputs/s · run avg`
+shows the corresponding average. Before new committed work exists the estimate
+warms up; during a long uncommitted chase it can increase. Publication is not
+included. Different inputs have very different costs, so this is neither a
+reliable prediction nor an upper bound. Structured consumers receive the same
+`finite_input_eta` value and its explicit estimate-only status.
 
 The event journal is buffered in64KiB while still flushing every complete
 record. Write/flush failures retain the existing cancellation behavior; this

@@ -11,8 +11,10 @@ use ratatui::{
 use serde_json::{Value, json};
 mod chase;
 pub(super) use chase::ChaseProgress;
+mod eta;
+pub(super) use eta::InputEta;
 
-pub(in crate::cli::progress) const HEIGHT: u16 = 21;
+pub(in crate::cli::progress) const HEIGHT: u16 = 22;
 
 fn memory_gb(value: &Value) -> String {
     value.as_u64().map_or_else(
@@ -170,10 +172,39 @@ fn chase_elapsed(chase: &Value) -> String {
     )
 }
 
+fn input_eta_text(eta: &Value) -> String {
+    match eta["status"].as_str() {
+        Some("complete") => "00:00:00".into(),
+        Some("available") => eta["remaining_seconds"]
+            .as_f64()
+            .filter(|seconds| seconds.is_finite() && *seconds >= 0.)
+            .map_or_else(
+                || "—".into(),
+                |seconds| {
+                    if seconds >= u64::MAX as f64 {
+                        format!("~{seconds:.2e}s")
+                    } else {
+                        format!("~{}", duration(seconds))
+                    }
+                },
+            ),
+        Some("warming_up") => "warming up".into(),
+        _ => "—".into(),
+    }
+}
+
+fn input_average_text(eta: &Value) -> String {
+    eta["inputs_per_second"]
+        .as_f64()
+        .filter(|rate| rate.is_finite() && *rate >= 0.)
+        .map_or_else(|| "—".into(), |rate| format!("{rate:.3}"))
+}
+
 pub(super) fn plain_status(record: &Value) -> String {
     let event = &record["progress"];
     let committed = &event["finite_committed"];
     let chase = &record["finite_chase"];
+    let eta = &record["finite_input_eta"];
     let cpu = record["process_cpu_cores"]
         .as_f64()
         .map_or_else(|| "—".into(), |n| format!("{n:.2}"));
@@ -190,11 +221,13 @@ pub(super) fn plain_status(record: &Value) -> String {
             )
         });
     format!(
-        "RustRed finite | {} | committed {}/{} rows | inputs {} occurrences (overlap counted) | generation {} / {} committed windows | last window new Work {} / reuse hits {} | chase gap {} / elapsed {} | convergence 5 min {} / 30 min {} (negative: shrinking gap, not closure) | CPU {}/{} cores | RSS {} | process RAM cap {} | stop threshold {} | host available {} / {} total | elapsed {}{error}",
+        "RustRed finite | {} | committed {}/{} rows | inputs {} occurrences (overlap counted) | rough input ETA {} at {}/s (whole invocation; publication excluded) | generation {} / {} committed windows | last window new Work {} / reuse hits {} | chase gap {} / elapsed {} | convergence 5 min {} / 30 min {} (negative: shrinking gap, not closure) | CPU {}/{} cores | RSS {} | process RAM cap {} | stop threshold {} | host available {} / {} total | elapsed {}{error}",
         stage(event),
         number(&committed["exhausted_required_rows"]),
         number(&committed["required_rows"]),
         input_occurrences(event),
+        input_eta_text(eta),
+        input_average_text(eta),
         number(&event["finite_generation"]["number"]),
         number(&committed["committed_windows"]),
         number(&event["finite_last_window"]["new_work"]),
@@ -222,6 +255,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
     let local = &event["finite_local"];
     let snapshot = &local["snapshot"];
     let chase = &record["finite_chase"];
+    let eta = &record["finite_input_eta"];
     let failure = event["result"]["error"]
         .as_str()
         .or(snapshot["first_failure"]["detail"].as_str());
@@ -260,7 +294,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
-        Constraint::Length(13),
+        Constraint::Length(14),
         Constraint::Length(1),
         Constraint::Min(0),
     ])
@@ -329,6 +363,12 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
     };
     let metrics = [
         first,
+        (
+            "ETA · run average",
+            input_eta_text(eta),
+            "Inputs/s · run avg",
+            input_average_text(eta),
+        ),
         (
             "Gen / closed win",
             format!(
@@ -445,6 +485,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
             let label = match left {
                 "Saved Work" => "Work / inputs",
                 "Stage completed" => "Stage done/total",
+                "ETA · run average" => "ETA / inputs/s",
                 "Gen / closed win" => "Gen,win / aux",
                 "Last new Work" => "Last new / reuse",
                 "Row (0-based)" => "Row / window (0)",
@@ -496,7 +537,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         sections[4],
     );
     let footer = failure.map_or_else(
-        || "Convergence < 0: shrinking gap, not closure/ETA. Inputs include overlap; row closure is committed. Native busy counts tasks, not CPU.".to_string(),
+        || "ETA: rough whole-invocation input average, excludes publication. Convergence < 0: shrinking gap, not closure. Inputs include overlap; row closure is committed.".to_string(),
         |detail| format!("{} · {}", detail.chars().filter(|c| !c.is_control()).collect::<String>(), checkpoint_note(event)),
     );
     frame.render_widget(
@@ -720,6 +761,7 @@ mod tests {
             "process_memory_limit_bytes":600_000_000_000u64,"process_memory_soft_bytes":570_000_000_000u64,
             "host_available_bytes":100_000_000_000u64,"host_total_bytes":1_024_000_000_000u64,
             "recent_nodes_per_second":125.5,"progress_age_seconds":0.2,
+            "finite_input_eta":{"status":"available","remaining_seconds":7200.,"inputs_per_second":10.},
             "finite_chase":{"status":"active","elapsed_seconds":1832.,"gap":12000,
                 "five_minutes":{"status":"available","value":-0.25},
                 "thirty_minutes":{"status":"available","value":0.75}}});
@@ -755,6 +797,8 @@ mod tests {
                     "Host available",
                     "Host total",
                     "Input occurrences",
+                    "ETA · run average",
+                    "Inputs/s · run avg",
                     "Gen / closed win",
                     "Last new Work",
                     "Last reuse hits",
@@ -775,6 +819,10 @@ mod tests {
                 assert!(text.contains("12,387 / 50,000"), "{text}");
                 assert!(text.contains("777") && text.contains("333"), "{text}");
                 assert!(text.contains("01:02:03"), "{text}");
+                assert!(
+                    text.contains("~02:00:00") && text.contains("10.000"),
+                    "{text}"
+                );
                 assert!(text.contains("00:30:32"), "{text}");
                 assert!(text.contains("-0.250") && text.contains("+0.750"), "{text}");
                 assert!(text.contains("6.50 / 8"), "{text}");
@@ -795,6 +843,34 @@ mod tests {
                 assert!(text.contains("╭") && text.contains("╰"), "{text}");
             }
         }
+    }
+
+    #[test]
+    fn finite_input_eta_rendering_is_explicitly_rough_and_shared_with_plain_output() {
+        let eta = json!({"status":"available","remaining_seconds":90.,"inputs_per_second":0.25});
+        assert_eq!(input_eta_text(&eta), "~00:01:30");
+        assert_eq!(input_average_text(&eta), "0.250");
+        assert_eq!(input_eta_text(&json!({"status":"complete"})), "00:00:00");
+        assert_eq!(
+            input_eta_text(&json!({"status":"warming_up"})),
+            "warming up"
+        );
+        assert_eq!(input_eta_text(&Value::Null), "—");
+        let huge = input_eta_text(&json!({"status":"available","remaining_seconds":1e100}));
+        assert!(huge.contains('e') && huge.ends_with('s'), "{huge}");
+        assert_eq!(
+            input_eta_text(&json!({"status":"available","remaining_seconds":-1.})),
+            "—"
+        );
+        let text = plain_status(&json!({"progress":{},"finite_input_eta":eta}));
+        assert!(
+            text.contains("rough input ETA ~00:01:30 at 0.250/s"),
+            "{text}"
+        );
+        assert!(
+            text.contains("whole invocation; publication excluded"),
+            "{text}"
+        );
     }
 
     #[test]

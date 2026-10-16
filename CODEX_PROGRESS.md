@@ -1,5 +1,52 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 16 — rough whole-invocation input ETA
+
+User explicitly requests a basic extrapolated ETA from committed starting-input
+occurrences, accepting nonuniform work costs. Add a native display-only estimate
+`elapsed * (total - current) / (current - initial)` using the whole monitored
+solve invocation, not a recent rolling rate or descendant-node counts. `initial`
+is captured from the lossless initial checkpoint milestone, so resumed or prior
+rank work is not credited as newly solved throughput. Native preparation/restore
+time is included; Python work before monitor startup and subsequent publication
+are excluded. The estimate can increase during a long uncommitted chase.
+
+`eta_tracker` implements the bounded scalar tracker and FIFO producer wiring;
+`eta_audit` independently reviews baseline races, counter ranges and semantics.
+Root adds the aligned `ETA · run average` / `Inputs/s · run avg` row, plain output,
+rendering tests, documentation, optimized release and handoff. Before positive
+new committed progress the display says warming up. Invalid/range-inconsistent
+telemetry produces unavailable, never an execution failure or campaign limit.
+Completion is accepted only from the native committed scope, not extrapolation.
+
+Source/solver/checkpoint algorithms are unchanged. Current campaigns and frozen
+executables remain untouched. The next rank5 command will explicitly select
+the new ETA release, retaining150 workers, the same CPU set and600GB RAM ceiling.
+This is delivered as a separately frozen optimized executable; no active
+campaign executable or steering is replaced in place.
+
+Independent source audit passed. The current exact presentation sources passed
+23 focused tests, including huge counters and renderer resizing, using a small
+native harness linked to the existing serde/ratatui dependencies. The normal
+app regression gate passed349 tests (four explicitly ignored), including the
+actual asynchronous checkpoint/latest-slot ETA race. Evidence:
+`TMP/eta150-app-test-results-20261016/`; exact-source harness under
+`TMP/eta-native-module-harness/`. No solver/core rebuild or new five-loop solve
+was needed for this display-only change. The optimized CLI built in253.311s;
+three actual-native PTY tests passed, including ETA event fields, final zero
+remaining time, cancellation and22-row cleanup. Root visually inspected
+`TMP/eta150-final-tty-20261016/terminal-descriptors.png`. The final binary also
+cold-inspected the existing R1 publication:232 closed rows,60,807 inputs,
+6,047,386 Work and9,982 published rules, with current scope confirmed.
+
+Frozen executable: `TMP/releases/20261016-finite-eta-150/rustred`, SHA256
+`4f16e6dd414fd0ec0ad5b30d258acf72e6a2cd3bdec65d8d341dc7346be27635`.
+Next-rank instructions in `docs/research/finite_resource_limits_2026-10-16.md`
+now select this path with150 workers and the unchanged600GB process ceiling.
+All previous convergence/lookup/logging improvements are retained. The running
+R4 campaign and unrelated FeynKit edits remain untouched. Broader goal stays
+paused; this follow-up changes monitoring only.
+
 ## October 16 — chase trends, 150-worker extension and duplicate-routing audit
 
 User requests the next optimized executable, not a restart of the active R4

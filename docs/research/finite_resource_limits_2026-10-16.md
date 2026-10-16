@@ -1,8 +1,9 @@
 # User-controlled finite campaign limits and dashboard
 
-## Next extension: chase monitoring and 150 workers
+## Next extension: chase monitoring, rough input ETA and 150 workers
 
-The follow-up adds5/30-minute gap convergence and current-chase elapsed time,
+The follow-up adds5/30-minute gap convergence, current-chase elapsed time and a
+rough input ETA from the whole invocation's average committed-input throughput,
 removes the fixed64-worker ceiling in favor of actual CPU/license admission,
 and permits a Python `--workers` override without editing frozen policy files.
 It also skips redundant resident-baseline probes on known live duplicates and
@@ -17,7 +18,7 @@ cd /shared/codex-2/rustred
 export RUSTRED_CAMPAIGN="$PWD/campaigns/five-loop-finite-r0-d10-resident-fixed-20261016"
 nix develop --command python -B examples/python/saved_campaign.py extend \
   --campaign "$RUSTRED_CAMPAIGN" --rank 5 \
-  --executable "$PWD/TMP/releases/20261016-finite-convergence-150/rustred" \
+  --executable "$PWD/TMP/releases/20261016-finite-eta-150/rustred" \
   --workers 150 --cpus 0-63,96-181 \
   --max-memory-bytes 600000000000 --memory-policy process-limit
 ```
@@ -27,6 +28,10 @@ executable at that future launch; do not overwrite the running campaign's binary
 or change its current steering. Subsequent extensions retain the selected build
 and150-worker policy. No `--resume` is needed with `extend`; after an interrupted
 stage, use `run --resume` without appending a second rank stage.
+
+The ETA excludes work completed before this invocation and excludes final
+publication. It warms up until new inputs commit, and can rise during a long
+chase; it is intentionally only a rough extrapolation, not a closure claim.
 
 On this host the selected CPU IDs are150 distinct physical cores and avoid the
 older campaign's64–95 reservation. This is not an exclusive host reservation or

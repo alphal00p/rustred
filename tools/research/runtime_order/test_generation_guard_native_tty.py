@@ -238,6 +238,16 @@ powers=[1]
         self.assertEqual(native["schema"], "rustred.finite-demand-run.v1")
         self.assertEqual(native["complete"], not cancelled, native)
         self.assertTrue((directory / "events.jsonl").read_text())
+        if not cancelled:
+            events = [json.loads(line) for line in (directory / "events.jsonl").read_text().splitlines()]
+            estimates = [event["finite_input_eta"] for event in events if "finite_input_eta" in event]
+            self.assertTrue(estimates)
+            self.assertEqual(estimates[-1]["initial_committed"], 0)
+            self.assertEqual(estimates[-1]["current_committed"], 3)
+            self.assertEqual(estimates[-1]["total_inputs"], "3")
+            self.assertEqual(estimates[-1]["status"], "complete")
+            self.assertEqual(estimates[-1]["remaining_seconds"], 0)
+            self.assertTrue(estimates[-1]["publication_excluded"])
         self.assertNotIn(b"Generation/admission", display)
         self.assertEqual((directory / "guard/stderr").read_bytes(), b"")
         # Ratatui positions each changed word/cell instead of emitting a plain
@@ -269,10 +279,11 @@ powers=[1]
         self.assertIn(b"Input occurrences", after)
         self.assertIn(b"Chase elapsed", after)
         self.assertIn(b"Convergence", after)
-        # Inline viewport is21 rows in this32-row terminal. Cleanup must land
+        self.assertIn(b"ETA", after)
+        # Inline viewport is22 rows in this32-row terminal. Cleanup must land
         # at the viewport bottom, not scroll the whole screen's last row.
         self.assertNotIn(b"\x1b[32;1H", self.last_display)
-        self.assertIn(b"\x1b[21;1H", self.last_display)
+        self.assertIn(b"\x1b[22;1H", self.last_display)
 
     def test_native_cancellation_keeps_display_and_drains_group(self):
         display, replies, receipt = self.run_guard("cancelled", cancelled=True)

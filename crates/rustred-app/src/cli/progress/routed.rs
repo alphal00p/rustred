@@ -100,6 +100,8 @@ impl RoutedProgress {
         reserved_workers: Option<usize>,
         progress_enabled: bool,
     ) -> Self {
+        // Include preparation and terminal setup in whole-invocation telemetry.
+        let started = Instant::now();
         let mut events = io::BufWriter::with_capacity(EVENT_BUFFER_BYTES, events);
         let finite_mode = reserved_workers.is_some();
         let process_memory_limit_bytes = parse_progress_memory_bytes(
@@ -145,15 +147,18 @@ impl RoutedProgress {
                 None
             };
             let color = std::env::var_os("NO_COLOR").is_none();
-            let started = Instant::now();
             let mut previous = None;
-            let mut previous_cpu = process_cpu_seconds().map(|cpu| (started, cpu));
+            let mut previous_cpu = process_cpu_seconds().map(|cpu| (Instant::now(), cpu));
             let mut last_plain = None::<Instant>;
             let mut chase = finite::ChaseProgress::default();
+            let mut input_eta = finite::InputEta::default();
             loop {
                 let finished = match receiver.recv_timeout(Duration::from_secs(1)) {
                     Ok(Control::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => true,
                     Ok(Control::Checkpoint(event)) => {
+                        // This FIFO milestone cannot be overwritten by a fast
+                        // first window before the first sampled heartbeat.
+                        input_eta.milestone(&event);
                         if let Err(error) = write_record(&mut events, &event) {
                             cancellation.store(true, Ordering::Relaxed);
                             return Err(error);
@@ -201,6 +206,7 @@ impl RoutedProgress {
                     record["process_memory_limit_bytes"] = json!(process_memory_limit_bytes);
                     record["process_memory_soft_bytes"] = json!(process_memory_soft_bytes);
                     chase.annotate(&mut record);
+                    input_eta.annotate(&mut record);
                 }
                 add_worker_summary(&mut record);
                 finite::annotate_heartbeat(&mut record);
@@ -1003,6 +1009,58 @@ mod tests {
                 }
             );
             assert_eq!(row["generation"], index / 2 + 1);
+        }
+    }
+
+    #[test]
+    fn finite_eta_uses_lossless_initial_checkpoint_despite_rapid_first_windows() {
+        struct Shared(Arc<Mutex<Vec<u8>>>);
+        impl Write for Shared {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let monitor = RoutedProgress::start_finite(
+            Box::new(Shared(Arc::clone(&bytes))),
+            false,
+            Arc::new(AtomicBool::new(false)),
+            None,
+            8,
+            false,
+        );
+        monitor.observe(json!({"event":"finite_checkpoint_restored",
+            "operation":"finite_demand", "checkpoint":"campaign/store",
+            "committed":{"input_occurrences":100,"required_complete":false},
+            "input_occurrences_total":"1000"}));
+        for inputs in (110..=180).step_by(10) {
+            monitor.observe(json!({"event":"finite_checkpoint_saved",
+                "operation":"finite_demand", "checkpoint":"campaign/store",
+                "committed":{"input_occurrences":inputs,"required_complete":false},
+                "window":{"inputs":10,"row":0}}));
+            monitor.observe(json!({"event":"finite_backend_native","operation":"finite_demand"}));
+        }
+        monitor.finish().unwrap();
+        let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        let records: Vec<Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let last = records.last().unwrap();
+        assert_eq!(last["finite_input_eta"]["initial_committed"], 100);
+        assert_eq!(last["finite_input_eta"]["current_committed"], 180);
+        assert_eq!(last["finite_input_eta"]["status"], "available");
+        for record in records
+            .iter()
+            .filter(|record| record["event"] == "heartbeat")
+        {
+            if !record["finite_input_eta"]["initial_committed"].is_null() {
+                assert_eq!(record["finite_input_eta"]["initial_committed"], 100);
+            }
         }
     }
 
