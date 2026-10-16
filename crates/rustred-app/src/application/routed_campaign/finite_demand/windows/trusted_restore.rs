@@ -20,12 +20,20 @@ pub(crate) fn inspect_committed_cursor(
     physical_arity: usize,
 ) -> Result<CommittedCursorStatus> {
     let record: CursorRecord = decode(token.encoded_cursor())?;
+    // The native all-fixed singleton fast path has its full physical prefix,
+    // but no DFS frames, before its ONLY window runs. This is pending metadata,
+    // not completed input or a source-authenticated continuation capability.
+    let pending_singleton = !record.finished
+        && record.frames.is_empty()
+        && record.prefix.len() == physical_arity
+        && record.windows == 0
+        && record.emitted == 0;
     if physical_arity == 0
         || record.version != VERSION
         || record.binding != token.source_policy()
         || record.windows != token.completed_windows()
         || record.emitted != Integer::from(token.input_occurrences())
-        || record.frames.len() != record.prefix.len()
+        || (!pending_singleton && record.frames.len() != record.prefix.len())
         || record.prefix.len() > physical_arity
         || (record.finished && !record.prefix.is_empty())
     {

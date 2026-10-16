@@ -4,7 +4,7 @@ use crate::{
     FiniteDemandMode, FiniteDemandPolicy, FiniteDemandRunRequest, inspect_finite_demand,
     run_finite_demand_with_progress,
 };
-use std::{fs, sync::atomic::AtomicBool};
+use std::{fs, path::Path, sync::atomic::AtomicBool};
 
 fn policy() -> FiniteDemandPolicy {
     FiniteDemandPolicy::from_json(&serde_json::to_vec(&json!({
@@ -246,7 +246,10 @@ fn public_finite_namespace_relocation_and_partition_mismatch_preserve_work() {
     );
     let launch: Value =
         serde_json::from_slice(&fs::read(request.directory.join("launch.json")).unwrap()).unwrap();
-    assert_eq!(launch["owner_base"], "..");
+    assert_eq!(
+        Path::new(launch["owner_base"].as_str().unwrap()),
+        Path::new("..")
+    );
 }
 
 #[test]
