@@ -68,6 +68,7 @@ fn policy(workers: usize) -> Policy {
             max_lookup_bytes: 1000000,
             max_transient_bytes: 128 * 1024 * 1024,
         },
+        max_resident_work_bytes: 0,
         max_total_rows: 16,
         max_source_bytes: 1048576,
     }
@@ -242,6 +243,127 @@ fn durable_driver_output_refusal_and_cancel_never_report_complete() {
     assert_eq!(result["error_kind"], "Cancelled");
     assert_eq!(result["progress"]["input_occurrences"], 0);
     assert_eq!(result["progress"]["no_active_native_work"], true);
+}
+
+#[test]
+fn resident_and_zero_tiny_grant_paged_drivers_have_identical_exact_raw_output() {
+    use crate::application::routed_campaign::finite_demand::backend::diagnostic::{
+        Mode, OutputBudget, drive,
+    };
+    let f = Fixture::new();
+    let source = source(&f);
+    let cancel = AtomicBool::new(false);
+    let mut outputs = Vec::new();
+    let mut generations = Vec::new();
+    let growth_decline_grant = (128 * 1024 * 1024) + 1_000_000 + 1;
+    for grant in [0, 1, growth_decline_grant, 256 * 1024 * 1024] {
+        let mut p = policy(1);
+        p.max_resident_work_bytes = grant;
+        let output = f.directory.join(format!("resident-output-{grant}"));
+        fs::create_dir(&output).unwrap();
+        let observed = AtomicBool::new(false);
+        let hydrations = std::sync::atomic::AtomicUsize::new(0);
+        let fallbacks = std::sync::atomic::AtomicUsize::new(0);
+        let advanced_records = std::sync::atomic::AtomicU64::new(0);
+        let result = drive::<1>(
+            &source,
+            p,
+            Mode::Create,
+            &f.directory.join(format!("resident-checkpoint-{grant}")),
+            None,
+            &output,
+            &OutputBudget::new(1048576),
+            &cancel,
+            &|event| {
+                if event["event"] == "finite_backend_resident_hydrated" {
+                    hydrations.fetch_add(1, Ordering::Relaxed);
+                }
+                if event["event"] == "finite_backend_resident_fallback" {
+                    fallbacks.fetch_add(1, Ordering::Relaxed);
+                }
+                if event["event"] == "finite_backend_commit_finished" && grant == 256 * 1024 * 1024
+                {
+                    let delta = event["resident_staged_records"].as_u64().unwrap();
+                    let count = advanced_records.fetch_add(delta, Ordering::Relaxed) + delta;
+                    assert_eq!(event["resident"]["records"], count);
+                }
+                if event["event"] == "finite_backend_native_call_finished" {
+                    observed.store(true, Ordering::Release);
+                    if grant == 256 * 1024 * 1024 {
+                        assert!(event["resident"].is_object());
+                        assert_eq!(event["reader"]["page_reads"], 0);
+                        assert_eq!(event["reader"]["page_cache_hits"], 0);
+                    } else if grant <= 1 {
+                        assert!(event["resident"].is_null());
+                    }
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(result["status"], "complete");
+        assert!(observed.load(Ordering::Acquire));
+        assert_eq!(hydrations.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            fallbacks.load(Ordering::Relaxed),
+            usize::from(grant == growth_decline_grant)
+        );
+        generations.push(result["progress"]["generation"].clone());
+        outputs.push(output);
+    }
+    assert!(generations[0].is_string());
+    assert!(generations.windows(2).all(|pair| pair[0] == pair[1]));
+    for name in ["terminals.jsonl", "zeros.jsonl", "selections.jsonl"] {
+        let expected = fs::read(outputs[0].join(name)).unwrap();
+        for output in &outputs[1..] {
+            assert_eq!(fs::read(output.join(name)).unwrap(), expected);
+        }
+    }
+}
+
+#[test]
+fn resident_cold_hydration_corruption_and_missing_page_propagate_without_resume_writes() {
+    let f = Fixture::new();
+    let source = source(&f);
+    let mut p = policy(1);
+    p.max_resident_work_bytes = 256 * 1024 * 1024;
+    let cancel = AtomicBool::new(false);
+    for missing in [false, true] {
+        let path = f.directory.join(format!("resident-corrupt-{missing}"));
+        let mut session = Session::<1>::create(&source, p, &path, &cancel, &|_| {}).unwrap();
+        session.step(&cancel, &|_| {}).unwrap();
+        drop(session);
+        let page = fs::read_dir(path.join("pages"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        if missing {
+            fs::remove_file(page).unwrap();
+        } else {
+            let mut bytes = fs::read(&page).unwrap();
+            bytes[0] ^= 1;
+            fs::write(page, bytes).unwrap();
+        }
+        for extend in [false, true] {
+            let mut resumed_source = source.clone();
+            if extend {
+                append(
+                    &mut resumed_source,
+                    f.directory.join("resident-corrupt-append.json"),
+                );
+            }
+            let before = tree(&path);
+            let error = Session::<1>::resume(&resumed_source, p, &path, &cancel, &|_| {})
+                .err()
+                .unwrap();
+            assert!(matches!(
+                error.kind(),
+                crate::AppErrorKind::Serialization | crate::AppErrorKind::Execution
+            ));
+            assert_eq!(tree(&path), before);
+        }
+    }
 }
 fn append(source: &mut OwnerDomainWalkRequest, path: PathBuf) {
     source.amendments.push(OwnerDomainWalkAmendment {path,text:json!({"schema":OWNER_DOMAIN_WALK_SCOPE_EXTENSION_SCHEMA,
@@ -444,58 +566,68 @@ fn compare_union(f: &Fixture, generation: &ValidatedGeneration, p: Policy) {
 
 #[test]
 fn finite_backend_native_windows_cold_resume_append_and_union_work_census_w1_w4() {
-    let f = Fixture::new();
-    for workers in [1, 4] {
-        assert!(crate::test_gates::workers_or_skip(
-            "exact finite window backend",
-            workers
-        ));
-        let p = policy(workers);
-        let cancel = AtomicBool::new(false);
-        let mut source = source(&f);
-        let path = f.directory.join(format!("backend-{workers}"));
-        let mut session = Session::<1>::create(&source, p, &path, &cancel, &|_| {}).unwrap();
-        assert!(path.join("CURRENT").exists());
-        assert_eq!(session.progress().unwrap().input_occurrences, 0);
-        assert_eq!(session.progress().unwrap().exhausted_required_rows, 1);
-        session.step(&cancel, &|_| {}).unwrap();
-        session.step(&cancel, &|_| {}).unwrap();
-        let before = session.generation().unwrap();
-        assert!(before.state().completed_work > 0);
-        assert!(!session.progress().unwrap().required_complete);
-        drop(session);
-        append(&mut source, f.directory.join("appended.json"));
-        let mut resumed = Session::<1>::resume(&source, p, &path, &cancel, &|_| {}).unwrap();
-        let extended = resumed.generation().unwrap();
-        assert_eq!(
-            extended.state().completed_work,
-            before.state().completed_work
-        );
-        assert_eq!(extended.state().census, before.state().census);
-        assert_eq!(
-            &extended.state().cursors[..2],
-            before.state().cursors.as_slice()
-        );
-        assert_eq!(extended.state().cursors[2].input_occurrences, 0);
-        assert_eq!(extended.generation(), before.generation() + 1);
-        finish(&mut resumed);
-        assert_eq!(resumed.progress().unwrap().input_occurrences, 8);
-        compare_union(&f, &resumed.generation().unwrap(), p);
-        let uninterrupted = f.directory.join(format!("uninterrupted-{workers}"));
-        let mut full = Session::<1>::create(&source, p, &uninterrupted, &cancel, &|_| {}).unwrap();
-        finish(&mut full);
-        assert_eq!(
-            full.generation().unwrap().state(),
-            resumed.generation().unwrap().state()
-        );
-        drop(resumed);
-        // Only operational aggregate grants and workers may vary on resume.
-        let mut changed = p;
-        changed.workers = 1;
-        changed.per_batch_work.max_rule_applications = 2000;
-        source.amendments[0].path = f.directory.join("relocated-amendment-same-bytes.json");
-        let reopened = Session::<1>::resume(&source, changed, &path, &cancel, &|_| {}).unwrap();
-        assert!(reopened.progress().unwrap().all_rows_exhausted);
+    for grant in [0, 256 * 1024 * 1024] {
+        let f = Fixture::new();
+        for workers in [1, 4] {
+            assert!(crate::test_gates::workers_or_skip(
+                "exact finite window backend",
+                workers
+            ));
+            let mut p = policy(workers);
+            p.max_resident_work_bytes = grant;
+            let cancel = AtomicBool::new(false);
+            let mut source = source(&f);
+            let path = f.directory.join(format!("backend-{workers}"));
+            let mut session = Session::<1>::create(&source, p, &path, &cancel, &|_| {}).unwrap();
+            assert!(path.join("CURRENT").exists());
+            assert_eq!(session.progress().unwrap().input_occurrences, 0);
+            assert_eq!(session.progress().unwrap().exhausted_required_rows, 1);
+            session.step(&cancel, &|_| {}).unwrap();
+            session.step(&cancel, &|_| {}).unwrap();
+            let before = session.generation().unwrap();
+            assert!(before.state().completed_work > 0);
+            assert!(!session.progress().unwrap().required_complete);
+            drop(session);
+            append(&mut source, f.directory.join("appended.json"));
+            let mut resumed = Session::<1>::resume(&source, p, &path, &cancel, &|_| {}).unwrap();
+            let extended = resumed.generation().unwrap();
+            assert_eq!(
+                extended.state().completed_work,
+                before.state().completed_work
+            );
+            assert_eq!(extended.state().census, before.state().census);
+            assert_eq!(
+                &extended.state().cursors[..2],
+                before.state().cursors.as_slice()
+            );
+            assert_eq!(extended.state().cursors[2].input_occurrences, 0);
+            assert_eq!(extended.generation(), before.generation() + 1);
+            finish(&mut resumed);
+            assert_eq!(resumed.progress().unwrap().input_occurrences, 8);
+            compare_union(&f, &resumed.generation().unwrap(), p);
+            let uninterrupted = f.directory.join(format!("uninterrupted-{workers}"));
+            let mut full =
+                Session::<1>::create(&source, p, &uninterrupted, &cancel, &|_| {}).unwrap();
+            finish(&mut full);
+            assert_eq!(
+                full.generation().unwrap().state(),
+                resumed.generation().unwrap().state()
+            );
+            let completed_generation = resumed.generation().unwrap().digest();
+            drop(resumed);
+            // Only operational aggregate grants and workers may vary on resume.
+            let mut changed = p;
+            changed.workers = 1;
+            changed.max_resident_work_bytes = if grant == 0 { 256 * 1024 * 1024 } else { 0 };
+            changed.per_batch_work.max_rule_applications = 2000;
+            source.amendments[0].path = f.directory.join("relocated-amendment-same-bytes.json");
+            let reopened = Session::<1>::resume(&source, changed, &path, &cancel, &|_| {}).unwrap();
+            assert!(reopened.progress().unwrap().all_rows_exhausted);
+            assert_eq!(
+                reopened.generation().unwrap().digest(),
+                completed_generation
+            );
+        }
     }
 }
 
@@ -503,13 +635,15 @@ fn finite_backend_native_windows_cold_resume_append_and_union_work_census_w1_w4(
 fn finite_backend_cancellation_before_commit_preserves_current_and_requires_cold_reopen() {
     let f = Fixture::new();
     let source = source(&f);
-    let p = policy(1);
+    let mut p = policy(1);
+    p.max_resident_work_bytes = 256 * 1024 * 1024;
     let path = f.directory.join("cancel");
     let cancel = AtomicBool::new(false);
     let mut session = Session::<1>::create(&source, p, &path, &cancel, &|_| {}).unwrap();
     let initial = session.generation().unwrap();
     let result = session.step(&cancel, &|event| {
-        if event["event"] == "finite_backend_before_commit" {
+        if event["event"] == "finite_backend_resident_staged" {
+            assert_eq!(event["active"], true);
             cancel.store(true, Ordering::Release);
         }
     });
@@ -670,6 +804,7 @@ fn finite_backend_persistence_refusal_does_not_commit_a_completed_native_window(
     let f = Fixture::new();
     let source = source(&f);
     let mut p = policy(1);
+    p.max_resident_work_bytes = 256 * 1024 * 1024;
     // Initial empty metadata fits; the first actual native Work delta cannot.
     p.storage.max_delta_records = 0;
     let path = f.directory.join("storage-refusal");

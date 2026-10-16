@@ -4,6 +4,7 @@
 mod codec;
 mod directory;
 mod key;
+mod resident;
 #[cfg(test)]
 mod tests;
 
@@ -16,6 +17,7 @@ pub use directory::{
     GeneratedPageReadUsage, TrustedGeneratedWorkDirectory, validate_directory,
 };
 pub use key::GeneratedWorkKey;
+pub use resident::{PreparedResidentWork, ResidentWorkStatistics, TrustedGeneratedResidentWork};
 use std::fmt;
 
 pub type GeneratedWorkDigest = [u8; 32];

@@ -92,21 +92,251 @@ fn generated_page_provider_omitted_double_substituted_and_post_visit_errors_fail
     )
     .unwrap();
     for mode in [Mode::Omit, Mode::Double, Mode::Wrong, Mode::After] {
+        let provider = Provider {
+            page: &valid,
+            wrong: &wrong,
+            mode,
+        };
         let error = directory
-            .lookup(
-                &GeneratedWorkKey::Route(vec![2]),
-                &Provider {
-                    page: &valid,
-                    wrong: &wrong,
-                    mode,
-                },
-            )
+            .lookup(&GeneratedWorkKey::Route(vec![2]), &provider)
             .unwrap_err();
         assert!(matches!(
             error.kind,
             GeneratedWorkErrorKind::Corrupt | GeneratedWorkErrorKind::Io
         ));
+        let error = TrustedGeneratedResidentWork::hydrate(
+            &directory,
+            &provider,
+            100_000,
+            0,
+            &std::sync::atomic::AtomicBool::new(false),
+        )
+        .err()
+        .unwrap();
+        assert!(matches!(
+            error.kind,
+            GeneratedWorkErrorKind::Corrupt | GeneratedWorkErrorKind::Io
+        ));
     }
+}
+
+#[test]
+fn resident_hydration_is_complete_generation_bound_and_preserves_full_phase_owner_keys() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    struct Provider {
+        bytes: Vec<u8>,
+        visits: AtomicUsize,
+    }
+    impl GeneratedPageProvider for Provider {
+        fn visit_validated_page(
+            &self,
+            expected: &GeneratedWorkPageRef,
+            _: u64,
+            visitor: &mut dyn FnMut(&ValidatedWorkPage),
+        ) -> GeneratedWorkResult<GeneratedPageReadUsage> {
+            self.visits.fetch_add(1, Ordering::Relaxed);
+            let page = ValidatedWorkPage::decode_generated(
+                &self.bytes,
+                expected,
+                &binding(),
+                10_000,
+                100,
+            )?;
+            visitor(&page);
+            Ok(GeneratedPageReadUsage {
+                disk_bytes: self.bytes.len() as u64,
+                cache_hit: false,
+            })
+        }
+    }
+    let keys = vec![
+        GeneratedWorkKey::Route(vec![0]),
+        GeneratedWorkKey::Route(vec![3]),
+        GeneratedWorkKey::Apply {
+            owner: vec![false],
+            powers: vec![0],
+        },
+        GeneratedWorkKey::Apply {
+            owner: vec![true],
+            powers: vec![2],
+        },
+    ];
+    let bytes = encode_metadata_frame(
+        PAGE_MAGIC,
+        &GeneratedWorkPageRecord {
+            execution: binding(),
+            records: keys.clone(),
+        },
+        10_000,
+    )
+    .unwrap();
+    let reference = GeneratedWorkPageRef {
+        object: GeneratedObjectRef {
+            digest: *blake3::hash(&bytes).as_bytes(),
+            bytes: bytes.len() as u64,
+        },
+        records: keys.len() as u64,
+        first: keys[0].clone(),
+        last: keys.last().unwrap().clone(),
+    };
+    let directory = TrustedGeneratedWorkDirectory::try_from_trusted_generated(
+        binding(),
+        [4; 32],
+        Arc::new(vec![vec![reference]]),
+        limits(),
+    )
+    .unwrap();
+    let provider = Provider {
+        bytes,
+        visits: AtomicUsize::new(0),
+    };
+    let cancel = AtomicBool::new(false);
+    for grant in [0, 1] {
+        assert!(
+            TrustedGeneratedResidentWork::hydrate(&directory, &provider, grant, 0, &cancel)
+                .unwrap()
+                .is_none()
+        );
+    }
+    assert_eq!(provider.visits.load(Ordering::Relaxed), 0);
+    let resident =
+        TrustedGeneratedResidentWork::hydrate(&directory, &provider, 100_000, 4096, &cancel)
+            .unwrap()
+            .unwrap();
+    assert_eq!(provider.visits.load(Ordering::Relaxed), 1);
+    for key in &keys {
+        assert!(resident.contains(key).unwrap());
+    }
+    assert!(
+        !resident
+            .contains(&GeneratedWorkKey::Route(vec![2]))
+            .unwrap()
+    );
+    assert!(
+        !resident
+            .contains(&GeneratedWorkKey::Apply {
+                owner: vec![true],
+                powers: vec![3]
+            })
+            .unwrap()
+    );
+    assert_eq!(
+        resident
+            .contains(&GeneratedWorkKey::Apply {
+                owner: vec![false],
+                powers: vec![2]
+            })
+            .unwrap_err()
+            .kind,
+        GeneratedWorkErrorKind::Corrupt
+    );
+    let wrong_generation = TrustedGeneratedWorkDirectory::try_from_trusted_generated(
+        binding(),
+        [5; 32],
+        directory.runs.clone(),
+        limits(),
+    )
+    .unwrap();
+    assert_eq!(
+        resident
+            .validate_directory(&wrong_generation)
+            .unwrap_err()
+            .kind,
+        GeneratedWorkErrorKind::Corrupt
+    );
+    let mut changed = binding();
+    changed.program_identity = [7; 32];
+    let wrong_execution = TrustedGeneratedWorkDirectory::try_from_trusted_generated(
+        changed,
+        [4; 32],
+        directory.runs.clone(),
+        limits(),
+    )
+    .unwrap();
+    assert_eq!(
+        resident
+            .validate_directory(&wrong_execution)
+            .unwrap_err()
+            .kind,
+        GeneratedWorkErrorKind::Corrupt
+    );
+    let statistics = resident.statistics().unwrap();
+    assert_eq!(statistics.records, keys.len());
+    assert!(
+        statistics.retained_payload_estimate + statistics.reserved_coexisting_bytes
+            <= statistics.max_live_payload_bytes
+    );
+    cancel.store(true, Ordering::Release);
+    assert_eq!(
+        TrustedGeneratedResidentWork::hydrate(&directory, &provider, 0, 0, &cancel)
+            .err()
+            .unwrap()
+            .kind,
+        GeneratedWorkErrorKind::Cancelled
+    );
+    cancel.store(false, Ordering::Release);
+    let mut broken = provider;
+    broken.bytes[0] ^= 1;
+    assert_eq!(
+        TrustedGeneratedResidentWork::hydrate(&directory, &broken, 100_000, 0, &cancel)
+            .err()
+            .unwrap()
+            .kind,
+        GeneratedWorkErrorKind::Corrupt
+    );
+}
+
+#[test]
+fn resident_hydration_rejects_cross_run_duplicates_instead_of_minting_partial_absence() {
+    struct Provider(Vec<(GeneratedWorkPageRef, ValidatedWorkPage)>);
+    impl GeneratedPageProvider for Provider {
+        fn visit_validated_page(
+            &self,
+            expected: &GeneratedWorkPageRef,
+            _: u64,
+            visitor: &mut dyn FnMut(&ValidatedWorkPage),
+        ) -> GeneratedWorkResult<GeneratedPageReadUsage> {
+            visitor(
+                &self
+                    .0
+                    .iter()
+                    .find(|(reference, _)| reference == expected)
+                    .unwrap()
+                    .1,
+            );
+            Ok(GeneratedPageReadUsage {
+                disk_bytes: 0,
+                cache_hit: true,
+            })
+        }
+    }
+    let provider = Provider(vec![page(&[1, 3]), page(&[2, 3])]);
+    let directory = TrustedGeneratedWorkDirectory::try_from_trusted_generated(
+        binding(),
+        [1; 32],
+        Arc::new(
+            provider
+                .0
+                .iter()
+                .map(|(reference, _)| vec![reference.clone()])
+                .collect(),
+        ),
+        limits(),
+    )
+    .unwrap();
+    assert_eq!(
+        TrustedGeneratedResidentWork::hydrate(
+            &directory,
+            &provider,
+            100_000,
+            0,
+            &std::sync::atomic::AtomicBool::new(false)
+        )
+        .err()
+        .unwrap()
+        .kind,
+        GeneratedWorkErrorKind::Corrupt
+    );
 }
 #[test]
 fn generated_page_frame_preserves_legacy_layout_and_full_signed_key_domain() {

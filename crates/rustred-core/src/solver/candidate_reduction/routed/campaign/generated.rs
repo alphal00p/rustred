@@ -3,7 +3,8 @@
 use super::*;
 use crate::persistence::finite_work::{
     GeneratedExecutionBinding, GeneratedPageProvider, GeneratedWorkDigest, GeneratedWorkError,
-    GeneratedWorkErrorKind, GeneratedWorkKey, TrustedGeneratedWorkDirectory,
+    GeneratedWorkErrorKind, GeneratedWorkKey, TrustedGeneratedResidentWork,
+    TrustedGeneratedWorkDirectory,
 };
 use std::sync::atomic::Ordering;
 
@@ -54,6 +55,9 @@ impl<const N: usize> CandidateRoutedCompletedDelta<'_, N> {
     }
     pub fn work(&self) -> &[GeneratedWorkKey] {
         &self.work
+    }
+    pub(crate) fn work_payload_bytes(&self) -> Result<usize, GeneratedWorkError> {
+        crate::persistence::finite_work::work_payload_bytes(&self.work, self.work.capacity())
     }
     pub fn report(&self) -> &CandidateRoutedCampaignReport<N> {
         &self.report
@@ -180,12 +184,41 @@ impl<'a, const N: usize> CandidateRoutedGeneratedBaseline<'a, N> {
         admission: CandidateEntryAdmission<'_, N>,
         workers: usize,
         cancellation: &AtomicBool,
+        observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
+    ) -> Result<CandidateRoutedCompletedDelta<'a, N>, CandidateRoutedCompletedTraceError<N>> {
+        self.trace_batch_with_resident(None, targets, admission, workers, cancellation, observer)
+    }
+
+    /// Optional complete resident view of the SAME captured predecessor.
+    /// Its borrow ends when tracing drains; the returned native delta borrows
+    /// only the prepared reducer, so a session can stage index growth before
+    /// persisting that delta. Entry and edge admission are unchanged.
+    pub fn trace_batch_with_resident(
+        &self,
+        resident: Option<&TrustedGeneratedResidentWork>,
+        targets: impl IntoIterator<Item = IntegralKey>,
+        admission: CandidateEntryAdmission<'_, N>,
+        workers: usize,
+        cancellation: &AtomicBool,
         mut observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
     ) -> Result<CandidateRoutedCompletedDelta<'a, N>, CandidateRoutedCompletedTraceError<N>> {
+        if let Some(resident) = resident {
+            if let Err(error) = resident.validate_directory(self.directory) {
+                let shared = Shared::new(self.reducer, workers, cancellation);
+                shared.fail(CandidateRoutedCampaignFailure::Backing(error));
+                let error = match shared.into_result_with_membership() {
+                    Err(error) => error,
+                    Ok(_) => unreachable!("failed resident binding cannot complete"),
+                };
+                observer(error.partial_report().snapshot());
+                return Err(CandidateRoutedCompletedTraceError::Trace(error));
+            }
+        }
         let baseline = (self.directory.statistics().records != 0).then_some(
             scheduler::CompletedBaseline::Generated {
                 directory: self.directory,
                 provider: self.provider,
+                resident,
             },
         );
         let (report, delta) = self

@@ -65,6 +65,7 @@ fn policy() -> Policy {
             max_coalescing_additions: 100000,
         },
         prepared_reduction_aggregates: None,
+        max_resident_work_bytes: 0,
         census: Default::default(),
         export: CandidateRoutedDeltaExportLimits {
             max_records: 1000,

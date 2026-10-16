@@ -34,6 +34,8 @@ struct Steering {
     census: CensusLimits,
     export: ExportLimits,
     storage: StoreLimits,
+    #[serde(default)]
+    max_resident_work_bytes: usize,
     max_total_rows: usize,
     max_source_bytes: usize,
     /// All census JSONL and result.json bytes; receipt has a separate 1 MiB cap.
@@ -49,6 +51,7 @@ impl Steering {
             census: self.census.into(),
             export: self.export.into(),
             storage: self.storage.into(),
+            max_resident_work_bytes: self.max_resident_work_bytes,
             max_total_rows: self.max_total_rows,
             max_source_bytes: self.max_source_bytes,
         }

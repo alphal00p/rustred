@@ -19,7 +19,7 @@ fn steering() -> Value {
             "max_scope_rows":16,"max_census_records":1000,"max_runs":100,"max_pages":1000,
             "max_physical_files":10000,"max_disk_bytes":10000000,"max_lookup_pages":100,
             "max_lookup_bytes":1000000,"max_transient_bytes":134217728},
-        "max_total_rows":16,"max_source_bytes":1048576,"max_output_bytes":1048576})
+        "max_resident_work_bytes":0,"max_total_rows":16,"max_source_bytes":1048576,"max_output_bytes":1048576})
 }
 
 #[test]
@@ -62,6 +62,18 @@ fn durable_driver_strict_steering_rejects_unknown_missing_negative_and_overflow(
 
 #[test]
 fn durable_driver_zero_and_max_grants_convert_without_capacity_allocation() {
+    let mut legacy = steering();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("max_resident_work_bytes");
+    assert_eq!(
+        serde_json::from_value::<Steering>(legacy)
+            .unwrap()
+            .policy()
+            .max_resident_work_bytes,
+        0
+    );
     for n in [0usize, usize::MAX] {
         let mut value = steering();
         for field in [

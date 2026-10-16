@@ -15,7 +15,8 @@ pub(super) type Work<const N: usize> = CandidateRoutedWork<N>;
 #[path = "membership.rs"]
 pub(super) mod membership;
 use crate::persistence::finite_work::{
-    GeneratedPageProvider, GeneratedWorkKey, TrustedGeneratedWorkDirectory,
+    GeneratedPageProvider, GeneratedWorkKey, TrustedGeneratedResidentWork,
+    TrustedGeneratedWorkDirectory,
 };
 use membership::Membership;
 
@@ -25,6 +26,7 @@ pub(super) enum CompletedBaseline<'a, const N: usize> {
     Generated {
         directory: &'a TrustedGeneratedWorkDirectory,
         provider: &'a dyn GeneratedPageProvider,
+        resident: Option<&'a TrustedGeneratedResidentWork>,
     },
 }
 
@@ -345,13 +347,16 @@ impl<'a, const N: usize> Shared<'a, N> {
             Some(CompletedBaseline::Generated {
                 directory,
                 provider,
+                resident,
             }) => {
                 let key = GeneratedWorkKey::from_native(node).map_err(Failure::Backing)?;
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    directory.lookup(&key, provider)
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match resident {
+                    Some(resident) => resident.contains(&key),
+                    None => directory
+                        .lookup(&key, provider)
+                        .map(|result| result.present),
                 }))
                 .map_err(|_| Failure::WorkerPanicked)?
-                .map(|result| result.present)
                 .map_err(Failure::Backing)
             }
         }
