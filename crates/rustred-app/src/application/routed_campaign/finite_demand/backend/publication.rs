@@ -217,7 +217,7 @@ fn validate_scope<const N: usize>(
             .ok_or_else(|| AppError::input("finite portable source string absent"))
     };
     let request_binding = text("request_binding")?.to_string();
-    if digest(&request_binding)? != archive.state().scope.original_source {
+    if original_source_identity(&request_binding)? != archive.state().scope.original_source {
         return Err(AppError::input(
             "portable original request differs from generation",
         ));

@@ -16,6 +16,7 @@ import math
 import os
 from pathlib import Path
 import shlex
+import stat
 import subprocess
 import sys
 
@@ -83,11 +84,14 @@ def engine(campaign, requested=None):
 
 def require_policy(value):
     fields = {"workers", "windows", "census", "export", "storage", "max_total_rows", "max_source_bytes", "control"}
-    optional = {"per_batch_work", "prepared_reduction_aggregates"}
+    optional = {"per_batch_work", "prepared_reduction_aggregates", "max_resident_work_bytes"}
     if not isinstance(value, dict) or not fields <= set(value) or set(value) - fields - optional:
         raise ValueError("finite policy must contain the public native policy fields and no diagnostic settings")
     if type(value["workers"]) is not int or value["workers"] <= 0 or not isinstance(value["windows"], dict):
         raise ValueError("finite policy requires positive workers and explicit window limits")
+    resident = value.get("max_resident_work_bytes", 0)
+    if type(resident) is not int or not 0 <= resident < 2**64:
+        raise ValueError("resident Work allowance must be an unsigned platform byte count")
     return value
 
 
@@ -133,6 +137,58 @@ def inspect(campaign, executable, output_format="json"):
     if value.get("schema") != "rustred.finite-demand-status.v1" or value.get("engine") != ENGINE:
         raise ValueError("native finite inspect returned a different engine/schema")
     return value
+
+
+def public_inspect(campaign, executable, output_format):
+    """Compose native committed status with native published/requested scope.
+
+    Internal scope planning continues to use inspect() alone. No artifact means
+    pending publication, never a fallback to the legacy CP6 inventory reader.
+    """
+    native = inspect(campaign, executable)
+    pointer = campaign / "artifacts/latest.json"
+    publication = None
+    present = False
+    try:
+        metadata = pointer.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("finite publication pointer must be a regular file")
+        parent = pointer.parent.lstat()
+        if not stat.S_ISDIR(parent.st_mode):
+            raise ValueError("finite publication directory must be a real directory")
+        # Existing portable pointer validator; the native inspector remains the
+        # source for rule/master counts and current-versus-published scope.
+        if PHASES.completed_artifact(campaign) is None:
+            raise ValueError("finite publication pointer has no completed artifact")
+        present = True
+    table = output_format == "table" or output_format == "auto" and sys.stdout.isatty()
+    artifact_command = [str(executable), "artifact-inspect", "--campaign-directory", str(campaign)]
+    if table:
+        # Do not capture/re-render native tables: retain their TTY/color behavior.
+        for command in ([str(executable), "finite-demand", "inspect", "--directory",
+                         str(campaign / "finite-demand"), "--format", "table"],
+                        artifact_command + ["--format", "table"] if present else None):
+            if command is None:
+                print("Publication: pending; no published artifact is available.", flush=True)
+                continue
+            result = subprocess.run(command)
+            if result.returncode:
+                raise ValueError(f"native finite/publication inspect failed (exit{result.returncode})")
+        return
+    if present:
+        result = subprocess.run(artifact_command + ["--format", "json"], capture_output=True, text=True)
+        if result.returncode:
+            raise ValueError(f"native publication inspect failed (exit{result.returncode}): {result.stderr[-8192:]}")
+        if len(result.stdout.encode()) > MAX_BYTES:
+            raise ValueError("native publication inspection exceeds steering metadata allowance")
+        publication = SUPERVISOR.ROLES.loads_document(result.stdout)
+        if not isinstance(publication, dict):
+            raise ValueError("native publication inspection must be an object")
+    print(json.dumps({**native, "publication": publication,
+        "publication_status": "available" if present else "pending"}, indent=2))
 
 
 def finite_scope_binding(plan):
@@ -400,8 +456,7 @@ def public_main(args, extra):
             raise ValueError("finite campaign output directories must not be symlinks: " + name)
     binary = executable(campaign, args.executable)
     if args.action == "inspect":
-        value = inspect(campaign, binary, "json" if args.format == "auto" else args.format)
-        print(json.dumps(value, indent=2) if isinstance(value, dict) else value)
+        public_inspect(campaign, binary, args.format)
         return 0
     if getattr(args, "deep_verification", False):
         raise ValueError("finite-demand publication has trusted generated provenance, not independent graph replay")

@@ -40,6 +40,20 @@ fn request(f: &Fixture) -> FiniteDemandRunRequest {
         mode: FiniteDemandMode::Create,
     }
 }
+
+#[test]
+fn public_source_join_preserves_native_encoded_request_identity() {
+    use crate::application::routed_campaign::finite_demand::backend::original_source_identity;
+    let raw = "12".repeat(32);
+    let encoded = bincode::encode_to_vec(&raw, bincode::config::standard()).unwrap();
+    let expected = *blake3::hash(&encoded).as_bytes();
+    assert_eq!(original_source_identity(&raw).unwrap(), expected);
+    assert_ne!(expected, *blake3::Hash::from_hex(&raw).unwrap().as_bytes());
+    assert_ne!(
+        original_source_identity(&"34".repeat(32)).unwrap(),
+        expected
+    );
+}
 fn append(request: &mut FiniteDemandRunRequest) {
     let text = json!({"schema":crate::OWNER_DOMAIN_WALK_SCOPE_EXTENSION_SCHEMA,"sequence":1,
         "parent":request.source.checkpoint_binding(),"queries":[query("next",4)],

@@ -102,6 +102,17 @@ class FiniteCampaignTests(unittest.TestCase):
                 self.plan(apply=False)
         self.assertEqual(FIXTURE.snapshot(self.campaign), before)
 
+    def test_optional_resident_policy_is_explicit_nonnegative_and_not_a_scope_change(self):
+        self.assertNotIn("max_resident_work_bytes", FIN.require_policy(self.policy))
+        windows = copy.deepcopy(self.policy["windows"])
+        for grant in (0, 1, 300_000_000_000):
+            value = {**self.policy, "max_resident_work_bytes": grant}
+            self.assertEqual(FIN.require_policy(value)["max_resident_work_bytes"], grant)
+            self.assertEqual(value["windows"], windows)
+        for grant in (-1, True, 1.5, 2**64):
+            with self.assertRaisesRegex(ValueError, "resident Work allowance"):
+                FIN.require_policy({**self.policy, "max_resident_work_bytes": grant})
+
     def test_public_finite_dry_run_dispatch_is_read_only_and_never_legacy(self):
         before = FIXTURE.snapshot(self.campaign)
         command = ["run", "--campaign", str(self.campaign), "--executable", str(self.binary),
@@ -142,6 +153,72 @@ class FiniteCampaignTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot change"):
             self.plan()
         self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
+    def test_public_inspect_adds_native_publication_and_never_legacy_fallback(self):
+        self.plan()
+        output = io.StringIO()
+        with redirect_stdout(output), patch.object(FIN, "inspect", return_value=self.native), \
+             patch.object(FIN.subprocess, "run") as command:
+            FIN.public_inspect(self.campaign, self.binary, "json")
+        command.assert_not_called()
+        pending = json.loads(output.getvalue())
+        self.assertIsNone(pending["publication"])
+        self.assertEqual(pending["publication_status"], "pending")
+        artifacts = self.campaign / "artifacts"
+        artifacts.mkdir()
+        (artifacts / "latest.json").write_text('{}')
+        published = {"published_rule_records": 9982, "observed_cover_rules": 2165,
+                     "remaining_masters": 62, "published_scope_current": False,
+                     "scope_selection": "earlier publication; new request not published"}
+        response = SimpleNamespace(returncode=0, stdout=json.dumps(published), stderr="")
+        output = io.StringIO()
+        with redirect_stdout(output), patch.object(FIN, "inspect", return_value=self.native), \
+             patch.object(FIN.PHASES, "completed_artifact", return_value={}), \
+             patch.object(FIN.subprocess, "run", return_value=response) as command:
+            FIN.public_inspect(self.campaign, self.binary, "json")
+        report = json.loads(output.getvalue())
+        self.assertEqual(report["publication"], published)
+        self.assertFalse(report["publication"]["published_scope_current"])
+        self.assertEqual(report["committed"], self.native["committed"])
+        self.assertEqual(command.call_args.args[0][1:3], ["artifact-inspect", "--campaign-directory"])
+        with patch.object(FIN, "inspect", return_value=self.native), \
+             patch.object(FIN.PHASES, "completed_artifact", side_effect=ValueError("corrupt pointer")), \
+             patch.object(FIN.subprocess, "run") as command:
+            with self.assertRaisesRegex(ValueError, "corrupt pointer"):
+                FIN.public_inspect(self.campaign, self.binary, "json")
+        command.assert_not_called()
+
+    def test_public_inspect_table_inherits_native_tty_and_errors_propagate(self):
+        self.plan()
+        (self.campaign / "artifacts").mkdir()
+        (self.campaign / "artifacts/latest.json").write_text('{}')
+        with patch.object(FIN, "inspect", return_value=self.native), \
+             patch.object(FIN.PHASES, "completed_artifact", return_value={}), \
+             patch.object(FIN.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as command:
+            FIN.public_inspect(self.campaign, self.binary, "table")
+        self.assertEqual(len(command.call_args_list), 2)
+        self.assertTrue(all(not call.kwargs for call in command.call_args_list))
+        self.assertEqual(command.call_args.args[0][-2:], ["--format", "table"])
+        with patch.object(FIN, "inspect", return_value=self.native), \
+             patch.object(FIN.PHASES, "completed_artifact", return_value={}), \
+             patch.object(FIN.sys.stdout, "isatty", return_value=True), \
+             patch.object(FIN.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as command:
+            FIN.public_inspect(self.campaign, self.binary, "auto")
+        self.assertEqual(len(command.call_args_list), 2)
+        self.assertTrue(all(not call.kwargs for call in command.call_args_list))
+        output = io.StringIO()
+        with redirect_stdout(output), patch.object(FIN, "inspect", return_value=self.native), \
+             patch.object(FIN.PHASES, "completed_artifact", return_value={}), \
+             patch.object(FIN.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout='{}', stderr='')) as command:
+            FIN.public_inspect(self.campaign, self.binary, "auto")
+        self.assertEqual(len(command.call_args_list), 1)
+        self.assertTrue(command.call_args.kwargs["capture_output"])
+        self.assertEqual(json.loads(output.getvalue())["publication"], {})
+        with patch.object(FIN, "inspect", return_value=self.native), \
+             patch.object(FIN.PHASES, "completed_artifact", return_value={}), \
+             patch.object(FIN.subprocess, "run", return_value=SimpleNamespace(returncode=4, stderr="bad artifact")):
+            with self.assertRaisesRegex(ValueError, "bad artifact"):
+                FIN.public_inspect(self.campaign, self.binary, "json")
 
     def test_auxiliary_and_unknown_policy_refuse_before_freeze(self):
         source = self.root / "source"

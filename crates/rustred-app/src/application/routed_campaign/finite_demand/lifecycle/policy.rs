@@ -62,6 +62,9 @@ pub struct FiniteDemandPolicy {
     pub(crate) storage: StoreLimits,
     pub(crate) max_total_rows: usize,
     pub(crate) max_source_bytes: usize,
+    /// Optional exact full-Work acceleration; zero preserves disk-backed lookup.
+    #[serde(default)]
+    pub(crate) max_resident_work_bytes: usize,
     pub(crate) control: ControlLimits,
 }
 fn uncapped_work() -> trace::WorkLimits {
@@ -109,6 +112,7 @@ impl FiniteDemandPolicy {
             storage: self.storage.into(),
             max_total_rows: self.max_total_rows,
             max_source_bytes: self.max_source_bytes,
+            max_resident_work_bytes: self.max_resident_work_bytes,
         }
     }
 }

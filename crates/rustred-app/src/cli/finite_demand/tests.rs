@@ -214,6 +214,17 @@ fn finite_cli_is_explicit_and_public_policy_defaults_only_aggregate_grants() {
         );
     }
     assert_eq!(expanded["storage"]["max_disk_bytes"], 0); // No silent R1/R6 storage grant.
+    assert_eq!(expanded["max_resident_work_bytes"], 0);
+    assert_eq!(public.native().max_resident_work_bytes, 0);
+    let mut resident = policy();
+    resident["max_resident_work_bytes"] = json!(1_000_000);
+    let resident = FiniteDemandPolicy::from_json(&serde_json::to_vec(&resident).unwrap()).unwrap();
+    assert_eq!(resident.native().max_resident_work_bytes, 1_000_000);
+    let mut invalid_resident = policy();
+    invalid_resident["max_resident_work_bytes"] = json!(-1);
+    assert!(
+        FiniteDemandPolicy::from_json(&serde_json::to_vec(&invalid_resident).unwrap()).is_err()
+    );
     let mut unknown = policy();
     unknown["clipped_rank"] = json!(6);
     assert!(FiniteDemandPolicy::from_json(&serde_json::to_vec(&unknown).unwrap()).is_err());

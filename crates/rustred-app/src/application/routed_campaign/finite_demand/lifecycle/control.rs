@@ -291,7 +291,8 @@ impl Control {
         )
         .map_err(super::super::backend::storage_error)?;
         if generation.state().scope.rows.len() != self.source.total_rows
-            || hex(generation.state().scope.original_source) != self.source.request
+            || generation.state().scope.original_source
+                != super::super::backend::original_source_identity(&self.source.request)?
         {
             return Err(AppError::input(
                 "publication cannot append requested scope; run/resume it first",
@@ -307,7 +308,8 @@ impl Control {
         generation: &ValidatedGeneration,
     ) -> Result<(), AppError> {
         if generation.state().scope.rows.len() != self.source.total_rows
-            || hex(generation.state().scope.original_source) != self.source.request
+            || generation.state().scope.original_source
+                != super::super::backend::original_source_identity(&self.source.request)?
         {
             return Err(AppError::internal_invariant(
                 "committed finite scope differs from supplied source",
@@ -458,7 +460,8 @@ fn verify_source_files(
     }
     let (_, arity, _) = Selection::parse(&documents[0])?;
     if arity != generation.execution().physical_arity as usize
-        || source.request != hex(generation.state().scope.original_source)
+        || generation.state().scope.original_source
+            != super::super::backend::original_source_identity(&source.request)?
     {
         return Err(AppError::input(
             "finite source status request/arity differs from CURRENT",

@@ -153,7 +153,30 @@ fn finite_source_publishes_refines_resumes_extends_and_exports_exactly_like_walk
     let walk =
         crate::owner_domain_walk_with_progress(control.clone(), &AtomicBool::new(false), |_| {})
             .unwrap();
-    assert!(walk.all_scheduled_domains_resolved);
+    // CP6 emits a checkpoint-only summary with finalization=not_evaluated;
+    // its legacy full-result Boolean is not a closure certificate. Require
+    // actual independent cold closure before comparing the two publications.
+    assert_eq!(
+        walk.document["recursive_worklist_exhausted"], true,
+        "{}",
+        walk.document
+    );
+    assert_eq!(walk.document["failed_nodes"], 0, "{}", walk.document);
+    assert_eq!(walk.document["frontiers"], 0, "{}", walk.document);
+    let mut verify = crate::OwnerDomainWalkVerifyOptions::new(&checkpoint);
+    verify.reinspect = crate::OwnerDomainWalkVerifyReinspect::All;
+    verify.require_closure = true;
+    verify.result = None;
+    let closure =
+        crate::owner_domain_walk_verify_closure(&control, &verify, &AtomicBool::new(false), |_| {})
+            .unwrap();
+    assert_eq!(closure["verdict"], "PASS", "{closure}");
+    assert_eq!(closure["closure_required"], true, "{closure}");
+    assert!(closure["roots_total"].as_u64().unwrap() > 0, "{closure}");
+    assert_eq!(
+        closure["roots_independently_verified"], closure["roots_total"],
+        "{closure}"
+    );
     let control_publication = s.0.join("control-publication");
     let mut opts = MasterReductionOptions::new(&checkpoint, &control_publication);
     opts.operation = MasterReductionOperation::Publish;

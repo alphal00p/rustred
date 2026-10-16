@@ -600,7 +600,7 @@ fn admit<const N: usize>(
         )
     })?;
     let mut scope = ScopeBinding {
-        original_source: digest(&parsed.request_binding)?,
+        original_source: original_source_identity(&parsed.request_binding)?,
         rows: Vec::new(),
     };
     let mut sources = Vec::new();
@@ -679,6 +679,13 @@ fn domain_identity<const N: usize>(
         region.powers.min_power_difference,
         region.powers.max_power_difference,
     ))
+}
+/// Preserve the persisted native encoding of the original request binding.
+/// This is a digest of its encoded string, not the decoded hexadecimal digest.
+pub(in crate::application::routed_campaign) fn original_source_identity(
+    request_binding: &str,
+) -> Result<[u8; 32], AppError> {
+    digest(&request_binding)
 }
 fn digest(value: &impl bincode::Encode) -> Result<[u8; 32], AppError> {
     bincode::encode_to_vec(value, bincode::config::standard())
