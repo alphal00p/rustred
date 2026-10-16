@@ -556,7 +556,8 @@ def render_master_table(frame, width=100, height=24, color=True):
         (0, row("Active CPU cores", f"{'unknown' if cpu is None else f'{cpu:.1f}'} / {count(workers)}",
                 "observed / reserved", indicator_color(cpu_ratio, "cpu"))),
         (0, row("Memory (GB)", gb(resource.get("aggregate_rss_bytes")) + " / " + gb(resource.get("hard_memory_bytes")),
-                "save+stop at " + gb(resource.get("soft_memory_bytes")), "33")),
+                "save+stop at " + gb(resource.get("soft_memory_bytes")) +
+                " · host available " + gb(resource.get("host_available_bytes")), "33")),
         (0, row("Checkpoint", checkpoint["state"], "generation " + count(checkpoint["generation"]), "33")),
         (1, row("Checkpoint size", master_checkpoint_size(checkpoint["bytes"]), duration(checkpoint["duration_seconds"]) + " write")),
         (2, full("Checkpoint " + (checkpoint["directory"] or "not yet saved"))),

@@ -809,6 +809,36 @@ report = {'status':'published_unrefined', 'operation':'publish',
     def test_real_scratch_child_saves_on_sigint_and_resume_returns_to_phase_two(self):
         self._scratch_native_pause_resume("publish")
 
+    def test_finite_postprocess_guard_keeps_process_limit_with_lower_host_availability(self):
+        # Stop at guard construction: exercise real phase admission without
+        # launching a child or claiming publication/refinement correctness.
+        driver = SimpleNamespace(**vars(PRODUCTION))
+        plan = {**self.plan, "engine": "rustred.finite-demand.v1",
+                "finite_policy": str(self.campaign / "finite-policy.json"),
+                "steering_policy": {"command_arguments": ["--executable", "unused-native"]},
+                "requested_workers": 1, "cpus": str(min(os.sched_getaffinity(0))),
+                "checkpoint_interval_seconds": 300,
+                "supervisor_ram_policy": {"memory_policy": "process-limit",
+                    "max_memory_bytes": 600_000_000_000, "ram_guard_margin_percent": 5,
+                    "host_memory_reserve_bytes": 150_000_000_000,
+                    "swap_growth_stop_bytes_per_second": 0}}
+        host = {"available_bytes": 100_000_000_000, "host_available_bytes": 100_000_000_000}
+        for operation in ("publish", "refine", "finalize-refinement"):
+            with self.subTest(operation=operation):
+                policy = {**self.policy, "operation": operation,
+                          "source_artifact": str(self.campaign / "source-artifact"),
+                          "partial_source": str(self.campaign / "paused-refinement")}
+                directory = self.campaign / "master-reduction/scopes" / operation
+                with patch.object(driver.SUPERVISOR, "host_memory", return_value=host), \
+                     patch.object(driver.SUPERVISOR, "RamGuard", side_effect=RuntimeError("guard probe")) as guard, \
+                     patch.object(driver.SUPERVISOR, "owned_process") as child:
+                    with self.assertRaisesRegex(RuntimeError, "guard probe"):
+                        PHASES.phase_two(plan, policy, self.campaign / "runs/first/request.json",
+                                         self.binding(), directory, driver)
+                    guard.assert_called_once_with(600_000_000_000, 570_000_000_000, 0, 0,
+                                                   driver.SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_SECONDS)
+                    child.assert_not_called()
+
     def test_deep_publication_saves_and_resumes_its_own_mode(self):
         self._scratch_native_pause_resume("publish", deep_verification=True)
 

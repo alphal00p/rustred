@@ -101,13 +101,9 @@ pub(super) fn validate_manifest(
     {
         return Err(resource("finite referenced state/page disk allowance"));
     }
-    Ok((
-        stats.records,
-        stats
-            .payload_bytes
-            .checked_add(size_of::<Manifest>())
-            .ok_or_else(|| resource("manifest payload overflow"))?,
-    ))
+    // Actual Work directory capacity, shared by the manifest and its readers.
+    // The permission cap in StorageLimits is not a resident allocation.
+    Ok((stats.records, stats.payload_bytes))
 }
 pub(super) fn validate_page(
     page: &Page,

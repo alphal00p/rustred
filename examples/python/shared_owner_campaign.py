@@ -449,9 +449,45 @@ def memory_admission(hard: int, soft: int | None, snapshot: dict, reserve: int |
     return admitted_hard, admitted_soft, reserve
 
 
-def memory_admission_record(requested: int, snapshot: dict, reserve: int, hard: int, soft: int) -> dict:
+def memory_admission_for_resources(resources: dict, snapshot: dict):
+    """Finite callers may honor a user limit without making a host reservation.
+
+    The default keeps legacy admission unchanged. Process-limit mode retains
+    RSS soft/hard stops, but host availability is telemetry only; it does not
+    promise that the OS or another workload will honor the user's allowance.
+    """
+    mode = resources.get("memory_policy", "host-aware")
+    if mode == "host-aware":
+        return memory_admission(resources["max_memory_bytes"], None, snapshot,
+            resources.get("host_memory_reserve_bytes"), resources.get("ram_guard_margin_percent", 5))
+    if mode != "process-limit":
+        raise ValueError("memory policy must be host-aware or process-limit")
+    hard = resources["max_memory_bytes"]
+    margin = resources.get("ram_guard_margin_percent", 5)
+    if (type(hard) is not int or hard <= 0 or type(margin) not in (int, float)
+            or not math.isfinite(margin) or not 0 < margin < 100):
+        raise ValueError("process RAM limit must be positive with a finite margin between0 and100")
+    soft = int(hard * (1 - margin / 100))
+    if not 0 < soft < hard:
+        raise ValueError("process RAM limit and margin must leave a positive soft threshold")
+    return hard, soft, 0
+
+
+def memory_host_snapshot(resources: dict) -> dict:
+    try:
+        return host_memory()
+    except (OSError, ValueError) as error:
+        if resources.get("memory_policy", "host-aware") != "process-limit":
+            raise
+        return {"available_bytes": None, "host_available_bytes": None,
+                "host_total_bytes": None, "telemetry_error": str(error)}
+
+
+def memory_admission_record(requested: int, snapshot: dict, reserve: int, hard: int, soft: int,
+                            memory_policy: str = "host-aware") -> dict:
     """What admission did at this (re)start, for request/status/summary receipts."""
-    return {"rule": ADMISSION_RULE, "requested_hard_memory_bytes": requested,
+    return {"rule": ADMISSION_RULE if memory_policy == "host-aware" else "requested_process_limit_host_telemetry_only",
+            "memory_policy": memory_policy, "requested_hard_memory_bytes": requested,
             "available_bytes": snapshot.get("available_bytes"),
             "host_available_bytes": snapshot.get("host_available_bytes"),
             "zfs_arc_bytes": snapshot.get("zfs_arc_bytes"),
@@ -575,14 +611,14 @@ class RamGuard:
         cooperative = None
         if rss >= self.soft_bytes:
             cooperative = "aggregate_rss_soft_limit"
-        elif available is not None and available <= self.floor_bytes:
+        elif self.floor_bytes > 0 and available is not None and available <= self.floor_bytes:
             cooperative = "host_memory_reserve"
         elif self.high_since is not None and sustained >= self.swap_growth_seconds:
             cooperative = "own_swap_growth_sustained"
         hard = None
         if rss >= self.hard_bytes:
             hard = "aggregate_rss_hard_limit"
-        elif available is not None and available <= self.floor_bytes // 4:
+        elif self.floor_bytes > 0 and available is not None and available <= self.floor_bytes // 4:
             hard = "host_memory_emergency"
         decision = {"cooperative": cooperative, "hard": hard, "own_swap_bytes": own_swap_bytes,
                     "own_swap_growth_bytes_per_second": rate, "own_swap_growth_sustained_seconds": sustained,

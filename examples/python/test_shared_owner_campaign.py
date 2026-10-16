@@ -63,6 +63,27 @@ def fake_process(root, pid, parent, start, children=(), tgid=None, task_children
 
 
 class SteeringTests(unittest.TestCase):
+    def test_process_limit_policy_never_clamps_the_requested_ceiling(self):
+        resources = {"memory_policy": "process-limit", "max_memory_bytes": 600_000_000_000,
+                     "ram_guard_margin_percent": 5, "host_memory_reserve_bytes": 150_000_000_000}
+        host = {"available_bytes": 100_000_000_000, "host_available_bytes": 100_000_000_000}
+        self.assertEqual(CAMPAIGN.memory_admission_for_resources(resources, host),
+                         (600_000_000_000, 570_000_000_000, 0))
+        guard = CAMPAIGN.RamGuard(600_000_000_000, 570_000_000_000, 0,
+                                 swap_growth_bytes_per_second=0)
+        for available in (None, 0, 1, 100_000_000_000):
+            decision = guard.observe(1, 7_000_000_000, available, None)
+            self.assertIsNone(decision["hard"])
+            self.assertIsNone(decision["cooperative"])
+        self.assertEqual(guard.observe(2, 570_000_000_000, 0, None)["cooperative"],
+                         "aggregate_rss_soft_limit")
+        self.assertEqual(guard.observe(3, 600_000_000_000, 0, None)["hard"],
+                         "aggregate_rss_hard_limit")
+        with patch.object(CAMPAIGN, "host_memory", side_effect=OSError("unavailable test host reading")):
+            self.assertIsNone(CAMPAIGN.memory_host_snapshot(resources)["host_available_bytes"])
+            with self.assertRaises(OSError):
+                CAMPAIGN.memory_host_snapshot({"memory_policy": "host-aware"})
+
     def test_700gb_admission_retains_host_cgroup_and_soft_guard(self):
         host={"host_total_bytes":1_200_000_000_000,"available_bytes":1_000_000_000_000}
         self.assertEqual(CAMPAIGN.memory_admission(700_000_000_000,None,host,None),

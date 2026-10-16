@@ -102,6 +102,49 @@ class FiniteCampaignTests(unittest.TestCase):
                 self.plan(apply=False)
         self.assertEqual(FIXTURE.snapshot(self.campaign), before)
 
+    def test_finite_default_honors_requested_ram_even_when_host_available_is_lower(self):
+        self.args.max_memory_bytes = 600_000_000_000
+        self.args.host_memory_reserve_bytes = 150_000_000_000
+        with patch.object(FIN.SUPERVISOR, "host_memory", return_value={
+                "available_bytes": 100_000_000_000, "host_available_bytes": 100_000_000_000}):
+            plan = self.plan(apply=False)
+            self.assertEqual(plan["supervisor_ram_policy"]["memory_policy"], "process-limit")
+            self.assertEqual(plan["supervisor_ram_policy"]["max_memory_bytes"], 600_000_000_000)
+            self.args.memory_policy = "host-aware"
+            with self.assertRaisesRegex(ValueError, "headroom"):
+                self.plan(apply=False)
+
+    def test_saved_memory_mode_and_budget_survive_resume_and_postprocess_launches(self):
+        host = {"available_bytes": 1_000_000_000_000, "host_available_bytes": 1_000_000_000_000}
+        with patch.object(FIN.SUPERVISOR, "host_memory", return_value=host):
+            for mode in ("process-limit", "host-aware"):
+                with self.subTest(mode=mode):
+                    self.args.action = "run"
+                    self.args.memory_policy = mode
+                    self.args.cpus = str(min(os.sched_getaffinity(0)))
+                    self.args.finite_policy = self.policy_path
+                    self.args.max_memory_bytes = 600_000_000_000
+                    self.args.host_memory_reserve_bytes = 150_000_000_000
+                    self.args.ram_guard_margin_percent = 5
+                    first = self.plan()
+                    self.namespace()
+                    saved = FIN.read(self.campaign / "bin/steering.json")["resources"]
+                    self.assertEqual(saved, first["supervisor_ram_policy"])
+                    for name in ("memory_policy", "cpus", "finite_policy", "max_memory_bytes",
+                                 "host_memory_reserve_bytes", "ram_guard_margin_percent", "stop_grace_seconds"):
+                        setattr(self.args, name, None)
+                    self.args.resume = True
+                    resumed = self.plan()
+                    self.assertIn("--resume", resumed["native_command"])
+                    self.assertEqual(resumed["supervisor_ram_policy"], saved)
+                    for action in ("extend", "publish", "refine", "finalize-refinement"):
+                        self.args.action = action
+                        plan = self.plan(apply=False)
+                        self.assertEqual(plan["supervisor_ram_policy"], saved)
+                        self.assertEqual(plan["supervisor_ram_policy"]["memory_policy"], mode)
+                        self.assertEqual(plan["supervisor_ram_policy"]["max_memory_bytes"], 600_000_000_000)
+                        self.assertEqual(plan["supervisor_ram_policy"]["swap_growth_stop_bytes_per_second"], 0)
+
     def test_optional_resident_policy_is_explicit_nonnegative_and_not_a_scope_change(self):
         self.assertNotIn("max_resident_work_bytes", FIN.require_policy(self.policy))
         windows = copy.deepcopy(self.policy["windows"])

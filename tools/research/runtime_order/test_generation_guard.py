@@ -64,6 +64,24 @@ class NativeStopFileTests(unittest.TestCase):
         self.assertFalse(result["checkpoint_durability_claim"])
         self.assertEqual(result["stop_mechanism"], "native_stop_file_then_owned_group_cleanup")
 
+    def test_process_limit_is_not_clamped_and_native_receives_display_only_cap(self):
+        resources = {**self.resources, "memory_policy": "process-limit",
+                     "max_memory_bytes": 600_000_000_000,
+                     "host_memory_reserve_bytes": 150_000_000_000}
+        host = {"available_bytes": 100_000_000_000, "host_available_bytes": 100_000_000_000}
+        directory = self.folder / "process-limit"
+        code = ("import os;print(os.environ['RUSTRED_PROGRESS_MEMORY_LIMIT_BYTES'],"
+                "os.environ['RUSTRED_PROGRESS_MEMORY_SOFT_BYTES'])")
+        with patch.object(GUARD.SUPERVISOR, "host_memory", return_value=host):
+            result = GUARD.run([sys.executable, "-B", "-c", code], directory,
+                               resources, poll_seconds=.02)
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual((directory / "stdout").read_text().strip(), "600000000000 570000000000")
+        request = json.loads((directory / "request.json").read_text())
+        self.assertEqual(request["memory"]["effective_hard_memory_bytes"], 600_000_000_000)
+        self.assertFalse(request["memory"]["hard_capped_by_available_memory"])
+        self.assertEqual(request["ram_guard"]["host_available_floor_bytes"], 0)
+
     def test_unresponsive_child_is_killed_only_after_owned_stop_grace(self):
         stop = self.folder / "stop.json"
         with patch.object(GUARD.SUPERVISOR, "RamGuard", StopGuard):

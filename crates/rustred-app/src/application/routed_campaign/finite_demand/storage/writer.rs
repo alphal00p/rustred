@@ -128,6 +128,25 @@ impl StoreWriter {
         self.healthy()?;
         Ok(self.current.as_ref())
     }
+    /// Share an already validated capture after the locked reopen confirms the
+    /// same generation. This releases the duplicate decoded directory without
+    /// changing CURRENT or the writer's later freshness checks.
+    pub(crate) fn share_captured_current(&mut self, captured: &ValidatedGeneration) -> Result<()> {
+        let current = self
+            .current()?
+            .ok_or_else(|| corrupt("captured generation requires CURRENT"))?;
+        if current.digest != captured.digest
+            || current.directory != captured.directory
+            || current.execution() != captured.execution()
+        {
+            return Err(StorageError::new(
+                ErrorKind::Stale,
+                "captured generation differs from writer CURRENT",
+            ));
+        }
+        self.current = Some(captured.clone());
+        Ok(())
+    }
     pub fn charged_disk_bytes(&self) -> u64 {
         self.charged
     }
@@ -147,6 +166,7 @@ impl StoreWriter {
         reducer: &rustred::solver::RoutedCandidateReducer<N>,
         state: GenerationState,
         cancel: &AtomicBool,
+        account_directory: &mut dyn FnMut(usize) -> Result<()>,
     ) -> Result<CommitOutcome> {
         self.healthy()?;
         self.check_current()?;
@@ -169,7 +189,14 @@ impl StoreWriter {
             return Err(corrupt("native delta count/census seal mismatch"));
         }
         let (work, report) = delta.into_parts();
-        self.commit_inner(work, raw::RawDelta::native(&report), state, cancel, true)
+        self.commit_inner(
+            work,
+            raw::RawDelta::native(&report),
+            state,
+            cancel,
+            true,
+            account_directory,
+        )
     }
 
     /// Persist one structurally validated generated-state transition. The
@@ -182,7 +209,25 @@ impl StoreWriter {
         state: GenerationState,
         cancel: &AtomicBool,
     ) -> Result<CommitOutcome> {
-        self.commit_inner(delta, raw::RawDelta::empty(), state, cancel, false)
+        self.commit_generated_with_directory_accounting(delta, state, cancel, &mut |_| Ok(()))
+    }
+    /// Report actual successor directory allocations before durable CURRENT,
+    /// allowing optional resident indexes to refresh their coexistence charge.
+    pub(crate) fn commit_generated_with_directory_accounting(
+        &mut self,
+        delta: Vec<StoredWork>,
+        state: GenerationState,
+        cancel: &AtomicBool,
+        account_directory: &mut dyn FnMut(usize) -> Result<()>,
+    ) -> Result<CommitOutcome> {
+        self.commit_inner(
+            delta,
+            raw::RawDelta::empty(),
+            state,
+            cancel,
+            false,
+            account_directory,
+        )
     }
     #[cfg(test)]
     pub(super) fn commit_generated_with_raw(
@@ -192,7 +237,7 @@ impl StoreWriter {
         state: GenerationState,
         cancel: &AtomicBool,
     ) -> Result<CommitOutcome> {
-        self.commit_inner(delta, raw, state, cancel, false)
+        self.commit_inner(delta, raw, state, cancel, false, &mut |_| Ok(()))
     }
     fn commit_inner(
         &mut self,
@@ -201,6 +246,7 @@ impl StoreWriter {
         state: GenerationState,
         cancel: &AtomicBool,
         native_excluded_predecessor: bool,
+        account_directory: &mut dyn FnMut(usize) -> Result<()>,
     ) -> Result<CommitOutcome> {
         self.healthy()?;
         check(cancel)?;
@@ -229,7 +275,7 @@ impl StoreWriter {
         wire::validate_state(&state, &self.execution, records, self.limits)?;
         if let Some(old) = &self.current {
             wire::validate_extension(&old.state, &state)?;
-            if !native_excluded_predecessor {
+            if !native_excluded_predecessor && !delta.is_empty() {
                 let reader = old.reader(self.limits)?;
                 for key in &delta {
                     check(cancel)?;
@@ -369,7 +415,9 @@ impl StoreWriter {
             runs: Arc::new(runs),
             raw: Arc::new(raw),
         };
-        wire::validate_manifest(&manifest, &self.execution, self.limits)?;
+        let (_, directory_payload) =
+            wire::validate_manifest(&manifest, &self.execution, self.limits)?;
+        account_directory(directory_payload)?;
         let manifest_bytes = wire::encode(
             wire::MANIFEST_MAGIC,
             &manifest,
@@ -381,6 +429,11 @@ impl StoreWriter {
             &manifest_bytes,
             self.limits.max_manifest_bytes,
         )?;
+        // Decoding can produce different vector capacities from construction.
+        // Refresh the final retained charge before publishing this generation.
+        let (_, directory_payload) =
+            wire::validate_manifest(&manifest, &self.execution, self.limits)?;
+        account_directory(directory_payload)?;
         let reference = self.install("generations", "rrgen", &manifest_bytes)?;
         drop(manifest_bytes);
         #[cfg(test)]

@@ -561,8 +561,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
     cpus = supervisor.parse_cpu_set(plan["cpus"]) if plan["cpus"] else set(sorted(os.sched_getaffinity(0))[:plan["requested_workers"]])
     if len(cpus) != plan["requested_workers"] or not cpus <= os.sched_getaffinity(0):
         raise ValueError("master reduction requires the campaign's reserved, permitted CPU set")
-    hard, soft, reserve = supervisor.memory_admission(options["max_memory_bytes"], None,
-        supervisor.host_memory(), options.get("host_memory_reserve_bytes"), options["ram_guard_margin_percent"])
+    admission_host = supervisor.memory_host_snapshot(options)
+    hard, soft, reserve = supervisor.memory_admission_for_resources(options, admission_host)
     guard = supervisor.RamGuard(hard, soft, reserve,
         options.get("swap_growth_stop_bytes_per_second") or 0,
         options.get("swap_growth_stop_seconds") or supervisor.DEFAULT_SWAP_GROWTH_STOP_SECONDS)
@@ -572,7 +572,9 @@ def phase_two(plan, policy, request, binding, directory, driver):
     for name in supervisor.DIAGNOSTIC_ONLY_ENVIRONMENT:
         environment.pop(name, None)
     driver.write_json(attempt / "request.json", {"command": command, "cpus": sorted(cpus),
-                      "scope_binding": binding, "phase": phase, "operation": operation})
+                      "scope_binding": binding, "phase": phase, "operation": operation,
+                      "memory": supervisor.memory_admission_record(options["max_memory_bytes"], admission_host,
+                          reserve, hard, soft, options.get("memory_policy", "host-aware"))})
     if not finalizing:
         driver.write_json(directory.parent.parent / "active-phase.json", {
             "schema": SCHEMA, "phase": phase, "operation": operation, "scope_binding": binding["key"],
@@ -660,7 +662,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
                     rss = sum(row["rss_bytes"] for row in rows.values())
                     peak = max(peak, rss)
                     try:
-                        host = supervisor.host_memory()
+                        host = supervisor.memory_host_snapshot(options)
                     except (OSError, ValueError):
                         host = {"available_bytes": None}
                         request_stop("host_memory_monitor_unavailable")
@@ -676,7 +678,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
                             pass
                     last_resources = {"native_busy_cores": cpu_seconds / elapsed if elapsed else None,
                                       "aggregate_rss_bytes": rss, "peak_observed_rss_bytes": peak,
-                                      "host_available_bytes": host.get("available_bytes")}
+                                      "host_available_bytes": host.get("host_available_bytes", host.get("available_bytes"))}
                     previous_time = now
                     publish("stopping" if stop_reason else "running")
                     time.sleep(.5)

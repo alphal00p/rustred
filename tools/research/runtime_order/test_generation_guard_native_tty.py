@@ -159,7 +159,8 @@ powers=[1]
         write_json(directory / "request.json", {
             "command": command, "directory": str(directory / "guard"), "stop_file": str(stop),
             "broken_stderr_only": broken,
-            "resources": {"cpus": str(self.cpu), "workers": 1, "max_memory_bytes": 1_000_000_000,
+            "resources": {"cpus": str(self.cpu), "workers": 1, "max_memory_bytes": 600_000_000_000,
+                          "memory_policy": "process-limit",
                           "host_memory_reserve_bytes": 0, "ram_guard_margin_percent": 5,
                           "swap_growth_stop_bytes_per_second": 0}})
         master, slave = pty.openpty()
@@ -262,10 +263,14 @@ powers=[1]
         self.assertIn(b"FINITE DEMAND", after)
         self.assertIn("╭".encode(), after)
         self.assertIn(b"required rows closed", after)
-        # Inline viewport is16 rows in this32-row terminal. Cleanup must land
+        self.assertIn(b"Host available", after)
+        self.assertIn(b"Process RAM cap", after)
+        self.assertIn(b"600.00 GB", after)
+        self.assertIn(b"Input occurrences", after)
+        # Inline viewport is19 rows in this32-row terminal. Cleanup must land
         # at the viewport bottom, not scroll the whole screen's last row.
         self.assertNotIn(b"\x1b[32;1H", self.last_display)
-        self.assertIn(b"\x1b[16;1H", self.last_display)
+        self.assertIn(b"\x1b[19;1H", self.last_display)
 
     def test_native_cancellation_keeps_display_and_drains_group(self):
         display, replies, receipt = self.run_guard("cancelled", cancelled=True)

@@ -255,7 +255,7 @@ fn resident_and_zero_tiny_grant_paged_drivers_have_identical_exact_raw_output() 
     let cancel = AtomicBool::new(false);
     let mut outputs = Vec::new();
     let mut generations = Vec::new();
-    let growth_decline_grant = (128 * 1024 * 1024) + 1_000_000 + 1;
+    let growth_decline_grant = (128 * 1024 * 1024) + 1;
     for grant in [0, 1, growth_decline_grant, 256 * 1024 * 1024] {
         let mut p = policy(1);
         p.max_resident_work_bytes = grant;
@@ -311,6 +311,170 @@ fn resident_and_zero_tiny_grant_paged_drivers_have_identical_exact_raw_output() 
         outputs.push(output);
     }
     assert!(generations[0].is_string());
+    assert!(generations.windows(2).all(|pair| pair[0] == pair[1]));
+    for name in ["terminals.jsonl", "zeros.jsonl", "selections.jsonl"] {
+        let expected = fs::read(outputs[0].join(name)).unwrap();
+        for output in &outputs[1..] {
+            assert_eq!(fs::read(output.join(name)).unwrap(), expected);
+        }
+    }
+}
+
+#[test]
+fn shipped_high_memory_resident_survives_commits_scope_append_and_cold_resume() {
+    use crate::application::routed_campaign::finite_demand::backend::diagnostic::{
+        Mode, OutputBudget, drive,
+    };
+    use std::cell::RefCell;
+
+    let f = Fixture::new();
+    let mut source = source(&f);
+    source.matching.queries_json = json!({
+        "schema":"rustred.owner-domain-queries.json.v2",
+        "queries":[query("first",3),query("second",4),query("third",5)],
+        "query_roles":{"required":["first","second","third"],"auxiliary":[]}
+    })
+    .to_string();
+    // Parse the exact production profile: null directory caps must remain
+    // unlimited permissions, and the original 300 GB resident grant must work.
+    let shipped = crate::FiniteDemandPolicy::from_json(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/input/finite_campaign/high_memory.json"
+    )))
+    .unwrap()
+    .native();
+    assert_eq!(shipped.storage.max_directory_bytes, usize::MAX);
+    assert_eq!(shipped.max_resident_work_bytes, 300_000_000_000);
+    let cancel = AtomicBool::new(false);
+    let mut outputs = Vec::new();
+    let mut generations = Vec::new();
+    for grant in [shipped.max_resident_work_bytes, 0, 1] {
+        let p = Policy {
+            max_resident_work_bytes: grant,
+            ..shipped
+        };
+        let active = grant == shipped.max_resident_work_bytes;
+        let events = RefCell::new(Vec::<Value>::new());
+        let observe = |event: Value| {
+            if event["event"] == "finite_backend_resident_hydrated" {
+                assert_eq!(
+                    event["status"],
+                    if active {
+                        "active"
+                    } else if grant == 0 {
+                        "disabled"
+                    } else {
+                        "declined"
+                    }
+                );
+            }
+            if event["event"] == "finite_backend_native_call_finished" {
+                assert_eq!(event["resident"].is_object(), active);
+                if active {
+                    assert_eq!(event["reader"]["page_reads"], 0);
+                    assert_eq!(event["reader"]["page_cache_hits"], 0);
+                }
+            }
+            events.borrow_mut().push(event);
+        };
+        let check_charge = |session: &Session<1>| {
+            let generation = session.generation().unwrap();
+            let reader = generation
+                .reader(StorageLimits {
+                    max_cached_pages: 0,
+                    max_cached_page_bytes: 0,
+                    ..p.storage
+                })
+                .unwrap();
+            let events = events.borrow();
+            let resident = &events
+                .iter()
+                .rev()
+                .find(|event| {
+                    matches!(
+                        event["event"].as_str(),
+                        Some(
+                            "finite_backend_resident_hydrated"
+                                | "finite_backend_commit_finished"
+                                | "finite_backend_resident_metadata_committed"
+                        )
+                    )
+                })
+                .unwrap()["resident"];
+            assert_eq!(resident.is_object(), active);
+            if active {
+                assert_eq!(resident["records"], generation.state().completed_work);
+                assert_eq!(
+                    resident["reserved_coexisting_bytes"],
+                    p.storage.max_transient_bytes + reader.directory().statistics().payload_bytes
+                );
+            }
+        };
+        let path = f.directory.join(format!("shipped-resident-{grant}"));
+        let mut session = Session::<1>::create(&source, p, &path, &cancel, &observe).unwrap();
+        assert_eq!(session.total_input_occurrences().to_string(), "12");
+        check_charge(&session);
+        for _ in 0..2 {
+            session.step(&cancel, &observe).unwrap();
+            check_charge(&session);
+        }
+        assert!(session.generation().unwrap().state().completed_work > 0);
+        drop(session);
+        let mut extended = source.clone();
+        append(&mut extended, f.directory.join("shipped-extension.json"));
+        let session = Session::<1>::resume(&extended, p, &path, &cancel, &observe).unwrap();
+        assert_eq!(session.total_input_occurrences().to_string(), "17");
+        check_charge(&session); // Includes metadata-only successor allocation.
+        drop(session);
+        let output = f.directory.join(format!("shipped-output-{grant}"));
+        fs::create_dir(&output).unwrap();
+        let result = drive::<1>(
+            &extended,
+            p,
+            Mode::Resume,
+            &path,
+            None,
+            &output,
+            &OutputBudget::new(1048576),
+            &cancel,
+            &observe,
+        )
+        .unwrap();
+        assert_eq!(result["status"], "complete");
+        let events = events.borrow();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["event"] == "finite_backend_resident_hydrated")
+                .count(),
+            3
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["event"] == "finite_backend_native_call_finished")
+                .count(),
+            4
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| event["event"] == "finite_backend_resident_fallback")
+        );
+        if active {
+            let mut records = 0;
+            for event in events
+                .iter()
+                .filter(|event| event["event"] == "finite_backend_commit_finished")
+            {
+                records += event["resident_staged_records"].as_u64().unwrap();
+                assert_eq!(event["resident"]["records"], records);
+            }
+            assert_eq!(result["progress"]["completed_work"], records);
+        }
+        generations.push(result["progress"]["generation"].clone());
+        outputs.push(output);
+    }
     assert!(generations.windows(2).all(|pair| pair[0] == pair[1]));
     for name in ["terminals.jsonl", "zeros.jsonl", "selections.jsonl"] {
         let expected = fs::read(outputs[0].join(name)).unwrap();

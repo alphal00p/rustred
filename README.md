@@ -350,8 +350,15 @@ memory-bounded completed-Work index. It retains the same manual refinement and
 rank-extension workflow, but does not import an old CP6 traversal ledger or
 offer that engine's optional deep graph replay. Its resource policy applies
 through publication and cold loading: aggregate limits can be set to `null`
-(uncapped), rather than encountering hidden segment-count ceilings. The native
-solve dashboard displays committed coverage and measured CPU usage. See the
+(uncapped), rather than encountering hidden segment-count ceilings. Resident
+accounting uses actual directory capacity, so an uncapped directory allowance
+is not treated as allocated RAM. Finite launches default to
+`--memory-policy process-limit`: a requested 600 GB process cap stays 600 GB;
+host available RAM is reported separately. Use `--memory-policy host-aware`
+explicitly to reduce the cap using available host memory and a reserve.
+The native dashboard shows committed rows, cached processed/total input
+occurrences (including overlaps), completed windows, last-window Work/reuse,
+measured CPU usage and memory. See the
 [configurable-limit release and fresh launch instructions](docs/research/finite_resource_limits_2026-10-16.md).
 
 Completed ordinary publications also save an optional binary **raw census

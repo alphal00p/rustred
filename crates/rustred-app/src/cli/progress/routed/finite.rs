@@ -10,22 +10,45 @@ use ratatui::{
 };
 use serde_json::{Value, json};
 
-pub(in crate::cli::progress) const HEIGHT: u16 = 16;
+pub(in crate::cli::progress) const HEIGHT: u16 = 19;
 
-fn number(value: &Value) -> String {
+fn memory_gb(value: &Value) -> String {
     value.as_u64().map_or_else(
         || "—".into(),
-        |n| {
-            let digits = n.to_string();
-            let mut result = String::new();
-            for (index, digit) in digits.chars().enumerate() {
-                if index > 0 && (digits.len() - index).is_multiple_of(3) {
-                    result.push(',');
+        |bytes| format!("{:.2} GB", bytes as f64 / 1e9),
+    )
+}
+
+fn number(value: &Value) -> String {
+    value
+        .as_u64()
+        .map(|n| n.to_string())
+        .or_else(|| {
+            value
+                .as_str()
+                .filter(|digits| !digits.is_empty() && digits.bytes().all(|c| c.is_ascii_digit()))
+                .map(str::to_owned)
+        })
+        .map_or_else(
+            || "—".into(),
+            |digits| {
+                let mut result = String::new();
+                for (index, digit) in digits.chars().enumerate() {
+                    if index > 0 && (digits.len() - index).is_multiple_of(3) {
+                        result.push(',');
+                    }
+                    result.push(digit);
                 }
-                result.push(digit);
-            }
-            result
-        },
+                result
+            },
+        )
+}
+
+fn input_occurrences(event: &Value) -> String {
+    format!(
+        "{} / {}",
+        number(&event["finite_committed"]["input_occurrences"]),
+        number(&event["finite_totals"]["input_occurrences"])
     )
 }
 
@@ -121,13 +144,22 @@ pub(super) fn plain_status(record: &Value) -> String {
             )
         });
     format!(
-        "RustRed finite | {} | committed {}/{} rows | generation {} | CPU {}/{} cores | elapsed {}{error}",
+        "RustRed finite | {} | committed {}/{} rows | inputs {} occurrences (overlap counted) | generation {} / {} committed windows | last window new Work {} / reuse hits {} | CPU {}/{} cores | RSS {} | process RAM cap {} | stop threshold {} | host available {} / {} total | elapsed {}{error}",
         stage(event),
         number(&committed["exhausted_required_rows"]),
         number(&committed["required_rows"]),
+        input_occurrences(event),
         number(&event["finite_generation"]["number"]),
+        number(&committed["committed_windows"]),
+        number(&event["finite_last_window"]["new_work"]),
+        number(&event["finite_last_window"]["baseline_hits"]),
         cpu,
         number(&record["reserved_workers"]),
+        memory_gb(&record["process_rss_bytes"]),
+        memory_gb(&record["process_memory_limit_bytes"]),
+        memory_gb(&record["process_memory_soft_bytes"]),
+        memory_gb(&record["host_available_bytes"]),
+        memory_gb(&record["host_total_bytes"]),
         duration(record["elapsed_seconds"].as_f64().unwrap_or(0.))
     )
 }
@@ -177,7 +209,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
-        Constraint::Length(8),
+        Constraint::Length(11),
         Constraint::Length(1),
         Constraint::Min(0),
     ])
@@ -224,10 +256,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         )
     };
     let elapsed = duration(record["elapsed_seconds"].as_f64().unwrap_or(0.));
-    let memory = record["process_rss_bytes"].as_u64().map_or_else(
-        || "—".into(),
-        |n| format!("{:.2} GiB", n as f64 / (1u64 << 30) as f64),
-    );
+    let memory = memory_gb(&record["process_rss_bytes"]);
     let cpu = record["process_cpu_cores"].as_f64();
     let reserved = record["reserved_workers"].as_u64();
     let cpu_tone = cpu_color(cpu, reserved);
@@ -244,20 +273,30 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
             "Saved Work",
             number(&committed["completed_work"]),
             "Input occurrences",
-            number(&committed["input_occurrences"]),
+            input_occurrences(event),
         )
     };
     let metrics = [
         first,
         (
-            "Generation",
-            number(&event["finite_generation"]["number"]),
+            "Gen / closed win",
+            format!(
+                "{} / {}",
+                number(&event["finite_generation"]["number"]),
+                number(&committed["committed_windows"])
+            ),
             "Auxiliary closed",
             format!(
                 "{} / {}",
                 number(&committed["exhausted_auxiliary_rows"]),
                 number(&committed["auxiliary_rows"])
             ),
+        ),
+        (
+            "Last new Work",
+            number(&event["finite_last_window"]["new_work"]),
+            "Last reuse hits",
+            number(&event["finite_last_window"]["baseline_hits"]),
         ),
         (
             "Row (0-based)",
@@ -296,6 +335,18 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         ),
         ("Elapsed", elapsed, "Process RSS", memory),
         (
+            "Process RAM cap",
+            memory_gb(&record["process_memory_limit_bytes"]),
+            "Stop threshold",
+            memory_gb(&record["process_memory_soft_bytes"]),
+        ),
+        (
+            "Host available",
+            memory_gb(&record["host_available_bytes"]),
+            "Host total",
+            memory_gb(&record["host_total_bytes"]),
+        ),
+        (
             "Recent nodes/s",
             record["recent_nodes_per_second"]
                 .as_f64()
@@ -328,12 +379,15 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
             let label = match left {
                 "Saved Work" => "Work / inputs",
                 "Stage completed" => "Stage done/total",
-                "Generation" => "Gen / auxiliary",
+                "Gen / closed win" => "Gen,win / aux",
+                "Last new Work" => "Last new / reuse",
                 "Row (0-based)" => "Row / window (0)",
                 "Expanded nodes" => "Expanded / seen",
                 "Queued nodes" => "Queue / busy",
                 "CPU / reserved" => "CPU / reserved",
                 "Elapsed" => "Elapsed / RSS",
+                "Process RAM cap" => "RAM cap / stop",
+                "Host available" => "Host avail/total",
                 _ => "Rate / age",
             };
             Row::new(vec![
@@ -367,7 +421,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         sections[4],
     );
     let footer = failure.map_or_else(
-        || "Window nodes are local; required-row progress is committed. Native busy counts tasks, not CPU.".to_string(),
+        || "Inputs count occurrences, including overlap. Window nodes are local; row closure is committed. Native busy counts tasks, not CPU.".to_string(),
         |detail| format!("{} · {}", detail.chars().filter(|c| !c.is_control()).collect::<String>(), checkpoint_note(event)),
     );
     frame.render_widget(
@@ -390,6 +444,8 @@ pub(super) fn retain(previous: &Value, event: &mut Value) {
         for field in [
             "finite_committed",
             "finite_generation",
+            "finite_totals",
+            "finite_last_window",
             "finite_residency",
             "finite_local",
         ] {
@@ -405,6 +461,12 @@ pub(super) fn retain(previous: &Value, event: &mut Value) {
             event["finite_committed"] = event["committed"].clone();
             event["finite_generation"] = json!({
                 "number":event["generation_number"], "digest":event["generation"]});
+            if let Some(total) = event.get("input_occurrences_total").cloned() {
+                event["finite_totals"] = json!({"input_occurrences":total});
+            }
+            if event["window"].is_object() {
+                event["finite_last_window"] = event["window"].clone();
+            }
             // The next cursor may designate a new window. Never display the
             // preceding window's local completion as that window's progress.
             event["finite_local"] = Value::Null;
@@ -429,6 +491,11 @@ pub(super) fn retain(previous: &Value, event: &mut Value) {
                 if !event[field].is_object() && event["result"][result_field].is_object() {
                     event[field] = event["result"][result_field].clone();
                 }
+            }
+            if !event["finite_totals"].is_object()
+                && let Some(total) = event["result"].get("input_occurrences_total").cloned()
+            {
+                event["finite_totals"] = json!({"input_occurrences":total});
             }
             event["finite_local"] = Value::Null;
         }
@@ -458,6 +525,11 @@ pub(super) fn annotate_heartbeat(record: &mut Value) {
         Value::Null
     };
     record["expanded_nodes_scope"] = json!("current_window_only_not_input_closure");
+    record["input_occurrences_progress"] = json!({
+        "processed":record["progress"]["finite_committed"]["input_occurrences"],
+        "total":record["progress"]["finite_totals"]["input_occurrences"],
+        "counts_occurrences_including_overlap":true,
+        "from_native_committed_checkpoint":true});
 }
 
 pub(super) fn dashboard(record: &Value) -> [String; 6] {
@@ -559,7 +631,9 @@ mod tests {
     #[test]
     fn finite_table_resizes_and_keeps_committed_progress_distinct_from_window_counts() {
         let mut latest = json!({});
-        observe(&mut latest, checkpoint(4_129, 3));
+        let mut saved = checkpoint(4_129, 3);
+        saved["window"] = json!({"row":3,"inputs":100,"new_work":777,"baseline_hits":333});
+        observe(&mut latest, saved);
         observe(
             &mut latest,
             json!({"operation":"finite_demand", "event":"finite_backend_native",
@@ -568,6 +642,8 @@ mod tests {
         );
         let record = json!({"progress":latest,"elapsed_seconds":3723.0,"process_rss_bytes":8u64 << 30,
             "process_cpu_cores":6.5,"reserved_workers":8,
+            "process_memory_limit_bytes":600_000_000_000u64,"process_memory_soft_bytes":570_000_000_000u64,
+            "host_available_bytes":100_000_000_000u64,"host_total_bytes":1_024_000_000_000u64,
             "recent_nodes_per_second":125.5,"progress_age_seconds":0.2});
         for (width, height) in [(120, HEIGHT), (80, HEIGHT), (40, HEIGHT), (10, 8), (1, 1)] {
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
@@ -595,15 +671,39 @@ mod tests {
                     text.contains("Recent nodes/s") && text.contains("Last update"),
                     "{text}"
                 );
+                for label in [
+                    "Process RAM cap",
+                    "Stop threshold",
+                    "Host available",
+                    "Host total",
+                    "Input occurrences",
+                    "Gen / closed win",
+                    "Last new Work",
+                    "Last reuse hits",
+                ] {
+                    assert!(text.contains(label), "{text}");
+                }
             }
             if width >= 80 {
                 assert!(text.contains("3 / 10 required rows closed"), "{text}");
                 assert!(text.contains("12,000"), "{text}");
                 assert!(text.contains("24,000"), "{text}");
                 assert!(text.contains("4,129"), "{text}");
+                assert!(text.contains("4,128"), "{text}");
+                assert!(text.contains("12,387 / 50,000"), "{text}");
+                assert!(text.contains("777") && text.contains("333"), "{text}");
                 assert!(text.contains("01:02:03"), "{text}");
                 assert!(text.contains("6.50 / 8"), "{text}");
                 assert!(text.contains("81.2%"), "{text}");
+                for memory in [
+                    "8.59 GB",
+                    "600.00 GB",
+                    "570.00 GB",
+                    "100.00 GB",
+                    "1024.00 GB",
+                ] {
+                    assert!(text.contains(memory), "{text}");
+                }
                 assert!(
                     text.contains("125.5") && text.contains("0.2s ago"),
                     "{text}"
@@ -611,6 +711,32 @@ mod tests {
                 assert!(text.contains("╭") && text.contains("╰"), "{text}");
             }
         }
+    }
+
+    #[test]
+    fn finite_plain_status_reports_host_memory_separately_from_the_requested_process_cap() {
+        let record = json!({"progress":{"operation":"finite_demand"},
+            "process_rss_bytes":8_000_000_000u64,
+            "process_memory_limit_bytes":600_000_000_000u64,
+            "process_memory_soft_bytes":570_000_000_000u64,
+            "host_available_bytes":100_000_000_000u64,
+            "host_total_bytes":1_024_000_000_000u64});
+        let plain = plain_status(&record);
+        assert!(
+            plain.contains("RSS 8.00 GB | process RAM cap 600.00 GB | stop threshold 570.00 GB"),
+            "{plain}"
+        );
+        assert!(
+            plain.contains("host available 100.00 GB / 1024.00 GB total"),
+            "{plain}"
+        );
+        let unknown = plain_status(&json!({"progress":{"operation":"finite_demand"}}));
+        assert!(
+            unknown.contains("process RAM cap — | stop threshold — | host available — / — total"),
+            "{unknown}"
+        );
+        assert_eq!(memory_gb(&json!(0)), "0.00 GB");
+        assert_eq!(memory_gb(&Value::Null), "—");
     }
 
     #[test]
@@ -682,14 +808,77 @@ mod tests {
     fn checkpoint(generation: u64, done: u64) -> Value {
         json!({"operation":"finite_demand","event":"finite_checkpoint_saved",
             "generation_number":generation,"generation":"digest",
+            "input_occurrences_total":"50000",
             "committed":{"required_rows":10,"exhausted_required_rows":done,
                 "required_complete":false,"auxiliary_rows":2,"exhausted_auxiliary_rows":1,
                 "current_row":done,"current_window":0,"completed_work":generation*100,
-                "input_occurrences":generation*3}})
+                "input_occurrences":generation*3,"committed_windows":generation.saturating_sub(1)}})
     }
     fn observe(previous: &mut Value, mut event: Value) {
         retain(previous, &mut event);
         *previous = event;
+    }
+
+    #[test]
+    fn finite_totals_and_last_committed_window_survive_native_activity() {
+        let mut latest = json!({});
+        let mut initial = checkpoint(1, 0);
+        initial["input_occurrences_total"] = json!("7");
+        initial["committed"]["input_occurrences"] = json!(0);
+        observe(&mut latest, initial);
+        let mut saved = checkpoint(2, 0);
+        saved
+            .as_object_mut()
+            .unwrap()
+            .remove("input_occurrences_total");
+        saved["committed"]["input_occurrences"] = json!(3);
+        saved["window"] = json!({"row":0,"inputs":3,"new_work":2,"baseline_hits":1});
+        observe(&mut latest, saved);
+        for event in [
+            json!({"operation":"finite_demand","event":"finite_backend_native",
+                "row":1,"window":0,"snapshot":{"completed_nodes":500,"scheduled_nodes":500}}),
+            json!({"operation":"finite_demand","event":"finite_backend_resident_hydrated",
+                "status":"active"}),
+            json!({"operation":"finite_demand","event":"finished","result":{"status":"cancelled"}}),
+        ] {
+            observe(&mut latest, event);
+            assert_eq!(latest["finite_totals"]["input_occurrences"], "7");
+            assert_eq!(latest["finite_last_window"]["new_work"], 2);
+            assert_eq!(latest["finite_last_window"]["baseline_hits"], 1);
+            assert_eq!(input_occurrences(&latest), "3 / 7");
+        }
+        let mut heartbeat = json!({"progress":latest});
+        annotate_heartbeat(&mut heartbeat);
+        assert_eq!(heartbeat["input_occurrences_progress"]["processed"], 3);
+        assert_eq!(heartbeat["input_occurrences_progress"]["total"], "7");
+        assert_eq!(
+            heartbeat["input_occurrences_progress"]["counts_occurrences_including_overlap"],
+            true
+        );
+        let plain = plain_status(&heartbeat);
+        assert!(
+            plain.contains("inputs 3 / 7 occurrences (overlap counted)"),
+            "{plain}"
+        );
+        assert!(
+            plain.contains("generation 2 / 1 committed windows"),
+            "{plain}"
+        );
+        assert!(
+            plain.contains("last window new Work 2 / reuse hits 1"),
+            "{plain}"
+        );
+    }
+
+    #[test]
+    fn finite_total_decimal_strings_preserve_arbitrary_precision() {
+        assert_eq!(
+            number(&json!("18446744073709551616000")),
+            "18,446,744,073,709,551,616,000"
+        );
+        for invalid in ["", "-1", "1e6", "12\n", "\u{1b}[2J"] {
+            assert_eq!(number(&json!(invalid)), "—");
+        }
     }
 
     #[test]

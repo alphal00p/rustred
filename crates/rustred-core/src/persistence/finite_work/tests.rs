@@ -287,6 +287,66 @@ fn resident_hydration_is_complete_generation_bound_and_preserves_full_phase_owne
 }
 
 #[test]
+fn resident_metadata_rebind_charges_both_directories_and_refreshes_retained_bytes() {
+    struct NoPages;
+    impl GeneratedPageProvider for NoPages {
+        fn visit_validated_page(
+            &self,
+            _: &GeneratedWorkPageRef,
+            _: u64,
+            _: &mut dyn FnMut(&ValidatedWorkPage),
+        ) -> GeneratedWorkResult<GeneratedPageReadUsage> {
+            panic!("empty directory has no pages");
+        }
+    }
+    let directory = TrustedGeneratedWorkDirectory::try_from_trusted_generated(
+        binding(),
+        [1; 32],
+        Arc::new(Vec::new()),
+        limits(),
+    )
+    .unwrap();
+    let prepare = || {
+        TrustedGeneratedResidentWork::hydrate(
+            &directory,
+            &NoPages,
+            1200,
+            400,
+            &std::sync::atomic::AtomicBool::new(false),
+        )
+        .unwrap()
+        .unwrap()
+        .prepare_metadata_only([1; 32])
+        .unwrap()
+    };
+    // The successor alone fits, but coexistence with the predecessor does not.
+    assert!(
+        prepare()
+            .refresh_coexisting_bytes(1300, 900)
+            .unwrap()
+            .is_none()
+    );
+    let resident = prepare()
+        .refresh_coexisting_bytes(1100, 700)
+        .unwrap()
+        .unwrap()
+        .after_durable_commit([2; 32]);
+    assert_eq!(
+        resident.statistics().unwrap().reserved_coexisting_bytes,
+        700
+    );
+    assert_eq!(resident.statistics().unwrap().records, 0);
+    assert_eq!(
+        prepare()
+            .refresh_coexisting_bytes(600, 700)
+            .err()
+            .unwrap()
+            .kind,
+        GeneratedWorkErrorKind::Corrupt
+    );
+}
+
+#[test]
 fn resident_hydration_rejects_cross_run_duplicates_instead_of_minting_partial_absence() {
     struct Provider(Vec<(GeneratedWorkPageRef, ValidatedWorkPage)>);
     impl GeneratedPageProvider for Provider {

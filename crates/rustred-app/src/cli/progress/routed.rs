@@ -1,5 +1,5 @@
 //! One bounded progress slot, lossless checkpoint milestones, and an independent heartbeat.
-use super::terminal::{TerminalSession, resident_set_bytes};
+use super::terminal::{TerminalSession, host_memory, resident_set_bytes};
 use serde_json::{Value, json};
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -53,6 +53,12 @@ fn write_record(events: &mut dyn Write, record: &Value) -> io::Result<()> {
     events.write_all(b"\n")?;
     events.flush()
 }
+
+/// Display metadata supplied by the process supervisor, never memory policy.
+fn parse_progress_memory_bytes(value: Option<&str>) -> Option<u64> {
+    value?.parse::<u64>().ok().filter(|bytes| *bytes > 0)
+}
+
 impl RoutedProgress {
     pub fn start(
         events: Box<dyn Write + Send>,
@@ -90,6 +96,16 @@ impl RoutedProgress {
         progress_enabled: bool,
     ) -> Self {
         let finite_mode = reserved_workers.is_some();
+        let process_memory_limit_bytes = parse_progress_memory_bytes(
+            std::env::var("RUSTRED_PROGRESS_MEMORY_LIMIT_BYTES")
+                .ok()
+                .as_deref(),
+        );
+        let process_memory_soft_bytes = parse_progress_memory_bytes(
+            std::env::var("RUSTRED_PROGRESS_MEMORY_SOFT_BYTES")
+                .ok()
+                .as_deref(),
+        );
         let initial = if finite_mode {
             json!({"event":"starting", "operation":"finite_demand"})
         } else {
@@ -171,6 +187,13 @@ impl RoutedProgress {
                     "recent_nodes_per_second":rates.map(|r|r.0),"queue_growth_per_second":rates.map(|r|r.1),
                     "progress_denominator_may_grow":true,"progress_is_not_closure_fraction":true,
                     "progress":event, "family_closure_claim":false});
+                if finite_mode {
+                    let host = host_memory();
+                    record["host_available_bytes"] = json!(host.available_bytes);
+                    record["host_total_bytes"] = json!(host.total_bytes);
+                    record["process_memory_limit_bytes"] = json!(process_memory_limit_bytes);
+                    record["process_memory_soft_bytes"] = json!(process_memory_soft_bytes);
+                }
                 add_worker_summary(&mut record);
                 finite::annotate_heartbeat(&mut record);
                 if let Err(error) = write_record(&mut *events, &record) {
@@ -716,6 +739,74 @@ fn match_dashboard(record: &Value) -> [String; 6] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_memory_limit_is_optional_and_preserves_requested_bytes() {
+        assert_eq!(
+            parse_progress_memory_bytes(Some("600000000000")),
+            Some(600_000_000_000)
+        );
+        for value in [
+            None,
+            Some(""),
+            Some("0"),
+            Some("-1"),
+            Some("600GB"),
+            Some("18446744073709551616"),
+        ] {
+            assert_eq!(parse_progress_memory_bytes(value), None);
+        }
+    }
+
+    #[test]
+    fn finite_heartbeat_includes_optional_process_cap_and_host_memory() {
+        struct Shared(Arc<Mutex<Vec<u8>>>);
+        impl Write for Shared {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        RoutedProgress::start_finite(
+            Box::new(Shared(Arc::clone(&bytes))),
+            false,
+            Arc::new(AtomicBool::new(false)),
+            None,
+            8,
+            false,
+        )
+        .finish()
+        .unwrap();
+        let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        let record: Value = serde_json::from_str(text.lines().last().unwrap()).unwrap();
+        assert_eq!(record["event"], "heartbeat");
+        assert_eq!(record["reserved_workers"], 8);
+        for field in ["host_available_bytes", "host_total_bytes"] {
+            let value = record.get(field).unwrap();
+            assert!(value.is_null() || value.as_u64().is_some());
+        }
+        for (field, variable) in [
+            (
+                "process_memory_limit_bytes",
+                "RUSTRED_PROGRESS_MEMORY_LIMIT_BYTES",
+            ),
+            (
+                "process_memory_soft_bytes",
+                "RUSTRED_PROGRESS_MEMORY_SOFT_BYTES",
+            ),
+        ] {
+            assert_eq!(
+                record.get(field),
+                Some(&json!(parse_progress_memory_bytes(
+                    std::env::var(variable).ok().as_deref()
+                )))
+            );
+        }
+    }
 
     #[test]
     fn finite_node_rates_reset_at_window_changes_and_missing_local_state() {

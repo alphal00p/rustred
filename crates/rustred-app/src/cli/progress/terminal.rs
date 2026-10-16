@@ -193,3 +193,84 @@ pub(super) fn resident_set_bytes() -> Option<u64> {
 pub(super) fn resident_set_bytes() -> Option<u64> {
     None
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct HostMemory {
+    pub(super) available_bytes: Option<u64>,
+    pub(super) total_bytes: Option<u64>,
+}
+
+/// Host availability is informational, independent of the process RAM cap.
+/// MemAvailable includes reclaimable memory; MemFree does not estimate how much
+/// memory the host can still provide without swapping.
+#[cfg(target_os = "linux")]
+pub(super) fn host_memory() -> HostMemory {
+    fs::read_to_string("/proc/meminfo")
+        .map(|info| parse_host_memory(&info))
+        .unwrap_or_default()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(super) fn host_memory() -> HostMemory {
+    HostMemory::default()
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn parse_host_memory(info: &str) -> HostMemory {
+    let mut memory = HostMemory::default();
+    for line in info.lines() {
+        let mut fields = line.split_ascii_whitespace();
+        let target = match fields.next() {
+            Some("MemAvailable:") => &mut memory.available_bytes,
+            Some("MemTotal:") => &mut memory.total_bytes,
+            _ => continue,
+        };
+        *target = fields
+            .next()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|_| fields.next() == Some("kB"))
+            .and_then(|kibibytes| kibibytes.checked_mul(1_024));
+    }
+    memory
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_memory_uses_available_instead_of_free_and_converts_kibibytes() {
+        assert_eq!(
+            parse_host_memory(
+                "MemTotal:       1000000000 kB\nMemFree: 1000 kB\nMemAvailable: 100000000 kB\n"
+            ),
+            HostMemory {
+                available_bytes: Some(102_400_000_000),
+                total_bytes: Some(1_024_000_000_000),
+            }
+        );
+        assert_eq!(
+            parse_host_memory("MemTotal: 1024 kB\nMemFree: 512 kB\n"),
+            HostMemory {
+                available_bytes: None,
+                total_bytes: Some(1_048_576),
+            }
+        );
+    }
+
+    #[test]
+    fn host_memory_missing_malformed_and_overflowing_values_remain_unknown() {
+        for info in [
+            "",
+            "MemAvailable: unknown kB\nMemTotal: -1 kB\n",
+            "MemAvailable: 512 MB\nMemTotal: 1024\n",
+            "MemAvailable: 18446744073709551615 kB\nMemTotal: 18446744073709551615 kB\n",
+        ] {
+            assert_eq!(parse_host_memory(info), HostMemory::default(), "{info}");
+        }
+        assert_eq!(
+            parse_host_memory("MemAvailable: 0 kB").available_bytes,
+            Some(0)
+        );
+    }
+}

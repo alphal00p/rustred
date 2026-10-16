@@ -359,12 +359,15 @@ def launch_plan(args, campaign, binary, *, apply, startup_progress=None):
     if saved is not None and policy["windows"] != saved["window_policy"]:
         raise ValueError("finite window/partition policy cannot change on resume")
     resources = dict((saved or {}).get("resources", {}))
+    resources["memory_policy"] = (getattr(args, "memory_policy", None)
+                                  or resources.get("memory_policy", "process-limit"))
+    resources.setdefault("host_memory_reserve_bytes", 0)
     for key in ("cpus", "max_memory_bytes", "host_memory_reserve_bytes", "ram_guard_margin_percent"):
         value = getattr(args, key, None)
         if value is not None:
             resources[key] = value
-    if any(key not in resources for key in ("cpus", "max_memory_bytes", "host_memory_reserve_bytes")):
-        raise ValueError("first finite run requires --cpus, --max-memory-bytes and --host-memory-reserve-bytes")
+    if any(key not in resources for key in ("cpus", "max_memory_bytes")):
+        raise ValueError("first finite run requires --cpus and --max-memory-bytes")
     resources.setdefault("ram_guard_margin_percent", 5)
     if (type(resources["max_memory_bytes"]) is not int or resources["max_memory_bytes"] <= 0
             or type(resources["host_memory_reserve_bytes"]) is not int or resources["host_memory_reserve_bytes"] < 0):
@@ -376,8 +379,7 @@ def launch_plan(args, campaign, binary, *, apply, startup_progress=None):
     cpus = SUPERVISOR.parse_cpu_set(resources["cpus"])
     if len(cpus) != policy["workers"] or not cpus <= os.sched_getaffinity(0):
         raise ValueError("finite workers must equal the reserved permitted CPU count")
-    SUPERVISOR.memory_admission(resources["max_memory_bytes"], None, SUPERVISOR.host_memory(),
-        resources["host_memory_reserve_bytes"], resources["ram_guard_margin_percent"])
+    SUPERVISOR.memory_admission_for_resources(resources, SUPERVISOR.memory_host_snapshot(resources))
     grace = getattr(args, "stop_grace_seconds", None)
     if grace is None:
         grace = (saved or {}).get("stop_grace_seconds", 120)
@@ -472,6 +474,7 @@ def public_main(args, extra):
     parser.add_argument("--cpus")
     parser.add_argument("--max-memory-bytes", type=int)
     parser.add_argument("--host-memory-reserve-bytes", type=int)
+    parser.add_argument("--memory-policy", choices=("process-limit", "host-aware"))
     parser.add_argument("--ram-guard-margin-percent", type=float)
     parser.add_argument("--stop-grace-seconds", type=float)
     parser.add_argument("--repair-preparation", action="store_true")

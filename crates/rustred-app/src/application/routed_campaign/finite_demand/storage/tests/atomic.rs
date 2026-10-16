@@ -2,6 +2,41 @@ use super::super::writer::Stage;
 use super::*;
 
 #[test]
+fn finite_store_reopen_shares_only_the_same_captured_current_allocation() {
+    let scratch = Scratch::new();
+    let path = scratch.0.join("store");
+    let mut writer = StoreWriter::create(&path, binding(), limits()).unwrap();
+    let captured = commit(&mut writer, vec![key(1)], 1, 1);
+    drop(writer);
+    let mut writer = StoreWriter::resume_generated(&path, binding(), limits()).unwrap();
+    let tip = fs::read(path.join(wire::CURRENT)).unwrap();
+    assert!(!Arc::ptr_eq(
+        &writer.current().unwrap().unwrap().manifest,
+        &captured.manifest,
+    ));
+    writer.share_captured_current(&captured).unwrap();
+    assert!(Arc::ptr_eq(
+        &writer.current().unwrap().unwrap().manifest,
+        &captured.manifest,
+    ));
+    assert_eq!(fs::read(path.join(wire::CURRENT)).unwrap(), tip);
+
+    let mut other = StoreWriter::create(&scratch.0.join("other"), binding(), limits()).unwrap();
+    let other = commit(&mut other, vec![key(1)], 1, 1);
+    assert_eq!(other.digest(), captured.digest());
+    assert_eq!(
+        writer.share_captured_current(&other).unwrap_err().kind,
+        ErrorKind::Stale
+    );
+    let next = commit(&mut writer, vec![key(2)], 2, 2);
+    assert_eq!(
+        writer.share_captured_current(&captured).unwrap_err().kind,
+        ErrorKind::Stale
+    );
+    assert_eq!(writer.current().unwrap().unwrap().digest(), next.digest());
+}
+
+#[test]
 fn finite_store_precommit_interrupt_keeps_old_cursor_and_counts_orphans_on_resume() {
     for stage in [Stage::AfterPages, Stage::AfterState, Stage::BeforeCurrent] {
         let scratch = Scratch::new();

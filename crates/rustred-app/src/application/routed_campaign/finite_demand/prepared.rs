@@ -156,6 +156,26 @@ impl<const N: usize> PreparedExecution<N> {
         cursors: Vec<CursorRecord>,
         cancel: &AtomicBool,
     ) -> Result<PreparedCommit<N>, AppError> {
+        self.commit_delta_with_directory_accounting(
+            authenticated,
+            writer,
+            delta,
+            scope,
+            cursors,
+            cancel,
+            &mut |_| Ok(()),
+        )
+    }
+    pub fn commit_delta_with_directory_accounting(
+        &self,
+        authenticated: &PreparedGeneration<N>,
+        writer: &mut StoreWriter,
+        delta: CandidateRoutedCompletedDelta<'_, N>,
+        scope: ScopeBinding,
+        cursors: Vec<CursorRecord>,
+        cancel: &AtomicBool,
+        account_directory: &mut dyn FnMut(usize) -> Result<(), storage::StorageError>,
+    ) -> Result<PreparedCommit<N>, AppError> {
         let previous = writer
             .current()
             .map_err(storage_failure)?
@@ -235,7 +255,7 @@ impl<const N: usize> PreparedExecution<N> {
         };
         check(cancel)?;
         let outcome = writer
-            .commit_completed(delta, &self.reducer, state, cancel)
+            .commit_completed(delta, &self.reducer, state, cancel, account_directory)
             .map_err(storage_failure)?;
         // Native delta classification/selection belongs to the SAME engine;
         // unchanged predecessor pages remain authenticated lazily. No old raw

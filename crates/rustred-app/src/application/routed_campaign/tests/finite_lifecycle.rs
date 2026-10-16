@@ -188,13 +188,18 @@ fn public_finite_cancel_resume_append_and_owner_load_free_status() {
     checkpoint.resume = true;
     request.source.checkpoint = Some(checkpoint);
     let cancel = AtomicBool::new(false);
+    let reported_totals = std::cell::RefCell::new(Vec::new());
     let error = run_finite_demand_with_progress(request.clone(), &cancel, |event| {
+        if let Some(total) = event.get("input_occurrences_total") {
+            reported_totals.borrow_mut().push(total.clone());
+        }
         if event["event"] == "finite_checkpoint_saved" && event["generation_number"] == 2 {
             cancel.store(true, Ordering::Release);
         }
     })
     .unwrap_err();
     assert_eq!(error.kind(), crate::AppErrorKind::Cancelled);
+    assert_eq!(*reported_totals.borrow(), vec![json!("3")]);
     let current = fs::read(request.directory.join("store/CURRENT")).unwrap();
     fs::rename(
         f.directory.join("owner.rrbin"),
@@ -204,6 +209,7 @@ fn public_finite_cancel_resume_append_and_owner_load_free_status() {
     let paused = inspect_finite_demand(&request.directory).unwrap();
     assert_eq!(paused["generation"]["number"], 2);
     assert_eq!(paused["committed"]["input_occurrences"], 1);
+    assert_eq!(paused["committed"]["committed_windows"], 1);
     assert_eq!(paused["committed"]["exhausted_required_rows"], 1); // Empty declaration retained.
     assert_eq!(paused["source"]["status"], "bound");
     fs::rename(
@@ -217,12 +223,32 @@ fn public_finite_cancel_resume_append_and_owner_load_free_status() {
     );
     cancel.store(false, Ordering::Release);
     request.mode = FiniteDemandMode::Resume;
-    let finished = run_finite_demand_with_progress(request.clone(), &cancel, |_| {}).unwrap();
+    let finished = run_finite_demand_with_progress(request.clone(), &cancel, |event| {
+        if let Some(total) = event.get("input_occurrences_total") {
+            reported_totals.borrow_mut().push(total.clone());
+        }
+    })
+    .unwrap();
     assert!(finished.complete);
     assert_eq!(finished.document["committed"]["input_occurrences"], 3);
+    assert_eq!(finished.document["committed"]["committed_windows"], 3);
+    assert_eq!(finished.document["input_occurrences_total"], "3");
     append(&mut request);
-    let extended = run_finite_demand_with_progress(request.clone(), &cancel, |_| {}).unwrap();
+    let extended = run_finite_demand_with_progress(request.clone(), &cancel, |event| {
+        if let Some(total) = event.get("input_occurrences_total") {
+            reported_totals.borrow_mut().push(total.clone());
+        }
+    })
+    .unwrap();
+    // The appended four inputs overlap all three original inputs. The total
+    // counts seven request occurrences, not four unique integrals.
+    assert_eq!(
+        *reported_totals.borrow(),
+        vec![json!("3"), json!("3"), json!("7")]
+    );
+    assert_eq!(extended.document["input_occurrences_total"], "7");
     assert_eq!(extended.document["committed"]["input_occurrences"], 7);
+    assert_eq!(extended.document["committed"]["committed_windows"], 7);
     let status = inspect_finite_demand(&request.directory).unwrap();
     assert_eq!(status["committed"]["required_rows"], 3);
     assert_eq!(status["source"]["amendments"][0]["first_input"], 2);

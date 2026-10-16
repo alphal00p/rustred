@@ -1,5 +1,87 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 16 — repair uncapped resident accounting; preserve requested RAM
+
+The user's first launch of `five-loop-finite-r0-d10-configurable-20261016`
+stopped after 140.314s with `resident Work coexistence estimate overflow`, at
+only 7.675GB sampled peak RSS. This was our bookkeeping regression: hydration
+added the unlimited directory **permission** (`usize::MAX`) to decode headroom,
+instead of charging the actual retained directory allocation. The preceding
+4200-window stress had explicitly disabled the resident index and missed this
+combination. Existing campaigns, including the failed one, remain untouched.
+
+Implementation/review assignments:
+
+- `resident_accounting_fix`: actual directory payload accounting, pre-CURRENT
+  predecessor/successor reservation refresh, shared validated snapshot on cold
+  reopen, and exact shipped-profile regression across commits/resume/extension.
+- `resident_uncapped_audit`: independent accounting audit; identified and
+  verified the duplicate cold-reopen allocation fix; public core boundary test;
+  audited finite publication versus saved-walk/Vakint application compatibility.
+- `host_memory_display`: native RAM cap/host telemetry and cheap cached totals,
+  completed windows and last-window new/reused Work; isolated real R0 smoke.
+- Root: process-limit policy through the Python run and publication guard,
+  exact-profile integration, terminal verification, documentation and delivery.
+
+Finite campaigns now default to `--memory-policy process-limit`: the requested
+600GB remains the hard process-tree ceiling; the default 5% margin requests a
+checkpoint/stop at 570GB. Host available RAM is displayed, not used to shrink
+the allowance or trigger a separate host-floor stop. Swap-growth stopping stays
+off. Legacy callers keep host-aware admission unless explicitly overridden.
+This is not an OS RAM reservation; the user manages host capacity.
+
+New progress reports cached processed/total starting-input occurrences (with
+overlaps explicitly counted), committed windows, last-window new Work/reuse,
+and host available/total RAM. It does not pretend that the legacy symbolic
+closure-scan D/C metric applies to this algorithm. Native inline height is now
+19 rows, with terminal cleanup tested against that actual viewport.
+
+Validation so far: **328 native tests passed** (four explicitly ignored) in
+`TMP/resident-uncapped-native-results3-20261016`; the two earlier CLI failures
+were missing test-process OMP/BLIS environment settings, not weakened tests or
+implementation failures. Expanded Python RAM/steering/publication/dashboard/
+guard tests: **217 pass in 23.644s**, including saved mode persistence through
+resume/extension and phase-two admission with low host availability. Optimized
+CLI built successfully in420.408s, frozen at
+`TMP/releases/20261016-finite-resident-fixed/rustred`, SHA256
+`d044f0a6e332fa57306de13634c27ef9fc956a762f9bae122f0943ba1f9070d0`.
+Three actual-native PTY tests passed, including cancellation, descriptor setup,
+600GB display and19-row cleanup. Root visually inspected the rendered complete
+and cancelled screens at `TMP/finite-resident-fixed-tty-20261016/`.
+The separate public core budget regression passed in
+`TMP/resident-uncapped-core-regression-20261016` (216.292s including compilation).
+Full-profile scratch R0 solve passed:116/116 required rows,2,557/2,557 cached input
+occurrences,300,673 Work,81 committed windows,generation82;150.404s including
+preparation,7.7085GB sampled peak process-tree RSS. The resident index stayed
+active at its300GB optional allowance. **Cold publication and fresh-process
+inspection passed**:9,982 published rules, current scope confirmed. Publication
+took150.985s, with7.7044GB sampled peak RSS, and cold-hydrated all300,673 resident
+Work records without fallback. The configured directory grant remained null;
+the complete high-memory profile was unchanged. The final heartbeat retained
+the exact2557/2557 input counter. Evidence:
+`TMP/r0-public-smoke-4iB73F/` (shared-host correctness run, not a speedup claim).
+
+At the user's request a fresh **inputs-only** namespace is prepared:
+`campaigns/five-loop-finite-r0-d10-resident-fixed-20261016`. It retains67 owners,
+116 required R0/D≤10 query rows and original extension templates. The old
+failed folder was neither erased nor resumed. No production solve was launched.
+
+Compatibility review: finite publications and saved-walk publications feed the
+same master-reduction/export machinery; both export `rustred.saved-application.v1`.
+The existing regression cold-loads both and checks exact terms and conditions.
+Vakint loads the exported directory containing `application.json`, not the
+finite checkpoint or publication manifest. A new finite-package end-to-end
+Vakint acceptance run is not claimed here; the broader goal remains paused.
+
+Delivery: the exact fresh launch command passed a dry run against the frozen
+executable. No native work or checkpoint was created in the user's new folder.
+The original failed namespace is retained; use the prepared fresh folder with
+`run`, not `--resume`. Later interruptions use `run --resume`; later rank passes
+use `extend --rank N`. Commands and release identity are in
+`docs/research/finite_resource_limits_2026-10-16.md`. Only this task's source,
+tests and documentation are included in the commit; unrelated FeynKit changes
+and all campaign/reference data remain excluded.
+
 ## October 16 — configurable finite resource policy and consistent dashboard
 
 User requested removal of the fixed resource barriers after the R2 finite run

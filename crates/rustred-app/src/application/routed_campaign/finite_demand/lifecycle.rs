@@ -120,11 +120,15 @@ fn run<const N: usize>(
         observer(event);
     };
     let mut session = session::<N>(request, controls, cancel, &forward)?;
+    // PrefixWindows already cached each request's exact count during admission.
+    // Sum it once; overlapping requests remain separate input occurrences.
+    let input_occurrences_total = session.total_input_occurrences().to_string();
     let first = session.generation()?;
     observer(
         json!({"event":if request.mode != FiniteDemandMode::Resume {"finite_checkpoint_saved"} else {"finite_checkpoint_restored"},
         "operation":"finite_demand","checkpoint":controls.store(),"generation":control::hex(first.digest()),
-        "generation_number":first.generation(),"committed":committed(&first)?}),
+        "generation_number":first.generation(),"committed":committed(&first)?,
+        "input_occurrences_total":input_occurrences_total}),
     );
     loop {
         check(cancel)?;
@@ -156,6 +160,7 @@ fn run<const N: usize>(
         "schema":"rustred.finite-demand-run.v1","engine":control::ENGINE,"status":"complete","complete":true,
         "generation":{"number":generation.generation(),"digest":control::hex(generation.digest())},
         "checkpoint":controls.store(),"committed":scope,"policy":request.policy,
+        "input_occurrences_total":input_occurrences_total,
         "cancelled":false,"error_kind":null,"error":null,
         "raw_census_streamed":false,"publication_claim":false,"family_closure_claim":false}),
     })
@@ -206,6 +211,7 @@ fn committed(generation: &ValidatedGeneration) -> Result<Value, AppError> {
     let mut current = None;
     let mut current_window = None;
     let mut occurrences = 0u64;
+    let mut committed_windows = 0u64;
     for (index, row) in state.scope.rows.iter().enumerate() {
         let token = generation.cursor(index).map_err(backend::storage_error)?;
         let cursor = windows::inspect_committed_cursor(
@@ -216,6 +222,9 @@ fn committed(generation: &ValidatedGeneration) -> Result<Value, AppError> {
         occurrences = occurrences
             .checked_add(cursor.input_occurrences)
             .ok_or_else(|| AppError::limit("committed input count overflow"))?;
+        committed_windows = committed_windows
+            .checked_add(cursor.completed_windows)
+            .ok_or_else(|| AppError::limit("committed window count overflow"))?;
         match row.role {
             ScopeRole::Required => {
                 required += 1;
@@ -240,7 +249,8 @@ fn committed(generation: &ValidatedGeneration) -> Result<Value, AppError> {
         json!({"rows":state.scope.rows.len(),"required_rows":required,"exhausted_required_rows":required_done,
         "auxiliary_rows":auxiliary,"exhausted_auxiliary_rows":auxiliary_done,"required_complete":required==required_done,
         "all_rows_exhausted":current.is_none(),"current_row":current,"current_window":current_window,
-        "completed_work":state.completed_work,"input_occurrences":occurrences}),
+        "completed_work":state.completed_work,"input_occurrences":occurrences,
+        "committed_windows":committed_windows}),
     )
 }
 

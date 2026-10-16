@@ -36,6 +36,7 @@ pub struct PreparedResidentWork {
     previous: TrustedGeneratedResidentWork,
     delta: Vec<GeneratedWorkKey>,
     delta_heap: usize,
+    original_delta_payload: usize,
 }
 
 impl TrustedGeneratedResidentWork {
@@ -53,12 +54,14 @@ impl TrustedGeneratedResidentWork {
             previous: self,
             delta: Vec::new(),
             delta_heap: 0,
+            original_delta_payload: 0,
         })
     }
 
     /// Hydrate exactly once from every validated page of the captured directory.
     /// `reserved_coexisting_bytes` charges the caller's page cache, decoder,
-    /// directory reservations that may coexist. Updates separately charge
+    /// actual directory payload and explicit transient reservations that may
+    /// coexist, never a directory's permission cap. Updates separately charge
     /// the original native delta's actual vector/key capacities.
     ///
     /// Accounting includes key Vec capacities and a conservative HashSet
@@ -310,6 +313,7 @@ impl TrustedGeneratedResidentWork {
             previous: self,
             delta: staged,
             delta_heap,
+            original_delta_payload: original_delta,
         }))
     }
 
@@ -322,6 +326,33 @@ impl TrustedGeneratedResidentWork {
 }
 
 impl PreparedResidentWork {
+    /// Refresh the adapter's actual coexistence accounting before CURRENT.
+    /// A commit may hold predecessor and successor directory allocations at
+    /// once; only the successor's charge remains after durable adoption.
+    /// Insufficient grant drops the optional index without refusing the commit.
+    pub fn refresh_coexisting_bytes(
+        mut self,
+        during_commit: usize,
+        after_commit: usize,
+    ) -> GeneratedWorkResult<Option<Self>> {
+        if after_commit > during_commit {
+            return Err(corrupt(
+                "resident postcommit reservation exceeds coexistence",
+            ));
+        }
+        if sum(&[
+            during_commit,
+            self.original_delta_payload,
+            self.previous.retained_payload_estimate()?,
+            work_payload_bytes(&self.delta, self.delta.capacity())?,
+        ])? > self.previous.maximum
+        {
+            return Ok(None);
+        }
+        self.previous.reserved = after_commit;
+        Ok(Some(self))
+    }
+
     /// Trusted persistence integration boundary, called only after successful
     /// durable native-sealed or unchanged-Work metadata commit. All reservation was done before
     /// CURRENT; moving the staged keys requires no new allocation or I/O.

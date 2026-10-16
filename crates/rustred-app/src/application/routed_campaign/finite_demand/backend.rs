@@ -16,7 +16,9 @@ use super::{
 };
 use crate::application::routed_campaign::{input::Selection, snapshot_json, walking::finite_scope};
 use crate::{AppError, AppErrorKind, OwnerDomainWalkRequest, RoutedCampaignRequest};
-use rustred::persistence::finite_work::TrustedGeneratedResidentWork;
+use rustred::persistence::finite_work::{
+    GeneratedWorkError, GeneratedWorkErrorKind, PreparedResidentWork, TrustedGeneratedResidentWork,
+};
 use rustred::solver::{
     CandidateEntryAdmission, CandidateRoutedDeltaExportLimits, CandidateRoutedTraceCensusLimits,
     CandidateRoutedWorkBudget, FiniteRootAdmission,
@@ -38,7 +40,7 @@ pub(crate) struct Policy {
     pub export: CandidateRoutedDeltaExportLimits,
     pub storage: StorageLimits,
     /// Optional conservative resident Work payload grant; zero keeps paging.
-    /// Includes reserved decode/directory and actual delta coexistence. The
+    /// Includes reserved decode, actual directory and delta coexistence. The
     /// paged cache is disabled while this complete resident index is active.
     /// This is not a process RSS limit or an allocator-exact byte guarantee.
     pub max_resident_work_bytes: usize,
@@ -215,6 +217,9 @@ impl<const N: usize> Session<N> {
                 "finite CURRENT changed while acquiring writer",
             ));
         }
+        writer
+            .share_captured_current(&previous)
+            .map_err(storage_error)?;
         if admitted.scope.rows.len() > old.rows.len() {
             let mut state = previous.state().clone();
             state.scope = admitted.scope.clone();
@@ -226,7 +231,14 @@ impl<const N: usize> Session<N> {
                 )?);
             }
             // Metadata-only append: old cursor bytes, Work and raw census stay exact.
-            let staged = resident
+            let had_resident = resident.is_some();
+            let predecessor_reserved = resident
+                .as_ref()
+                .map(TrustedGeneratedResidentWork::statistics)
+                .transpose()
+                .map_err(|error| storage_error(error.into()))?
+                .map_or(0, |statistics| statistics.reserved_coexisting_bytes);
+            let mut staged = resident
                 .take()
                 .map(|index| {
                     index
@@ -235,7 +247,19 @@ impl<const N: usize> Session<N> {
                 })
                 .transpose()?;
             writer
-                .commit_generated(Vec::new(), state, cancel)
+                .commit_generated_with_directory_accounting(
+                    Vec::new(),
+                    state,
+                    cancel,
+                    &mut |successor_directory| {
+                        refresh_resident_directory(
+                            &mut staged,
+                            predecessor_reserved,
+                            policy.storage.max_transient_bytes,
+                            successor_directory,
+                        )
+                    },
+                )
                 .map_err(storage_error)?;
             authenticated = admitted.prepared.authenticate_generation(
                 writer.current().map_err(storage_error)?.unwrap().clone(),
@@ -244,6 +268,17 @@ impl<const N: usize> Session<N> {
             )?;
             resident =
                 staged.map(|index| index.after_durable_commit(authenticated.generation().digest()));
+            if had_resident && resident.is_none() {
+                observer(
+                    json!({"event":"finite_backend_resident_fallback","status":"declined",
+                    "requested_bytes":policy.max_resident_work_bytes,
+                    "retained_payload_estimate":0,"new_work":0,
+                    "generation":previous.generation()}),
+                );
+            }
+            #[cfg(test)]
+            observer(json!({"event":"finite_backend_resident_metadata_committed",
+                "resident":resident_statistics(resident.as_ref())}));
         }
         Ok(Self::assemble(
             admitted,
@@ -276,7 +311,7 @@ impl<const N: usize> Session<N> {
                 .map_err(storage_error)?;
             let reserved = [
                 policy.storage.max_transient_bytes,
-                policy.storage.max_directory_bytes,
+                reader.directory().statistics().payload_bytes,
             ]
             .into_iter()
             .try_fold(0usize, |sum, bytes| sum.checked_add(bytes))
@@ -329,6 +364,11 @@ impl<const N: usize> Session<N> {
             .map_err(storage_error)?
             .cloned()
             .ok_or_else(|| AppError::internal_invariant("pending finite generation absent"))
+    }
+    pub(crate) fn total_input_occurrences(&self) -> Integer {
+        self.sources.iter().fold(Integer::from(0), |total, source| {
+            total + source.total_count()
+        })
     }
     pub(crate) fn progress(&self) -> Result<Progress, AppError> {
         let generation = self.generation()?;
@@ -494,7 +534,14 @@ impl<const N: usize> Session<N> {
         // Take ownership before staging: any failure stops this Session and
         // drops the optimization. The current set is never cloned per window.
         let had_resident = self.resident.is_some();
-        let resident = self
+        let predecessor_reserved = self
+            .resident
+            .as_ref()
+            .map(TrustedGeneratedResidentWork::statistics)
+            .transpose()
+            .map_err(|error| storage_error(error.into()))?
+            .map_or(0, |statistics| statistics.reserved_coexisting_bytes);
+        let mut resident = self
             .resident
             .take()
             .map(|resident| {
@@ -504,14 +551,6 @@ impl<const N: usize> Session<N> {
             })
             .transpose()?
             .flatten();
-        if had_resident && resident.is_none() {
-            observer(
-                json!({"event":"finite_backend_resident_fallback","status":"declined",
-                "requested_bytes":self.policy.max_resident_work_bytes,
-                "retained_payload_estimate":0,"new_work":completed.new_work,
-                "generation":previous.generation()}),
-            );
-        }
         #[cfg(test)]
         observer(
             json!({"event":"finite_backend_resident_staged","active":resident.is_some(),
@@ -519,13 +558,21 @@ impl<const N: usize> Session<N> {
         );
         #[cfg(test)]
         let commit_started = std::time::Instant::now();
-        let outcome = self.prepared.commit_delta_with_generated_metadata(
+        let outcome = self.prepared.commit_delta_with_directory_accounting(
             &self.authenticated,
             &mut self.writer,
             delta,
             self.scope.clone(),
             cursors,
             cancel,
+            &mut |successor_directory| {
+                refresh_resident_directory(
+                    &mut resident,
+                    predecessor_reserved,
+                    self.policy.storage.max_transient_bytes,
+                    successor_directory,
+                )
+            },
         )?;
         // No fallible work or observer lies between durable commit and adoption.
         self.cursors[index] = successor;
@@ -534,6 +581,14 @@ impl<const N: usize> Session<N> {
             resident.after_durable_commit(self.authenticated.generation().digest())
         });
         completed.cleanup_warning = outcome.cleanup_warning;
+        if had_resident && self.resident.is_none() {
+            observer(
+                json!({"event":"finite_backend_resident_fallback","status":"declined",
+                "requested_bytes":self.policy.max_resident_work_bytes,
+                "retained_payload_estimate":0,"new_work":completed.new_work,
+                "generation":previous.generation()}),
+            );
+        }
         #[cfg(test)]
         observer(json!({"event":"finite_backend_commit_finished","row":index,
             "seconds":commit_started.elapsed().as_secs_f64(),
@@ -545,6 +600,32 @@ impl<const N: usize> Session<N> {
             progress: self.progress()?,
         })
     }
+}
+
+fn refresh_resident_directory(
+    resident: &mut Option<PreparedResidentWork>,
+    predecessor_reserved: usize,
+    transient_reserved: usize,
+    successor_directory: usize,
+) -> Result<(), storage::StorageError> {
+    let Some(staged) = resident.take() else {
+        return Ok(());
+    };
+    let add_directory = |reserved: usize| {
+        reserved.checked_add(successor_directory).ok_or_else(|| {
+            GeneratedWorkError::new(
+                GeneratedWorkErrorKind::Resource,
+                "resident Work coexistence estimate overflow",
+            )
+        })
+    };
+    // The reader and authenticated predecessor share one Arc allocation. The
+    // writer builds a distinct successor while that predecessor remains live.
+    *resident = staged.refresh_coexisting_bytes(
+        add_directory(predecessor_reserved)?,
+        add_directory(transient_reserved)?,
+    )?;
+    Ok(())
 }
 
 fn resident_statistics(resident: Option<&TrustedGeneratedResidentWork>) -> Value {

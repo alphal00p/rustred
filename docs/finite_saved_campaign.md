@@ -22,8 +22,8 @@ remain recorded and activate when their requested geometry becomes nonempty.
 
 The first run explicitly selects the engine, executable and operational policy:
 
-The example `examples/input/finite_campaign/high_memory.json` selects32 workers
-and a300GB optional resident-Work grant. It is a high-memory incremental-run
+The example `examples/input/finite_campaign/high_memory.json` selects 32 workers
+and a 300 GB optional resident-Work grant. It is a high-memory incremental-run
 profile, not a claim that R6 fits or closes. Use it only with an appropriate
 process-tree RAM ceiling and available host memory. Aggregate resource stops
 are optional: `null` means no requested cap. Buffer sizes remain explicit.
@@ -34,8 +34,17 @@ python -B examples/python/saved_campaign.py run \
   --campaign "$RUSTRED_CAMPAIGN" --engine finite-demand \
   --executable "$RUSTRED_EXECUTABLE" --finite-policy "$RUSTRED_POLICY" \
   --cpus "$RUSTRED_CPUS" --max-memory-bytes "$RUSTRED_RAM_BYTES" \
-  --host-memory-reserve-bytes "$RUSTRED_HOST_RESERVE_BYTES"
+  --memory-policy process-limit
 ```
+
+New finite launches default to `process-limit`. For example,
+`--max-memory-bytes 600000000000` retains a 600 GB process-tree RSS ceiling and,
+with the default 5% guard margin, a 570 GB cooperative-stop threshold. Host
+`MemAvailable` is telemetry and does not reduce that ceiling. This is an allowed
+process limit, not a host memory reservation. To request admission based on
+available host memory instead, explicitly use `--memory-policy host-aware`
+with `--host-memory-reserve-bytes BYTES`; that mode may lower the effective cap.
+The selected memory policy is saved for later runs.
 
 These commands launch work; they are not preparation-only commands. The saved
 engine and policy are reused by later invocations:
@@ -119,6 +128,13 @@ on resume without changing the mathematical scope; the window partition cannot.
 Small benchmark policies must not be reused as production policies without
 reviewing their file, page, directory, disk and per-window allowances.
 
+Directory accounting uses the actual retained directory capacity, plus explicit
+decode headroom. The previous accounting incorrectly added the directory's
+permission cap; setting that cap to `null` could overflow during resident
+initialization. The repaired path counts shared directory storage once and
+includes both the old and new directory while a commit keeps them alive.
+An uncapped allowance does not request an allocation of its maximum value.
+
 The finite policy governs tracing **and** publication, refinement, inspection
 and cold loading; a publication reader no longer silently imposes a smaller
 4096-segment allowance. For aggregate counters and work/IO grants (runs, pages,
@@ -171,6 +187,14 @@ The principal progress bar counts required query rows closed in the **committed
 scope**. Current-window scheduled/expanded nodes are displayed separately and
 do not count as completed starting requests. Empty recorded rows can be closed
 without native reductions. No ETA follows solely from either counter.
+
+The table also shows committed input occurrences over the cached starting-input
+total. Overlapping rank requests count separately; this is not a unique-integral
+count. The total is summed once from admission's cached counts, while completed
+windows and last-window new Work/reuse hits come from checkpoint metadata.
+Heartbeats retain these summaries without rerunning native counts or scanning
+the legacy closure ledger. CPU usage, process RSS, the requested cap and stop
+threshold, and host available/total RAM remain visible; RAM uses decimal GB.
 
 Before the native dashboard starts, the launcher reports startup phases and
 elapsed time on stderr (input checks, executable freezing and scope validation).

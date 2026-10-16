@@ -87,9 +87,8 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
         cpus = SUPERVISOR.parse_cpu_set(resources["cpus"])
         if len(cpus) != resources["workers"] or not cpus <= os.sched_getaffinity(0):
             raise ValueError("exactly workers permitted CPUs required")
-        host = SUPERVISOR.host_memory()
-        hard, soft, floor = SUPERVISOR.memory_admission(resources["max_memory_bytes"], None, host,
-            resources["host_memory_reserve_bytes"], resources["ram_guard_margin_percent"])
+        host = SUPERVISOR.memory_host_snapshot(resources)
+        hard, soft, floor = SUPERVISOR.memory_admission_for_resources(resources, host)
         guard = SUPERVISOR.RamGuard(hard, soft, floor,
             swap_growth_bytes_per_second=resources.get("swap_growth_stop_bytes_per_second",
                 SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_BYTES_PER_SECOND),
@@ -101,7 +100,8 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
         raise
     native_tty = native_tty_progress and os.isatty(2)
     request = dict(command=command, cpus=sorted(cpus), started_unix=time.time(),
-        memory=SUPERVISOR.memory_admission_record(resources["max_memory_bytes"], host, floor, hard, soft),
+        memory=SUPERVISOR.memory_admission_record(resources["max_memory_bytes"], host, floor, hard, soft,
+            resources.get("memory_policy", "host-aware")),
         ram_guard=guard.policy(),
         stop_contract=("native stop-file then bounded owned-group cleanup; native results alone attest checkpoint durability"
                        if cooperative_stop_file is not None else
@@ -144,6 +144,8 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
     for sig in previous:
         signal.signal(sig, lambda number, frame: stop(f"operator_signal_{number}"))
     environment = native_environment()
+    environment["RUSTRED_PROGRESS_MEMORY_LIMIT_BYTES"] = str(hard)
+    environment["RUSTRED_PROGRESS_MEMORY_SOFT_BYTES"] = str(soft)
     started, peak, last_print, cpu_previous, sample_previous = time.monotonic(), 0, 0, {}, None
     result, failure = None, None
     checkpoint = (Path(command[command.index("--checkpoint-dir")+1])
@@ -183,14 +185,15 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
                     table, diagnostics = collector.sample()
                     rss = sum(row["rss_bytes"] for row in table.values())
                     peak = max(peak, rss)
-                    host = SUPERVISOR.host_memory()
+                    host = SUPERVISOR.memory_host_snapshot(resources)
                     decision = guard.observe(now, rss, host["available_bytes"], SUPERVISOR.tree_swap_bytes(table))
                     delta, cpu_previous, processes = SUPERVISOR.process_cpu_sample(table, cpu_previous,
                         None if sample_previous is None else now - sample_previous, os.getpid(), child.pid)
                     busy = None if sample_previous is None else delta / (now - sample_previous)
                     sample_previous = now
                     telemetry.write(json.dumps(dict(elapsed_seconds=now-started, rss_bytes=rss,
-                        observed_cores=busy, host_available_bytes=host["available_bytes"], guard=decision,
+                        observed_cores=busy, host_available_bytes=host.get("host_available_bytes", host["available_bytes"]),
+                        guard=decision,
                         processes=processes, sampling=diagnostics)) + "\n")
                     telemetry.flush()
                     if decision["hard"]:
