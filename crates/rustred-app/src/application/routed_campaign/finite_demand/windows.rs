@@ -16,6 +16,7 @@ use symbolica::domains::integer::Integer;
 #[cfg(test)]
 mod tests;
 mod trusted_restore;
+pub(crate) use trusted_restore::{CommittedCursorStatus, inspect_committed_cursor};
 
 const VERSION: u32 = 1;
 const MAX_RECORD_BYTES: usize = 64 * 1024;

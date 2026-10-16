@@ -245,6 +245,10 @@ impl ValidatedGeneration {
     pub fn digest(&self) -> Digest {
         self.digest
     }
+    /// Exact persisted scope commitment, independent of ordinary window progress.
+    pub fn scope_digest(&self) -> Digest {
+        self.manifest.scope_digest
+    }
     pub fn execution(&self) -> &RawExecutionBinding {
         &self.manifest.execution
     }

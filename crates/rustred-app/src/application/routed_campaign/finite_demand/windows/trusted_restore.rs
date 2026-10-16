@@ -6,6 +6,49 @@ use crate::application::routed_campaign::finite_demand::storage::{
     ScopeRow, ValidatedCursorRecord,
 };
 
+/// Cheap metadata about CURRENT's trusted-generated committed scope. This is
+/// not a source-count proof, restored cursor or publication capability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CommittedCursorStatus {
+    pub exhausted: bool,
+    pub completed_windows: u64,
+    pub input_occurrences: u64,
+}
+
+pub(crate) fn inspect_committed_cursor(
+    token: &ValidatedCursorRecord<'_>,
+    physical_arity: usize,
+) -> Result<CommittedCursorStatus> {
+    let record: CursorRecord = decode(token.encoded_cursor())?;
+    if physical_arity == 0
+        || record.version != VERSION
+        || record.binding != token.source_policy()
+        || record.windows != token.completed_windows()
+        || record.emitted != Integer::from(token.input_occurrences())
+        || record.frames.len() != record.prefix.len()
+        || record.prefix.len() > physical_arity
+        || (record.finished && !record.prefix.is_empty())
+    {
+        return Err(invalid("committed cursor status binding/count/shape"));
+    }
+    for (coordinate, frame) in record.prefix.iter().zip(&record.frames) {
+        if frame.lower > frame.current
+            || frame.current > frame.upper
+            || *coordinate != frame.current
+            || frame.parent_count <= 0
+            || frame.completed_children < 0
+            || frame.completed_children > frame.parent_count
+        {
+            return Err(invalid("committed cursor status frame shape"));
+        }
+    }
+    Ok(CommittedCursorStatus {
+        exhausted: record.finished,
+        completed_windows: token.completed_windows(),
+        input_occurrences: token.input_occurrences(),
+    })
+}
+
 impl<const N: usize> PrefixWindows<N> {
     /// Read-only portable completed-cursor check. This returns no cursor,
     /// resume token or reduction capability; it only cross-checks committed

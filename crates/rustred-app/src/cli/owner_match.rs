@@ -300,6 +300,62 @@ pub(crate) fn walk_request_from_argv(
     OwnerDomainMatchRequest::validate_query_allowances(args.max_queries, args.max_query_bytes)
         .map_err(str::to_owned)?;
     preflight_checkpoint_paths(&args).map_err(|e| e.to_string())?;
+    source_request(&args)
+}
+
+/// New finite lifecycle input-only carrier. Resolve only source inputs at the
+/// command file's parent; never inspect/open/run its legacy checkpoint, output,
+/// events or stop paths. The ordinary walk parser above is unchanged.
+pub(super) fn finite_source_request_from_argv(
+    argv: Vec<std::ffi::OsString>,
+    base: &std::path::Path,
+) -> Result<
+    (
+        OwnerDomainWalkRequest,
+        Vec<std::path::PathBuf>,
+        Vec<std::path::PathBuf>,
+    ),
+    String,
+> {
+    let super::args::Command::OwnerDomainMatch(mut args) =
+        super::args::parse_args(argv).map_err(|e| e.to_string())?
+    else {
+        return Err("not an owner-domain-match source carrier".into());
+    };
+    if !args.follow_successors {
+        return Err("finite source carrier needs --follow-successors".into());
+    }
+    OwnerDomainMatchRequest::validate_query_allowances(args.max_queries, args.max_query_bytes)
+        .map_err(str::to_owned)?;
+    let resolve = |path: &std::path::Path| {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            base.join(path)
+        }
+    };
+    args.manifest = resolve(&args.manifest);
+    args.queries = resolve(&args.queries);
+    args.owner_base = resolve(&args.owner_base);
+    for path in &mut args.amend_queries {
+        *path = resolve(path);
+    }
+    // Protection is lexical here: these inert paths must not be opened merely
+    // because an old source command mentions them.
+    let mut protected = vec![
+        args.manifest.clone(),
+        args.queries.clone(),
+        args.owner_base.clone(),
+    ];
+    let mut inert = vec![resolve(&args.output)];
+    inert.extend(args.events.iter().map(|p| resolve(p)));
+    inert.extend(args.stop_file.iter().map(|p| resolve(p)));
+    inert.extend(args.checkpoint.iter().map(|c| resolve(&c.directory)));
+    protected.extend(args.amend_queries.iter().cloned());
+    Ok((source_request(&args)?, protected, inert))
+}
+
+fn source_request(args: &OwnerDomainMatchArgs) -> Result<OwnerDomainWalkRequest, String> {
     let request = match_request(&args).map_err(|e| e.to_string())?;
     let mut walk = walk_request(request, &args);
     walk.amendments = read_amendments(&args).map_err(|e| e.to_string())?;

@@ -152,6 +152,7 @@ pub(crate) enum ColorPolicy {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Command {
+    FiniteDemand(super::finite_demand::FiniteArgs),
     EntryDomainPlan(EntryDomainPlanArgs),
     OwnerGuardedApply(OwnerGuardedApplyArgs),
     OwnerDomainMatch(OwnerDomainMatchArgs),
@@ -266,6 +267,7 @@ pub(crate) fn parse_args(
     };
     let command = command.into_string().map_err(ArgError::NonUtf8Option)?;
     match command.as_str() {
+        "finite-demand" => super::finite_demand::parse(arguments),
         "--help" | "-h" | "help" => {
             reject_trailing(arguments)?;
             Ok(Command::Help)
@@ -394,6 +396,9 @@ USAGE:
     rustred walk-verify-closure --command WALK_ARGV.json [--checkpoint DIR] [--result RESULT.json | --no-result] [--output REPORT.json] [--threads N] [--reinspect all|none|sample:N[:SEED]] [--brute-force-max-points N] [--brute-force-point-budget N] [--require-closure] [--reference-levers off|as-run] [--union-sample COUNT[:SEED]] [--mutate KIND] [--certification-scope auto|all-roots|physics-queries] [--max-violations N] [--force]
     rustred walk-rescue-plan --command WALK_ARGV.json [--checkpoint DIR] [--helper-id-prefix TEXT] [--rescue-helpers QUERIES.json] [--max-repeats N] [--rescue-scope class|tainted] [--amendment-output AMENDMENT.json] [--output PLAN.json] [--force]
     rustred walk-inventory (--campaign-directory DIR | --command WALK_ARGV.json) [--checkpoint DIR] [--threads N] [--deep-verification] [--normalize-terminals] [--rules-start N] [--terminals-start N] [--normalized-terminals-start N] [--page-size N] [--output REPORT.json] [--force]
+    rustred finite-demand run --directory NEW_FINITE_NAMESPACE --source-command ARGV.json --policy POLICY.json --output RESULT.json [--resume] [--repair-preparation] [--events EVENTS.jsonl] [--stop-file STOP] [--no-progress]
+    rustred finite-demand inspect --directory FINITE_NAMESPACE [--format auto|table|json]
+    rustred walk-publish --command ARGV.json --finite-directory FINITE_NAMESPACE --finite-policy POLICY.json --directory PUBLICATION [--previous-artifact PREVIOUS] [--threads N] [--events PATH] [--stop-file PATH]
     rustred walk-master-reduce --command WALK_ARGV.json --checkpoint DIR --directory DIR [--resume | --previous-artifact DIR] [--seed-depth N] [--threads N] [--events PATH] [--stop-file PATH] [--checkpoint-interval-seconds N]
     rustred master-inspect --artifact DIR [--format auto|table|json]
     rustred artifact-inspect (--campaign-directory DIR | --artifact DIR) [--format auto|table|json] [--threads N]

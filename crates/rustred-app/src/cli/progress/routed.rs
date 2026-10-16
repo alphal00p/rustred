@@ -115,6 +115,8 @@ impl RoutedProgress {
             event["event"].as_str(),
             Some(
                 "checkpoint_started"
+                    | "finite_checkpoint_saved"
+                    | "finite_checkpoint_restored"
                     | "checkpoint_saved"
                     | "checkpoint_restored"
                     | "checkpoint_skipped_unchanged"

@@ -1,5 +1,6 @@
 //! Private exact-window -> native seal -> atomic generated cursor lifecycle.
-//! No public campaign frontend, CP6 adoption or publication/export authority.
+//! Private engine used by the public lifecycle and gated publication adapter;
+//! this module alone grants neither CP6 adoption nor publication/export authority.
 #[cfg(test)]
 pub(crate) mod diagnostic;
 mod errors;
@@ -524,7 +525,7 @@ fn admit<const N: usize>(
         effective_reduction: load.reduction_limits,
     })
 }
-fn origin_identity(
+pub(super) fn origin_identity(
     source: usize,
     source_digest: &str,
     ordinal: usize,
@@ -591,7 +592,7 @@ fn check(cancel: &AtomicBool) -> Result<(), AppError> {
         Ok(())
     }
 }
-fn window_error(error: super::windows::Error) -> AppError {
+pub(super) fn window_error(error: super::windows::Error) -> AppError {
     use super::windows::ErrorKind as K;
     AppError::new(
         match error.kind {
@@ -604,7 +605,7 @@ fn window_error(error: super::windows::Error) -> AppError {
         error.to_string(),
     )
 }
-fn storage_error(error: storage::StorageError) -> AppError {
+pub(super) fn storage_error(error: storage::StorageError) -> AppError {
     use storage::ErrorKind as K;
     AppError::new(
         match error.kind {
