@@ -345,6 +345,7 @@ class FiniteCampaignTests(unittest.TestCase):
         def native_guard(command, directory, resources, **options):
             self.assertEqual(command, plan["native_command"])
             self.assertEqual(options["cooperative_stop_file"], run / "stop-request.json")
+            self.assertIs(options["native_tty_progress"], True)
             directory.mkdir()
             FIN.write_json(directory / "result.json", {"owned_group_drained": True,
                 "stop_reason": None, "exit_code": 0})

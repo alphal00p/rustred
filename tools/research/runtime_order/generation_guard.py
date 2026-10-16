@@ -46,7 +46,7 @@ def group_running(group):
 
 
 def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
-        cooperative_stop_file=None):
+        cooperative_stop_file=None, native_tty_progress=False):
     """Own process-group drain and finite RSS/host guards, without CAS.
 
     Default generation children receive SIGTERM. A caller supervising a native
@@ -54,6 +54,12 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
     immediate parent. Such walks poll the file but do not handle SIGTERM: give
     them the full grace before owned-group SIGKILL. No checkpoint success is
     inferred from requesting a stop. The read-only cold verifier has no stop-file.
+
+    Opted-in terminal callers let the native CLI render directly to inherited
+    stderr. Its structured events remain in the caller's native events file;
+    this guard's stderr file is empty in that mode. Resource telemetry and all
+    stop/drain guards remain active. Non-TTY and default callers capture stderr
+    and retain the periodic guard summary.
     """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=False)
@@ -82,13 +88,16 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
         (directory / "result.json").write_text(json.dumps(dict(exit_code=None, child_started=False,
             owned_group_drained=True, stop_reason=f"resource_admission_failed: {error}"), indent=2) + "\n")
         raise
+    native_tty = native_tty_progress and os.isatty(2)
     request = dict(command=command, cpus=sorted(cpus), started_unix=time.time(),
         memory=SUPERVISOR.memory_admission_record(resources["max_memory_bytes"], host, floor, hard, soft),
         ram_guard=guard.policy(),
         stop_contract=("native stop-file then bounded owned-group cleanup; native results alone attest checkpoint durability"
                        if cooperative_stop_file is not None else
                        "SIGTERM then owned-group drain; only completed sector shards are resumable"),
-        hard_timeout=None, environment_recorded=False)
+        hard_timeout=None, environment_recorded=False,
+        native_tty_progress_requested=bool(native_tty_progress),
+        native_stderr="inherited_tty" if native_tty else "captured_file")
     (directory / "request.json").write_text(json.dumps(request, indent=2) + "\n")
     reason, stopping, child = None, None, None
 
@@ -132,7 +141,7 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
         with (directory / "stdout").open("xb") as stdout, (directory / "stderr").open("xb") as stderr, \
                 (directory / "resources.jsonl").open("x") as telemetry:
             child = subprocess.Popen(command, cwd=ROOT, env=environment, stdin=subprocess.DEVNULL,
-                stdout=stdout, stderr=stderr, start_new_session=True,
+                stdout=stdout, stderr=None if native_tty else stderr, start_new_session=True,
                 preexec_fn=lambda: os.sched_setaffinity(0, cpus))
             (directory / "child.json").write_text(json.dumps(dict(pid=child.pid, process_group=child.pid)) + "\n")
             try:
@@ -162,7 +171,7 @@ def run(command, directory, resources, *, poll_seconds=2.0, grace_seconds=10.0,
                         send(signal.SIGKILL)
                     elif decision["cooperative"]:
                         stop(decision["cooperative"])
-                    if now - last_print >= 30:
+                    if not native_tty and now - last_print >= 30:
                         colour = "\033[36m" if os.isatty(1) else ""
                         reset = "\033[0m" if colour else ""
                         cores = "sampling" if busy is None else f"{busy:.2f}/{resources['workers']} cores"

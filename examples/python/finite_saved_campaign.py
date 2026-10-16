@@ -418,7 +418,8 @@ def execute(path):
     run = Path(plan["run_directory"])
     try:
         guard.run(plan["native_command"], run / "guard", plan["supervisor_ram_policy"],
-            grace_seconds=plan["stop_grace_seconds"], cooperative_stop_file=run / "stop-request.json")
+            grace_seconds=plan["stop_grace_seconds"], cooperative_stop_file=run / "stop-request.json",
+            native_tty_progress=True)
     except RuntimeError:
         pass
     receipt = read(run / "guard/result.json")
