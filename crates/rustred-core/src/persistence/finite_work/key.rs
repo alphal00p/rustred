@@ -2,7 +2,7 @@ use super::*;
 
 /// Exactly the native Work order: phase, literal Apply owner, integral powers.
 /// It is a plain wire key, not a closed-work certificate or terminal identity.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, bincode::Encode, bincode::Decode)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, bincode::Encode, bincode::Decode)]
 pub enum GeneratedWorkKey {
     Route(Vec<i64>),
     Apply { owner: Vec<bool>, powers: Vec<i64> },

@@ -14,6 +14,17 @@ ladder investigation is deferred until the user resumes work.
 
 ### Current delivery state
 
+Root prepared the user's future **inputs-only** namespace
+`campaigns/five-loop-finite-r0-d10-20261016` with the existing rank-preparation
+script, using the incremental campaign's authenticated original templates,
+R=0 and D≤10. Its query and selection files are byte-identical to the original
+R0 inputs:116 required rows /67 owners, with all original rank-source
+attachments retained. No checkpoint was copied, no rules regenerated and no
+native campaign launched. Final launch commands target this new folder; the
+successful public workflow used a separate disposable TMP folder. The merged
+main-tree launch command also passed its dry run without creating run/checkpoint
+state in this future production folder.
+
 The corrected source is clean at `138718ef` in
 `TMP/finite-demand-singleton-status-20261016`. It contains the resident index,
 public run/resume/append/publication workflow, artifact inspection, cumulative
@@ -22,14 +33,35 @@ native lifecycle/cursor tests now pass (app-only opt0, optimized core), and the
 TTY change passed27 Python tests including a real PTY. Independent audits
 passed. These correctness tests are not production timing results.
 
-Final normal check86070 passed68.205s at
-`TMP/public-finite-final-check-20261016`. Build43778 is running at
-`TMP/public-finite-final-build-20261016`; the same worktree and build target
-produce the final optimized app-test and CLI binaries. No more feature
-work is planned. Remaining release gates: the actual optimized354-test gate,
-the full116-row R0 public interruption/repair/publication/relocation workflow,
-and the small unchanged four-parent K10 paged/resident controls. The previously
-held private R1 performance gate is now complete, not awaiting another run.
+Final normal check86070 passed68.205s. Optimized build43778 completed1563.937s;
+the actual final native gate passed354 executions /351 distinct tests in68.695s.
+The W32 public workflow91193 passed all nine steps in521.492s with7.775GB peak:
+clean preparation interruption, repair, full116-row R0 completion/publication,
+inspection, no-op resume, rank-one preview and relocated cold reopen. It used
+the exact delivered high-memory policy under a32GB process guard, showing that
+its300GB resident ceiling does not trigger ceiling-sized allocation.
+
+K10 regression26956 passed all24 processes in151.731s /2.000GB peak. H/FG/BMW/X
+have exact paged/resident/cold equality of Work pages, raw census, cursors and
+generation identity. These small literal-parent controls are not unrestricted
+four-loop closure or new numerical acceptance tests. All runtime gates and
+their interpretations have independent PASS receipts. No further workloads or
+feature development are planned before the user-requested pause.
+
+The final CLI is frozen at
+`TMP/releases/20261016-finite-demand/rustred`, SHA256
+`f23fd31a1e6674ee53601476b9494da60578c9bea5665dcdc462628b80e938ea`.
+Root integrated the tested source using a controlled merge after a read-only
+merge simulation; all65 staged source files exactly match tested138718ef,
+with main-only documentation and unrelated dirty/untracked work preserved.
+The final commit/push includes the generic runbook and exact tested input
+policy, never artifacts, campaign outputs, caches, references or licenses.
+Commands and detailed qualification:
+`docs/research/finite_campaign_delivery_2026-10-16.md`.
+
+Next action after handoff: **pause the assigned goal at the user's request**.
+The full R6/D10 closure, physical ladder admission and five-loop Vakint acceptance
+remain open; this is a usable delivery checkpoint, not completion of that goal.
 
 ### Complete durable R1 performance evidence
 

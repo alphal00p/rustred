@@ -18,6 +18,7 @@ import sys
 def sibling(name):
     spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(name + ".py"))
     value = importlib.util.module_from_spec(spec)
+    sys.modules[name] = value
     spec.loader.exec_module(value)
     return value
 
@@ -51,6 +52,14 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="action", required=True)
     for action in ("run", "extend", "inspect", "refine", "finalize-refinement", "publish"):
         sub = commands.add_parser(action, allow_abbrev=False)
+        if action != "inspect":
+            sub.epilog = ("Finite engine: first run --engine finite-demand --finite-policy POLICY.json "
+                          "--cpus CPUSET --max-memory-bytes BYTES --host-memory-reserve-bytes BYTES. "
+                          "Subsequent finite commands retain these settings; explicit policy/RAM overrides "
+                          "are operational, while window partition settings are immutable. "
+                          "Inputs must already be staged; no legacy checkpoint import. "
+                          "An interrupted initial preparation can be retried explicitly with "
+                          "run --repair-preparation; native refuses existing checkpoint state.")
         sub.add_argument("--campaign", type=Path, required=True)
         sub.add_argument("--executable", type=Path, help="publisher/refiner/inspector binary (default current optimized build)")
         if action != "inspect":
@@ -59,6 +68,8 @@ def main(argv=None):
             sub.add_argument("--deep-verification", action=argparse.BooleanOptionalAction, default=None,
                              help="independently replay the saved dependency graph before publication (default saved preference or off)")
         if action == "run":
+            sub.add_argument("--engine", choices=("legacy", "finite-demand"),
+                             help="checkpoint engine for a fresh campaign (saved engine retained on resume)")
             sub.add_argument("--resume", action="store_true", help="resume; also selected automatically if a checkpoint exists")
         if action == "extend":
             sub.add_argument("--rank", type=int, required=True, help="new cumulative input numerator-rank ceiling")
@@ -84,10 +95,16 @@ def main(argv=None):
         if action == "inspect":
             sub.add_argument("--format", choices=("auto", "table", "json"), default="auto")
     args, extra = parser.parse_known_args(argv)
-    if args.action not in ("run",) and extra:
-        parser.error("unrecognized arguments: " + " ".join(extra))
     campaign = args.campaign.resolve()
     try:
+        # Engine dispatch precedes all legacy checkpoint access. This regular
+        # sibling import also avoids coupling unrelated helper-test adapters.
+        finite = importlib.import_module("finite_saved_campaign")
+        selected = finite.engine(campaign, getattr(args, "engine", None))
+        if selected == finite.ENGINE:
+            return finite.public_main(args, extra)
+        if args.action not in ("run",) and extra:
+            parser.error("unrecognized arguments: " + " ".join(extra))
         executable = native_executable(campaign, args.executable)
         if args.action == "inspect":
             command = [str(executable), "artifact-inspect", "--campaign-directory", str(campaign), "--format", args.format]

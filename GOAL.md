@@ -1,5 +1,23 @@
 # RustRed project goal
 
+## October 16 — delivery checkpoint, then user-requested pause
+
+Deliver the tested opt-in finite-demand backend, prepared fresh R0/D≤10 inputs,
+frozen optimized CLI and exact run/resume/extend/inspect/refine commands. After
+the clean commit/push and handoff, pause the tool-managed goal as requested by
+the user. This is **not completion** of the full five-loop R6/D10/Vakint goal.
+
+The resident backend has completed the full recorded R0+R1 union with exact
+census equality and cold reopen. The final public workflow passed at32 workers,
+and the four existing K10 parent controls passed paged/resident/cold parity.
+Higher-rank capacity and closure are not inferred from those tests. The new
+campaign reuses saved rules and original templates, but starts a fresh Work
+checkpoint; existing production campaigns remain untouched.
+
+See `docs/research/finite_campaign_delivery_2026-10-16.md` for delivery evidence
+and commands. Resume subsequent R6 closure, physical-numerator admission,
+five-loop Vakint acceptance and cache work only when the user resumes this goal.
+
 ## October 15 — active: scoped D10/R6 closure and five-loop Vakint delivery
 
 Authoritative assigned goal: `FIVE_LOOP_CLOSURE_DELIVERY_PLAN.md`, reproduced

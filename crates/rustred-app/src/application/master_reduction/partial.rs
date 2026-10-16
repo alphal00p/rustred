@@ -62,7 +62,7 @@ pub fn master_publish_partial_refinement(
     let started = Instant::now();
     let (mut report, mut session) = if options.resume {
         let report = read_json(&latest)?;
-        if report["schema"] != SCHEMA
+        if (report["schema"] != SCHEMA && report["schema"] != FINITE_SCHEMA)
             || report["operation"] != "publish"
             || report["partial_refinement_binding"] != binding
         {
@@ -92,13 +92,18 @@ pub fn master_publish_partial_refinement(
         let mut report = source_report.clone();
         inherited::capture(&session, &source_report, &mut report)?;
         storage::clone_inputs(&source_directory, &options.directory, &source_report)?;
-        census_cache::inherit(&source_directory, &options.directory, &mut report)?;
+        census_cache::inherit_with_cancel(
+            &source_directory,
+            &options.directory,
+            &mut report,
+            cancellation,
+        )?;
         collection::inherit(source, &options.directory, &mut report)?;
         let fields = report.as_object_mut().unwrap();
         for field in ["artifact", "last_error", "refinement_binding"] {
             fields.remove(field);
         }
-        report["schema"] = json!(SCHEMA);
+        report["schema"] = json!(current_schema(&report)?);
         report["operation"] = json!("publish");
         report["checkpoint"] = json!({"generation":0});
         report["native_state"] = Value::Null;

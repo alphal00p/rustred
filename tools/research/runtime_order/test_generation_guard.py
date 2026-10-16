@@ -1,13 +1,16 @@
 """Owned stop-file behavior with short real children, never a native campaign."""
 import importlib.util
+from contextlib import redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
 import signal
+import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 SPEC = importlib.util.spec_from_file_location("tested_generation_guard", Path(__file__).with_name("generation_guard.py"))
 GUARD = importlib.util.module_from_spec(SPEC)
@@ -112,6 +115,60 @@ class NativeStopFileTests(unittest.TestCase):
         result = json.loads((self.folder / "guard/result.json").read_text())
         self.assertFalse(result["child_started"])
         self.assertFalse((GUARD.ROOT / "campaigns/never-write-this-stop").exists())
+
+    def test_terminal_passthrough_requires_opt_in_and_preserves_non_tty_logging(self):
+        for requested, terminal, inherited in [(False, True, False), (True, False, False), (True, True, True)]:
+            with self.subTest(requested=requested, terminal=terminal):
+                directory = self.folder / f"mode-{requested}-{terminal}"
+                child = Mock(pid=999999999)
+                child.poll.side_effect = [None, 0, 0]
+                child.wait.return_value = 0
+                output = io.StringIO()
+                with patch.object(GUARD.SUPERVISOR, "RamGuard", ObserveGuard), \
+                     patch.object(GUARD.subprocess, "Popen", return_value=child) as popen, \
+                     patch.object(GUARD, "group_running", return_value=False), \
+                     patch.object(GUARD.os, "isatty", return_value=terminal), \
+                     redirect_stdout(output):
+                    options = {"native_tty_progress":True} if requested else {}
+                    result = GUARD.run(["mock-native"], directory, self.resources,
+                        poll_seconds=0, **options)
+                self.assertEqual(popen.call_args.kwargs["stderr"] is None, inherited)
+                self.assertEqual("Generation/admission" in output.getvalue(), not inherited)
+                request = json.loads((directory / "request.json").read_text())
+                self.assertEqual(request["native_stderr"], "inherited_tty" if inherited else "captured_file")
+                self.assertTrue(result["owned_group_drained"])
+                self.assertTrue((directory / "resources.jsonl").read_text())
+                self.assertTrue((directory / "stderr").is_file())
+
+    @unittest.skipUnless(os.name == "posix", "PTY requires POSIX")
+    def test_opted_in_child_sees_real_tty_without_guard_output_competing(self):
+        import pty
+        master, slave = pty.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        directory = self.folder / "pty-guard"
+        # A tiny Python child stands in for the CLI: no Rust build or campaign.
+        # The outer process gets a real stderr PTY, so both isatty decisions
+        # exercise actual descriptors rather than a mocked terminal predicate.
+        runner = """import importlib.util,json,sys
+from unittest.mock import patch
+spec=importlib.util.spec_from_file_location('test_guard',sys.argv[1])
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+code=\"import os,sys,time;print('NATIVE_TTY='+str(os.isatty(2)),file=sys.stderr,flush=True);time.sleep(.1)\"
+with patch.object(m.GUARD.SUPERVISOR,'RamGuard',m.ObserveGuard):
+ m.GUARD.run([sys.executable,'-B','-c',code],sys.argv[2],json.loads(sys.argv[3]),poll_seconds=.02,native_tty_progress=True)
+"""
+        completed = subprocess.run([sys.executable, "-B", "-c", runner, __file__, str(directory),
+            json.dumps(self.resources)], stdout=subprocess.PIPE, stderr=slave, timeout=15)
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout, b"")
+        os.set_blocking(master, False)
+        displayed = os.read(master, 65536)
+        self.assertIn(b"NATIVE_TTY=True", displayed)
+        self.assertNotIn(b"Generation/admission", displayed)
+        self.assertEqual((directory / "stderr").read_bytes(), b"")
+        self.assertTrue((directory / "resources.jsonl").read_text())
+        self.assertTrue(json.loads((directory / "result.json").read_text())["owned_group_drained"])
 
 
 if __name__ == "__main__":

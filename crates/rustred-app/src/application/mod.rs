@@ -39,6 +39,10 @@ mod options;
 mod producer;
 mod resource_policy;
 mod routed_campaign;
+pub use routed_campaign::finite_demand::lifecycle::{
+    FiniteDemandMode, FiniteDemandPolicy, FiniteDemandRunRequest, FiniteDemandRunResult,
+    inspect_finite_demand, publish_finite_demand_with_progress, run_finite_demand_with_progress,
+};
 mod saved_application;
 pub use routed_campaign::{
     OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,

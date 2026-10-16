@@ -7,6 +7,7 @@ mod io;
 mod owner_domains;
 mod owner_guarded;
 mod owner_match;
+mod finite_demand;
 #[cfg(test)]
 pub(crate) use owner_match::walk_request_from_argv;
 mod artifact_inspect;
@@ -63,6 +64,7 @@ pub(crate) fn main_entry() -> i32 {
 
 fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
     match parse_args(arguments)? {
+        Command::FiniteDemand(arguments) => finite_demand::run(arguments),
         Command::EntryDomainPlan(arguments) => entry_domain::run(arguments),
         Command::OwnerGuardedApply(arguments) => owner_guarded::run(arguments),
         Command::OwnerDomainMatch(arguments) => owner_match::run(arguments),

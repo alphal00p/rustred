@@ -1,8 +1,10 @@
 //! Integer-only storage for explicitly trusted-generated finite checkpoints.
 //! Integrity/shape validation is NOT independent closure or IBP verification.
 //! This layer does not yet mint a native completed-baseline capability.
+mod provenance;
 mod raw;
 mod reader;
+pub(crate) use provenance::RawProvenance;
 pub(crate) use raw::{RawCensusDirectory, RawCensusLimits, RawCensusSummary, RawKeyKind};
 #[cfg(test)]
 mod tests;
@@ -65,6 +67,8 @@ pub(crate) struct StorageLimits {
     pub max_page_records: usize,
     pub max_page_bytes: usize,
     pub max_cached_pages: usize,
+    /// Resident decoded-page payload plus reserved index/slot capacity payload.
+    /// This is not process RSS (allocator/hash control slack is excluded).
     pub max_cached_page_bytes: usize,
     pub max_directory_bytes: usize,
     pub max_manifest_bytes: usize,
@@ -240,6 +244,10 @@ impl ValidatedGeneration {
     }
     pub fn digest(&self) -> Digest {
         self.digest
+    }
+    /// Exact persisted scope commitment, independent of ordinary window progress.
+    pub fn scope_digest(&self) -> Digest {
+        self.manifest.scope_digest
     }
     pub fn execution(&self) -> &RawExecutionBinding {
         &self.manifest.execution

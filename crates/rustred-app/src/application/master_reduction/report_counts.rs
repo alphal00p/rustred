@@ -7,6 +7,11 @@ pub(super) fn copy_from_inventory(source: &Value, output: &mut Value) {
     output["published_rule_records"] = json!(source["inventory"]["installed"]["rules"].as_u64());
     output["published_rule_records_scope"] = json!(RULE_SCOPE);
     output["observed_cover_rules"] = json!(source["inventory"]["encountered"]["rules"].as_u64());
+    if source["schema"] == super::FINITE_SCHEMA {
+        output["observed_cover_rules_scope"] = json!(
+            "distinct concrete selected owner/batch/rule ordinals; not symbolic cover classifications or newly generated IBPs"
+        );
+    }
 }
 
 pub(super) fn update(report: &mut Value) {
@@ -15,6 +20,11 @@ pub(super) fn update(report: &mut Value) {
     report["published_rule_records"] = json!(rules);
     report["published_rule_records_scope"] = json!(RULE_SCOPE);
     report["observed_cover_rules"] = json!(observed);
+    if report["schema"] == super::FINITE_SCHEMA {
+        report["observed_cover_rules_scope"] = json!(
+            "distinct concrete selected owner/batch/rule ordinals; composite baseline/selected identities and once-per-Work multiplicities remain in required provenance"
+        );
+    }
 }
 
 #[cfg(test)]

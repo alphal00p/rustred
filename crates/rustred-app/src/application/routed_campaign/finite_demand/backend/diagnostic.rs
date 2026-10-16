@@ -1,4 +1,5 @@
 //! Test-only durable driver. No public frontend or publication authority.
+use super::super::lifecycle::policy::{ExportLimits, RawLimits, StoreLimits};
 use super::super::trace::{CensusLimits, SeedLimits, WorkLimits};
 use super::*;
 use serde::{Deserialize, Serialize};
@@ -11,36 +12,6 @@ use std::{
     sync::Arc,
     time::Instant,
 };
-
-macro_rules! limits_dto {
-    ($name:ident => $native:ty { $($field:ident : $ty:ty),* $(,)? }) => {
-        #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-        #[serde(deny_unknown_fields)]
-        struct $name { $( $field: $ty, )* }
-        impl From<$name> for $native {
-            fn from(v: $name) -> Self { Self { $( $field: v.$field.into(), )* } }
-        }
-    };
-}
-limits_dto!(RawLimits => storage::RawCensusLimits {
-    max_page_records: usize, max_page_bytes: usize, max_runs: usize,
-    max_pages: usize, max_directory_bytes: usize, max_stored_references: u64,
-    max_merge_runs: usize, max_merge_cached_pages: usize,
-    max_merge_payload_bytes: usize, max_merge_read_bytes: u64,
-    max_decode_transient_bytes: usize,
-});
-limits_dto!(StoreLimits => StorageLimits {
-    raw: RawLimits, max_arity: usize, max_delta_records: usize,
-    max_delta_payload_bytes: usize, max_page_records: usize, max_page_bytes: usize,
-    max_cached_pages: usize, max_cached_page_bytes: usize,
-    max_directory_bytes: usize, max_manifest_bytes: usize, max_state_bytes: usize,
-    max_scope_rows: usize, max_census_records: usize, max_runs: usize,
-    max_pages: usize, max_physical_files: usize, max_disk_bytes: u64,
-    max_lookup_pages: usize, max_lookup_bytes: u64, max_transient_bytes: usize,
-});
-limits_dto!(ExportLimits => CandidateRoutedDeltaExportLimits {
-    max_records: usize, max_live_payload_bytes: usize,
-});
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -63,6 +34,8 @@ struct Steering {
     census: CensusLimits,
     export: ExportLimits,
     storage: StoreLimits,
+    #[serde(default)]
+    max_resident_work_bytes: usize,
     max_total_rows: usize,
     max_source_bytes: usize,
     /// All census JSONL and result.json bytes; receipt has a separate 1 MiB cap.
@@ -78,6 +51,7 @@ impl Steering {
             census: self.census.into(),
             export: self.export.into(),
             storage: self.storage.into(),
+            max_resident_work_bytes: self.max_resident_work_bytes,
             max_total_rows: self.max_total_rows,
             max_source_bytes: self.max_source_bytes,
         }
@@ -90,6 +64,7 @@ pub(super) fn reader_statistics(reader: &storage::WorkReader) -> Value {
             "page_cache_hits":s.page_cache_hits,"evictions":s.evictions,
             "uncached_large_pages":s.uncached_large_pages,"retained_pages":s.retained_pages,
             "retained_page_payload_bytes":s.retained_page_payload_bytes,
+            "retained_cache_metadata_bytes":s.retained_cache_metadata_bytes,
             "convenience_lookup_calls":s.lookups,
             "native_directory_lookup_count":null}),
         Err(e) => json!({"statistics_error":e.to_string()}),

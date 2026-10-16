@@ -1,0 +1,71 @@
+{
+  "workers": 32,
+  "windows": {
+    "max_seed_points": 512,
+    "max_seed_bytes": 1048576,
+    "max_positive_layers": 64,
+    "max_partition_checks": 10000
+  },
+  "per_batch_work": {
+    "max_nodes": 18446744073709551615,
+    "max_rule_applications": 18446744073709551615,
+    "max_transport_calls": 18446744073709551615,
+    "max_transport_operations": 18446744073709551615,
+    "max_transport_endpoints": 18446744073709551615,
+    "max_coalescing_additions": 18446744073709551615
+  },
+  "prepared_reduction_aggregates": {
+    "max_rule_applications": 18446744073709551615,
+    "max_pending_frames": 18446744073709551615,
+    "max_coalescing_additions": 18446744073709551615
+  },
+  "max_resident_work_bytes": 300000000000,
+  "census": {
+    "max_unique_selections": 1000000,
+    "max_identity_payload_bytes": 536870912
+  },
+  "export": {
+    "max_records": 200000000,
+    "max_live_payload_bytes": 107374182400
+  },
+  "storage": {
+    "raw": {
+      "max_page_records": 2048,
+      "max_page_bytes": 524288,
+      "max_runs": 2048,
+      "max_pages": 1000000,
+      "max_directory_bytes": 268435456,
+      "max_stored_references": 1000000000,
+      "max_merge_runs": 4096,
+      "max_merge_cached_pages": 1024,
+      "max_merge_payload_bytes": 268435456,
+      "max_merge_read_bytes": 137438953472,
+      "max_decode_transient_bytes": 67633152
+    },
+    "max_arity": 16,
+    "max_delta_records": 200000000,
+    "max_delta_payload_bytes": 107374182400,
+    "max_page_records": 2048,
+    "max_page_bytes": 524288,
+    "max_cached_pages": 8192,
+    "max_cached_page_bytes": 2147483648,
+    "max_directory_bytes": 268435456,
+    "max_manifest_bytes": 67108864,
+    "max_state_bytes": 67108864,
+    "max_scope_rows": 16384,
+    "max_census_records": 1000000,
+    "max_runs": 4096,
+    "max_pages": 1000000,
+    "max_physical_files": 2100000,
+    "max_disk_bytes": 137438953472,
+    "max_lookup_pages": 4096,
+    "max_lookup_bytes": 2147483648,
+    "max_transient_bytes": 134217728
+  },
+  "max_total_rows": 16384,
+  "max_source_bytes": 67108864,
+  "control": {
+    "max_bytes": 1073741824,
+    "max_files": 16384
+  }
+}

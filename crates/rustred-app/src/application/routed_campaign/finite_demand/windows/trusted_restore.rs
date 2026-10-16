@@ -6,7 +6,78 @@ use crate::application::routed_campaign::finite_demand::storage::{
     ScopeRow, ValidatedCursorRecord,
 };
 
+/// Cheap metadata about CURRENT's trusted-generated committed scope. This is
+/// not a source-count proof, restored cursor or publication capability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CommittedCursorStatus {
+    pub exhausted: bool,
+    pub completed_windows: u64,
+    pub input_occurrences: u64,
+}
+
+pub(crate) fn inspect_committed_cursor(
+    token: &ValidatedCursorRecord<'_>,
+    physical_arity: usize,
+) -> Result<CommittedCursorStatus> {
+    let record: CursorRecord = decode(token.encoded_cursor())?;
+    // The native all-fixed singleton fast path has its full physical prefix,
+    // but no DFS frames, before its ONLY window runs. This is pending metadata,
+    // not completed input or a source-authenticated continuation capability.
+    let pending_singleton = !record.finished
+        && record.frames.is_empty()
+        && record.prefix.len() == physical_arity
+        && record.windows == 0
+        && record.emitted == 0;
+    if physical_arity == 0
+        || record.version != VERSION
+        || record.binding != token.source_policy()
+        || record.windows != token.completed_windows()
+        || record.emitted != Integer::from(token.input_occurrences())
+        || (!pending_singleton && record.frames.len() != record.prefix.len())
+        || record.prefix.len() > physical_arity
+        || (record.finished && !record.prefix.is_empty())
+    {
+        return Err(invalid("committed cursor status binding/count/shape"));
+    }
+    for (coordinate, frame) in record.prefix.iter().zip(&record.frames) {
+        if frame.lower > frame.current
+            || frame.current > frame.upper
+            || *coordinate != frame.current
+            || frame.parent_count <= 0
+            || frame.completed_children < 0
+            || frame.completed_children > frame.parent_count
+        {
+            return Err(invalid("committed cursor status frame shape"));
+        }
+    }
+    Ok(CommittedCursorStatus {
+        exhausted: record.finished,
+        completed_windows: token.completed_windows(),
+        input_occurrences: token.input_occurrences(),
+    })
+}
+
 impl<const N: usize> PrefixWindows<N> {
+    /// Read-only portable completed-cursor check. This returns no cursor,
+    /// resume token or reduction capability; it only cross-checks committed
+    /// bytes against this exact native counted source/window policy.
+    pub(crate) fn validate_completed_commitment(
+        &self,
+        encoded: &[u8],
+        windows: u64,
+        occurrences: u64,
+        cancel: &AtomicBool,
+    ) -> Result<()> {
+        let record: CursorRecord = decode(encoded)?;
+        if record.windows != windows || record.emitted != Integer::from(occurrences) {
+            return Err(invalid("completed portable cursor counter mismatch"));
+        }
+        let (cursor, _) = self.validate_generated_cursor(record, cancel)?;
+        if !cursor.is_exhausted() {
+            return Err(invalid("portable source cursor is not exhausted"));
+        }
+        Ok(())
+    }
     /// Binding for a generated cursor record, not an authority constructor.
     pub(crate) fn source_policy_binding(&self) -> [u8; 32] {
         self.binding

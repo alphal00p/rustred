@@ -344,6 +344,12 @@ and preserves topology-specific bounds; it is distinct from `extend`, which
 retains completed work. See the [R6/D10 preparation and launch example](docs/research/minimal_r6_d10_campaign_2026-10-14.md)
 for the audited physical scope, resources and incremental continuation.
 
+The opt-in [finite-demand saved backend](docs/finite_saved_campaign.md) uses a
+fresh checkpoint namespace, shared exact dependency traversal and an optional
+memory-bounded completed-Work index. It retains the same manual refinement and
+rank-extension workflow, but does not import an old CP6 traversal ledger or
+offer that engine's optional deep graph replay.
+
 Completed ordinary publications also save an optional binary **raw census
 cache**. A subsequent publication can reuse the compatible immutable record
 prefix instead of rematching its old Apply scopes; it still authenticates the

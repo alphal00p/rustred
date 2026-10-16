@@ -16,7 +16,7 @@ pub struct ValidatedWorkPage {
     execution: GeneratedExecutionBinding,
     digest: GeneratedWorkDigest,
     encoded_bytes: u64,
-    records: Vec<GeneratedWorkKey>,
+    pub(super) records: Vec<GeneratedWorkKey>,
     payload_bytes: usize,
 }
 impl ValidatedWorkPage {

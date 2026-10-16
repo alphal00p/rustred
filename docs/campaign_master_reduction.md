@@ -6,6 +6,12 @@ Master refinement happens only when explicitly requested. All algebra, inventory
 extraction, optional independent verification, binary payloads and checkpoints live in RustRed; Python is a
 thin launcher and dashboard.
 
+For the opt-in fresh `finite-demand` engine, see
+[exact finite-demand saved campaigns](finite_saved_campaign.md). The manual
+refinement interface is shared, but its checkpoint, progress and publication
+assurance differ; the CP6 deep-verification instructions below apply only to
+the original symbolic-walk engine.
+
 The common commands perform actual work unless `--dry-run` is supplied:
 
 ```bash

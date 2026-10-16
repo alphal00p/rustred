@@ -10,6 +10,7 @@ use std::sync::{
 };
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+mod finite;
 
 pub(crate) struct RoutedProgress {
     latest: Arc<Mutex<(Instant, Value)>>,
@@ -63,7 +64,8 @@ impl RoutedProgress {
                     cancellation.store(true, Ordering::Relaxed);
                 }
                 let (observed, event) = state.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                let counters = event.get("snapshot").unwrap_or(&event);
+                let counters = finite::local_snapshot(&event)
+                    .unwrap_or_else(|| event.get("snapshot").unwrap_or(&event));
                 let expanded = counters["completed_nodes"].as_u64().unwrap_or(0);
                 let discovered = counters["scheduled_nodes"].as_u64().unwrap_or(0);
                 let queued = counters["queued_nodes"].as_u64().unwrap_or(0);
@@ -84,6 +86,7 @@ impl RoutedProgress {
                     "progress_denominator_may_grow":true,"progress_is_not_closure_fraction":true,
                     "progress":event, "family_closure_claim":false});
                 add_worker_summary(&mut record);
+                finite::annotate_heartbeat(&mut record);
                 if let Err(error) = write_record(&mut *events, &record) {
                     cancellation.store(true, Ordering::Relaxed);
                     return Err(error);
@@ -110,11 +113,13 @@ impl RoutedProgress {
             handle: Some(handle),
         }
     }
-    pub fn observe(&self, event: Value) {
+    pub fn observe(&self, mut event: Value) {
         let checkpoint = matches!(
             event["event"].as_str(),
             Some(
                 "checkpoint_started"
+                    | "finite_checkpoint_saved"
+                    | "finite_checkpoint_restored"
                     | "checkpoint_saved"
                     | "checkpoint_restored"
                     | "checkpoint_skipped_unchanged"
@@ -139,7 +144,9 @@ impl RoutedProgress {
                     | "rescue_amendment_applied"
             )
         ) {
-            *self.latest.lock().unwrap_or_else(|e| e.into_inner()) = (Instant::now(), event);
+            let mut latest = self.latest.lock().unwrap_or_else(|e| e.into_inner());
+            finite::retain(&latest.1, &mut event);
+            *latest = (Instant::now(), event);
         }
         if let Some(event) = milestone {
             let _ = self.stop.send(Control::Checkpoint(event));
@@ -164,6 +171,9 @@ impl Drop for RoutedProgress {
 }
 
 fn dashboard(record: &Value) -> [String; 6] {
+    if record["progress"]["operation"].as_str() == Some("finite_demand") {
+        return finite::dashboard(record);
+    }
     if record["progress"]["operation"].as_str() == Some("owner_guarded_apply") {
         return guarded_dashboard(record);
     }

@@ -79,6 +79,7 @@ pub(super) fn save(
 /// A runtime application exported from a validated source is self-contained;
 /// this function is deliberately absent from hot application/cache paths.
 pub(super) fn validate_required(directory: &Path, report: &Value) -> Result<(), AppError> {
+    super::finite_provenance::validate_required(directory, report)?;
     required_bytes(directory, report).map(|_| ())
 }
 
@@ -142,6 +143,18 @@ pub(super) fn inherit(
     directory: &Path,
     report: &mut Value,
 ) -> Result<(), AppError> {
+    inherit_with_cancel(source_directory, directory, report, &AtomicBool::new(false))
+}
+
+pub(super) fn inherit_with_cancel(
+    source_directory: &Path,
+    directory: &Path,
+    report: &mut Value,
+    cancel: &AtomicBool,
+) -> Result<(), AppError> {
+    if report["schema"] == super::FINITE_SCHEMA {
+        return super::finite_provenance::inherit(source_directory, directory, report, cancel);
+    }
     if let Some(data) = required_bytes(source_directory, report)? {
         write_file_atomically(&directory.join(FILE), &data, true).map_err(|error| {
             AppError::execution(format!("required finite census was not copied: {error}"))

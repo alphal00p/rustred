@@ -13,6 +13,8 @@ use std::time::Duration;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MasterArgs {
     pub command: PathBuf,
+    pub finite_directory: Option<PathBuf>,
+    pub finite_policy: Option<PathBuf>,
     pub artifact: Option<PathBuf>,
     pub partial_refinement: Option<PathBuf>,
     pub operation: crate::MasterReductionOperation,
@@ -40,9 +42,17 @@ pub(crate) struct MasterInspectArgs {
     pub format: String,
 }
 
-pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
+pub(super) fn parse(args: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
+    parse_source(args, false)
+}
+fn parse_source(
+    mut args: impl Iterator<Item = OsString>,
+    finite_allowed: bool,
+) -> Result<Command, ArgError> {
     let mut result = MasterArgs {
         command: PathBuf::new(),
+        finite_directory: None,
+        finite_policy: None,
         artifact: None,
         partial_refinement: None,
         operation: crate::MasterReductionOperation::Refine,
@@ -69,6 +79,8 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
         let option: &'static str = match option.as_str() {
             "--command" => "--command",
+            "--finite-directory" if finite_allowed => "--finite-directory",
+            "--finite-policy" if finite_allowed => "--finite-policy",
             "--artifact" => "--artifact",
             "--checkpoint" => "--checkpoint",
             "--directory" => "--directory",
@@ -178,6 +190,8 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
                 }
                 match option {
                     "--command" => result.command = path,
+                    "--finite-directory" => result.finite_directory = Some(path),
+                    "--finite-policy" => result.finite_policy = Some(path),
                     "--artifact" => result.artifact = Some(path),
                     "--checkpoint" => result.checkpoint = path,
                     "--directory" => result.directory = path,
@@ -192,9 +206,23 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
     }
     let has_command = !result.command.as_os_str().is_empty();
     let has_checkpoint = !result.checkpoint.as_os_str().is_empty();
-    if result.directory.as_os_str().is_empty()
-        || (result.artifact.is_some() && (has_command || has_checkpoint))
-        || (result.artifact.is_none() && (!has_command || !has_checkpoint))
+    let finite = result.finite_directory.is_some() || result.finite_policy.is_some();
+    if finite
+        && (result.finite_directory.is_none()
+            || result.finite_policy.is_none()
+            || !has_command
+            || has_checkpoint
+            || result.artifact.is_some()
+            || result.directory.as_os_str().is_empty())
+    {
+        return Err(ArgError::InvalidCombination(
+            "finite publication requires --command, --finite-directory, --finite-policy and --directory, with no CP6 --checkpoint or --artifact",
+        ));
+    }
+    if !finite
+        && (result.directory.as_os_str().is_empty()
+            || (result.artifact.is_some() && (has_command || has_checkpoint))
+            || (result.artifact.is_none() && (!has_command || !has_checkpoint)))
     {
         return Err(ArgError::InvalidCombination(
             "requires --directory and either --artifact or both --command and --checkpoint",
@@ -224,7 +252,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
 }
 
 pub(super) fn parse_publish(args: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
-    let Command::WalkMasterReduce(mut args) = parse(args)? else {
+    let Command::WalkMasterReduce(mut args) = parse_source(args, true)? else {
         unreachable!()
     };
     if args.artifact.is_some() {
@@ -351,9 +379,19 @@ pub(super) fn inspect(args: MasterInspectArgs) -> Result<(), CliError> {
 
 pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     super::routed::preflight_inner_pools()?;
+    let finite_policy = args
+        .finite_policy
+        .as_ref()
+        .map(|p| super::finite_demand::read_policy(p))
+        .transpose()?;
     let source = args.artifact.as_ref().or(args.partial_refinement.as_ref());
+    let mut finite_inert = Vec::new();
     let (request, mut protected) = if let Some(source) = source {
         (None, vec![artifact_directory(source)?])
+    } else if args.finite_directory.is_some() {
+        let (request, protected, inert) = super::finite_demand::read_source(&args.command)?;
+        finite_inert = inert;
+        (Some(request), protected)
     } else {
         let file =
             std::fs::File::open(&args.command).map_err(|e| CliError::InputIo(e.to_string()))?;
@@ -371,7 +409,13 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
         (Some(request), protected)
     };
     if source.is_none() {
-        protected.extend([args.command.clone(), args.checkpoint.clone()]);
+        protected.push(args.command.clone());
+        if let Some(finite) = &args.finite_directory {
+            protected.push(finite.clone());
+            protected.push(args.finite_policy.clone().unwrap());
+        } else {
+            protected.push(args.checkpoint.clone());
+        }
     }
     if let Some(previous) = &args.previous_artifact {
         protected.push(artifact_directory(previous)?);
@@ -381,28 +425,40 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
             protected.push(artifact_directory(peer)?);
         }
     }
-    let proposed_directory = prospective_path(&args.directory)?;
-    for source in &protected {
-        let source = prospective_path(source)?;
-        if proposed_directory.starts_with(&source) || source.starts_with(&proposed_directory) {
-            return Err(CliError::Input(
-                "phase directory overlaps protected campaign data".into(),
-            ));
+    if args.finite_directory.is_some() {
+        // These protected paths include inert legacy carrier outputs. Do not
+        // open or canonicalize them merely to publish a finite source.
+        super::finite_demand::protect(&args.directory, &protected, &finite_inert)?;
+        if let Some(events) = &args.events {
+            super::finite_demand::protect(events, &protected, &finite_inert)?;
         }
-    }
-    super::walk_inventory::protect_output(
-        &super::args::StreamPath::File(args.directory.clone()),
-        &protected,
-    )?;
-    if let Some(events) = &args.events {
+        if let Some(stop) = &args.stop_file {
+            super::finite_demand::protect(stop, &protected, &finite_inert)?;
+        }
+    } else {
+        let proposed_directory = prospective_path(&args.directory)?;
+        for source in &protected {
+            let source = prospective_path(source)?;
+            if proposed_directory.starts_with(&source) || source.starts_with(&proposed_directory) {
+                return Err(CliError::Input(
+                    "phase directory overlaps protected campaign data".into(),
+                ));
+            }
+        }
         super::walk_inventory::protect_output(
-            &super::args::StreamPath::File(events.clone()),
+            &super::args::StreamPath::File(args.directory.clone()),
             &protected,
         )?;
+        if let Some(events) = &args.events {
+            super::walk_inventory::protect_output(
+                &super::args::StreamPath::File(events.clone()),
+                &protected,
+            )?;
+        }
     }
     // The phase directory must never be an original input/checkpoint or its
     // ancestor. Explicit paths avoid accidental writes to production state.
-    let directory = if args.partial_refinement.is_some() {
+    let directory = if args.partial_refinement.is_some() || args.finite_directory.is_some() {
         // Native export acquires the source lock before creating its output.
         prospective_path(&args.directory)?
     } else {
@@ -411,7 +467,12 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
             .canonicalize()
             .map_err(|e| CliError::InputIo(e.to_string()))?
     };
-    let mut options = crate::MasterReductionOptions::new(&args.checkpoint, &directory);
+    let checkpoint = args
+        .finite_directory
+        .as_ref()
+        .map(|p| p.join("store"))
+        .unwrap_or_else(|| args.checkpoint.clone());
+    let mut options = crate::MasterReductionOptions::new(&checkpoint, &directory);
     options.operation = args.operation;
     options.resume = args.resume;
     options.previous_artifact = args.previous_artifact;
@@ -477,6 +538,18 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
             crate::master_publish_partial_refinement(source, &options, &cancel, observe)
         } else if let Some(source) = &args.artifact {
             crate::master_refine_published_artifact(source, &options, &cancel, observe)
+        } else if let Some(finite) = &args.finite_directory {
+            crate::publish_finite_demand_with_progress(
+                crate::FiniteDemandRunRequest {
+                    source: request.clone().expect("finite source request"),
+                    policy: finite_policy.clone().expect("finite policy"),
+                    directory: finite.clone(),
+                    mode: crate::FiniteDemandMode::Resume,
+                },
+                &options,
+                &cancel,
+                observe,
+            )
         } else {
             crate::master_reduce_saved_campaign(
                 request.as_ref().expect("source request"),

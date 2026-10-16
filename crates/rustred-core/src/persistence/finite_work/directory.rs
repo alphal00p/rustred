@@ -52,7 +52,7 @@ pub trait GeneratedPageProvider: Send + Sync {
 pub struct TrustedGeneratedWorkDirectory {
     execution: GeneratedExecutionBinding,
     generation: GeneratedWorkDigest,
-    runs: Arc<Vec<Vec<GeneratedWorkPageRef>>>,
+    pub(super) runs: Arc<Vec<Vec<GeneratedWorkPageRef>>>,
     statistics: GeneratedDirectoryStatistics,
     limits: GeneratedDirectoryLimits,
 }

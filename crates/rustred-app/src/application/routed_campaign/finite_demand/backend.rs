@@ -1,8 +1,10 @@
 //! Private exact-window -> native seal -> atomic generated cursor lifecycle.
-//! No public campaign frontend, CP6 adoption or publication/export authority.
+//! Private engine used by the public lifecycle and gated publication adapter;
+//! this module alone grants neither CP6 adoption nor publication/export authority.
 #[cfg(test)]
 pub(crate) mod diagnostic;
 mod errors;
+pub(crate) mod publication;
 use super::{
     prepared::{PreparedExecution, PreparedGeneration},
     storage::{
@@ -14,6 +16,7 @@ use super::{
 };
 use crate::application::routed_campaign::{input::Selection, snapshot_json, walking::finite_scope};
 use crate::{AppError, AppErrorKind, OwnerDomainWalkRequest, RoutedCampaignRequest};
+use rustred::persistence::finite_work::TrustedGeneratedResidentWork;
 use rustred::solver::{
     CandidateEntryAdmission, CandidateRoutedDeltaExportLimits, CandidateRoutedTraceCensusLimits,
     CandidateRoutedWorkBudget, FiniteRootAdmission,
@@ -34,6 +37,11 @@ pub(crate) struct Policy {
     pub census: CandidateRoutedTraceCensusLimits,
     pub export: CandidateRoutedDeltaExportLimits,
     pub storage: StorageLimits,
+    /// Optional conservative resident Work payload grant; zero keeps paging.
+    /// Includes reserved decode/directory and actual delta coexistence. The
+    /// paged cache is disabled while this complete resident index is active.
+    /// This is not a process RSS limit or an allocator-exact byte guarantee.
+    pub max_resident_work_bytes: usize,
     pub max_total_rows: usize,
     pub max_source_bytes: usize,
 }
@@ -78,8 +86,10 @@ pub(crate) struct Step {
 /// No operation accepts caller-supplied starts, seals or successor bytes.
 /// An error permanently stops this object; cold reopen determines CURRENT.
 pub(crate) struct Session<const N: usize> {
+    source: OwnerDomainWalkRequest,
     prepared: PreparedExecution<N>,
     authenticated: PreparedGeneration<N>,
+    resident: Option<TrustedGeneratedResidentWork>,
     scope: ScopeBinding,
     sources: Vec<PrefixWindows<N>>,
     cursors: Vec<PrefixCursor>,
@@ -92,6 +102,7 @@ pub(crate) struct Session<const N: usize> {
 }
 
 struct Admitted<const N: usize> {
+    source: OwnerDomainWalkRequest,
     prepared: PreparedExecution<N>,
     scope: ScopeBinding,
     sources: Vec<PrefixWindows<N>>,
@@ -134,12 +145,14 @@ impl<const N: usize> Session<N> {
             &admitted.scope,
             cancel,
         )?;
+        let resident = Self::hydrate_resident(&authenticated, policy, cancel, observer)?;
         Ok(Self::assemble(
             admitted,
             writer,
             authenticated,
             policy,
             path,
+            resident,
         ))
     }
 
@@ -182,6 +195,9 @@ impl<const N: usize> Session<N> {
             admitted
                 .prepared
                 .authenticate_generation(previous.clone(), old, cancel)?;
+        // Hydrate BEFORE any scope append: corrupt/missing/cancelled reads
+        // cannot leave a newly installed metadata generation behind.
+        let mut resident = Self::hydrate_resident(&authenticated, policy, cancel, observer)?;
         check(cancel)?;
         let mut writer = StoreWriter::resume_generated(
             path,
@@ -210,6 +226,14 @@ impl<const N: usize> Session<N> {
                 )?);
             }
             // Metadata-only append: old cursor bytes, Work and raw census stay exact.
+            let staged = resident
+                .take()
+                .map(|index| {
+                    index
+                        .prepare_metadata_only(previous.digest())
+                        .map_err(|error| storage_error(error.into()))
+                })
+                .transpose()?;
             writer
                 .commit_generated(Vec::new(), state, cancel)
                 .map_err(storage_error)?;
@@ -218,6 +242,8 @@ impl<const N: usize> Session<N> {
                 &admitted.scope,
                 cancel,
             )?;
+            resident =
+                staged.map(|index| index.after_durable_commit(authenticated.generation().digest()));
         }
         Ok(Self::assemble(
             admitted,
@@ -225,7 +251,51 @@ impl<const N: usize> Session<N> {
             authenticated,
             policy,
             path,
+            resident,
         ))
+    }
+
+    fn hydrate_resident(
+        authenticated: &PreparedGeneration<N>,
+        policy: Policy,
+        cancel: &AtomicBool,
+        observer: &impl Fn(Value),
+    ) -> Result<Option<TrustedGeneratedResidentWork>, AppError> {
+        // One complete hydration per session; no partial index is retained.
+        // Avoid duplicating decoded pages while making the resident copy.
+        let resident = if policy.max_resident_work_bytes == 0 {
+            None
+        } else {
+            let reader = authenticated
+                .generation()
+                .reader(StorageLimits {
+                    max_cached_pages: 0,
+                    max_cached_page_bytes: 0,
+                    ..policy.storage
+                })
+                .map_err(storage_error)?;
+            let reserved = [
+                policy.storage.max_transient_bytes,
+                policy.storage.max_directory_bytes,
+            ]
+            .into_iter()
+            .try_fold(0usize, |sum, bytes| sum.checked_add(bytes))
+            .ok_or_else(|| AppError::limit("resident Work coexistence estimate overflow"))?;
+            TrustedGeneratedResidentWork::hydrate(
+                reader.directory(),
+                &reader,
+                policy.max_resident_work_bytes,
+                reserved,
+                cancel,
+            )
+            .map_err(|error| storage_error(error.into()))?
+        };
+        observer(json!({"event":"finite_backend_resident_hydrated",
+            "requested_bytes":policy.max_resident_work_bytes,
+            "status":if resident.is_some() {"active"} else if policy.max_resident_work_bytes == 0 {"disabled"} else {"declined"},
+            "resident":resident_statistics(resident.as_ref())}));
+        check(cancel)?;
+        Ok(resident)
     }
 
     fn assemble(
@@ -234,10 +304,13 @@ impl<const N: usize> Session<N> {
         authenticated: PreparedGeneration<N>,
         policy: Policy,
         path: &Path,
+        resident: Option<TrustedGeneratedResidentWork>,
     ) -> Self {
         Self {
+            source: admitted.source,
             prepared: admitted.prepared,
             authenticated,
+            resident,
             scope: admitted.scope,
             sources: admitted.sources,
             cursors: admitted.cursors,
@@ -333,9 +406,16 @@ impl<const N: usize> Session<N> {
                 AppError::internal_invariant("unfinished finite cursor has no window")
             })?;
         let previous = self.generation()?;
-        let reader = previous
-            .reader(self.policy.storage)
-            .map_err(storage_error)?;
+        let reader_limits = if self.resident.is_some() {
+            StorageLimits {
+                max_cached_pages: 0,
+                max_cached_page_bytes: 0,
+                ..self.policy.storage
+            }
+        } else {
+            self.policy.storage
+        };
+        let reader = previous.reader(reader_limits).map_err(storage_error)?;
         let baseline = self.authenticated.bind(
             &reader,
             self.policy.per_batch_work,
@@ -348,7 +428,8 @@ impl<const N: usize> Session<N> {
         #[cfg(test)]
         let native_started = std::time::Instant::now();
         let delta_result = baseline
-            .trace_batch(
+            .trace_batch_with_resident(
+                self.resident.as_ref(),
                 window.targets().iter().cloned(),
                 CandidateEntryAdmission::ExplicitFinite(&admission),
                 self.policy.workers,
@@ -363,7 +444,9 @@ impl<const N: usize> Session<N> {
         observer(
             json!({"event":"finite_backend_native_call_finished","row":index,
             "seconds":native_started.elapsed().as_secs_f64(),"succeeded":delta_result.is_ok(),
-            "reader":diagnostic::reader_statistics(&reader)}),
+            "reader":diagnostic::reader_statistics(&reader),
+            "resident_requested_bytes":self.policy.max_resident_work_bytes,
+            "resident":resident_statistics(self.resident.as_ref())}),
         );
         let delta = delta_result?;
         let snapshot = delta.report().snapshot();
@@ -408,6 +491,32 @@ impl<const N: usize> Session<N> {
             "inputs":completed.inputs,"new_work":completed.new_work,"baseline_hits":completed.baseline_hits}),
         );
         check(cancel)?;
+        // Take ownership before staging: any failure stops this Session and
+        // drops the optimization. The current set is never cloned per window.
+        let had_resident = self.resident.is_some();
+        let resident = self
+            .resident
+            .take()
+            .map(|resident| {
+                resident
+                    .prepare_delta(&delta, cancel)
+                    .map_err(|error| storage_error(error.into()))
+            })
+            .transpose()?
+            .flatten();
+        if had_resident && resident.is_none() {
+            observer(
+                json!({"event":"finite_backend_resident_fallback","status":"declined",
+                "requested_bytes":self.policy.max_resident_work_bytes,
+                "retained_payload_estimate":0,"new_work":completed.new_work,
+                "generation":previous.generation()}),
+            );
+        }
+        #[cfg(test)]
+        observer(
+            json!({"event":"finite_backend_resident_staged","active":resident.is_some(),
+            "records":resident.as_ref().map(|_| completed.new_work)}),
+        );
         #[cfg(test)]
         let commit_started = std::time::Instant::now();
         let outcome = self.prepared.commit_delta_with_generated_metadata(
@@ -421,15 +530,31 @@ impl<const N: usize> Session<N> {
         // No fallible work or observer lies between durable commit and adoption.
         self.cursors[index] = successor;
         self.authenticated = outcome.generation;
+        self.resident = resident.map(|resident| {
+            resident.after_durable_commit(self.authenticated.generation().digest())
+        });
         completed.cleanup_warning = outcome.cleanup_warning;
         #[cfg(test)]
         observer(json!({"event":"finite_backend_commit_finished","row":index,
             "seconds":commit_started.elapsed().as_secs_f64(),
-            "generation":self.authenticated.generation().generation()}));
+            "generation":self.authenticated.generation().generation(),
+            "resident":resident_statistics(self.resident.as_ref()),
+            "resident_staged_records":self.resident.as_ref().map(|_| completed.new_work)}));
         Ok(Step {
             window: Some(completed),
             progress: self.progress()?,
         })
+    }
+}
+
+fn resident_statistics(resident: Option<&TrustedGeneratedResidentWork>) -> Value {
+    match resident.map(TrustedGeneratedResidentWork::statistics) {
+        None => Value::Null,
+        Some(Ok(s)) => json!({"records":s.records,"capacity":s.capacity,
+            "retained_payload_estimate":s.retained_payload_estimate,
+            "reserved_coexisting_bytes":s.reserved_coexisting_bytes,
+            "max_live_payload_bytes":s.max_live_payload_bytes}),
+        Some(Err(error)) => json!({"statistics_error":error.to_string()}),
     }
 }
 
@@ -475,7 +600,7 @@ fn admit<const N: usize>(
         )
     })?;
     let mut scope = ScopeBinding {
-        original_source: digest(&parsed.request_binding)?,
+        original_source: original_source_identity(&parsed.request_binding)?,
         rows: Vec::new(),
     };
     let mut sources = Vec::new();
@@ -486,27 +611,15 @@ fn admit<const N: usize>(
         let source_digest = parsed.sources[row.source]["blake3"]
             .as_str()
             .ok_or_else(|| AppError::internal_invariant("query source digest absent"))?;
-        let origin = blake3::Hash::from(digest(&(
-            1u32,
+        let origin = origin_identity(
             row.source,
             source_digest,
             ordinal,
             &row.query.id,
             row.query.auxiliary,
             row.query.role_declared,
-        ))?)
-        .to_hex()
-        .to_string();
-        let exact_domain = digest(&(
-            arity,
-            region.support.to_vec(),
-            &region.lower,
-            &region.upper,
-            region.rank,
-            region.powers.max_positive_power,
-            region.powers.min_power_difference,
-            region.powers.max_power_difference,
-        ))?;
+        )?;
+        let exact_domain = domain_identity(arity, &region)?;
         let windows = PrefixWindows::try_new(&origin, region, arity, policy.windows, cancel)
             .map_err(window_error)?;
         cursors.push(windows.initial_cursor());
@@ -523,6 +636,7 @@ fn admit<const N: usize>(
     }
     check(cancel)?;
     Ok(Admitted {
+        source: source.clone(),
         prepared,
         scope,
         sources,
@@ -530,6 +644,48 @@ fn admit<const N: usize>(
         source_reduction: source.matching.reduction_limits,
         effective_reduction: load.reduction_limits,
     })
+}
+pub(super) fn origin_identity(
+    source: usize,
+    source_digest: &str,
+    ordinal: usize,
+    id: &str,
+    auxiliary: bool,
+    role_declared: bool,
+) -> Result<String, AppError> {
+    Ok(blake3::Hash::from(digest(&(
+        1u32,
+        source,
+        source_digest,
+        ordinal,
+        id,
+        auxiliary,
+        role_declared,
+    ))?)
+    .to_hex()
+    .to_string())
+}
+fn domain_identity<const N: usize>(
+    arity: usize,
+    region: &rustred::solver::RootRegionInput<N>,
+) -> Result<[u8; 32], AppError> {
+    digest(&(
+        arity,
+        region.support.to_vec(),
+        &region.lower,
+        &region.upper,
+        region.rank,
+        region.powers.max_positive_power,
+        region.powers.min_power_difference,
+        region.powers.max_power_difference,
+    ))
+}
+/// Preserve the persisted native encoding of the original request binding.
+/// This is a digest of its encoded string, not the decoded hexadecimal digest.
+pub(in crate::application::routed_campaign) fn original_source_identity(
+    request_binding: &str,
+) -> Result<[u8; 32], AppError> {
+    digest(&request_binding)
 }
 fn digest(value: &impl bincode::Encode) -> Result<[u8; 32], AppError> {
     bincode::encode_to_vec(value, bincode::config::standard())
@@ -563,7 +719,7 @@ fn check(cancel: &AtomicBool) -> Result<(), AppError> {
         Ok(())
     }
 }
-fn window_error(error: super::windows::Error) -> AppError {
+pub(super) fn window_error(error: super::windows::Error) -> AppError {
     use super::windows::ErrorKind as K;
     AppError::new(
         match error.kind {
@@ -576,7 +732,7 @@ fn window_error(error: super::windows::Error) -> AppError {
         error.to_string(),
     )
 }
-fn storage_error(error: storage::StorageError) -> AppError {
+pub(super) fn storage_error(error: storage::StorageError) -> AppError {
     use storage::ErrorKind as K;
     AppError::new(
         match error.kind {

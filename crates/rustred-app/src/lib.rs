@@ -1,5 +1,9 @@
 mod application;
 pub use application::{
+    FiniteDemandMode, FiniteDemandPolicy, FiniteDemandRunRequest, FiniteDemandRunResult,
+    inspect_finite_demand, publish_finite_demand_with_progress, run_finite_demand_with_progress,
+};
+pub use application::{
     CacheLookupBudgetPolicy, CachePreparationBackend, CachePreparationCapabilities,
     CachePreparationOptions, CachePreparationPrimerBudget, CachePreparationReport,
     CachePreparationResolvedOptions, CachePreparationStatus, CachePreparationTarget,

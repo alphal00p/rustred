@@ -34,7 +34,7 @@ impl Drop for Scratch {
 }
 fn storage_limits() -> StorageLimits {
     StorageLimits {
-        raw:Default::default(),
+        raw: Default::default(),
         max_arity: 32,
         max_delta_records: 0,
         max_delta_payload_bytes: 1024,
@@ -160,6 +160,93 @@ fn exact_next<const N: usize>(source: &PrefixWindows<N>, a: &PrefixCursor, b: &P
             assert_eq!(expected.successor(), actual.successor());
         }
         _ => panic!("restored enumeration changed exhaustion"),
+    }
+}
+
+#[test]
+fn committed_cursor_status_is_data_only_and_matches_every_native_boundary() {
+    let source = source(region([true, false], 3, 2, 0, 3), 2, 2);
+    let cancel = AtomicBool::new(false);
+    let mut cursor = source.initial_cursor();
+    loop {
+        let (_scratch, saved) = persist(&source, state(&cursor, source.source_policy_binding()));
+        let status = inspect_committed_cursor(&saved.cursor(0).unwrap(), 2).unwrap();
+        assert_eq!(status.exhausted, cursor.is_exhausted());
+        assert_eq!(status.completed_windows, cursor.windows());
+        assert_eq!(Integer::from(status.input_occurrences), *cursor.emitted());
+        let Some(window) = source.next_window(&cursor, &cancel).unwrap() else {
+            break;
+        };
+        cursor = window.successor().clone();
+    }
+}
+
+#[test]
+fn committed_cursor_status_accepts_only_the_native_pending_singleton_exception() {
+    let mut fixed = region([true, false], 5, 2, 3, 3);
+    fixed.lower = vec![4, 2];
+    fixed.upper = vec![Some(4), Some(2)];
+    let source = source(fixed, 2, 1);
+    let initial = source.initial_cursor();
+    assert_eq!(initial.0.prefix, vec![4, 2]);
+    assert!(initial.0.frames.is_empty());
+    let (_scratch, saved) = persist(&source, state(&initial, source.source_policy_binding()));
+    let status = inspect_committed_cursor(&saved.cursor(0).unwrap(), 2).unwrap();
+    assert!(!status.exhausted);
+    assert_eq!((status.completed_windows, status.input_occurrences), (0, 0));
+    let done = source
+        .next_window(&initial, &AtomicBool::new(false))
+        .unwrap()
+        .unwrap()
+        .successor()
+        .clone();
+    let (_scratch, saved) = persist(&source, state(&done, source.source_policy_binding()));
+    let status = inspect_committed_cursor(&saved.cursor(0).unwrap(), 2).unwrap();
+    assert!(status.exhausted);
+    assert_eq!((status.completed_windows, status.input_occurrences), (1, 1));
+    for mutation in 0..5 {
+        let mut malformed = initial.clone();
+        match mutation {
+            0 => {
+                malformed.0.prefix.pop();
+            }
+            1 => malformed.0.windows = 1,
+            2 => malformed.0.emitted = Integer::from(1),
+            3 => malformed.0.finished = true,
+            _ => malformed.0.prefix.push(0),
+        }
+        // Match the transport counters so the shape itself must reject it.
+        let (_scratch, saved) = persist(&source, state(&malformed, source.source_policy_binding()));
+        assert!(
+            inspect_committed_cursor(&saved.cursor(0).unwrap(), 2).is_err(),
+            "{mutation}"
+        );
+    }
+}
+
+#[test]
+fn committed_cursor_status_rejects_version_binding_counts_and_finished_live_frames() {
+    let source = source(region([true, false], 3, 2, 0, 3), 2, 2);
+    let cursor = source
+        .next_window(&source.initial_cursor(), &AtomicBool::new(false))
+        .unwrap()
+        .unwrap()
+        .successor()
+        .clone();
+    assert!(!cursor.is_exhausted());
+    assert!(!cursor.0.frames.is_empty());
+    for mutation in 0..4 {
+        let mut modified = cursor.clone();
+        match mutation {
+            0 => modified.0.version += 1,
+            1 => modified.0.binding[0] ^= 1,
+            2 => modified.0.windows += 1,
+            _ => modified.0.finished = true,
+        }
+        let mut document = state(&cursor, source.source_policy_binding());
+        document.cursors[0].encoded_cursor = modified.encode().unwrap();
+        let (_scratch, saved) = persist(&source, document);
+        assert!(inspect_committed_cursor(&saved.cursor(0).unwrap(), 2).is_err());
     }
 }
 fn every_boundary<const N: usize>(source: PrefixWindows<N>) {

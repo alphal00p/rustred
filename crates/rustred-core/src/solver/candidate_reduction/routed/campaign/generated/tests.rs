@@ -170,6 +170,57 @@ fn generated_native_delta_then_cold_page_reuse_matches_one_union_w1_w4() {
         assert_eq!(b.report().snapshot().completed_baseline_hits, 2);
         assert!(b.report().trace().declared_terminals().is_empty());
         assert!(pages.calls.load(Ordering::Relaxed) > 0);
+        let resident = TrustedGeneratedResidentWork::hydrate(
+            &directory,
+            &pages,
+            1_000_000,
+            0,
+            &AtomicBool::new(false),
+        )
+        .unwrap()
+        .unwrap();
+        let calls = pages.calls.load(Ordering::Relaxed);
+        let resident_b = baseline
+            .trace_batch_with_resident(
+                Some(&resident),
+                [key([5])],
+                CandidateEntryAdmission::SavedGenerationScope,
+                workers,
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap();
+        assert_eq!(resident_b.work(), b.work());
+        assert_eq!(
+            resident_b.report().complete_census(),
+            b.report().complete_census()
+        );
+        assert_eq!(
+            resident_b.report().trace().declared_terminals(),
+            b.report().trace().declared_terminals()
+        );
+        assert_eq!(
+            resident_b.report().trace().visited_zeros(),
+            b.report().trace().visited_zeros()
+        );
+        assert_eq!(
+            resident_b.report().snapshot().completed_baseline_hits,
+            b.report().snapshot().completed_baseline_hits
+        );
+        assert_eq!(pages.calls.load(Ordering::Relaxed), calls);
+        let advanced = resident
+            .prepare_delta(&resident_b, &AtomicBool::new(false))
+            .unwrap()
+            .unwrap()
+            .after_durable_commit([3; 32]);
+        assert_eq!(advanced.statistics().unwrap().records, 8);
+        for key in old_work.iter().chain(b.work()) {
+            assert!(advanced.contains(key).unwrap());
+        }
+        assert_eq!(
+            advanced.validate_directory(&directory).unwrap_err().kind,
+            GeneratedWorkErrorKind::Corrupt
+        );
         let whole = reducer
             .bind_trusted_generated_baseline(
                 &binding(),
@@ -267,6 +318,112 @@ fn generated_invalid_start_and_wrong_binding_refuse_before_backing_hits() {
         .unwrap_err();
     assert_eq!(e.report().snapshot().scheduled_nodes, 0);
     assert_eq!(pages.calls.load(Ordering::Relaxed), 0);
+    let resident = TrustedGeneratedResidentWork::hydrate(
+        &directory,
+        &pages,
+        1_000_000,
+        0,
+        &AtomicBool::new(false),
+    )
+    .unwrap()
+    .unwrap();
+    let calls = pages.calls.load(Ordering::Relaxed);
+    let e = baseline
+        .trace_batch_with_resident(
+            Some(&resident),
+            [key([6, 1])],
+            CandidateEntryAdmission::SavedGenerationScope,
+            1,
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap_err();
+    assert_eq!(e.report().snapshot().scheduled_nodes, 0);
+    assert_eq!(e.report().snapshot().completed_baseline_hits, 0);
+    assert_eq!(pages.calls.load(Ordering::Relaxed), calls);
+    let other = TrustedGeneratedWorkDirectory::try_from_trusted_generated(
+        binding(),
+        [2; 32],
+        Arc::new(vec![]),
+        limits(),
+    )
+    .unwrap();
+    let other_baseline = reducer
+        .bind_trusted_generated_baseline(
+            &binding(),
+            &other,
+            &pages,
+            budget(),
+            Default::default(),
+            export(),
+        )
+        .unwrap();
+    let e = other_baseline
+        .trace_batch_with_resident(
+            Some(&resident),
+            [key([6])],
+            CandidateEntryAdmission::SavedGenerationScope,
+            1,
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap_err();
+    assert_eq!(e.report().snapshot().scheduled_nodes, 0);
+    assert_eq!(pages.calls.load(Ordering::Relaxed), calls);
+}
+
+#[test]
+fn resident_delta_growth_decline_and_cancel_do_not_publish_staged_work() {
+    let reducer = super::super::tests::diamond(Default::default(), Default::default());
+    let mut pages = Pages::default();
+    let empty = pages.directory(vec![], 1);
+    let baseline = reducer
+        .bind_trusted_generated_baseline(
+            &binding(),
+            &empty,
+            &pages,
+            budget(),
+            Default::default(),
+            export(),
+        )
+        .unwrap();
+    let cancel = AtomicBool::new(false);
+    let delta = baseline
+        .trace_batch(
+            [key([6])],
+            CandidateEntryAdmission::SavedGenerationScope,
+            1,
+            &cancel,
+            |_| {},
+        )
+        .unwrap();
+    let tiny = TrustedGeneratedResidentWork::hydrate(&empty, &pages, 1, 0, &cancel)
+        .unwrap()
+        .unwrap();
+    assert!(tiny.prepare_delta(&delta, &cancel).unwrap().is_none());
+    let resident = TrustedGeneratedResidentWork::hydrate(&empty, &pages, 1_000_000, 0, &cancel)
+        .unwrap()
+        .unwrap();
+    cancel.store(true, Ordering::Release);
+    assert_eq!(
+        resident.prepare_delta(&delta, &cancel).err().unwrap().kind,
+        GeneratedWorkErrorKind::Cancelled
+    );
+    cancel.store(false, Ordering::Release);
+    let resident = TrustedGeneratedResidentWork::hydrate(&empty, &pages, 1_000_000, 0, &cancel)
+        .unwrap()
+        .unwrap();
+    let staged = resident.prepare_delta(&delta, &cancel).unwrap().unwrap();
+    drop(staged); // Model failed durable commit: no successor capability exists.
+    let restored = TrustedGeneratedResidentWork::hydrate(&empty, &pages, 1_000_000, 0, &cancel)
+        .unwrap()
+        .unwrap();
+    assert_eq!(restored.statistics().unwrap().records, 0);
+    assert!(
+        !restored
+            .contains(&GeneratedWorkKey::Route(vec![6]))
+            .unwrap()
+    );
 }
 
 #[test]
@@ -408,6 +565,7 @@ fn generated_slow_page_provider_does_not_hold_shared_scheduler_lock() {
     shared.set_completed_baseline(Some(scheduler::CompletedBaseline::Generated {
         directory: &directory,
         provider: &slow,
+        resident: None,
     }));
     std::thread::scope(|scope| {
         let handle = scope.spawn(|| shared.schedule(CandidateRoutedWork::Route(key([6]))));

@@ -9,6 +9,7 @@ use std::{
 mod atomic;
 mod framing;
 mod lookup;
+mod provenance;
 mod raw;
 
 struct Scratch(PathBuf);
