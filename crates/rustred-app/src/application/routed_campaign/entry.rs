@@ -11,11 +11,13 @@ const MAX_REGIONS: usize = 10_000;
 
 /// Parse saved query records without requiring each historical region to be
 /// nonempty. Rank ladders legitimately retain vacuous early-stage requests.
-pub(crate) fn recorded_regions<const N: usize>(
+pub(crate) fn recorded_regions_with_limits<const N: usize>(
     text: &str,
     physical_arity: usize,
+    max_regions: usize,
+    max_bytes: usize,
 ) -> Result<Vec<(String, RootRegionInput<N>)>, AppError> {
-    let queries = input::parse(text, physical_arity, MAX_REGIONS, 1024 * 1024)?;
+    let queries = input::parse(text, physical_arity, max_regions, max_bytes)?;
     Ok(queries
         .into_iter()
         .map(|q| {
@@ -49,9 +51,18 @@ impl<const N: usize> RequestedEntryDomain<N> {
     }
 
     pub fn parse_with_arity(text: &str, physical_arity: usize) -> Result<Self, AppError> {
+        Self::parse_with_limits(text, physical_arity, MAX_REGIONS, 1024 * 1024)
+    }
+
+    pub fn parse_with_limits(
+        text: &str,
+        physical_arity: usize,
+        max_regions: usize,
+        max_bytes: usize,
+    ) -> Result<Self, AppError> {
         // Reuse the same strict, bounded coordinate/A/R/D input vocabulary as
         // local matching. FiniteRootAdmission additionally requires finiteness.
-        let queries = input::parse(text, physical_arity, MAX_REGIONS, 1024 * 1024)?;
+        let queries = input::parse(text, physical_arity, max_regions, max_bytes)?;
         let description = json!({
             "mode":"explicit_finite", "region_count":queries.len(),
             "exhaustive_coverage_claim":false,
@@ -78,7 +89,7 @@ impl<const N: usize> RequestedEntryDomain<N> {
             rank: q.rank,
             powers: q.powers,
         }));
-        let policy = FiniteRootAdmission::try_new(regions.iter().cloned(), MAX_REGIONS)
+        let policy = FiniteRootAdmission::try_new(regions.iter().cloned(), max_regions)
             .map_err(|e| AppError::input(format!("finite starting domain: {e}")))?;
         Ok(Self {
             policy,

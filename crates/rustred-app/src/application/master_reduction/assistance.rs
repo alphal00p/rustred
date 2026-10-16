@@ -272,7 +272,16 @@ fn prepare_saved(
         .as_str()
         .ok_or_else(|| AppError::input("publication has no saved owner selection"))?;
     let selection_path = storage::safe_child(&options.directory, selection_name)?;
-    let selection_bytes = storage::read_bounded(&selection_path, 16 * 1024 * 1024)?;
+    let max_source_bytes =
+        options
+            .finite_policy
+            .as_ref()
+            .map_or(Ok(16 * 1024 * 1024), |policy| {
+                usize::try_from(policy.control.max_bytes).map_err(|_| {
+                    AppError::limit("finite equation metadata allowance exceeds platform size")
+                })
+            })?;
+    let selection_bytes = storage::read_bounded(&selection_path, max_source_bytes)?;
     let binding = blake3::hash(&selection_bytes).to_hex().to_string();
     if Some(binding.as_str()) != report["inputs"]["program_binding"].as_str() {
         return Err(AppError::input("saved equation selection binding mismatch"));

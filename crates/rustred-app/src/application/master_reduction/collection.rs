@@ -258,9 +258,24 @@ impl MasterReductionArtifact {
 /// Cold-load and authenticate the complete terminal application, including
 /// family-qualified collection maps. No algebraic proof is repeated on apply.
 pub fn load_master_reduction(path: &Path) -> Result<MasterReductionArtifact, AppError> {
-    let report = master_reduction_inspect(path)?;
+    load_with_policy(path, None)
+}
+
+/// Cold-load using the caller's finite provenance resource policy throughout.
+pub fn load_master_reduction_with_policy(
+    path: &Path,
+    policy: &crate::FiniteDemandPolicy,
+) -> Result<MasterReductionArtifact, AppError> {
+    load_with_policy(path, Some(policy))
+}
+
+pub(super) fn load_with_policy(
+    path: &Path,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<MasterReductionArtifact, AppError> {
+    let report = inspect_with_policy(path, policy)?;
     let directory = directory(path);
-    let primary = load_master_relation_session(path)?;
+    let primary = load_session_with_policy(path, policy)?;
     let members = load_members(directory, &report)?;
     let sessions = session_refs(&primary, &members);
     let collection = if report["collection_state"].is_object() {
@@ -382,8 +397,18 @@ fn primary_member(report: &Value) -> Result<Value, AppError> {
 /// Preserve prior proof as a restartable capsule before any primary session is
 /// extended. Its old finite sessions are only needed until the new rebind is
 /// durably written; the final package has no external source-path dependency.
+#[cfg(test)]
 pub(super) fn inherit(source: &Path, output: &Path, report: &mut Value) -> Result<(), AppError> {
-    let source_report = master_reduction_inspect(source)?;
+    inherit_with_policy(source, output, report, None)
+}
+
+pub(super) fn inherit_with_policy(
+    source: &Path,
+    output: &Path,
+    report: &mut Value,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<(), AppError> {
+    let source_report = inspect_with_policy(source, policy)?;
     let source = directory(source);
     let members = source_report["collection_members"]
         .as_array()
@@ -483,7 +508,7 @@ pub(super) fn add_members(
             &directory(artifact).canonicalize().map_err(io)?,
             &options.directory,
         )?;
-        let source_report = master_reduction_inspect(artifact)?;
+        let source_report = inspect_with_policy(artifact, options.finite_policy.as_ref())?;
         if !matches!(
             source_report["status"].as_str(),
             Some("published_unrefined" | "completed_nonminimal")
@@ -556,7 +581,7 @@ pub(super) fn input_identity(
         .collection_artifacts
         .iter()
         .map(|path| {
-            let report = master_reduction_inspect(path)?;
+            let report = inspect_with_policy(path, options.finite_policy.as_ref())?;
             Ok(blake3::hash(&serde_json::to_vec(&report).map_err(io)?)
                 .to_hex()
                 .to_string())
@@ -575,7 +600,7 @@ pub(super) fn complete(
     started: Instant,
 ) -> Result<(), AppError> {
     if report["collection"]["status"] == "completed" && report["collection_state"].is_object() {
-        let _ = load_master_reduction(&options.directory)?;
+        let _ = load_with_policy(&options.directory, options.finite_policy.as_ref())?;
         return Ok(());
     }
     // Save the full source-search cursor before the bounded indivisible

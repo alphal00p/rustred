@@ -22,18 +22,19 @@ import tempfile
 import time
 
 SCHEMA = "rustred.campaign-phases.v1"
-MAX_JSON_BYTES = 16 * 1024 * 1024
 NORMALIZATION_PROFILES = {"conservative": "conservative-v1", "standard": "standard-v1"}
 COLLECTION_STRATEGY = "full-u-diagonal-v1"
 FINITE_FEEDBACK_RECIPE = "finite-row-feedback-v1"
 PUBLICATION_VERIFICATION_RECIPE = "publication-verification-v1"
 
 
-def read_json(path):
+def read_json(path, max_bytes=None):
+    if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 0):
+        raise ValueError("metadata byte allowance must be nonnegative or None")
     with Path(path).open("rb") as stream:
-        raw = stream.read(MAX_JSON_BYTES + 1)
-    if len(raw) > MAX_JSON_BYTES:
-        raise ValueError(f"bounded campaign metadata exceeds 16 MiB: {path}")
+        raw = stream.read() if max_bytes is None else stream.read(max_bytes + 1)
+    if max_bytes is not None and len(raw) > max_bytes:
+        raise ValueError(f"campaign metadata exceeds requested {max_bytes}-byte allowance: {path}")
     value = json.loads(raw)
     if not isinstance(value, dict):
         raise ValueError(f"campaign metadata must be an object: {path}")
@@ -503,6 +504,10 @@ def phase_two(plan, policy, request, binding, directory, driver):
         command.append("--deep-verification" if policy.get("deep_verification", False) else "--no-deep-verification")
     else:
         command += ["--artifact", str(policy["source_artifact"])]
+    if plan.get("engine") == "rustred.finite-demand.v1" and (finalizing or not publishing):
+        # The same caller-selected IO policy governs publication, refinement,
+        # and cold reads; artifact metadata cannot silently enlarge it.
+        command += ["--finite-policy", plan["finite_policy"]]
     command += ["--directory", str(directory),
                "--events", str(events), "--stop-file", str(stop_file),
                "--checkpoint-interval-seconds", str(plan["checkpoint_interval_seconds"]),

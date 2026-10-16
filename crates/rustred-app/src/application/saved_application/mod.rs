@@ -49,8 +49,11 @@ pub use cache_pack::{
 pub use charts::SavedApplicationProductChartStatistics;
 pub use options::SavedApplicationOptions;
 pub use package::{
-    export_saved_application, load_saved_application, prepare_saved_application,
-    saved_application_arity, saved_application_domains,
+    export_saved_application, export_saved_application_with_policy, load_saved_application,
+    load_saved_application_with_policy, prepare_saved_application,
+    prepare_saved_application_with_policy, saved_application_arity,
+    saved_application_arity_with_policy, saved_application_domains,
+    saved_application_domains_with_policy,
 };
 pub use products::{SavedApplicationProduct, SavedApplicationProductStatistics};
 pub use witnesses::{
@@ -554,13 +557,14 @@ impl<const N: usize> PreparedSavedApplication<N> {
         package::export(self, destination)
     }
 
+    #[cfg(test)]
     fn from_parts(
         inputs: package::ApplicationInputs,
         terminals: TerminalMaps,
         metadata: Value,
         options: SavedApplicationOptions,
     ) -> Result<Self, AppError> {
-        Self::from_parts_with_mode(inputs, terminals, metadata, options, false)
+        Self::from_parts_with_mode(inputs, terminals, metadata, options, false, None)
     }
 
     fn from_parts_deferred(
@@ -568,8 +572,9 @@ impl<const N: usize> PreparedSavedApplication<N> {
         terminals: TerminalMaps,
         metadata: Value,
         options: SavedApplicationOptions,
+        policy: Option<&crate::FiniteDemandPolicy>,
     ) -> Result<Self, AppError> {
-        Self::from_parts_with_mode(inputs, terminals, metadata, options, true)
+        Self::from_parts_with_mode(inputs, terminals, metadata, options, true, policy)
     }
 
     fn from_parts_with_mode(
@@ -578,16 +583,27 @@ impl<const N: usize> PreparedSavedApplication<N> {
         mut metadata: Value,
         options: SavedApplicationOptions,
         deferred: bool,
+        policy: Option<&crate::FiniteDemandPolicy>,
     ) -> Result<Self, AppError> {
         let started = Instant::now();
         options.validate_preparation()?;
-        let (selection, arity, limits) = Selection::parse(&inputs.selection)?;
+        let (selection, arity, limits) =
+            Selection::parse_with_byte_limit(&inputs.selection, package::metadata_limit(policy)?)?;
         if arity > N {
             return Err(AppError::input(format!(
                 "saved application arity {arity} exceeds storage arity {N}"
             )));
         }
-        let (entry_domain, empty) = scope::execution_domain::<N>(&inputs.queries, arity)?;
+        let (entry_domain, empty) = if let Some(policy) = policy {
+            scope::execution_domain_with_limits::<N>(
+                &inputs.queries,
+                arity,
+                policy.max_total_rows,
+                package::metadata_limit(Some(policy))?,
+            )?
+        } else {
+            scope::execution_domain::<N>(&inputs.queries, arity)?
+        };
         metadata["empty_starting_domains"] = serde_json::json!(empty);
         metadata["nonempty_starting_domains"] = serde_json::json!(entry_domain.regions().len());
         terminals.validate(options)?;

@@ -20,6 +20,40 @@ pub(crate) struct RawProvenance {
     state: Arc<GenerationState>,
 }
 impl RawProvenance {
+    /// Cheap synthetic resource fixture: repeated references preserve the exact
+    /// raw union and scope while exercising large native merge directories.
+    /// This does not simulate or certify thousands of native work batches.
+    #[cfg(test)]
+    pub(crate) fn with_repeated_raw_runs_for_test(&self, runs: usize) -> Self {
+        let mut manifest = (*self.manifest).clone();
+        let mut raw = (*manifest.raw).clone();
+        for entries in [&mut raw.terminals, &mut raw.zeros] {
+            if !entries.is_empty() {
+                assert!(runs >= entries.len());
+                let original = entries.clone();
+                *entries = (0..runs)
+                    .map(|index| original[index % original.len()].clone())
+                    .collect();
+            }
+        }
+        manifest.raw = Arc::new(raw);
+        let bytes = wire::encode(wire::MANIFEST_MAGIC, &manifest, wire::MAX_FRAME).unwrap();
+        let digest = *blake3::hash(&bytes).as_bytes();
+        fs::write(
+            self.directory
+                .join("generations")
+                .join(wire::name(&digest, "rrgen")),
+            bytes,
+        )
+        .unwrap();
+        Self {
+            directory: self.directory.clone(),
+            digest,
+            manifest: Arc::new(manifest),
+            state: Arc::clone(&self.state),
+        }
+    }
+
     /// Metadata capture only. Upstream must independently require exhausted
     /// authenticated scope and a successful full source-classified raw stream.
     pub fn capture(generation: &ValidatedGeneration) -> Self {

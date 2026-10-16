@@ -93,19 +93,16 @@ impl StorageLimits {
             || self.max_page_bytes == 0
             || self.max_manifest_bytes == 0
             || self.max_state_bytes == 0
-            || self.max_page_bytes > wire::MAX_FRAME
-            || self.max_manifest_bytes > wire::MAX_FRAME
-            || self.max_state_bytes > wire::MAX_FRAME
         {
             return Err(resource("unsupported finite-store framing policy"));
         }
-        let required = wire::MAX_FRAME
-            .checked_add(
-                self.max_page_bytes
-                    .max(self.max_manifest_bytes)
-                    .max(self.max_state_bytes)
-                    .max(self.raw.max_page_bytes),
-            )
+        let encoded = self
+            .max_page_bytes
+            .max(self.max_manifest_bytes)
+            .max(self.max_state_bytes)
+            .max(self.raw.max_page_bytes);
+        let required = wire::metadata_decode_allowance(encoded)
+            .checked_add(encoded)
             .ok_or_else(|| resource("transient decode allowance overflow"))?;
         if self.max_transient_bytes < required {
             return Err(resource("finite-store transient decode allowance"));

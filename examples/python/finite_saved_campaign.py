@@ -37,7 +37,6 @@ PHASES = PRODUCTION.PHASES
 SUPERVISOR = PRODUCTION.SUPERVISOR
 ENGINE = "rustred.finite-demand.v1"
 STEERING = "rustred.finite-campaign-steering.v1"
-MAX_BYTES = 16 * 1024 * 1024
 write_json = PRODUCTION.write_json
 sync_directory = PRODUCTION.sync_directory
 campaign_runs = PRODUCTION.campaign_runs
@@ -45,11 +44,18 @@ campaign_run_liveness = PRODUCTION.campaign_run_liveness
 steering_executable = PRODUCTION.steering_executable
 
 
-def read(path):
+def read(path, max_bytes=None):
+    """Strict JSON transport; native caller policy owns resource allowances.
+
+    An optional byte allowance is useful to callers reading untrusted metadata.
+    Do not silently impose a smaller steering-only ceiling than the native one.
+    """
+    if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 0):
+        raise ValueError("metadata byte allowance must be nonnegative or None")
     with Path(path).open("rb") as stream:
-        raw = stream.read(MAX_BYTES + 1)
-    if len(raw) > MAX_BYTES:
-        raise ValueError(f"finite steering document exceeds16MiB: {path}")
+        raw = stream.read() if max_bytes is None else stream.read(max_bytes + 1)
+    if max_bytes is not None and len(raw) > max_bytes:
+        raise ValueError(f"finite steering document exceeds requested {max_bytes}-byte allowance: {path}")
     return SUPERVISOR.ROLES.loads_document(raw)
 
 
@@ -124,29 +130,42 @@ def control_lock(namespace):
         os.close(descriptor)
 
 
-def inspect(campaign, executable, output_format="json"):
+def selected_policy_path(campaign, supplied=None):
+    if supplied is not None:
+        return Path(supplied).resolve()
+    steering = Path(campaign) / "bin/steering.json"
+    if steering.is_file():
+        saved = read(steering)
+        if saved.get("policy"):
+            return Path(campaign) / saved["policy"]
+    return None
+
+
+def inspect(campaign, executable, output_format="json", policy_path=None):
     command = [str(executable), "finite-demand", "inspect", "--directory", str(Path(campaign) / "finite-demand"),
                "--format", output_format]
+    policy_path = selected_policy_path(campaign, policy_path)
+    if policy_path is not None:
+        command += ["--policy", str(policy_path)]
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode:
         raise ValueError(f"native finite inspect failed (exit{result.returncode}): {result.stderr[-8192:]}")
     if output_format != "json":
         return result.stdout
-    if len(result.stdout.encode()) > MAX_BYTES:
-        raise ValueError("native finite inspection exceeds steering metadata allowance")
     value = SUPERVISOR.ROLES.loads_document(result.stdout)
     if value.get("schema") != "rustred.finite-demand-status.v1" or value.get("engine") != ENGINE:
         raise ValueError("native finite inspect returned a different engine/schema")
     return value
 
 
-def public_inspect(campaign, executable, output_format):
+def public_inspect(campaign, executable, output_format, policy_path=None):
     """Compose native committed status with native published/requested scope.
 
     Internal scope planning continues to use inspect() alone. No artifact means
     pending publication, never a fallback to the legacy CP6 inventory reader.
     """
-    native = inspect(campaign, executable)
+    policy_path = selected_policy_path(campaign, policy_path)
+    native = inspect(campaign, executable, policy_path=policy_path)
     pointer = campaign / "artifacts/latest.json"
     publication = None
     present = False
@@ -167,10 +186,13 @@ def public_inspect(campaign, executable, output_format):
         present = True
     table = output_format == "table" or output_format == "auto" and sys.stdout.isatty()
     artifact_command = [str(executable), "artifact-inspect", "--campaign-directory", str(campaign)]
+    policy_args = ["--policy", str(policy_path)] if policy_path is not None else []
+    if policy_path is not None:
+        artifact_command += ["--finite-policy", str(policy_path)]
     if table:
         # Do not capture/re-render native tables: retain their TTY/color behavior.
         for command in ([str(executable), "finite-demand", "inspect", "--directory",
-                         str(campaign / "finite-demand"), "--format", "table"],
+                         str(campaign / "finite-demand"), "--format", "table", *policy_args],
                         artifact_command + ["--format", "table"] if present else None):
             if command is None:
                 print("Publication: pending; no published artifact is available.", flush=True)
@@ -183,8 +205,6 @@ def public_inspect(campaign, executable, output_format):
         result = subprocess.run(artifact_command + ["--format", "json"], capture_output=True, text=True)
         if result.returncode:
             raise ValueError(f"native publication inspect failed (exit{result.returncode}): {result.stderr[-8192:]}")
-        if len(result.stdout.encode()) > MAX_BYTES:
-            raise ValueError("native publication inspection exceeds steering metadata allowance")
         publication = SUPERVISOR.ROLES.loads_document(result.stdout)
         if not isinstance(publication, dict):
             raise ValueError("native publication inspection must be an object")
@@ -196,7 +216,7 @@ def finite_scope_binding(plan):
     campaign = Path(plan["campaign_directory"])
     if not Path(plan["checkpoint_directory"]).exists():
         return None
-    native = inspect(campaign, plan["native_executable"])
+    native = inspect(campaign, plan["native_executable"], policy_path=plan.get("finite_policy"))
     require_prepared_namespace(native)
     if native["source"]["status"] in ("missing", "stale") and plan.get("allow_unbound_resume"):
         return None  # Explicit source resupply; never infer absence/freshness.
@@ -274,18 +294,19 @@ def source_command(campaign, count, size, amendments):
     return {"command": command}
 
 
-def extension(campaign, executable, rank, difference, dry_run, dispatcher_held=False):
+def extension(campaign, executable, rank, difference, dry_run, dispatcher_held=False, policy_path=None):
     helper = sibling("extend_rank_campaign")
     dispatcher = (nullcontext() if dispatcher_held else PRODUCTION.existing_phase_lock(campaign)
                   if dry_run else PHASES.dispatcher_lock(campaign / "master-reduction"))
     with dispatcher, control_lock(campaign / "finite-demand"):
-        native = inspect(campaign, executable)
+        native = inspect(campaign, executable, policy_path=policy_path)
         require_prepared_namespace(native)
         if native["source"]["status"] != "bound":
             raise ValueError("rank-stage planning requires bound native source metadata")
         validate_committed_sources(campaign, native)
         binding = finite_scope_binding({"campaign_directory": str(campaign), "checkpoint_directory": str(campaign / "finite-demand"),
-                                       "native_executable": str(executable)})
+                                       "native_executable": str(executable),
+                                       "finite_policy": str(policy_path) if policy_path is not None else None})
         PHASES.require_retained_refinement(campaign, binding)
         path, raw, receipt = helper.plan_from_source(campaign, rank, native["source"],
             {"generation": native["generation"]["number"], "generation_digest": native["generation"]["digest"]},
@@ -446,8 +467,6 @@ def execute(path):
 
 
 def public_main(args, extra):
-    if args.action == "inspect" and extra:
-        raise ValueError("finite inspect accepts no launch-policy overrides")
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument("--finite-policy", type=Path)
     parser.add_argument("--cpus")
@@ -457,6 +476,9 @@ def public_main(args, extra):
     parser.add_argument("--stop-grace-seconds", type=float)
     parser.add_argument("--repair-preparation", action="store_true")
     finite_args = parser.parse_args(extra)
+    if args.action == "inspect" and any(value is not None and value is not False
+                                        for name, value in vars(finite_args).items() if name != "finite_policy"):
+        raise ValueError("finite inspect accepts only --finite-policy, not launch-policy overrides")
     for name, value in vars(finite_args).items():
         setattr(args, name, value)
     if args.repair_preparation and args.action != "run":
@@ -468,7 +490,7 @@ def public_main(args, extra):
             raise ValueError("finite campaign output directories must not be symlinks: " + name)
     binary = executable(campaign, args.executable)
     if args.action == "inspect":
-        public_inspect(campaign, binary, args.format)
+        public_inspect(campaign, binary, args.format, policy_path=args.finite_policy)
         return 0
     if getattr(args, "deep_verification", False):
         raise ValueError("finite-demand publication has trusted generated provenance, not independent graph replay")
@@ -491,7 +513,8 @@ def _public_locked(args, campaign, binary, *, apply, startup_progress):
         helper = sibling("extend_rank_campaign")
         difference = (None if args.unbounded_power_difference else args.max_power_difference
                       if args.max_power_difference is not None else helper.PRESERVE_DIFFERENCE)
-        receipt = extension(campaign, binary, args.rank, difference, args.dry_run, dispatcher_held=True)
+        receipt = extension(campaign, binary, args.rank, difference, args.dry_run, dispatcher_held=True,
+                            policy_path=getattr(args, "finite_policy", None))
         print(json.dumps(receipt, indent=2), flush=True)
         if args.dry_run:
             return 0
@@ -511,7 +534,7 @@ def _public_locked(args, campaign, binary, *, apply, startup_progress):
     with control_lock(campaign / "finite-demand"):
         if (campaign / "finite-demand").exists() and not args.repair_preparation:
             startup_progress.phase("inspecting finite checkpoint")
-            status = inspect(campaign, binary)
+            status = inspect(campaign, binary, policy_path=getattr(args, "finite_policy", None))
             require_prepared_namespace(status)
             if status["source"]["status"] != "bound" and args.action != "run":
                 raise ValueError("native source metadata is not bound; run with unchanged source to repair it first")

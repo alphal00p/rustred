@@ -25,9 +25,9 @@ The first run explicitly selects the engine, executable and operational policy:
 The example `examples/input/finite_campaign/high_memory.json` selects32 workers
 and a300GB optional resident-Work grant. It is a high-memory incremental-run
 profile, not a claim that R6 fits or closes. Use it only with an appropriate
-process-tree RAM ceiling and available host memory. Its generous operational
-limits remain inside the current portable-reader bounds; those bounds are
-described below. Small machines should use a smaller explicitly reviewed policy.
+process-tree RAM ceiling and available host memory. Aggregate resource stops
+are optional: `null` means no requested cap. Buffer sizes remain explicit.
+Small machines should use a smaller explicitly reviewed policy.
 
 ```bash
 python -B examples/python/saved_campaign.py run \
@@ -119,12 +119,53 @@ on resume without changing the mathematical scope; the window partition cannot.
 Small benchmark policies must not be reused as production policies without
 reviewing their file, page, directory, disk and per-window allowances.
 
-The current format also has fixed metadata/decoder and portable-publication
-ceilings. A higher-rank run can reach one before its RAM ceiling. Such a refusal
-does not discard the prior committed checkpoint, but resolving a fixed-format
-limit can require a software change rather than a larger RAM setting. The
-completed rank-one measurements do not establish capacity or completion time
-for rank six.
+The finite policy governs tracing **and** publication, refinement, inspection
+and cold loading; a publication reader no longer silently imposes a smaller
+4096-segment allowance. For aggregate counters and work/IO grants (runs, pages,
+files, stored references, rows, source bytes, disk bytes and merge/read work),
+an explicit `null` removes that cap; a nonnegative integer applies the user's
+cap. This does not remove checked arithmetic, source/routing authentication,
+native type/shape validation or the process-tree RAM guard.
+
+For example, the relevant entries in `storage` may be:
+
+```json
+{
+  "max_runs": null,
+  "max_pages": null,
+  "max_disk_bytes": null
+}
+```
+
+These are excerpts, not a complete policy. The full high-memory example also
+removes the corresponding raw-census/merge caps. Page chunk sizes, resident
+cache sizes and frame/transient allocation budgets stay explicit numeric
+settings. They control buffering and decoding, not allowed physics input.
+Frames larger than the former64MiB ceiling are supported when requested;
+`max_transient_bytes` must cover the largest encoded frame plus its decoder
+budget (the larger of64MiB and that configured frame size). Raw decoding has
+the corresponding `max_decode_transient_bytes` requirement. A small page/cache
+setting is not an instruction to allocate the entire RAM allowance.
+The high-memory example allows1GiB manifest/state frames with2GiB transient
+decode headroom; these are maximum allowances, not upfront allocations.
+
+Choose a changed policy explicitly on resume, without changing the window
+partition:
+
+```bash
+python -B examples/python/saved_campaign.py run \
+  --campaign "$RUSTRED_CAMPAIGN" --resume --finite-policy path/to/policy.json
+python -B examples/python/saved_campaign.py inspect \
+  --campaign "$RUSTRED_CAMPAIGN" --finite-policy path/to/policy.json
+```
+
+The chosen run policy is frozen and reused by later calls. An inspection
+override is read-only and does not change it. Rust callers have explicit
+`*_with_policy` inspection/loading/application entry points; standalone CLI
+inspection/refinement accepts `--finite-policy`. Reader allowances come from
+the caller, never from an untrusted artifact's self-declared grants. Very
+large user grants can increase memory or IO cost; the rank-one measurements
+do not establish capacity or completion time for rank six.
 
 The principal progress bar counts required query rows closed in the **committed
 scope**. Current-window scheduled/expanded nodes are displayed separately and
@@ -134,7 +175,7 @@ without native reductions. No ETA follows solely from either counter.
 Before the native dashboard starts, the launcher reports startup phases and
 elapsed time on stderr (input checks, executable freezing and scope validation).
 This is activity reporting, not a percentage-complete estimate. Interactive
-runs then hand the terminal to the native solve dashboard, followed by the
+runs then hand the terminal to the bordered, coloured native solve dashboard, followed by the
 separate **Artifact publication** dashboard. Non-interactive runs keep bounded
 periodic log messages. `inspect --format json` and dry-run output are unchanged.
 
@@ -142,9 +183,10 @@ The terminal supervisor connects the native cursor-query input/output as well
 as its dashboard output to the same terminal; structured solve events and
 results remain in their explicit files. In this interactive mode the guard's
 `stdout`/`stderr` capture files are empty. Process-group isolation, Ctrl+C,
-checkpoint requests and RAM supervision are unchanged. The October 16 launcher
-fix works with the existing frozen finite-demand executable: no solver rebuild
-or campaign restart is required to use it on the next invocation.
+checkpoint requests and RAM supervision are unchanged. Dashboard errors are
+printed below the final table, never across its last line. The initial October16
+launcher-only repair needed no native rebuild; the subsequent configurable-limit
+and table-renderer update requires the newly built executable.
 
 Publication reuses the existing normalization/refinement and portable
 application format, with native finite-source provenance. It does not package

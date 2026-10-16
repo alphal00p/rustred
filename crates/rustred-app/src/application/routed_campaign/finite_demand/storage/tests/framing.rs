@@ -140,6 +140,32 @@ fn finite_store_compact_encoded_page_decode_refusal_never_replaces_current() {
             .digest(),
         previous
     );
+    let raised = StorageLimits {
+        max_page_bytes: 2 * wire::MAX_FRAME,
+        max_manifest_bytes: 2 * wire::MAX_FRAME,
+        max_transient_bytes: 4 * wire::MAX_FRAME,
+        ..settings
+    };
+    let mut resumed = StoreWriter::resume_generated(&path, binding.clone(), raised).unwrap();
+    let first = vec![0; arity];
+    let mut second = first.clone();
+    second[0] = 1;
+    resumed
+        .commit_generated(
+            vec![StoredWork::Route(first), StoredWork::Route(second)],
+            state(2, 1),
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+    let published = resumed.current().unwrap().unwrap().digest();
+    assert_ne!(published, previous);
+    drop(resumed);
+    assert_eq!(
+        ValidatedGeneration::open_generated(&path, &binding, raised)
+            .unwrap()
+            .digest(),
+        published
+    );
 }
 
 #[test]

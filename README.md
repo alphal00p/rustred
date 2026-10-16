@@ -348,7 +348,11 @@ The opt-in [finite-demand saved backend](docs/finite_saved_campaign.md) uses a
 fresh checkpoint namespace, shared exact dependency traversal and an optional
 memory-bounded completed-Work index. It retains the same manual refinement and
 rank-extension workflow, but does not import an old CP6 traversal ledger or
-offer that engine's optional deep graph replay.
+offer that engine's optional deep graph replay. Its resource policy applies
+through publication and cold loading: aggregate limits can be set to `null`
+(uncapped), rather than encountering hidden segment-count ceilings. The native
+solve dashboard displays committed coverage and measured CPU usage. See the
+[configurable-limit release and fresh launch instructions](docs/research/finite_resource_limits_2026-10-16.md).
 
 Completed ordinary publications also save an optional binary **raw census
 cache**. A subsequent publication can reuse the compatible immutable record

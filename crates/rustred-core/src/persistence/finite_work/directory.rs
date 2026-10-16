@@ -170,7 +170,6 @@ pub fn validate_directory(
         || arity > limits.max_arity
         || limits.max_page_records == 0
         || limits.max_page_bytes == 0
-        || limits.max_page_bytes > FRAME_LIMIT
     {
         return Err(resource("finite directory framing/arity policy"));
     }

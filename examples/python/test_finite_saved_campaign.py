@@ -113,6 +113,50 @@ class FiniteCampaignTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "resident Work allowance"):
                 FIN.require_policy({**self.policy, "max_resident_work_bytes": grant})
 
+    def test_uncapped_operational_policy_is_frozen_without_changing_windows(self):
+        self.plan()
+        self.namespace()
+        modified = copy.deepcopy(self.policy)
+        modified.update(max_total_rows=None, max_source_bytes=None)
+        modified["storage"] = {"max_runs": None, "max_pages": None}
+        modified["control"] = {"max_bytes": None, "max_files": None}
+        self.policy_path.write_bytes(FIN.encoded(modified))
+        plan = self.plan()
+        frozen = FIN.read(plan["finite_policy"])
+        self.assertEqual(frozen, modified)
+        self.assertEqual(frozen["windows"], self.policy["windows"])
+        self.assertIn("--resume", plan["native_command"])
+
+    def test_inspection_forwards_explicit_policy_and_leaves_saved_policy_unchanged(self):
+        self.plan()
+        override = self.root / "override.json"
+        override.write_bytes(FIN.encoded({**self.policy, "max_total_rows": None}))
+        before = FIXTURE.snapshot(self.campaign)
+        response = SimpleNamespace(returncode=0, stdout=json.dumps(self.native), stderr="")
+        with redirect_stdout(io.StringIO()), patch.object(FIN.subprocess, "run", return_value=response) as native:
+            self.assertEqual(PUBLIC.main(["inspect", "--campaign", str(self.campaign),
+                "--executable", str(self.binary), "--format", "json",
+                "--finite-policy", str(override)]), 0)
+        command = native.call_args.args[0]
+        self.assertEqual(command[command.index("--policy") + 1], str(override))
+        self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+        with self.assertRaises(SystemExit) as error:
+            PUBLIC.main(["inspect", "--campaign", str(self.campaign),
+                "--executable", str(self.binary), "--cpus", "0"])
+        self.assertEqual(error.exception.code, 2)
+
+    def test_steering_json_allowance_is_caller_selected(self):
+        path = self.root / "large-metadata.json"
+        path.write_text('{"padding":"' + "x" * (16 * 1024 * 1024) + '"}')
+        self.assertEqual(len(FIN.read(path)["padding"]), 16 * 1024 * 1024)
+        self.assertEqual(len(FIN.PHASES.read_json(path)["padding"]), 16 * 1024 * 1024)
+        for reader in (FIN.read, FIN.PHASES.read_json):
+            with self.assertRaisesRegex(ValueError, "allowance"):
+                reader(path, max_bytes=100)
+            for bad in (-1, True):
+                with self.assertRaisesRegex(ValueError, "allowance"):
+                    reader(path, max_bytes=bad)
+
     def test_public_finite_dry_run_dispatch_is_read_only_and_never_legacy(self):
         before = FIXTURE.snapshot(self.campaign)
         command = ["run", "--campaign", str(self.campaign), "--executable", str(self.binary),
@@ -277,6 +321,21 @@ class FiniteCampaignTests(unittest.TestCase):
         self.assertEqual({name: FIXTURE.snapshot(self.campaign)[name] for name in before}, before)
         with patch.object(FIN, "inspect", return_value=self.native), self.assertRaisesRegex(ValueError, "pending"):
             FIN.extension(self.campaign, self.binary, 2, EXTEND.PRESERVE_DIFFERENCE, False)
+
+    def test_extension_uses_new_policy_before_inspecting_the_old_scope(self):
+        self.plan()
+        self.namespace()
+        before = FIXTURE.snapshot(self.campaign)
+        override = self.root / "expanded-policy.json"
+        override.write_bytes(FIN.encoded({**self.policy, "max_total_rows": None}))
+        with patch.object(FIN, "inspect", return_value=self.native) as inspect:
+            FIN.extension(self.campaign, self.binary, 1, EXTEND.PRESERVE_DIFFERENCE,
+                          True, policy_path=override)
+        self.assertEqual(inspect.call_count, 2)
+        self.assertTrue(all(call.kwargs["policy_path"] == override or
+                            call.kwargs["policy_path"] == str(override)
+                            for call in inspect.call_args_list))
+        self.assertEqual(FIXTURE.snapshot(self.campaign), before)
 
     def test_finite_lock_order_and_no_legacy_checkpoint_calls(self):
         plan = self.plan()

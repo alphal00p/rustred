@@ -48,26 +48,48 @@ pub(super) struct ApplicationInputs {
 
 /// Inspect the authenticated selection's physical arity without native import.
 pub fn saved_application_arity(path: &Path) -> Result<usize, AppError> {
-    let (selection, _) = domain_inputs(path)?;
+    let (selection, _) = domain_inputs(path, None)?;
     Ok(Selection::parse(&selection)?.1)
 }
 
-fn domain_inputs(path: &Path) -> Result<(String, String), AppError> {
+pub fn saved_application_arity_with_policy(
+    path: &Path,
+    policy: &crate::FiniteDemandPolicy,
+) -> Result<usize, AppError> {
+    let (selection, _) = domain_inputs(path, Some(policy))?;
+    Ok(Selection::parse_with_byte_limit(&selection, metadata_limit(Some(policy))?)?.1)
+}
+
+pub(super) fn metadata_limit(
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<usize, AppError> {
+    policy.map_or(Ok(MAX_METADATA), |p| {
+        usize::try_from(p.control.max_bytes).map_err(|_| {
+            AppError::limit("finite application metadata allowance exceeds platform size")
+        })
+    })
+}
+
+fn domain_inputs(
+    path: &Path,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<(String, String), AppError> {
+    let maximum = metadata_limit(policy)?;
     let manifest = if path.is_dir() && path.join("application.json").is_file() {
         path.join("application.json")
     } else {
         publication_manifest(path)
     };
     let report: Value =
-        serde_json::from_slice(&read_bounded(&manifest, MAX_METADATA)?).map_err(failure)?;
+        serde_json::from_slice(&read_bounded(&manifest, maximum)?).map_err(failure)?;
     if report["schema"] == SAVED_APPLICATION_SCHEMA {
         let directory = manifest.parent().unwrap_or(Path::new("."));
         Ok((
-            read_text_descriptor(directory, &report["selection"], MAX_METADATA)?,
-            read_text_descriptor(directory, &report["queries"], MAX_METADATA)?,
+            read_text_descriptor(directory, &report["selection"], maximum)?,
+            read_text_descriptor(directory, &report["queries"], maximum)?,
         ))
     } else {
-        let inputs = publication_inputs(&manifest, &report)?;
+        let inputs = publication_inputs(&manifest, &report, policy)?;
         Ok((inputs.selection, inputs.queries))
     }
 }
@@ -77,12 +99,34 @@ fn domain_inputs(path: &Path) -> Result<(String, String), AppError> {
 pub fn saved_application_domains<const N: usize>(
     path: &Path,
 ) -> Result<Vec<SavedApplicationDomain<N>>, AppError> {
-    let (selection, queries) = domain_inputs(path)?;
-    let (_, arity, _) = Selection::parse(&selection)?;
+    domains_with_policy(path, None)
+}
+
+pub fn saved_application_domains_with_policy<const N: usize>(
+    path: &Path,
+    policy: &crate::FiniteDemandPolicy,
+) -> Result<Vec<SavedApplicationDomain<N>>, AppError> {
+    domains_with_policy(path, Some(policy))
+}
+
+fn domains_with_policy<const N: usize>(
+    path: &Path,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<Vec<SavedApplicationDomain<N>>, AppError> {
+    let (selection, queries) = domain_inputs(path, policy)?;
+    let (_, arity, _) = Selection::parse_with_byte_limit(&selection, metadata_limit(policy)?)?;
     if arity > N {
         return Err(AppError::input("saved domain arity exceeds storage arity"));
     }
-    scope::recorded_domains::<N>(&queries, arity)
+    match policy {
+        Some(policy) => scope::recorded_domains_with_limits::<N>(
+            &queries,
+            arity,
+            policy.max_total_rows,
+            metadata_limit(Some(policy))?,
+        ),
+        None => scope::recorded_domains::<N>(&queries, arity),
+    }
 }
 
 /// Prepare a fixed published artifact. A directory means `artifact.json`, never
@@ -92,23 +136,53 @@ pub fn prepare_saved_application<const N: usize>(
     publication: &Path,
     options: SavedApplicationOptions,
 ) -> Result<PreparedSavedApplication<N>, AppError> {
+    prepare_with_policy(publication, options, None)
+}
+
+/// Cold preparation and export admission using explicit finite source grants.
+pub fn prepare_saved_application_with_policy<const N: usize>(
+    publication: &Path,
+    options: SavedApplicationOptions,
+    policy: &crate::FiniteDemandPolicy,
+) -> Result<PreparedSavedApplication<N>, AppError> {
+    prepare_with_policy(publication, options, Some(policy))
+}
+
+fn prepare_with_policy<const N: usize>(
+    publication: &Path,
+    options: SavedApplicationOptions,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<PreparedSavedApplication<N>, AppError> {
     let started = std::time::Instant::now();
     options.validate_preparation()?;
     let manifest = publication_manifest(publication);
-    let bytes = read_bounded(&manifest, MAX_METADATA)?;
+    let maximum = metadata_limit(policy)?;
+    let bytes = read_bounded(&manifest, maximum)?;
     let report: Value = serde_json::from_slice(&bytes).map_err(failure)?;
-    let inputs = publication_inputs(&manifest, &report)?;
-    let (selection, arity, _) = Selection::parse(&inputs.selection)?;
+    let inputs = publication_inputs(&manifest, &report, policy)?;
+    let (selection, arity, _) = Selection::parse_with_byte_limit(&inputs.selection, maximum)?;
     if arity > N {
         return Err(AppError::input(
             "saved publication exceeds requested storage arity",
         ));
     }
-    scope::execution_domain::<N>(&inputs.queries, arity)?;
+    if let Some(policy) = policy {
+        scope::execution_domain_with_limits::<N>(
+            &inputs.queries,
+            arity,
+            policy.max_total_rows,
+            maximum,
+        )?;
+    } else {
+        scope::execution_domain::<N>(&inputs.queries, arity)?;
+    }
     let metadata_time = started.elapsed();
     let terminal_started = std::time::Instant::now();
-    let artifact = crate::load_master_reduction(&manifest)?;
-    if read_bounded(&manifest, MAX_METADATA)? != bytes {
+    let artifact = match policy {
+        Some(policy) => crate::load_master_reduction_with_policy(&manifest, policy)?,
+        None => crate::load_master_reduction(&manifest)?,
+    };
+    if read_bounded(&manifest, maximum)? != bytes {
         return Err(AppError::input(
             "publication manifest changed during application preparation",
         ));
@@ -156,7 +230,9 @@ pub fn prepare_saved_application<const N: usize>(
         "numerical_master_values":false,
         "authority":"inherits the saved owners and published terminal substitutions; no certification upgrade",
     });
-    let mut prepared = PreparedSavedApplication::from_parts(inputs, terminals, metadata, options)?;
+    let mut prepared = PreparedSavedApplication::from_parts_with_mode(
+        inputs, terminals, metadata, options, false, policy,
+    )?;
     prepared.preparation_statistics.metadata = metadata_time;
     prepared.preparation_statistics.terminal_maps = terminal_time;
     prepared.preparation_statistics.finish(started.elapsed());
@@ -173,12 +249,41 @@ pub fn export_saved_application<const N: usize>(
     prepare_saved_application::<N>(publication, options)?.export_runtime(destination)
 }
 
+/// Export with explicit finite provenance and source metadata grants.
+pub fn export_saved_application_with_policy<const N: usize>(
+    publication: &Path,
+    destination: &Path,
+    options: SavedApplicationOptions,
+    policy: &crate::FiniteDemandPolicy,
+) -> Result<Value, AppError> {
+    prepare_saved_application_with_policy::<N>(publication, options, policy)?
+        .export_runtime(destination)
+}
+
 /// Authenticate application-only data once and retain frozen native frames.
 /// Owner presence, geometry/context, zero certificates and routes are eager;
 /// each owner's formulas and overlays are admitted/prepared once on first use.
 pub fn load_saved_application<const N: usize>(
     directory: &Path,
     options: SavedApplicationOptions,
+) -> Result<PreparedSavedApplication<N>, AppError> {
+    load_with_policy(directory, options, None)
+}
+
+/// Authenticate an application-only runtime with explicit caller grants for
+/// its metadata and exact entry scope. The saved package supplies no grants.
+pub fn load_saved_application_with_policy<const N: usize>(
+    directory: &Path,
+    options: SavedApplicationOptions,
+    policy: &crate::FiniteDemandPolicy,
+) -> Result<PreparedSavedApplication<N>, AppError> {
+    load_with_policy(directory, options, Some(policy))
+}
+
+fn load_with_policy<const N: usize>(
+    directory: &Path,
+    options: SavedApplicationOptions,
+    policy: Option<&crate::FiniteDemandPolicy>,
 ) -> Result<PreparedSavedApplication<N>, AppError> {
     let started = std::time::Instant::now();
     options.validate_preparation()?;
@@ -188,23 +293,28 @@ pub fn load_saved_application<const N: usize>(
         directory.to_path_buf()
     };
     let directory = manifest.parent().unwrap_or(Path::new("."));
+    let maximum = metadata_limit(policy)?;
     let report: Value =
-        serde_json::from_slice(&read_bounded(&manifest, MAX_METADATA)?).map_err(failure)?;
+        serde_json::from_slice(&read_bounded(&manifest, maximum)?).map_err(failure)?;
     if report["schema"] != SAVED_APPLICATION_SCHEMA {
         return Err(AppError::input("unsupported saved application schema"));
     }
-    let selection = read_text_descriptor(directory, &report["selection"], MAX_METADATA)?;
-    let queries = read_text_descriptor(directory, &report["queries"], MAX_METADATA)?;
+    let selection = read_text_descriptor(directory, &report["selection"], maximum)?;
+    let queries = read_text_descriptor(directory, &report["queries"], maximum)?;
     let payloads: Vec<Payload> =
         serde_json::from_value(report["payloads"].clone()).map_err(failure)?;
     validate_selection_payloads(&selection, &payloads)?;
-    let (_, arity, _) = Selection::parse(&selection)?;
+    let (_, arity, _) = Selection::parse_with_byte_limit(&selection, maximum)?;
     if arity > N {
         return Err(AppError::input(
             "saved runtime exceeds requested storage arity",
         ));
     }
-    scope::execution_domain::<N>(&queries, arity)?;
+    if let Some(policy) = policy {
+        scope::execution_domain_with_limits::<N>(&queries, arity, policy.max_total_rows, maximum)?;
+    } else {
+        scope::execution_domain::<N>(&queries, arity)?;
+    }
     let metadata_time = started.elapsed();
     let terminal_started = std::time::Instant::now();
     let maps = read_descriptor(
@@ -232,6 +342,7 @@ pub fn load_saved_application<const N: usize>(
         terminals,
         report["metadata"].clone(),
         options,
+        policy,
     )?;
     prepared.preparation_statistics.metadata = metadata_time;
     prepared.preparation_statistics.terminal_maps = terminal_time;
@@ -297,7 +408,11 @@ fn publication_manifest(path: &Path) -> PathBuf {
     }
 }
 
-fn publication_inputs(manifest: &Path, report: &Value) -> Result<ApplicationInputs, AppError> {
+fn publication_inputs(
+    manifest: &Path,
+    report: &Value,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<ApplicationInputs, AppError> {
     if report["schema"] != "rustred.master-reduction.v2"
         && report["schema"] != "rustred.master-reduction.v3"
     {
@@ -306,10 +421,13 @@ fn publication_inputs(manifest: &Path, report: &Value) -> Result<ApplicationInpu
         ));
     }
     let directory = manifest.parent().unwrap_or(Path::new("."));
-    crate::application::master_reduction::validate_required_source(directory, report)?;
+    crate::application::master_reduction::validate_required_source_with_policy(
+        directory, report, policy,
+    )?;
+    let maximum = metadata_limit(policy)?;
     let inputs = &report["inputs"];
     let selection_path = safe_child(directory, required_string(inputs, "selection")?)?;
-    let selection_bytes = read_bounded(&selection_path, MAX_METADATA)?;
+    let selection_bytes = read_bounded(&selection_path, maximum)?;
     authenticate(
         &selection_bytes,
         required_string(inputs, "program_binding")?,
@@ -333,13 +451,13 @@ fn publication_inputs(manifest: &Path, report: &Value) -> Result<ApplicationInpu
     validate_selection_payloads(&selection, &payloads)?;
     let queries = read_bounded(
         &safe_child(directory, required_string(inputs, "queries")?)?,
-        MAX_METADATA,
+        maximum,
     )?;
     authenticate(&queries, required_string(inputs, "queries_blake3")?)?;
     let base: Value = serde_json::from_slice(&queries).map_err(failure)?;
     let mut documents = vec![base];
     let amendments_path = safe_child(directory, required_string(inputs, "amendments")?)?;
-    let amendments = read_bounded(&amendments_path, MAX_METADATA)?;
+    let amendments = read_bounded(&amendments_path, maximum)?;
     authenticate(&amendments, required_string(inputs, "amendments_blake3")?)?;
     let amendments: Vec<Value> = serde_json::from_slice(&amendments).map_err(failure)?;
     for amendment in amendments {
@@ -347,7 +465,7 @@ fn publication_inputs(manifest: &Path, report: &Value) -> Result<ApplicationInpu
             amendments_path.parent().unwrap_or(directory),
             required_string(&amendment, "path")?,
         )?;
-        let bytes = read_bounded(&path, MAX_METADATA)?;
+        let bytes = read_bounded(&path, maximum)?;
         authenticate(&bytes, required_string(&amendment, "blake3")?)?;
         documents.push(serde_json::from_slice(&bytes).map_err(failure)?);
     }
@@ -507,7 +625,7 @@ pub(super) fn read_bounded(path: &Path, maximum: usize) -> Result<Vec<u8>, AppEr
         ));
     }
     let mut bytes = Vec::new();
-    file.take(maximum as u64 + 1)
+    file.take((maximum as u64).saturating_add(1))
         .read_to_end(&mut bytes)
         .map_err(failure)?;
     if bytes.len() > maximum {

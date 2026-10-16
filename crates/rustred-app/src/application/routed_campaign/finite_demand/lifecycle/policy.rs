@@ -5,33 +5,70 @@ use rustred::solver::CandidateRoutedDeltaExportLimits;
 use serde::{Deserialize, Serialize};
 
 macro_rules! limits_dto {
-    ($name:ident => $native:ty { $($field:ident : $ty:ty),* $(,)? }) => {
+    ($name:ident => $native:ty { $($(#[$attr:meta])* $field:ident : $ty:ty),* $(,)? }) => {
         #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
         #[serde(deny_unknown_fields)]
-        pub(crate) struct $name { $( pub(crate) $field: $ty, )* }
+        pub(crate) struct $name { $( $(#[$attr])* pub(crate) $field: $ty, )* }
         impl From<$name> for $native {
             fn from(v: $name) -> Self { Self { $( $field: v.$field.into(), )* } }
         }
     };
 }
+// Aggregate stops accept an explicit null without changing the native integer
+// types. Native checked arithmetic continues to reject counter overflows.
+macro_rules! nullable_limit {
+    ($name:ident, $ty:ty) => {
+        pub(crate) mod $name {
+            use serde::{Deserialize, Deserializer, Serialize, Serializer};
+            pub fn deserialize<'de, D: Deserializer<'de>>(reader: D) -> Result<$ty, D::Error> {
+                Ok(Option::<$ty>::deserialize(reader)?.unwrap_or(<$ty>::MAX))
+            }
+            pub fn serialize<S: Serializer>(value: &$ty, writer: S) -> Result<S::Ok, S::Error> {
+                if *value == <$ty>::MAX {
+                    Option::<$ty>::None.serialize(writer)
+                } else {
+                    value.serialize(writer)
+                }
+            }
+        }
+    };
+}
+nullable_limit!(nullable_usize, usize);
+nullable_limit!(nullable_u64, u64);
 limits_dto!(RawLimits => storage::RawCensusLimits {
-    max_page_records: usize, max_page_bytes: usize, max_runs: usize,
-    max_pages: usize, max_directory_bytes: usize, max_stored_references: u64,
-    max_merge_runs: usize, max_merge_cached_pages: usize,
-    max_merge_payload_bytes: usize, max_merge_read_bytes: u64,
+    max_page_records: usize, max_page_bytes: usize,
+    #[serde(with = "nullable_usize")] max_runs: usize,
+    #[serde(with = "nullable_usize")] max_pages: usize,
+    #[serde(with = "nullable_usize")] max_directory_bytes: usize,
+    #[serde(with = "nullable_u64")] max_stored_references: u64,
+    #[serde(with = "nullable_usize")] max_merge_runs: usize,
+    max_merge_cached_pages: usize,
+    #[serde(with = "nullable_usize")] max_merge_payload_bytes: usize,
+    #[serde(with = "nullable_u64")] max_merge_read_bytes: u64,
     max_decode_transient_bytes: usize,
 });
 limits_dto!(StoreLimits => storage::StorageLimits {
-    raw: RawLimits, max_arity: usize, max_delta_records: usize,
-    max_delta_payload_bytes: usize, max_page_records: usize, max_page_bytes: usize,
+    raw: RawLimits,
+    #[serde(with = "nullable_usize")] max_arity: usize,
+    #[serde(with = "nullable_usize")] max_delta_records: usize,
+    #[serde(with = "nullable_usize")] max_delta_payload_bytes: usize,
+    max_page_records: usize, max_page_bytes: usize,
     max_cached_pages: usize, max_cached_page_bytes: usize,
-    max_directory_bytes: usize, max_manifest_bytes: usize, max_state_bytes: usize,
-    max_scope_rows: usize, max_census_records: usize, max_runs: usize,
-    max_pages: usize, max_physical_files: usize, max_disk_bytes: u64,
-    max_lookup_pages: usize, max_lookup_bytes: u64, max_transient_bytes: usize,
+    #[serde(with = "nullable_usize")] max_directory_bytes: usize,
+    max_manifest_bytes: usize, max_state_bytes: usize,
+    #[serde(with = "nullable_usize")] max_scope_rows: usize,
+    #[serde(with = "nullable_usize")] max_census_records: usize,
+    #[serde(with = "nullable_usize")] max_runs: usize,
+    #[serde(with = "nullable_usize")] max_pages: usize,
+    #[serde(with = "nullable_usize")] max_physical_files: usize,
+    #[serde(with = "nullable_u64")] max_disk_bytes: u64,
+    #[serde(with = "nullable_usize")] max_lookup_pages: usize,
+    #[serde(with = "nullable_u64")] max_lookup_bytes: u64,
+    max_transient_bytes: usize,
 });
 limits_dto!(ExportLimits => CandidateRoutedDeltaExportLimits {
-    max_records: usize, max_live_payload_bytes: usize,
+    #[serde(with = "nullable_usize")] max_records: usize,
+    #[serde(with = "nullable_usize")] max_live_payload_bytes: usize,
 });
 
 /// Bounds for adjacent immutable source/control documents, separate from the
@@ -39,7 +76,9 @@ limits_dto!(ExportLimits => CandidateRoutedDeltaExportLimits {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ControlLimits {
+    #[serde(with = "nullable_u64")]
     pub(crate) max_bytes: u64,
+    #[serde(with = "nullable_usize")]
     pub(crate) max_files: usize,
 }
 
@@ -60,7 +99,9 @@ pub struct FiniteDemandPolicy {
     pub(crate) census: trace::CensusLimits,
     pub(crate) export: ExportLimits,
     pub(crate) storage: StoreLimits,
+    #[serde(with = "nullable_usize")]
     pub(crate) max_total_rows: usize,
+    #[serde(with = "nullable_usize")]
     pub(crate) max_source_bytes: usize,
     /// Optional exact full-Work acceleration; zero preserves disk-backed lookup.
     #[serde(default)]
@@ -86,9 +127,6 @@ fn uncapped_reduction() -> Option<trace::ReductionAggregateOverrides> {
 }
 impl FiniteDemandPolicy {
     pub fn from_json(bytes: &[u8]) -> Result<Self, AppError> {
-        if bytes.len() > 1024 * 1024 {
-            return Err(AppError::limit("finite policy document exceeds 1 MiB"));
-        }
         let value: Self = serde_json::from_slice(bytes)
             .map_err(|e| AppError::input(format!("invalid finite policy: {e}")))?;
         if value.workers == 0 || value.control.max_bytes == 0 || value.control.max_files == 0 {

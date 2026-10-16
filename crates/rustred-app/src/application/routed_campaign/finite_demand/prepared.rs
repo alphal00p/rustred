@@ -45,12 +45,27 @@ pub(crate) struct PreparedCommit<const N: usize> {
     pub cleanup_warning: Option<String>,
 }
 impl<const N: usize> PreparedExecution<N> {
+    #[cfg(test)]
     pub fn prepare(
         request: &RoutedCampaignRequest,
         cancel: &AtomicBool,
         observer: &impl Fn(Value),
     ) -> Result<Option<Self>, AppError> {
-        let (selection, arity, limits) = Selection::parse(&request.selection_json)?;
+        Self::prepare_with_source_limit(
+            request,
+            super::super::input::MAX_STEERING_BYTES,
+            cancel,
+            observer,
+        )
+    }
+    pub fn prepare_with_source_limit(
+        request: &RoutedCampaignRequest,
+        max_source_bytes: usize,
+        cancel: &AtomicBool,
+        observer: &impl Fn(Value),
+    ) -> Result<Option<Self>, AppError> {
+        let (selection, arity, limits) =
+            Selection::parse_with_byte_limit(&request.selection_json, max_source_bytes)?;
         let mut fingerprints = None;
         let reducer = prepare::prepare_with_fingerprints(
             request,
@@ -482,8 +497,9 @@ pub(crate) fn validate_portable_execution(
     fingerprints: &[String],
     identity: &Value,
     expected: &RawExecutionBinding,
+    max_source_bytes: usize,
 ) -> Result<(), AppError> {
-    let (selection, arity, _) = Selection::parse(selection_json)?;
+    let (selection, arity, _) = Selection::parse_with_byte_limit(selection_json, max_source_bytes)?;
     let policy = |name| {
         identity[name]
             .as_str()

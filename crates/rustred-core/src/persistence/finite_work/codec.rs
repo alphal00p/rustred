@@ -1,7 +1,13 @@
 use super::*;
 use std::io::Write;
 
+/// Default decoded-allocation allowance, not a maximum accepted frame size.
+/// Larger caller-selected frames raise the decoder allowance with them.
 pub const FRAME_LIMIT: usize = 64 * 1024 * 1024;
+
+pub fn metadata_decode_allowance(encoded_limit: usize) -> usize {
+    FRAME_LIMIT.max(encoded_limit)
+}
 pub const PAGE_MAGIC: &[u8] = b"RUSTRED-FINITE-WORK-1\0";
 
 #[derive(bincode::Encode, bincode::Decode)]
@@ -109,7 +115,7 @@ pub fn encode_metadata_frame(
     value: &impl bincode::Encode,
     limit: usize,
 ) -> GeneratedWorkResult<Vec<u8>> {
-    if limit > FRAME_LIMIT || limit < magic.len() + 32 {
+    if limit < magic.len() + 32 {
         return Err(resource("finite frame allowance"));
     }
     let mut writer = BoundedBytes {
@@ -128,29 +134,86 @@ pub fn decode_metadata_frame<T: bincode::Decode<()>>(
     bytes: &[u8],
     limit: usize,
 ) -> GeneratedWorkResult<T> {
-    if limit > FRAME_LIMIT
-        || bytes.len() > limit
-        || bytes.len() < magic.len() + 32
-        || !bytes.starts_with(magic)
-    {
+    if bytes.len() > limit || bytes.len() < magic.len() + 32 || !bytes.starts_with(magic) {
         return Err(corrupt("finite frame magic/length"));
     }
     let end = bytes.len() - 32;
     if blake3::hash(&bytes[..end]).as_bytes() != &bytes[end..] {
         return Err(corrupt("finite frame digest"));
     }
-    let (value, consumed) = bincode::decode_from_slice(
-        &bytes[magic.len()..end],
-        bincode::config::standard().with_limit::<FRAME_LIMIT>(),
-    )
-    .map_err(|error| match error {
+    decode_payload(&bytes[magic.len()..end], metadata_decode_allowance(limit))
+}
+
+fn decode_payload<T: bincode::Decode<()>>(bytes: &[u8], budget: usize) -> GeneratedWorkResult<T> {
+    use bincode::de::{Decoder, read::Reader};
+    let map_error = |error| match error {
         bincode::error::DecodeError::LimitExceeded => resource(error),
         _ => corrupt(error),
-    })?;
-    if consumed != end - magic.len() {
+    };
+    // Bincode's configured limit is const-generic, but its public claim API
+    // permits an exact runtime allowance: reserve the unused part up front.
+    // Bincode still checks nested container allocations before reserving them;
+    // do not replace this with an unbounded decoder plus a post-decode check.
+    let mut decoder = bincode::de::DecoderImpl::new(
+        bincode::de::read::SliceReader::new(bytes),
+        bincode::config::standard().with_limit::<{ usize::MAX }>(),
+        (),
+    );
+    decoder
+        .claim_bytes_read(usize::MAX - budget)
+        .map_err(map_error)?;
+    let value = T::decode(&mut decoder).map_err(map_error)?;
+    if decoder.reader().peek_read(1).is_some() {
         return Err(corrupt("trailing finite frame bytes"));
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod runtime_budget_tests {
+    use super::*;
+
+    #[test]
+    fn runtime_decoder_matches_bincode_nested_container_accounting() {
+        for length in 0..48 {
+            let value: Vec<Vec<u64>> = vec![vec![7; length], vec![11; length / 2]];
+            let bytes = bincode::encode_to_vec(&value, bincode::config::standard()).unwrap();
+            let reference = bincode::decode_from_slice::<Vec<Vec<u64>>, _>(
+                &bytes,
+                bincode::config::standard().with_limit::<128>(),
+            );
+            let actual = decode_payload::<Vec<Vec<u64>>>(&bytes, 128);
+            assert_eq!(actual.is_ok(), reference.is_ok(), "length={length}");
+            if let Ok(actual) = actual {
+                assert_eq!(actual, value);
+            }
+        }
+    }
+
+    #[test]
+    fn caller_frame_allowance_can_exceed_old_64_mib_ceiling() {
+        let value = vec![3u8; FRAME_LIMIT + 1];
+        let limit = FRAME_LIMIT + 4096;
+        let bytes = encode_metadata_frame(PAGE_MAGIC, &value, limit).unwrap();
+        assert!(bytes.len() > FRAME_LIMIT);
+        assert!(decode_metadata_frame::<Vec<u8>>(PAGE_MAGIC, &bytes, FRAME_LIMIT).is_err());
+        let decoded: Vec<u8> = decode_metadata_frame(PAGE_MAGIC, &bytes, limit).unwrap();
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn runtime_budget_rejects_hostile_vector_lengths_and_trailing_data() {
+        let bytes = bincode::encode_to_vec(usize::MAX / 8, bincode::config::standard()).unwrap();
+        assert_eq!(
+            decode_payload::<Vec<u64>>(&bytes, 128).unwrap_err().kind,
+            GeneratedWorkErrorKind::Resource
+        );
+        let bytes = bincode::encode_to_vec((7u8, 8u8), bincode::config::standard()).unwrap();
+        assert_eq!(
+            decode_payload::<u8>(&bytes, 128).unwrap_err().kind,
+            GeneratedWorkErrorKind::Corrupt
+        );
+    }
 }
 struct BoundedBytes {
     bytes: Vec<u8>,

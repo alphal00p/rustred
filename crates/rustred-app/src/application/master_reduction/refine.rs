@@ -46,7 +46,7 @@ pub fn master_refine_published_artifact(
         }
     }
     let _lock = storage::WriterLock::acquire(&options.directory)?;
-    let source_report = master_reduction_inspect(source)?;
+    let source_report = inspect_with_policy(source, options.finite_policy.as_ref())?;
     if !matches!(
         source_report["status"].as_str(),
         Some("published_unrefined" | "completed_nonminimal")
@@ -59,7 +59,10 @@ pub fn master_refine_published_artifact(
     let source_profile = profile::from_report(&source_report)?;
     let latest = options.directory.join("latest.json");
     let resumed = if options.resume {
-        Some(read_json(&latest)?)
+        Some(storage::read_json_with_policy(
+            &latest,
+            options.finite_policy.as_ref(),
+        )?)
     } else {
         None
     };
@@ -100,7 +103,7 @@ pub fn master_refine_published_artifact(
                 "refinement checkpoint has a different source or requested seed depth",
             ));
         }
-        let session = load_master_relation_session(&options.directory)?;
+        let session = load_session_with_policy(&options.directory, options.finite_policy.as_ref())?;
         assistance::validate(options, &session, &report)?;
         (report, session)
     } else {
@@ -109,7 +112,7 @@ pub fn master_refine_published_artifact(
                 "refinement checkpoint exists; use --resume",
             ));
         }
-        let mut session = load_master_relation_session(source)?;
+        let mut session = load_session_with_policy(source, options.finite_policy.as_ref())?;
         let changes_profile = normalization_profile != source_profile;
         if changes_profile {
             session = TerminalRelationSession::new(
@@ -124,13 +127,19 @@ pub fn master_refine_published_artifact(
                 .extend(&BTreeSet::new(), options.seed_depth)
                 .map_err(io)?;
         }
-        storage::clone_inputs(&source_directory, &options.directory, &source_report)?;
+        storage::clone_inputs_with_policy(
+            &source_directory,
+            &options.directory,
+            &source_report,
+            options.finite_policy.as_ref(),
+        )?;
         let mut report = source_report.clone();
         census_cache::inherit_with_cancel(
             &source_directory,
             &options.directory,
             &mut report,
             cancellation,
+            options.finite_policy.as_ref(),
         )?;
         report["schema"] = json!(current_schema(&report)?);
         report
@@ -152,7 +161,12 @@ pub fn master_refine_published_artifact(
         report["seed_depth"] = json!(session.statistics().seed_depth);
         profile::record(&mut report, normalization_profile);
         report["finite_search_restarted_for_normalization_profile"] = json!(changes_profile);
-        collection::inherit(source, &options.directory, &mut report)?;
+        collection::inherit_with_policy(
+            source,
+            &options.directory,
+            &mut report,
+            options.finite_policy.as_ref(),
+        )?;
         collection::add_members(options, &session, &mut report)?;
         assistance::configure(options, &mut session, &mut report)?;
         save(
@@ -166,7 +180,7 @@ pub fn master_refine_published_artifact(
         (report, session)
     };
     if report["status"] == "completed_nonminimal" && report["collection"]["status"] == "completed" {
-        let _ = load_master_reduction(&options.directory)?;
+        let _ = collection::load_with_policy(&options.directory, options.finite_policy.as_ref())?;
         if !session.is_complete() {
             return Err(AppError::input(
                 "completed refinement manifest has unfinished native state",
@@ -190,7 +204,8 @@ pub fn master_refine_published_artifact(
     ) {
         Ok(()) => Ok(report),
         Err(error) => {
-            let mut durable = read_json(&latest)?;
+            let mut durable =
+                storage::read_json_with_policy(&latest, options.finite_policy.as_ref())?;
             durable["status"] = json!(if cancellation.load(Ordering::Relaxed) {
                 "paused"
             } else {

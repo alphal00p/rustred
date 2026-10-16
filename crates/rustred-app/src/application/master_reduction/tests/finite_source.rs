@@ -130,6 +130,127 @@ fn publish(source: &CompletedFiniteSource, path: &Path, previous: Option<PathBuf
     master_reduce_finite_demand(source, &options, &AtomicBool::new(false), |_| {}).unwrap()
 }
 
+fn publication_policy(runs: usize) -> crate::FiniteDemandPolicy {
+    let mut value: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/input/finite_campaign/high_memory.json"
+    )))
+    .unwrap();
+    value["storage"]["raw"]["max_runs"] = json!(runs);
+    value["storage"]["raw"]["max_merge_runs"] = json!(runs * 2);
+    crate::FiniteDemandPolicy::from_json(&serde_json::to_vec(&value).unwrap()).unwrap()
+}
+
+#[test]
+fn caller_policy_crosses_4096_runs_through_publication_refinement_and_cold_load() {
+    let scratch = Scratch::new();
+    let mut request = source(&scratch);
+    let mut queries: Value = serde_json::from_str(&request.matching.queries_json).unwrap();
+    queries["queries"][0]["lower"] = json!([9999]);
+    queries["queries"][0]["upper"] = json!([9999]);
+    queries["queries"][0]["power_bounds"] = json!({
+        "max_positive_power":12000,"min_power_difference":1,"max_power_difference":12000
+    });
+    request.matching.queries_json = queries.to_string();
+    let backend = scratch.0.join("backend");
+    let mut native_policy = policy();
+    native_policy.windows.max_positive_layers = 20_000;
+    native_policy.windows.max_partition_checks = 100_000;
+    native_policy.per_batch_work.max_nodes = 30_000;
+    native_policy.per_batch_work.max_rule_applications = 30_000;
+    native_policy.per_batch_work.max_transport_calls = 30_000;
+    native_policy.export.max_records = 30_000;
+    native_policy.export.max_live_payload_bytes = 8 << 20;
+    native_policy.storage.max_delta_records = 30_000;
+    native_policy.storage.max_delta_payload_bytes = 8 << 20;
+    native_policy.storage.max_page_records = 512;
+    let mut session = Session::<4>::create(
+        &request,
+        native_policy,
+        &backend,
+        &AtomicBool::new(false),
+        &|_| {},
+    )
+    .unwrap();
+    let captured = finish(&mut session);
+    drop(session);
+    assert!(captured.raw_provenance().state().completed_work >= 8194);
+    let captured = captured.with_repeated_raw_runs_for_test(4097);
+    // One real native chain supplies the completed Work commitment. Repeating
+    // typed raw page references preserves its exact union while exercising a
+    // large merge directory without thousands of separate commits or files.
+    let original_current = fs::read(backend.join("CURRENT")).unwrap();
+    let published = scratch.0.join("published");
+    let mut options = MasterReductionOptions::new(&backend, &published);
+    options.operation = MasterReductionOperation::Publish;
+    options.finite_policy = Some(publication_policy(4096));
+    assert_eq!(
+        master_reduce_finite_demand(&captured, &options, &AtomicBool::new(false), |_| {})
+            .unwrap_err()
+            .kind(),
+        crate::AppErrorKind::Limit
+    );
+    assert!(!published.join("latest.json").exists());
+    assert_eq!(fs::read(backend.join("CURRENT")).unwrap(), original_current);
+
+    let raised = publication_policy(8194);
+    options.finite_policy = Some(raised.clone());
+    let report =
+        master_reduce_finite_demand(&captured, &options, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!(report["status"], "published_unrefined");
+    let latest = fs::read(published.join("latest.json")).unwrap();
+    let artifact = fs::read(published.join("artifact.json")).unwrap();
+    let lower = publication_policy(4096);
+    assert_eq!(
+        master_reduction_inspect_with_policy(&published, &lower)
+            .unwrap_err()
+            .kind(),
+        crate::AppErrorKind::Limit
+    );
+    assert!(load_master_relation_session_with_policy(&published, &lower).is_err());
+    let mut lower_merge = raised.clone();
+    lower_merge.storage.raw.max_merge_runs = 4096;
+    let error = master_reduction_inspect_with_policy(&published, &lower_merge).unwrap_err();
+    assert_eq!(error.kind(), crate::AppErrorKind::Limit);
+    assert!(error.to_string().contains("merge fan-in"));
+    options.resume = true;
+    options.finite_policy = Some(lower);
+    assert!(
+        master_reduce_finite_demand(&captured, &options, &AtomicBool::new(false), |_| {}).is_err()
+    );
+    assert_eq!(fs::read(published.join("latest.json")).unwrap(), latest);
+    assert_eq!(fs::read(published.join("artifact.json")).unwrap(), artifact);
+    assert_eq!(fs::read(backend.join("CURRENT")).unwrap(), original_current);
+
+    options.finite_policy = Some(raised.clone());
+    assert!(
+        master_reduce_finite_demand(&captured, &options, &AtomicBool::new(false), |_| {}).is_ok()
+    );
+    assert_eq!(
+        master_reduction_inspect_with_policy(&published, &raised).unwrap()["status"],
+        "published_unrefined"
+    );
+    assert_eq!(
+        load_master_reduction_with_policy(&published, &raised)
+            .unwrap()
+            .primary_session()
+            .raw_terminals(),
+        captured.terminal_keys()
+    );
+    assert!(master_reduction_inspect(&published).is_ok());
+    assert!(load_master_relation_session(&published).is_ok());
+    let refined = scratch.0.join("refined");
+    let mut refinement = MasterReductionOptions::new("unused", &refined);
+    refinement.finite_policy = Some(raised.clone());
+    master_refine_published_artifact(&published, &refinement, &AtomicBool::new(false), |_| {})
+        .unwrap();
+    assert!(load_master_reduction_with_policy(&refined, &raised).is_ok());
+    assert!(
+        crate::prepare_saved_application_with_policy::<4>(&published, Default::default(), &raised)
+            .is_ok()
+    );
+}
+
 #[test]
 fn finite_source_publishes_refines_resumes_extends_and_exports_exactly_like_walk() {
     let s = Scratch::new();
@@ -375,7 +496,7 @@ fn finite_source_cancelled_staging_never_exposes_latest_and_raw_union_may_overco
         TerminalRelationSession::new(captured.family_owner().clone(), raw, 0, Default::default())
             .unwrap();
     assert!(union.raw_terminals().len() > captured.terminal_keys().len());
-    finite_provenance::validate_session(&output, &report, &union).unwrap();
+    finite_provenance::validate_session(&output, &report, &union, None).unwrap();
     assert_eq!(
         report["inventory"]["encountered"]["terminals"],
         captured.terminal_keys().len()

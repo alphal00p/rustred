@@ -41,7 +41,7 @@ pub fn master_publish_partial_refinement(
     // Acquire the source lock before capturing its manifest/native state. A
     // paused-looking manifest is not sufficient while another writer owns it.
     let _source_lock = storage::WriterLock::acquire(&source_directory)?;
-    let source_report = master_reduction_inspect(source)?;
+    let source_report = inspect_with_policy(source, options.finite_policy.as_ref())?;
     if !matches!(source_report["status"].as_str(), Some("paused" | "failed"))
         || source_report["operation"].as_str().unwrap_or("refine") != "refine"
         || source_report["inventory"]["complete"] != true
@@ -61,7 +61,7 @@ pub fn master_publish_partial_refinement(
     let latest = options.directory.join("latest.json");
     let started = Instant::now();
     let (mut report, mut session) = if options.resume {
-        let report = read_json(&latest)?;
+        let report = storage::read_json_with_policy(&latest, options.finite_policy.as_ref())?;
         if (report["schema"] != SCHEMA && report["schema"] != FINITE_SCHEMA)
             || report["operation"] != "publish"
             || report["partial_refinement_binding"] != binding
@@ -70,7 +70,7 @@ pub fn master_publish_partial_refinement(
                 "partial publication checkpoint belongs to a different refinement snapshot",
             ));
         }
-        let session = load_master_relation_session(&options.directory)?;
+        let session = load_session_with_policy(&options.directory, options.finite_policy.as_ref())?;
         assistance::validate(options, &session, &report)?;
         (report, session)
     } else {
@@ -79,7 +79,7 @@ pub fn master_publish_partial_refinement(
                 "partial publication output already exists; use --resume or a new directory",
             ));
         }
-        let mut session = load_master_relation_session(source)?;
+        let mut session = load_session_with_policy(source, options.finite_policy.as_ref())?;
         let statistics = session.statistics();
         if statistics.completed_seeds == statistics.seeds
             && statistics.pending_assistance_keys == 0
@@ -91,14 +91,25 @@ pub fn master_publish_partial_refinement(
         }
         let mut report = source_report.clone();
         inherited::capture(&session, &source_report, &mut report)?;
-        storage::clone_inputs(&source_directory, &options.directory, &source_report)?;
+        storage::clone_inputs_with_policy(
+            &source_directory,
+            &options.directory,
+            &source_report,
+            options.finite_policy.as_ref(),
+        )?;
         census_cache::inherit_with_cancel(
             &source_directory,
             &options.directory,
             &mut report,
             cancellation,
+            options.finite_policy.as_ref(),
         )?;
-        collection::inherit(source, &options.directory, &mut report)?;
+        collection::inherit_with_policy(
+            source,
+            &options.directory,
+            &mut report,
+            options.finite_policy.as_ref(),
+        )?;
         let fields = report.as_object_mut().unwrap();
         for field in ["artifact", "last_error", "refinement_binding"] {
             fields.remove(field);
@@ -138,7 +149,7 @@ pub fn master_publish_partial_refinement(
         (report, session)
     };
     if report["status"] == "published_unrefined" && report["collection"]["status"] == "completed" {
-        let _ = load_master_reduction(&options.directory)?;
+        let _ = collection::load_with_policy(&options.directory, options.finite_policy.as_ref())?;
         publish_final(options, &mut report)?;
         observer(event(&report, "master_reduction_finished", started));
         return Ok(report);
@@ -157,7 +168,8 @@ pub fn master_publish_partial_refinement(
     ) {
         Ok(()) => Ok(report),
         Err(error) => {
-            let mut durable = read_json(&latest)?;
+            let mut durable =
+                storage::read_json_with_policy(&latest, options.finite_policy.as_ref())?;
             durable["status"] = json!(if cancellation.load(Ordering::Relaxed) {
                 "paused"
             } else {

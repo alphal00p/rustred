@@ -26,9 +26,13 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use storage::{io, read_json, write_json};
+#[cfg(test)]
+use storage::read_json;
+use storage::{io, write_json};
 
-pub use collection::{MasterReductionArtifact, load_master_reduction};
+pub use collection::{
+    MasterReductionArtifact, load_master_reduction, load_master_reduction_with_policy,
+};
 pub use partial::master_publish_partial_refinement;
 pub use profile::MasterNormalizationProfile;
 pub use refine::master_refine_published_artifact;
@@ -48,6 +52,10 @@ pub enum MasterReductionOperation {
 
 #[derive(Clone, Debug)]
 pub struct MasterReductionOptions {
+    /// Caller-selected resource grants for all finite publication provenance
+    /// copies and cold reads, including inherited publications. Never restored
+    /// from untrusted artifact metadata and independent of the mathematical scope.
+    pub finite_policy: Option<crate::FiniteDemandPolicy>,
     pub checkpoint: PathBuf,
     pub directory: PathBuf,
     pub previous_artifact: Option<PathBuf>,
@@ -88,6 +96,7 @@ pub struct MasterReductionOptions {
 impl MasterReductionOptions {
     pub fn new(checkpoint: impl Into<PathBuf>, directory: impl Into<PathBuf>) -> Self {
         Self {
+            finite_policy: None,
             checkpoint: checkpoint.into(),
             directory: directory.into(),
             previous_artifact: None,
@@ -111,6 +120,21 @@ impl MasterReductionOptions {
 /// Metadata-only summary. Native coefficients are loaded only by the explicit
 /// load function, not merely to render a table of counts.
 pub fn master_reduction_inspect(path: &Path) -> Result<Value, AppError> {
+    inspect_with_policy(path, None)
+}
+
+/// Inspect with explicit caller grants, including the finite raw census.
+pub fn master_reduction_inspect_with_policy(
+    path: &Path,
+    policy: &crate::FiniteDemandPolicy,
+) -> Result<Value, AppError> {
+    inspect_with_policy(path, Some(policy))
+}
+
+fn inspect_with_policy(
+    path: &Path,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<Value, AppError> {
     let manifest = if path.is_dir() {
         // A later paused attempt must never be hidden by an older publication.
         let latest = path.join("latest.json");
@@ -122,7 +146,7 @@ pub fn master_reduction_inspect(path: &Path) -> Result<Value, AppError> {
     } else {
         path.to_path_buf()
     };
-    let mut report = read_json(&manifest)?;
+    let mut report = storage::read_json_with_policy(&manifest, policy)?;
     if report["schema"] != SCHEMA
         && report["schema"] != LEGACY_SOURCE_SCHEMA
         && report["schema"] != FINITE_SCHEMA
@@ -141,7 +165,7 @@ pub fn master_reduction_inspect(path: &Path) -> Result<Value, AppError> {
         ));
     }
     let parent = manifest.parent().unwrap_or(Path::new("."));
-    finite_provenance::validate_required(parent, &report)?;
+    finite_provenance::validate_required(parent, &report, policy)?;
     if let Some(name) = report["native_state"]["file"].as_str() {
         let state = storage::safe_child(parent, name)?;
         if std::fs::metadata(state).map_err(io)?.len()
@@ -176,13 +200,28 @@ pub fn master_reduction_inspect(path: &Path) -> Result<Value, AppError> {
 /// Cold-load the self-contained native finite relations. This validates its
 /// digest and Symbolica/native structure; it does not certify saved owner rules.
 pub fn load_master_relation_session(path: &Path) -> Result<TerminalRelationSession, AppError> {
-    let report = master_reduction_inspect(path)?;
+    load_session_with_policy(path, None)
+}
+
+/// Cold-load with explicit finite provenance resource grants.
+pub fn load_master_relation_session_with_policy(
+    path: &Path,
+    policy: &crate::FiniteDemandPolicy,
+) -> Result<TerminalRelationSession, AppError> {
+    load_session_with_policy(path, Some(policy))
+}
+
+fn load_session_with_policy(
+    path: &Path,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<TerminalRelationSession, AppError> {
+    let report = inspect_with_policy(path, policy)?;
     let directory = if path.is_dir() {
         path
     } else {
         path.parent().unwrap_or(Path::new("."))
     };
-    census_cache::validate_required(directory, &report)?;
+    census_cache::validate_required_with_policy(directory, &report, policy)?;
     let name = report["native_state"]["file"]
         .as_str()
         .ok_or_else(|| AppError::input("master reduction has not yet prepared native state"))?;
@@ -198,13 +237,17 @@ pub fn load_master_relation_session(path: &Path) -> Result<TerminalRelationSessi
         limits,
     )
     .map_err(io)?;
-    finite_provenance::validate_session(directory, &report, &session)?;
+    finite_provenance::validate_session(directory, &report, &session, policy)?;
     Ok(session)
 }
 
-pub(crate) fn validate_required_source(directory: &Path, report: &Value) -> Result<(), AppError> {
+pub(crate) fn validate_required_source_with_policy(
+    directory: &Path,
+    report: &Value,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<(), AppError> {
     finite_provenance::validate_marker(report)?;
-    census_cache::validate_required(directory, report)
+    census_cache::validate_required_with_policy(directory, report, policy)
 }
 
 fn current_schema(report: &Value) -> Result<&'static str, AppError> {
@@ -277,14 +320,20 @@ fn master_reduce_source(
     let started = Instant::now();
     let manifest_path = options.directory.join("latest.json");
     let resumed = if options.resume {
-        Some(read_json(&manifest_path)?)
+        Some(storage::read_json_with_policy(
+            &manifest_path,
+            options.finite_policy.as_ref(),
+        )?)
     } else {
         None
     };
     let normalization_profile = if let Some(report) = &resumed {
         profile::for_resume(options.normalization_profile, report)?
     } else if let Some(previous) = &options.previous_artifact {
-        let inherited = profile::from_report(&master_reduction_inspect(previous)?)?;
+        let inherited = profile::from_report(&inspect_with_policy(
+            previous,
+            options.finite_policy.as_ref(),
+        )?)?;
         profile::for_import(options.normalization_profile, inherited, options.operation)?
     } else {
         options.normalization_profile.unwrap_or_default()
@@ -337,8 +386,8 @@ fn master_reduce_source(
             && report["status"] == "published_unrefined"
             && report["collection"]["status"] == "completed")
     {
-        let session = load_master_relation_session(&options.directory)?;
-        let _ = load_master_reduction(&options.directory)?;
+        let session = load_session_with_policy(&options.directory, options.finite_policy.as_ref())?;
+        let _ = collection::load_with_policy(&options.directory, options.finite_policy.as_ref())?;
         assistance::validate(options, &session, &report)?;
         if report["status"] == "completed_nonminimal" && !session.is_complete() {
             return Err(AppError::input(
@@ -356,7 +405,12 @@ fn master_reduce_source(
     verification::record(&mut report, deep_verification);
     report["status"] = json!("running");
     report["scope"] = storage::scope_summary(request)?;
-    source.prepare_provenance(&options.directory, &mut report, cancellation)?;
+    source.prepare_provenance(
+        &options.directory,
+        &mut report,
+        cancellation,
+        options.finite_policy.as_ref(),
+    )?;
     if matches!(source, source::SourceRequest::Finite(_)) {
         observer(
             json!({"event":"finite_source_staged","generation":report["finite_source"]["generation"],
@@ -384,7 +438,8 @@ fn master_reduce_source(
         Err(error) => {
             // The most recent native checkpoint remains authoritative. Never
             // replace its cursor with partially completed/in-flight work.
-            let mut saved = read_json(&manifest_path)?;
+            let mut saved =
+                storage::read_json_with_policy(&manifest_path, options.finite_policy.as_ref())?;
             saved["status"] = json!(if cancellation.load(Ordering::Relaxed) {
                 "paused"
             } else {
@@ -412,7 +467,7 @@ fn run(
 ) -> Result<(), AppError> {
     let request = source.request();
     let mut session = if report["native_state"].is_object() {
-        load_master_relation_session(&options.directory)?
+        load_session_with_policy(&options.directory, options.finite_policy.as_ref())?
     } else {
         let deep_verification = verification::for_phase(options, Some(report))?;
         report["stage"] = json!(if deep_verification {
@@ -454,7 +509,7 @@ fn run(
                 "master reduction requires a complete exact saved-scope inventory",
             ));
         }
-        inventory.save(&options.directory, report)?;
+        inventory.save(&options.directory, report, options.finite_policy.as_ref())?;
         report["inventory"] = summary;
         report_counts::update(report);
         report["independently_verified"] = json!(verification::independently_verified(report));
@@ -488,7 +543,7 @@ fn run(
             ));
         }
         let mut session = if let Some(previous) = &options.previous_artifact {
-            let previous_report = master_reduction_inspect(previous)?;
+            let previous_report = inspect_with_policy(previous, options.finite_policy.as_ref())?;
             if !matches!(
                 previous_report["status"].as_str(),
                 Some("completed_nonminimal" | "published_unrefined")
@@ -499,20 +554,27 @@ fn run(
                     "previous stage is unpublished or has different saved rules/routes",
                 ));
             }
-            let mut previous_session = load_master_relation_session(previous)?;
+            let mut previous_session =
+                load_session_with_policy(previous, options.finite_policy.as_ref())?;
             finite_provenance::inherit_previous(
                 previous,
                 &options.directory,
                 &previous_report,
                 report,
                 cancel,
+                options.finite_policy.as_ref(),
             )?;
             if previous_report["finite_search_complete"] == false {
                 if let Some(provenance) = previous_report.get("partial_refinement_source") {
                     report["partial_refinement_source"] = provenance.clone();
                 }
             }
-            collection::inherit(previous, &options.directory, report)?;
+            collection::inherit_with_policy(
+                previous,
+                &options.directory,
+                report,
+                options.finite_policy.as_ref(),
+            )?;
             if previous_session.family_owner().fingerprint()
                 != inventory.family_owner().fingerprint()
             {
@@ -648,7 +710,11 @@ fn execute_session(
 }
 
 fn publish_final(options: &MasterReductionOptions, report: &mut Value) -> Result<(), AppError> {
-    finite_provenance::validate_required(&options.directory, report)?;
+    finite_provenance::validate_required(
+        &options.directory,
+        report,
+        options.finite_policy.as_ref(),
+    )?;
     report_counts::update(report);
     report["artifact"] = json!(options.directory);
     write_json(&options.directory.join("artifact.json"), report)?;

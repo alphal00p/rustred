@@ -89,7 +89,9 @@ impl ReductionAggregateOverrides {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CensusLimits {
+    #[serde(with = "super::lifecycle::policy::nullable_usize")]
     pub max_unique_selections: usize,
+    #[serde(with = "super::lifecycle::policy::nullable_usize")]
     pub max_identity_payload_bytes: usize,
 }
 impl From<CensusLimits> for CandidateRoutedTraceCensusLimits {
@@ -165,8 +167,10 @@ pub(crate) fn run_with_progress(
     }
     rustred::campaign::ParallelExecution::preflight_requested_core_budget(request.policy.workers)
         .map_err(|e| AppError::input(e.to_string()))?;
-    let (selection, arity, load_limits) =
-        Selection::parse(&request.source.matching.selection_json)?;
+    let (selection, arity, load_limits) = Selection::parse_with_byte_limit(
+        &request.source.matching.selection_json,
+        request.policy.max_source_bytes,
+    )?;
     let scope = finite_scope::parse(
         request.source,
         arity,

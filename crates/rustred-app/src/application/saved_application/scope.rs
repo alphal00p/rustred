@@ -6,7 +6,16 @@ pub(super) fn recorded_domains<const N: usize>(
     text: &str,
     arity: usize,
 ) -> Result<Vec<SavedApplicationDomain<N>>, AppError> {
-    entry::recorded_regions::<N>(text, arity)?
+    recorded_domains_with_limits(text, arity, 10_000, 1024 * 1024)
+}
+
+pub(super) fn recorded_domains_with_limits<const N: usize>(
+    text: &str,
+    arity: usize,
+    max_regions: usize,
+    max_bytes: usize,
+) -> Result<Vec<SavedApplicationDomain<N>>, AppError> {
+    entry::recorded_regions_with_limits::<N>(text, arity, max_regions, max_bytes)?
         .into_iter()
         .map(|(id, region)| {
             let summary = DomainPowerSummary::try_new(
@@ -31,7 +40,16 @@ pub(super) fn execution_domain<const N: usize>(
     text: &str,
     arity: usize,
 ) -> Result<(RequestedEntryDomain<N>, usize), AppError> {
-    let domains = recorded_domains::<N>(text, arity)?;
+    execution_domain_with_limits(text, arity, 10_000, 1024 * 1024)
+}
+
+pub(super) fn execution_domain_with_limits<const N: usize>(
+    text: &str,
+    arity: usize,
+    max_regions: usize,
+    max_bytes: usize,
+) -> Result<(RequestedEntryDomain<N>, usize), AppError> {
+    let domains = recorded_domains_with_limits::<N>(text, arity, max_regions, max_bytes)?;
     let empty: BTreeSet<_> = domains
         .iter()
         .filter(|row| row.is_empty)
@@ -43,7 +61,10 @@ pub(super) fn execution_domain<const N: usize>(
         ));
     }
     if empty.is_empty() {
-        return Ok((RequestedEntryDomain::parse_with_arity(text, arity)?, 0));
+        return Ok((
+            RequestedEntryDomain::parse_with_limits(text, arity, max_regions, max_bytes)?,
+            0,
+        ));
     }
     let mut document: Value = serde_json::from_str(text).map_err(failure)?;
     document["queries"]
@@ -59,9 +80,11 @@ pub(super) fn execution_domain<const N: usize>(
             }
         }
     }
-    let domain = RequestedEntryDomain::parse_with_arity(
+    let domain = RequestedEntryDomain::parse_with_limits(
         &serde_json::to_string(&document).map_err(failure)?,
         arity,
+        max_regions,
+        max_bytes,
     )?;
     Ok((domain, empty.len()))
 }
@@ -78,6 +101,34 @@ mod tests {
             {"id":"nonempty", "owner":"10", "lower":[0,0], "upper":[2,2],
                 "max_numerator_rank":2, "power_bounds":{"min_power_difference":1,"max_power_difference":1}}
         ],"query_roles":{"required":["empty-scalar","nonempty"],"auxiliary":[]}})
+    }
+
+    #[test]
+    fn caller_source_limits_cross_legacy_region_and_byte_allowances() {
+        let rows = (0..10_001)
+            .map(|index| {
+                json!({
+                    "id":format!("r{index}"), "owner":"1", "lower":[0], "upper":[0],
+                    "max_numerator_rank":0, "power_bounds":{"max_positive_power":1}
+                })
+            })
+            .collect::<Vec<_>>();
+        let text =
+            json!({"schema":"rustred.owner-domain-queries.json.v2","queries":rows}).to_string();
+        assert!(text.len() > 1024 * 1024);
+        assert!(recorded_domains::<1>(&text, 1).is_err());
+        assert!(recorded_domains_with_limits::<1>(&text, 1, 10_000, text.len()).is_err());
+        assert!(recorded_domains_with_limits::<1>(&text, 1, 10_001, text.len() - 1).is_err());
+        assert_eq!(
+            recorded_domains_with_limits::<1>(&text, 1, 10_001, text.len())
+                .unwrap()
+                .len(),
+            10_001
+        );
+        let (execution, empty) =
+            execution_domain_with_limits::<1>(&text, 1, 10_001, text.len()).unwrap();
+        assert_eq!(empty, 0);
+        assert_eq!(execution.regions().len(), 10_001);
     }
 
     #[test]

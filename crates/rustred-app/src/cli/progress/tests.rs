@@ -264,7 +264,10 @@ fn drop_and_unwind_restore_cursor_color_and_line_position() {
     let bytes = observed.bytes();
     assert!(bytes.windows(6).any(|value| value == b"\x1b[?25h"));
     assert!(bytes.windows(4).any(|value| value == b"\x1b[0m"));
-    assert!(bytes.ends_with(b"\x1b[1E"), "cleanup suffix: {bytes:?}");
+    assert!(
+        bytes.ends_with(b"\r\n"),
+        "cleanup must scroll below the viewport: {bytes:?}"
+    );
 }
 
 fn wait_until(timeout: Duration, predicate: impl Fn() -> bool) {

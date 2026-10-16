@@ -7,8 +7,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub(super) const DOCUMENT_LIMIT: usize = 1024 * 1024;
-
 pub(super) fn read(path: &Path, limit: usize) -> Result<Vec<u8>, AppError> {
     let metadata = fs::symlink_metadata(path).map_err(|e| AppError::execution(e.to_string()))?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
@@ -43,6 +41,56 @@ pub(super) fn directory(path: &Path) -> Result<(), AppError> {
         )));
     }
     Ok(())
+}
+
+/// Read-only accounting shared by execution and caller-bounded inspection.
+pub(super) fn validate_inventory(
+    root: &Path,
+    limits: ControlLimits,
+) -> Result<(u64, usize), AppError> {
+    let (mut bytes, mut files) = (0u64, 0usize);
+    let mut count = |path: &Path| -> Result<(), AppError> {
+        let metadata =
+            fs::symlink_metadata(path).map_err(|e| AppError::execution(e.to_string()))?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(AppError::input("nonregular finite control object"));
+        }
+        bytes = bytes
+            .checked_add(metadata.len())
+            .ok_or_else(|| AppError::limit("control byte overflow"))?;
+        files = files
+            .checked_add(1)
+            .ok_or_else(|| AppError::limit("control file overflow"))?;
+        if bytes > limits.max_bytes || files > limits.max_files {
+            return Err(AppError::limit("existing finite controls exceed grant"));
+        }
+        Ok(())
+    };
+    for entry in fs::read_dir(root).map_err(|e| AppError::execution(e.to_string()))? {
+        let entry = entry.map_err(|e| AppError::execution(e.to_string()))?;
+        let metadata =
+            fs::symlink_metadata(entry.path()).map_err(|e| AppError::execution(e.to_string()))?;
+        if metadata.file_type().is_symlink() {
+            return Err(AppError::input("symlink in finite control namespace"));
+        }
+        if metadata.is_dir() {
+            if entry.file_name() == "store" {
+                continue; // Separate native quota/lease.
+            }
+            if entry.file_name() != "sources" {
+                return Err(AppError::input("unknown finite control directory"));
+            }
+            for file in
+                fs::read_dir(entry.path()).map_err(|e| AppError::execution(e.to_string()))?
+            {
+                let file = file.map_err(|e| AppError::execution(e.to_string()))?;
+                count(&file.path())?;
+            }
+        } else {
+            count(&entry.path())?;
+        }
+    }
+    Ok((bytes, files))
 }
 
 /// Fixed lock ordering: this control lease is acquired before StoreWriter.
@@ -87,57 +135,14 @@ impl ControlFiles {
         let root = root
             .canonicalize()
             .map_err(|e| AppError::execution(e.to_string()))?;
-        let mut result = Self {
+        let (bytes, files) = validate_inventory(&root, limits)?;
+        Ok(Self {
             root,
             _lease: lease,
             limits,
-            bytes: 0,
-            files: 0,
-        };
-        for entry in fs::read_dir(&result.root).map_err(|e| AppError::execution(e.to_string()))? {
-            let entry = entry.map_err(|e| AppError::execution(e.to_string()))?;
-            let metadata = fs::symlink_metadata(entry.path())
-                .map_err(|e| AppError::execution(e.to_string()))?;
-            if metadata.file_type().is_symlink() {
-                return Err(AppError::input("symlink in finite control namespace"));
-            }
-            if metadata.is_dir() {
-                if entry.file_name() == "store" {
-                    continue;
-                } // Separate native quota/lease.
-                if entry.file_name() != "sources" {
-                    return Err(AppError::input("unknown finite control directory"));
-                }
-                for file in
-                    fs::read_dir(entry.path()).map_err(|e| AppError::execution(e.to_string()))?
-                {
-                    let file = file.map_err(|e| AppError::execution(e.to_string()))?;
-                    result.count(&file.path())?;
-                }
-            } else {
-                result.count(&entry.path())?;
-            }
-        }
-        Ok(result)
-    }
-    fn count(&mut self, path: &Path) -> Result<(), AppError> {
-        let metadata =
-            fs::symlink_metadata(path).map_err(|e| AppError::execution(e.to_string()))?;
-        if metadata.file_type().is_symlink() || !metadata.is_file() {
-            return Err(AppError::input("nonregular finite control object"));
-        }
-        self.bytes = self
-            .bytes
-            .checked_add(metadata.len())
-            .ok_or_else(|| AppError::limit("control byte overflow"))?;
-        self.files = self
-            .files
-            .checked_add(1)
-            .ok_or_else(|| AppError::limit("control file overflow"))?;
-        if self.bytes > self.limits.max_bytes || self.files > self.limits.max_files {
-            return Err(AppError::limit("existing finite controls exceed grant"));
-        }
-        Ok(())
+            bytes,
+            files,
+        })
     }
     pub(super) fn write(
         &mut self,

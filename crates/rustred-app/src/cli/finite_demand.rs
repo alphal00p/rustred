@@ -129,10 +129,10 @@ pub(super) fn parse(mut argv: impl Iterator<Item = OsString>) -> Result<Command,
         Action::Inspect
             if seen
                 .iter()
-                .any(|s| !["--directory", "--format"].contains(s)) =>
+                .any(|s| !["--directory", "--format", "--policy"].contains(s)) =>
         {
             return Err(ArgError::InvalidCombination(
-                "finite-demand inspect accepts only --directory and --format",
+                "finite-demand inspect accepts only --directory, --format and --policy",
             ));
         }
         _ => {}
@@ -140,8 +140,21 @@ pub(super) fn parse(mut argv: impl Iterator<Item = OsString>) -> Result<Command,
     Ok(Command::FiniteDemand(result))
 }
 
+#[cfg(test)]
 pub(super) fn read_source(
     path: &Path,
+) -> Result<(crate::OwnerDomainWalkRequest, Vec<PathBuf>, Vec<PathBuf>), CliError> {
+    read_source_with_limit(path, crate::MAX_INPUT_BYTES)
+}
+pub(super) fn read_source_with_policy(
+    path: &Path,
+    policy: &FiniteDemandPolicy,
+) -> Result<(crate::OwnerDomainWalkRequest, Vec<PathBuf>, Vec<PathBuf>), CliError> {
+    read_source_with_limit(path, policy.max_source_bytes)
+}
+fn read_source_with_limit(
+    path: &Path,
+    max_source_bytes: usize,
 ) -> Result<(crate::OwnerDomainWalkRequest, Vec<PathBuf>, Vec<PathBuf>), CliError> {
     let path = path
         .canonicalize()
@@ -149,7 +162,7 @@ pub(super) fn read_source(
     let bytes = read_bounded(
         File::open(&path).map_err(|e| CliError::InputIo(e.to_string()))?,
         "finite source carrier",
-        crate::MAX_INPUT_BYTES,
+        max_source_bytes,
     )?;
     let document: Value =
         serde_json::from_slice(&bytes).map_err(|e| CliError::Input(e.to_string()))?;
@@ -159,9 +172,12 @@ pub(super) fn read_source(
         .as_array()
         .and_then(|a| a.iter().map(|v| v.as_str().map(OsString::from)).collect())
         .ok_or_else(|| CliError::Input("finite source command must be a list of strings".into()))?;
-    let (request, mut protected, inert) =
-        super::owner_match::finite_source_request_from_argv(argv, path.parent().unwrap())
-            .map_err(CliError::Input)?;
+    let (request, mut protected, inert) = super::owner_match::finite_source_request_from_argv(
+        argv,
+        path.parent().unwrap(),
+        max_source_bytes,
+    )
+    .map_err(CliError::Input)?;
     protected.push(path);
     Ok((request, protected, inert))
 }
@@ -169,7 +185,7 @@ pub(super) fn read_policy(path: &Path) -> Result<FiniteDemandPolicy, CliError> {
     let bytes = read_bounded(
         File::open(path).map_err(|e| CliError::InputIo(e.to_string()))?,
         "finite policy",
-        1024 * 1024,
+        usize::MAX,
     )?;
     FiniteDemandPolicy::from_json(&bytes).map_err(Into::into)
 }
@@ -255,7 +271,8 @@ impl Drop for Signals {
 
 pub(super) fn run(args: FiniteArgs) -> Result<(), CliError> {
     if args.action == Action::Inspect {
-        let status = crate::inspect_finite_demand(&args.directory)?;
+        let policy = args.policy.as_deref().map(read_policy).transpose()?;
+        let status = crate::inspect_finite_demand_with_policy(&args.directory, policy.as_ref())?;
         if args.format == "json" || args.format == "auto" && !io::stdout().is_terminal() {
             println!(
                 "{}",
@@ -280,8 +297,9 @@ pub(super) fn run(args: FiniteArgs) -> Result<(), CliError> {
         return Ok(());
     }
     super::routed::preflight_inner_pools()?;
-    let (source, mut protected, inert) = read_source(args.command.as_ref().unwrap())?;
     let policy = read_policy(args.policy.as_ref().unwrap())?;
+    let (source, mut protected, inert) =
+        read_source_with_policy(args.command.as_ref().unwrap(), &policy)?;
     protected.push(args.policy.clone().unwrap());
     protect(&args.directory, &protected, &inert)?;
     protected.push(args.directory.clone());
@@ -322,11 +340,15 @@ pub(super) fn run(args: FiniteArgs) -> Result<(), CliError> {
                 .map_err(|e| CliError::InputIo(e.to_string()))?,
         );
     }
-    let monitor = RoutedProgress::start(
+    let monitor = RoutedProgress::start_finite(
         events,
-        io::stderr().is_terminal() && !args.no_progress,
+        io::stderr().is_terminal()
+            && !args.no_progress
+            && (args.events.is_some() || !io::stdout().is_terminal()),
         Arc::clone(&cancel),
         args.stop_file.clone(),
+        policy.workers,
+        !args.no_progress,
     );
     let result = crate::run_finite_demand_with_progress(
         FiniteDemandRunRequest {
@@ -347,7 +369,12 @@ pub(super) fn run(args: FiniteArgs) -> Result<(), CliError> {
     let document = match &result {
         Ok(result) => result.document.clone(),
         Err(error) => {
-            let status = crate::inspect_finite_demand(&args.directory);
+            let mut inspection_policy = "supplied";
+            let status = crate::inspect_finite_demand_with_policy(&args.directory, Some(&policy))
+                .or_else(|_| {
+                    inspection_policy = "default_diagnostic";
+                    crate::inspect_finite_demand(&args.directory)
+                });
             let repair = status
                 .as_ref()
                 .ok()
@@ -361,7 +388,8 @@ pub(super) fn run(args: FiniteArgs) -> Result<(), CliError> {
                 "repair_preparation_possible":repair,
                 "native_repair_command":if repair {repair_command(&args)}else{None},
                 "recovery_note":if repair {Some("No native checkpoint/closed Work is available. Explicit repair repeats preparation; use the original supervisor/resource environment with the suggested native command.")}else{None},
-                "inspection_error":status.err().map(|e|e.to_string()),"publication_claim":false})
+                "inspection_error":status.err().map(|e|e.to_string()),"inspection_policy":inspection_policy,
+                "publication_claim":false})
         }
     };
     monitor.observe(json!({"event":"finished","operation":"finite_demand","result":document}));

@@ -5,8 +5,8 @@ use super::super::{
 };
 use super::FiniteDemandMode;
 use super::{
-    control_io::{self, ControlFiles, DOCUMENT_LIMIT},
-    policy::FiniteDemandPolicy,
+    control_io::{self, ControlFiles},
+    policy::{ControlLimits, FiniteDemandPolicy},
 };
 use crate::application::routed_campaign::{input::Selection, walking::finite_scope};
 use crate::{AppError, OwnerDomainWalkRequest};
@@ -31,20 +31,18 @@ fn check(cancel: &AtomicBool) -> Result<(), AppError> {
     }
 }
 pub(super) fn json_bytes(value: &impl Serialize) -> Result<Vec<u8>, AppError> {
-    let bytes =
-        serde_json::to_vec_pretty(value).map_err(|e| AppError::serialization(e.to_string()))?;
-    if bytes.len() > DOCUMENT_LIMIT {
-        return Err(AppError::limit("finite control metadata exceeds 1 MiB"));
-    }
-    Ok(bytes)
+    serde_json::to_vec_pretty(value).map_err(|e| AppError::serialization(e.to_string()))
 }
-fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, AppError> {
-    serde_json::from_slice(&control_io::read(path, DOCUMENT_LIMIT)?)
+fn read_json<T: for<'de> Deserialize<'de>>(path: &Path, limit: usize) -> Result<T, AppError> {
+    serde_json::from_slice(&control_io::read(path, limit)?)
         .map_err(|e| AppError::input(format!("invalid finite control {}: {e}", path.display())))
 }
-fn optional_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<Option<T>, AppError> {
+fn optional_json<T: for<'de> Deserialize<'de>>(
+    path: &Path,
+    limit: usize,
+) -> Result<Option<T>, AppError> {
     match std::fs::symlink_metadata(path) {
-        Ok(_) => read_json(path).map(Some),
+        Ok(_) => read_json(path, limit).map(Some),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(AppError::execution(error.to_string())),
     }
@@ -154,7 +152,10 @@ impl Control {
         cancel: &AtomicBool,
     ) -> Result<Self, AppError> {
         check(cancel)?;
-        let (selection, arity, _) = Selection::parse(&source.matching.selection_json)?;
+        let (selection, arity, _) = Selection::parse_with_byte_limit(
+            &source.matching.selection_json,
+            policy.max_source_bytes,
+        )?;
         let parsed = finite_scope::parse(
             source,
             arity,
@@ -206,7 +207,10 @@ impl Control {
         if create {
             files.write(Path::new("launch.json"), &json_bytes(&launch)?, false)?;
         } else {
-            let old: Launch = read_json(&files.root.join("launch.json"))?;
+            let old: Launch = read_json(
+                &files.root.join("launch.json"),
+                document_limit(policy.control),
+            )?;
             old.validate()?;
             if old.request != launch.request
                 || old.owner_base != launch.owner_base
@@ -283,7 +287,10 @@ impl Control {
                 "finite publication requires required-only input scope; auxiliary rows are not discarded",
             ));
         }
-        let execution: Execution = read_json(&self.files.root.join("execution.json"))?;
+        let execution: Execution = read_json(
+            &self.files.root.join("execution.json"),
+            document_limit(self.policy.control),
+        )?;
         let generation = ValidatedGeneration::open_generated(
             &self.store(),
             &execution.native(),
@@ -346,29 +353,40 @@ pub(super) struct Inspection {
     pub(super) source_status: &'static str,
     pub(super) requested: Option<SourceInfo>,
 }
-pub(super) fn inspect(directory: &Path) -> Result<Inspection, AppError> {
+pub(super) fn inspect(
+    directory: &Path,
+    policy: Option<&FiniteDemandPolicy>,
+) -> Result<Inspection, AppError> {
     control_io::directory(directory)?;
     control_io::directory(&directory.join("sources"))?;
-    let launch: Launch = read_json(&directory.join("launch.json"))?;
+    // Read grants come from the caller, never from serialized control policy.
+    // Defaults retain independent byte bounds; all count limits are uncapped.
+    let control = policy.map_or(
+        ControlLimits {
+            max_bytes: 256 << 20,
+            max_files: usize::MAX,
+        },
+        |p| p.control,
+    );
+    control_io::validate_inventory(directory, control)?;
+    let document_limit = document_limit(control);
+    let launch: Launch = read_json(&directory.join("launch.json"), document_limit)?;
     launch.validate()?;
     if preparing_without_store(directory)? {
         return Ok(Inspection {
             generation: None,
             source: None,
             source_status: "unadmitted",
-            requested: optional_json(&directory.join("requested-source.json"))?,
+            requested: optional_json(&directory.join("requested-source.json"), document_limit)?,
         });
     }
-    let execution: Execution = read_json(&directory.join("execution.json"))?;
-    let active: Option<ActiveSource> = optional_json(&directory.join("active-source.json"))?;
-    let policy = active
-        .as_ref()
-        .map_or(&launch.initial_policy, |a| &a.policy)
-        .clone();
+    let execution: Execution = read_json(&directory.join("execution.json"), document_limit)?;
+    let active: Option<ActiveSource> =
+        optional_json(&directory.join("active-source.json"), document_limit)?;
     let generation = ValidatedGeneration::open_generated(
         &directory.join("store"),
         &execution.native(),
-        inspection_limits(&policy, execution.physical_arity)?,
+        inspection_limits(policy, execution.physical_arity)?,
     )
     .map_err(super::super::backend::storage_error)?;
     let source_status = match &active {
@@ -381,19 +399,23 @@ pub(super) fn inspect(directory: &Path) -> Result<Inspection, AppError> {
         Some(verify_source_files(
             directory,
             &source,
-            policy.control,
+            control,
+            policy.map_or(document_limit, |p| p.max_source_bytes),
             &generation,
         )?)
     } else {
         None
     };
-    let requested = optional_json(&directory.join("requested-source.json"))?;
+    let requested = optional_json(&directory.join("requested-source.json"), document_limit)?;
     Ok(Inspection {
         generation: Some(generation),
         source,
         source_status,
         requested,
     })
+}
+fn document_limit(grant: ControlLimits) -> usize {
+    usize::try_from(grant.max_bytes).unwrap_or(usize::MAX)
 }
 fn entry_exists(path: &Path) -> Result<bool, AppError> {
     match std::fs::symlink_metadata(path) {
@@ -410,18 +432,29 @@ fn preparing_without_store(directory: &Path) -> Result<bool, AppError> {
 fn verify_source_files(
     directory: &Path,
     source: &SourceInfo,
-    grant: super::policy::ControlLimits,
+    grant: ControlLimits,
+    max_source_bytes: usize,
     generation: &ValidatedGeneration,
 ) -> Result<SourceInfo, AppError> {
-    let maximum = grant.max_bytes.min(256 * 1024 * 1024);
+    let maximum = grant.max_bytes;
     let total = source
         .files
         .iter()
         .try_fold(0u64, |n, f| n.checked_add(f.bytes));
-    if source.files.len() > grant.max_files.min(4096)
+    let query_bytes = source
+        .files
+        .iter()
+        .skip(1)
+        .try_fold(0u64, |n, f| n.checked_add(f.bytes));
+    if source.files.len() > grant.max_files
         || total.is_none_or(|n| n > maximum)
+        || source
+            .files
+            .first()
+            .is_some_and(|f| f.bytes > max_source_bytes as u64)
+        || query_bytes.is_none_or(|n| n > max_source_bytes as u64)
         || source.files.len() < 2
-        || source.files.len() != source.amendments.len() + 2
+        || source.amendments.len().checked_add(2) != Some(source.files.len())
     {
         return Err(AppError::limit(
             "committed source inspection byte/file allowance",
@@ -458,7 +491,7 @@ fn verify_source_files(
                 .map_err(|_| AppError::input("finite source object is not UTF-8"))?,
         );
     }
-    let (_, arity, _) = Selection::parse(&documents[0])?;
+    let (_, arity, _) = Selection::parse_with_byte_limit(&documents[0], max_source_bytes)?;
     if arity != generation.execution().physical_arity as usize
         || generation.state().scope.original_source
             != super::super::backend::original_source_identity(&source.request)?
@@ -482,9 +515,9 @@ fn verify_source_files(
         source.request.clone(),
         arity,
         generation.state().scope.rows.len().max(1),
-        usize::try_from(maximum).unwrap_or(usize::MAX),
+        max_source_bytes,
         generation.state().scope.rows.len(),
-        usize::try_from(maximum).unwrap_or(usize::MAX),
+        max_source_bytes,
     )?;
     if parsed.rows.len() != generation.state().scope.rows.len() {
         return Err(AppError::input(
@@ -570,46 +603,60 @@ fn source_info(parsed: &finite_scope::Scope, objects: Vec<Object>) -> Result<Sou
     })
 }
 fn inspection_limits(
-    policy: &FiniteDemandPolicy,
+    policy: Option<&FiniteDemandPolicy>,
     physical_arity: u32,
 ) -> Result<storage::StorageLimits, AppError> {
-    // Never accept serialized policy as an unlimited metadata allocator. These
-    // are bounded read-only framing ceilings, not new execution/disk grants.
-    let mut limits: storage::StorageLimits = policy.storage.into();
+    if let Some(policy) = policy {
+        let mut limits: storage::StorageLimits = policy.storage.into();
+        limits.max_scope_rows = limits.max_scope_rows.min(policy.max_total_rows);
+        return Ok(limits);
+    }
+    // Independent read defaults keep stale saved operational grants from
+    // hiding a newer committed scope. They confer no execution authority.
     const FRAME: usize = rustred::persistence::finite_work::FRAME_LIMIT;
-    const MAX_ARITY: usize = 256;
     let arity = usize::try_from(physical_arity)
         .map_err(|_| AppError::limit("inspection physical arity exceeds platform range"))?;
-    if arity == 0 || arity > MAX_ARITY {
+    if arity == 0 {
         return Err(AppError::limit("inspection physical arity allowance"));
     }
-    // Independent read ceilings: a stale active-source operational policy must
-    // not hide a newer committed scope after an interrupted metadata update.
-    limits.max_arity = MAX_ARITY;
-    limits.max_manifest_bytes = FRAME;
-    limits.max_state_bytes = FRAME;
-    limits.max_page_bytes = FRAME;
-    limits.max_page_records = usize::MAX; // Count only: Work pages are not decoded.
-    limits.max_scope_rows = 1_000_000;
-    limits.max_census_records = usize::MAX; // Native state decoder remains 64 MiB.
-    limits.max_directory_bytes = 256 * 1024 * 1024;
-    limits.max_runs = 1_000_000;
-    limits.max_pages = 1_000_000;
-    limits.max_disk_bytes = u64::MAX; // Referenced size only; no Work/raw payload IO.
-    limits.max_cached_pages = 0;
-    limits.max_cached_page_bytes = 0;
-    limits.max_transient_bytes = 2 * FRAME;
-    limits.raw.max_page_bytes = FRAME;
     // Metadata-only inspection does not read/reserve raw pages. Nevertheless,
     // its policy must pass the same decoded-capacity preflight as the writer.
     // This native-derived ceiling accepts every legal page at this arity and
     // cannot overflow as an unlimited count would.
-    limits.raw.max_page_records = storage::RawCensusLimits::max_records_for_native_frame(arity)
+    let max_raw_page_records = storage::RawCensusLimits::max_records_for_native_frame(arity)
         .map_err(super::super::backend::storage_error)?;
-    limits.raw.max_directory_bytes = 256 * 1024 * 1024;
-    limits.raw.max_runs = 1_000_000;
-    limits.raw.max_pages = 1_000_000;
-    limits.raw.max_stored_references = u64::MAX;
-    limits.raw.max_decode_transient_bytes = 2 * FRAME;
-    Ok(limits)
+    Ok(storage::StorageLimits {
+        raw: storage::RawCensusLimits {
+            max_page_records: max_raw_page_records,
+            max_page_bytes: FRAME,
+            max_runs: usize::MAX,
+            max_pages: usize::MAX,
+            max_directory_bytes: 256 << 20,
+            max_stored_references: u64::MAX,
+            max_merge_runs: usize::MAX,
+            max_merge_cached_pages: 0,
+            max_merge_payload_bytes: 0,
+            max_merge_read_bytes: 0,
+            max_decode_transient_bytes: 2 * FRAME,
+        },
+        max_arity: usize::MAX,
+        max_delta_records: usize::MAX,
+        max_delta_payload_bytes: 0,
+        max_page_records: usize::MAX, // Work payload pages are not decoded.
+        max_page_bytes: FRAME,
+        max_cached_pages: 0,
+        max_cached_page_bytes: 0,
+        max_directory_bytes: 256 << 20,
+        max_manifest_bytes: FRAME,
+        max_state_bytes: FRAME,
+        max_scope_rows: usize::MAX,
+        max_census_records: usize::MAX,
+        max_runs: usize::MAX,
+        max_pages: usize::MAX,
+        max_physical_files: usize::MAX,
+        max_disk_bytes: u64::MAX, // Referenced size only; no Work/raw payload IO.
+        max_lookup_pages: 0,
+        max_lookup_bytes: 0,
+        max_transient_bytes: 2 * FRAME,
+    })
 }

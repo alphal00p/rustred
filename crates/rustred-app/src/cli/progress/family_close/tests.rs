@@ -422,7 +422,7 @@ fn narrow_and_resized_tty_is_bounded_and_no_color_preserves_cleanup() {
     let text = buffer.text();
     assert!(text.contains("RustRed"));
     assert!(text.contains("\u{1b}[?25h"));
-    assert!(text.ends_with("\u{1b}[1E"));
+    assert!(text.ends_with("\u{1b}[8;1H\r\n"));
     assert!(!text.contains("\u{1b}[38;5;") && !text.contains("\u{1b}[48;5;"));
     assert!(!text.contains("\u{1b}[1m"));
 }
@@ -451,7 +451,7 @@ fn unwind_reports_unconfirmed_output_and_restores_cursor() {
             // status through plain output, and the real TTY cleanup separately.
             assert!(text.contains("\u{1b}[?25h"), "{text:?}");
             assert!(text.contains("\u{1b}[0m"), "{text:?}");
-            assert!(text.ends_with("\u{1b}[1E"), "{text:?}");
+            assert!(text.ends_with("\r\n"), "{text:?}");
         } else {
             assert!(text.contains("stopped (output unconfirmed)"), "{text:?}");
             assert!(!text.contains("output written"), "{text:?}");

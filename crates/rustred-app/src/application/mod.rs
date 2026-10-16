@@ -30,9 +30,10 @@ mod master_reduction;
 pub(crate) mod memory;
 pub use master_reduction::{
     MasterNormalizationProfile, MasterReductionArtifact, MasterReductionOperation,
-    MasterReductionOptions, load_master_reduction, load_master_relation_session,
+    MasterReductionOptions, load_master_reduction, load_master_reduction_with_policy,
+    load_master_relation_session, load_master_relation_session_with_policy,
     master_publish_partial_refinement, master_reduce_saved_campaign, master_reduction_inspect,
-    master_refine_published_artifact,
+    master_reduction_inspect_with_policy, master_refine_published_artifact,
 };
 mod model;
 mod options;
@@ -41,7 +42,8 @@ mod resource_policy;
 mod routed_campaign;
 pub use routed_campaign::finite_demand::lifecycle::{
     FiniteDemandMode, FiniteDemandPolicy, FiniteDemandRunRequest, FiniteDemandRunResult,
-    inspect_finite_demand, publish_finite_demand_with_progress, run_finite_demand_with_progress,
+    inspect_finite_demand, inspect_finite_demand_with_policy, publish_finite_demand_with_progress,
+    run_finite_demand_with_progress,
 };
 mod saved_application;
 pub use routed_campaign::{
@@ -56,9 +58,11 @@ pub use saved_application::{
     SavedApplicationIntegral, SavedApplicationOptions, SavedApplicationPreparationStatistics,
     SavedApplicationProduct, SavedApplicationProductChartStatistics,
     SavedApplicationProductStatistics, SavedApplicationReduction, SavedApplicationWitness,
-    SavedApplicationWitnessKind, export_saved_application, load_saved_application,
-    prepare_saved_application, saved_application_arity, saved_application_boundary_witnesses,
-    saved_application_domains,
+    SavedApplicationWitnessKind, export_saved_application, export_saved_application_with_policy,
+    load_saved_application, load_saved_application_with_policy, prepare_saved_application,
+    prepare_saved_application_with_policy, saved_application_arity,
+    saved_application_arity_with_policy, saved_application_boundary_witnesses,
+    saved_application_domains, saved_application_domains_with_policy,
 };
 
 pub(crate) use routed_campaign::{

@@ -7,8 +7,24 @@ use crate::application::atomic_file::{write_file_atomically, write_file_atomical
 use crate::{AppError, OwnerDomainWalkRequest};
 use serde_json::{Value, json};
 
+#[cfg(test)]
 pub(super) fn read_json(path: &Path) -> Result<Value, AppError> {
-    let data = read_bounded(path, 64 * 1024 * 1024)?;
+    read_json_with_policy(path, None)
+}
+
+pub(super) fn read_json_with_policy(
+    path: &Path,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<Value, AppError> {
+    let max = policy.map_or(Ok(64 * 1024 * 1024), |p| {
+        usize::try_from(p.control.max_bytes)
+            .map_err(|_| AppError::limit("finite metadata allowance exceeds platform size"))
+    })?;
+    read_json_bounded(path, max)
+}
+
+pub(super) fn read_json_bounded(path: &Path, max: usize) -> Result<Value, AppError> {
+    let data = read_bounded(path, max)?;
     serde_json::from_slice(&data).map_err(|e| AppError::input(format!("{}: {e}", path.display())))
 }
 
@@ -21,7 +37,7 @@ pub(super) fn read_bounded(path: &Path, max: usize) -> Result<Vec<u8>, AppError>
         )));
     }
     let mut data = Vec::new();
-    file.take(max as u64 + 1)
+    file.take((max as u64).saturating_add(1))
         .read_to_end(&mut data)
         .map_err(io)?;
     if data.len() > max {
@@ -243,7 +259,17 @@ pub(super) fn reject_overlapping_directories(source: &Path, output: &Path) -> Re
 
 /// Immutable content is linked where possible, copied otherwise. Either form
 /// survives moving/removing the source artifact and has no path dependency.
+#[cfg(test)]
 pub(super) fn clone_inputs(source: &Path, output: &Path, report: &Value) -> Result<(), AppError> {
+    clone_inputs_with_policy(source, output, report, None)
+}
+
+pub(super) fn clone_inputs_with_policy(
+    source: &Path,
+    output: &Path,
+    report: &Value,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<(), AppError> {
     let inputs = &report["inputs"];
     let payloads = inputs["payloads"]
         .as_array()
@@ -291,7 +317,7 @@ pub(super) fn clone_inputs(source: &Path, output: &Path, report: &Value) -> Resu
         query_digest.to_owned(),
     );
     let amendment_path = safe_child(source, inputs["amendments"].as_str().unwrap())?;
-    let amendments = read_json(&amendment_path)?;
+    let amendments = read_json_with_policy(&amendment_path, policy)?;
     if let Some(digest) = inputs["amendments_blake3"].as_str() {
         members.insert(
             inputs["amendments"].as_str().unwrap().to_owned(),

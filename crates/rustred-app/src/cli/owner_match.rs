@@ -188,15 +188,27 @@ fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
 /// The matching request the options describe; reads the queries and the
 /// selection manifest, nothing else.
 fn match_request(args: &OwnerDomainMatchArgs) -> Result<OwnerDomainMatchRequest, CliError> {
+    match_request_with_manifest_limit(args, None)
+}
+fn match_request_with_manifest_limit(
+    args: &OwnerDomainMatchArgs,
+    max_manifest_bytes: Option<usize>,
+) -> Result<OwnerDomainMatchRequest, CliError> {
     let query_file = File::open(&args.queries)
         .map_err(|e| CliError::InputIo(format!("{}: {e}", args.queries.display())))?;
     let query_bytes = read_bounded(query_file, "owner-domain queries", args.max_query_bytes)?;
     let queries = String::from_utf8(query_bytes)
         .map_err(|_| CliError::Input("owner-domain queries must be UTF-8".into()))?;
-    let mut request = OwnerDomainMatchRequest::new(
-        read_input(&StreamPath::File(args.manifest.clone()))?,
-        queries,
-    );
+    let manifest = match max_manifest_bytes {
+        None => read_input(&StreamPath::File(args.manifest.clone()))?,
+        Some(limit) => {
+            let file = File::open(&args.manifest)
+                .map_err(|e| CliError::InputIo(format!("{}: {e}", args.manifest.display())))?;
+            String::from_utf8(read_bounded(file, "finite owner manifest", limit)?)
+                .map_err(|_| CliError::Input("finite owner manifest must be UTF-8".into()))?
+        }
+    };
+    let mut request = OwnerDomainMatchRequest::new(manifest, queries);
     request.owner_base = args.owner_base.clone();
     request.max_queries = args.max_queries;
     request.max_query_bytes = args.max_query_bytes;
@@ -309,6 +321,7 @@ pub(crate) fn walk_request_from_argv(
 pub(super) fn finite_source_request_from_argv(
     argv: Vec<std::ffi::OsString>,
     base: &std::path::Path,
+    max_source_bytes: usize,
 ) -> Result<
     (
         OwnerDomainWalkRequest,
@@ -352,7 +365,12 @@ pub(super) fn finite_source_request_from_argv(
     inert.extend(args.stop_file.iter().map(|p| resolve(p)));
     inert.extend(args.checkpoint.iter().map(|c| resolve(&c.directory)));
     protected.extend(args.amend_queries.iter().cloned());
-    Ok((source_request(&args)?, protected, inert))
+    let request = match_request_with_manifest_limit(&args, Some(max_source_bytes))
+        .map_err(|e| e.to_string())?;
+    let mut walk = walk_request(request, &args);
+    walk.amendments =
+        read_amendments_with_limit(&args, max_source_bytes).map_err(|e| e.to_string())?;
+    Ok((walk, protected, inert))
 }
 
 fn source_request(args: &OwnerDomainMatchArgs) -> Result<OwnerDomainWalkRequest, String> {
@@ -366,16 +384,18 @@ fn source_request(args: &OwnerDomainMatchArgs) -> Result<OwnerDomainWalkRequest,
 fn read_amendments(
     args: &OwnerDomainMatchArgs,
 ) -> Result<Vec<crate::OwnerDomainWalkAmendment>, CliError> {
+    read_amendments_with_limit(args, crate::OWNER_DOMAIN_WALK_AMENDMENT_MAX_BYTES)
+}
+fn read_amendments_with_limit(
+    args: &OwnerDomainMatchArgs,
+    max_bytes: usize,
+) -> Result<Vec<crate::OwnerDomainWalkAmendment>, CliError> {
     args.amend_queries
         .iter()
         .map(|path| {
             let file = File::open(path)
                 .map_err(|e| CliError::InputIo(format!("{}: {e}", path.display())))?;
-            let bytes = read_bounded(
-                file,
-                "rescue amendment",
-                crate::OWNER_DOMAIN_WALK_AMENDMENT_MAX_BYTES,
-            )?;
+            let bytes = read_bounded(file, "rescue amendment", max_bytes)?;
             let text = String::from_utf8(bytes).map_err(|_| {
                 CliError::Input(format!("{}: amendment must be UTF-8", path.display()))
             })?;

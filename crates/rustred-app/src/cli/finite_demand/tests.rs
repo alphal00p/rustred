@@ -128,6 +128,32 @@ fn finite_source_carrier_is_relative_input_only_and_never_opens_legacy_checkpoin
 }
 
 #[test]
+fn finite_source_transport_uses_policy_without_rebinding_original_query_allowances() {
+    let s = Scratch::new();
+    for path in [
+        s.0.join("bin/source.json"),
+        s.0.join("inputs/selection.json"),
+    ] {
+        let mut bytes = fs::read(&path).unwrap();
+        bytes.resize(crate::MAX_INPUT_BYTES + 1, b' ');
+        fs::write(path, bytes).unwrap();
+    }
+    let path = s.0.join("bin/source.json");
+    let mut document = policy();
+    let small = FiniteDemandPolicy::from_json(&serde_json::to_vec(&document).unwrap()).unwrap();
+    assert!(read_source_with_policy(&path, &small).is_err());
+    document["max_source_bytes"] = json!(crate::MAX_INPUT_BYTES + 1);
+    let large = FiniteDemandPolicy::from_json(&serde_json::to_vec(&document).unwrap()).unwrap();
+    let (source, _, _) = read_source_with_policy(&path, &large).unwrap();
+    document["max_source_bytes"] = Value::Null;
+    let uncapped = FiniteDemandPolicy::from_json(&serde_json::to_vec(&document).unwrap()).unwrap();
+    let (same, _, _) = read_source_with_policy(&path, &uncapped).unwrap();
+    assert_eq!(source.checkpoint_binding(), same.checkpoint_binding());
+    assert_eq!(source.matching.max_query_bytes, 1 << 20);
+    assert_eq!(source.matching.max_queries, 256);
+}
+
+#[test]
 fn finite_namespace_cannot_overlap_inputs_or_inert_carrier_paths_before_mutation() {
     let s = Scratch::new();
     for directory in [
@@ -190,6 +216,16 @@ fn finite_cli_is_explicit_and_public_policy_defaults_only_aggregate_grants() {
         .is_err()
     );
     assert!(parse(&["inspect", "--directory", "existing", "--resume"]).is_err());
+    assert!(
+        parse(&[
+            "inspect",
+            "--directory",
+            "existing",
+            "--policy",
+            "policy.json"
+        ])
+        .is_ok()
+    );
     assert!(parse(&["run", "--directory", "new", "--directory", "other"]).is_err());
     let public = FiniteDemandPolicy::from_json(&serde_json::to_vec(&policy()).unwrap()).unwrap();
     let expanded: Value = serde_json::from_slice(&public.to_json().unwrap()).unwrap();
@@ -268,4 +304,90 @@ fn finite_cli_is_explicit_and_public_policy_defaults_only_aggregate_grants() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn finite_policy_null_aggregate_limits_round_trip_without_unbounding_buffers() {
+    let mut value = policy();
+    let fields = [
+        ("", vec!["max_total_rows", "max_source_bytes"]),
+        (
+            "census",
+            vec!["max_unique_selections", "max_identity_payload_bytes"],
+        ),
+        ("export", vec!["max_records", "max_live_payload_bytes"]),
+        ("control", vec!["max_bytes", "max_files"]),
+        (
+            "storage",
+            vec![
+                "max_arity",
+                "max_delta_records",
+                "max_delta_payload_bytes",
+                "max_directory_bytes",
+                "max_scope_rows",
+                "max_census_records",
+                "max_runs",
+                "max_pages",
+                "max_physical_files",
+                "max_disk_bytes",
+                "max_lookup_pages",
+                "max_lookup_bytes",
+            ],
+        ),
+        (
+            "storage/raw",
+            vec![
+                "max_runs",
+                "max_pages",
+                "max_directory_bytes",
+                "max_stored_references",
+                "max_merge_runs",
+                "max_merge_payload_bytes",
+                "max_merge_read_bytes",
+            ],
+        ),
+    ];
+    for (parent, fields) in &fields {
+        for field in fields {
+            let path = if parent.is_empty() {
+                format!("/{field}")
+            } else {
+                format!("/{parent}/{field}")
+            };
+            *value.pointer_mut(&path).unwrap() = Value::Null;
+        }
+    }
+    let parsed = FiniteDemandPolicy::from_json(&serde_json::to_vec(&value).unwrap()).unwrap();
+    let native = parsed.native();
+    assert_eq!(native.max_total_rows, usize::MAX);
+    assert_eq!(native.max_source_bytes, usize::MAX);
+    assert_eq!(native.census.max_unique_selections, usize::MAX);
+    assert_eq!(native.export.max_records, usize::MAX);
+    assert_eq!(native.storage.max_disk_bytes, u64::MAX);
+    assert_eq!(native.storage.raw.max_stored_references, u64::MAX);
+    let encoded: Value = serde_json::from_slice(&parsed.to_json().unwrap()).unwrap();
+    for (parent, fields) in fields {
+        for field in fields {
+            let path = if parent.is_empty() {
+                format!("/{field}")
+            } else {
+                format!("/{parent}/{field}")
+            };
+            assert!(encoded.pointer(&path).unwrap().is_null(), "{path}");
+        }
+    }
+    for path in [
+        "/windows/max_seed_points",
+        "/storage/max_page_records",
+        "/storage/max_cached_pages",
+        "/storage/raw/max_page_records",
+        "/storage/raw/max_merge_cached_pages",
+    ] {
+        let mut invalid = value.clone();
+        *invalid.pointer_mut(path).unwrap() = Value::Null;
+        assert!(
+            FiniteDemandPolicy::from_json(&serde_json::to_vec(&invalid).unwrap()).is_err(),
+            "{path}"
+        );
+    }
 }

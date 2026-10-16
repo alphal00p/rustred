@@ -2,7 +2,7 @@
 use super::*;
 use crate::{
     FiniteDemandMode, FiniteDemandPolicy, FiniteDemandRunRequest, inspect_finite_demand,
-    run_finite_demand_with_progress,
+    inspect_finite_demand_with_policy, run_finite_demand_with_progress,
 };
 use std::{fs, path::Path, sync::atomic::AtomicBool};
 
@@ -91,6 +91,78 @@ fn public_inspection_uses_native_raw_frame_bounds_not_stale_operational_grants()
     }
     fs::write(&path, original).unwrap();
     assert_eq!(inspect_finite_demand(&request.directory).unwrap(), before);
+}
+
+#[test]
+fn public_finite_numeric_grants_can_be_raised_for_inspection_and_resume() {
+    let f = Fixture::new();
+    let mut request = request(&f);
+    let cancel = AtomicBool::new(false);
+    run_finite_demand_with_progress(request.clone(), &cancel, |_| {}).unwrap();
+    let current = fs::read(request.directory.join("store/CURRENT")).unwrap();
+    request.mode = FiniteDemandMode::Resume;
+    let mut limited: Value = serde_json::from_slice(&request.policy.to_json().unwrap()).unwrap();
+    limited["storage"]["max_runs"] = json!(0);
+    request.policy = FiniteDemandPolicy::from_json(&serde_json::to_vec(&limited).unwrap()).unwrap();
+    assert_eq!(
+        inspect_finite_demand_with_policy(&request.directory, Some(&request.policy))
+            .unwrap_err()
+            .kind(),
+        crate::AppErrorKind::Limit
+    );
+    assert_eq!(
+        run_finite_demand_with_progress(request.clone(), &cancel, |_| {})
+            .unwrap_err()
+            .kind(),
+        crate::AppErrorKind::Limit
+    );
+    assert_eq!(
+        fs::read(request.directory.join("store/CURRENT")).unwrap(),
+        current
+    );
+    limited["storage"]["max_runs"] = Value::Null;
+    request.policy = FiniteDemandPolicy::from_json(&serde_json::to_vec(&limited).unwrap()).unwrap();
+    assert_eq!(
+        inspect_finite_demand_with_policy(&request.directory, Some(&request.policy)).unwrap()["committed"]
+            ["input_occurrences"],
+        3
+    );
+    assert!(
+        run_finite_demand_with_progress(request.clone(), &cancel, |_| {})
+            .unwrap()
+            .complete
+    );
+    assert_eq!(
+        fs::read(request.directory.join("store/CURRENT")).unwrap(),
+        current
+    );
+}
+
+#[test]
+fn public_control_metadata_uses_the_caller_byte_grant() {
+    let f = Fixture::new();
+    let request = request(&f);
+    run_finite_demand_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).unwrap();
+    let expected = inspect_finite_demand(&request.directory).unwrap();
+    let marker = request.directory.join("active-source.json");
+    let mut encoded = fs::read(&marker).unwrap();
+    encoded.resize(encoded.len() + (1 << 20), b' ');
+    fs::write(marker, encoded).unwrap();
+    let mut granted: Value = serde_json::from_slice(&request.policy.to_json().unwrap()).unwrap();
+    granted["control"]["max_bytes"] = json!(1 << 20);
+    let small = FiniteDemandPolicy::from_json(&serde_json::to_vec(&granted).unwrap()).unwrap();
+    assert_eq!(
+        inspect_finite_demand_with_policy(&request.directory, Some(&small))
+            .unwrap_err()
+            .kind(),
+        crate::AppErrorKind::Limit
+    );
+    granted["control"]["max_bytes"] = json!(4 << 20);
+    let large = FiniteDemandPolicy::from_json(&serde_json::to_vec(&granted).unwrap()).unwrap();
+    assert_eq!(
+        inspect_finite_demand_with_policy(&request.directory, Some(&large)).unwrap(),
+        expected
+    );
 }
 fn append(request: &mut FiniteDemandRunRequest) {
     let text = json!({"schema":crate::OWNER_DOMAIN_WALK_SCOPE_EXTENSION_SCHEMA,"sequence":1,

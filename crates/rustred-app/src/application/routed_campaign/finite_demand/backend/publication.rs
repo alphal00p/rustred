@@ -25,6 +25,17 @@ pub(crate) struct CompletedFiniteSource {
 }
 
 impl CompletedFiniteSource {
+    #[cfg(test)]
+    pub(crate) fn with_repeated_raw_runs_for_test(mut self, runs: usize) -> Self {
+        self.provenance = self.provenance.with_repeated_raw_runs_for_test(runs);
+        self.summary["source_generation_blake3"] = json!(
+            blake3::Hash::from(self.provenance.digest())
+                .to_hex()
+                .to_string()
+        );
+        self
+    }
+
     pub(crate) fn request(&self) -> &OwnerDomainWalkRequest {
         &self.request
     }
@@ -188,6 +199,7 @@ impl<const N: usize> Session<N> {
 pub(crate) fn validate_portable_scope(
     archive: &storage::RawProvenance,
     source: &Value,
+    max_source_bytes: usize,
     cancel: &AtomicBool,
 ) -> Result<(), AppError> {
     let capacity = source["inventory"]["storage_capacity"]
@@ -198,10 +210,10 @@ pub(crate) fn validate_portable_scope(
     // fixtures are also readable in a capacity-dispatch test build.
     #[cfg(all(test, feature = "capacity-dispatch"))]
     if capacity == 1 {
-        return validate_scope::<1>(archive, source, cancel);
+        return validate_scope::<1>(archive, source, max_source_bytes, cancel);
     }
     macro_rules! dispatch {($($n:literal),*)=>{match capacity {
-        $($n=>validate_scope::<$n>(archive,source,cancel),)*
+        $($n=>validate_scope::<$n>(archive,source,max_source_bytes,cancel),)*
         _=>Err(AppError::input("finite publication source storage capacity unsupported by this build")),
     }}}
     rustred::with_app_runtime_arities!(dispatch)
@@ -209,6 +221,7 @@ pub(crate) fn validate_portable_scope(
 fn validate_scope<const N: usize>(
     archive: &storage::RawProvenance,
     source: &Value,
+    max_source_bytes: usize,
     cancel: &AtomicBool,
 ) -> Result<(), AppError> {
     let text = |name| {
@@ -248,9 +261,9 @@ fn validate_scope<const N: usize>(
         request_binding,
         arity,
         count.max(1),
-        64 << 20,
+        max_source_bytes,
         count,
-        64 << 20,
+        max_source_bytes,
     )?;
     if parsed.rows.len() != count || archive.state().cursors.len() != count {
         return Err(AppError::input(

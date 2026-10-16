@@ -2,6 +2,7 @@
 from contextlib import redirect_stdout
 import io
 import os
+import re
 import threading
 import time
 import unittest
@@ -26,6 +27,10 @@ class NotifyingStream(io.StringIO):
 
 
 class StartupProgressTests(unittest.TestCase):
+    @staticmethod
+    def visible(stream):
+        return re.sub(r"\x1b\[[0-9;]*m", "", stream.getvalue())
+
     def test_non_tty_heartbeat_shows_elapsed_and_stops_without_stdout(self):
         stream, stdout = NotifyingStream(), io.StringIO()
         now = [100.0]
@@ -52,7 +57,7 @@ class StartupProgressTests(unittest.TestCase):
             progress.phase("ready")
             self.assertNotIn("\n", stream.getvalue())
         self.assertEqual(stream.getvalue().count("\n"), 1)
-        self.assertIn("\rFinite startup: ready (0s elapsed)", stream.getvalue())
+        self.assertIn("\rFinite startup: ready (0s elapsed)", self.visible(stream))
         self.assertTrue(stream.getvalue().endswith("\n"))
 
     def test_exceptions_and_keyboard_interrupt_join_reporter(self):
@@ -71,11 +76,19 @@ class StartupProgressTests(unittest.TestCase):
              patch.object(STARTUP.os, "get_terminal_size", return_value=os.terminal_size((80, 24))) as size:
             with STARTUP.StartupProgress(stream=stream, tty_interval=60) as progress:
                 progress.phase("validating committed input sources")
-                self.assertLessEqual(len(stream.getvalue().split("\r")[-1]), 79)
+                self.assertLessEqual(len(self.visible(stream).split("\r")[-1]), 79)
                 size.return_value = os.terminal_size((40, 24))
                 progress.phase("checking executable")
-                self.assertLessEqual(len(stream.getvalue().split("\r")[-1]), 39)
+                self.assertLessEqual(len(self.visible(stream).split("\r")[-1]), 39)
             size.assert_called_with(42)
+
+    def test_startup_color_respects_no_color(self):
+        for disabled in (False, True):
+            stream = NotifyingStream(tty=True)
+            with patch.dict(STARTUP.os.environ, {"NO_COLOR": "1"} if disabled else {}, clear=True):
+                with STARTUP.StartupProgress(stream=stream, tty_interval=60) as progress:
+                    progress.phase("preparing")
+            self.assertEqual("\033[1;36m" in stream.getvalue(), not disabled)
 
     def test_reporter_restarts_only_when_next_phase_begins(self):
         with STARTUP.StartupProgress(stream=io.StringIO(), log_interval=60) as progress:

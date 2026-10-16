@@ -570,7 +570,8 @@ fn admit<const N: usize>(
     }
     rustred::campaign::ParallelExecution::preflight_requested_core_budget(policy.workers)
         .map_err(|e| AppError::input(e.to_string()))?;
-    let (_, arity, _) = Selection::parse(&source.matching.selection_json)?;
+    let (_, arity, _) =
+        Selection::parse_with_byte_limit(&source.matching.selection_json, policy.max_source_bytes)?;
     if !rustred::fits_storage(arity, N) {
         return Err(AppError::input("finite backend storage arity mismatch"));
     }
@@ -593,7 +594,13 @@ fn admit<const N: usize>(
     load.trace_limits.max_transport_calls = policy.per_batch_work.max_transport_calls;
     load.trace_limits.max_transport_operations = policy.per_batch_work.max_transport_operations;
     load.trace_limits.max_transport_endpoints = policy.per_batch_work.max_transport_endpoints;
-    let prepared = PreparedExecution::<N>::prepare(&load, cancel, observer)?.ok_or_else(|| {
+    let prepared = PreparedExecution::<N>::prepare_with_source_limit(
+        &load,
+        policy.max_source_bytes,
+        cancel,
+        observer,
+    )?
+    .ok_or_else(|| {
         AppError::new(
             AppErrorKind::Cancelled,
             "finite backend preparation cancelled",

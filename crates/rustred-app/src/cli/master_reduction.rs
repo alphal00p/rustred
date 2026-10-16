@@ -39,6 +39,7 @@ pub(crate) struct MasterArgs {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MasterInspectArgs {
     pub artifact: PathBuf,
+    pub finite_policy: Option<PathBuf>,
     pub format: String,
 }
 
@@ -80,7 +81,7 @@ fn parse_source(
         let option: &'static str = match option.as_str() {
             "--command" => "--command",
             "--finite-directory" if finite_allowed => "--finite-directory",
-            "--finite-policy" if finite_allowed => "--finite-policy",
+            "--finite-policy" => "--finite-policy",
             "--artifact" => "--artifact",
             "--checkpoint" => "--checkpoint",
             "--directory" => "--directory",
@@ -206,7 +207,7 @@ fn parse_source(
     }
     let has_command = !result.command.as_os_str().is_empty();
     let has_checkpoint = !result.checkpoint.as_os_str().is_empty();
-    let finite = result.finite_directory.is_some() || result.finite_policy.is_some();
+    let finite = result.finite_directory.is_some();
     if finite
         && (result.finite_directory.is_none()
             || result.finite_policy.is_none()
@@ -286,6 +287,7 @@ pub(super) fn parse_finalize(
         match option.as_str() {
             "--resume" => forwarded.push(OsString::from(option)),
             "--refinement"
+            | "--finite-policy"
             | "--directory"
             | "--threads"
             | "--events"
@@ -295,6 +297,7 @@ pub(super) fn parse_finalize(
                     &mut args,
                     match option.as_str() {
                         "--refinement" => "--refinement",
+                        "--finite-policy" => "--finite-policy",
                         "--directory" => "--directory",
                         "--threads" => "--threads",
                         "--events" => "--events",
@@ -323,6 +326,7 @@ pub(super) fn parse_finalize(
 pub(super) fn parse_inspect(mut args: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
     let mut result = MasterInspectArgs {
         artifact: PathBuf::new(),
+        finite_policy: None,
         format: "auto".into(),
     };
     let mut seen = BTreeSet::new();
@@ -330,6 +334,7 @@ pub(super) fn parse_inspect(mut args: impl Iterator<Item = OsString>) -> Result<
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
         let option: &'static str = match option.as_str() {
             "--artifact" => "--artifact",
+            "--finite-policy" => "--finite-policy",
             "--format" => "--format",
             _ => return Err(ArgError::UnknownOption(option)),
         };
@@ -338,6 +343,8 @@ pub(super) fn parse_inspect(mut args: impl Iterator<Item = OsString>) -> Result<
         }
         if option == "--artifact" {
             result.artifact = PathBuf::from(next_value(&mut args, option)?);
+        } else if option == "--finite-policy" {
+            result.finite_policy = Some(PathBuf::from(next_value(&mut args, option)?));
         } else {
             let value = next_utf8_value(&mut args, option)?;
             if !["auto", "table", "json"].contains(&value.as_str()) {
@@ -359,7 +366,16 @@ pub(super) fn parse_inspect(mut args: impl Iterator<Item = OsString>) -> Result<
 }
 
 pub(super) fn inspect(args: MasterInspectArgs) -> Result<(), CliError> {
-    let report = crate::master_reduction_inspect(&args.artifact)?;
+    let policy = args
+        .finite_policy
+        .as_ref()
+        .map(|p| super::finite_demand::read_policy(p))
+        .transpose()?;
+    let report = if let Some(policy) = &policy {
+        crate::master_reduction_inspect_with_policy(&args.artifact, policy)?
+    } else {
+        crate::master_reduction_inspect(&args.artifact)?
+    };
     let terminal = std::io::stdout().is_terminal();
     if args.format == "json" || args.format == "auto" && !terminal {
         println!(
@@ -389,7 +405,12 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     let (request, mut protected) = if let Some(source) = source {
         (None, vec![artifact_directory(source)?])
     } else if args.finite_directory.is_some() {
-        let (request, protected, inert) = super::finite_demand::read_source(&args.command)?;
+        let (request, protected, inert) = super::finite_demand::read_source_with_policy(
+            &args.command,
+            finite_policy
+                .as_ref()
+                .expect("finite source policy validated"),
+        )?;
         finite_inert = inert;
         (Some(request), protected)
     } else {
@@ -408,6 +429,9 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
         let request = super::owner_match::walk_request_from_argv(argv).map_err(CliError::Input)?;
         (Some(request), protected)
     };
+    if let Some(policy_path) = &args.finite_policy {
+        protected.push(policy_path.clone());
+    }
     if source.is_none() {
         protected.push(args.command.clone());
         if let Some(finite) = &args.finite_directory {
@@ -473,6 +497,7 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
         .map(|p| p.join("store"))
         .unwrap_or_else(|| args.checkpoint.clone());
     let mut options = crate::MasterReductionOptions::new(&checkpoint, &directory);
+    options.finite_policy = finite_policy.clone();
     options.operation = args.operation;
     options.resume = args.resume;
     options.previous_artifact = args.previous_artifact;
@@ -610,6 +635,59 @@ fn prospective_path(path: &Path) -> Result<PathBuf, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finite_policy_is_shared_by_artifact_cold_read_and_refinement_commands() {
+        let Command::WalkMasterReduce(refinement) = parse(
+            [
+                "--artifact",
+                "source",
+                "--directory",
+                "out",
+                "--finite-policy",
+                "policy.json",
+            ]
+            .map(OsString::from)
+            .into_iter(),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(refinement.finite_policy, Some(PathBuf::from("policy.json")));
+        let Command::WalkMasterReduce(finalize) = parse_finalize(
+            [
+                "--refinement",
+                "source",
+                "--directory",
+                "out",
+                "--finite-policy",
+                "policy.json",
+            ]
+            .map(OsString::from)
+            .into_iter(),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(finalize.finite_policy, refinement.finite_policy);
+        let Command::MasterInspect(inspect) = parse_inspect(
+            ["--artifact", "source", "--finite-policy", "policy.json"]
+                .map(OsString::from)
+                .into_iter(),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(inspect.finite_policy, refinement.finite_policy);
+        assert!(
+            super::super::artifact_inspect::parse(
+                ["--artifact", "source", "--finite-policy", "policy.json"]
+                    .map(OsString::from)
+                    .into_iter(),
+            )
+            .is_ok()
+        );
+    }
 
     #[test]
     fn partial_publication_has_no_search_controls() {

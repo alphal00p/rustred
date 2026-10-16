@@ -61,7 +61,10 @@ pub fn run_finite_demand_with_progress(
     observer: impl Fn(Value),
 ) -> Result<FiniteDemandRunResult, AppError> {
     check(cancel)?;
-    let (_, arity, _) = Selection::parse(&request.source.matching.selection_json)?;
+    let (_, arity, _) = Selection::parse_with_byte_limit(
+        &request.source.matching.selection_json,
+        request.policy.max_source_bytes,
+    )?;
     crate::ensure_runtime_arity(arity)?;
     let mut controls = control::Control::prepare(
         &request.directory,
@@ -161,7 +164,17 @@ fn run<const N: usize>(
 /// Bounded native metadata inspection, not independent replay, source loading,
 /// a prefix cursor constructor or a publication certificate.
 pub fn inspect_finite_demand(directory: &Path) -> Result<Value, AppError> {
-    let snapshot = control::inspect(directory)?;
+    inspect_finite_demand_with_policy(directory, None)
+}
+
+/// Inspect with caller-selected resource grants. Without an override, metadata
+/// counts are uncapped, directories/control files default to 256 MiB and native
+/// frames remain bounded by the format. Saved policies never elevate grants.
+pub fn inspect_finite_demand_with_policy(
+    directory: &Path,
+    policy: Option<&FiniteDemandPolicy>,
+) -> Result<Value, AppError> {
+    let snapshot = control::inspect(directory, policy)?;
     let Some(generation) = &snapshot.generation else {
         return Ok(
             json!({"schema":"rustred.finite-demand-status.v1","engine":control::ENGINE,
@@ -252,7 +265,10 @@ pub fn publish_finite_demand_with_progress(
         ));
     }
     check(cancel)?;
-    let (_, arity, _) = Selection::parse(&request.source.matching.selection_json)?;
+    let (_, arity, _) = Selection::parse_with_byte_limit(
+        &request.source.matching.selection_json,
+        request.policy.max_source_bytes,
+    )?;
     crate::ensure_runtime_arity(arity)?;
     let mut controls = control::Control::prepare(
         &request.directory,
@@ -300,7 +316,9 @@ fn publish<const N: usize>(
         cancel,
     )?;
     check(cancel)?;
+    let mut options = options.clone();
+    options.finite_policy = Some(request.policy.clone());
     crate::application::master_reduction::master_reduce_finite_demand(
-        &captured, options, cancel, observer,
+        &captured, &options, cancel, observer,
     )
 }

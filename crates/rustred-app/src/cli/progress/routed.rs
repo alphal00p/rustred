@@ -10,7 +10,7 @@ use std::sync::{
 };
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-mod finite;
+pub(super) mod finite;
 
 pub(crate) struct RoutedProgress {
     latest: Arc<Mutex<(Instant, Value)>>,
@@ -22,6 +22,32 @@ enum Control {
     Stop,
 }
 
+#[derive(Clone, Copy)]
+struct NodeSample {
+    time: Instant,
+    expanded: u64,
+    queued: u64,
+    window: Option<(u64, u64)>,
+}
+
+impl NodeSample {
+    fn rates_since(self, previous: Option<Self>, finite: bool) -> Option<(f64, f64)> {
+        let previous = previous?;
+        if finite && (self.window.is_none() || self.window != previous.window) {
+            return None;
+        }
+        let seconds = self
+            .time
+            .duration_since(previous.time)
+            .as_secs_f64()
+            .max(f64::EPSILON);
+        Some((
+            self.expanded.saturating_sub(previous.expanded) as f64 / seconds,
+            (self.queued as f64 - previous.queued as f64) / seconds,
+        ))
+    }
+}
+
 fn write_record(events: &mut dyn Write, record: &Value) -> io::Result<()> {
     serde_json::to_writer(&mut *events, record).map_err(io::Error::other)?;
     events.write_all(b"\n")?;
@@ -29,25 +55,78 @@ fn write_record(events: &mut dyn Write, record: &Value) -> io::Result<()> {
 }
 impl RoutedProgress {
     pub fn start(
-        mut events: Box<dyn Write + Send>,
+        events: Box<dyn Write + Send>,
         tty: bool,
         cancellation: Arc<AtomicBool>,
         stop_file: Option<PathBuf>,
     ) -> Self {
-        let latest = Arc::new(Mutex::new((Instant::now(), json!({"event":"starting"}))));
+        Self::start_with_mode(events, tty, cancellation, stop_file, None, tty)
+    }
+
+    pub fn start_finite(
+        events: Box<dyn Write + Send>,
+        tty: bool,
+        cancellation: Arc<AtomicBool>,
+        stop_file: Option<PathBuf>,
+        reserved_workers: usize,
+        progress_enabled: bool,
+    ) -> Self {
+        Self::start_with_mode(
+            events,
+            tty,
+            cancellation,
+            stop_file,
+            Some(reserved_workers),
+            progress_enabled,
+        )
+    }
+
+    fn start_with_mode(
+        mut events: Box<dyn Write + Send>,
+        tty: bool,
+        cancellation: Arc<AtomicBool>,
+        stop_file: Option<PathBuf>,
+        reserved_workers: Option<usize>,
+        progress_enabled: bool,
+    ) -> Self {
+        let finite_mode = reserved_workers.is_some();
+        let initial = if finite_mode {
+            json!({"event":"starting", "operation":"finite_demand"})
+        } else {
+            json!({"event":"starting"})
+        };
+        let latest = Arc::new(Mutex::new((Instant::now(), initial)));
         let state = Arc::clone(&latest);
         // Rare state transitions must not disappear between sampled heartbeats.
         // Bound their storage too; a slow journal backpressures the publisher.
         let (stop, receiver) = mpsc::sync_channel(4);
         let handle = std::thread::spawn(move || {
             let mut terminal = if tty {
-                TerminalSession::try_new_family(io::stderr()).ok()
+                let result = if finite_mode {
+                    TerminalSession::try_new_finite(io::stderr())
+                } else {
+                    TerminalSession::try_new_family(io::stderr())
+                };
+                match result {
+                    Ok(terminal) => Some(terminal),
+                    Err(error) => {
+                        if finite_mode && progress_enabled {
+                            let _ = writeln!(
+                                io::stderr().lock(),
+                                "RustRed finite progress: terminal unavailable ({error}); using periodic status."
+                            );
+                        }
+                        None
+                    }
+                }
             } else {
                 None
             };
             let color = std::env::var_os("NO_COLOR").is_none();
             let started = Instant::now();
-            let mut previous: Option<(Instant, u64, u64)> = None;
+            let mut previous = None;
+            let mut previous_cpu = process_cpu_seconds().map(|cpu| (started, cpu));
+            let mut last_plain = None::<Instant>;
             loop {
                 let finished = match receiver.recv_timeout(Duration::from_secs(1)) {
                     Ok(Control::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => true,
@@ -70,16 +149,23 @@ impl RoutedProgress {
                 let discovered = counters["scheduled_nodes"].as_u64().unwrap_or(0);
                 let queued = counters["queued_nodes"].as_u64().unwrap_or(0);
                 let now = Instant::now();
-                let rates = previous.map(|(time, done, pending)| {
-                    let seconds = now.duration_since(time).as_secs_f64().max(f64::EPSILON);
-                    (
-                        expanded.saturating_sub(done) as f64 / seconds,
-                        (queued as f64 - pending as f64) / seconds,
-                    )
+                let cpu = process_cpu_seconds();
+                let cpu_cores = cpu.zip(previous_cpu).and_then(|(cpu, (time, prior))| {
+                    let elapsed = now.duration_since(time).as_secs_f64();
+                    (elapsed > 0. && cpu >= prior).then_some((cpu - prior) / elapsed)
                 });
-                previous = Some((now, expanded, queued));
+                previous_cpu = cpu.map(|cpu| (now, cpu));
+                let sample = NodeSample {
+                    time: now,
+                    expanded,
+                    queued,
+                    window: finite::window_identity(&event),
+                };
+                let rates = sample.rates_since(previous, finite_mode);
+                previous = Some(sample);
                 let mut record = json!({"event":"heartbeat", "elapsed_seconds":started.elapsed().as_secs_f64(),
                     "process_rss_bytes":resident_set_bytes(), "cancel_requested":cancellation.load(Ordering::Relaxed),
+                    "process_cpu_cores":cpu_cores,"reserved_workers":reserved_workers,
                     "progress_age_seconds":observed.elapsed().as_secs_f64(),
                     "expanded_nodes":expanded,"currently_discovered_nodes":discovered,
                     "recent_nodes_per_second":rates.map(|r|r.0),"queue_growth_per_second":rates.map(|r|r.1),
@@ -92,14 +178,32 @@ impl RoutedProgress {
                     return Err(error);
                 }
                 if let Some(display) = terminal.as_mut() {
-                    let lines = dashboard(&record);
-                    let refs = std::array::from_fn(|i| lines[i].as_str());
-                    if display
-                        .render_family(refs, color, cancellation.load(Ordering::Relaxed))
-                        .is_err()
-                    {
+                    let rendered = if finite_mode {
+                        display.render_finite(&record, color)
+                    } else {
+                        let lines = dashboard(&record);
+                        let refs = std::array::from_fn(|i| lines[i].as_str());
+                        display.render_family(refs, color, cancellation.load(Ordering::Relaxed))
+                    };
+                    if let Err(error) = rendered {
                         terminal = None;
+                        if finite_mode && progress_enabled {
+                            let _ = writeln!(
+                                io::stderr().lock(),
+                                "RustRed finite progress: terminal drawing failed ({error}); using periodic status."
+                            );
+                        }
                     }
+                }
+                if finite_mode
+                    && progress_enabled
+                    && terminal.is_none()
+                    && (finished
+                        || last_plain
+                            .is_none_or(|last| now.duration_since(last) >= Duration::from_secs(30)))
+                {
+                    let _ = writeln!(io::stderr().lock(), "{}", finite::plain_status(&record));
+                    last_plain = Some(now);
                 }
                 if finished {
                     break;
@@ -160,6 +264,26 @@ impl RoutedProgress {
             .join()
             .map_err(|_| io::Error::other("progress thread panicked"))?
     }
+}
+
+/// Process CPU time includes every native worker thread. Its wall-time delta
+/// measures occupied cores independently of how many tasks the solver marks busy.
+#[cfg(unix)]
+fn process_cpu_seconds() -> Option<f64> {
+    let mut time = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: `time` is valid writable storage for one libc timespec.
+    if unsafe { libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, &mut time) } != 0 {
+        return None;
+    }
+    Some(time.tv_sec as f64 + time.tv_nsec as f64 / 1e9)
+}
+
+#[cfg(not(unix))]
+fn process_cpu_seconds() -> Option<f64> {
+    None
 }
 impl Drop for RoutedProgress {
     fn drop(&mut self) {
@@ -592,6 +716,66 @@ fn match_dashboard(record: &Value) -> [String; 6] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finite_node_rates_reset_at_window_changes_and_missing_local_state() {
+        let start = Instant::now();
+        let previous = NodeSample {
+            time: start,
+            expanded: 1000,
+            queued: 30,
+            window: Some((3, 4)),
+        };
+        let next = NodeSample {
+            time: start + Duration::from_secs(2),
+            expanded: 1200,
+            queued: 20,
+            window: Some((3, 4)),
+        };
+        assert_eq!(next.rates_since(Some(previous), true), Some((100., -5.)));
+        assert_eq!(
+            NodeSample {
+                window: Some((3, 5)),
+                ..next
+            }
+            .rates_since(Some(previous), true),
+            None
+        );
+        assert_eq!(
+            NodeSample {
+                window: Some((4, 0)),
+                ..next
+            }
+            .rates_since(Some(previous), true),
+            None
+        );
+        assert_eq!(
+            NodeSample {
+                window: None,
+                ..next
+            }
+            .rates_since(Some(previous), true),
+            None
+        );
+        assert_eq!(
+            next.rates_since(
+                Some(NodeSample {
+                    window: None,
+                    ..previous
+                }),
+                true
+            ),
+            None
+        );
+        assert_eq!(
+            NodeSample {
+                window: None,
+                ..next
+            }
+            .rates_since(Some(previous), false),
+            Some((100., -5.))
+        );
+    }
 
     #[test]
     fn rapid_checkpoint_milestones_survive_progress_replacement_and_finish() {

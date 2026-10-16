@@ -71,10 +71,13 @@ impl<'a> SourceRequest<'a> {
         directory: &Path,
         report: &mut Value,
         cancel: &AtomicBool,
+        policy: Option<&crate::FiniteDemandPolicy>,
     ) -> Result<(), AppError> {
         match self {
             Self::Walk(_) => Ok(()),
-            Self::Finite(source) => finite_provenance::capture(source, directory, report, cancel),
+            Self::Finite(source) => {
+                finite_provenance::capture(source, directory, report, cancel, policy)
+            }
         }
     }
 }
@@ -113,10 +116,15 @@ impl SourceInventory<'_> {
             Self::Finite(v) => Ok(v.owner_payload_digests().to_vec()),
         }
     }
-    pub fn save(&self, directory: &Path, report: &mut Value) -> Result<(), AppError> {
+    pub fn save(
+        &self,
+        directory: &Path,
+        report: &mut Value,
+        policy: Option<&crate::FiniteDemandPolicy>,
+    ) -> Result<(), AppError> {
         match self {
             Self::Walk(v) => census_cache::save(v, directory, report),
-            Self::Finite(_) => finite_provenance::validate_required(directory, report),
+            Self::Finite(_) => finite_provenance::validate_required(directory, report, policy),
         }
     }
 }

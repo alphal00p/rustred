@@ -253,12 +253,21 @@ impl StoreWriter {
             .iter()
             .try_fold(0usize, |sum, run| sum.checked_add(run.len()))
             .ok_or_else(|| resource("finite page count overflow"))?;
-        if (!delta.is_empty() && runs.len() >= self.limits.max_runs)
-            || old_pages
-                .checked_add(page_count)
-                .is_none_or(|n| n > self.limits.max_pages)
+        if !delta.is_empty() && runs.len() >= self.limits.max_runs {
+            return Err(resource(format!(
+                "finite storage.max_runs={} reached ({} existing runs); raise it or set null in --finite-policy",
+                self.limits.max_runs,
+                runs.len()
+            )));
+        }
+        if old_pages
+            .checked_add(page_count)
+            .is_none_or(|n| n > self.limits.max_pages)
         {
-            return Err(resource("finite immutable-run fan-out allowance"));
+            return Err(resource(format!(
+                "finite storage.max_pages={} exceeded ({} existing + {} new); raise it or set null in --finite-policy",
+                self.limits.max_pages, old_pages, page_count
+            )));
         }
         let mut run = Vec::new();
         run.try_reserve_exact(page_count).map_err(resource)?;

@@ -109,11 +109,18 @@ fn is_digest(text: &str) -> bool {
 /// Parse one amendment file: schema, header and query rows (the row format
 /// and validation of the query document, `matching::input::parse`).
 pub(super) fn parse(amendment: &OwnerDomainWalkAmendment, arity: usize) -> Result<Parsed, String> {
+    parse_with_limits(amendment, arity, MAX_AMENDMENT_QUERIES, MAX_AMENDMENT_BYTES)
+}
+
+pub(super) fn parse_with_limits(
+    amendment: &OwnerDomainWalkAmendment,
+    arity: usize,
+    max_queries: usize,
+    max_bytes: usize,
+) -> Result<Parsed, String> {
     let name = amendment.path.display();
-    if amendment.text.len() > MAX_AMENDMENT_BYTES {
-        return Err(format!(
-            "amendment {name} exceeds {MAX_AMENDMENT_BYTES} bytes"
-        ));
+    if amendment.text.len() > max_bytes {
+        return Err(format!("amendment {name} exceeds {max_bytes} bytes"));
     }
     let document: Value = serde_json::from_str(&amendment.text)
         .map_err(|e| format!("amendment {name}: invalid JSON: {e}"))?;
@@ -177,9 +184,8 @@ pub(super) fn parse(amendment: &OwnerDomainWalkAmendment, arity: usize) -> Resul
             query_document["query_roles"] = document["query_roles"].clone();
         }
         let text = query_document.to_string();
-        let mut queries =
-            query_input::parse(&text, arity, MAX_AMENDMENT_QUERIES, MAX_AMENDMENT_BYTES)
-                .map_err(|e| format!("amendment {name}: {e}"))?;
+        let mut queries = query_input::parse(&text, arity, max_queries, max_bytes)
+            .map_err(|e| format!("amendment {name}: {e}"))?;
         if scope_extension {
             if queries
                 .iter()
@@ -218,11 +224,27 @@ pub(super) fn check_chain(
     request_digest: &str,
     originals: &[query_input::Query],
 ) -> Result<usize, String> {
+    check_chain_with_limit(
+        recorded,
+        supplied,
+        request_digest,
+        originals,
+        MAX_AMENDMENTS,
+    )
+}
+
+pub(super) fn check_chain_with_limit(
+    recorded: &[AmendmentRef],
+    supplied: &[Parsed],
+    request_digest: &str,
+    originals: &[query_input::Query],
+    max_amendments: usize,
+) -> Result<usize, String> {
     if !recorded.is_empty() || !supplied.is_empty() {
         query_input::require_explicit_roles(originals)?;
     }
-    if supplied.len() > MAX_AMENDMENTS {
-        return Err(format!("at most {MAX_AMENDMENTS} rescue amendments"));
+    if supplied.len() > max_amendments {
+        return Err(format!("at most {max_amendments} rescue amendments"));
     }
     if supplied.len() < recorded.len() {
         return Err(format!(

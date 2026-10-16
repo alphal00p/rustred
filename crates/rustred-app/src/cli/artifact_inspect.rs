@@ -11,6 +11,7 @@ use std::path::{Component, Path, PathBuf};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct InspectArgs {
     artifact: Option<PathBuf>,
+    finite_policy: Option<PathBuf>,
     campaign: Option<PathBuf>,
     format: String,
     threads: usize,
@@ -19,6 +20,7 @@ pub(crate) struct InspectArgs {
 pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
     let mut result = InspectArgs {
         artifact: None,
+        finite_policy: None,
         campaign: None,
         format: "auto".into(),
         threads: 1,
@@ -28,6 +30,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
         let arg = arg.into_string().map_err(ArgError::NonUtf8Option)?;
         let option: &'static str = match arg.as_str() {
             "--artifact" => "--artifact",
+            "--finite-policy" => "--finite-policy",
             "--campaign-directory" => "--campaign-directory",
             "--format" => "--format",
             "--threads" => "--threads",
@@ -38,6 +41,9 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
         }
         match option {
             "--artifact" => result.artifact = Some(PathBuf::from(next_value(&mut args, option)?)),
+            "--finite-policy" => {
+                result.finite_policy = Some(PathBuf::from(next_value(&mut args, option)?))
+            }
             "--campaign-directory" => {
                 result.campaign = Some(PathBuf::from(next_value(&mut args, option)?))
             }
@@ -66,10 +72,14 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
     Ok(Command::ArtifactInspect(result))
 }
 
-fn read_json(path: &Path) -> Result<Value, CliError> {
+fn read_json(path: &Path, policy: Option<&crate::FiniteDemandPolicy>) -> Result<Value, CliError> {
     let file = std::fs::File::open(path)
         .map_err(|e| CliError::InputIo(format!("{}: {e}", path.display())))?;
-    let bytes = super::io::read_bounded(file, "artifact metadata", crate::MAX_INPUT_BYTES)?;
+    let maximum = policy.map_or(Ok(crate::MAX_INPUT_BYTES), |p| {
+        usize::try_from(p.control.max_bytes)
+            .map_err(|_| CliError::Input("finite metadata allowance exceeds platform size".into()))
+    })?;
+    let bytes = super::io::read_bounded(file, "artifact metadata", maximum)?;
     serde_json::from_slice(&bytes).map_err(|e| CliError::Input(format!("{}: {e}", path.display())))
 }
 
@@ -98,10 +108,13 @@ fn relative_child(base: &Path, name: &str) -> Result<PathBuf, CliError> {
     Ok(resolved)
 }
 
-fn published_path(campaign: &Path) -> Result<Option<PathBuf>, CliError> {
+fn published_path(
+    campaign: &Path,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<Option<PathBuf>, CliError> {
     let pointer = campaign.join("artifacts/latest.json");
     if pointer.is_file() {
-        let value = read_json(&pointer)?;
+        let value = read_json(&pointer, policy)?;
         if value["schema"] != "rustred.saved-artifact-pointer.v1" {
             return Err(CliError::Input("unsupported saved-artifact pointer".into()));
         }
@@ -114,7 +127,7 @@ fn published_path(campaign: &Path) -> Result<Option<PathBuf>, CliError> {
     // pointer is allowed only when it resolves inside this campaign.
     let previous = campaign.join("master-reduction/completed-phase.json");
     if previous.is_file() {
-        let value = read_json(&previous)?;
+        let value = read_json(&previous, policy)?;
         let name = value["directory"]
             .as_str()
             .ok_or_else(|| CliError::Input("completed phase has no directory".into()))?;
@@ -129,22 +142,26 @@ fn published_path(campaign: &Path) -> Result<Option<PathBuf>, CliError> {
     Ok(None)
 }
 
-fn scope_documents(directory: &Path, packaged: bool) -> Result<Vec<Value>, CliError> {
+fn scope_documents(
+    directory: &Path,
+    packaged: bool,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<Vec<Value>, CliError> {
     let inputs = directory.join("inputs");
-    let mut documents = vec![read_json(&inputs.join("queries.json"))?];
+    let mut documents = vec![read_json(&inputs.join("queries.json"), policy)?];
     if packaged {
-        let amendments = read_json(&inputs.join("amendments.json"))?;
+        let amendments = read_json(&inputs.join("amendments.json"), policy)?;
         let entries = amendments
             .as_array()
             .ok_or_else(|| CliError::Input("invalid packaged amendment inventory".into()))?;
-        if entries.len() > 4096 {
+        if entries.len() > policy.map_or(usize::MAX, |p| p.control.max_files) {
             return Err(CliError::Input("too many amendments to inspect".into()));
         }
         for row in entries {
             let name = row["path"]
                 .as_str()
                 .ok_or_else(|| CliError::Input("packaged amendment has no path".into()))?;
-            documents.push(read_json(&relative_child(&inputs, name)?)?);
+            documents.push(read_json(&relative_child(&inputs, name)?, policy)?);
         }
     } else {
         let folder = directory.join("amendments");
@@ -156,14 +173,14 @@ fn scope_documents(directory: &Path, packaged: bool) -> Result<Vec<Value>, CliEr
                 let name = name.to_string_lossy();
                 if name.starts_with("amendment-") && name.ends_with(".json") {
                     paths.push(relative_child(&folder, &name)?);
-                    if paths.len() > 4096 {
+                    if paths.len() > policy.map_or(usize::MAX, |p| p.control.max_files) {
                         return Err(CliError::Input("too many amendments to inspect".into()));
                     }
                 }
             }
             paths.sort();
             for path in paths {
-                documents.push(read_json(&path)?);
+                documents.push(read_json(&path, policy)?);
             }
         }
     }
@@ -193,7 +210,10 @@ fn scope_summary(documents: &[Value]) -> Result<Value, CliError> {
     )
 }
 
-fn saved_scope_documents(argv: &[Value]) -> Result<Vec<Value>, CliError> {
+fn saved_scope_documents(
+    argv: &[Value],
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<Vec<Value>, CliError> {
     let mut initial = None;
     let mut amendments = Vec::new();
     for pair in argv.windows(2) {
@@ -201,7 +221,7 @@ fn saved_scope_documents(argv: &[Value]) -> Result<Vec<Value>, CliError> {
             let path = pair[1]
                 .as_str()
                 .ok_or_else(|| CliError::Input("invalid saved query path".into()))?;
-            let document = read_json(Path::new(path))?;
+            let document = read_json(Path::new(path), policy)?;
             if pair[0] == "--queries" {
                 if initial.replace(document).is_some() {
                     return Err(CliError::Input("duplicate saved queries".into()));
@@ -221,20 +241,30 @@ fn same_published_scope(
     campaign: &Path,
     artifact: &Path,
     requested: &[Value],
+    policy: Option<&crate::FiniteDemandPolicy>,
 ) -> Result<bool, CliError> {
-    Ok(requested == scope_documents(artifact, true)?
-        && read_json(&campaign.join("inputs/selection.json"))?
-            == read_json(&artifact.join("inputs/original-selection.json"))?)
+    Ok(requested == scope_documents(artifact, true, policy)?
+        && read_json(&campaign.join("inputs/selection.json"), policy)?
+            == read_json(&artifact.join("inputs/original-selection.json"), policy)?)
 }
 
 pub(super) fn run(args: InspectArgs) -> Result<(), CliError> {
+    let policy = args
+        .finite_policy
+        .as_ref()
+        .map(|p| super::finite_demand::read_policy(p))
+        .transpose()?;
+    let inspect = |path: &Path| match &policy {
+        Some(policy) => crate::master_reduction_inspect_with_policy(path, policy),
+        None => crate::master_reduction_inspect(path),
+    };
     let mut report = if let Some(campaign) = &args.campaign {
         let campaign = canonical(campaign)?;
-        let requested = scope_documents(&campaign, false)?;
+        let requested = scope_documents(&campaign, false, policy.as_ref())?;
         let requested_scope = scope_summary(&requested)?;
-        if let Some(artifact) = published_path(&campaign)? {
-            let mut report = crate::master_reduction_inspect(&artifact)?;
-            let current = same_published_scope(&campaign, &artifact, &requested)?;
+        if let Some(artifact) = published_path(&campaign, policy.as_ref())? {
+            let mut report = inspect(&artifact)?;
+            let current = same_published_scope(&campaign, &artifact, &requested, policy.as_ref())?;
             report["artifact"] = json!(artifact);
             report["requested_scope"] = requested_scope;
             report["published_scope_current"] = json!(current);
@@ -251,20 +281,23 @@ pub(super) fn run(args: InspectArgs) -> Result<(), CliError> {
             let inventory = super::walk_inventory::campaign_summary(&campaign, args.threads)?;
             // A prepared amendment may not have been admitted by the saved
             // walk. Do not label its requested bounds as verified coverage.
-            let active = read_json(&campaign.join("active-run.json"))?;
+            let active = read_json(&campaign.join("active-run.json"), policy.as_ref())?;
             let run = active["run_directory"]
                 .as_str()
                 .ok_or_else(|| CliError::Input("active run has no directory".into()))?;
             let name = Path::new(run)
                 .file_name()
                 .ok_or_else(|| CliError::Input("invalid run directory".into()))?;
-            let command = read_json(&campaign.join("runs").join(name).join("request.json"))?;
+            let command = read_json(
+                &campaign.join("runs").join(name).join("request.json"),
+                policy.as_ref(),
+            )?;
             let argv = command
                 .get("command")
                 .unwrap_or(&command)
                 .as_array()
                 .ok_or_else(|| CliError::Input("saved command is not an array".into()))?;
-            let saved_documents = saved_scope_documents(argv)?;
+            let saved_documents = saved_scope_documents(argv, policy.as_ref())?;
             json!({"status":if inventory["complete"] == true {"inventory_only_not_published"} else {"inventory_incomplete"},
                 "artifact":null,"source_checkpoint":campaign.join("checkpoints/main"),
                 "scope":scope_summary(&saved_documents)?,"requested_scope":requested_scope,
@@ -276,7 +309,7 @@ pub(super) fn run(args: InspectArgs) -> Result<(), CliError> {
         }
     } else {
         let artifact = args.artifact.as_ref().expect("parsed source");
-        let mut report = crate::master_reduction_inspect(artifact)?;
+        let mut report = inspect(artifact)?;
         report["artifact"] = json!(canonical(artifact)?);
         report["scope_selection"] =
             json!("explicit artifact; not necessarily latest campaign result");
@@ -388,12 +421,12 @@ mod tests {
             campaign.join("inputs/selection.json"),
             json!({"owners":["one"]}),
         );
-        assert!(same_published_scope(&campaign, &artifact, &[original.clone()]).unwrap());
+        assert!(same_published_scope(&campaign, &artifact, &[original.clone()], None).unwrap());
         save(
             campaign.join("inputs/selection.json"),
             json!({"owners":["two"]}),
         );
-        assert!(!same_published_scope(&campaign, &artifact, &[original.clone()]).unwrap());
+        assert!(!same_published_scope(&campaign, &artifact, &[original.clone()], None).unwrap());
         save(
             campaign.join("inputs/queries.json"),
             json!({"queries":[{"max_numerator_rank":3}]}),
@@ -403,21 +436,21 @@ mod tests {
             json!("--queries"),
             json!(artifact.join("inputs/queries.json")),
         ];
-        assert_eq!(saved_scope_documents(&argv).unwrap(), vec![original]);
+        assert_eq!(saved_scope_documents(&argv, None).unwrap(), vec![original]);
         let pointer = campaign.join("artifacts/latest.json");
         save(
             pointer.clone(),
             json!({"schema":"rustred.saved-artifact-pointer.v1","directory":"artifacts/one"}),
         );
         assert_eq!(
-            published_path(&campaign).unwrap(),
+            published_path(&campaign, None).unwrap(),
             Some(artifact.canonicalize().unwrap())
         );
         save(
             pointer,
             json!({"schema":"rustred.saved-artifact-pointer.v1","directory":"../campaign/artifacts/one"}),
         );
-        assert!(published_path(&campaign).is_err());
+        assert!(published_path(&campaign, None).is_err());
         std::fs::remove_dir_all(scratch).unwrap();
     }
 }

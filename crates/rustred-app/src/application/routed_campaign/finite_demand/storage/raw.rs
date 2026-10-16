@@ -177,14 +177,11 @@ pub(super) fn validate_directory(
     arity: usize,
     limits: RawCensusLimits,
 ) -> Result<(usize, u64)> {
-    if limits.max_page_records == 0
-        || limits.max_page_bytes == 0
-        || limits.max_page_bytes > wire::MAX_FRAME
-    {
+    if limits.max_page_records == 0 || limits.max_page_bytes == 0 {
         return Err(resource("raw page framing policy"));
     }
     page_capacity_payload(arity, limits)?;
-    if wire::MAX_FRAME
+    if wire::metadata_decode_allowance(limits.max_page_bytes)
         .checked_add(limits.max_page_bytes)
         .is_none_or(|n| n > limits.max_decode_transient_bytes)
     {
@@ -239,7 +236,8 @@ pub(super) fn validate_directory(
                 if page.records > limits.max_page_records as u64
                     || page.object.bytes == 0
                     || page.object.bytes > limits.max_page_bytes as u64
-                    || page.payload_bytes > wire::MAX_FRAME as u64
+                    || page.payload_bytes
+                        > wire::metadata_decode_allowance(limits.max_page_bytes) as u64
                 {
                     return Err(resource("raw page descriptor allowance"));
                 }
@@ -288,9 +286,9 @@ pub(super) fn page_capacity_payload(arity: usize, limits: RawCensusLimits) -> Re
     let payload = raw_record_payload(arity)?
         .checked_mul(limits.max_page_records)
         .ok_or_else(|| resource("raw page capacity allowance overflow"))?;
-    // This is the native decoder's existing allocation cap, not a new key or
-    // physics limit. The own-decoder roundtrip remains the final frame gate.
-    if payload > wire::MAX_FRAME {
+    // Follow the caller-selected frame/decoder budget. The own-decoder
+    // roundtrip remains the final frame gate before durable installation.
+    if payload > wire::metadata_decode_allowance(limits.max_page_bytes) {
         return Err(resource(
             "raw page capacity exceeds native decoder allowance",
         ));

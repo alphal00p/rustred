@@ -13,20 +13,44 @@ use std::collections::BTreeSet;
 
 const KIND: &str = "finite-demand-generated-v1";
 const SOURCE_SCHEMA: &str = "rustred.finite-publication-source.v1";
-const SOURCE_BYTES: usize = 64 << 20;
+#[derive(Clone, Copy)]
+struct Limits {
+    storage: StorageLimits,
+    source_bytes: usize,
+    sources: usize,
+    staging_attempts: usize,
+}
 
-/// Fixed cold-reader bounds, never allocation grants deserialized from an
-/// artifact. These are IO/resource limits, not scope or algebra changes.
-fn limits() -> StorageLimits {
+/// Caller grants are never read from the publication itself. Default count
+/// grants impose no extra ceiling on the separately bounded byte payloads.
+fn limits(policy: Option<&crate::FiniteDemandPolicy>) -> Result<Limits, AppError> {
+    if let Some(policy) = policy {
+        return Ok(Limits {
+            storage: policy.storage.into(),
+            source_bytes: policy.control.max_bytes.try_into().map_err(|_| {
+                AppError::limit("finite publication metadata allowance exceeds platform size")
+            })?,
+            sources: policy.control.max_files,
+            staging_attempts: policy.control.max_files,
+        });
+    }
+    Ok(Limits {
+        storage: default_storage_limits(),
+        source_bytes: 64 << 20,
+        sources: usize::MAX,
+        staging_attempts: usize::MAX,
+    })
+}
+fn default_storage_limits() -> StorageLimits {
     StorageLimits {
         raw: RawCensusLimits {
             max_page_records: 8192,
             max_page_bytes: 8 << 20,
-            max_runs: 4096,
-            max_pages: 1_000_000,
+            max_runs: usize::MAX,
+            max_pages: usize::MAX,
             max_directory_bytes: 256 << 20,
-            max_stored_references: 1_000_000_000,
-            max_merge_runs: 4096,
+            max_stored_references: u64::MAX,
+            max_merge_runs: usize::MAX,
             // Preserve the native default fan-in cache (R1 already has ~99
             // runs). Actual retained payload stays under the SAME256MiB cap;
             // the page-count grant does not preallocate page contents.
@@ -35,8 +59,8 @@ fn limits() -> StorageLimits {
             max_merge_read_bytes: 128 << 30,
             max_decode_transient_bytes: 128 << 20,
         },
-        max_arity: 64,
-        max_delta_records: 30_000_000,
+        max_arity: usize::MAX,
+        max_delta_records: usize::MAX,
         max_delta_payload_bytes: (6u64 << 30).min(usize::MAX as u64) as usize,
         max_page_records: 8192,
         max_page_bytes: 8 << 20,
@@ -45,11 +69,11 @@ fn limits() -> StorageLimits {
         max_directory_bytes: 256 << 20,
         max_manifest_bytes: 64 << 20,
         max_state_bytes: 64 << 20,
-        max_scope_rows: 100_000,
-        max_census_records: 1_000_000,
-        max_runs: 4096,
-        max_pages: 1_000_000,
-        max_physical_files: 2_100_000,
+        max_scope_rows: usize::MAX,
+        max_census_records: usize::MAX,
+        max_runs: usize::MAX,
+        max_pages: usize::MAX,
+        max_physical_files: usize::MAX,
         max_disk_bytes: 128 << 30,
         max_lookup_pages: 0,
         max_lookup_bytes: 0,
@@ -118,7 +142,11 @@ pub(super) fn validate_marker(report: &Value) -> Result<(), AppError> {
     Ok(())
 }
 
-fn open(directory: &Path, record: &Value) -> Result<(RawProvenance, Value), AppError> {
+fn open(
+    directory: &Path,
+    record: &Value,
+    limits: Limits,
+) -> Result<(RawProvenance, Value), AppError> {
     if record["kind"] != KIND
         || record["required"] != true
         || record["work_bytes_included"] != false
@@ -126,8 +154,10 @@ fn open(directory: &Path, record: &Value) -> Result<(RawProvenance, Value), AppE
         return Err(AppError::input("unsupported required finite source"));
     }
     let capsule = source_path(directory, record)?;
-    let bytes =
-        storage::read_bounded(&storage::safe_child(&capsule, "source.json")?, SOURCE_BYTES)?;
+    let bytes = storage::read_bounded(
+        &storage::safe_child(&capsule, "source.json")?,
+        limits.source_bytes,
+    )?;
     if bytes.len() as u64 != record["source_bytes"].as_u64().unwrap_or(u64::MAX)
         || blake3::hash(&bytes).as_bytes() != &digest(&record["source_blake3"])?
     {
@@ -157,7 +187,7 @@ fn open(directory: &Path, record: &Value) -> Result<(RawProvenance, Value), AppE
         &capsule,
         &execution,
         digest(&record["generation_blake3"])?,
-        limits(),
+        limits.storage,
     )
     .map_err(fail)?;
     let payloads: Vec<String> =
@@ -170,9 +200,10 @@ fn open(directory: &Path, record: &Value) -> Result<(RawProvenance, Value), AppE
         &payloads,
         &source["execution_identity"],
         archive.execution(),
+        limits.source_bytes,
     )?;
     crate::application::routed_campaign::finite_demand::backend::publication::validate_portable_scope(
-        &archive,&source,&AtomicBool::new(false))?;
+        &archive,&source,limits.source_bytes,&AtomicBool::new(false))?;
     if record["generation"].as_u64() != Some(archive.generation())
         || source["generation_blake3"] != record["generation_blake3"]
         || source["input_occurrences"].as_u64() != Some(archive.state().input_occurrences)
@@ -214,8 +245,12 @@ fn open(directory: &Path, record: &Value) -> Result<(RawProvenance, Value), AppE
     Ok((archive, source))
 }
 
-fn fresh_path(directory: &Path, generation: [u8; 32]) -> Result<(String, PathBuf), AppError> {
-    for ordinal in 0..1024 {
+fn fresh_path(
+    directory: &Path,
+    generation: [u8; 32],
+    limits: Limits,
+) -> Result<(String, PathBuf), AppError> {
+    for ordinal in 0..limits.staging_attempts {
         let name = format!("finite-source-{}-{ordinal:04}", hex(generation));
         let path = directory.join(&name);
         if !path.exists() {
@@ -229,15 +264,16 @@ fn copied_record(
     archive: &RawProvenance,
     source: &Value,
     cancel: &AtomicBool,
+    limits: Limits,
 ) -> Result<Value, AppError> {
     check(cancel)?;
     let bytes = serde_json::to_vec(source).map_err(io)?;
-    if bytes.len() > SOURCE_BYTES {
+    if bytes.len() > limits.source_bytes {
         return Err(AppError::limit("finite source metadata byte allowance"));
     }
-    let (name, path) = fresh_path(directory, archive.digest())?;
+    let (name, path) = fresh_path(directory, archive.digest(), limits)?;
     let copied = archive
-        .copy_capsule(&path, limits(), cancel)
+        .copy_capsule(&path, limits.storage, cancel)
         .map_err(fail)?;
     check(cancel)?;
     write_file_atomically(&path.join("source.json"), &bytes, false).map_err(io)?;
@@ -245,7 +281,7 @@ fn copied_record(
         "generation_blake3":hex(copied.digest()),"source_bytes":bytes.len(),
         "source_blake3":blake3::hash(&bytes).to_hex().to_string(),"work_bytes_included":false,
         "assurance":"trusted_generated; integrity is not independent dependency replay"});
-    open(directory, &record)?;
+    open(directory, &record, limits)?;
     check(cancel)?;
     Ok(record)
 }
@@ -255,6 +291,7 @@ pub(super) fn capture(
     directory: &Path,
     report: &mut Value,
     cancel: &AtomicBool,
+    policy: Option<&crate::FiniteDemandPolicy>,
 ) -> Result<(), AppError> {
     check(cancel)?;
     if report["finite_source"].is_object() {
@@ -263,7 +300,7 @@ pub(super) fn capture(
                 "publication resume captured a different finite generation",
             ));
         }
-        return validate_required_with_cancel(directory, report, cancel);
+        return validate_required_with_cancel(directory, report, cancel, limits(policy)?);
     }
     let archive = captured.raw_provenance();
     let state = archive.state();
@@ -286,7 +323,8 @@ pub(super) fn capture(
         "input_occurrences":state.input_occurrences,"completed_work":state.completed_work,
         "inventory":captured.summary()});
     // All required bytes exist and validate before the caller exposes latest.
-    let record = copied_record(directory, archive, &source, cancel)?;
+    let limits = limits(policy)?;
+    let record = copied_record(directory, archive, &source, cancel, limits)?;
     let inputs = storage::package_inputs(request, directory, captured.owner_payload_digests())?;
     check(cancel)?;
     report["finite_source"] = record;
@@ -294,24 +332,32 @@ pub(super) fn capture(
     report["inputs"] = inputs;
     report["independently_verified"] = json!(false);
     report["publication_assurance"] = json!("trusted_generated");
-    validate_required_with_cancel(directory, report, cancel)
+    validate_required_with_cancel(directory, report, cancel, limits)
 }
 
-fn records(report: &Value) -> Result<Vec<&Value>, AppError> {
+fn records(report: &Value, limits: Limits) -> Result<Vec<&Value>, AppError> {
     validate_marker(report)?;
     if report["schema"] != FINITE_SCHEMA {
         return Ok(Vec::new());
     }
-    let mut rows = vec![&report["finite_source"]];
-    if let Some(inherited) = report.get("inherited_finite_sources") {
-        rows.extend(
-            inherited
+    let inherited = report
+        .get("inherited_finite_sources")
+        .map(|value| {
+            value
                 .as_array()
-                .ok_or_else(|| AppError::input("inherited finite sources malformed"))?,
-        );
-    }
-    if rows.len() > 1024 {
+                .ok_or_else(|| AppError::input("inherited finite sources malformed"))
+        })
+        .transpose()?;
+    if inherited
+        .map_or(0, Vec::len)
+        .checked_add(1)
+        .is_none_or(|n| n > limits.sources)
+    {
         return Err(AppError::limit("inherited finite source count"));
+    }
+    let mut rows = vec![&report["finite_source"]];
+    if let Some(inherited) = inherited {
+        rows.extend(inherited);
     }
     Ok(rows)
 }
@@ -320,6 +366,7 @@ fn validate_inputs(
     report: &Value,
     source: &Value,
     archive: &RawProvenance,
+    limits: Limits,
 ) -> Result<(), AppError> {
     for (file, field) in [
         ("inputs/original-selection.json", "original_selection"),
@@ -349,7 +396,7 @@ fn validate_inputs(
     let payloads: Vec<String> =
         serde_json::from_value(source["owner_payload_digests"].clone()).map_err(io)?;
     let selection_path = storage::safe_child(directory, "inputs/selection.json")?;
-    let portable = storage::read_bounded(&selection_path, SOURCE_BYTES)?;
+    let portable = storage::read_bounded(&selection_path, limits.source_bytes)?;
     if storage::digest_file(&selection_path)? != report["inputs"]["program_binding"] {
         return Err(AppError::input(
             "portable selection program binding differs",
@@ -360,8 +407,12 @@ fn validate_inputs(
         &payloads,
         &source["execution_identity"],
         archive.execution(),
+        limits.source_bytes,
     )?;
-    let amendments = read_json(&storage::safe_child(directory, "inputs/amendments.json")?)?;
+    let amendments = storage::read_json_bounded(
+        &storage::safe_child(directory, "inputs/amendments.json")?,
+        limits.source_bytes,
+    )?;
     let expected = source["amendments"]
         .as_array()
         .ok_or_else(|| AppError::input("finite amendments missing"))?;
@@ -388,19 +439,24 @@ fn validate_inputs(
     }
     Ok(())
 }
-pub(super) fn validate_required(directory: &Path, report: &Value) -> Result<(), AppError> {
-    validate_required_with_cancel(directory, report, &AtomicBool::new(false))
+pub(super) fn validate_required(
+    directory: &Path,
+    report: &Value,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<(), AppError> {
+    validate_required_with_cancel(directory, report, &AtomicBool::new(false), limits(policy)?)
 }
 fn validate_required_with_cancel(
     directory: &Path,
     report: &Value,
     cancel: &AtomicBool,
+    limits: Limits,
 ) -> Result<(), AppError> {
-    for (index, record) in records(report)?.into_iter().enumerate() {
+    for (index, record) in records(report, limits)?.into_iter().enumerate() {
         check(cancel)?;
-        let (archive, source) = open(directory, record)?;
+        let (archive, source) = open(directory, record, limits)?;
         let summary = archive
-            .visit_raw_census(limits().raw, cancel, |_, _| Ok(()), |_, _| Ok(()))
+            .visit_raw_census(limits.storage.raw, cancel, |_, _| Ok(()), |_, _| Ok(()))
             .map_err(fail)?;
         if source["inventory"]["encountered"]["terminals"].as_u64() != Some(summary.terminals)
             || source["inventory"]["encountered"]["visited_zeros"].as_u64() != Some(summary.zeros)
@@ -422,7 +478,7 @@ fn validate_required_with_cancel(
             ));
         }
         if index == 0 {
-            validate_inputs(directory, report, &source, &archive)?;
+            validate_inputs(directory, report, &source, &archive, limits)?;
             if report["inventory"] != source["inventory"] {
                 return Err(AppError::input(
                     "publication replaced its exact raw inventory",
@@ -437,12 +493,14 @@ pub(super) fn validate_session(
     directory: &Path,
     report: &Value,
     session: &TerminalRelationSession,
+    policy: Option<&crate::FiniteDemandPolicy>,
 ) -> Result<(), AppError> {
-    for record in records(report)? {
-        let (archive, _) = open(directory, record)?;
+    let limits = limits(policy)?;
+    for record in records(report, limits)? {
+        let (archive, _) = open(directory, record, limits)?;
         archive
             .visit_raw_census(
-                limits().raw,
+                limits.storage.raw,
                 &AtomicBool::new(false),
                 |_, _| Ok(()),
                 |kind, key| {
@@ -473,20 +531,22 @@ pub(super) fn inherit(
     directory: &Path,
     report: &mut Value,
     cancel: &AtomicBool,
+    policy: Option<&crate::FiniteDemandPolicy>,
 ) -> Result<(), AppError> {
-    validate_required_with_cancel(source_directory, report, cancel)?;
-    let copied = records(report)?
+    let limits = limits(policy)?;
+    validate_required_with_cancel(source_directory, report, cancel, limits)?;
+    let copied = records(report, limits)?
         .into_iter()
         .map(|r| {
-            let (archive, source) = open(source_directory, r)?;
-            copied_record(directory, &archive, &source, cancel)
+            let (archive, source) = open(source_directory, r, limits)?;
+            copied_record(directory, &archive, &source, cancel, limits)
         })
         .collect::<Result<Vec<_>, AppError>>()?;
     report["finite_source"] = copied[0].clone();
     if copied.len() > 1 {
         report["inherited_finite_sources"] = json!(&copied[1..]);
     }
-    validate_required_with_cancel(directory, report, cancel)
+    validate_required_with_cancel(directory, report, cancel, limits)
 }
 pub(super) fn inherit_previous(
     source: &Path,
@@ -494,6 +554,7 @@ pub(super) fn inherit_previous(
     previous: &Value,
     report: &mut Value,
     cancel: &AtomicBool,
+    policy: Option<&crate::FiniteDemandPolicy>,
 ) -> Result<(), AppError> {
     if previous["schema"] != FINITE_SCHEMA {
         return Ok(());
@@ -508,8 +569,9 @@ pub(super) fn inherit_previous(
     } else {
         source.parent().unwrap_or(Path::new("."))
     };
-    validate_required_with_cancel(source_directory, previous, cancel)?;
-    let mut seen = records(report)?
+    let limits = limits(policy)?;
+    validate_required_with_cancel(source_directory, previous, cancel, limits)?;
+    let mut seen = records(report, limits)?
         .into_iter()
         .map(|r| digest(&r["generation_blake3"]))
         .collect::<Result<BTreeSet<_>, _>>()?;
@@ -517,12 +579,12 @@ pub(super) fn inherit_previous(
         .as_array()
         .cloned()
         .unwrap_or_default();
-    for record in records(previous)? {
+    for record in records(previous, limits)? {
         if !seen.insert(digest(&record["generation_blake3"])?) {
             continue;
         }
-        let (archive, source) = open(source_directory, record)?;
-        inherited.push(copied_record(directory, &archive, &source, cancel)?);
+        let (archive, source) = open(source_directory, record, limits)?;
+        inherited.push(copied_record(directory, &archive, &source, cancel, limits)?);
     }
     if !inherited.is_empty() {
         report["inherited_finite_sources"] = json!(inherited);

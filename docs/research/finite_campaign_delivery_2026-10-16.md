@@ -1,5 +1,9 @@
 # Finite-demand campaign delivery — 16 October 2026
 
+This records the first release. For the subsequent configurable resource policy,
+repaired solve dashboard and new frozen executable, use
+[the updated delivery](finite_resource_limits_2026-10-16.md).
+
 This checkpoint delivers an opt-in exact finite-demand backend using the existing
 saved IBP rules. It is ready for a fresh incremental campaign, not a claim of
 completed five-loop R6/D10 closure or full physical Vakint acceptance. The user

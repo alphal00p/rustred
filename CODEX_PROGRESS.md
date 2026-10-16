@@ -1,5 +1,84 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 16 — configurable finite resource policy and consistent dashboard
+
+User requested removal of the fixed resource barriers after the R2 finite run
+stopped at generation4129 with314/348 rows complete and36,994,385 completed Work
+keys. The run took869.354s and peaked at18.834GB process-tree RSS; this was a
+4096-segment refusal, not missing IBPs or exhausted RAM. Its committed prefix
+cold-inspected successfully and remains untouched. User subsequently authorized
+a fresh campaign instead of making old-checkpoint compatibility a constraint.
+The older separate incremental campaign also remains untouched.
+
+Implementation lanes:
+
+- `finite_limits_api`: caller policy through publication, provenance inheritance,
+  refinement, inspection, native loading and saved-application preparation/export.
+- `finite_policy_options`: nullable aggregate grants, inspection/control/source
+  parser limits, plus the separately audited saved-application cold-loader gap.
+- `finite_limits_audit`: independent resource audit, then the orthogonal finite
+  Ratatui table implementation. Root and `finite_limits_api` independently
+  reviewed the UI; findings included window-rate resets and preparation progress.
+- Root: Python policy forwarding, uncapped high-memory aggregate profile,
+  runtime bincode allocation-budget enforcement, integration and verification.
+
+Aggregate grants accept `null` for no requested cap. Explicit numeric grants
+remain enforced and are carried into every finite publication/cold-read path;
+untrusted artifact contents do not select reader allowances. Native frames can
+exceed the old64MiB ceiling using caller-selected frame/transient settings.
+The implementation uses bincode's public decoder and checked allocation claims,
+not a custom serialization or CAS kernel. Three public codec regressions passed,
+including above64MiB data, nested-container equivalence against bincode and
+hostile vector lengths; `TMP/finite-user-limits-codec-tests-20261016`.
+
+The first native test pass found a flawed4097-run regression fixture (duplicated
+raw references exceeded its actual native Work count) and two CLI test setup
+failures from a missing `SYMBOLICA_HIDE_BANNER`. A replacement singleton's bounds
+were then corrected and independently exercised through the existing CLI:
+10,001 real completed Work records in0.081s. No integrity guard or counter was
+weakened. The final gate passed **319 native tests** (four explicitly ignored
+fixtures), including the large-run publication/refinement/cold-loading test;
+receipts: `TMP/finite-user-limits-tests3-20261016`. Python checks passed **152**
+tests in17.574s. Earlier negative evidence is retained in the initial/build2
+directories. These are correctness checks, not five-loop performance claims.
+
+Independent actual-release stress:4200 one-seed K1 windows,8400 Work records,
+4200 Work segments/pages, generation4201;138.461s and14.7MiB peak sampled RSS.
+Publication0.164s and fresh artifact inspection0.008s succeeded with uncapped
+aggregate counts. Explicit4096-run caps refused source/publication/cold reads
+without modifying CURRENT/latest/artifact hashes. Evidence and exact commands:
+`TMP/finite-user-limits-k1-stress-20261016.uRAO5M/evidence.json`.
+
+Root's real-PTY visual review caught one final cleanup issue: Ratatui's
+`CompletedFrame.area` is full-screen, whereas `completed.buffer.area` is the
+inline viewport. All render paths now retain the latter. The final optimized
+CLI passed **three actual-native PTY tests**, including cancellation, write-only
+stderr, terminal restoration and the correct16-row cleanup in a32-row terminal.
+The optional pyte visual mode answers cursor queries at the actual cursor;
+recorded ANSI must be decoded from bytes without universal-newline conversion.
+Images/ANSI: `TMP/finite-user-limits-tty-final-20261016/`. Root visually checked
+the complete and cancelled screens: header/borders retained, error below table.
+Four fresh final-binary cold checks also passed against the4200-run artifact:
+`TMP/finite-user-limits-final-cold-checks.json`. No mathematical code changed
+between the stress build and the final viewport-cleanup build.
+
+Frozen optimized executable:
+`TMP/releases/20261016-finite-user-limits-final/rustred`, SHA256
+`fbad42ea34a211653aae11fb059676a819d64619980a583b63dbeb716b8f4819`.
+Final build receipt: `TMP/finite-user-limits-ui-release-build-20261016`.
+The source is being delivered to main as one audited resource-policy/UI slice;
+unrelated pre-existing FeynKit and untracked work remains excluded.
+
+Fresh **inputs only** prepared at
+`campaigns/five-loop-finite-r0-d10-configurable-20261016`:67 owners,116 required
+rows, R0/D≤10, original183-query attachment preserved for future extensions.
+Its R0 query bytes equal the previous campaign's input bytes. No production
+solve, old-campaign amendment, numerical master computation or Vakint operation
+was launched. The exact fresh launch command passed its dry run, leaving the
+campaign inputs-only. Launch/extension/inspection/refinement instructions are
+in `docs/research/finite_resource_limits_2026-10-16.md`. The broader goal remains
+paused; this follow-up does not establish full five-loop R6/D10 completion.
+
 ## October 16 — finite startup and missing solve display follow-up
 
 The broader goal remains paused. This user-requested follow-up only repairs

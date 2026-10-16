@@ -52,17 +52,19 @@ pub(in crate::application::routed_campaign) fn parse_bound_sources(
         .try_fold(original.len(), |sum, amendment| {
             sum.checked_add(amendment.text.len())
         });
-    if bytes.is_none_or(|bytes| bytes > max_source_bytes)
-        || amendments.len() > rescue::MAX_AMENDMENTS
-    {
+    if bytes.is_none_or(|bytes| bytes > max_source_bytes) || amendments.len() > max_rows {
         return Err(AppError::limit("finite demand source allowance exceeded"));
     }
     let originals = matching::input::parse(original, arity, max_queries, max_query_bytes)?;
     let amendments = amendments
         .iter()
-        .map(|amendment| rescue::parse(amendment, arity).map_err(AppError::input))
+        .map(|amendment| {
+            rescue::parse_with_limits(amendment, arity, max_rows, max_source_bytes)
+                .map_err(AppError::input)
+        })
         .collect::<Result<Vec<_>, _>>()?;
-    rescue::check_chain(&[], &amendments, &request_binding, &originals).map_err(AppError::input)?;
+    rescue::check_chain_with_limit(&[], &amendments, &request_binding, &originals, max_rows)
+        .map_err(AppError::input)?;
     let row_count = amendments
         .iter()
         .try_fold(originals.len(), |sum, amendment| {
@@ -101,6 +103,58 @@ pub(in crate::application::routed_campaign) fn parse_bound_sources(
         sources,
         request_binding,
     })
+}
+
+#[cfg(test)]
+mod source_limit_tests {
+    use super::*;
+
+    fn row(id: &str) -> Value {
+        json!({"id":id,"owner":"1","lower":[0],"upper":[0],"max_numerator_rank":0,
+            "power_bounds":{"max_positive_power":1,"min_power_difference":0,"max_power_difference":1}})
+    }
+
+    #[test]
+    fn finite_amendment_chain_uses_requested_grants_and_still_authenticates_each_link() {
+        let binding = "12".repeat(32);
+        let original =
+            json!({"schema":"rustred.owner-domain-queries.json.v2","queries":[row("original")],
+            "query_roles":{"required":["original"],"auxiliary":[]}})
+            .to_string();
+        let mut parent = binding.clone();
+        let amendments: Vec<_> = (1..=rescue::MAX_AMENDMENTS + 1).map(|sequence| {
+            let id = format!("append-{sequence}");
+            let amendment = crate::OwnerDomainWalkAmendment {
+                path: format!("amendment-{sequence}.json").into(),
+                text: json!({"schema":rescue::SCOPE_EXTENSION_SCHEMA,"sequence":sequence,"parent":parent,
+                    "queries":[row(&id)],"query_roles":{"required":[id],"auxiliary":[]}}).to_string(),
+            };
+            parent = amendment.digest();
+            amendment
+        }).collect();
+        let count = amendments.len() + 1;
+        let parse = |rows, bytes, amendments: &[_]| {
+            parse_bound_sources(
+                &original,
+                amendments,
+                binding.clone(),
+                1,
+                1,
+                original.len(),
+                rows,
+                bytes,
+            )
+        };
+        assert!(parse(count - 1, usize::MAX, &amendments).is_err());
+        assert!(parse(count, original.len(), &amendments).is_err());
+        assert_eq!(
+            parse(count, usize::MAX, &amendments).unwrap().rows.len(),
+            count
+        );
+        let mut corrupt = amendments.clone();
+        corrupt[1].text = corrupt[1].text.replace(&amendments[0].digest(), &binding);
+        assert!(parse(count, usize::MAX, &corrupt).is_err());
+    }
 }
 
 /// Preserve the original versus appended source-validity decision exactly.

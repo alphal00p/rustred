@@ -78,8 +78,17 @@ pub(super) fn save(
 /// optional cache metadata remains non-authoritative and is not loaded here.
 /// A runtime application exported from a validated source is self-contained;
 /// this function is deliberately absent from hot application/cache paths.
+#[cfg(test)]
 pub(super) fn validate_required(directory: &Path, report: &Value) -> Result<(), AppError> {
-    super::finite_provenance::validate_required(directory, report)?;
+    validate_required_with_policy(directory, report, None)
+}
+
+pub(super) fn validate_required_with_policy(
+    directory: &Path,
+    report: &Value,
+    policy: Option<&crate::FiniteDemandPolicy>,
+) -> Result<(), AppError> {
+    super::finite_provenance::validate_required(directory, report, policy)?;
     required_bytes(directory, report).map(|_| ())
 }
 
@@ -138,12 +147,19 @@ fn required_bytes(directory: &Path, report: &Value) -> Result<Option<Vec<u8>>, A
 
 /// A portable refined artifact retains its original *raw* census, not a census
 /// of its reduced master basis. Invalid/missing optional data is discarded.
+#[cfg(test)]
 pub(super) fn inherit(
     source_directory: &Path,
     directory: &Path,
     report: &mut Value,
 ) -> Result<(), AppError> {
-    inherit_with_cancel(source_directory, directory, report, &AtomicBool::new(false))
+    inherit_with_cancel(
+        source_directory,
+        directory,
+        report,
+        &AtomicBool::new(false),
+        None,
+    )
 }
 
 pub(super) fn inherit_with_cancel(
@@ -151,9 +167,16 @@ pub(super) fn inherit_with_cancel(
     directory: &Path,
     report: &mut Value,
     cancel: &AtomicBool,
+    policy: Option<&crate::FiniteDemandPolicy>,
 ) -> Result<(), AppError> {
     if report["schema"] == super::FINITE_SCHEMA {
-        return super::finite_provenance::inherit(source_directory, directory, report, cancel);
+        return super::finite_provenance::inherit(
+            source_directory,
+            directory,
+            report,
+            cancel,
+            policy,
+        );
     }
     if let Some(data) = required_bytes(source_directory, report)? {
         write_file_atomically(&directory.join(FILE), &data, true).map_err(|error| {

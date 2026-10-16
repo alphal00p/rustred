@@ -16,6 +16,7 @@ class StartupProgress:
         self.enabled = enabled
         self.stream = sys.stderr if stream is None else stream
         self.tty = self.stream.isatty()
+        self.color = self.tty and "NO_COLOR" not in os.environ
         self.interval = tty_interval if self.tty else log_interval
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -53,7 +54,8 @@ class StartupProgress:
             if len(label) > available:
                 label = label[:max(0, available - 3)] + "..."[:available]
             line = (label + suffix)[-width:]
-            self._write("\r" + line.ljust(min(self._width, width)))
+            line = line.ljust(min(self._width, width))
+            self._write("\r" + ("\033[1;36m" + line + "\033[0m" if self.color else line))
             self._width = len(line)
         else:
             self._write(label + suffix + "\n")

@@ -134,8 +134,17 @@ impl Selection {
     }
 
     pub fn parse(text: &str) -> Result<(Self, usize, CandidateOwnerLoadLimits), AppError> {
-        if text.len() > MAX_STEERING_BYTES {
-            return Err(AppError::limit("owner selection exceeds 16 MiB"));
+        Self::parse_with_byte_limit(text, MAX_STEERING_BYTES)
+    }
+
+    pub fn parse_with_byte_limit(
+        text: &str,
+        max_bytes: usize,
+    ) -> Result<(Self, usize, CandidateOwnerLoadLimits), AppError> {
+        if text.len() > max_bytes {
+            return Err(AppError::limit(
+                "owner selection exceeds its byte allowance",
+            ));
         }
         let selection: Self =
             serde_json::from_str(text).map_err(|e| AppError::input(e.to_string()))?;

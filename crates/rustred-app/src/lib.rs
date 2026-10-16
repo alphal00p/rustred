@@ -1,9 +1,5 @@
 mod application;
 pub use application::{
-    FiniteDemandMode, FiniteDemandPolicy, FiniteDemandRunRequest, FiniteDemandRunResult,
-    inspect_finite_demand, publish_finite_demand_with_progress, run_finite_demand_with_progress,
-};
-pub use application::{
     CacheLookupBudgetPolicy, CachePreparationBackend, CachePreparationCapabilities,
     CachePreparationOptions, CachePreparationPrimerBudget, CachePreparationReport,
     CachePreparationResolvedOptions, CachePreparationStatus, CachePreparationTarget,
@@ -19,10 +15,16 @@ pub use application::{
 };
 pub use application::{EntryPowerBudget, FiniteEntryDomain, entry_domain_plan};
 pub use application::{
+    FiniteDemandMode, FiniteDemandPolicy, FiniteDemandRunRequest, FiniteDemandRunResult,
+    inspect_finite_demand, inspect_finite_demand_with_policy, publish_finite_demand_with_progress,
+    run_finite_demand_with_progress,
+};
+pub use application::{
     MasterNormalizationProfile, MasterReductionArtifact, MasterReductionOperation,
-    MasterReductionOptions, load_master_reduction, load_master_relation_session,
+    MasterReductionOptions, load_master_reduction, load_master_reduction_with_policy,
+    load_master_relation_session, load_master_relation_session_with_policy,
     master_publish_partial_refinement, master_reduce_saved_campaign, master_reduction_inspect,
-    master_refine_published_artifact,
+    master_reduction_inspect_with_policy, master_refine_published_artifact,
 };
 pub use application::{
     OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
@@ -36,9 +38,11 @@ pub use application::{
     SavedApplicationIntegral, SavedApplicationOptions, SavedApplicationPreparationStatistics,
     SavedApplicationProduct, SavedApplicationProductChartStatistics,
     SavedApplicationProductStatistics, SavedApplicationReduction, SavedApplicationWitness,
-    SavedApplicationWitnessKind, export_saved_application, load_saved_application,
-    prepare_saved_application, saved_application_arity, saved_application_boundary_witnesses,
-    saved_application_domains,
+    SavedApplicationWitnessKind, export_saved_application, export_saved_application_with_policy,
+    load_saved_application, load_saved_application_with_policy, prepare_saved_application,
+    prepare_saved_application_with_policy, saved_application_arity,
+    saved_application_arity_with_policy, saved_application_boundary_witnesses,
+    saved_application_domains, saved_application_domains_with_policy,
 };
 /// Native family entry for embedded hosts; no source-text round trip.
 pub use rustred::family::IntegralFamily as NativeIntegralFamily;

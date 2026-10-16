@@ -7,6 +7,7 @@ The tiny generated one-loop fixture and every native output stay in workspace TM
 A cursor-position reply exercises Ratatui initialization, beyond isatty detection.
 """
 import errno
+import codecs
 import fcntl
 import importlib.util
 import json
@@ -99,6 +100,7 @@ class NativeInlineTtyTests(unittest.TestCase):
         spec.loader.exec_module(cls.guard)
         cls.environment = cls.guard.native_environment()
         cls.environment["TERM"] = "xterm-256color"
+        cls.environment.pop("NO_COLOR", None)
         cls.cpu = min(os.sched_getaffinity(0))
         source = cls.fixture / "source.toml"
         source.write_text('''schema="rustred.project.toml.v1"
@@ -164,6 +166,17 @@ powers=[1]
         outer = None
         display = bytearray()
         replies = 0
+        terminal_stream = None
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        if os.environ.get("RUSTRED_NATIVE_TTY_EMULATOR") == "1":
+            # Optional visual-audit mode: a real emulator reports the current
+            # cursor rather than the fixed origin used by the dependency-free
+            # handshake smoke test. This matters for inline viewport resizing.
+            import pyte
+            class ReplyingScreen(pyte.Screen):
+                def write_process_input(self, text):
+                    os.write(master, text.encode())
+            terminal_stream = pyte.Stream(ReplyingScreen(160, 32))
         try:
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 160, 0, 0))
             original_termios = termios.tcgetattr(slave)
@@ -189,9 +202,13 @@ powers=[1]
                         block = b""
                     display.extend(block)
                     count = display.count(b"\x1b[6n")
-                    while replies < count:
-                        os.write(master, b"\x1b[1;1R")
-                        replies += 1
+                    if terminal_stream is not None:
+                        terminal_stream.feed(decoder.decode(block))
+                        replies = count
+                    else:
+                        while replies < count:
+                            os.write(master, b"\x1b[1;1R")
+                            replies += 1
                 elif outer.poll() is not None:
                     break
                 if time.monotonic() >= deadline:
@@ -225,29 +242,41 @@ powers=[1]
         # Ratatui positions each changed word/cell instead of emitting a plain
         # text line. Preserve separators while removing control sequences.
         text = b" ".join(re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b" ", display).split())
+        if evidence := os.environ.get("RUSTRED_NATIVE_TTY_EVIDENCE"):
+            evidence = Path(evidence).resolve()
+            if not evidence.is_relative_to(ROOT / "TMP"):
+                raise ValueError("native TTY test evidence must remain in workspace TMP")
+            evidence.mkdir(parents=True, exist_ok=True)
+            (evidence / (name + ".ansi")).write_bytes(display)
+        self.last_display = bytes(display)
         return text, replies, receipt
 
     def test_real_inline_dashboard_requires_all_native_terminal_descriptors(self):
         before, replies, before_receipt = self.run_guard("stderr-only", broken=True)
         self.assertEqual(before_receipt["exit_code"], 0)
         self.assertEqual(replies, 0)
-        self.assertNotIn(b"RustRed finite-demand campaign", before)
+        self.assertNotIn(b"FINITE DEMAND", before)
         after, replies, after_receipt = self.run_guard("terminal-descriptors")
         self.assertEqual(after_receipt["exit_code"], 0)
         self.assertGreater(replies, 0)
-        self.assertIn(b"RustRed finite-demand campaign", after)
+        self.assertIn(b"FINITE DEMAND", after)
+        self.assertIn("╭".encode(), after)
         self.assertIn(b"required rows closed", after)
+        # Inline viewport is16 rows in this32-row terminal. Cleanup must land
+        # at the viewport bottom, not scroll the whole screen's last row.
+        self.assertNotIn(b"\x1b[32;1H", self.last_display)
+        self.assertIn(b"\x1b[16;1H", self.last_display)
 
     def test_native_cancellation_keeps_display_and_drains_group(self):
         display, replies, receipt = self.run_guard("cancelled", cancelled=True)
         self.assertGreater(replies, 0)
-        self.assertIn(b"RustRed finite-demand campaign", display)
+        self.assertIn(b"FINITE DEMAND", display)
         self.assertNotEqual(receipt["exit_code"], 0)
 
     def test_write_only_stderr_is_reopened_for_native_terminal_input(self):
         display, replies, receipt = self.run_guard("write-only-stderr", write_only_stderr=True)
         self.assertGreater(replies, 0)
-        self.assertIn(b"RustRed finite-demand campaign", display)
+        self.assertIn(b"FINITE DEMAND", display)
         self.assertEqual(receipt["exit_code"], 0)
 
 

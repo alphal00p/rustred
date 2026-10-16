@@ -21,51 +21,51 @@
   },
   "max_resident_work_bytes": 300000000000,
   "census": {
-    "max_unique_selections": 1000000,
-    "max_identity_payload_bytes": 536870912
+    "max_unique_selections": null,
+    "max_identity_payload_bytes": null
   },
   "export": {
-    "max_records": 200000000,
-    "max_live_payload_bytes": 107374182400
+    "max_records": null,
+    "max_live_payload_bytes": null
   },
   "storage": {
     "raw": {
       "max_page_records": 2048,
       "max_page_bytes": 524288,
-      "max_runs": 2048,
-      "max_pages": 1000000,
-      "max_directory_bytes": 268435456,
-      "max_stored_references": 1000000000,
-      "max_merge_runs": 4096,
+      "max_runs": null,
+      "max_pages": null,
+      "max_directory_bytes": null,
+      "max_stored_references": null,
+      "max_merge_runs": null,
       "max_merge_cached_pages": 1024,
       "max_merge_payload_bytes": 268435456,
-      "max_merge_read_bytes": 137438953472,
+      "max_merge_read_bytes": null,
       "max_decode_transient_bytes": 67633152
     },
-    "max_arity": 16,
-    "max_delta_records": 200000000,
-    "max_delta_payload_bytes": 107374182400,
+    "max_arity": null,
+    "max_delta_records": null,
+    "max_delta_payload_bytes": null,
     "max_page_records": 2048,
     "max_page_bytes": 524288,
     "max_cached_pages": 8192,
     "max_cached_page_bytes": 2147483648,
-    "max_directory_bytes": 268435456,
-    "max_manifest_bytes": 67108864,
-    "max_state_bytes": 67108864,
-    "max_scope_rows": 16384,
-    "max_census_records": 1000000,
-    "max_runs": 4096,
-    "max_pages": 1000000,
-    "max_physical_files": 2100000,
-    "max_disk_bytes": 137438953472,
-    "max_lookup_pages": 4096,
-    "max_lookup_bytes": 2147483648,
-    "max_transient_bytes": 134217728
+    "max_directory_bytes": null,
+    "max_manifest_bytes": 1073741824,
+    "max_state_bytes": 1073741824,
+    "max_scope_rows": null,
+    "max_census_records": null,
+    "max_runs": null,
+    "max_pages": null,
+    "max_physical_files": null,
+    "max_disk_bytes": null,
+    "max_lookup_pages": null,
+    "max_lookup_bytes": null,
+    "max_transient_bytes": 2147483648
   },
-  "max_total_rows": 16384,
-  "max_source_bytes": 67108864,
+  "max_total_rows": null,
+  "max_source_bytes": null,
   "control": {
-    "max_bytes": 1073741824,
-    "max_files": 16384
+    "max_bytes": null,
+    "max_files": null
   }
 }

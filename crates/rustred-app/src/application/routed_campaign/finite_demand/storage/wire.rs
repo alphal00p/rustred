@@ -7,6 +7,7 @@ use std::{
 };
 
 pub(super) const MAX_FRAME: usize = rustred::persistence::finite_work::FRAME_LIMIT;
+pub(super) use rustred::persistence::finite_work::metadata_decode_allowance;
 pub(super) const CURRENT: &str = "CURRENT";
 pub(super) const PAGE_MAGIC: &[u8] = rustred::persistence::finite_work::PAGE_MAGIC;
 pub(super) const STATE_MAGIC: &[u8] = b"RUSTRED-FINITE-STATE-2\0";

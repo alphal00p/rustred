@@ -5,7 +5,6 @@ use std::fs;
 
 use crossterm::{cursor, execute, style};
 use ratatui::backend::CrosstermBackend;
-#[cfg(test)]
 use ratatui::layout::Rect;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
@@ -23,6 +22,7 @@ use super::render::{DASHBOARD_HEIGHT, render_dashboard_for_width};
 pub(super) struct TerminalSession<W: Write> {
     terminal: Terminal<CrosstermBackend<W>>,
     closed: bool,
+    last_area: Rect,
 }
 
 impl<W: Write> TerminalSession<W> {
@@ -32,6 +32,23 @@ impl<W: Write> TerminalSession<W> {
 
     pub(super) fn try_new_family(writer: W) -> io::Result<Self> {
         Self::try_with_viewport(writer, Viewport::Inline(DASHBOARD_HEIGHT))
+    }
+
+    pub(super) fn try_new_finite(writer: W) -> io::Result<Self> {
+        Self::try_with_viewport(writer, Viewport::Inline(super::routed::finite::HEIGHT))
+    }
+
+    pub(super) fn render_finite(
+        &mut self,
+        record: &serde_json::Value,
+        color: bool,
+    ) -> io::Result<()> {
+        let completed = self
+            .terminal
+            .draw(|frame| super::routed::finite::render(frame, record, color))?;
+        // CompletedFrame.area is the entire terminal, not the inline viewport.
+        self.last_area = completed.buffer.area;
+        Ok(())
     }
 
     #[cfg(test)]
@@ -53,7 +70,7 @@ impl<W: Write> TerminalSession<W> {
         color: bool,
         failed: bool,
     ) -> io::Result<()> {
-        self.terminal.draw(|frame| {
+        let completed = self.terminal.draw(|frame| {
             let areas = Layout::vertical([
                 Constraint::Length(1),
                 Constraint::Length(1),
@@ -82,6 +99,7 @@ impl<W: Write> TerminalSession<W> {
                 );
             }
         })?;
+        self.last_area = completed.buffer.area;
         Ok(())
     }
 
@@ -95,17 +113,19 @@ impl<W: Write> TerminalSession<W> {
 
     fn try_with_viewport(writer: W, viewport: Viewport) -> io::Result<Self> {
         let backend = CrosstermBackend::new(writer);
-        let terminal = Terminal::with_options(backend, TerminalOptions { viewport })?;
+        let mut terminal = Terminal::with_options(backend, TerminalOptions { viewport })?;
+        let last_area = terminal.get_frame().area();
         let mut session = Self {
             terminal,
             closed: false,
+            last_area,
         };
         session.terminal.hide_cursor()?;
         Ok(session)
     }
 
     pub(super) fn render(&mut self, state: &DashboardState, color: bool) -> io::Result<()> {
-        self.terminal.draw(|frame| {
+        let completed = self.terminal.draw(|frame| {
             let area = frame.area();
             let content = render_dashboard_for_width(state, area.width);
             let style = if color {
@@ -117,6 +137,7 @@ impl<W: Write> TerminalSession<W> {
             };
             frame.render_widget(Paragraph::new(content).style(style), area);
         })?;
+        self.last_area = completed.buffer.area;
         Ok(())
     }
 
@@ -130,7 +151,11 @@ impl<W: Write> TerminalSession<W> {
             self.terminal.backend_mut(),
             style::ResetColor,
             cursor::Show,
-            cursor::MoveToNextLine(1)
+            // Buffer diffs can leave the cursor anywhere in the dashboard.
+            // A real newline at its bottom also scrolls when the viewport ends
+            // on the terminal's last row; cursor movement alone cannot do that.
+            cursor::MoveTo(0, self.last_area.bottom().saturating_sub(1)),
+            style::Print("\r\n")
         );
         let _ = self.terminal.backend_mut().flush();
     }
