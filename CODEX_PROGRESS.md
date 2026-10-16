@@ -1,5 +1,118 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 16 — user-requested next stopping milestone
+
+Finish the optimized fresh-campaign build, verify native/public lifecycle and
+the resident-index performance pilot, and push a clean audited milestone.
+Then provide exact commands for fresh start, later extensions, inspection and
+manual refinement with `--seed-depth 1 --containing-sector-depth 1`, and pause
+the goal at the user's request. The requested “external-sector-depth” is named
+`--containing-sector-depth` in the existing API; do not invent a different flag.
+Do not launch the new production campaign. This is a delivery/pause milestone,
+not completion of the full R6/D10 closure and Vakint acceptance goal. Additional
+ladder investigation is deferred until the user resumes work.
+
+### Current delivery state
+
+The corrected source is clean at `138718ef` in
+`TMP/finite-demand-singleton-status-20261016`. It contains the resident index,
+public run/resume/append/publication workflow, artifact inspection, cumulative
+committed-row progress, and native terminal-display wiring. All16 targeted
+native lifecycle/cursor tests now pass (app-only opt0, optimized core), and the
+TTY change passed27 Python tests including a real PTY. Independent audits
+passed. These correctness tests are not production timing results.
+
+Final normal check86070 passed68.205s at
+`TMP/public-finite-final-check-20261016`. Build43778 is running at
+`TMP/public-finite-final-build-20261016`; the same worktree and build target
+produce the final optimized app-test and CLI binaries. No more feature
+work is planned. Remaining release gates: the actual optimized354-test gate,
+the full116-row R0 public interruption/repair/publication/relocation workflow,
+and the small unchanged four-parent K10 paged/resident controls. The previously
+held private R1 performance gate is now complete, not awaiting another run.
+
+### Complete durable R1 performance evidence
+
+Phase A63147 passed independent audit:81 commits /300,673 completed Work /
+2,557 occurrences, with exactly the same generation82 and CURRENT as the
+original paged/indexed controls. Inclusive140.438s, preparation120.031s,
+window steps4.690s versus24.417s for indexed-page lookup; peak8.026GB.
+Every native call used the resident index without paged Work lookups or fallback.
+
+Phase B31801 also completed and passed independent audit: all232 recorded
+R0/R1 declarations exhausted over488 total windows /6,047,386 Work /
+60,807 occurrences. Exact record-by-record comparison of683 terminal keys,
+1,110,963 zeros and5,023 selected-rule identities (multiplicity2,354,285)
+matched the accepted in-memory reference. A separate cold process reproduced
+the same generation489 and byte-identical raw census with no new windows.
+
+Phase B inclusive430.878s /10.752GB peak comprises119.147s source preparation,
+148.104s window steps, native output comparison and a separate140.789s cold
+reopen/comparison. Row118 call/export fell from68.372s with indexed pages to
+4.946s; the previously censored hard row156 completed in112.924s. No completed
+whole-run timing ratio is claimed against the old paged controls, which did
+not finish their30-minute pilots. This is full durable R1, not R6 closure or
+complete Vakint acceptance.
+
+The private pilot used frozen22637ccd app SHA
+`c31458e6cd630483fc315ef5e34b11c2e484a5a3d0d22ea3e76a937ac8bf3ded`
+under the explicitly inspection-excluded345-test backend/publication gate.
+All232 source declarations, owner rules, four workers,32GB process guard and
+mathematical bounds were unchanged. Only the16GB resident grant and fresh
+checkpoint differed from the indexed baseline. Exact commands:
+
+```text
+python3 -B TMP/finite-demand-resident-r1-policy-20261016/run.py --phase a --start
+python3 -B TMP/finite-demand-resident-r1-policy-20261016/run.py --phase b --start
+```
+
+Both runs used the pinned Nix Python. Evidence:
+`TMP/finite-demand-resident-r1-validation-20261016/phase-{a,b}/independent-audit.json`.
+The checkpoint has4,997 files /302,314,985 bytes,3,381 Work pages and636 raw
+pages. Largest manifest333,940B;484 nonempty Work commit-runs. Final resident
+payload estimate1.172GB plus151MB reserved coexistence, not allocator-exact RSS.
+The higher-rank production-policy proposal remains explicit/unmeasured and
+must respect native framing and portable-publication limits, not silently use
+the R1 pilot's512-run/8GB-disk caps.
+
+### Preserved failures and corrections
+
+- Initial public source build passed1811.233s, then six runtime failures
+  remained: five compared a raw request-binding string with its native-encoded
+  digest, and one control fixture used Epoch's deliberately unevaluated summary
+  boolean. The fix reuses the existing source identity function; the fixture
+  now requires actual cold verification (PASS1/1), without weakening application
+  parity or changing any integral/rule.
+- Combined22637ccd build passed1736.133s. Its351 executions had347 passes and
+  four cheap-inspection failures caused by `usize::MAX` overflowing raw-page
+  capacity arithmetic. The345-test backend/publication component independently
+  passed and was the limited authority for the private performance pilot.
+- The four-path inspector fix `e94bafcf` derives its record ceiling from the
+  existing writer-enforced decoded-page bound and actual arity. Check69.218s and
+  build1640.987s passed. Its353 executions passed351, leaving a path-spelling
+  fixture difference (`../` versus `..`) and initial singleton status handling.
+- The native all-fixed singleton legitimately starts with a full prefix, empty
+  DFS frames and zero counters. The cheap observer now accepts exactly that
+  pending shape while preserving all binding and completion checks. The path
+  fixture compares path components; actual relocation/cold-resume assertions
+  remain unchanged.
+- The fast app-only diagnostic first failed compilation on a missing `Path`
+  import (152.249s); the import-only correction reused the same optimized core.
+  Build338.305s and all16 lifecycle/cursor tests passed in6.707s. No performance
+  claim comes from its opt0 application binary.
+- Native progress had been redirected to a log by the Python guard. TTY-only
+  wiring `6b5583cb` exposes the existing native dashboard and suppresses competing
+  guard prints; default/non-TTY logging, resource records and stopping behavior
+  are unchanged. All27 focused tests, including a real PTY, passed independently.
+
+Full negative and positive evidence remains under the corresponding
+`TMP/public-finite-{lifecycle,resident,inspection,singleton-fast-fixed}-*`
+directories. No production campaign, old checkpoint, owner corpus or installed
+production binary was changed. Root owns integration/profiling/documentation;
+`intermediate_capture_app` owns the final native/public workflow,
+`finite_resident_work` delivered the index/monitor/TTY and pilot protocols,
+and `finite_backend_audit` independently audits source and measurements.
+
 ## October 16 — fresh deployment agreed; indexed persistence helps but is not ready
 
 The user confirmed that the optimized backend may start a **fresh campaign**.

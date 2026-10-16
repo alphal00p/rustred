@@ -1,5 +1,83 @@
 # Shared finite-demand tracing: complete R1 input pilots
 
+## Resident Work index: durable R1 and cold parity passed
+
+The exact resident index passed its 556-test core gate and the combined app's
+independently audited 345-test backend/publication component. Four failures in
+public inspection remain explicitly excluded from this private performance
+gate; the inspector repair is being built separately. These results do not
+make the public frontend launch-ready.
+
+The first prefix test retained all 232 R0/R1 declarations and paused at the
+same 81 committed windows as the original paged and indexed tests. Native
+input/cursor state, generation82, 300,673 completed Work, 2,557 occurrences and
+CURRENT SHA256 are identical across all three runs.
+
+| Prefix measurement, four workers | Indexed page lookup | Resident Work index |
+|---|---:|---:|
+| Full driver | 165.983 s | 140.438 s |
+| Preparation | 126.646 s | 120.031 s |
+| All window steps | 24.417 s | 4.690 s |
+| Native calls plus export, summed | 22.022 s | 3.213 s |
+| Commits, summed | 1.239 s | 0.901 s |
+| Peak process-tree RSS | 7.992 GB | 8.026 GB |
+| Completed-baseline hits | 3,138,307 | 3,138,307 |
+| Page-cache hits | 41,837,465 | 0 |
+| Backing reads | 3,365 /73.38 MB | 0 |
+
+This is one matched prefix observation, not a replicated whole-campaign timing
+claim. The explicit resident grant is 16 GB within the unchanged 32 GB process
+guard. Every window used the resident index without fallback. Final estimated
+retained payload was 63,555,441 bytes plus 150,994,944 bytes of reserved
+coexistence; this estimate is not allocator-exact RSS. The index was initialized
+once and updated only after durable commits.
+
+The harder rank-one continuation and subsequent cold census comparison
+**completed and passed independent audit** under the same source and policy.
+Evidence for the first phase:
+`TMP/finite-demand-resident-r1-validation-20261016/phase-a/independent-audit.json`.
+Frozen diagnostic source: `22637ccd`; app executable SHA256:
+`c31458e6cd630483fc315ef5e34b11c2e484a5a3d0d22ea3e76a937ac8bf3ded`.
+
+Phase B committed the remaining407 windows: all232 declarations exhausted,
+60,807 occurrences and6,047,386 completed Work at generation489. Exact
+record-by-record comparisons against the accepted in-memory reference passed
+for all683 terminal keys,1,110,963 zero keys and5,023 composite selected-rule
+identities, including multiplicities (2,354,285 rule applications). The fresh
+process then reopened the same generation, committed no new windows, and
+produced byte-identical raw census streams. This is not merely count equality.
+
+| Completed continuation measurement | Seconds |
+|---|---:|
+| Prepare source, authenticate scope and restore | 119.147 |
+| All407 window steps, including durable advancement | 148.104 |
+| Native calls plus export, summed | 125.430 |
+| Commits, summed | 15.501 |
+| Final raw census stream | 1.578 |
+| Native process plus exact output comparison | 280.775 |
+| Additional fresh-process cold reopen and comparison | 140.789 |
+| Complete guarded Phase-B driver | 430.878 |
+
+Peak process-tree RSS was10.752GB. All407 native calls used the resident index,
+with zero Work-page reads/cache probes and no fallback. Cold hydration did
+read the saved Work pages: the zero counters refer to native-window lookup,
+not zero total disk IO. The final estimated resident payload was1.172GB plus
+151MB reserved coexistence. The checkpoint contains4,997 files /302,314,985
+bytes, including3,381 Work pages and636 raw census pages. Its largest manifest
+is333,940 bytes;484 nonempty Work runs are inferred from the native delta log.
+
+The same row118 call/export interval fell from68.372s (indexed pages) to4.946s
+(resident Work), while the formerly censored hard row156 completed in112.924s.
+The old paged/indexed runs did not complete the full continuation within their
+30-minute inclusive pilots, so there is no completed whole-run speedup ratio
+against them. Preparation, continuation and cold-open times above are separate;
+do not present430.878s as solver-only time or as a complete new R6 campaign.
+
+Full continuation audit:
+`TMP/finite-demand-resident-r1-validation-20261016/phase-b/independent-audit.json`.
+Public lifecycle readiness, artifact publication through that frontend,
+coefficient application and higher-rank closure remain separate gates.
+
 ## October 16: indexed persistence and higher-rank diagnostic
 
 The indexed page LRU passed its 35-test IO gate and the combined binary's
