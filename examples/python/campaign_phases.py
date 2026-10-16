@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import stat
 import shutil
 import subprocess
 import sys
@@ -207,6 +208,13 @@ def scope_binding(campaign, checkpoint, seed_depth=0, operation="publish"):
 
 def same_input_scope(left, right):
     """Operation/depth change the search, not the admitted physics scope."""
+    left_engine = left.get("components", {}).get("engine")
+    right_engine = right.get("components", {}).get("engine")
+    if left_engine != right_engine:
+        return False
+    if left_engine == "rustred.finite-demand.v1":
+        fields = ("engine", "generation_digest", "amendments", "selection_sha256", "queries_sha256")
+        return all(left.get("components", {}).get(key) == right.get("components", {}).get(key) for key in fields)
     fields = ("checkpoint_manifest_sha256", "amendments", "selection_sha256", "queries_sha256")
     return all(left.get("components", {}).get(key) == right.get("components", {}).get(key) for key in fields)
 
@@ -235,10 +243,11 @@ def unfinished_refinement(campaign, binding):
             "manifest_sha256": digest(source / "latest.json")}
 
 
-def require_retained_refinement(campaign):
+def require_retained_refinement(campaign, binding=None):
     """Called while extension holds both the checkpoint and dispatcher locks."""
     campaign = Path(campaign)
-    binding = scope_binding(campaign, campaign / "checkpoints/main")
+    if binding is None:
+        binding = scope_binding(campaign, campaign / "checkpoints/main")
     pending = unfinished_refinement(campaign, binding)
     if pending is None:
         return
@@ -420,7 +429,10 @@ def completed_request(campaign, checkpoint, binding, driver):
 @contextmanager
 def dispatcher_lock(directory):
     directory.mkdir(parents=True, exist_ok=True)
-    with (directory / "dispatcher.lock").open("a+b") as stream:
+    descriptor = os.open(directory / "dispatcher.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    with os.fdopen(descriptor, "a+b") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise ValueError("phase dispatcher lock must be a regular file")
         try:
             fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -471,6 +483,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
     telemetry, dashboard = supervisor.MONITOR.TELEMETRY, supervisor.MONITOR.DASHBOARD
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     attempt = directory / "runs" / timestamp
+    finite_output_path(plan, attempt)
     attempt.mkdir(parents=True)
     events, stop_file = attempt / "events.jsonl", attempt / "stop-request.json"
     executable = driver.steering_executable(plan["steering_policy"])[1]
@@ -481,7 +494,12 @@ def phase_two(plan, policy, request, binding, directory, driver):
     if finalizing:
         command += ["--refinement", str(policy["partial_source"])]
     elif publishing:
-        command += ["--command", str(request), "--checkpoint", plan["checkpoint_directory"]]
+        command += ["--command", str(request)]
+        if plan.get("engine") == "rustred.finite-demand.v1":
+            command += ["--finite-directory", plan["checkpoint_directory"],
+                        "--finite-policy", plan["finite_policy"]]
+        else:
+            command += ["--checkpoint", plan["checkpoint_directory"]]
         command.append("--deep-verification" if policy.get("deep_verification", False) else "--no-deep-verification")
     else:
         command += ["--artifact", str(policy["source_artifact"])]
@@ -661,10 +679,16 @@ def phase_two(plan, policy, request, binding, directory, driver):
         tail.poll()
         # The CLI also uses exit 4 for input errors. Only the native event
         # attesting a cooperative pause justifies displaying a resumable pause.
-        paused = status == 4 and latest.get("status") == "paused"
+        native_status = status
+        stopped_completion = (plan.get("engine") == "rustred.finite-demand.v1"
+                              and status == 0 and stop_reason is not None)
+        if stopped_completion:
+            status = 8  # Keep any durable artifact, but do not promote pointers after a stop.
+        paused = stopped_completion or (status == 4 and latest.get("status") == "paused")
         finished_state = "published_partial_refinement" if finalizing else "published_unrefined" if publishing else "completed_nonminimal"
         publish(finished_state if status == 0 else "paused" if paused else "failed", force=True)
         driver.write_json(attempt / "supervisor-result.json", {"exit_status": status, "stop_reason": stop_reason,
+                          "native_exit_status": native_status,
                           "phase": phase, "operation": operation, "scope_binding": binding["key"],
                           "peak_observed_rss_bytes": peak, "elapsed_seconds": time.monotonic() - started})
         if status == 0:
@@ -687,7 +711,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 raise ValueError("native partial export must attest incomplete refinement and its source")
             if finalizing and digest(Path(policy["partial_source"]) / "latest.json") != policy["partial_refinement"]["source_manifest_sha256"]:
                 raise ValueError("refinement source changed during partial export; artifact retained but pointer not updated")
-            current = scope_binding(plan["campaign_directory"], plan["checkpoint_directory"])
+            current = phase_scope_binding(plan, driver)
             if not same_input_scope(current, binding):
                 raise ValueError("campaign scope changed during postprocessing; artifact retained but latest pointer not updated")
             previous = completed_artifact(plan["campaign_directory"])
@@ -756,6 +780,9 @@ def phase_two(plan, policy, request, binding, directory, driver):
                                     "--deep-verification " if policy.get("deep_verification", False) else "--no-deep-verification ")
             if finalizing:
                 print(f"Resume export with: saved_campaign.py finalize-refinement --campaign {plan['campaign_directory']}", flush=True)
+            elif plan.get("engine") == "rustred.finite-demand.v1":
+                print(f"Resume with: saved_campaign.py {'publish' if publishing else 'refine'} "
+                      f"--campaign {plan['campaign_directory']}", flush=True)
             else:
                 print(f"Resume with: {sys.executable} {Path(driver.__file__).resolve()} --campaign-directory "
                       f"{plan['campaign_directory']} --resume {refinement_flags}--start", flush=True)
@@ -767,7 +794,61 @@ def phase_two(plan, policy, request, binding, directory, driver):
             signal.signal(sig, handler)
 
 
-def run(plan, policy, resume, driver, postprocess_only=False):
+def finite_output_path(plan, path):
+    """Finite phase output ancestors cannot redirect writes outside this campaign."""
+    if plan.get("engine") != "rustred.finite-demand.v1":
+        return
+    campaign = Path(plan["campaign_directory"]).resolve()
+    candidate = Path(path).absolute()
+    try:
+        parts = candidate.relative_to(campaign).parts
+    except ValueError:
+        raise ValueError("finite phase output must remain inside its campaign") from None
+    current = campaign
+    for index, part in enumerate(parts):
+        if part in (".", ".."):
+            raise ValueError("finite phase output must be a canonical campaign path")
+        current /= part
+        if current.is_symlink() or not current.resolve().is_relative_to(campaign):
+            raise ValueError("finite phase output has a symlink/escaping ancestor: " + str(current))
+        if current.exists() and index + 1 < len(parts) and not current.is_dir():
+            raise ValueError("finite phase output ancestor is not a directory")
+
+
+def phase_scope_binding(plan, driver):
+    if plan.get("engine") == "rustred.finite-demand.v1":
+        return driver.finite_scope_binding(plan)
+    checkpoint = Path(plan["checkpoint_directory"])
+    return scope_binding(plan["campaign_directory"], checkpoint) if (checkpoint / "latest.json").is_file() else None
+
+
+def phase_completed_request(plan, binding, driver):
+    if plan.get("engine") == "rustred.finite-demand.v1":
+        return driver.finite_completed_request(plan, binding)
+    return completed_request(plan["campaign_directory"], plan["checkpoint_directory"], binding, driver)
+
+
+@contextmanager
+def phase_source_lock(plan, directory, driver, held, dispatcher_held=False):
+    if plan.get("engine") == "rustred.finite-demand.v1":
+        for path in (directory / "dispatcher.lock", directory / "bin", directory / "scopes",
+                     directory / "policy.json", directory / "active-phase.json", directory / "completed-phase.json",
+                     Path(plan["campaign_directory"]) / "artifacts/latest.json"):
+            finite_output_path(plan, path)
+        # Global finite order: dispatcher -> control -> native StoreWriter.
+        # Drop control before launching a native child, retaining dispatcher.
+        if not dispatcher_held:
+            held.enter_context(dispatcher_lock(directory))
+        with driver.control_lock(Path(plan["checkpoint_directory"])):
+            yield
+    else:
+        # Preserve the legacy CP6 acquisition order and behavior.
+        with driver.checkpoint_lock(Path(plan["checkpoint_directory"])):
+            held.enter_context(dispatcher_lock(directory))
+            yield
+
+
+def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=False):
     campaign, checkpoint = Path(plan["campaign_directory"]), Path(plan["checkpoint_directory"])
     directory = campaign / "master-reduction"
     with ExitStack() as held:
@@ -775,16 +856,18 @@ def run(plan, policy, resume, driver, postprocess_only=False):
         # first dispatcher.lock is serialized against an existing CP6 lock,
         # closing the first-opt-in race with an amendment publication. Release
         # CP6 before starting a native walk; retain the phase lock throughout.
-        with driver.checkpoint_lock(checkpoint):
-            held.enter_context(dispatcher_lock(directory))
+        with phase_source_lock(plan, directory, driver, held, dispatcher_held):
             evidence = driver.campaign_run_liveness(campaign)
             if evidence:
                 raise ValueError("campaign is still running: " + "; ".join(evidence))
+            if plan.get("engine") == "rustred.finite-demand.v1" and policy.get("executable"):
+                finite_output_path(plan, directory / policy["executable"]["path"])
             freeze_master_executable(directory, policy, driver)
             driver.write_json(directory / "policy.json", {key: value for key, value in policy.items()
                               if key not in ("operation", "source_artifact", "previous_artifact", "preserved_refinement")})
-            binding = scope_binding(campaign, checkpoint) if (checkpoint / "latest.json").is_file() else None
-            request = completed_request(campaign, checkpoint, binding, driver) if (resume or postprocess_only) and binding else None
+            binding = (None if plan.get("engine") == "rustred.finite-demand.v1" and plan.get("repair_preparation")
+                       else phase_scope_binding(plan, driver))
+            request = phase_completed_request(plan, binding, driver) if (resume or postprocess_only) and binding else None
         operation = policy.get("operation", "publish")
         if operation == "finalize-refinement":
             if not binding or request is None:
@@ -865,14 +948,24 @@ def run(plan, policy, resume, driver, postprocess_only=False):
                               "run_directory": plan["run_directory"]})
             status, stopped = phase_one(plan["command"])
             if stopped:
-                return 4  # Native phase one may have finished just before Ctrl+C.
+                # Native phase one may have finished just before Ctrl+C.
+                return 8 if plan.get("engine") == "rustred.finite-demand.v1" else 4
+            if plan.get("engine") == "rustred.finite-demand.v1" and status != 0:
+                return status  # Even a complete prior CURRENT cannot turn refusal into publication.
             if status not in (0, 4):
                 return status
-            binding = scope_binding(campaign, checkpoint) if (checkpoint / "latest.json").is_file() else None
-            request = completed_request(campaign, checkpoint, binding, driver) if binding else None
+            binding = phase_scope_binding(plan, driver)
+            request = phase_completed_request(plan, binding, driver) if binding else None
             if request is None:
                 print("IBP campaign remains paused/incomplete; no final artifact was published.", flush=True)
                 return status if status else 4
+        if plan.get("engine") == "rustred.finite-demand.v1" and operation == "publish":
+            previous = completed_artifact(campaign)
+            if previous and previous.get("operation") == "refine":
+                # Exact proved maps survive append-only input scope. Native
+                # publication authenticates program/family and retained rows.
+                policy = {**policy, "previous_artifact": str(previous["resolved_directory"]),
+                          "preserved_refinement": previous.get("refinement")}
         identity = {"scope": binding["key"], "operation": operation,
                     "seed_depth": policy["seed_depth"] if operation == "refine" else 0,
                     "source": str(Path(policy["source_artifact"]).relative_to(campaign)) if policy.get("source_artifact") else None,
@@ -919,6 +1012,7 @@ def run(plan, policy, resume, driver, postprocess_only=False):
                     policy = {**policy, "source_artifact": str(campaign / identity["source"])}
                 # A changed search recipe starts from the latest partial artifact
                 # so its already proved maps survive the new finite search.
+        finite_output_path(plan, target / "steering-binding.json")
         target.mkdir(parents=True, exist_ok=True)
         driver.write_json(target / "steering-binding.json", {"scope_binding": binding, **identity})
         return phase_two(plan, policy, request, binding, target, driver)

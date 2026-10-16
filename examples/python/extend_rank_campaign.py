@@ -126,6 +126,18 @@ def validate_extension(previous_rank, rank, previous_difference, difference):
 
 def plan(campaign, rank, *, max_power_difference=PRESERVE_DIFFERENCE):
     """Read-only plan, with the native checkpoint lock held by the caller."""
+    metadata, snapshot = checkpoint_snapshot(campaign / "checkpoints/main")
+    return plan_from_source(campaign, rank, metadata, snapshot,
+                            max_power_difference=max_power_difference)
+
+
+def plan_from_source(campaign, rank, metadata, snapshot, *,
+                     max_power_difference=PRESERVE_DIFFERENCE, finite=False):
+    """Shared exact stage builder; caller supplies native authenticated source metadata.
+
+    CP6 and finite-demand keep separate checkpoint readers/locks. Only the
+    original source/amendment chain is shared here, never an invented ledger.
+    """
     STAGE.unsigned(rank, 32, "extended input rank")
     inputs = campaign / "inputs"
     _, _, inputs_receipt = PRODUCTION.verify_inputs(inputs)
@@ -149,7 +161,6 @@ def plan(campaign, rank, *, max_power_difference=PRESERVE_DIFFERENCE):
         raise ValueError("rank-source attachment, original rank receipt or frozen inputs differ")
     base_document = json.loads(expected_base)
     base_roles = STAGE.ROLES.query_roles(base_document, require_explicit=True)
-    metadata, snapshot = checkpoint_snapshot(campaign / "checkpoints/main")
     if metadata.get("total_queries") != len(base_document["queries"]):
         raise ValueError("checkpoint original query inventory differs from frozen inputs")
     records = metadata["amendments"]
@@ -227,6 +238,15 @@ def plan(campaign, rank, *, max_power_difference=PRESERVE_DIFFERENCE):
                "checkpoint_authentication": "native resume checks complete byte-digest chain and request binding",
                "closure_claim": False, "native_work_started": False,
                "resume_command": command, "start_command": [*command, "--start"]}
+    if finite:
+        command = [sys.executable, "-B", str(Path(__file__).with_name("saved_campaign.py")),
+                   "run", "--campaign", str(campaign), "--resume"]
+        receipt.update(checkpoint=str(campaign / "finite-demand"),
+                       engine="rustred.finite-demand.v1",
+                       checkpoint_work_retained="exact completed native Work, raw census and bounded prefix cursors",
+                       checkpoint_authentication="native generated-generation, source and exact prefix cursor validation",
+                       resume_command=command, start_command=command)
+        receipt.pop("original_root_prefix")
     return path, raw, receipt
 
 
