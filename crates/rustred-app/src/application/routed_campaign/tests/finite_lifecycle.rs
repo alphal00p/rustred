@@ -54,6 +54,44 @@ fn public_source_join_preserves_native_encoded_request_identity() {
         expected
     );
 }
+
+#[test]
+fn public_inspection_uses_native_raw_frame_bounds_not_stale_operational_grants() {
+    let f = Fixture::new();
+    let request = request(&f);
+    run_finite_demand_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).unwrap();
+    let raw = request.directory.join("store/raw");
+    assert!(fs::read_dir(&raw).unwrap().next().is_some());
+    let before = inspect_finite_demand(&request.directory).unwrap();
+    let marker = request.directory.join("active-source.json");
+    let mut active: Value = serde_json::from_slice(&fs::read(&marker).unwrap()).unwrap();
+    active["policy"]["storage"]["raw"]["max_page_records"] = json!(usize::MAX);
+    active["policy"]["storage"]["raw"]["max_page_bytes"] = json!(1);
+    active["policy"]["storage"]["raw"]["max_decode_transient_bytes"] = json!(1);
+    active["policy"]["storage"]["max_manifest_bytes"] = json!(1);
+    fs::write(&marker, serde_json::to_vec(&active).unwrap()).unwrap();
+    assert_eq!(inspect_finite_demand(&request.directory).unwrap(), before);
+    // Metadata inspection validates framing/directories, not raw payloads.
+    // A same-length corrupt page is detected by full source validation later;
+    // merely showing committed counters must not read all raw census pages.
+    let page = fs::read_dir(&raw).unwrap().next().unwrap().unwrap().path();
+    let original = fs::read(&page).unwrap();
+    let mut corrupted = original.clone();
+    corrupted[0] ^= 1;
+    fs::write(&page, corrupted).unwrap();
+    assert_eq!(inspect_finite_demand(&request.directory).unwrap(), before);
+    fs::write(&page, original).unwrap();
+    let path = request.directory.join("execution.json");
+    let original = fs::read(&path).unwrap();
+    for arity in [0, 257] {
+        let mut execution: Value = serde_json::from_slice(&original).unwrap();
+        execution["physical_arity"] = json!(arity);
+        fs::write(&path, serde_json::to_vec(&execution).unwrap()).unwrap();
+        assert!(inspect_finite_demand(&request.directory).is_err());
+    }
+    fs::write(&path, original).unwrap();
+    assert_eq!(inspect_finite_demand(&request.directory).unwrap(), before);
+}
 fn append(request: &mut FiniteDemandRunRequest) {
     let text = json!({"schema":crate::OWNER_DOMAIN_WALK_SCOPE_EXTENSION_SCHEMA,"sequence":1,
         "parent":request.source.checkpoint_binding(),"queries":[query("next",4)],

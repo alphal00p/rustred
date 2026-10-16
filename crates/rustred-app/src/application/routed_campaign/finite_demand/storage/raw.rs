@@ -50,6 +50,19 @@ impl Default for RawCensusLimits {
         }
     }
 }
+impl RawCensusLimits {
+    /// Largest record grant admitted by the EXISTING decoded raw-page policy.
+    /// This is not inferred from the encoded frame size: both writer capacity
+    /// admission and directory payload validation enforce this decoded bound.
+    pub(crate) fn max_records_for_native_frame(arity: usize) -> Result<usize> {
+        let per_record = raw_record_payload(arity)?;
+        let records = wire::MAX_FRAME / per_record;
+        if records == 0 {
+            return Err(resource("raw record exceeds native decoder allowance"));
+        }
+        Ok(records)
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct RawPageRef {
     pub kind: RawKeyKind,
@@ -262,11 +275,18 @@ pub(super) fn validate_directory(
     }
     Ok((pages, bytes))
 }
-pub(super) fn page_capacity_payload(arity: usize, limits: RawCensusLimits) -> Result<usize> {
-    let payload = arity
+fn raw_record_payload(arity: usize) -> Result<usize> {
+    if arity == 0 {
+        return Err(resource("raw page physical arity must be positive"));
+    }
+    arity
         .checked_mul(size_of::<i64>())
         .and_then(|n| n.checked_add(size_of::<Vec<i64>>()))
-        .and_then(|n| n.checked_mul(limits.max_page_records))
+        .ok_or_else(|| resource("raw record payload allowance overflow"))
+}
+pub(super) fn page_capacity_payload(arity: usize, limits: RawCensusLimits) -> Result<usize> {
+    let payload = raw_record_payload(arity)?
+        .checked_mul(limits.max_page_records)
         .ok_or_else(|| resource("raw page capacity allowance overflow"))?;
     // This is the native decoder's existing allocation cap, not a new key or
     // physics limit. The own-decoder roundtrip remains the final frame gate.

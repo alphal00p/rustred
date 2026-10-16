@@ -368,7 +368,7 @@ pub(super) fn inspect(directory: &Path) -> Result<Inspection, AppError> {
     let generation = ValidatedGeneration::open_generated(
         &directory.join("store"),
         &execution.native(),
-        inspection_limits(&policy),
+        inspection_limits(&policy, execution.physical_arity)?,
     )
     .map_err(super::super::backend::storage_error)?;
     let source_status = match &active {
@@ -569,14 +569,23 @@ fn source_info(parsed: &finite_scope::Scope, objects: Vec<Object>) -> Result<Sou
         files: objects,
     })
 }
-fn inspection_limits(policy: &FiniteDemandPolicy) -> storage::StorageLimits {
+fn inspection_limits(
+    policy: &FiniteDemandPolicy,
+    physical_arity: u32,
+) -> Result<storage::StorageLimits, AppError> {
     // Never accept serialized policy as an unlimited metadata allocator. These
     // are bounded read-only framing ceilings, not new execution/disk grants.
     let mut limits: storage::StorageLimits = policy.storage.into();
-    const FRAME: usize = 64 * 1024 * 1024;
+    const FRAME: usize = rustred::persistence::finite_work::FRAME_LIMIT;
+    const MAX_ARITY: usize = 256;
+    let arity = usize::try_from(physical_arity)
+        .map_err(|_| AppError::limit("inspection physical arity exceeds platform range"))?;
+    if arity == 0 || arity > MAX_ARITY {
+        return Err(AppError::limit("inspection physical arity allowance"));
+    }
     // Independent read ceilings: a stale active-source operational policy must
     // not hide a newer committed scope after an interrupted metadata update.
-    limits.max_arity = 256;
+    limits.max_arity = MAX_ARITY;
     limits.max_manifest_bytes = FRAME;
     limits.max_state_bytes = FRAME;
     limits.max_page_bytes = FRAME;
@@ -591,11 +600,16 @@ fn inspection_limits(policy: &FiniteDemandPolicy) -> storage::StorageLimits {
     limits.max_cached_page_bytes = 0;
     limits.max_transient_bytes = 2 * FRAME;
     limits.raw.max_page_bytes = FRAME;
-    limits.raw.max_page_records = usize::MAX;
+    // Metadata-only inspection does not read/reserve raw pages. Nevertheless,
+    // its policy must pass the same decoded-capacity preflight as the writer.
+    // This native-derived ceiling accepts every legal page at this arity and
+    // cannot overflow as an unlimited count would.
+    limits.raw.max_page_records = storage::RawCensusLimits::max_records_for_native_frame(arity)
+        .map_err(super::super::backend::storage_error)?;
     limits.raw.max_directory_bytes = 256 * 1024 * 1024;
     limits.raw.max_runs = 1_000_000;
     limits.raw.max_pages = 1_000_000;
     limits.raw.max_stored_references = u64::MAX;
     limits.raw.max_decode_transient_bytes = 2 * FRAME;
-    limits
+    Ok(limits)
 }

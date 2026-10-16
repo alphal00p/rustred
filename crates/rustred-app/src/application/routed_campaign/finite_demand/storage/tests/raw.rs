@@ -6,6 +6,47 @@ fn rows(values: &[i64]) -> Vec<Vec<i64>> {
     values.iter().map(|&n| vec![n, 1]).collect()
 }
 #[test]
+fn raw_metadata_record_ceiling_matches_native_capacity_gate_without_allocation() {
+    for arity in [1usize, 10, 15, 16, 256] {
+        let maximum = RawCensusLimits::max_records_for_native_frame(arity).unwrap();
+        let per_record = size_of::<Vec<i64>>() + arity * size_of::<i64>();
+        assert_eq!(maximum, wire::MAX_FRAME / per_record);
+        let policy = RawCensusLimits {
+            max_page_records: maximum,
+            ..limits().raw
+        };
+        assert_eq!(
+            super::super::raw::page_capacity_payload(arity, policy).unwrap(),
+            maximum * per_record
+        );
+        assert!(
+            super::super::raw::page_capacity_payload(
+                arity,
+                RawCensusLimits {
+                    max_page_records: maximum + 1,
+                    ..policy
+                }
+            )
+            .is_err()
+        );
+        // Every grant admitted by the existing writer is <= this ceiling.
+        for count in [1, 2, maximum / 2, maximum] {
+            assert!(
+                super::super::raw::page_capacity_payload(
+                    arity,
+                    RawCensusLimits {
+                        max_page_records: count,
+                        ..policy
+                    }
+                )
+                .is_ok()
+            );
+        }
+    }
+    assert!(RawCensusLimits::max_records_for_native_frame(0).is_err());
+    assert!(RawCensusLimits::max_records_for_native_frame(usize::MAX).is_err());
+}
+#[test]
 fn paged_raw_extreme_record_count_and_missing_decode_budget_refuse_before_allocation() {
     let scratch = Scratch::new();
     let path = scratch.0.join("huge-capacity");
