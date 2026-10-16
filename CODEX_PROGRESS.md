@@ -44,6 +44,35 @@ relocation and publication tests remain pending. Responsible agents:
 designing an explicitly memory-bounded exact completed-Work index to avoid the
 remaining overlapping-run scans; it is not yet implemented or measured.
 
+Follow-up: the final combined source review and typecheck passed (44.200 s,
+unchanged source; `TMP/public-finite-lifecycle-final-check-20261016`). The single
+optimized app-libtest plus CLI build is running as session38501 under build-1,
+CPUs28–31, in `TMP/public-finite-lifecycle-build-20261016`. The Python change is
+included as `dd4a4251`, with the corrected publication fixture `e048ed2c`.
+Installed production binaries are protected and unchanged. The resident-index
+implementation proceeds in `TMP/finite-demand-resident-work-20261016` with a
+separate auditor, explicit opt-in grant and existing paged fallback; no measured
+resident-index benefit or production readiness is claimed.
+
+The resident implementation's first core/app typecheck found one test-policy
+initializer missing the new default-zero field (78.230 s, exit101). The corrected
+check passed in 78.205 s. Independent source review passed the exact index,
+hydrate-before-append ordering, post-commit-only adoption, explicit paged
+fallback, operational grant changes and unchanged generation identities.
+Core optimized correctness tests are authorized on build-0 / CPUs24–27; the
+public frontend build remains independent on build-1. Actual resident runtime
+tests, integration of its public policy field, and performance pilots are still
+pending. Evidence: `TMP/finite-resident-work-check-20261016` and
+`TMP/finite-resident-work-check2-20261016`.
+
+Read-only ladder follow-up: the 725 positive supports represented in the
+complete R1 zero census explain only the already fixed single R0 occurrence
+among 14,295 refused D10 occurrences. The remaining 14,294 occurrences are not
+explained by those recorded witnesses; this is not proof of nonzero integrals
+or an exhaustive installed-zero-catalogue query. Keep the actual admission and
+mass-graded lowering work open, rather than crediting the narrow fix as full
+ladder coverage. No new native probe or IBP generation was performed.
+
 The actual K15 source-zero probe also passed: the formerly rejected ladder
 key now returns exact zero using its installed certificate, with zero IBP
 applications. A nonzero D10 control succeeds and its D11 counterpart still

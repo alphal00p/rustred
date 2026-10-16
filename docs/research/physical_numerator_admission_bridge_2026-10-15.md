@@ -225,3 +225,18 @@ This confirms that one concrete application defect is fixed without broadening
 nonzero admission. It is not a rerun of the full 75,643-occurrence census and
 does not solve the other rejected supports, mass-shifted images, or full
 ladder application.
+
+An October 16 read-only comparison narrows that qualification further. The
+complete R1 trace's recorded zero keys have 725 distinct positive supports.
+Intersecting those supports with the ladder census's 58 refused D10 supports
+finds only the displayed R0 occurrence: one of 14,295 refused occurrences.
+The other 14,294 occurrences, all at positive numerator rank, have no match
+in that **recorded** zero census. This is not proof that they are nonzero or
+that the complete installed zero catalogue lacks them; it establishes only
+that the available recorded zero witnesses do not explain the bulk of the
+admission gap. No new algebra, native admission calls or reductions were run.
+The inputs to this integer-key comparison are the audited
+`TMP/full-r1-resource-governed-20261015/runtime/native/result.json`
+(`shared.evidence.visited_zeros`) and
+`TMP/r4-vakint-acceptance-20261015/ladder-full-census.json`
+(`unadmitted_D10_by_support`).
