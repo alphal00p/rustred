@@ -1,5 +1,15 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 16 — explicit elapsed-time label (Python-only)
+
+User requested a quick dashboard change without compilation or tests. Added
+an `Elapsed time` row to the Python publication/refinement table and an explicit
+elapsed label to its plain output, using the existing phase elapsed counter.
+The frozen native finite solve dashboard already has an `Elapsed` row; it is
+unchanged. Times describe the current phase/invocation, not cumulative time
+across saved rank stages. No builds, tests or campaign operations were run for
+this display-only edit; the next Python invocation picks it up automatically.
+
 ## October 16 — repair uncapped resident accounting; preserve requested RAM
 
 The user's first launch of `five-loop-finite-r0-d10-configurable-20261016`

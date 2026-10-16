@@ -604,6 +604,8 @@ def render_master_table(frame, width=100, height=24, color=True):
                               + count(collection.get("finite_feedback_aliases")) + " full-U aliases")))
         rows.insert(4, (1, row("Feedback nonzeros", count(collection.get("finite_feedback_nonzeros")),
                               count(collection.get("finite_feedback_replay_operations")) + " replay operations")))
+    rows.insert(0, (0, row("Elapsed time", duration(frame["elapsed_seconds"]),
+                          "wall time in this phase; current invocation", "36")))
     if master["artifact"]:
         rows.insert(0, (0, full("Artifact " + master["artifact"], "32")))
     if frame["stop_reason"]:
@@ -638,7 +640,7 @@ def plain_summary(frame):
     """Readable append-only summary from the same public frame as every consumer."""
     if frame.get("master_reduction"):
         master = frame["master_reduction"]
-        return [f"RustRed · {frame['phase']} · {frame['state']} · {duration(frame['elapsed_seconds'])}",
+        return [f"RustRed · {frame['phase']} · {frame['state']} · elapsed {duration(frame['elapsed_seconds'])}",
                 f"Stage {master['stage']} · {count(master['remaining_terminals'])} remaining terminals (nonminimal)",
                 f"{'Published' if master.get('artifact') else 'Available'} executable rule records {count(master.get('published_rule_records'))} · observed cover rules {count(master.get('observed_cover_rules'))}",
                 f"Relations {count(master['relation_rows'])} · {count(master['eliminated_terminals'])} eliminated",
