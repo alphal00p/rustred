@@ -2,10 +2,11 @@
 //! This is an optimization of the same trust boundary, not a closure proof.
 use super::*;
 use std::{
-    collections::HashSet,
     mem::size_of,
     sync::atomic::{AtomicBool, Ordering},
 };
+mod packed;
+use packed::{PackedWork, Slot};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ResidentWorkStatistics {
@@ -17,13 +18,13 @@ pub struct ResidentWorkStatistics {
 }
 
 /// Cannot be built from caller-provided membership answers or partial pages.
-/// Reads are immutable and lock-free throughout a native window. Full keys,
-/// including phase and literal Apply owner, participate in hash AND equality.
+/// Reads are immutable and lock-free throughout a native window. Phase and
+/// complete powers participate in hash AND equality. Validated Apply owners
+/// equal positive support, so the full literal owner is exactly recoverable.
 pub struct TrustedGeneratedResidentWork {
     execution: GeneratedExecutionBinding,
     generation: GeneratedWorkDigest,
-    work: HashSet<GeneratedWorkKey>,
-    heap_bytes: usize,
+    work: PackedWork,
     reserved: usize,
     maximum: usize,
 }
@@ -34,8 +35,7 @@ pub struct TrustedGeneratedResidentWork {
 /// may call `after_durable_commit`, after CURRENT has committed successfully.
 pub struct PreparedResidentWork {
     previous: TrustedGeneratedResidentWork,
-    delta: Vec<GeneratedWorkKey>,
-    delta_heap: usize,
+    delta: Vec<Slot>,
     original_delta_payload: usize,
 }
 
@@ -53,7 +53,6 @@ impl TrustedGeneratedResidentWork {
         Ok(PreparedResidentWork {
             previous: self,
             delta: Vec::new(),
-            delta_heap: 0,
             original_delta_payload: 0,
         })
     }
@@ -64,9 +63,9 @@ impl TrustedGeneratedResidentWork {
     /// coexist, never a directory's permission cap. Updates separately charge
     /// the original native delta's actual vector/key capacities.
     ///
-    /// Accounting includes key Vec capacities and a conservative HashSet
+    /// Accounting includes chunk capacity/slack and a conservative HashTable
     /// bucket/control estimate, including old/new tables during reservation.
-    /// std does not promise allocator-exact table layouts: this grant is a
+    /// The allocator does not promise exact usable-byte layouts: this grant is a
     /// payload estimate, not a hard RSS cap. The process RSS guard remains
     /// authoritative. Insufficient grant/allocation yields None; integrity,
     /// provider, accounting and cancellation failures are never a decline.
@@ -83,15 +82,8 @@ impl TrustedGeneratedResidentWork {
         }
         let records = usize::try_from(directory.statistics().records)
             .map_err(|_| resource("resident Work record count overflow"))?;
-        let heap_bound = records
-            .checked_mul(directory.execution().physical_arity as usize)
-            .and_then(|n| n.checked_mul(size_of::<i64>() + size_of::<bool>()))
-            .ok_or_else(|| resource("resident Work key estimate overflow"))?;
-        let planned = sum(&[
-            reserved_coexisting_bytes,
-            table_estimate(records)?,
-            heap_bound,
-        ])?;
+        let work = PackedWork::new(directory.execution().physical_arity as usize)?;
+        let planned = sum(&[reserved_coexisting_bytes, work.growth_payload(records)?])?;
         if planned > max_live_payload_bytes {
             check(cancel)?;
             return Ok(None);
@@ -99,23 +91,17 @@ impl TrustedGeneratedResidentWork {
         let mut result = Self {
             execution: directory.execution().clone(),
             generation: directory.generation(),
-            work: HashSet::new(),
-            heap_bytes: 0,
+            work,
             reserved: reserved_coexisting_bytes,
             maximum: max_live_payload_bytes,
         };
-        if result.work.try_reserve(records).is_err() {
+        if !result.work.reserve(records, cancel)? {
             check(cancel)?;
             return Ok(None);
         }
         // Check the reported capacity too; the preflight estimate is expressly
         // conservative rather than a promise about std's allocation internals.
-        if sum(&[
-            result.reserved,
-            retained_table_estimate(result.work.capacity())?,
-            heap_bound,
-        ])? > result.maximum
-        {
+        if sum(&[result.reserved, result.retained_payload_estimate()?])? > result.maximum {
             check(cancel)?;
             return Ok(None);
         }
@@ -123,7 +109,6 @@ impl TrustedGeneratedResidentWork {
             check(cancel)?;
             let mut visited = false;
             let mut failure = None;
-            let mut allocation_declined = false;
             let usage =
                 provider.visit_validated_page(expected, expected.object.bytes, &mut |page| {
                     if visited {
@@ -136,29 +121,15 @@ impl TrustedGeneratedResidentWork {
                         return;
                     }
                     for key in &page.records {
-                        if failure.is_some() || allocation_declined {
+                        if failure.is_some() {
                             break;
                         }
                         let inserted = (|| {
                             check(cancel)?;
-                            let owned = match clone_key(key) {
-                                Ok(key) => key,
-                                Err(_) => {
-                                    allocation_declined = true;
-                                    return Ok(());
-                                }
-                            };
-                            let bytes = owned.heap_bytes()?;
-                            if sum(&[result.reserved, result.retained_payload_estimate()?, bytes])?
-                                > result.maximum
-                            {
-                                allocation_declined = true;
-                                return Ok(());
-                            }
-                            if !result.work.insert(owned) {
+                            key.validate(result.execution.physical_arity as usize)?;
+                            if !result.work.hydrate_key(key) {
                                 return Err(corrupt("resident Work repeats across pages/runs"));
                             }
-                            result.heap_bytes = sum(&[result.heap_bytes, bytes])?;
                             Ok(())
                         })();
                         if let Err(error) = inserted {
@@ -175,10 +146,6 @@ impl TrustedGeneratedResidentWork {
                 || (!usage.cache_hit && usage.disk_bytes != expected.object.bytes)
             {
                 return Err(corrupt("resident provider visit/read accounting mismatch"));
-            }
-            if allocation_declined {
-                check(cancel)?;
-                return Ok(None);
             }
         }
         check(cancel)?;
@@ -223,8 +190,8 @@ impl TrustedGeneratedResidentWork {
     }
 
     /// Consume the index so an abandoned/failed commit cannot accidentally
-    /// expose staged keys. Only the delta is cloned; existing keys are moved
-    /// by occasional std HashSet growth, never cloned/rebuilt each window.
+    /// expose staged keys. Only new powers are copied into shared chunks;
+    /// occasional hash growth moves copyable slots, never heap-owned keys.
     pub fn prepare_delta<const N: usize>(
         mut self,
         delta: &crate::solver::CandidateRoutedCompletedDelta<'_, N>,
@@ -236,30 +203,19 @@ impl TrustedGeneratedResidentWork {
                 "resident delta differs from captured execution/generation",
             ));
         }
-        let required = self
-            .work
-            .len()
-            .checked_add(delta.work().len())
-            .ok_or_else(|| resource("resident delta count overflow"))?;
-        let mut heap = 0usize;
         for key in delta.work() {
             check(cancel)?;
             key.validate(self.execution.physical_arity as usize)?;
             if self.work.contains(key) {
                 return Err(corrupt("native resident delta repeats completed Work"));
             }
-            heap = sum(&[heap, clone_heap_bytes(key)?])?;
         }
         let vector = delta
             .work()
             .len()
-            .checked_mul(size_of::<GeneratedWorkKey>())
+            .checked_mul(size_of::<Slot>())
             .ok_or_else(|| resource("resident delta vector overflow"))?;
-        let growth = if required > self.work.capacity() {
-            table_estimate(required)?
-        } else {
-            0
-        };
+        let growth = self.work.growth_payload(delta.work().len())?;
         let original_delta = delta.work_payload_bytes()?;
         if sum(&[
             self.reserved,
@@ -267,13 +223,12 @@ impl TrustedGeneratedResidentWork {
             self.retained_payload_estimate()?,
             growth,
             vector,
-            heap,
         ])? > self.maximum
         {
             check(cancel)?;
             return Ok(None);
         }
-        if self.work.try_reserve(delta.work().len()).is_err() {
+        if !self.work.reserve(delta.work().len(), cancel)? {
             check(cancel)?;
             return Ok(None);
         }
@@ -284,15 +239,9 @@ impl TrustedGeneratedResidentWork {
         }
         for key in delta.work() {
             check(cancel)?;
-            match clone_key(key) {
-                Ok(key) => staged.push(key),
-                Err(_) => {
-                    check(cancel)?;
-                    return Ok(None);
-                }
-            }
+            staged.push(self.work.stage(key));
         }
-        let staged_payload = work_payload_bytes(&staged, staged.capacity())?;
+        let staged_payload = slot_payload(staged.capacity())?;
         if sum(&[
             self.reserved,
             original_delta,
@@ -303,25 +252,16 @@ impl TrustedGeneratedResidentWork {
             check(cancel)?;
             return Ok(None);
         }
-        let delta_heap = staged
-            .iter()
-            .try_fold(0usize, |total, key| sum(&[total, key.heap_bytes()?]))?;
-        // Establish that the infallible postcommit addition cannot overflow.
-        sum(&[self.heap_bytes, delta_heap])?;
         check(cancel)?;
         Ok(Some(PreparedResidentWork {
             previous: self,
             delta: staged,
-            delta_heap,
             original_delta_payload: original_delta,
         }))
     }
 
     fn retained_payload_estimate(&self) -> GeneratedWorkResult<usize> {
-        sum(&[
-            retained_table_estimate(self.work.capacity())?,
-            self.heap_bytes,
-        ])
+        self.work.retained_payload()
     }
 }
 
@@ -344,7 +284,7 @@ impl PreparedResidentWork {
             during_commit,
             self.original_delta_payload,
             self.previous.retained_payload_estimate()?,
-            work_payload_bytes(&self.delta, self.delta.capacity())?,
+            slot_payload(self.delta.capacity())?,
         ])? > self.previous.maximum
         {
             return Ok(None);
@@ -360,8 +300,9 @@ impl PreparedResidentWork {
         mut self,
         generation: GeneratedWorkDigest,
     ) -> TrustedGeneratedResidentWork {
-        self.previous.work.extend(self.delta);
-        self.previous.heap_bytes += self.delta_heap;
+        for slot in self.delta {
+            self.previous.work.insert_reserved(slot);
+        }
         self.previous.generation = generation;
         self.previous
     }
@@ -373,62 +314,10 @@ fn sum(parts: &[usize]) -> GeneratedWorkResult<usize> {
         .try_fold(0usize, |total, &n| total.checked_add(n))
         .ok_or_else(|| resource("resident Work payload estimate overflow"))
 }
-// Reserve estimate: at least two buckets per requested record, rounded up,
-// with key slots + control bytes and a full extra control group. This is an
-// explicit conservative estimate, not a dependency on std's private layout.
-fn table_estimate(records: usize) -> GeneratedWorkResult<usize> {
-    if records == 0 {
-        return Ok(0);
-    }
-    let buckets = records
-        .checked_mul(2)
-        .and_then(usize::checked_next_power_of_two)
-        .ok_or_else(|| resource("resident Work table estimate overflow"))?
-        .max(4);
-    sum(&[
-        buckets
-            .checked_mul(size_of::<GeneratedWorkKey>() + 1)
-            .ok_or_else(|| resource("resident Work slot estimate overflow"))?,
-        64,
-    ])
-}
-fn retained_table_estimate(capacity: usize) -> GeneratedWorkResult<usize> {
-    if capacity == 0 {
-        return Ok(0);
-    }
-    let buckets = capacity
-        .checked_add(1)
-        .and_then(usize::checked_next_power_of_two)
-        .ok_or_else(|| resource("resident Work capacity estimate overflow"))?;
-    sum(&[
-        buckets
-            .checked_mul(size_of::<GeneratedWorkKey>() + 1)
-            .ok_or_else(|| resource("resident Work capacity payload overflow"))?,
-        64,
-    ])
-}
-fn clone_heap_bytes(key: &GeneratedWorkKey) -> GeneratedWorkResult<usize> {
-    key.powers()
-        .len()
-        .checked_mul(size_of::<i64>() + usize::from(matches!(key, GeneratedWorkKey::Apply { .. })))
-        .ok_or_else(|| resource("resident Work clone payload overflow"))
-}
-fn clone_vec<T: Copy>(values: &[T]) -> Result<Vec<T>, std::collections::TryReserveError> {
-    let mut copy = Vec::new();
-    copy.try_reserve_exact(values.len())?;
-    copy.extend_from_slice(values);
-    Ok(copy)
-}
-fn clone_key(
-    key: &GeneratedWorkKey,
-) -> Result<GeneratedWorkKey, std::collections::TryReserveError> {
-    Ok(match key {
-        GeneratedWorkKey::Route(powers) => GeneratedWorkKey::Route(clone_vec(powers)?),
-        GeneratedWorkKey::Apply { owner, powers } => GeneratedWorkKey::Apply {
-            owner: clone_vec(owner)?,
-            powers: clone_vec(powers)?,
-        },
-    })
+fn slot_payload(capacity: usize) -> GeneratedWorkResult<usize> {
+    capacity
+        .checked_mul(size_of::<Slot>())
+        .ok_or_else(|| resource("resident delta slot payload overflow"))
 }
 fn check(cancel: &AtomicBool) -> GeneratedWorkResult<()> {
     if cancel.load(Ordering::Acquire) {

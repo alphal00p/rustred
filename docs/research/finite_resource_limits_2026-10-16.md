@@ -1,6 +1,6 @@
 # User-controlled finite campaign limits and dashboard
 
-## Next extension: grouped windows, monitoring and 150 workers
+## Next extension: bulk cleanup, grouped windows and 150 workers
 
 The follow-up adds5/30-minute gap convergence, current-chase elapsed time and a
 rough input ETA from the whole invocation's average committed-input throughput,
@@ -22,7 +22,7 @@ cd /shared/codex-2/rustred
 export RUSTRED_CAMPAIGN="$PWD/campaigns/five-loop-finite-r0-d10-resident-fixed-20261016"
 nix develop --command python -B examples/python/saved_campaign.py extend \
   --campaign "$RUSTRED_CAMPAIGN" --rank 5 \
-  --executable "$PWD/TMP/releases/20261017-finite-grouped-150/rustred" \
+  --executable "$PWD/TMP/releases/20261018-finite-bulk-cleanup-150/rustred" \
   --workers 150 --cpus 0-63,96-181 \
   --windows-per-batch 64 \
   --max-memory-bytes 600000000000 --memory-policy process-limit
@@ -48,6 +48,46 @@ older campaign's64–95 reservation. This is not an exclusive host reservation o
 a promise of proportional speedup; shared membership, memory bandwidth and serial
 commit work can limit scaling. Full validation and executable identity are in
 the latest `CODEX_PROGRESS.md` delivery entry.
+
+### Resident cleanup and publication (October 18)
+
+The old R4 process completed all required inputs but then spent minutes in
+serial destruction of a441-million-key resident index. A4-second profile
+captured118 userspace samples, all in the index destructor and libc allocator.
+Its swapped memory was being read back merely to free individually allocated
+vectors. This was not further solving or verification.
+
+The new resident layout uses copy-only hash slots and chunked powers storage.
+Exact phase/powers equality, validated owner support, collision checks and
+precommit memory accounting remain. Checkpoint wire formats and source identities
+do not change. Publication uses a separate capture purpose that skips resident
+membership-cache hydration; saved solving policy remains unchanged. Source,
+scope, cursor and raw-inventory validation remain, but unused Work pages are
+not exhaustively reread as a side effect of building the optional cache.
+
+Two counterbalanced optimized microbenchmark pairs used identical encoded
+pages, five million15-coordinate keys, one million borrowed hit/miss probes,
+and CPU96. Lookup repeats a prebuilt65,536-query pool. No input generation or
+Symbolica algebra is involved in these measurements.
+
+| Measured phase | Previous layout | Packed layout |
+| --- | ---: | ---: |
+| Hydrate validated pages | 3.32–4.09 s | 2.61–2.84 s |
+| One million exact lookups | 0.424–0.482 s | 0.387–0.389 s |
+| Destroy resident index | 443–504 ms | 14.3–16.6 ms |
+| Process RSS with index loaded | 1.286 GB | 0.897 GB |
+
+Cleanup is about30× faster on this unswapped synthetic test, with roughly30%
+lower loaded RSS. At one million keys, lookup differences were noisy/neutral;
+the arity65 control also passed. These are not a whole-campaign speedup or an
+ETA for the441-million-key teardown. Build/input preparation is excluded from
+the phase timings; the shared host was not otherwise isolated. Evidence:
+`TMP/resident-public-bench-20261018.URCVBt/{old,new}-pair{1,2}.json`.
+
+The native display now explicitly labels cleanup and journals both boundaries.
+The durable solve checkpoint is already safe during this phase; publication
+follows separately. The active old campaign and its frozen executable are not
+modified by this delivery.
 
 ### Grouping measurements (October 17)
 

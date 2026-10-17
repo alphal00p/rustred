@@ -98,6 +98,22 @@ starting inputs remains serial; grouping is not a guarantee of full CPU usage.
 Use `--windows-per-batch 1` to retain the ungrouped finite schedule. The separate
 legacy symbolic-domain/Epoch lane is unaffected.
 
+The optional resident completed-Work index uses compact hash slots and chunked
+coordinate storage. It retains exact phase/powers identity (Apply owners are
+validated against positive-power support) without a separate allocation per
+record. This in-memory layout is independent of the saved format; old finite
+checkpoints can be resumed without conversion. Allocation and memory accounting
+remain before checkpoint adoption, and the process RAM guard remains in force.
+
+After the last window, cleanup is explicitly shown as **Solve complete ·
+releasing working memory**. The completed checkpoint is already durable, but
+the portable artifact is not yet published. Publication does not hydrate the
+optional completed-Work membership index: it authenticates the source, scope,
+cursors and raw inventory through the existing publication path. This avoids
+rebuilding and discarding the solve cache just to extract terminals and rules.
+It is not an independent replay or an exhaustive reread of unused Work pages.
+The saved solving cache allowance is unchanged for the next rank extension.
+
 These commands launch work; they are not preparation-only commands. The saved
 engine and policy are reused by later invocations:
 

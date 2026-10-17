@@ -30,6 +30,7 @@ runtime-arity-selection = []
 [dependencies]
 bincode.workspace = true
 blake3 = "1"
+hashbrown = { version = "=0.17.1", default-features = false }
 rand = "0.9"
 rayon = "1"
 rustred-order = { path = "../rustred-order" }

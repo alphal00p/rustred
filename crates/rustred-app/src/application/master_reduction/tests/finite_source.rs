@@ -142,6 +142,250 @@ fn publication_policy(runs: usize) -> crate::FiniteDemandPolicy {
     crate::FiniteDemandPolicy::from_json(&serde_json::to_vec(&value).unwrap()).unwrap()
 }
 
+fn public_resident_request(scratch: &Scratch, name: &str) -> crate::FiniteDemandRunRequest {
+    let mut policy = publication_policy(100);
+    policy.workers = 1;
+    policy.windows.max_seed_points = 1;
+    policy.storage.max_page_records = 2;
+    crate::FiniteDemandRunRequest {
+        source: source(scratch),
+        policy,
+        directory: scratch.0.join(name),
+        mode: crate::FiniteDemandMode::Create,
+    }
+}
+
+#[test]
+fn public_finite_publication_skips_work_hydration_preserves_policy_and_exact_package() {
+    use std::cell::RefCell;
+    let scratch = Scratch::new();
+    let mut request = public_resident_request(&scratch, "public-high-resident");
+    let grant = request.policy.max_resident_work_bytes;
+    assert_eq!(grant, 300_000_000_000);
+    let cancel = AtomicBool::new(false);
+    let solve_events = RefCell::new(Vec::new());
+    let solved = crate::run_finite_demand_with_progress(request.clone(), &cancel, |event| {
+        solve_events.borrow_mut().push(event)
+    })
+    .unwrap();
+    assert!(solved.complete);
+    assert!(
+        solve_events
+            .borrow()
+            .iter()
+            .any(|event| event["event"] == "finite_backend_resident_hydrated"
+                && event["status"] == "active")
+    );
+    request.mode = crate::FiniteDemandMode::Resume;
+    let current_path = request.directory.join("store/CURRENT");
+    let current = fs::read(&current_path).unwrap();
+    let active_path = request.directory.join("active-source.json");
+    let active = fs::read(&active_path).unwrap();
+    let before: Value = serde_json::from_slice(&active).unwrap();
+    assert_eq!(before["policy"]["max_resident_work_bytes"], grant);
+
+    let mut publications = Vec::new();
+    let mut work_pages = Vec::new();
+    for unavailable_work in [false, true] {
+        if unavailable_work {
+            // Corrupt every Work payload while retaining its framing length
+            // and metadata. Any accidental page read/hydration must fail.
+            // Raw census files remain untouched and still undergo validation.
+            for entry in fs::read_dir(request.directory.join("store/pages")).unwrap() {
+                let path = entry.unwrap().path();
+                let bytes = fs::read(&path).unwrap();
+                let mut corrupt = bytes.clone();
+                corrupt[0] ^= 0xff;
+                fs::write(&path, corrupt).unwrap();
+                work_pages.push((path, bytes));
+            }
+            assert!(!work_pages.is_empty());
+        }
+        let directory = scratch.0.join(format!("published-{unavailable_work}"));
+        let mut options = MasterReductionOptions::new(request.directory.join("store"), &directory);
+        options.operation = MasterReductionOperation::Publish;
+        let events = RefCell::new(Vec::new());
+        let report = crate::publish_finite_demand_with_progress(
+            request.clone(),
+            &options,
+            &cancel,
+            |event| events.borrow_mut().push(event),
+        )
+        .unwrap();
+        assert_eq!(report["status"], "published_unrefined");
+        assert_eq!(fs::read(&current_path).unwrap(), current);
+        assert_eq!(fs::read(&active_path).unwrap(), active);
+        let events = events.borrow();
+        let skipped = events
+            .iter()
+            .find(|event| event["event"] == "finite_publication_work_cache_skipped")
+            .unwrap();
+        assert_eq!(skipped["requested_resident_work_bytes"], grant);
+        assert_eq!(skipped["effective_resident_work_bytes"], 0);
+        assert_eq!(skipped["saved_solving_policy_unchanged"], true);
+        let hydration = events
+            .iter()
+            .find(|event| event["event"] == "finite_backend_resident_hydrated")
+            .unwrap();
+        assert_eq!(hydration["status"], "disabled");
+        assert_eq!(hydration["requested_bytes"], 0);
+        assert!(hydration["resident"].is_null());
+        assert!(
+            events
+                .iter()
+                .any(|event| event["event"] == "finite_cleanup_finished"
+                    && event["reason"] == "publication_capture")
+        );
+        publications.push((directory, report));
+    }
+    // Ordinary solving still validates/hydrates its requested resident index.
+    assert!(crate::run_finite_demand_with_progress(request.clone(), &cancel, |_| {}).is_err());
+    for (path, bytes) in work_pages {
+        fs::write(path, bytes).unwrap();
+    }
+
+    for field in [
+        "raw_terminals",
+        "normalized_terminals",
+        "remaining_terminals",
+        "published_rule_records",
+        "observed_cover_rules",
+        "inventory",
+    ] {
+        assert_eq!(
+            publications[0].1[field], publications[1].1[field],
+            "{field}"
+        );
+    }
+    let mut expected = None;
+    for (index, (published, _)) in publications.iter().enumerate() {
+        let package = scratch.0.join(format!("runtime-{index}"));
+        crate::export_saved_application::<4>(published, &package, Default::default()).unwrap();
+        let mut loaded = crate::load_saved_application::<4>(&package, Default::default()).unwrap();
+        let one = loaded.family().coefficient_context().one();
+        let result = loaded
+            .reduce_linear_combination([(rustred::family::IntegralKey::try_new([3]).unwrap(), one)])
+            .unwrap();
+        let exact = (result.terms().clone(), result.nonzero_conditions().to_vec());
+        if let Some(expected) = &expected {
+            assert_eq!(&exact, expected);
+        } else {
+            expected = Some(exact);
+        }
+    }
+}
+
+#[test]
+fn public_finite_publication_without_work_cache_still_rejects_corrupt_census_and_pending_scope() {
+    let scratch = Scratch::new();
+    let mut request = public_resident_request(&scratch, "public-census-guard");
+    let cancel = AtomicBool::new(false);
+    crate::run_finite_demand_with_progress(request.clone(), &cancel, |_| {}).unwrap();
+    request.mode = crate::FiniteDemandMode::Resume;
+    let current_path = request.directory.join("store/CURRENT");
+    let current = fs::read(&current_path).unwrap();
+    let mut raw_pages = Vec::new();
+    for entry in fs::read_dir(request.directory.join("store/raw")).unwrap() {
+        let path = entry.unwrap().path();
+        let bytes = fs::read(&path).unwrap();
+        let mut corrupted = bytes.clone();
+        corrupted[0] ^= 0xff;
+        fs::write(&path, corrupted).unwrap();
+        raw_pages.push((path, bytes));
+    }
+    assert!(!raw_pages.is_empty());
+    let bad_output = scratch.0.join("must-reject-corrupt-census");
+    let mut options = MasterReductionOptions::new(request.directory.join("store"), &bad_output);
+    options.operation = MasterReductionOperation::Publish;
+    assert!(
+        crate::publish_finite_demand_with_progress(request.clone(), &options, &cancel, |_| {})
+            .is_err()
+    );
+    assert!(!bad_output.join("artifact.json").exists());
+    assert_eq!(fs::read(&current_path).unwrap(), current);
+    for (path, bytes) in raw_pages {
+        fs::write(path, bytes).unwrap();
+    }
+
+    // A complete old prefix is not permission to publish an appended request.
+    request
+        .source
+        .amendments
+        .push(crate::OwnerDomainWalkAmendment {
+            path: "extra-power.json".into(),
+            text: json!({
+            "schema":crate::OWNER_DOMAIN_WALK_SCOPE_EXTENSION_SCHEMA,"sequence":1,
+            "parent":request.source.checkpoint_binding(),
+            "queries":[{"id":"new-four","owner":"1","lower":[3],"upper":[3],
+                "max_numerator_rank":0,"power_bounds":{"max_positive_power":4,
+                "min_power_difference":4,"max_power_difference":4}}],
+            "query_roles":{"required":["new-four"],"auxiliary":[]}})
+            .to_string(),
+        });
+    options.directory = scratch.0.join("must-reject-pending-scope");
+    assert!(
+        crate::publish_finite_demand_with_progress(request, &options, &cancel, |_| {}).is_err()
+    );
+    assert!(!options.directory.join("artifact.json").exists());
+    assert_eq!(fs::read(&current_path).unwrap(), current);
+}
+
+#[test]
+fn public_finite_cleanup_is_visible_cancellable_and_keeps_completed_checkpoint_reusable() {
+    use std::cell::RefCell;
+    let scratch = Scratch::new();
+    let mut request = public_resident_request(&scratch, "public-cleanup");
+    let cancel = AtomicBool::new(false);
+    let events = RefCell::new(Vec::new());
+    let error = crate::run_finite_demand_with_progress(request.clone(), &cancel, |event| {
+        if event["event"] == "finite_cleanup_started" {
+            assert_eq!(event["reason"], "solve_complete");
+            assert_eq!(event["committed"]["required_complete"], true);
+            assert_eq!(event["publication_claim"], false);
+            cancel.store(true, Ordering::Release);
+        }
+        events.borrow_mut().push(event);
+    })
+    .unwrap_err();
+    assert_eq!(error.kind(), crate::AppErrorKind::Cancelled);
+    let finished = events
+        .borrow()
+        .iter()
+        .find(|event| event["event"] == "finite_cleanup_finished")
+        .unwrap()
+        .clone();
+    assert!(finished["duration_seconds"].as_f64().unwrap() >= 0.0);
+    let status = crate::inspect_finite_demand(&request.directory).unwrap();
+    assert_eq!(status["committed"]["all_rows_exhausted"], true);
+    let current_path = request.directory.join("store/CURRENT");
+    let current = fs::read(&current_path).unwrap();
+    cancel.store(false, Ordering::Release);
+    request.mode = crate::FiniteDemandMode::Resume;
+    let resumed = crate::run_finite_demand_with_progress(request.clone(), &cancel, |_| {}).unwrap();
+    assert!(resumed.complete);
+    assert_eq!(fs::read(&current_path).unwrap(), current);
+
+    let published = scratch.0.join("after-cleanup");
+    let mut options = MasterReductionOptions::new(request.directory.join("store"), &published);
+    options.operation = MasterReductionOperation::Publish;
+    let error =
+        crate::publish_finite_demand_with_progress(request.clone(), &options, &cancel, |event| {
+            if event["event"] == "finite_cleanup_started"
+                && event["reason"] == "publication_capture"
+            {
+                cancel.store(true, Ordering::Release);
+            }
+        })
+        .unwrap_err();
+    assert_eq!(error.kind(), crate::AppErrorKind::Cancelled);
+    assert!(!published.join("artifact.json").exists());
+    assert_eq!(fs::read(&current_path).unwrap(), current);
+    cancel.store(false, Ordering::Release);
+    let report =
+        crate::publish_finite_demand_with_progress(request, &options, &cancel, |_| {}).unwrap();
+    assert_eq!(report["status"], "published_unrefined");
+}
+
 #[test]
 fn caller_policy_crosses_4096_runs_through_publication_refinement_and_cold_load() {
     let scratch = Scratch::new();

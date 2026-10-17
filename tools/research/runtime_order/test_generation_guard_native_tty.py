@@ -248,6 +248,13 @@ powers=[1]
             self.assertEqual(estimates[-1]["status"], "complete")
             self.assertEqual(estimates[-1]["remaining_seconds"], 0)
             self.assertTrue(estimates[-1]["publication_excluded"])
+            cleanup = [event for event in events if event.get("event") in (
+                "finite_cleanup_started", "finite_cleanup_finished")]
+            self.assertEqual([event["event"] for event in cleanup], [
+                "finite_cleanup_started", "finite_cleanup_finished"])
+            self.assertTrue(all(event["committed"]["required_complete"] for event in cleanup))
+            self.assertTrue(all(event["publication_claim"] is False for event in cleanup))
+            self.assertGreaterEqual(cleanup[-1]["duration_seconds"], 0)
         self.assertNotIn(b"Generation/admission", display)
         self.assertEqual((directory / "guard/stderr").read_bytes(), b"")
         # Ratatui positions each changed word/cell instead of emitting a plain

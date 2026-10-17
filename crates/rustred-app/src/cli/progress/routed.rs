@@ -261,6 +261,8 @@ impl RoutedProgress {
                 "checkpoint_started"
                     | "finite_checkpoint_saved"
                     | "finite_checkpoint_restored"
+                    | "finite_cleanup_started"
+                    | "finite_cleanup_finished"
                     | "checkpoint_saved"
                     | "checkpoint_restored"
                     | "checkpoint_skipped_unchanged"
@@ -968,7 +970,7 @@ mod tests {
     }
 
     #[test]
-    fn rapid_checkpoint_milestones_survive_progress_replacement_and_finish() {
+    fn rapid_checkpoint_and_cleanup_milestones_survive_progress_replacement_and_finish() {
         struct Shared(Arc<Mutex<Vec<u8>>>);
         impl Write for Shared {
             fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
@@ -991,6 +993,9 @@ mod tests {
             monitor.observe(json!({"event":"checkpoint_saved","generation":generation}));
             monitor.observe(json!({"event":"native_progress"}));
         }
+        monitor.observe(json!({"event":"finite_cleanup_started","operation":"finite_demand"}));
+        monitor.observe(json!({"event":"finite_cleanup_finished","operation":"finite_demand"}));
+        monitor.observe(json!({"event":"finished","operation":"finite_demand"}));
         monitor.finish().unwrap();
         let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
         let milestones: Vec<_> = text
@@ -998,8 +1003,8 @@ mod tests {
             .map(|line| serde_json::from_str::<Value>(line).unwrap())
             .filter(|row| row["event"] != "heartbeat")
             .collect();
-        assert_eq!(milestones.len(), 16);
-        for (index, row) in milestones.iter().enumerate() {
+        assert_eq!(milestones.len(), 18);
+        for (index, row) in milestones.iter().take(16).enumerate() {
             assert_eq!(
                 row["event"],
                 if index % 2 == 0 {
@@ -1010,6 +1015,8 @@ mod tests {
             );
             assert_eq!(row["generation"], index / 2 + 1);
         }
+        assert_eq!(milestones[16]["event"], "finite_cleanup_started");
+        assert_eq!(milestones[17]["event"], "finite_cleanup_finished");
     }
 
     #[test]

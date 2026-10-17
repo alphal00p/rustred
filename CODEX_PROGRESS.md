@@ -1,5 +1,104 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 18 — bulk resident cleanup and publication without Work hydration (delivered)
+
+User authorizes these two optimizations for the next rank5 extension. The active
+R4 process and its frozen binary remain untouched. Its generation149445 already
+records348/348 required rows and23,840,419 input occurrences complete. A4s,
+49Hz read-only profile captured118 userspace samples, all in
+`HashSet<GeneratedWorkKey>::drop` through `Session` destruction and libc frees.
+The441,239,691-record resident index owns per-record vectors; swapped pages
+are being touched again just to free them. Evidence:
+`TMP/finite-finalization-profile-20261018.UpMne5/perf.data`.
+
+Plan and delegated ownership:
+
+- `finite_group_engine`: replace only the ephemeral resident layout with a
+  generic chunked powers arena and an existing hashbrown table of compact,
+  trivially droppable slots. Preserve full exact membership, phase distinction,
+  validated owner identity, collision checking, budgets and precommit allocation.
+  No persistent schema change, memory leak or process-exit shortcut.
+- `finite_group_validation`: publication-capture purpose skips the optional
+  resident index without changing solving policy or source/cursor/raw-census
+  validation. Add publication regressions and explicit cleanup lifecycle events.
+- `finite_group_audit`: independent design/code/accounting/authority audit.
+- Root: cleanup monitoring, integration, optimized build, matched synthetic
+  hydration/lookup/drop measurements, existing finite/group/publication tests,
+  cold resume checks, release instructions and clean commit/push.
+
+Both campaign engines and grouped-window/inner-worker parallelism remain. The
+compact resident key may omit owner bits only after existing validation proves
+them identical to positive-power support; Route/Apply remain distinct. This is
+storage engineering, not a new algebraic primitive or a change to the IBPs.
+Performance claims require measurement; no high-rank speedup is assumed.
+
+Implementation is frozen. The core uses existing hashbrown0.17.1 public
+`HashTable` APIs (already locked transitively; now a direct dependency), copyable
+slots and64KiB target chunks sized for arbitrary physical arity. All fallible
+growth/staging is before durable commit; adoption inserts pre-reserved slots.
+No per-record heap-owned vectors remain in the resident membership index.
+Source formats, stored Work keys and execution identity remain unchanged.
+Publication uses an explicit private capture purpose with resident grant0,
+without rewriting the saved solving allowance. It retains the existing
+source/scope/cursor/raw-census authority, not an independent replay of Work.
+
+Independent static and measurement audits passed. Repeated public-API benchmark
+results,5M keys/arity15/1M exact borrowed hit/miss lookups:
+hydrate3.32–4.09→2.61–2.84s; lookup0.424–0.482→0.387–0.389s;
+resident destruction443–504→14.3–16.6ms; loaded processRSS1.286→0.897GB.
+This is~30× faster destruction and~30% lowerRSS, not a whole-campaign speedup
+or441M/swapped-memory ETA. The1M-key lookup comparison was neutral/noisy.
+The identical optimized benchmark source, binaries and counterbalanced JSON
+receipts are in `TMP/resident-public-bench-20261018.URCVBt/`.
+
+Public CLI compatibility passed old29d4… checkpoint→new8ed4… resume without
+CURRENT change→supported overlapping scope append:2rows,2600 input occurrences,
+2800Work. Publication with a50GB requested solving grant performed no Work-cache
+hydration, preserved saved policy/CURRENT and cold-inspected1rule/1terminal.
+An initial synthetic nonzero-lower envelope was correctly rejected without
+checkpoint advancement; the corrected fixture uses supported overlap and
+preserves that negative receipt. Evidence:
+`TMP/finite-cleanup-pilots-20261017-iAwYkn/checkpoint-append-publication-envelope/summary.json`.
+Limited H/X dotted G64/W32 controls preserved exact counters:7.483→7.439s and
+14.002→13.528s, with roughly unchangedRSS. These differences are small/noisy,
+not a significant whole-run performance claim.
+
+Completed gates so far:3 public core tests (one optional measurement ignored),
+3 exact-source packed tests (collisions/growth/overflow),25 source UI tests,
+3 actual optimized-native PTY tests and225 Python regressions. The initial
+single-core Python invocation caused two CPU-admission fixture failures; the
+unchanged suite passed with the ordinary process affinity. The first standalone
+UI link needed thinLTO to consume release bitcode; the first packed-test harness
+needed normal lexical module symlinks. Neither issue required production code
+changes. The optimized release built in315.38s, and public core tests in224.31s.
+The broad app regression build completed in319.36s; **359 application tests
+passed, four explicit fixtures ignored**. This includes all three new
+publication/cleanup regressions and existing grouped-window, cancellation,
+resume, artifact/application and monitoring gates. Evidence:
+`TMP/bulk-cleanup-app-test-results-20261018/`. App test code is unoptimized over
+optimized core for correctness checks; timing evidence uses the optimized CLI.
+
+Candidate executable: `TMP/bulk-cleanup-candidate-20261018/rustred`, SHA256
+`8ed4cf24120ba9b90242d7a61ac08018477b22776836c0e47a68ef1d10065583`.
+Both legacy/Epoch and finite-demand command families remain available. Grouped
+windows and existing inner parallelism are retained. Production campaigns and
+their frozen executables remain untouched; unrelated FeynKit edits are excluded.
+
+Final150-worker/group64 native smoke passed K1 and H-dot on CPUs96–245 with
+unchanged input/Work counts and fresh inspections:1200/2400 and628/49423.
+H-dot7.489s is a compatibility check, not a150-core scaling claim. All test/pilot
+processes exited. The actual-native terminal screen was visually reviewed;
+cleanup boundaries are losslessly journaled and the final screen reports
+Work memory released. `TMP/finite-cleanup-pilots-20261017-iAwYkn/cleanup-workers150-results.json`.
+
+Frozen release: `TMP/releases/20261018-finite-bulk-cleanup-150/rustred` with
+the same8ed4… SHA256 above. The next-rank command in
+`docs/research/finite_resource_limits_2026-10-16.md` now selects it, retaining
+150 workers, group64, D≤10 and the600GB process ceiling. Run after the current
+R4 solve and publication finish; no fresh namespace or checkpoint conversion
+is required. Both campaign engines remain supported and the saved solving cache
+grant is preserved. No current campaign was restarted or edited.
+
 ## October 17 — grouped-window parallel finite execution (delivered)
 
 User requests batching existing finite windows for the upcoming rank5 launch,

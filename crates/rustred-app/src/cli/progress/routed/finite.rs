@@ -97,6 +97,8 @@ fn stage(event: &Value) -> String {
         "finite_backend_before_commit" => "Committing completed window group".into(),
         "finite_checkpoint_saved" => "Checkpoint committed".into(),
         "finite_checkpoint_restored" => "Checkpoint restored".into(),
+        "finite_cleanup_started" => "Solve complete · releasing working memory".into(),
+        "finite_cleanup_finished" => "Working memory released · handing off".into(),
         "finite_backend_resident_hydrated" | "active" => "Work cache ready".into(),
         "finite_backend_resident_fallback" | "declined" => "Continuing with paged Work".into(),
         "complete" | "completed" => "Required scope complete".into(),
@@ -546,6 +548,8 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         Some("active") => "Work cache: resident",
         Some("disabled") => "Work cache: paged · resident cache disabled",
         Some("declined") => "Work cache: paged · resident grant unavailable",
+        Some("releasing") => "Work cache: releasing memory · checkpoint safe",
+        Some("released") => "Work cache: released",
         _ => "Work cache: preparing",
     };
     frame.render_widget(
@@ -553,7 +557,11 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         sections[4],
     );
     let footer = failure.map_or_else(
-        || "Chase covers the current group; rows advance only after its atomic commit. ETA is rough and excludes publication. Convergence < 0 means shrinking gap, not closure.".to_string(),
+        || if matches!(event["event"].as_str(), Some("finite_cleanup_started" | "finite_cleanup_finished")) {
+            "Solve checkpoint is safe. Releasing working memory does not change coverage; artifact publication follows separately.".to_string()
+        } else {
+            "Chase covers the current group; rows advance only after its atomic commit. ETA is rough and excludes publication. Convergence < 0 means shrinking gap, not closure.".to_string()
+        },
         |detail| format!("{} · {}", detail.chars().filter(|c| !c.is_control()).collect::<String>(), checkpoint_note(event)),
     );
     frame.render_widget(
@@ -620,6 +628,15 @@ pub(super) fn retain(previous: &Value, event: &mut Value) {
             event["finite_residency"] = json!({"status":event["status"],
                 "requested_bytes":event["requested_bytes"],"resident":event["resident"],
                 "fallback":event["event"] == "finite_backend_resident_fallback"});
+        }
+        Some("finite_cleanup_started" | "finite_cleanup_finished") => {
+            event["finite_local"] = Value::Null;
+            event["finite_group"] = Value::Null;
+            event["finite_residency"] = json!({"status":if event["event"] == "finite_cleanup_started" {
+                "releasing"
+            } else {
+                "released"
+            }});
         }
         Some("finished") => {
             // A resume can fail during preparation before emitting a restore
@@ -714,6 +731,8 @@ pub(super) fn dashboard(record: &Value) -> [String; 6] {
             "paged Work (resident grant exhausted)"
         }
         Some("declined") => "paged Work (resident grant declined)",
+        Some("releasing") => "releasing Work memory (checkpoint safe)",
+        Some("released") => "Work memory released",
         _ => "Work residency pending",
     };
     let failure = snapshot["first_failure"]["detail"]
@@ -1077,6 +1096,39 @@ mod tests {
     fn observe(previous: &mut Value, mut event: Value) {
         retain(previous, &mut event);
         *previous = event;
+    }
+
+    #[test]
+    fn cleanup_is_distinct_from_solving_and_publication_with_checkpoint_retained() {
+        let mut latest = json!({});
+        let mut saved = checkpoint(9, 10);
+        saved["committed"]["required_complete"] = json!(true);
+        observe(&mut latest, saved);
+        for (event, text, residency) in [
+            (
+                "finite_cleanup_started",
+                "releasing working memory",
+                "releasing",
+            ),
+            (
+                "finite_cleanup_finished",
+                "Working memory released",
+                "released",
+            ),
+        ] {
+            observe(
+                &mut latest,
+                json!({"operation":"finite_demand","event":event}),
+            );
+            assert_eq!(latest["finite_committed"]["exhausted_required_rows"], 10);
+            assert_eq!(latest["finite_generation"]["number"], 9);
+            assert!(latest["finite_local"].is_null());
+            assert!(latest["finite_group"].is_null());
+            assert_eq!(latest["finite_residency"]["status"], residency);
+            assert!(stage(&latest).contains(text));
+            assert!(plain_status(&json!({"progress":latest})).contains(text));
+            assert_eq!(checkpoint_note(&latest), "checkpoint retained");
+        }
     }
 
     #[test]

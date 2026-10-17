@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
+    time::Instant,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,28 +80,40 @@ pub fn run_finite_demand_with_progress(
     } } }
     rustred::with_app_runtime_arities!(dispatch)
 }
+#[derive(Clone, Copy)]
+enum SessionPurpose {
+    Solve,
+    PublicationCapture,
+}
+
 fn session<const N: usize>(
     request: &FiniteDemandRunRequest,
     controls: &mut control::Control,
+    purpose: SessionPurpose,
     cancel: &AtomicBool,
     observer: &impl Fn(Value),
 ) -> Result<Session<N>, AppError> {
     let store = controls.store();
+    let mut native_policy = request.policy.native();
+    if matches!(purpose, SessionPurpose::PublicationCapture) {
+        // Capture streams the authenticated raw census; it never asks whether
+        // an intermediate Work key is already complete. Do not reconstruct the
+        // optional membership index solely to discard it after publication.
+        // Only this transient Session policy changes. Control metadata, the
+        // user's saved solving grant and exported policy retain the request.
+        observer(json!({"event":"finite_publication_work_cache_skipped",
+            "operation":"finite_demand","reason":"capture_has_no_work_membership_queries",
+            "requested_resident_work_bytes":native_policy.max_resident_work_bytes,
+            "effective_resident_work_bytes":0,"saved_solving_policy_unchanged":true}));
+        native_policy.max_resident_work_bytes = 0;
+    }
     let result = match request.mode {
-        FiniteDemandMode::Create | FiniteDemandMode::RepairPreparation => Session::create(
-            &request.source,
-            request.policy.native(),
-            &store,
-            cancel,
-            observer,
-        ),
-        FiniteDemandMode::Resume => Session::resume(
-            &request.source,
-            request.policy.native(),
-            &store,
-            cancel,
-            observer,
-        ),
+        FiniteDemandMode::Create | FiniteDemandMode::RepairPreparation => {
+            Session::create(&request.source, native_policy, &store, cancel, observer)
+        }
+        FiniteDemandMode::Resume => {
+            Session::resume(&request.source, native_policy, &store, cancel, observer)
+        }
     }?;
     controls.adopt_source(&result.generation()?)?;
     check(cancel)?;
@@ -119,7 +132,7 @@ fn run<const N: usize>(
         }
         observer(event);
     };
-    let mut session = session::<N>(request, controls, cancel, &forward)?;
+    let mut session = session::<N>(request, controls, SessionPurpose::Solve, cancel, &forward)?;
     // PrefixWindows already cached each request's exact count during admission.
     // Sum it once; overlapping requests remain separate input occurrences.
     let input_occurrences_total = session.total_input_occurrences().to_string();
@@ -130,6 +143,7 @@ fn run<const N: usize>(
         "generation_number":first.generation(),"committed":committed(&first)?,
         "input_occurrences_total":input_occurrences_total}),
     );
+    drop(first);
     loop {
         check(cancel)?;
         let step = session.step(cancel, &forward)?;
@@ -156,16 +170,56 @@ fn run<const N: usize>(
             "finite loop ended with pending scope",
         ));
     }
-    Ok(FiniteDemandRunResult {
+    let generation_digest = generation.digest();
+    let generation_number = generation.generation();
+    drop(generation);
+    let result = FiniteDemandRunResult {
         complete,
         document: json!({
         "schema":"rustred.finite-demand-run.v1","engine":control::ENGINE,"status":"complete","complete":true,
-        "generation":{"number":generation.generation(),"digest":control::hex(generation.digest())},
+        "generation":{"number":generation_number,"digest":control::hex(generation_digest)},
         "checkpoint":controls.store(),"committed":scope,"policy":request.policy,
         "input_occurrences_total":input_occurrences_total,
         "cancelled":false,"error_kind":null,"error":null,
         "raw_census_streamed":false,"publication_claim":false,"family_closure_claim":false}),
-    })
+    };
+    release_session(
+        session,
+        "solve_complete",
+        &scope,
+        generation_digest,
+        generation_number,
+        observer,
+    );
+    check(cancel)?;
+    Ok(result)
+}
+
+/// Expensive cache/program destruction is a visible phase, not a silent pause
+/// after the last checkpoint. The finished checkpoint remains authoritative if
+/// cancellation arrives here; callers still check it before returning success.
+fn release_session<const N: usize>(
+    session: Session<N>,
+    reason: &str,
+    committed: &Value,
+    generation: [u8; 32],
+    generation_number: u64,
+    observer: &impl Fn(Value),
+) {
+    observer(
+        json!({"event":"finite_cleanup_started","operation":"finite_demand",
+        "reason":reason,"committed":committed,"generation":control::hex(generation),
+        "generation_number":generation_number,"records":committed["completed_work"],
+        "duration_seconds":null,"publication_claim":false}),
+    );
+    let started = Instant::now();
+    drop(session);
+    observer(
+        json!({"event":"finite_cleanup_finished","operation":"finite_demand",
+        "reason":reason,"committed":committed,"generation":control::hex(generation),
+        "generation_number":generation_number,"records":committed["completed_work"],
+        "duration_seconds":started.elapsed().as_secs_f64(),"publication_claim":false}),
+    );
 }
 
 /// Bounded native metadata inspection, not independent replay, source loading,
@@ -319,7 +373,13 @@ fn publish<const N: usize>(
     cancel: &AtomicBool,
     observer: &impl Fn(Value),
 ) -> Result<Value, AppError> {
-    let session = session::<N>(request, controls, cancel, observer)?;
+    let session = session::<N>(
+        request,
+        controls,
+        SessionPurpose::PublicationCapture,
+        cancel,
+        observer,
+    )?;
     let captured = session.capture_completed_source(
         backend::publication::CaptureLimits {
             max_terminal_keys: request.policy.export.max_records,
@@ -327,6 +387,19 @@ fn publish<const N: usize>(
         },
         cancel,
     )?;
+    let generation = session.generation()?;
+    let scope = committed(&generation)?;
+    let generation_digest = generation.digest();
+    let generation_number = generation.generation();
+    drop(generation);
+    release_session(
+        session,
+        "publication_capture",
+        &scope,
+        generation_digest,
+        generation_number,
+        observer,
+    );
     check(cancel)?;
     let mut options = options.clone();
     options.finite_policy = Some(request.policy.clone());
