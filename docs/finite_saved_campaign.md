@@ -46,6 +46,29 @@ available host memory instead, explicitly use `--memory-policy host-aware`
 with `--host-memory-reserve-bytes BYTES`; that mode may lower the effective cap.
 The selected memory policy is saved for later runs.
 
+Both saved-campaign engines remain available in the current executable. The
+symbolic-domain `legacy` lane (including Epoch/CP6) is not deprecated or replaced
+by this finite engine. It can compress many integer inputs into one symbolic
+region and may be considerably faster on some higher-rank scopes. Finite demand
+instead visits concrete inputs and their exact descendant Work; it trades that
+compression for a bounded starting enumeration and exact shared reuse.
+Choose/retain the lane explicitly; do not feed one engine the other's checkpoint.
+
+For an existing **legacy** campaign, the same process-limit guard is opt-in:
+
+```bash
+python -B examples/python/saved_campaign.py run \
+  --campaign /path/to/legacy-campaign --resume \
+  --memory-policy process-limit --max-memory-bytes 600000000000 \
+  --swap-growth-stop-bytes-per-second 0
+```
+
+This resumes its frozen legacy solver, not finite demand. It retains570/600GB
+RSS soft/hard guards at the default5% margin; host availability is telemetry
+only. Unlike a finite campaign's saved operational settings, this legacy override
+is per invocation: repeat the policy flag on later `run`/resume commands. No
+host-memory reservation is promised, and OS/cgroup limits still apply.
+
 Worker counts are operational, not part of the saved mathematical scope.
 For a later extension, `--workers N --cpus CPUSET` freezes a new policy with
 that worker count while retaining every other policy field. The CPU set must

@@ -450,7 +450,7 @@ def memory_admission(hard: int, soft: int | None, snapshot: dict, reserve: int |
 
 
 def memory_admission_for_resources(resources: dict, snapshot: dict):
-    """Finite callers may honor a user limit without making a host reservation.
+    """Callers may honor a user limit without making a host reservation.
 
     The default keeps legacy admission unchanged. Process-limit mode retains
     RSS soft/hard stops, but host availability is telemetry only; it does not
@@ -458,7 +458,7 @@ def memory_admission_for_resources(resources: dict, snapshot: dict):
     """
     mode = resources.get("memory_policy", "host-aware")
     if mode == "host-aware":
-        return memory_admission(resources["max_memory_bytes"], None, snapshot,
+        return memory_admission(resources["max_memory_bytes"], resources.get("soft_memory_bytes"), snapshot,
             resources.get("host_memory_reserve_bytes"), resources.get("ram_guard_margin_percent", 5))
     if mode != "process-limit":
         raise ValueError("memory policy must be host-aware or process-limit")
@@ -468,6 +468,11 @@ def memory_admission_for_resources(resources: dict, snapshot: dict):
             or not math.isfinite(margin) or not 0 < margin < 100):
         raise ValueError("process RAM limit must be positive with a finite margin between0 and100")
     soft = int(hard * (1 - margin / 100))
+    if resources.get("soft_memory_bytes") is not None:
+        explicit_soft = resources["soft_memory_bytes"]
+        if type(explicit_soft) is not int or not 0 < explicit_soft < hard:
+            raise ValueError("explicit soft RAM allowance must be positive and below hard")
+        soft = min(soft, explicit_soft)
     if not 0 < soft < hard:
         raise ValueError("process RAM limit and margin must leave a positive soft threshold")
     return hard, soft, 0
@@ -834,12 +839,13 @@ def guarded_rescue_planner(command, *, env, output, args, cpus, collector,
     try:
         if stop_requested() is not None:
             return completed
-        initial_host = host_memory()
-        hard, soft, floor = memory_admission(args.max_memory_bytes, args.soft_memory_bytes,
-            initial_host, args.host_memory_reserve_bytes, args.ram_guard_margin_percent)
+        ram_resources = vars(args)
+        initial_host = memory_host_snapshot(ram_resources)
+        hard, soft, floor = memory_admission_for_resources(ram_resources, initial_host)
         guard = RamGuard(hard, soft, floor, args.swap_growth_stop_bytes_per_second,
                          args.swap_growth_stop_seconds)
-        details["memory_admission"] = memory_admission_record(args.max_memory_bytes, initial_host, floor, hard, soft)
+        details["memory_admission"] = memory_admission_record(args.max_memory_bytes, initial_host, floor, hard, soft,
+            ram_resources.get("memory_policy", "host-aware"))
         details["policy"] = dict(guard.policy(), cooperative="sigterm_owned_read_only_planner",
                                  hard="sigkill_owned_read_only_planner")
         with (output / "planner.stdout").open("x") as stdout, stderr_path.open("x") as stderr, \
@@ -858,7 +864,7 @@ def guarded_rescue_planner(command, *, env, output, args, cpus, collector,
                 rss = sum(row["rss_bytes"] for row in tree.values())
                 now = time.monotonic()
                 try:
-                    host = host_memory()
+                    host = memory_host_snapshot(ram_resources)
                 except (OSError, ValueError):
                     host = {"available_bytes": None}
                     reason = reason or "host_memory_monitor_unavailable"
@@ -962,6 +968,9 @@ def main() -> int:
     parser.add_argument("--other-workers", type=int, default=0,
                         help="all other concurrent compute workers, including builds")
     parser.add_argument("--max-memory-bytes", type=positive, default=500_000_000_000)
+    parser.add_argument("--memory-policy", choices=("host-aware", "process-limit"), default="host-aware",
+                        help="host-aware preserves a host/cgroup reserve; process-limit honors the requested "
+                             "process-tree RAM ceiling and displays host availability without stopping on it")
     parser.add_argument("--soft-memory-bytes", type=positive,
                         help="optional earlier cooperative RAM stop; default 95%% of effective hard limit")
     parser.add_argument("--ram-guard-margin-percent", type=float, default=5.0,
@@ -1170,10 +1179,9 @@ def main() -> int:
     external_rss = sum(row["rss_bytes"] for pid, row in external.items()
                        if pid != os.getpid())
     try:
-        initial_host = host_memory()
-        effective_hard, effective_soft, host_reserve = memory_admission(
-            args.max_memory_bytes, args.soft_memory_bytes, initial_host, args.host_memory_reserve_bytes,
-            args.ram_guard_margin_percent)
+        ram_resources = vars(args)
+        initial_host = memory_host_snapshot(ram_resources)
+        effective_hard, effective_soft, host_reserve = memory_admission_for_resources(ram_resources, initial_host)
         child_as, monitor_headroom = address_space_envelope(effective_hard,
             args.reserved_other_memory_bytes or 0, args.child_address_space_bytes,
             external_rss, resource.getrlimit(resource.RLIMIT_AS))
@@ -1181,7 +1189,7 @@ def main() -> int:
         guard = RamGuard(effective_hard, effective_soft, host_reserve, args.swap_growth_stop_bytes_per_second,
                          args.swap_growth_stop_seconds)
         admission = memory_admission_record(args.max_memory_bytes, initial_host, host_reserve,
-                                            effective_hard, effective_soft)
+                                            effective_hard, effective_soft, args.memory_policy)
     except (OSError, ValueError) as error:
         parser.error(str(error))
     # Include the supervisor without treating it as an external reservation.
@@ -1440,7 +1448,7 @@ def main() -> int:
                 cumulative_cpu += delta_cpu
                 peak = max(peak, rss)
                 try:
-                    host = host_memory()
+                    host = memory_host_snapshot(ram_resources)
                 except (OSError, ValueError):
                     host = {"host_available_bytes": None, "available_bytes": None}
                     request_stop("host_memory_monitor_unavailable")

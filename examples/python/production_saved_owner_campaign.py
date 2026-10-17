@@ -50,7 +50,7 @@ _PHASE_SPEC.loader.exec_module(PHASES)
 # None (steering frozen before the option existed) means the supervisor's
 # default at launch; new steering freezes each default explicitly.
 RAM_POLICY_OPTIONS = ("max_memory_bytes", "ram_guard_margin_percent", "host_memory_reserve_bytes",
-                      "swap_growth_stop_bytes_per_second", "swap_growth_stop_seconds")
+                      "swap_growth_stop_bytes_per_second", "swap_growth_stop_seconds", "memory_policy")
 OPTIONAL_RAM_POLICY_OPTIONS = RAM_POLICY_OPTIONS[2:]
 # Frontier rescue (schema v5, explicit query roles): new campaigns resume automatically after a
 # frontier stop of a known class (supervisor --auto-rescue); amendments live
@@ -911,7 +911,9 @@ def frozen_options(policy):
     for name in OPTIONAL_RAM_POLICY_OPTIONS:
         if name not in options:
             value = flag_value("--" + name.replace("_", "-"))
-            options[name] = None if value is None else (float(value) if name == "swap_growth_stop_seconds" else int(value))
+            options[name] = ((value or "host-aware") if name == "memory_policy" else
+                             None if value is None else
+                             float(value) if name == "swap_growth_stop_seconds" else int(value))
     # Steering before v4 had no automatic frontier rescue.
     options.setdefault("auto_rescue", False)
     options.setdefault("helper_id_prefix", None)
@@ -996,6 +998,7 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
                 "g2_residual_anchors": "off",
                 "route_precise_image_bounds": False,
                 "host_memory_reserve_bytes": SUPERVISOR.DEFAULT_HOST_MEMORY_RESERVE_BYTES,
+                "memory_policy": "host-aware",
                 "swap_growth_stop_bytes_per_second": SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_BYTES_PER_SECOND,
                 "swap_growth_stop_seconds": SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_SECONDS,
                 "helper_id_prefix": DEFAULT_HELPER_ID_PREFIX, "max_rescues": DEFAULT_MAX_RESCUES}
@@ -1074,14 +1077,13 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
 
 def memory_admission_preview(options):
     """The supervisor's admission rule applied to the host now (it re-evaluates it at launch)."""
-    reserve = options.get("host_memory_reserve_bytes") or SUPERVISOR.DEFAULT_HOST_MEMORY_RESERVE_BYTES
+    mode = options.get("memory_policy", "host-aware")
     try:
-        snapshot = SUPERVISOR.host_memory()
-        hard, soft, reserve = SUPERVISOR.memory_admission(
-            options["max_memory_bytes"], None, snapshot, reserve, options["ram_guard_margin_percent"])
+        snapshot = SUPERVISOR.memory_host_snapshot(options)
+        hard, soft, reserve = SUPERVISOR.memory_admission_for_resources(options, snapshot)
     except (OSError, ValueError) as error:
         return {"rule": SUPERVISOR.ADMISSION_RULE, "error": str(error), "evaluated_unix_time": time.time()}
-    return dict(SUPERVISOR.memory_admission_record(options["max_memory_bytes"], snapshot, reserve, hard, soft),
+    return dict(SUPERVISOR.memory_admission_record(options["max_memory_bytes"], snapshot, reserve, hard, soft, mode),
                 evaluated_unix_time=time.time(), scope="preview at planning time; the supervisor re-evaluates at launch")
 
 
@@ -1185,6 +1187,9 @@ def main(argv=None):
     parser.add_argument("--checkpoint-interval-seconds", type=int, help="initial default: 3600")
     parser.add_argument("--max-memory-bytes", type=int,
                         help="positive requested RAM ceiling; initial default: 500000000000; may override per start/resume")
+    parser.add_argument("--memory-policy", choices=("host-aware", "process-limit"),
+                        help="initial default: host-aware; process-limit honors the requested RAM ceiling "
+                             "without host-reserve stops; may override per start/resume")
     parser.add_argument("--ram-guard-margin-percent", type=float,
                         help="initial default: 5 (save+stop at 95%%); may override per resume")
     parser.add_argument("--host-memory-reserve-bytes", "--host-available-floor-bytes",

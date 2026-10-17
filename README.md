@@ -364,6 +364,14 @@ usage and memory. Later finite extensions may select `--workers N --cpus CPUSET`
 without rebuilding or changing their saved scope/window partition. See the
 [configurable-limit release and fresh launch instructions](docs/research/finite_resource_limits_2026-10-16.md).
 
+Both campaign lanes remain supported: the symbolic-domain walk (`legacy`,
+including Epoch/CP6) and the concrete finite-demand engine. The latter is an
+alternative, not a universal performance upgrade; their checkpoints are not
+interchangeable. Legacy resumes can explicitly use `--memory-policy process-limit`
+to keep the requested process RAM ceiling without host-reserve stops. This
+override applies to that invocation (repeat it on later legacy resumes); the
+original frozen solver policy and default host-aware behavior remain unchanged.
+
 Completed ordinary publications also save an optional binary **raw census
 cache**. A subsequent publication can reuse the compatible immutable record
 prefix instead of rematching its old Apply scopes; it still authenticates the

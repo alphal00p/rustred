@@ -1,5 +1,68 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 17 — legacy host-reserve stop and keeping both campaign lanes
+
+User asks to preserve both engines and resume the stopped older campaign
+without another host-reserve-triggered stop. All campaign inspection here is
+read-only; no production run, checkpoint or frozen executable was changed.
+Delegation: `legacy_memory_guard` implements the narrow Python option/tests;
+`old_stop_audit` independently audits both receipts and implementation;
+`mode_comparison` inspects scope/run history and explains performance differences.
+
+Old `five-loop-minimal-r0-d10-incremental`, run20261016T192551.170833Z,
+stopped on17October at19:28:10CEST because host available RAM fell to149.925GB
+below its150GB floor. Its own RSS was154.040GB, far below570/600GB soft/hard
+limits (peak241.003GB). In the attribution interval its RSS fell45.62GB while
+host availability fell108.65GB; `own_memory_signal=false`. Swap stopping was
+already disabled. This was a cooperative stop, not SIGKILL or a missing rule.
+Generation60 was saved resumably by19:42:21CEST, with10,473,331 pending domains
+and zero frontiers. Its scope is alreadyR6/D10; resume, do not append rank6 again.
+Frozen solver814745… remains present and hash-verified, with32 workers on64–95.
+
+Python legacy production/shared launchers now accept explicit
+`--memory-policy process-limit`, reusing the finite supervisor policy helper.
+This retains the exact requested process ceiling, sets host floor0 and prevents
+host-availability clamping/stops; RSS protection remains enabled. Host-aware is
+still the legacy default. Existing legacy overrides remain per invocation, so
+repeat this flag when resuming; no frozen solver policy is rewritten. Rescue
+and publication/refinement paths receive the same setting. No Rust rebuild.
+
+Independent audit passed; agent gates208 Python tests passed. Root verified the
+exact public resume dry run and the underlying production JSON plan: oldCP6
+generation60/executable814745…,32 CPUs64–95,600GB hard/570GB soft/floor0,
+swap guard0, all six existing amendments and `launch_requested=false`. Root's
+combined regression gate passed180 tests in26.337s, covering legacy/CP6,
+publication, finite steering and the generic guard. Neither production campaign
+was launched. This Python-only fix is committed/pushed separately from the
+unchanged native ETA binary; the restart command needs no recompilation.
+
+Both engines are confirmed in latest frozen ETA binary4f16e6…: legacy
+`owner-domain-match`/Epoch semantics4, CP6 schema3, and `finite-demand run/inspect`.
+No lane is removed. Their checkpoint formats remain separate; portable rule
+application export is the shared integration boundary.
+
+Measured (not matched-control) history: oldR3 extension2.09h, oldR4 extension
+6.08h, oldR5 extension19.46h. Currentfinite R1→R4 took~24.95h and was still at
+317/348 query rows,21,328,050/23,840,419 input occurrences (~89.5%),429,644,964
+completed Work and133,642 windows. This is genuinely slower in observed wall
+time; do not claim a universal engine speedup. Counts across engines are not
+comparable units. A bounded~11min tail showed748 small commits,125,739 input
+occurrences,225,529 new Work,7,186,793 reuse hits and~1.06 observed cores: recent
+overhead is window/coordinator/checkpoint heavy, not the earlier wide chase.
+
+Actual finite progression wasR0→R1→R4, notR0→R4. Skipping separateR2/R3 stages
+does not intrinsically enlarge the required descendant set for fixed rules;
+staging can alter ordering/locality but also adds overlap and publication cost.
+No matched experiment proves the jump caused the slowdown. R4→R5 reuses prior
+completed Work but introduces a rapidly growing new input layer; no promise
+that it will finish faster. New150-worker adaptive-lookup/logging build helps
+some parallel phases, not all serial small-window work. No further engine
+optimization is attempted in this response.
+
+Additional context: oldR2 took3967.510s, so itsR2+R3+R4 native time summed to
+9.27h, still below the finite R1→R4 invocation observed here. This remains an
+unmatched comparison (publication/host contention/start state differ).
+
 ## October 16 — rough whole-invocation input ETA
 
 User explicitly requests a basic extrapolated ETA from committed starting-input

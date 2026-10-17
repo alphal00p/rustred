@@ -98,6 +98,91 @@ class SteeringTests(unittest.TestCase):
             with self.subTest(hard=hard,margin=margin), self.assertRaisesRegex(ValueError,"soft limit below hard"):
                 CAMPAIGN.memory_admission(hard,None,host,None,margin)
 
+    def test_process_limit_preserves_explicit_earlier_soft_limit(self):
+        policy = {"memory_policy": "process-limit", "max_memory_bytes": 600_000_000_000,
+                  "soft_memory_bytes": 550_000_000_000, "ram_guard_margin_percent": 5}
+        self.assertEqual(CAMPAIGN.memory_admission_for_resources(policy, {"available_bytes": 1}),
+                         (600_000_000_000, 550_000_000_000, 0))
+
+    def test_legacy_resume_can_select_process_limit_without_mutating_solver_policy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            executable = production_fixture(directory)
+            initial = production_plan(directory, "--executable", str(executable), "--workers", "1",
+                                      "--max-memory-bytes", "600000000000")
+            policy_path = directory / "bin/steering.json"
+            # Reproduce steering written before the memory-policy option existed.
+            legacy = initial["steering_policy"]
+            legacy["options"].pop("memory_policy")
+            arguments = legacy["command_arguments"]
+            offset = arguments.index("--memory-policy")
+            del arguments[offset:offset + 2]
+            policy_path.chmod(0o600)
+            policy_path.write_text(json.dumps(legacy))
+            original_bytes = policy_path.read_bytes()
+            low_host = {"available_bytes": 1, "host_available_bytes": 1, "host_total_bytes": 1_000_000_000_000}
+            with patch.object(PRODUCTION.SUPERVISOR, "host_memory", return_value=low_host):
+                resumed = production_plan(directory, "--resume", "--memory-policy", "process-limit",
+                                          "--swap-growth-stop-bytes-per-second", "0")
+                self.assertEqual(resumed["supervisor_ram_policy"]["memory_policy"], "process-limit")
+                self.assertEqual(resumed["supervisor_ram_policy"]["swap_growth_stop_bytes_per_second"], 0)
+                preview = resumed["memory_admission_preview"]
+                self.assertEqual(preview["effective_hard_memory_bytes"], 600_000_000_000)
+                self.assertEqual(preview["effective_soft_memory_bytes"], 570_000_000_000)
+                self.assertEqual(preview["host_memory_reserve_bytes"], 0)
+                self.assertEqual(resumed["command"].count("--memory-policy"), 1)
+                self.assertEqual(resumed["command"][resumed["command"].index("--memory-policy") + 1],
+                                 "process-limit")
+                default_resume = production_plan(directory, "--resume")
+                self.assertEqual(default_resume["supervisor_ram_policy"]["memory_policy"], "host-aware")
+                self.assertIn("no campaign headroom", default_resume["memory_admission_preview"]["error"])
+            self.assertEqual(policy_path.read_bytes(), original_bytes)
+            self.assertEqual(resumed["steering_policy"], legacy)
+            self.assertFalse((directory / "checkpoints").exists())
+
+    def test_fresh_process_limit_policy_persists_for_resume(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            executable = production_fixture(directory)
+            original = production_plan(directory, "--executable", str(executable), "--workers", "1",
+                                       "--memory-policy", "process-limit")
+            resumed = production_plan(directory, "--resume")
+            self.assertEqual(resumed["steering_policy"], original["steering_policy"])
+            self.assertEqual(resumed["supervisor_ram_policy"]["memory_policy"], "process-limit")
+            self.assertEqual(resumed["supervisor_ram_overrides"], {})
+            self.assertEqual(resumed["memory_admission_preview"]["host_memory_reserve_bytes"], 0)
+
+    def test_legacy_supervisor_process_limit_runs_with_low_host_memory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            child = directory / "fake-rustred"
+            child.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(.5)\n")
+            child.chmod(0o700)
+            manifest = directory / "selection.json"; manifest.write_text("{}")
+            targets = directory / "targets.csv"; targets.write_text("1\n")
+            launcher = ("import importlib.util,sys\n"
+                        "source=sys.argv.pop(1)\n"
+                        "spec=importlib.util.spec_from_file_location('guard_test',source)\n"
+                        "module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)\n"
+                        "module.host_memory=lambda:dict(available_bytes=1,host_available_bytes=1,"
+                        "host_total_bytes=1000000000000)\n"
+                        "raise SystemExit(module.main())\n")
+            result = subprocess.run([sys.executable, "-c", launcher, str(SOURCE),
+                "--executable", str(child), "--manifest", str(manifest), "--targets", str(targets),
+                "--workers", "1", "--max-memory-bytes", "600000000000", "--memory-policy", "process-limit",
+                "--swap-growth-stop-bytes-per-second", "0", "--sample-seconds", ".1", "--no-progress",
+                "--run-directory", str(directory / "run")], capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            summary = json.loads((directory / "run/supervisor-result.json").read_text())
+            self.assertIsNone(summary["operator_or_resource_stop"])
+            self.assertEqual(summary["effective_hard_memory_bytes"], 600_000_000_000)
+            self.assertEqual(summary["effective_soft_memory_bytes"], 570_000_000_000)
+            self.assertEqual(summary["host_memory_reserve_bytes"], 0)
+            self.assertEqual(summary["memory_admission"]["memory_policy"], "process-limit")
+            samples = [json.loads(line) for line in (directory / "run/resources.jsonl").read_text().splitlines()]
+            self.assertTrue(samples)
+            self.assertTrue(all(sample["host_available_bytes"] == 1 for sample in samples))
+
     def test_production_resume_ram_override_preserves_frozen_native_policy(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory=Path(temporary); executable=production_fixture(directory)
