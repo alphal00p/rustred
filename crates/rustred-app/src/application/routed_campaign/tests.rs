@@ -6,6 +6,7 @@ mod epoch_walk;
 mod frontier_policy;
 mod finite_demand;
 mod finite_backend;
+mod finite_grouping;
 mod finite_lifecycle;
 mod g2_rescue;
 mod guarded_apply;

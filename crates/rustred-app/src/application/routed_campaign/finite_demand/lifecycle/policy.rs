@@ -89,6 +89,10 @@ pub(crate) struct ControlLimits {
 #[serde(deny_unknown_fields)]
 pub struct FiniteDemandPolicy {
     pub(crate) workers: usize,
+    /// Group this many existing prefix windows into a single parallel traversal
+    /// and atomic commit. Operational only: may change on cold resume.
+    #[serde(default = "one_window")]
+    pub(crate) max_windows_per_batch: usize,
     pub(crate) windows: trace::SeedLimits,
     #[serde(default = "uncapped_work")]
     pub(crate) per_batch_work: trace::WorkLimits,
@@ -107,6 +111,9 @@ pub struct FiniteDemandPolicy {
     #[serde(default)]
     pub(crate) max_resident_work_bytes: usize,
     pub(crate) control: ControlLimits,
+}
+pub(crate) fn one_window() -> usize {
+    1
 }
 fn uncapped_work() -> trace::WorkLimits {
     trace::WorkLimits {
@@ -129,9 +136,13 @@ impl FiniteDemandPolicy {
     pub fn from_json(bytes: &[u8]) -> Result<Self, AppError> {
         let value: Self = serde_json::from_slice(bytes)
             .map_err(|e| AppError::input(format!("invalid finite policy: {e}")))?;
-        if value.workers == 0 || value.control.max_bytes == 0 || value.control.max_files == 0 {
+        if value.workers == 0
+            || value.max_windows_per_batch == 0
+            || value.control.max_bytes == 0
+            || value.control.max_files == 0
+        {
             return Err(AppError::input(
-                "finite workers and control grants must be positive",
+                "finite workers, windows per batch and control grants must be positive",
             ));
         }
         Ok(value)
@@ -142,6 +153,7 @@ impl FiniteDemandPolicy {
     pub(crate) fn native(&self) -> backend::Policy {
         backend::Policy {
             workers: self.workers,
+            max_windows_per_batch: self.max_windows_per_batch,
             windows: self.windows.into(),
             per_batch_work: self.per_batch_work.into(),
             prepared_reduction_aggregates: self.prepared_reduction_aggregates,

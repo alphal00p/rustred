@@ -14,7 +14,7 @@ pub(super) use chase::ChaseProgress;
 mod eta;
 pub(super) use eta::InputEta;
 
-pub(in crate::cli::progress) const HEIGHT: u16 = 22;
+pub(in crate::cli::progress) const HEIGHT: u16 = 23;
 
 fn memory_gb(value: &Value) -> String {
     value.as_u64().map_or_else(
@@ -87,7 +87,14 @@ fn stage(event: &Value) -> String {
     };
     let label: String = match current.unwrap_or("preparing") {
         "starting" | "preparing" => "Preparing immutable source".into(),
+        "finite_backend_native"
+            if event["finite_group"]["windows_count"].as_u64().unwrap_or(1) > 1 =>
+        {
+            "Solving current window group".into()
+        }
         "finite_backend_native" => "Solving current window".into(),
+        "finite_backend_group_planned" => "Preparing shared window group".into(),
+        "finite_backend_before_commit" => "Committing completed window group".into(),
         "finite_checkpoint_saved" => "Checkpoint committed".into(),
         "finite_checkpoint_restored" => "Checkpoint restored".into(),
         "finite_backend_resident_hydrated" | "active" => "Work cache ready".into(),
@@ -221,7 +228,7 @@ pub(super) fn plain_status(record: &Value) -> String {
             )
         });
     format!(
-        "RustRed finite | {} | committed {}/{} rows | inputs {} occurrences (overlap counted) | rough input ETA {} at {}/s (whole invocation; publication excluded) | generation {} / {} committed windows | last window new Work {} / reuse hits {} | chase gap {} / elapsed {} | convergence 5 min {} / 30 min {} (negative: shrinking gap, not closure) | CPU {}/{} cores | RSS {} | process RAM cap {} | stop threshold {} | host available {} / {} total | elapsed {}{error}",
+        "RustRed finite | {} | committed {}/{} rows | inputs {} occurrences (overlap counted) | rough input ETA {} at {}/s (whole invocation; publication excluded) | generation {} / {} committed windows | current group {} windows / {} inputs | last commit new Work {} / reuse hits {} | chase gap {} / elapsed {} | convergence 5 min {} / 30 min {} (negative: shrinking gap, not closure) | CPU {}/{} cores | RSS {} | process RAM cap {} | stop threshold {} | host available {} / {} total | elapsed {}{error}",
         stage(event),
         number(&committed["exhausted_required_rows"]),
         number(&committed["required_rows"]),
@@ -230,6 +237,8 @@ pub(super) fn plain_status(record: &Value) -> String {
         input_average_text(eta),
         number(&event["finite_generation"]["number"]),
         number(&committed["committed_windows"]),
+        number(&event["finite_group"]["windows_count"]),
+        number(&event["finite_group"]["inputs"]),
         number(&event["finite_last_window"]["new_work"]),
         number(&event["finite_last_window"]["baseline_hits"]),
         number(&chase["gap"]),
@@ -294,7 +303,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
-        Constraint::Length(14),
+        Constraint::Length(15),
         Constraint::Length(1),
         Constraint::Min(0),
     ])
@@ -396,6 +405,12 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
             number(position("window")),
         ),
         (
+            "Windows / group",
+            number(&event["finite_group"]["windows_count"]),
+            "Group inputs",
+            number(&event["finite_group"]["inputs"]),
+        ),
+        (
             "Expanded nodes",
             number(&snapshot["completed_nodes"]),
             "Discovered nodes",
@@ -489,6 +504,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
                 "Gen / closed win" => "Gen,win / aux",
                 "Last new Work" => "Last new / reuse",
                 "Row (0-based)" => "Row / window (0)",
+                "Windows / group" => "Group win/inputs",
                 "Expanded nodes" => "Expanded / seen",
                 "Queued nodes" => "Queue / busy",
                 "Chase gap" => "Gap / chase time",
@@ -537,7 +553,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         sections[4],
     );
     let footer = failure.map_or_else(
-        || "ETA: rough whole-invocation input average, excludes publication. Convergence < 0: shrinking gap, not closure. Inputs include overlap; row closure is committed.".to_string(),
+        || "Chase covers the current group; rows advance only after its atomic commit. ETA is rough and excludes publication. Convergence < 0 means shrinking gap, not closure.".to_string(),
         |detail| format!("{} · {}", detail.chars().filter(|c| !c.is_control()).collect::<String>(), checkpoint_note(event)),
     );
     frame.render_widget(
@@ -564,6 +580,7 @@ pub(super) fn retain(previous: &Value, event: &mut Value) {
             "finite_last_window",
             "finite_residency",
             "finite_local",
+            "finite_group",
         ] {
             if let Some(value) = previous.get(field) {
                 event[field] = value.clone();
@@ -586,8 +603,16 @@ pub(super) fn retain(previous: &Value, event: &mut Value) {
             // The next cursor may designate a new window. Never display the
             // preceding window's local completion as that window's progress.
             event["finite_local"] = Value::Null;
+            event["finite_group"] = Value::Null;
+        }
+        Some("finite_backend_group_planned") => {
+            event["finite_group"] = event["group"].clone();
+            event["finite_local"] = Value::Null;
         }
         Some("finite_backend_native") => {
+            if event["group"].is_object() {
+                event["finite_group"] = event["group"].clone();
+            }
             event["finite_local"] = json!({"row":event["row"],"window":event["window"],
                 "snapshot":event.get("snapshot").unwrap_or(&event["native"])});
         }
@@ -614,6 +639,7 @@ pub(super) fn retain(previous: &Value, event: &mut Value) {
                 event["finite_totals"] = json!({"input_occurrences":total});
             }
             event["finite_local"] = Value::Null;
+            event["finite_group"] = Value::Null;
         }
         _ => {}
     }
@@ -745,6 +771,46 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend};
 
     #[test]
+    fn finite_group_metadata_survives_chase_and_resets_after_atomic_commit() {
+        let mut latest = json!({});
+        observe(&mut latest, checkpoint(1, 0));
+        let group = json!({"windows_count":64,"inputs":320,"distinct_inputs":300,"last_row":2,"last_window":31});
+        observe(
+            &mut latest,
+            json!({"operation":"finite_demand","event":"finite_backend_group_planned",
+            "row":0,"window":0,"group":group}),
+        );
+        assert_eq!(latest["finite_group"]["windows_count"], 64);
+        assert!(latest["finite_local"].is_null());
+        observe(
+            &mut latest,
+            json!({"operation":"finite_demand","event":"finite_backend_native",
+            "row":0,"window":0,"group":group,"snapshot":{"scheduled_nodes":100,"completed_nodes":50}}),
+        );
+        assert_eq!(stage(&latest), "Solving current window group");
+        assert_eq!(window_identity(&latest), Some((0, 0)));
+        observe(
+            &mut latest,
+            json!({"operation":"finite_demand","event":"finite_backend_before_commit",
+            "row":0,"window":0,"group":group}),
+        );
+        assert_eq!(latest["finite_group"]["inputs"], 320);
+        assert_eq!(stage(&latest), "Committing completed window group");
+        let plain = plain_status(&json!({"progress":latest}));
+        assert!(
+            plain.contains("current group 64 windows / 320 inputs"),
+            "{plain}"
+        );
+        let mut saved = checkpoint(2, 3);
+        saved["window"] = json!({"row":0,"windows_count":64,"last_row":2,"last_window":31,
+            "inputs":320,"new_work":80,"baseline_hits":300});
+        observe(&mut latest, saved);
+        assert!(latest["finite_group"].is_null());
+        assert!(latest["finite_local"].is_null());
+        assert_eq!(latest["finite_last_window"]["windows_count"], 64);
+    }
+
+    #[test]
     fn finite_table_resizes_and_keeps_committed_progress_distinct_from_window_counts() {
         let mut latest = json!({});
         let mut saved = checkpoint(4_129, 3);
@@ -754,7 +820,8 @@ mod tests {
             &mut latest,
             json!({"operation":"finite_demand", "event":"finite_backend_native",
             "row":3,"window":17,"snapshot":{"completed_nodes":12000,"scheduled_nodes":24000,
-            "queued_nodes":8000,"active_nodes":4,"workers":8,"rule_applications":999,"transport_calls":11}}),
+            "queued_nodes":8000,"active_nodes":4,"workers":8,"rule_applications":999,"transport_calls":11},
+            "group":{"windows_count":64,"inputs":1024,"distinct_inputs":1000,"last_row":4,"last_window":7}}),
         );
         let record = json!({"progress":latest,"elapsed_seconds":3723.0,"process_rss_bytes":8u64 << 30,
             "process_cpu_cores":6.5,"reserved_workers":8,
@@ -800,6 +867,8 @@ mod tests {
                     "ETA · run average",
                     "Inputs/s · run avg",
                     "Gen / closed win",
+                    "Windows / group",
+                    "Group inputs",
                     "Last new Work",
                     "Last reuse hits",
                     "Chase gap",
@@ -818,6 +887,7 @@ mod tests {
                 assert!(text.contains("4,128"), "{text}");
                 assert!(text.contains("12,387 / 50,000"), "{text}");
                 assert!(text.contains("777") && text.contains("333"), "{text}");
+                assert!(text.contains("1,024"), "{text}");
                 assert!(text.contains("01:02:03"), "{text}");
                 assert!(
                     text.contains("~02:00:00") && text.contains("10.000"),
@@ -1055,7 +1125,7 @@ mod tests {
             "{plain}"
         );
         assert!(
-            plain.contains("last window new Work 2 / reuse hits 1"),
+            plain.contains("last commit new Work 2 / reuse hits 1"),
             "{plain}"
         );
     }

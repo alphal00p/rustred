@@ -2,7 +2,7 @@ use super::*;
 
 fn steering() -> Value {
     json!({"mode":"create","checkpoint":"/explicit/test-only/checkpoint",
-        "stop_after_committed_windows":0,"workers":1,
+        "stop_after_committed_windows":0,"workers":1,"max_windows_per_batch":1,
         "windows":{"max_seed_points":2,"max_seed_bytes":65536,"max_positive_layers":64,"max_partition_checks":1000},
         "per_batch_work":{"max_nodes":1000,"max_rule_applications":1000,"max_transport_calls":1000,
             "max_transport_operations":100000,"max_transport_endpoints":100000,"max_coalescing_additions":100000},
@@ -27,6 +27,18 @@ fn durable_driver_strict_steering_rejects_unknown_missing_negative_and_overflow(
     let original = steering();
     let decoded: Steering = serde_json::from_value(original.clone()).unwrap();
     assert_eq!(serde_json::to_value(&decoded).unwrap(), original);
+    let mut ungrouped = original.clone();
+    ungrouped
+        .as_object_mut()
+        .unwrap()
+        .remove("max_windows_per_batch");
+    assert_eq!(
+        serde_json::from_value::<Steering>(ungrouped)
+            .unwrap()
+            .policy()
+            .max_windows_per_batch,
+        1
+    );
     for path in [
         "",
         "/windows",

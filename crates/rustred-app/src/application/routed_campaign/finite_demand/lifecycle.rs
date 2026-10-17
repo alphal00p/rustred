@@ -142,6 +142,8 @@ fn run<const N: usize>(
             "checkpoint":controls.store(),"generation":control::hex(generation.digest()),
             "generation_number":generation.generation(),"committed":committed(&generation)?,
             "window":{"row":window.row,"inputs":window.inputs,"new_work":window.new_work,
+                "windows_count":window.windows_count,"last_row":window.last_row,
+                "last_window":window.last_window,
                 "baseline_hits":window.baseline_hits,"cleanup_warning":window.cleanup_warning}}),
         );
     }

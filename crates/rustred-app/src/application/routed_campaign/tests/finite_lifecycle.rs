@@ -6,7 +6,7 @@ use crate::{
 };
 use std::{fs, path::Path, sync::atomic::AtomicBool};
 
-fn policy() -> FiniteDemandPolicy {
+pub(super) fn policy() -> FiniteDemandPolicy {
     FiniteDemandPolicy::from_json(&serde_json::to_vec(&json!({
         "workers":1,"windows":{"max_seed_points":1,"max_seed_bytes":65536,"max_positive_layers":64,"max_partition_checks":1000},
         "census":{"max_unique_selections":1000,"max_identity_payload_bytes":1000000},

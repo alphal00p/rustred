@@ -1,5 +1,129 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 17 — grouped-window parallel finite execution (delivered)
+
+User requests batching existing finite windows for the upcoming rank5 launch,
+without losing inner-window parallelism or either campaign lane. Current
+production campaigns are read-only and must not be restarted or edited.
+
+Plan and responsibilities:
+
+1. `finite_group_engine`: operational `max_windows_per_batch` (default1),
+   bounded lookahead of unchanged deterministic prefix windows, one shared
+   native parallel trace, atomic adoption of every grouped cursor only after
+   exact trace success. Existing worker pool, resident baseline and in-flight
+   deduplication remain shared; no independent redundant solver forks.
+2. `finite_group_validation`: independent tests for group1/grouped exact Work,
+   raw census, overlapping input occurrences, cancellation, failure, resume,
+   scope append and publication; bounded matched small-window performance pilot.
+3. `finite_group_audit`: independent mathematical/commit/resource audit,
+   especially predecessor binding, unchanged partition identity, occurrence
+   versus distinct-target accounting and partial-group failure handling.
+4. Root: Python `--windows-per-batch`, group-aware monitoring, integration,
+   final optimized builds, matched pilots, documentation and commit/push.
+
+Grouping is operational and explicitly configurable. It must not change
+`WindowLimits`, source/query domains, ordering, input admission, owner rules or
+terminal conventions. Existing checkpoints should cold-resume with grouping
+enabled after tests prove it. The shared native group traces every required
+occurrence, deduplicates integral keys exactly, and commits its Work/census and
+cursor transitions together. On failure/cancellation the unfinished group is
+discarded, retaining the previous durable checkpoint. Larger grouping may
+increase time between commits and transient Work; no guaranteed speedup is
+assumed. Group1 remains available and the separate symbolic-domain/Epoch lane
+is unchanged. No new IBP generation, CAS primitives or unrelated optimizations.
+
+Initial read-only diagnosis: the ongoing finiteR4 run still has many small
+reuse-heavy windows, about one observed core. The goal of grouping is both to
+feed more independent starts into the existing parallel queue and to amortize
+serial durable-commit overhead. A 150-worker pool alone does not do this.
+Validation/release results and the next-rank command are recorded below.
+
+First implementation audit passed after moving all cursor successor allocations
+before durable CURRENT publication. Cross-row overlaps retain occurrence counts
+while native requested-target checks use exact distinct keys. Grouped input
+allowance scales with checked operational group size; window/source bindings
+remain unchanged. Group1 remains the default. Python regression gate225 passed;
+24 focused presentation tests passed after updating one expected plain label
+from "last window" to "last commit". Native terminal gate3 passed on optimized
+candidate29d4f4b9… with23-row cleanup, cancellation and resized presentation.
+During the first app build, an ambiguous test-only `sum()` was made explicit
+as `sum::<u64>()`. No production guard/assertion was weakened.
+
+Initial matched small-window pilots at32 workers CPU96–127, G1→G64 native
+launch-to-completion wall times: K1 4.916→0.887s (1200windows/2400Work), FG
+3.911→2.905s, BMW5.421→4.412s, H10.435→6.462s. Same committed input/Work/cursor
+counts and cold inspection pass. Four-loop scope is duplicated scalar unit
+inputs across saved literal sectors, not full physics/rank coverage. Reversed
+repeat, dotted controls and all-owner5LR0 pair were then completed under
+`TMP/finite-group-pilots-20261017-qMvAND/`. First pilot setup correctly refused
+external owner paths before native work; corrected harness copies only immutable
+owner inputs into each scratch namespace. Production ledgers are never copied.
+
+Final gate: **355 native tests passed, four explicit fixtures ignored**, under
+`TMP/grouped-app-test-results3-20261017/`. This includes all four new grouped
+integration tests: W1/W4 × G1/G8/G64 × paged/resident exact Work and raw-census
+equality; cross-row duplicate occurrences; cancellation/native/storage refusal
+without partial cursor adoption; G1 checkpoint → G8 continuation and scope
+append; and cold publication/package application with exact coefficients.
+The prior run exposed one old diagnostic JSON round-trip fixture missing the
+new default field; the fixture now explicitly checks both serialized group1
+and omitted-field group1. No guard or assertion was weakened. Test build3 took
+304.31s; app code is unoptimized over optimized core for correctness testing.
+The delivered CLI uses the normal optimized release build (260.34s).
+
+The implementation and measurement interpretation received an independent
+`finite_group_audit` pass. Final repeated dotted controls, G1→G64:
+FG4.40–4.41→3.40s; BMW5.40–5.41→4.40–4.43s;
+H12.44→6.91–6.92s; X19.97–21.00→12.93–13.47s.
+The four-control sum fell34.5% and34.7% in counterbalanced pairs. Each arm
+processed the same1800 input occurrences and212065 completed Work records;
+fresh inspection passed. Scope is all900 saved literal owner sectors with one
+physical denominator raised once and duplicate request rows, not full4L
+physics coverage. PeakRSS stayed about0.56/0.73/1.19/2.00GB per parent.
+
+Five-loop R0 completed116/116 queries,2557 input occurrences and300673 Work in
+both arms:144.72s versus144.21s, about7.75GB peakRSS. Commits fell81→2 but
+preparation consumed~135s, so this is a **neutral whole-run result**. The source
+SHA differs only because each scratch source command names its own local paths;
+owner payload bytes and mathematical query inputs are fixed. Pilots ran on
+32 CPUs96–127, away from production reservations but on a shared, non-isolated
+host; avoid precise phase claims from sampled telemetry. Evidence:
+`TMP/finite-group-pilots-20261017-qMvAND/{pair1-local,pair2-reverse,pair3-dot-forward}-results.json`.
+
+150-worker/group64 integration also passed K1 and H-dot with identical counts.
+H-dot took7.479s versus6.910/6.923s at32 workers: more threads add overhead on
+small groups. This validates the requested150-worker option, not its optimality
+or rank5 scaling. Initial root validation and baseline probing remain serial.
+Grouping is a demonstrated small-window improvement, not a promised improvement
+for every giant chase. All pilot processes exited; no production campaign was
+mutated. Reproducible driver and150-worker receipts are in the same directory.
+
+Frozen optimized executable:
+`TMP/releases/20261017-finite-grouped-150/rustred`, SHA256
+`29d4f4b93a23348de4365303b2e4e0acb870da3926ba668ba004e6fe2468a653`.
+The public CLI and Python expose grouping, the dashboard displays group size
+and input count, and the existing CP6/Epoch and finite-demand engines both
+remain available. Resume compatibility changes neither saved window partition
+nor execution identity. No new CAS primitive or rule-generation work was added.
+
+After the current R4 solve **and publication** finish, run from the repository:
+
+```bash
+nix develop --command python -B examples/python/saved_campaign.py extend \
+  --campaign "$PWD/campaigns/five-loop-finite-r0-d10-resident-fixed-20261016" \
+  --rank 5 --executable "$PWD/TMP/releases/20261017-finite-grouped-150/rustred" \
+  --workers 150 --cpus 0-63,96-181 --windows-per-batch 64 \
+  --max-memory-bytes 600000000000 --memory-policy process-limit
+```
+
+This retains D≤10 and completed work; no fresh campaign or repeated amendment
+is needed. A later `run --resume` reuses the selected executable/grouping.
+`--windows-per-batch 1` restores single-window scheduling at cold resume.
+An interrupted unfinished group must be retried, so larger groups trade fewer
+commits for potentially more lost in-flight work. Production frozen binaries
+are untouched. Unrelated FeynKit changes remain excluded from this milestone.
+
 ## October 17 — legacy host-reserve stop and keeping both campaign lanes
 
 User asks to preserve both engines and resume the stopped older campaign

@@ -58,6 +58,8 @@ def main(argv=None):
                           "Subsequent finite commands retain these settings; --workers N with --cpus CPUSET "
                           "changes the reserved worker budget. Explicit policy/RAM overrides "
                           "are operational, while window partition settings are immutable. "
+                          "--windows-per-batch N groups existing windows in one shared parallel solve/commit "
+                          "without changing that partition (default 1). "
                           "Inputs must already be staged; no legacy checkpoint import. "
                           "An interrupted initial preparation can be retried explicitly with "
                           "run --repair-preparation; native refuses existing checkpoint state.")

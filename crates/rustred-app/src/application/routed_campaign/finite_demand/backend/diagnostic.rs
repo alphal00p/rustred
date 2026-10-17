@@ -26,8 +26,11 @@ struct Steering {
     mode: Mode,
     checkpoint: PathBuf,
     /// None runs to full scope; Some(0) persists/opens pending state only.
+    /// A grouped step may cross this boundary: committed groups stay atomic.
     stop_after_committed_windows: Option<u64>,
     workers: usize,
+    #[serde(default = "super::super::lifecycle::policy::one_window")]
+    max_windows_per_batch: usize,
     windows: SeedLimits,
     per_batch_work: WorkLimits,
     prepared_reduction_aggregates: Option<ReductionAggregateOverrides>,
@@ -45,6 +48,7 @@ impl Steering {
     fn policy(&self) -> Policy {
         Policy {
             workers: self.workers,
+            max_windows_per_batch: self.max_windows_per_batch,
             windows: self.windows.into(),
             per_batch_work: self.per_batch_work.into(),
             prepared_reduction_aggregates: self.prepared_reduction_aggregates,
@@ -172,12 +176,13 @@ fn progress_json(p: &Progress) -> Value {
         "no_active_native_work":p.no_active_native_work,"stopped":p.stopped,
         "input_occurrences":p.input_occurrences,"completed_work":p.completed_work,
         "current_row":p.current_row,"current_window":p.current_window,
+        "max_windows_per_batch":p.policy.max_windows_per_batch,
         "generation":hex(p.generation),"generation_number":p.generation_number,
         "checkpoint":p.checkpoint,
         "source_reduction_limits":format!("{:?}",p.source_reduction),
         "effective_reduction_limits":format!("{:?}",p.effective_reduction),
         "effective_batch_aggregate_limits":{
-            "max_input_targets":p.policy.windows.max_seed_points.min(b.max_nodes),
+            "max_input_targets":p.policy.windows.max_seed_points.saturating_mul(p.policy.max_windows_per_batch).min(b.max_nodes),
             "max_unique_nodes":b.max_nodes,
             "max_rule_applications":r.max_rule_applications.min(b.max_rule_applications),
             "max_pending_frames":r.max_pending_frames.min(b.max_nodes),
@@ -282,14 +287,18 @@ pub(crate) fn drive<const N: usize>(
     let mut committed = 0u64;
     let mut failure = None;
     let run_started = Instant::now();
-    while !session.progress()?.all_rows_exhausted && stop_after != Some(committed) {
+    while !session.progress()?.all_rows_exhausted && stop_after.is_none_or(|stop| committed < stop)
+    {
         let step_started = Instant::now();
         match session.step(cancel, observer) {
             Ok(step) => {
-                if step.window.is_some() {
-                    committed = committed
-                        .checked_add(1)
-                        .ok_or_else(|| AppError::limit("driver committed window counter"))?;
+                if let Some(window) = step.window {
+                    committed =
+                        committed
+                            .checked_add(u64::try_from(window.windows_count).map_err(|_| {
+                                AppError::limit("driver committed group window count")
+                            })?)
+                            .ok_or_else(|| AppError::limit("driver committed window counter"))?;
                 }
                 observer(json!({"event":"finite_backend_driver_committed",
                     "step_seconds":step_started.elapsed().as_secs_f64(),
@@ -307,7 +316,7 @@ pub(crate) fn drive<const N: usize>(
     let progress = session.progress()?;
     // A requested boundary stop is not a completed diagnostic, even if that
     // exact boundary also exhausted the scope. Cold resume can stream it later.
-    let reached_stop = stop_after == Some(committed);
+    let reached_stop = stop_after.is_some_and(|stop| committed >= stop);
     let run_seconds = run_started.elapsed().as_secs_f64();
     let census_started = Instant::now();
     let census = if failure.is_none() && progress.all_rows_exhausted && !reached_stop {

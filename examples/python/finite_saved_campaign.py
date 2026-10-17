@@ -91,11 +91,13 @@ def engine(campaign, requested=None):
 
 def require_policy(value):
     fields = {"workers", "windows", "census", "export", "storage", "max_total_rows", "max_source_bytes", "control"}
-    optional = {"per_batch_work", "prepared_reduction_aggregates", "max_resident_work_bytes"}
+    optional = {"per_batch_work", "prepared_reduction_aggregates", "max_resident_work_bytes", "max_windows_per_batch"}
     if not isinstance(value, dict) or not fields <= set(value) or set(value) - fields - optional:
         raise ValueError("finite policy must contain the public native policy fields and no diagnostic settings")
     if type(value["workers"]) is not int or value["workers"] <= 0 or not isinstance(value["windows"], dict):
         raise ValueError("finite policy requires positive workers and explicit window limits")
+    if type(value.get("max_windows_per_batch", 1)) is not int or value.get("max_windows_per_batch", 1) <= 0:
+        raise ValueError("finite max_windows_per_batch must be positive")
     resident = value.get("max_resident_work_bytes", 0)
     if type(resident) is not int or not 0 <= resident < 2**64:
         raise ValueError("resident Work allowance must be an unsigned platform byte count")
@@ -359,6 +361,9 @@ def launch_plan(args, campaign, binary, *, apply, startup_progress=None):
     workers = getattr(args, "workers", None)
     if workers is not None:
         policy = require_policy({**policy, "workers": workers})
+    grouping = getattr(args, "windows_per_batch", None)
+    if grouping is not None:
+        policy = require_policy({**policy, "max_windows_per_batch": grouping})
     if saved is not None and policy["windows"] != saved["window_policy"]:
         raise ValueError("finite window/partition policy cannot change on resume")
     resources = dict((saved or {}).get("resources", {}))
@@ -475,6 +480,7 @@ def public_main(args, extra):
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument("--finite-policy", type=Path)
     parser.add_argument("--workers", type=int)
+    parser.add_argument("--windows-per-batch", type=int)
     parser.add_argument("--cpus")
     parser.add_argument("--max-memory-bytes", type=int)
     parser.add_argument("--host-memory-reserve-bytes", type=int)
@@ -485,6 +491,8 @@ def public_main(args, extra):
     finite_args = parser.parse_args(extra)
     if finite_args.workers is not None and finite_args.workers <= 0:
         raise ValueError("finite workers must be positive")
+    if finite_args.windows_per_batch is not None and finite_args.windows_per_batch <= 0:
+        raise ValueError("finite windows per batch must be positive")
     if args.action == "inspect" and any(value is not None and value is not False
                                         for name, value in vars(finite_args).items() if name != "finite_policy"):
         raise ValueError("finite inspect accepts only --finite-policy, not launch-policy overrides")

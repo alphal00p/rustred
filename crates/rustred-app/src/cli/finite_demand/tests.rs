@@ -83,6 +83,25 @@ fn policy() -> Value {
         "export":{"max_records":100,"max_live_payload_bytes":65536},"storage":storage,
         "max_total_rows":16,"max_source_bytes":1048576,"control":{"max_bytes":1048576,"max_files":100}})
 }
+
+#[test]
+fn finite_grouping_policy_defaults_to_one_and_is_positive_operational_metadata() {
+    let original = policy();
+    let parsed = FiniteDemandPolicy::from_json(&serde_json::to_vec(&original).unwrap()).unwrap();
+    assert_eq!(parsed.native().max_windows_per_batch, 1);
+    let windows = parsed.native().windows;
+    let mut grouped = original;
+    grouped["max_windows_per_batch"] = json!(64);
+    let parsed = FiniteDemandPolicy::from_json(&serde_json::to_vec(&grouped).unwrap()).unwrap();
+    assert_eq!(parsed.native().max_windows_per_batch, 64);
+    assert_eq!(parsed.native().windows, windows);
+    let roundtrip: Value = serde_json::from_slice(&parsed.to_json().unwrap()).unwrap();
+    assert_eq!(roundtrip["max_windows_per_batch"], 64);
+    for bad in [json!(0), json!(-1), json!(true), Value::Null] {
+        grouped["max_windows_per_batch"] = bad;
+        assert!(FiniteDemandPolicy::from_json(&serde_json::to_vec(&grouped).unwrap()).is_err());
+    }
+}
 fn args(s: &Scratch, directory: PathBuf) -> FiniteArgs {
     FiniteArgs {
         action: Action::Run,

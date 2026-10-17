@@ -1,6 +1,6 @@
 # User-controlled finite campaign limits and dashboard
 
-## Next extension: chase monitoring, rough input ETA and 150 workers
+## Next extension: grouped windows, monitoring and 150 workers
 
 The follow-up adds5/30-minute gap convergence, current-chase elapsed time and a
 rough input ETA from the whole invocation's average committed-input throughput,
@@ -9,6 +9,10 @@ and permits a Python `--workers` override without editing frozen policy files.
 It also skips redundant resident-baseline probes on known live duplicates and
 buffers the event journal while flushing every complete record. These changes
 do not alter the admitted scope, rules, terminal convention or checkpoint schema.
+Finite window grouping is now an explicit operational option: existing windows
+share one parallel traversal and an atomic commit. All inner-worker parallelism
+and descendant reuse remain enabled. The legacy symbolic/Epoch lane remains
+available independently; neither engine reads the other's checkpoint format.
 
 After the current rank4 run **and its publication** have finished, select the
 new optimized executable explicitly for the next extension:
@@ -18,8 +22,9 @@ cd /shared/codex-2/rustred
 export RUSTRED_CAMPAIGN="$PWD/campaigns/five-loop-finite-r0-d10-resident-fixed-20261016"
 nix develop --command python -B examples/python/saved_campaign.py extend \
   --campaign "$RUSTRED_CAMPAIGN" --rank 5 \
-  --executable "$PWD/TMP/releases/20261016-finite-eta-150/rustred" \
+  --executable "$PWD/TMP/releases/20261017-finite-grouped-150/rustred" \
   --workers 150 --cpus 0-63,96-181 \
+  --windows-per-batch 64 \
   --max-memory-bytes 600000000000 --memory-policy process-limit
 ```
 
@@ -28,6 +33,11 @@ executable at that future launch; do not overwrite the running campaign's binary
 or change its current steering. Subsequent extensions retain the selected build
 and150-worker policy. No `--resume` is needed with `extend`; after an interrupted
 stage, use `run --resume` without appending a second rank stage.
+Grouping is saved for subsequent launches. Use `--windows-per-batch 1` to
+return to single-window finite scheduling at a cold resume. It does not change
+the original window partition or rank/D bounds. Checkpoints are atomic per
+group: an interrupted unfinished group must be retried. More grouped roots may
+increase transient work and time until the next commit; the RAM guard remains.
 
 The ETA excludes work completed before this invocation and excludes final
 publication. It warms up until new inputs commit, and can rise during a long
@@ -38,6 +48,46 @@ older campaign's64–95 reservation. This is not an exclusive host reservation o
 a promise of proportional speedup; shared membership, memory bandwidth and serial
 commit work can limit scaling. Full validation and executable identity are in
 the latest `CODEX_PROGRESS.md` delivery entry.
+
+### Grouping measurements (October 17)
+
+Matched optimized runs used the same executable, immutable owner inputs and
+32 workers on CPUs 96–127, avoiding the production reservations on this shared
+host. No host-wide isolation was imposed. Each four-loop control visits all literal sectors
+of its saved parent program twice, with one denominator raised from one to two.
+These are useful nontrivial, reuse-heavy witnesses, **not** the full four-loop
+physics envelope. The two pairs use opposite group-size execution orders.
+Times include native process launch, preparation, tracing and durable completion;
+compilation, final portable publication and cold inspection are separate.
+
+| Control | One window/group | 64 windows/group | Completed Work | Commits, 1 → 64 |
+| --- | ---: | ---: | ---: | ---: |
+| FG, one dot | 4.40–4.41 s | 3.40 s | 6,301 | 248 → 4 |
+| BMW, one dot | 5.40–5.41 s | 4.40–4.43 s | 8,913 | 268 → 5 |
+| H, one dot | 12.44 s | 6.91–6.92 s | 49,423 | 628 → 10 |
+| X, one dot | 19.97–21.00 s | 12.93–13.47 s | 147,428 | 656 → 11 |
+| Five-loop R0, 116 requests | 144.72 s | 144.21 s | 300,673 | 81 → 2 |
+
+Input counts, completed Work, exhausted cursors and fresh inspection agree in
+each pair. Independent integration tests additionally compare exact Work/raw
+census contents and published coefficient reductions, not just counts. Peak
+RSS remained approximately 0.56/0.73/1.19/2.00 GB for the dotted FG/BMW/H/X
+controls and 7.75 GB for five-loop R0. The latter has only one matched pair and
+spends about 135 s preparing: its tiny timing difference is **neutral**, not
+evidence of speedup. Supervisor sampling is about 0.5 s; avoid precise kernel
+inferences from these short runs or subtraction of sampled preparation time.
+
+Grouping demonstrably reduces small-window overhead while retaining actual
+native descendant parallelism. It does not establish a 150-core scaling result,
+a faster rank-5 solve, or better behavior on a single giant chase. The unchanged
+single-window policy remains available. Evidence:
+`TMP/finite-group-pilots-20261017-qMvAND/{pair1-local,pair2-reverse,pair3-dot-forward}-results.json`.
+
+The grouped K1 and H-dot controls also completed with 150 workers, preserving
+their exact counts. H-dot took 7.48 s versus 6.91–6.92 s at 32 workers: extra
+threads cost more on this small workload. The 150-worker launch above is a
+supported user-selected budget, not a demonstrated optimum. Grouping is the
+measured improvement; more cores help only where the active work is wide enough.
 
 ## What changed
 
@@ -85,11 +135,12 @@ counts, committed required-row progress, checkpoint/window details, measured
 CPU cores versus reserved workers, memory and rates. Input progress shows
 processed/total occurrences, including overlaps across requests. Its total is
 summed once from cached native admission counts; completed-window counts and
-last-window new Work/reuse hits use existing committed metadata. No heartbeat
-recounts inputs, scans the legacy closure ledger or derives an ETA. Process RSS,
+last-commit new Work/reuse hits use existing committed metadata. No heartbeat
+recounts inputs or scans the legacy closure ledger; the rough ETA uses cached
+committed counts and invocation elapsed time. Process RSS,
 the requested cap/soft threshold and host available/total RAM use decimal GB.
-Window changes reset
-window-local rate sampling. Startup is a separate colored phase/elapsed line;
+Group changes reset
+chase-local rate sampling. Startup is a separate colored phase/elapsed line;
 publication retains its existing table. Error output follows the table rather
 than overwriting it. Non-TTY operation uses bounded periodic progress lines.
 

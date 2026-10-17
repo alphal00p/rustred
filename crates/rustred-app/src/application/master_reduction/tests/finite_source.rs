@@ -50,6 +50,7 @@ fn source(s: &Scratch) -> OwnerDomainWalkRequest {
 fn policy() -> Policy {
     Policy {
         workers: 1,
+        max_windows_per_batch: 1,
         windows: WindowLimits {
             max_seed_points: 1,
             max_seed_bytes: 65536,

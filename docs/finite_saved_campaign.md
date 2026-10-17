@@ -80,6 +80,24 @@ The window partition remains unchanged. An explicit `--executable NEW_BINARY`
 selects the new build for that launch and later invocations; do not overwrite an
 in-use content-addressed executable or edit the campaign's frozen `bin/` files.
 
+`--windows-per-batch N` groups up to N **existing** prefix windows into one
+shared parallel trace and one atomic commit (native policy field
+`max_windows_per_batch`, default1). It preserves the existing per-window
+partition, all worker parallelism, shared completed-Work index, and in-flight
+descendant deduplication. Several rows may share a group; repeated starting
+integrals count as input occurrences but are traced only once per native group.
+This setting can change on cold resume without discarding completed work.
+
+The dashboard displays current group size and input count. Chase time and
+convergence refer to the entire active group. Only a fully successful group
+advances its saved cursors; interruption or failure leaves the preceding
+checkpoint valid and the unfinished group must be retried. Larger groups reduce
+commit frequency but may increase memory and the time before the next durable
+boundary. The process RAM guard still applies. Initial admission of the grouped
+starting inputs remains serial; grouping is not a guarantee of full CPU usage.
+Use `--windows-per-batch 1` to retain the ungrouped finite schedule. The separate
+legacy symbolic-domain/Epoch lane is unaffected.
+
 These commands launch work; they are not preparation-only commands. The saved
 engine and policy are reused by later invocations:
 

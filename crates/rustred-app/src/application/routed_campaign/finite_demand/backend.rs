@@ -4,6 +4,7 @@
 #[cfg(test)]
 pub(crate) mod diagnostic;
 mod errors;
+mod group;
 pub(crate) mod publication;
 use super::{
     prepared::{PreparedExecution, PreparedGeneration},
@@ -33,6 +34,8 @@ use symbolica::domains::integer::Integer;
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Policy {
     pub workers: usize,
+    /// Operational grouping of existing immutable windows, not a new partition.
+    pub max_windows_per_batch: usize,
     pub windows: WindowLimits,
     pub per_batch_work: CandidateRoutedWorkBudget,
     pub prepared_reduction_aggregates: Option<ReductionAggregateOverrides>,
@@ -74,6 +77,9 @@ pub(crate) struct Progress {
 #[derive(Clone, Debug)]
 pub(crate) struct CompletedWindow {
     pub row: usize,
+    pub windows_count: usize,
+    pub last_row: usize,
+    pub last_window: u64,
     pub inputs: usize,
     pub new_work: usize,
     pub baseline_hits: usize,
@@ -439,12 +445,12 @@ impl<const N: usize> Session<N> {
                 progress: self.progress()?,
             });
         };
-        let window = self.sources[index]
-            .next_window(&self.cursors[index], cancel)
-            .map_err(window_error)?
-            .ok_or_else(|| {
-                AppError::internal_invariant("unfinished finite cursor has no window")
-            })?;
+        let group =
+            group::WindowGroup::plan(&self.sources, &self.cursors, index, self.policy, cancel)?;
+        let group_metadata = group.metadata();
+        let window_ordinal = group.first().ordinal;
+        observer(json!({"event":"finite_backend_group_planned","row":index,
+            "window":window_ordinal,"group":group_metadata}));
         let previous = self.generation()?;
         let reader_limits = if self.resident.is_some() {
             StorageLimits {
@@ -463,20 +469,26 @@ impl<const N: usize> Session<N> {
             self.policy.export,
             cancel,
         )?;
-        let admission = FiniteRootAdmission::try_new([window.region().clone()], 1)
-            .map_err(|e| AppError::input(e.to_string()))?;
+        let admission = FiniteRootAdmission::try_new(
+            group.windows.iter().map(|w| w.window.region().clone()),
+            self.policy.max_windows_per_batch,
+        )
+        .map_err(|e| AppError::input(e.to_string()))?;
         #[cfg(test)]
         let native_started = std::time::Instant::now();
         let delta_result = baseline
             .trace_batch_with_resident(
                 self.resident.as_ref(),
-                window.targets().iter().cloned(),
+                group
+                    .windows
+                    .iter()
+                    .flat_map(|w| w.window.targets().iter().cloned()),
                 CandidateEntryAdmission::ExplicitFinite(&admission),
                 self.policy.workers,
                 cancel,
                 |s| {
                     observer(json!({"event":"finite_backend_native","row":index,
-                "window":self.cursors[index].windows(),"native":snapshot_json(s)}))
+                "window":window_ordinal,"group":group_metadata,"native":snapshot_json(s)}))
                 },
             )
             .map_err(errors::completed);
@@ -500,8 +512,8 @@ impl<const N: usize> Session<N> {
             .ok_or_else(|| AppError::limit("native window census multiplicity overflow"))?;
         if delta.predecessor() != previous.digest()
             || !delta.is_for_reducer(self.prepared.reducer())
-            || snapshot.input_targets != window.targets().len()
-            || snapshot.requested_targets != window.targets().len()
+            || snapshot.input_targets != group.inputs
+            || snapshot.requested_targets != group.distinct_inputs
             || delta.report().complete_census().is_none()
             || u64::try_from(snapshot.rule_applications).ok() != Some(multiplicity)
         {
@@ -511,23 +523,42 @@ impl<const N: usize> Session<N> {
         }
         let mut completed = CompletedWindow {
             row: index,
-            inputs: window.targets().len(),
+            windows_count: group.windows.len(),
+            last_row: group.last().row,
+            last_window: group.last().ordinal,
+            inputs: group.inputs,
             new_work: delta.work().len(),
             baseline_hits: snapshot.completed_baseline_hits,
             cleanup_warning: None,
         };
         let mut cursors = previous.state().cursors.clone();
-        let occurrences = cursors[index]
-            .input_occurrences
-            .checked_add(
-                u64::try_from(window.targets().len())
-                    .map_err(|_| AppError::limit("window input count exceeds u64"))?,
-            )
-            .ok_or_else(|| AppError::limit("cursor occurrence overflow"))?;
-        cursors[index] = stored_cursor(&self.sources[index], window.successor(), occurrences)?;
-        let successor = window.successor().clone();
+        // All cursor allocation/encoding precedes publication. Adoption after
+        // CURRENT is durable consists only of moves into existing slots.
+        let mut successors = Vec::new();
+        successors
+            .try_reserve_exact(group.windows.len())
+            .map_err(|_| AppError::limit("finite group successor allocation"))?;
+        for proposed in &group.windows {
+            let row = proposed.row;
+            let occurrences = cursors[row]
+                .input_occurrences
+                .checked_add(
+                    u64::try_from(proposed.window.targets().len())
+                        .map_err(|_| AppError::limit("window input count exceeds u64"))?,
+                )
+                .ok_or_else(|| AppError::limit("cursor occurrence overflow"))?;
+            cursors[row] =
+                stored_cursor(&self.sources[row], proposed.window.successor(), occurrences)?;
+            if let Some((last_row, successor)) = successors.last_mut()
+                && *last_row == row
+            {
+                *successor = proposed.window.successor().clone();
+            } else {
+                successors.push((row, proposed.window.successor().clone()));
+            }
+        }
         observer(
-            json!({"event":"finite_backend_before_commit","row":index,"window":self.cursors[index].windows(),
+            json!({"event":"finite_backend_before_commit","row":index,"window":window_ordinal,"group":group_metadata,
             "inputs":completed.inputs,"new_work":completed.new_work,"baseline_hits":completed.baseline_hits}),
         );
         check(cancel)?;
@@ -575,7 +606,9 @@ impl<const N: usize> Session<N> {
             },
         )?;
         // No fallible work or observer lies between durable commit and adoption.
-        self.cursors[index] = successor;
+        for (row, successor) in successors {
+            self.cursors[row] = successor;
+        }
         self.authenticated = outcome.generation;
         self.resident = resident.map(|resident| {
             resident.after_durable_commit(self.authenticated.generation().digest())
@@ -646,8 +679,10 @@ fn admit<const N: usize>(
     observer: &impl Fn(Value),
 ) -> Result<Admitted<N>, AppError> {
     check(cancel)?;
-    if policy.workers == 0 {
-        return Err(AppError::input("finite backend workers must be positive"));
+    if policy.workers == 0 || policy.max_windows_per_batch == 0 {
+        return Err(AppError::input(
+            "finite backend workers and windows per batch must be positive",
+        ));
     }
     rustred::campaign::ParallelExecution::preflight_requested_core_budget(policy.workers)
         .map_err(|e| AppError::input(e.to_string()))?;
@@ -670,7 +705,9 @@ fn admit<const N: usize>(
     if let Some(limits) = policy.prepared_reduction_aggregates {
         load.reduction_limits = limits.apply(load.reduction_limits);
     }
-    load.trace_limits.max_input_targets = policy.windows.max_seed_points;
+    load.trace_limits.max_input_targets =
+        group::checked_group_grant(policy.windows.max_seed_points, policy.max_windows_per_batch)?;
+    group::checked_group_grant(policy.windows.max_seed_bytes, policy.max_windows_per_batch)?;
     load.trace_limits.max_unique_nodes = policy.per_batch_work.max_nodes;
     load.trace_limits.max_transport_calls = policy.per_batch_work.max_transport_calls;
     load.trace_limits.max_transport_operations = policy.per_batch_work.max_transport_operations;

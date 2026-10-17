@@ -364,6 +364,12 @@ usage and memory. Later finite extensions may select `--workers N --cpus CPUSET`
 without rebuilding or changing their saved scope/window partition. See the
 [configurable-limit release and fresh launch instructions](docs/research/finite_resource_limits_2026-10-16.md).
 
+Finite campaigns can also use `--windows-per-batch N` to share one parallel
+traversal and atomic commit across consecutive existing windows. This retains
+the per-window partition, worker parallelism and shared descendant reuse while
+amortizing checkpoint overhead. The default1 preserves single-window execution;
+larger groups can increase the work retried after interruption.
+
 Both campaign lanes remain supported: the symbolic-domain walk (`legacy`,
 including Epoch/CP6) and the concrete finite-demand engine. The latter is an
 alternative, not a universal performance upgrade; their checkpoints are not

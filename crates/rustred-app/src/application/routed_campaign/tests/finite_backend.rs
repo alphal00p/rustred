@@ -23,9 +23,10 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-fn policy(workers: usize) -> Policy {
+pub(super) fn policy(workers: usize) -> Policy {
     Policy {
         workers,
+        max_windows_per_batch: 1,
         windows: WindowLimits {
             max_seed_points: 1,
             max_seed_bytes: 65536,
@@ -73,7 +74,7 @@ fn policy(workers: usize) -> Policy {
         max_source_bytes: 1048576,
     }
 }
-fn query(id: &str, a: u64) -> Value {
+pub(super) fn query(id: &str, a: u64) -> Value {
     json!({"id":id,"owner":"1","lower":[0],"upper":[a.saturating_sub(1)],
     "max_numerator_rank":0,"power_bounds":{"max_positive_power":a,"min_power_difference":0,"max_power_difference":10}})
 }
@@ -534,7 +535,7 @@ fn append(source: &mut OwnerDomainWalkRequest, path: PathBuf) {
         "sequence":1,"parent":source.checkpoint_binding(),"queries":[query("rank-or-power-extension",5)],
         "query_roles":{"required":["rank-or-power-extension"],"auxiliary":[]},"provenance":{"test":"cold exact append"}}).to_string()});
 }
-fn finish<const N: usize>(session: &mut Session<N>) {
+pub(super) fn finish<const N: usize>(session: &mut Session<N>) {
     for _ in 0..100 {
         let step = session.step(&AtomicBool::new(false), &|_| {}).unwrap();
         assert!(step.progress.no_active_native_work);
@@ -609,7 +610,7 @@ fn finite_publication_capture_requires_complete_no_aux_and_bounded_exact_raw_str
     finish(&mut session);
     assert!(session.capture_completed_source(limits, &cancel).is_err());
 }
-fn tree(path: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+pub(super) fn tree(path: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut result = BTreeMap::new();
     for entry in fs::read_dir(path).unwrap() {
         let path = entry.unwrap().path();
@@ -621,7 +622,7 @@ fn tree(path: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     }
     result
 }
-fn compare_union(f: &Fixture, generation: &ValidatedGeneration, p: Policy) {
+pub(super) fn compare_union(f: &Fixture, generation: &ValidatedGeneration, p: Policy) {
     let cancel = AtomicBool::new(false);
     let prepared = PreparedExecution::<1>::prepare(&f.request, &cancel, &|_| {})
         .unwrap()

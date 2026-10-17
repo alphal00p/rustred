@@ -156,6 +156,37 @@ class FiniteCampaignTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "resident Work allowance"):
                 FIN.require_policy({**self.policy, "max_resident_work_bytes": grant})
 
+    def test_window_group_override_is_operational_saved_and_keeps_partition(self):
+        self.plan()
+        self.namespace()
+        original = self.policy_path.read_bytes()
+        self.args.windows_per_batch = 64
+        grouped = self.plan()
+        frozen = FIN.read(grouped["finite_policy"])
+        self.assertEqual(frozen, {**self.policy, "max_windows_per_batch": 64})
+        self.assertEqual(self.policy_path.read_bytes(), original)
+        self.assertEqual(FIN.read(self.campaign / "bin/steering.json")["window_policy"], self.policy["windows"])
+        self.args.windows_per_batch = None
+        self.args.finite_policy = None
+        resumed = self.plan(apply=False)
+        self.assertEqual(FIN.read(resumed["finite_policy"]), frozen)
+        self.assertIn("--resume", resumed["native_command"])
+        self.args.windows_per_batch = 1
+        ungrouped = self.plan()
+        self.assertEqual(FIN.read(ungrouped["finite_policy"])["max_windows_per_batch"], 1)
+        self.assertEqual(FIN.read(ungrouped["finite_policy"])["windows"], self.policy["windows"])
+
+    def test_window_group_grant_rejects_nonpositive_values_without_mutation(self):
+        before = FIXTURE.snapshot(self.campaign)
+        for bad in (0, -1, True, 1.5, None):
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(ValueError, "max_windows_per_batch must be positive"):
+                    FIN.require_policy({**self.policy, "max_windows_per_batch": bad})
+        self.args.windows_per_batch = 0
+        with self.assertRaisesRegex(ValueError, "max_windows_per_batch must be positive"):
+            self.plan(apply=False)
+        self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
     def test_worker_override_is_saved_without_mutating_input_or_window_policy(self):
         original = self.policy_path.read_bytes()
         self.args.workers = 150
