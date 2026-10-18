@@ -296,10 +296,14 @@ fn read_validated_metadata(
         "generations",
         "rrgen",
         &tip.manifest,
-        limits.max_manifest_bytes,
+        limits.max_manifest_bytes.min(limits.max_transient_bytes),
     )?;
-    let manifest: wire::Manifest =
-        wire::decode(wire::MANIFEST_MAGIC, &bytes, limits.max_manifest_bytes)?;
+    let manifest: wire::Manifest = wire::decode_metadata_buffer(
+        wire::MANIFEST_MAGIC,
+        &bytes,
+        limits.max_manifest_bytes,
+        limits.max_transient_bytes,
+    )?;
     drop(bytes);
     let validated_directory =
         wire::validate_manifest_directory(&manifest, tip.manifest.digest, expected, limits)?;
@@ -312,9 +316,14 @@ fn read_validated_metadata(
         "states",
         "rrstate",
         &manifest.state,
-        limits.max_state_bytes,
+        limits.max_state_bytes.min(limits.max_transient_bytes),
     )?;
-    let state: wire::StateFile = wire::decode(wire::STATE_MAGIC, &bytes, limits.max_state_bytes)?;
+    let state: wire::StateFile = wire::decode_metadata_buffer(
+        wire::STATE_MAGIC,
+        &bytes,
+        limits.max_state_bytes,
+        limits.max_transient_bytes,
+    )?;
     drop(bytes);
     if state.execution != *expected || state.generation != manifest.generation {
         return Err(corrupt("finite state execution/generation/scope mismatch"));

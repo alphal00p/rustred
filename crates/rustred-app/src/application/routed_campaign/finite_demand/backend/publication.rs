@@ -200,6 +200,7 @@ pub(crate) fn validate_portable_scope(
     archive: &storage::RawProvenance,
     source: &Value,
     max_source_bytes: usize,
+    planning_limits: Option<super::super::windows::WindowPlanningLimits>,
     cancel: &AtomicBool,
 ) -> Result<(), AppError> {
     let capacity = source["inventory"]["storage_capacity"]
@@ -210,10 +211,10 @@ pub(crate) fn validate_portable_scope(
     // fixtures are also readable in a capacity-dispatch test build.
     #[cfg(all(test, feature = "capacity-dispatch"))]
     if capacity == 1 {
-        return validate_scope::<1>(archive, source, max_source_bytes, cancel);
+        return validate_scope::<1>(archive, source, max_source_bytes, planning_limits, cancel);
     }
     macro_rules! dispatch {($($n:literal),*)=>{match capacity {
-        $($n=>validate_scope::<$n>(archive,source,max_source_bytes,cancel),)*
+        $($n=>validate_scope::<$n>(archive,source,max_source_bytes,planning_limits,cancel),)*
         _=>Err(AppError::input("finite publication source storage capacity unsupported by this build")),
     }}}
     rustred::with_app_runtime_arities!(dispatch)
@@ -222,6 +223,7 @@ fn validate_scope<const N: usize>(
     archive: &storage::RawProvenance,
     source: &Value,
     max_source_bytes: usize,
+    planning_limits: Option<super::super::windows::WindowPlanningLimits>,
     cancel: &AtomicBool,
 ) -> Result<(), AppError> {
     let text = |name| {
@@ -320,8 +322,15 @@ fn validate_scope<const N: usize>(
                 "portable source geometry/role/window policy contradicts native generation",
             ));
         }
-        let windows =
-            PrefixWindows::try_new(&origin, region, arity, limits, cancel).map_err(window_error)?;
+        let windows = PrefixWindows::try_new_with_planning_limits(
+            &origin,
+            region,
+            arity,
+            limits,
+            planning_limits.unwrap_or_else(|| limits.into()),
+            cancel,
+        )
+        .map_err(window_error)?;
         windows
             .validate_completed_commitment(
                 &cursor.encoded_cursor,

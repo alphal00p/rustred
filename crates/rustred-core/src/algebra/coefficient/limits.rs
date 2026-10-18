@@ -29,6 +29,19 @@ pub struct ExactAlgebraLimits {
     pub max_term_operations: usize,
 }
 
+impl ExactAlgebraLimits {
+    /// Explicit trusted-computation policy without term/operation quotas.
+    /// The coefficient exponent representation and checked resource arithmetic
+    /// remain enforced. External RAM controls are still the caller's duty.
+    pub const fn unbounded_resources() -> Self {
+        Self {
+            max_exponent: SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
+            max_polynomial_terms: usize::MAX,
+            max_term_operations: usize::MAX,
+        }
+    }
+}
+
 impl Default for ExactAlgebraLimits {
     fn default() -> Self {
         Self {

@@ -107,6 +107,41 @@ pub(super) struct RawPage {
     pub keys: Vec<Vec<i64>>,
 }
 
+/// Actual retained descriptor/vector payload; page scratch is separate.
+pub(super) fn directory_payload(directory: &RawCensusDirectory) -> Result<usize> {
+    let mut bytes = size_of::<RawCensusDirectory>();
+    for runs in [&directory.terminals, &directory.zeros] {
+        bytes = bytes
+            .checked_add(
+                runs.capacity()
+                    .checked_mul(size_of::<Vec<RawPageRef>>())
+                    .ok_or_else(|| resource("raw run payload overflow"))?,
+            )
+            .ok_or_else(|| resource("raw directory payload overflow"))?;
+        for run in runs {
+            bytes = bytes
+                .checked_add(
+                    run.capacity()
+                        .checked_mul(size_of::<RawPageRef>())
+                        .ok_or_else(|| resource("raw descriptor payload overflow"))?,
+                )
+                .ok_or_else(|| resource("raw directory payload overflow"))?;
+            for page in run {
+                let keys = page
+                    .first
+                    .capacity()
+                    .checked_add(page.last.capacity())
+                    .and_then(|n| n.checked_mul(size_of::<i64>()))
+                    .ok_or_else(|| resource("raw key descriptor payload overflow"))?;
+                bytes = bytes
+                    .checked_add(keys)
+                    .ok_or_else(|| resource("raw directory payload overflow"))?;
+            }
+        }
+    }
+    Ok(bytes)
+}
+
 /// Borrowed sorted native delta sets: only one output page is copied at a time.
 pub(super) struct RawDelta<'a> {
     pub terminals: Box<dyn Iterator<Item = &'a [i64]> + 'a>,

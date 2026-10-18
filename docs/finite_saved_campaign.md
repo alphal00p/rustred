@@ -236,6 +236,77 @@ an explicit `null` removes that cap; a nonnegative integer applies the user's
 cap. This does not remove checked arithmetic, source/routing authentication,
 native type/shape validation or the process-tree RAM guard.
 
+### Per-operation algebra and routing limits
+
+Finite launches now freeze an explicit `"operation_limits": {}` by default.
+This removes optional operation-count and payload-size ceilings from trusted
+finite traversal, including numerator transport's native exponent-entry count.
+The same default applies when an older saved finite policy omitted this field;
+its original file is not rewritten. The configured process-tree RAM guard
+remains in force. Integer/exponent representation limits, allocation failures,
+exact validation and checked arithmetic still apply: uncapped is not a promise
+that an arbitrary operation fits memory.
+The high-memory example likewise leaves the raw-census merge payload uncapped
+(`storage.raw.max_merge_payload_bytes: null`) rather than inserting a separate
+256 MB stop late in publication. Page sizes and optional cache reservations
+remain explicit controls. Filesystem capacity, OS/cgroup limits, native binary
+frame/representation constraints and genuine allocation failures still apply.
+
+Use `--finite-policy /path/to/policy.json` to select explicit limits. The JSON
+may contain only the overrides wanted, with every omitted operation count
+uncapped. A nested count of `null` likewise means uncapped; `0` is an explicit
+zero allowance. For example:
+
+```json
+{
+  "operation_limits": {
+    "transport": {
+      "max_native_exponent_entries": null,
+      "max_native_polynomial_operations": null,
+      "max_endpoints": null
+    },
+    "reduction": {
+      "max_factorization_terms": null,
+      "indexed_algebra": {
+        "max_specialization_integer_bits": null
+      }
+    }
+  }
+}
+```
+
+This is a fragment to merge into the ordinary finite policy, not a complete
+policy file. `transport` additionally exposes `max_factors`,
+`max_relation_coefficient_entries`, `max_total_power`,
+`max_native_polynomial_terms`, `max_endpoint_power_entries`,
+`max_retained_endpoint_key_bytes`, `max_retained_coefficient_terms`, and
+`max_retained_coefficient_clone_owned_bytes`. `reduction` also exposes
+`max_cached_integrals`, `max_cached_coefficient_terms`, and
+`max_cached_coefficient_bytes`. Both accept `exact_algebra` overrides for
+`max_polynomial_terms` and `max_term_operations`; reduction's `indexed_algebra`
+also accepts those exact-algebra fields and
+`max_specialization_power_operations`.
+
+The `planning` object likewise accepts nullable `max_positive_layers` and
+`max_partition_checks`. These are work refusals, not window tiling choices.
+Relaxing them leaves the original seed sizes, cursor bindings and exact starting
+domain unchanged, including during portable publication validation.
+
+The distinct top-level spelling `"operation_limits": null` deliberately keeps
+the source's original per-operation limits for diagnostics. It does **not**
+mean uncapped. Aggregate trace/reduction allowances remain controlled separately
+by `per_batch_work` and `prepared_reduction_aggregates`.
+
+After a resource-limited run, retry the already requested scope with `run
+--resume --executable /path/to/fixed/rustred`, not another `extend --rank ...`.
+The preceding durable checkpoint is retained; the unfinished group is retried.
+Use a current executable with the updated steering code: earlier frozen
+executables do not understand the new `operation_limits` policy field. Replacing
+the executable is explicit; it is not silently upgraded or overwritten.
+Passing a new `--finite-policy` changes operational grants without changing
+starting domains or clipping intermediate integrals. `inspect --finite-policy`
+uses the explicit reader policy without modifying saved launch preferences.
+
 For example, the relevant entries in `storage` may be:
 
 ```json
@@ -247,16 +318,21 @@ For example, the relevant entries in `storage` may be:
 ```
 
 These are excerpts, not a complete policy. The full high-memory example also
-removes the corresponding raw-census/merge caps. Page chunk sizes, resident
-cache sizes and frame/transient allocation budgets stay explicit numeric
-settings. They control buffering and decoding, not allowed physics input.
-Frames larger than the former64MiB ceiling are supported when requested;
-`max_transient_bytes` must cover the largest encoded frame plus its decoder
-budget (the larger of64MiB and that configured frame size). Raw decoding has
-the corresponding `max_decode_transient_bytes` requirement. A small page/cache
-setting is not an instruction to allocate the entire RAM allowance.
-The high-memory example allows1GiB manifest/state frames with2GiB transient
-decode headroom; these are maximum allowances, not upfront allocations.
+removes the corresponding raw-census/merge caps. Page chunk and cache sizes
+remain buffering choices; they do not bound campaign history. Manifest and
+state byte caps are nullable. In the high-memory profile they are uncapped,
+and `storage.max_transient_bytes: null` asks the Python driver to derive the
+metadata allocation allowance from the selected RAM soft threshold. For a
+600 GB ceiling and 5% margin it freezes a numeric 570 GB permission. Direct
+native callers must supply a concrete allocation budget; unresolved null is
+rejected rather than disabling decoder allocation checks.
+
+Actual encoded buffers and Bincode's claimed decoded allocations must fit this
+budget. The resident Work index charges actual metadata and fixed page scratch,
+not that entire permission. No 1 GiB manifest or 2 GiB metadata ceiling remains
+in this profile. Explicit numeric frame/allocation caps are still honored when
+requested. Read-only inspection resolves an automatic policy using the campaign's
+saved RAM settings in a temporary workspace file, without changing the campaign.
 
 Choose a changed policy explicitly on resume, without changing the window
 partition:

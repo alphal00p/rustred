@@ -42,6 +42,7 @@ pub(crate) struct Policy {
     pub windows: WindowLimits,
     pub per_batch_work: CandidateRoutedWorkBudget,
     pub prepared_reduction_aggregates: Option<ReductionAggregateOverrides>,
+    pub operation_limits: Option<super::lifecycle::operation_limits::OperationLimits>,
     pub census: CandidateRoutedTraceCensusLimits,
     pub export: CandidateRoutedDeltaExportLimits,
     pub storage: StorageLimits,
@@ -280,7 +281,7 @@ impl<const N: usize> Session<N> {
                         refresh_resident_directory(
                             &mut staged,
                             predecessor_reserved,
-                            policy.storage.max_transient_bytes,
+                            policy.storage.page_scratch_bytes()?,
                             successor_directory,
                         )
                     },
@@ -335,8 +336,11 @@ impl<const N: usize> Session<N> {
                 })
                 .map_err(storage_error)?;
             let reserved = [
-                policy.storage.max_transient_bytes,
-                reader.directory().statistics().payload_bytes,
+                policy.storage.page_scratch_bytes().map_err(storage_error)?,
+                authenticated
+                    .generation()
+                    .metadata_payload_bytes()
+                    .map_err(storage_error)?,
             ]
             .into_iter()
             .try_fold(0usize, |sum, bytes| sum.checked_add(bytes))
@@ -677,7 +681,7 @@ impl<const N: usize> Session<N> {
                 refresh_resident_directory(
                     &mut resident,
                     predecessor_reserved,
-                    self.policy.storage.max_transient_bytes,
+                    self.policy.storage.page_scratch_bytes()?,
                     successor_directory,
                 )
             },
@@ -727,24 +731,27 @@ fn refresh_resident_directory(
     resident: &mut Option<PreparedResidentWork>,
     predecessor_reserved: usize,
     transient_reserved: usize,
-    successor_directory: usize,
+    successor: storage::MetadataMemory,
 ) -> Result<(), storage::StorageError> {
     let Some(staged) = resident.take() else {
         return Ok(());
     };
-    let add_directory = |reserved: usize| {
-        reserved.checked_add(successor_directory).ok_or_else(|| {
-            GeneratedWorkError::new(
-                GeneratedWorkErrorKind::Resource,
-                "resident Work coexistence estimate overflow",
-            )
-        })
+    let add_metadata = |reserved: usize, transient: usize| {
+        reserved
+            .checked_add(successor.retained_bytes)
+            .and_then(|n| n.checked_add(transient))
+            .ok_or_else(|| {
+                GeneratedWorkError::new(
+                    GeneratedWorkErrorKind::Resource,
+                    "resident Work coexistence estimate overflow",
+                )
+            })
     };
     // The reader and authenticated predecessor share one Arc allocation. The
     // writer builds a distinct successor while that predecessor remains live.
     *resident = staged.refresh_coexisting_bytes(
-        add_directory(predecessor_reserved)?,
-        add_directory(transient_reserved)?,
+        add_metadata(predecessor_reserved, successor.transient_bytes)?,
+        add_metadata(transient_reserved, 0)?,
     )?;
     Ok(())
 }
@@ -805,8 +812,9 @@ fn admit<const N: usize>(
     load.trace_limits.max_transport_calls = policy.per_batch_work.max_transport_calls;
     load.trace_limits.max_transport_operations = policy.per_batch_work.max_transport_operations;
     load.trace_limits.max_transport_endpoints = policy.per_batch_work.max_transport_endpoints;
-    let prepared = PreparedExecution::<N>::prepare_with_source_limit(
+    let prepared = PreparedExecution::<N>::prepare_with_operation_limits(
         &load,
+        policy.operation_limits,
         policy.max_source_bytes,
         cancel,
         observer,
@@ -817,6 +825,18 @@ fn admit<const N: usize>(
             "finite backend preparation cancelled",
         )
     })?;
+    let mut effective = load.clone();
+    if let Some(limits) = policy.operation_limits {
+        limits.apply(&mut effective);
+    }
+    observer(
+        json!({"event":"finite_execution_limits","operation":"finite_demand",
+        "operation_limits":policy.operation_limits,
+        "effective_reduction":format!("{:?}",effective.reduction_limits),
+        "effective_transport":format!("{:?}",effective.trace_limits.expansion),
+        "identity_policy":"original source identity; resource-only execution overrides",
+        "source_identity_unchanged":true}),
+    );
     let mut scope = ScopeBinding {
         original_source: original_source_identity(&parsed.request_binding)?,
         rows: Vec::new(),
@@ -838,8 +858,18 @@ fn admit<const N: usize>(
             row.query.role_declared,
         )?;
         let exact_domain = domain_identity(arity, &region)?;
-        let windows = PrefixWindows::try_new(&origin, region, arity, policy.windows, cancel)
-            .map_err(window_error)?;
+        let planning = policy
+            .operation_limits
+            .map_or_else(|| policy.windows.into(), |limits| limits.planning.into());
+        let windows = PrefixWindows::try_new_with_planning_limits(
+            &origin,
+            region,
+            arity,
+            policy.windows,
+            planning,
+            cancel,
+        )
+        .map_err(window_error)?;
         cursors.push(windows.initial_cursor());
         sources.push(windows);
         scope.rows.push(ScopeRow {
@@ -860,7 +890,7 @@ fn admit<const N: usize>(
         sources,
         cursors,
         source_reduction: source.matching.reduction_limits,
-        effective_reduction: load.reduction_limits,
+        effective_reduction: effective.reduction_limits,
     })
 }
 pub(super) fn origin_identity(

@@ -1,5 +1,85 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 18 — finite R5 hidden execution-quota failure (delivered)
+
+The R5 invocation `20261017T230917.167071Z` stopped with native exit 4,
+not a process-memory guard: `multi-affine native exponent entries` requested
+68,644,170 against an inherited 64,000,000 quota. Peak observed RSS was
+160.807 GB, below the user's 600 GB allowance. The number is a conservative
+native-expansion envelope, not a measured allocation or evidence of invalid
+IBPs. The remaining worker failures followed the shared stop; the first error
+is the quota failure, not 150 independent missing-rule failures.
+
+Durable generation 151816 retains 500,197,014 Work and 47,581,588 input
+occurrences, with 360/464 required rows committed. Its digest is
+`8fd3356c992192cfe34d1e6c6f0a89382b103e67d167bee1b2f73b08ee768bf5`.
+The approximately ten-hour unfinished group is not persisted and must retry.
+No production checkpoint, source amendment or process is modified here.
+
+Root integrates a separate resource-only finite execution policy, maintaining
+the original authenticated source identity for checkpoint continuity.
+`finite_group_engine` implements explicit uncapped core resource constructors
+and strict nullable operation DTOs plus actual-session resume/failure tests;
+`finite_group_validation` wires the existing Python `--finite-policy` interface,
+tests defaults/overrides/immutable windows and documents the safe resume;
+`finite_group_audit` independently audits quota-dependent selection, nested
+limits, checkpoint authority and remaining storage limits.
+
+`operation_limits: {}` (also the new default) removes implicit transport and
+local exact/indexed-arithmetic resource ceilings. Explicit nested values opt
+into quotas; top-level null retains original source quotas. Native exponent
+representations and checked arithmetic are unchanged. Resource failures abort,
+not select a different rule or declare an unresolved master. The old source's
+identity remains binding; only a whitelist of execution-resource fields changes
+in the cloned preparation request. Both legacy and finite engines remain.
+
+The high-memory profile also removes raw-union merge-head and manifest/state
+payload ceilings. Following the user's explicit RAM-only directive, the storage
+lane now separates encoded permissions from decoder allocations and charges
+actual metadata/buffer coexistence rather than reserving the full permission.
+Python derives the latter from the user's RAM soft threshold (570 GB for the
+requested 600 GB ceiling). Standalone native callers supply a concrete budget;
+corrupt lengths still undergo bounded decoding. Separate planning-work quotas
+are likewise operational, leaving original partitions/cursor bindings intact.
+OS/disk, representation, corruption and real RAM failures remain possible.
+No algebra algorithm or Symbolica replacement has been introduced.
+
+Isolated replay of the exact failing transport reproduces the old ceiling and
+then completes with uncapped resources in 1.151 seconds, producing 1,535,413
+exact endpoints at 862 MB whole-process peak RSS. It uses the same recorded
+family and verified routing map, not a substituted toy input or a full campaign.
+Evidence: `TMP/single-transport-replay-qwMuio/`. This does not recover discarded
+uncommitted traversal or prove the rest of R5 will close.
+
+Build evidence: `TMP/finite-operation-fix-release-20261018/` and
+`TMP/finite-operation-fix-app-tests-20261018/`. Final resume instructions must
+explicitly select the new executable and updated high-memory policy: the old
+frozen executable does not recognize the new policy field. Resume R5; do not
+append another rank extension.
+
+Final optimized executable SHA256:
+`29cafdb8cfca796aa72abe3bf39fb9efa2449a5f3ea71a53f23737a5f2bfde42`,
+delivery path `TMP/releases/20261018-finite-r5-resource-fix/rustred`.
+The final native finite gate passes 271 tests (five explicit ignored fixtures);
+both 150-worker tests also execute and pass under the full requested affinity,
+rather than relying on their insufficient-affinity skip. Four public core tests
+and 85 Python tests pass. The first intermediate app run had test-environment
+refusals (16 CPUs for a 32-worker fixture, then missing OMP_THREAD_LIMIT); the
+final environment is corrected and no assertion was weakened. Native results:
+`TMP/finite-ram-fix-test-results-20261018/`.
+
+FG/BMW/H/X controls and the bounded five-loop reuse control all finish with
+byte-identical Work/raw objects and identical query/selection inputs versus
+8ed4. A separate 150-worker K1 smoke completes. The public old-8ed4-checkpoint
+to new RAM-profile resume, append, publish and cold-load gate passes with no
+CURRENT or source mutation on completed resume/publication. A read-only native
+inspection of the stopped production checkpoint confirms the original digest,
+counts and amendments. Independent source/receipt audit finds no unresolved
+correctness issue. No full R5 completion or performance speedup is claimed.
+See `docs/research/finite_ram_policy_2026-10-18.md` for measurements and the exact
+resume command. Only formatting/documentation changed after the release build;
+the native executable and its implementation gates are frozen.
+
 ## October 18 — live R5 bottleneck program (delivered)
 
 User requests implementation of all promising improvements indicated by the

@@ -1,5 +1,87 @@
 //! Typed metadata reuse never changes cold validation or page integrity.
 use super::*;
+
+#[test]
+fn unlimited_metadata_permission_uses_actual_transient_budget_and_cold_roundtrip() {
+    let scratch = Scratch::new();
+    let path = scratch.0.join("metadata-ram");
+    let p = StorageLimits {
+        max_manifest_bytes: usize::MAX,
+        max_state_bytes: usize::MAX,
+        max_transient_bytes: 128 * 1024 * 1024,
+        ..limits()
+    };
+    let mut writer = StoreWriter::create(&path, binding(), p).unwrap();
+    let mut reservations = Vec::new();
+    let generation = writer
+        .commit_generated_with_directory_accounting(
+            vec![key(1), key(2)],
+            state(2, 1),
+            &AtomicBool::new(false),
+            &mut |memory| {
+                reservations.push(memory);
+                Ok(())
+            },
+        )
+        .unwrap()
+        .generation;
+    assert_eq!(reservations.len(), 4);
+    assert_eq!(reservations[0].transient_bytes, 0);
+    assert!(reservations[1].transient_bytes > 0);
+    assert_eq!(
+        reservations[3].retained_bytes,
+        generation.metadata_payload_bytes().unwrap()
+    );
+    assert!(reservations[3].retained_bytes < 1024 * 1024);
+    assert_eq!(
+        wire::metadata_allocation_budget(usize::MAX, 100, 1000).unwrap(),
+        900
+    );
+    assert!(wire::metadata_allocation_budget(usize::MAX, 1001, 1000).is_err());
+    assert_eq!(
+        wire::metadata_allocation_budget(1024, 100, 128 * 1024 * 1024).unwrap(),
+        wire::MAX_FRAME
+    );
+    drop(writer);
+    let cold = ValidatedGeneration::open_generated(&path, &binding(), p).unwrap();
+    assert_eq!(cold.digest(), generation.digest());
+    assert_eq!(
+        cold.reader(p).unwrap().lookup(&key(1)).unwrap(),
+        Lookup::Present
+    );
+    assert!(cold.metadata_payload_bytes().unwrap() < 1024 * 1024);
+}
+
+#[test]
+fn metadata_transient_decoder_budget_checks_nested_allocations_and_actual_bytes() {
+    let value = vec![vec![0i64; 1000]; 3];
+    let frame = wire::encode(b"ram-test", &value, usize::MAX).unwrap();
+    assert!(frame.len() < 4096);
+    assert!(
+        wire::decode_metadata::<Vec<Vec<i64>>>(b"ram-test", &frame, usize::MAX, frame.len() + 1000)
+            .is_err()
+    );
+    assert_eq!(
+        wire::decode_metadata::<Vec<Vec<i64>>>(b"ram-test", &frame, usize::MAX, 128 * 1024)
+            .unwrap(),
+        value
+    );
+    assert!(
+        wire::decode_metadata::<Vec<Vec<i64>>>(b"ram-test", &frame, usize::MAX, frame.len() - 1)
+            .is_err()
+    );
+    let mut slack = frame.clone();
+    slack.reserve(1024 * 1024);
+    assert_eq!(
+        wire::decode_metadata::<Vec<Vec<i64>>>(b"ram-test", &slack, usize::MAX, 128 * 1024)
+            .unwrap(),
+        value
+    );
+    assert!(
+        wire::decode_metadata_buffer::<Vec<Vec<i64>>>(b"ram-test", &slack, usize::MAX, 128 * 1024)
+            .is_err()
+    );
+}
 // Add below existing cfg(test) storage validation tests after current test
 // artifact is frozen. This is synthetic metadata, never closure authority.
 #[test]

@@ -61,6 +61,8 @@ def main(argv=None):
                           "--windows-per-batch N groups existing windows in one shared parallel solve/commit (default 1). "
                           "--worker-pool persistent|per-group and --window-preparation serial|parallel "
                           "select operational finite scheduling without changing the saved partition. "
+                          "Finite operation_limits in --finite-policy defaults to {} (uncapped operations); "
+                          "nested counts may be explicit unsigned values or null, and top-level null preserves source limits. "
                           "Inputs must already be staged; no legacy checkpoint import. "
                           "An interrupted initial preparation can be retried explicitly with "
                           "run --repair-preparation; native refuses existing checkpoint state.")

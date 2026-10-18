@@ -24,6 +24,35 @@ pub struct MultiAffineNumeratorExpansionLimits {
     pub max_retained_coefficient_clone_owned_bytes: usize,
 }
 
+impl MultiAffineNumeratorExpansionLimits {
+    /// Explicit opt-in for trusted computation controlled by an external RAM
+    /// guard instead of fixed aggregate expansion quotas. This is not the
+    /// default for loading untrusted data or general library calls.
+    ///
+    /// All count/byte/operation allowances are opened together, so a larger
+    /// exact routing expansion does not merely fail at the next default quota.
+    /// Checked arithmetic, fallible allocation, exact coefficient validation,
+    /// the native exponent representation and integral-power overflow checks
+    /// remain enforced. This does not promise that every requested expansion
+    /// fits available memory or can be preempted inside a Symbolica operation.
+    pub const fn unbounded_resources() -> Self {
+        Self {
+            exact_algebra: ExactAlgebraLimits::unbounded_resources(),
+            max_factors: usize::MAX,
+            max_relation_coefficient_entries: usize::MAX,
+            max_total_power: u64::MAX,
+            max_native_polynomial_terms: usize::MAX,
+            max_native_polynomial_operations: usize::MAX,
+            max_native_exponent_entries: usize::MAX,
+            max_endpoints: usize::MAX,
+            max_endpoint_power_entries: usize::MAX,
+            max_retained_endpoint_key_bytes: usize::MAX,
+            max_retained_coefficient_terms: usize::MAX,
+            max_retained_coefficient_clone_owned_bytes: usize::MAX,
+        }
+    }
+}
+
 impl Default for MultiAffineNumeratorExpansionLimits {
     fn default() -> Self {
         Self {

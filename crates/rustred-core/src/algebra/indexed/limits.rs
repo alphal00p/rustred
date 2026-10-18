@@ -40,6 +40,18 @@ pub struct IndexedAlgebraLimits {
     pub max_specialization_integer_bits: usize,
 }
 
+impl IndexedAlgebraLimits {
+    /// Explicitly lift aggregate specialization/term quotas for trusted work;
+    /// native exponent representation and checked counter arithmetic remain.
+    pub const fn unbounded_resources() -> Self {
+        Self {
+            exact_algebra: ExactAlgebraLimits::unbounded_resources(),
+            max_specialization_power_operations: usize::MAX,
+            max_specialization_integer_bits: usize::MAX,
+        }
+    }
+}
+
 impl Default for IndexedAlgebraLimits {
     fn default() -> Self {
         Self {

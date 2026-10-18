@@ -166,7 +166,7 @@ impl StoreWriter {
         reducer: &rustred::solver::RoutedCandidateReducer<N>,
         state: GenerationState,
         cancel: &AtomicBool,
-        account_directory: &mut dyn FnMut(usize) -> Result<()>,
+        account_directory: &mut dyn FnMut(MetadataMemory) -> Result<()>,
     ) -> Result<CommitOutcome> {
         self.healthy()?;
         self.check_current()?;
@@ -218,7 +218,7 @@ impl StoreWriter {
         delta: Vec<StoredWork>,
         state: GenerationState,
         cancel: &AtomicBool,
-        account_directory: &mut dyn FnMut(usize) -> Result<()>,
+        account_directory: &mut dyn FnMut(MetadataMemory) -> Result<()>,
     ) -> Result<CommitOutcome> {
         self.commit_inner(
             delta,
@@ -246,7 +246,7 @@ impl StoreWriter {
         state: GenerationState,
         cancel: &AtomicBool,
         native_excluded_predecessor: bool,
-        account_directory: &mut dyn FnMut(usize) -> Result<()>,
+        account_directory: &mut dyn FnMut(MetadataMemory) -> Result<()>,
     ) -> Result<CommitOutcome> {
         self.healthy()?;
         check(cancel)?;
@@ -387,7 +387,11 @@ impl StoreWriter {
             cancel.store(true, Ordering::Release);
         }
         check(cancel)?;
-        let scope_digest = wire::scope_digest(&state.scope, self.limits.max_state_bytes)?;
+        let state_cap = self
+            .limits
+            .max_state_bytes
+            .min(self.limits.max_transient_bytes);
+        let scope_digest = wire::scope_digest(&state.scope, state_cap)?;
         // This bounded first slice rewrites cumulative state and the page
         // directory each generation. State I/O is O(history metadata), not a
         // demonstrated full-R6 persistence/compaction strategy.
@@ -396,11 +400,27 @@ impl StoreWriter {
             generation,
             state,
         };
-        let state_bytes =
-            wire::encode(wire::STATE_MAGIC, &state_file, self.limits.max_state_bytes)?;
+        let constructed_payload = wire::metadata_payload_parts(
+            &raw,
+            &state_file.state,
+            rustred::persistence::finite_work::directory_payload_bytes(&runs)?,
+        )?;
+        account_directory(MetadataMemory {
+            retained_bytes: constructed_payload,
+            transient_bytes: 0,
+        })?;
+        let state_bytes = wire::encode(wire::STATE_MAGIC, &state_file, state_cap)?;
+        account_directory(MetadataMemory {
+            retained_bytes: constructed_payload,
+            transient_bytes: state_bytes.capacity(),
+        })?;
         drop(state_file);
-        let state_file: wire::StateFile =
-            wire::decode(wire::STATE_MAGIC, &state_bytes, self.limits.max_state_bytes)?;
+        let state_file: wire::StateFile = wire::decode_metadata_buffer(
+            wire::STATE_MAGIC,
+            &state_bytes,
+            self.limits.max_state_bytes,
+            self.limits.max_transient_bytes,
+        )?;
         let state_ref = self.install("states", "rrstate", &state_bytes)?;
         drop(state_bytes);
         #[cfg(test)]
@@ -420,8 +440,20 @@ impl StoreWriter {
         // the retained typed value before publishing this generation.
         let directory_payload =
             wire::measure_manifest_directory(&manifest, &self.execution, self.limits)?;
-        account_directory(directory_payload)?;
-        let manifest_bytes = wire::encode_manifest(&manifest, self.limits.max_manifest_bytes)?;
+        account_directory(MetadataMemory {
+            retained_bytes: wire::metadata_payload(
+                &manifest,
+                &state_file.state,
+                directory_payload,
+            )?,
+            transient_bytes: 0,
+        })?;
+        let manifest_bytes = wire::encode_manifest(
+            &manifest,
+            self.limits
+                .max_manifest_bytes
+                .min(self.limits.max_transient_bytes),
+        )?;
         // Encoder-owned typed values cannot contain malformed varints or
         // forged lengths. Prove that this exact shape fits the public native
         // decoder's allocation claims; otherwise retain the old round trip.
@@ -429,15 +461,22 @@ impl StoreWriter {
         // cold readers never accept this process-local optimization as proof.
         let manifest =
             if wire::manifest_decode_charge_upper_bound(&manifest).is_some_and(|charge| {
-                charge <= wire::metadata_decode_allowance(self.limits.max_manifest_bytes)
+                charge
+                    <= wire::metadata_allocation_budget(
+                        self.limits.max_manifest_bytes,
+                        manifest_bytes.capacity(),
+                        self.limits.max_transient_bytes,
+                    )
+                    .unwrap_or(0)
             }) {
                 manifest
             } else {
                 drop(manifest);
-                wire::decode(
+                wire::decode_metadata_buffer(
                     wire::MANIFEST_MAGIC,
                     &manifest_bytes,
                     self.limits.max_manifest_bytes,
+                    self.limits.max_transient_bytes,
                 )?
             };
         // Retaining construction or falling back to decoding can have different
@@ -448,7 +487,14 @@ impl StoreWriter {
             &self.execution,
             self.limits,
         )?;
-        account_directory(directory.statistics().payload_bytes)?;
+        account_directory(MetadataMemory {
+            retained_bytes: wire::metadata_payload(
+                &manifest,
+                &state_file.state,
+                directory.statistics().payload_bytes,
+            )?,
+            transient_bytes: manifest_bytes.capacity(),
+        })?;
         let reference = self.install("generations", "rrgen", &manifest_bytes)?;
         drop(manifest_bytes);
         #[cfg(test)]

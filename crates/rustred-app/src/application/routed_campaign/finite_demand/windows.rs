@@ -44,6 +44,22 @@ pub(crate) struct WindowLimits {
     pub max_partition_checks: usize,
 }
 
+/// Pure-abort planning grants, independent of the immutable seed partition.
+/// Original WindowLimits remain in cursor/source bindings for old checkpoints.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WindowPlanningLimits {
+    pub max_positive_layers: usize,
+    pub max_partition_checks: usize,
+}
+impl From<WindowLimits> for WindowPlanningLimits {
+    fn from(limits: WindowLimits) -> Self {
+        Self {
+            max_positive_layers: limits.max_positive_layers,
+            max_partition_checks: limits.max_partition_checks,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ErrorKind {
     Input,
@@ -172,6 +188,7 @@ pub(crate) struct PrefixWindows<const N: usize> {
     region: RootRegionInput<N>,
     arity: usize,
     limits: WindowLimits,
+    planning: WindowPlanningLimits,
     singleton: bool,
     total: Integer,
     binding: [u8; 32],
@@ -257,6 +274,26 @@ impl<const N: usize> PrefixWindows<N> {
         limits: WindowLimits,
         cancel: &AtomicBool,
     ) -> Result<Self> {
+        Self::try_new_with_planning_limits(
+            origin,
+            region,
+            physical_arity,
+            limits,
+            limits.into(),
+            cancel,
+        )
+    }
+
+    /// Override only work refusals, never window sizes, source binding or
+    /// exact count/iterator semantics. Standalone try_new keeps old defaults.
+    pub(crate) fn try_new_with_planning_limits(
+        origin: &str,
+        region: RootRegionInput<N>,
+        physical_arity: usize,
+        limits: WindowLimits,
+        planning: WindowPlanningLimits,
+        cancel: &AtomicBool,
+    ) -> Result<Self> {
         check(cancel)?;
         if origin.len() > MAX_RECORD_BYTES {
             return Err(Error::new(ErrorKind::Resource, "origin binding bytes"));
@@ -299,6 +336,7 @@ impl<const N: usize> PrefixWindows<N> {
             region,
             arity: physical_arity,
             limits,
+            planning,
             singleton,
             total: Integer::from(0),
             binding,
@@ -450,7 +488,7 @@ impl<const N: usize> PrefixWindows<N> {
             self.region.support[prefix.len()..self.arity].to_vec(),
             bounds,
         )?;
-        let count = envelope.target_count(self.limits.max_positive_layers)?;
+        let count = envelope.target_count(self.planning.max_positive_layers)?;
         check(cancel)?;
         if count <= 0 {
             return Err(Error::new(
@@ -510,7 +548,7 @@ impl<const N: usize> PrefixWindows<N> {
         *checks = checks
             .checked_add(1)
             .ok_or_else(|| Error::new(ErrorKind::Resource, "partition check overflow"))?;
-        if *checks > self.limits.max_partition_checks {
+        if *checks > self.planning.max_partition_checks {
             return Err(Error::new(ErrorKind::Resource, "partition check grant"));
         }
         Ok(())

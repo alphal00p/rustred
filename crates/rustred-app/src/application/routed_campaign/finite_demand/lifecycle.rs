@@ -2,6 +2,7 @@
 //! The backend Session remains the sole enumerator, scheduler and commit path.
 mod control;
 mod control_io;
+pub(crate) mod operation_limits;
 pub(crate) mod policy;
 pub use policy::FiniteDemandPolicy;
 

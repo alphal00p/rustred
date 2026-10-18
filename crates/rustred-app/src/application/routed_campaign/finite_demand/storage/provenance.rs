@@ -167,7 +167,10 @@ impl RawProvenance {
             .directory
             .join("generations")
             .join(wire::name(&self.digest, "rrgen"));
-        let manifest_bytes = wire::read(&manifest_path, limits.max_manifest_bytes)?;
+        let manifest_bytes = wire::read(
+            &manifest_path,
+            limits.max_manifest_bytes.min(limits.max_transient_bytes),
+        )?;
         if blake3::hash(&manifest_bytes).as_bytes() != &self.digest {
             return Err(corrupt("captured manifest changed before raw copy"));
         }
@@ -230,7 +233,7 @@ impl RawProvenance {
             "states",
             "rrstate",
             &self.manifest.state,
-            limits.max_state_bytes,
+            limits.max_state_bytes.min(limits.max_transient_bytes),
         )?;
         install(
             destination,

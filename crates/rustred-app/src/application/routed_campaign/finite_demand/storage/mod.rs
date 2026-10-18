@@ -95,6 +95,11 @@ impl StorageLimits {
         self
     }
     fn validate(self) -> Result<()> {
+        if self.max_transient_bytes == usize::MAX {
+            return Err(resource(
+                "finite metadata requires a concrete RAM allocation grant; resolve null using the requested process RAM limit",
+            ));
+        }
         if self.max_arity == 0
             || self.max_page_records == 0
             || self.max_page_bytes == 0
@@ -103,14 +108,9 @@ impl StorageLimits {
         {
             return Err(resource("unsupported finite-store framing policy"));
         }
-        let encoded = self
-            .max_page_bytes
-            .max(self.max_manifest_bytes)
-            .max(self.max_state_bytes)
-            .max(self.raw.max_page_bytes);
-        let required = wire::metadata_decode_allowance(encoded)
-            .checked_add(encoded)
-            .ok_or_else(|| resource("transient decode allowance overflow"))?;
+        // Metadata permissions can be unlimited. Their actual frame/decoder
+        // allocations are checked at IO boundaries, not reserved up front.
+        let required = self.page_scratch_bytes()?;
         if self.max_transient_bytes < required {
             return Err(resource("finite-store transient decode allowance"));
         }
@@ -120,6 +120,19 @@ impl StorageLimits {
         }
         Ok(())
     }
+
+    pub(crate) fn page_scratch_bytes(self) -> Result<usize> {
+        let encoded = self.max_page_bytes.max(self.raw.max_page_bytes);
+        wire::metadata_decode_allowance(encoded)
+            .checked_add(encoded)
+            .ok_or_else(|| resource("page transient decode allowance overflow"))
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MetadataMemory {
+    pub retained_bytes: usize,
+    pub transient_bytes: usize,
 }
 
 use rustred::persistence::finite_work::{
@@ -260,6 +273,13 @@ impl fmt::Debug for ValidatedMetadata {
     }
 }
 impl ValidatedGeneration {
+    pub(crate) fn metadata_payload_bytes(&self) -> Result<usize> {
+        wire::metadata_payload(
+            &self.manifest,
+            &self.state,
+            self.validation.directory.statistics().payload_bytes,
+        )
+    }
     pub fn generation(&self) -> u64 {
         self.manifest.generation
     }

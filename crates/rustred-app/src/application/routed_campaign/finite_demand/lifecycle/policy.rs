@@ -55,7 +55,8 @@ limits_dto!(StoreLimits => storage::StorageLimits {
     max_page_records: usize, max_page_bytes: usize,
     max_cached_pages: usize, max_cached_page_bytes: usize,
     #[serde(with = "nullable_usize")] max_directory_bytes: usize,
-    max_manifest_bytes: usize, max_state_bytes: usize,
+    #[serde(with = "nullable_usize")] max_manifest_bytes: usize,
+    #[serde(with = "nullable_usize")] max_state_bytes: usize,
     #[serde(with = "nullable_usize")] max_scope_rows: usize,
     #[serde(with = "nullable_usize")] max_census_records: usize,
     #[serde(with = "nullable_usize")] max_runs: usize,
@@ -64,7 +65,7 @@ limits_dto!(StoreLimits => storage::StorageLimits {
     #[serde(with = "nullable_u64")] max_disk_bytes: u64,
     #[serde(with = "nullable_usize")] max_lookup_pages: usize,
     #[serde(with = "nullable_u64")] max_lookup_bytes: u64,
-    max_transient_bytes: usize,
+    #[serde(with = "nullable_usize")] max_transient_bytes: usize,
 });
 limits_dto!(ExportLimits => CandidateRoutedDeltaExportLimits {
     #[serde(with = "nullable_usize")] max_records: usize,
@@ -105,6 +106,11 @@ pub struct FiniteDemandPolicy {
     /// neither setting changes native per-formula algebra/expansion limits.
     #[serde(default = "uncapped_reduction")]
     pub(crate) prepared_reduction_aggregates: Option<trace::ReductionAggregateOverrides>,
+    /// Trusted campaign execution quotas, independent of saved mathematical
+    /// identity. Omitted/{} removes implicit local resource stops; null retains
+    /// the original source policy. Explicit fields opt into local limits.
+    #[serde(default = "super::operation_limits::default_override")]
+    pub(crate) operation_limits: Option<super::operation_limits::OperationLimits>,
     pub(crate) census: trace::CensusLimits,
     pub(crate) export: ExportLimits,
     pub(crate) storage: StoreLimits,
@@ -172,6 +178,7 @@ impl FiniteDemandPolicy {
             windows: self.windows.into(),
             per_batch_work: self.per_batch_work.into(),
             prepared_reduction_aggregates: self.prepared_reduction_aggregates,
+            operation_limits: self.operation_limits,
             census: self.census.into(),
             export: self.export.into(),
             storage: self.storage.into(),

@@ -10,8 +10,9 @@ mod tests;
 
 pub use codec::{
     FRAME_LIMIT, GeneratedWorkPageRecord, PAGE_MAGIC, ValidatedWorkPage, decode_metadata_frame,
-    encode_metadata_frame, encode_metadata_frame_repeatable, metadata_decode_allowance,
-    validate_page_record, work_payload_bytes,
+    decode_metadata_frame_with_allocation_limit, encode_metadata_frame,
+    encode_metadata_frame_repeatable, metadata_decode_allowance, validate_page_record,
+    work_payload_bytes,
 };
 pub use directory::{
     GeneratedDirectoryLimits, GeneratedDirectoryStatistics, GeneratedLookup, GeneratedPageProvider,

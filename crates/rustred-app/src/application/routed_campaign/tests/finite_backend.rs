@@ -44,6 +44,7 @@ pub(super) fn policy(workers: usize) -> Policy {
             max_coalescing_additions: 100000,
         },
         prepared_reduction_aggregates: None,
+        operation_limits: None,
         census: CandidateRoutedTraceCensusLimits::default(),
         export: CandidateRoutedDeltaExportLimits {
             max_records: 1000,
@@ -258,7 +259,22 @@ fn resident_and_zero_tiny_grant_paged_drivers_have_identical_exact_raw_output() 
     let cancel = AtomicBool::new(false);
     let mut outputs = Vec::new();
     let mut generations = Vec::new();
-    let growth_decline_grant = (128 * 1024 * 1024) + 1;
+    let probe = Session::<1>::create(
+        &source,
+        policy(1),
+        &f.directory.join("resident-empty-budget"),
+        &cancel,
+        &|_| {},
+    )
+    .unwrap();
+    let growth_decline_grant = policy(1).storage.page_scratch_bytes().unwrap()
+        + probe
+            .generation()
+            .unwrap()
+            .metadata_payload_bytes()
+            .unwrap()
+        + 1;
+    drop(probe);
     for grant in [0, 1, growth_decline_grant, 256 * 1024 * 1024] {
         let mut p = policy(1);
         p.max_resident_work_bytes = grant;
@@ -340,12 +356,17 @@ fn shipped_high_memory_resident_survives_commits_scope_append_and_cold_resume() 
     .to_string();
     // Parse the exact production profile: null directory caps must remain
     // unlimited permissions, and the original 300 GB resident grant must work.
-    let shipped = crate::FiniteDemandPolicy::from_json(include_bytes!(concat!(
+    let mut shipped = crate::FiniteDemandPolicy::from_json(include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../examples/input/finite_campaign/high_memory.json"
     )))
     .unwrap()
     .native();
+    // Python freezes the concrete soft RAM allowance from the requested
+    // process limit; null in the shipped profile is a steering placeholder.
+    if shipped.storage.max_transient_bytes == usize::MAX {
+        shipped.storage.max_transient_bytes = 570_000_000_000;
+    }
     assert_eq!(shipped.storage.max_directory_bytes, usize::MAX);
     assert_eq!(shipped.max_resident_work_bytes, 300_000_000_000);
     let cancel = AtomicBool::new(false);
@@ -382,13 +403,6 @@ fn shipped_high_memory_resident_survives_commits_scope_append_and_cold_resume() 
         };
         let check_charge = |session: &Session<1>| {
             let generation = session.generation().unwrap();
-            let reader = generation
-                .reader(StorageLimits {
-                    max_cached_pages: 0,
-                    max_cached_page_bytes: 0,
-                    ..p.storage
-                })
-                .unwrap();
             let events = events.borrow();
             let resident = &events
                 .iter()
@@ -409,7 +423,8 @@ fn shipped_high_memory_resident_survives_commits_scope_append_and_cold_resume() 
                 assert_eq!(resident["records"], generation.state().completed_work);
                 assert_eq!(
                     resident["reserved_coexisting_bytes"],
-                    p.storage.max_transient_bytes + reader.directory().statistics().payload_bytes
+                    p.storage.page_scratch_bytes().unwrap()
+                        + generation.metadata_payload_bytes().unwrap()
                 );
             }
         };

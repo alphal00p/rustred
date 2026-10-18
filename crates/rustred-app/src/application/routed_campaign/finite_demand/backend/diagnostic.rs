@@ -38,6 +38,8 @@ struct Steering {
     windows: SeedLimits,
     per_batch_work: WorkLimits,
     prepared_reduction_aggregates: Option<ReductionAggregateOverrides>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    operation_limits: Option<super::super::lifecycle::operation_limits::OperationLimits>,
     census: CensusLimits,
     export: ExportLimits,
     storage: StoreLimits,
@@ -58,6 +60,7 @@ impl Steering {
             windows: self.windows.into(),
             per_batch_work: self.per_batch_work.into(),
             prepared_reduction_aggregates: self.prepared_reduction_aggregates,
+            operation_limits: self.operation_limits,
             census: self.census.into(),
             export: self.export.into(),
             storage: self.storage.into(),

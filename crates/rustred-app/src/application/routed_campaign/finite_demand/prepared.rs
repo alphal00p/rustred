@@ -58,17 +58,35 @@ impl<const N: usize> PreparedExecution<N> {
             observer,
         )
     }
+    #[cfg(test)]
     pub fn prepare_with_source_limit(
         request: &RoutedCampaignRequest,
         max_source_bytes: usize,
         cancel: &AtomicBool,
         observer: &impl Fn(Value),
     ) -> Result<Option<Self>, AppError> {
+        Self::prepare_with_operation_limits(request, None, max_source_bytes, cancel, observer)
+    }
+    /// Keep the checkpoint's original source binding, while changing ONLY
+    /// resource quotas. A quota failure aborts an operation, never selects a
+    /// different rule/route or turns an unresolved leaf into a terminal.
+    /// Exponent representations, inputs, guards and programs remain unchanged.
+    pub fn prepare_with_operation_limits(
+        request: &RoutedCampaignRequest,
+        operation_limits: Option<super::lifecycle::operation_limits::OperationLimits>,
+        max_source_bytes: usize,
+        cancel: &AtomicBool,
+        observer: &impl Fn(Value),
+    ) -> Result<Option<Self>, AppError> {
         let (selection, arity, limits) =
             Selection::parse_with_byte_limit(&request.selection_json, max_source_bytes)?;
+        let mut execution_request = request.clone();
+        if let Some(overrides) = operation_limits {
+            overrides.apply(&mut execution_request);
+        }
         let mut fingerprints = None;
         let reducer = prepare::prepare_with_fingerprints(
-            request,
+            &execution_request,
             &selection,
             limits,
             cancel,
@@ -174,7 +192,9 @@ impl<const N: usize> PreparedExecution<N> {
         scope: ScopeBinding,
         cursors: Vec<CursorRecord>,
         cancel: &AtomicBool,
-        account_directory: &mut dyn FnMut(usize) -> Result<(), storage::StorageError>,
+        account_directory: &mut dyn FnMut(
+            storage::MetadataMemory,
+        ) -> Result<(), storage::StorageError>,
     ) -> Result<PreparedCommit<N>, AppError> {
         let previous = writer
             .current()
@@ -439,8 +459,9 @@ fn check(cancel: &AtomicBool) -> Result<(), AppError> {
 
 /// Ordered semantic selection plus exact admitted payload bytes. Paths,
 /// worker count, query domains and downstream refinement are intentionally
-/// absent. Per-formula native policies are conservative identity boundaries;
-/// aggregate trace/counter/cache allowances are not mathematical conventions.
+/// absent. The original per-formula policy stays in this v1 source identity for
+/// checkpoint continuity. An independently recorded resource-only override may
+/// change execution quotas, never mathematical inputs or rule selection.
 fn execution_binding(
     request: &RoutedCampaignRequest,
     selection: &Selection,

@@ -19,6 +19,7 @@ import shlex
 import stat
 import subprocess
 import sys
+import tempfile
 
 
 def sibling(name):
@@ -91,7 +92,7 @@ def engine(campaign, requested=None):
 
 def require_policy(value):
     fields = {"workers", "windows", "census", "export", "storage", "max_total_rows", "max_source_bytes", "control"}
-    optional = {"per_batch_work", "prepared_reduction_aggregates", "max_resident_work_bytes", "max_windows_per_batch", "reuse_worker_pool", "parallel_window_preparation"}
+    optional = {"per_batch_work", "prepared_reduction_aggregates", "operation_limits", "max_resident_work_bytes", "max_windows_per_batch", "reuse_worker_pool", "parallel_window_preparation"}
     if not isinstance(value, dict) or not fields <= set(value) or set(value) - fields - optional:
         raise ValueError("finite policy must contain the public native policy fields and no diagnostic settings")
     if type(value["workers"]) is not int or value["workers"] <= 0 or not isinstance(value["windows"], dict):
@@ -107,7 +108,49 @@ def require_policy(value):
     resident = value.get("max_resident_work_bytes", 0)
     if type(resident) is not int or not 0 <= resident < 2**64:
         raise ValueError("resident Work allowance must be an unsigned platform byte count")
+    if "operation_limits" in value:
+        require_operation_limits(value["operation_limits"])
     return value
+
+
+def require_operation_limits(value):
+    """JSON shape/type validation only; native Rust owns limits and semantics.
+
+    Missing/object-empty policy means uncapped trusted finite operations.
+    Top-level null deliberately keeps source grants. Individual null counts
+    disable that stop; zero remains an explicit zero allowance.
+    """
+    if value is None:
+        return
+    exact = {"max_polynomial_terms": None, "max_term_operations": None}
+    schema = {
+        "planning": {"max_positive_layers": None, "max_partition_checks": None},
+        "transport": {
+            **{name: None for name in ("max_factors", "max_relation_coefficient_entries", "max_total_power",
+                "max_native_polynomial_terms", "max_native_polynomial_operations", "max_native_exponent_entries",
+                "max_endpoints", "max_endpoint_power_entries", "max_retained_endpoint_key_bytes",
+                "max_retained_coefficient_terms", "max_retained_coefficient_clone_owned_bytes")},
+            "exact_algebra": exact,
+        },
+        "reduction": {
+            "exact_algebra": exact,
+            "indexed_algebra": {"exact_algebra": exact,
+                "max_specialization_power_operations": None, "max_specialization_integer_bits": None},
+            **{name: None for name in ("max_cached_integrals", "max_cached_coefficient_terms",
+                "max_cached_coefficient_bytes", "max_factorization_terms")},
+        },
+    }
+
+    def check(node, fields, path):
+        if not isinstance(node, dict) or set(node) - fields.keys():
+            raise ValueError(f"{path} must be an object containing only native operation-limit fields")
+        for name, item in node.items():
+            child = fields[name]
+            if isinstance(child, dict):
+                check(item, child, f"{path}.{name}")
+            elif item is not None and (type(item) is not int or not 0 <= item < 2**64):
+                raise ValueError(f"{path}.{name} must be an unsigned count or null (uncapped)")
+    check(value, schema, "operation_limits")
 
 
 def reject_auxiliary(campaign):
@@ -149,13 +192,53 @@ def selected_policy_path(campaign, supplied=None):
     return None
 
 
+def resolve_metadata_budget(policy, resources):
+    """Resolve the automatic decoder allowance from the user's RAM budget.
+
+    It is an allocation permission, not memory reserved by the Work cache.
+    Never mutate supplied or previously frozen policy documents.
+    """
+    storage = policy.get("storage", {})
+    if "max_transient_bytes" not in storage or storage["max_transient_bytes"] is not None:
+        return policy
+    ceiling = resources.get("max_memory_bytes")
+    margin = resources.get("ram_guard_margin_percent", 5)
+    if (type(ceiling) is not int or not 0 < ceiling < 2**64
+            or type(margin) not in (int, float) or not math.isfinite(margin) or not 0 < margin < 100):
+        raise ValueError("automatic metadata budget requires a positive saved/requested RAM ceiling and guard margin")
+    budget = int(ceiling * (1 - margin / 100))
+    if budget <= 0:
+        raise ValueError("RAM allowance leaves no metadata decoding budget")
+    return {**policy, "storage": {**storage, "max_transient_bytes": budget}}
+
+
+@contextmanager
+def inspection_policy(campaign, supplied=None):
+    path = selected_policy_path(campaign, supplied)
+    if path is None:
+        yield None
+        return
+    policy = require_policy(read(path))
+    if policy.get("storage", {}).get("max_transient_bytes", 0) is not None:
+        yield path
+        return
+    saved = read(Path(campaign) / "bin/steering.json")
+    resolved = resolve_metadata_budget(policy, saved.get("resources", {}))
+    scratch = Path(__file__).resolve().parents[2] / "TMP"
+    scratch.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="finite-inspection-policy-", dir=scratch) as directory:
+        temporary = Path(directory) / "policy.json"
+        write_json(temporary, resolved)
+        yield temporary
+
+
 def inspect(campaign, executable, output_format="json", policy_path=None):
     command = [str(executable), "finite-demand", "inspect", "--directory", str(Path(campaign) / "finite-demand"),
                "--format", output_format]
-    policy_path = selected_policy_path(campaign, policy_path)
-    if policy_path is not None:
-        command += ["--policy", str(policy_path)]
-    result = subprocess.run(command, capture_output=True, text=True)
+    with inspection_policy(campaign, policy_path) as selected:
+        if selected is not None:
+            command += ["--policy", str(selected)]
+        result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode:
         raise ValueError(f"native finite inspect failed (exit{result.returncode}): {result.stderr[-8192:]}")
     if output_format != "json":
@@ -167,6 +250,11 @@ def inspect(campaign, executable, output_format="json", policy_path=None):
 
 
 def public_inspect(campaign, executable, output_format, policy_path=None):
+    with inspection_policy(campaign, policy_path) as selected:
+        return _public_inspect(campaign, executable, output_format, selected)
+
+
+def _public_inspect(campaign, executable, output_format, policy_path=None):
     """Compose native committed status with native published/requested scope.
 
     Internal scope planning continues to use inspect() alone. No artifact means
@@ -364,6 +452,10 @@ def launch_plan(args, campaign, binary, *, apply, startup_progress=None):
             raise ValueError("first finite run requires --finite-policy with explicit native grants")
         policy_path = campaign / saved["policy"]
     policy = require_policy(read(policy_path))
+    # Make the native trusted-finite default explicit in each new immutable
+    # launch policy, including resuming older policies which omitted this field.
+    # Never mutate the caller's input file or an earlier frozen policy.
+    policy = {"operation_limits": {}, **policy}
     workers = getattr(args, "workers", None)
     if workers is not None:
         policy = require_policy({**policy, "workers": workers})
@@ -405,6 +497,7 @@ def launch_plan(args, campaign, binary, *, apply, startup_progress=None):
     if len(cpus) != policy["workers"] or not cpus <= os.sched_getaffinity(0):
         raise ValueError("finite workers must equal the reserved permitted CPU count")
     SUPERVISOR.memory_admission_for_resources(resources, SUPERVISOR.memory_host_snapshot(resources))
+    policy = resolve_metadata_budget(policy, resources)
     grace = getattr(args, "stop_grace_seconds", None)
     if grace is None:
         grace = (saved or {}).get("stop_grace_seconds", 120)

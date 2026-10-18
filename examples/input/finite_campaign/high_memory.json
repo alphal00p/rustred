@@ -1,5 +1,6 @@
 {
   "workers": 32,
+  "operation_limits": {},
   "windows": {
     "max_seed_points": 512,
     "max_seed_bytes": 1048576,
@@ -38,7 +39,7 @@
       "max_stored_references": null,
       "max_merge_runs": null,
       "max_merge_cached_pages": 1024,
-      "max_merge_payload_bytes": 268435456,
+      "max_merge_payload_bytes": null,
       "max_merge_read_bytes": null,
       "max_decode_transient_bytes": 67633152
     },
@@ -50,8 +51,8 @@
     "max_cached_pages": 8192,
     "max_cached_page_bytes": 2147483648,
     "max_directory_bytes": null,
-    "max_manifest_bytes": 1073741824,
-    "max_state_bytes": 1073741824,
+    "max_manifest_bytes": null,
+    "max_state_bytes": null,
     "max_scope_rows": null,
     "max_census_records": null,
     "max_runs": null,
@@ -60,7 +61,7 @@
     "max_disk_bytes": null,
     "max_lookup_pages": null,
     "max_lookup_bytes": null,
-    "max_transient_bytes": 2147483648
+    "max_transient_bytes": null
   },
   "max_total_rows": null,
   "max_source_bytes": null,

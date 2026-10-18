@@ -16,6 +16,8 @@ const SOURCE_SCHEMA: &str = "rustred.finite-publication-source.v1";
 #[derive(Clone, Copy)]
 struct Limits {
     storage: StorageLimits,
+    planning:
+        Option<crate::application::routed_campaign::finite_demand::windows::WindowPlanningLimits>,
     source_bytes: usize,
     sources: usize,
     staging_attempts: usize,
@@ -27,6 +29,9 @@ fn limits(policy: Option<&crate::FiniteDemandPolicy>) -> Result<Limits, AppError
     if let Some(policy) = policy {
         return Ok(Limits {
             storage: policy.storage.into(),
+            planning: policy
+                .operation_limits
+                .map(|operations| operations.planning.into()),
             source_bytes: policy.control.max_bytes.try_into().map_err(|_| {
                 AppError::limit("finite publication metadata allowance exceeds platform size")
             })?,
@@ -36,6 +41,7 @@ fn limits(policy: Option<&crate::FiniteDemandPolicy>) -> Result<Limits, AppError
     }
     Ok(Limits {
         storage: default_storage_limits(),
+        planning: None,
         source_bytes: 64 << 20,
         sources: usize::MAX,
         staging_attempts: usize::MAX,
@@ -203,7 +209,7 @@ fn open(
         limits.source_bytes,
     )?;
     crate::application::routed_campaign::finite_demand::backend::publication::validate_portable_scope(
-        &archive,&source,limits.source_bytes,&AtomicBool::new(false))?;
+        &archive,&source,limits.source_bytes,limits.planning,&AtomicBool::new(false))?;
     if record["generation"].as_u64() != Some(archive.generation())
         || source["generation_blake3"] != record["generation_blake3"]
         || source["input_occurrences"].as_u64() != Some(archive.state().input_occurrences)

@@ -352,6 +352,90 @@ pub(super) fn read(path: &Path, limit: usize) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+
+pub(super) fn metadata_allocation_budget(
+    encoded_permission: usize,
+    encoded_bytes: usize,
+    transient_grant: usize,
+) -> Result<usize> {
+    let remaining = transient_grant
+        .checked_sub(encoded_bytes)
+        .ok_or_else(|| resource("metadata encoded frame exceeds transient RAM grant"))?;
+    Ok(remaining.min(metadata_decode_allowance(encoded_permission)))
+}
+
+#[cfg(test)]
+pub(super) fn decode_metadata<T: bincode::Decode<()>>(
+    magic: &[u8],
+    bytes: &[u8],
+    encoded_permission: usize,
+    transient_grant: usize,
+) -> Result<T> {
+    decode_metadata_with_retained_bytes(
+        magic,
+        bytes,
+        encoded_permission,
+        transient_grant,
+        bytes.len(),
+    )
+}
+
+pub(super) fn decode_metadata_buffer<T: bincode::Decode<()>>(
+    magic: &[u8],
+    bytes: &Vec<u8>,
+    encoded_permission: usize,
+    transient_grant: usize,
+) -> Result<T> {
+    decode_metadata_with_retained_bytes(
+        magic,
+        bytes,
+        encoded_permission,
+        transient_grant,
+        bytes.capacity(),
+    )
+}
+
+fn decode_metadata_with_retained_bytes<T: bincode::Decode<()>>(
+    magic: &[u8],
+    bytes: &[u8],
+    encoded_permission: usize,
+    transient_grant: usize,
+    retained: usize,
+) -> Result<T> {
+    if retained < bytes.len() {
+        return Err(corrupt(
+            "metadata retained frame allocation is smaller than its bytes",
+        ));
+    }
+    let allocation = metadata_allocation_budget(encoded_permission, retained, transient_grant)?;
+    rustred::persistence::finite_work::decode_metadata_frame_with_allocation_limit(
+        magic,
+        bytes,
+        encoded_permission,
+        allocation,
+    )
+    .map_err(Into::into)
+}
+
+pub(super) fn metadata_payload(
+    manifest: &Manifest,
+    state: &GenerationState,
+    work_directory_payload: usize,
+) -> Result<usize> {
+    metadata_payload_parts(&manifest.raw, state, work_directory_payload)
+}
+
+pub(super) fn metadata_payload_parts(
+    raw: &RawCensusDirectory,
+    state: &GenerationState,
+    work_directory_payload: usize,
+) -> Result<usize> {
+    let mut bytes = work_directory_payload;
+    add(&mut bytes, size_of::<Manifest>())?;
+    add(&mut bytes, state_payload(state)?)?;
+    add(&mut bytes, raw::directory_payload(raw)?)?;
+    Ok(bytes)
+}
 pub(super) fn read_object(
     directory: &Path,
     subdir: &str,

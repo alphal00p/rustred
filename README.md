@@ -350,7 +350,10 @@ memory-bounded completed-Work index. It retains the same manual refinement and
 rank-extension workflow, but does not import an old CP6 traversal ledger or
 offer that engine's optional deep graph replay. Its resource policy applies
 through publication and cold loading: aggregate limits can be set to `null`
-(uncapped), rather than encountering hidden segment-count ceilings. Resident
+(uncapped), rather than encountering hidden segment-count ceilings.
+Per-operation traversal grants default to `"operation_limits": {}` (uncapped);
+explicit nested limits may be supplied in `--finite-policy`. Representation
+and checked-arithmetic bounds remain, as does the process RAM guard. Resident
 accounting uses actual directory capacity, so an uncapped directory allowance
 is not treated as allocated RAM. Finite launches default to
 `--memory-policy process-limit`: a requested 600 GB process cap stays 600 GB;

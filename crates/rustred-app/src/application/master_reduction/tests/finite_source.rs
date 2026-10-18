@@ -68,6 +68,7 @@ fn policy() -> Policy {
             max_coalescing_additions: 100000,
         },
         prepared_reduction_aggregates: None,
+        operation_limits: None,
         max_resident_work_bytes: 0,
         census: Default::default(),
         export: CandidateRoutedDeltaExportLimits {
@@ -141,6 +142,9 @@ fn publication_policy(runs: usize) -> crate::FiniteDemandPolicy {
     .unwrap();
     value["storage"]["raw"]["max_runs"] = json!(runs);
     value["storage"]["raw"]["max_merge_runs"] = json!(runs * 2);
+    if value["storage"]["max_transient_bytes"].is_null() {
+        value["storage"]["max_transient_bytes"] = json!(570_000_000_000u64);
+    }
     crate::FiniteDemandPolicy::from_json(&serde_json::to_vec(&value).unwrap()).unwrap()
 }
 
@@ -155,6 +159,34 @@ fn public_resident_request(scratch: &Scratch, name: &str) -> crate::FiniteDemand
         directory: scratch.0.join(name),
         mode: crate::FiniteDemandMode::Create,
     }
+}
+
+#[test]
+fn operational_planning_allowance_survives_publication_and_cold_inspection() {
+    let scratch = Scratch::new();
+    let mut request = public_resident_request(&scratch, "planning-publication");
+    // The source still binds its old one-layer work quota, not a smaller
+    // mathematical domain. The separate execution policy permits exact counts.
+    request.policy.windows.max_positive_layers = 1;
+    request.policy.windows.max_partition_checks = 0;
+    let cancel = AtomicBool::new(false);
+    let solved = crate::run_finite_demand_with_progress(request.clone(), &cancel, |_| {}).unwrap();
+    assert!(solved.complete);
+    request.mode = crate::FiniteDemandMode::Resume;
+    let directory = scratch.0.join("planning-artifact");
+    let mut options = MasterReductionOptions::new(request.directory.join("store"), &directory);
+    options.operation = MasterReductionOperation::Publish;
+    let report =
+        crate::publish_finite_demand_with_progress(request.clone(), &options, &cancel, |_| {})
+            .unwrap();
+    assert_eq!(report["status"], "published_unrefined");
+    assert_eq!(
+        master_reduction_inspect_with_policy(&directory, &request.policy).unwrap()["status"],
+        "published_unrefined"
+    );
+    let mut capped = request.policy;
+    capped.operation_limits = None;
+    assert!(master_reduction_inspect_with_policy(&directory, &capped).is_err());
 }
 
 #[test]

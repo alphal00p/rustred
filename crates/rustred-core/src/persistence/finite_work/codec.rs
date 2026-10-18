@@ -136,6 +136,22 @@ pub fn decode_metadata_frame<T: bincode::Decode<()>>(
     bytes: &[u8],
     limit: usize,
 ) -> GeneratedWorkResult<T> {
+    decode_metadata_frame_with_allocation_limit(
+        magic,
+        bytes,
+        limit,
+        metadata_decode_allowance(limit),
+    )
+}
+
+/// Separate encoded permission from the caller's actual decoded-allocation
+/// grant. An unlimited encoded permission never reserves that many bytes.
+pub fn decode_metadata_frame_with_allocation_limit<T: bincode::Decode<()>>(
+    magic: &[u8],
+    bytes: &[u8],
+    limit: usize,
+    allocation_limit: usize,
+) -> GeneratedWorkResult<T> {
     if bytes.len() > limit || bytes.len() < magic.len() + 32 || !bytes.starts_with(magic) {
         return Err(corrupt("finite frame magic/length"));
     }
@@ -143,7 +159,7 @@ pub fn decode_metadata_frame<T: bincode::Decode<()>>(
     if blake3::hash(&bytes[..end]).as_bytes() != &bytes[end..] {
         return Err(corrupt("finite frame digest"));
     }
-    decode_payload(&bytes[magic.len()..end], metadata_decode_allowance(limit))
+    decode_payload(&bytes[magic.len()..end], allocation_limit)
 }
 
 fn decode_payload<T: bincode::Decode<()>>(bytes: &[u8], budget: usize) -> GeneratedWorkResult<T> {

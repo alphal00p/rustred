@@ -744,3 +744,7 @@ mod rational_tests;
 #[cfg(test)]
 #[path = "support_tests.rs"]
 mod support_tests;
+
+#[cfg(test)]
+#[path = "resource_policy_tests.rs"]
+mod resource_policy_tests;

@@ -156,6 +156,131 @@ class FiniteCampaignTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "resident Work allowance"):
                 FIN.require_policy({**self.policy, "max_resident_work_bytes": grant})
 
+    def test_operation_limits_default_is_explicit_in_new_launch_without_rewriting_source(self):
+        original = self.policy_path.read_bytes()
+        windows = copy.deepcopy(self.policy["windows"])
+        plan = self.plan()
+        frozen = FIN.read(plan["finite_policy"])
+        self.assertEqual(frozen["operation_limits"], {})
+        self.assertEqual(frozen["windows"], windows)
+        self.assertEqual(self.policy_path.read_bytes(), original)
+        self.namespace()
+        self.args.resume = True
+        self.args.finite_policy = None
+        resumed = self.plan()
+        self.assertEqual(FIN.read(resumed["finite_policy"])["operation_limits"], {})
+        self.assertEqual(FIN.read(resumed["finite_policy"])["windows"], windows)
+
+    def test_operation_limits_explicit_null_and_nested_grants_roundtrip_and_inspect(self):
+        self.plan()
+        self.namespace()
+        original_windows = copy.deepcopy(self.policy["windows"])
+        for selected in (None, {}, {"transport": {"max_native_exponent_entries": None,
+                "max_native_polynomial_operations": 0, "max_total_power": 2**64-1,
+                "exact_algebra": {"max_polynomial_terms": 20, "max_term_operations": None}},
+            "reduction": {"max_factorization_terms": None, "max_cached_coefficient_bytes": 123,
+                "exact_algebra": {"max_polynomial_terms": None},
+                "indexed_algebra": {"max_specialization_integer_bits": 1024}}}):
+            with self.subTest(selected=selected):
+                override = self.root / "operation-policy.json"
+                override.write_bytes(FIN.encoded({**self.policy, "operation_limits": selected}))
+                original = override.read_bytes()
+                self.args.finite_policy = override
+                self.args.resume = True
+                plan = self.plan()
+                policy = FIN.read(plan["finite_policy"])
+                self.assertEqual(policy["operation_limits"], selected)
+                self.assertEqual(policy["windows"], original_windows)
+                self.assertEqual(override.read_bytes(), original)
+                self.args.finite_policy = None
+                self.assertEqual(FIN.read(self.plan(apply=False)["finite_policy"])["operation_limits"], selected)
+                process = SimpleNamespace(returncode=0, stdout=json.dumps(self.native), stderr="")
+                with patch.object(FIN.subprocess, "run", return_value=process) as command:
+                    FIN.inspect(self.campaign, self.binary, policy_path=override)
+                    self.assertIn(str(override), command.call_args.args[0])
+
+    def test_operation_limits_reject_malformed_or_unknown_knobs_before_launch_mutation(self):
+        before = FIXTURE.snapshot(self.campaign)
+        bad = [False, [], {"typo":1}, {"transport":None},
+            {"transport":{"max_native_exponent_entries":-1}},
+            {"transport":{"max_native_exponent_entries":True}},
+            {"transport":{"max_native_exponent_entries":1.5}},
+            {"transport":{"max_native_exponent_entries":2**64}},
+            {"transport":{"max_native_exponent_entries":"null"}},
+            {"reduction":{"exact_algebra":{"max_exponent":65535}}},
+            {"reduction":{"indexed_algebra":{"made_up":None}}}]
+        for item in bad:
+            with self.subTest(item=item), self.assertRaisesRegex(ValueError, "operation_limits"):
+                FIN.require_policy({**self.policy, "operation_limits":item})
+        self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
+    def test_all_operation_count_fields_are_explicit_nullable_user_grants(self):
+        exact = {"max_polynomial_terms": None, "max_term_operations": 0}
+        operation = {
+            "planning": {"max_positive_layers": None, "max_partition_checks": None},
+            "transport": {"exact_algebra": exact, **{field:None for field in (
+                "max_factors", "max_relation_coefficient_entries", "max_total_power",
+                "max_native_polynomial_terms", "max_native_polynomial_operations",
+                "max_native_exponent_entries", "max_endpoints", "max_endpoint_power_entries",
+                "max_retained_endpoint_key_bytes", "max_retained_coefficient_terms",
+                "max_retained_coefficient_clone_owned_bytes")}},
+            "reduction": {"exact_algebra": exact,
+                "indexed_algebra": {"exact_algebra": exact,
+                    "max_specialization_power_operations": None, "max_specialization_integer_bits": None},
+                **{field:None for field in ("max_cached_integrals", "max_cached_coefficient_terms",
+                    "max_cached_coefficient_bytes", "max_factorization_terms")}},
+        }
+        original = copy.deepcopy(operation)
+        FIN.require_policy({**self.policy, "operation_limits": operation})
+        self.assertEqual(operation, original)
+        profile = FIN.read(Path(__file__).resolve().parents[1] / "input/finite_campaign/high_memory.json")
+        self.assertEqual(profile["operation_limits"], {})
+        self.assertIsNone(profile["storage"]["raw"]["max_merge_payload_bytes"])
+
+    def test_metadata_budget_comes_from_user_ram_and_does_not_mutate_source(self):
+        self.policy["storage"] = {"max_manifest_bytes": None, "max_state_bytes": None,
+                                  "max_transient_bytes": None}
+        self.policy_path.write_bytes(FIN.encoded(self.policy))
+        original = self.policy_path.read_bytes()
+        self.args.max_memory_bytes = 600_000_000_000
+        plan = self.plan()
+        frozen = FIN.read(plan["finite_policy"])
+        self.assertEqual(frozen["storage"]["max_transient_bytes"], 570_000_000_000)
+        self.assertIsNone(frozen["storage"]["max_manifest_bytes"])
+        self.assertIsNone(frozen["storage"]["max_state_bytes"])
+        self.assertEqual(self.policy_path.read_bytes(), original)
+        self.assertEqual(frozen["windows"], self.policy["windows"])
+        self.namespace()
+        self.args.resume = True
+        self.args.max_memory_bytes = 200_000_000_000
+        updated = FIN.read(self.plan()["finite_policy"])
+        self.assertEqual(updated["storage"]["max_transient_bytes"], 190_000_000_000)
+
+    def test_metadata_inspection_resolves_budget_in_temporary_workspace_file(self):
+        self.plan()
+        override = self.root / "automatic-metadata-policy.json"
+        supplied = {**self.policy, "storage": {"max_manifest_bytes": None,
+                    "max_state_bytes": None, "max_transient_bytes": None}}
+        override.write_bytes(FIN.encoded(supplied))
+        before = FIXTURE.snapshot(self.campaign)
+        with FIN.inspection_policy(self.campaign, override) as path:
+            self.assertNotEqual(path, override)
+            self.assertTrue(path.is_relative_to(Path(FIN.__file__).resolve().parents[2] / "TMP"))
+            self.assertEqual(FIN.read(path)["storage"]["max_transient_bytes"], 30_400_000_000)
+        self.assertFalse(path.exists())
+        self.assertEqual(FIN.read(override), supplied)
+        self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
+    def test_explicit_metadata_budget_remains_user_selected(self):
+        policy = {**self.policy, "storage": {"max_transient_bytes": 12345}}
+        self.assertEqual(FIN.resolve_metadata_budget(policy, {}), policy)
+        auto = {**policy, "storage": {"max_transient_bytes": None}}
+        for resources in ({}, {"max_memory_bytes": 0}, {"max_memory_bytes": True},
+                          {"max_memory_bytes": 100, "ram_guard_margin_percent": float("nan")},
+                          {"max_memory_bytes": 100, "ram_guard_margin_percent": 100}):
+            with self.subTest(resources=resources), self.assertRaises(ValueError):
+                FIN.resolve_metadata_budget(auto, resources)
+
     def test_window_group_override_is_operational_saved_and_keeps_partition(self):
         self.plan()
         self.namespace()
@@ -163,7 +288,7 @@ class FiniteCampaignTests(unittest.TestCase):
         self.args.windows_per_batch = 64
         grouped = self.plan()
         frozen = FIN.read(grouped["finite_policy"])
-        self.assertEqual(frozen, {**self.policy, "max_windows_per_batch": 64})
+        self.assertEqual(frozen, {"operation_limits": {}, **self.policy, "max_windows_per_batch": 64})
         self.assertEqual(self.policy_path.read_bytes(), original)
         self.assertEqual(FIN.read(self.campaign / "bin/steering.json")["window_policy"], self.policy["windows"])
         self.args.windows_per_batch = None
@@ -239,7 +364,7 @@ class FiniteCampaignTests(unittest.TestCase):
             self.assertEqual(plan["requested_workers"], 150)
             self.assertEqual(plan["supervisor_ram_policy"]["workers"], 150)
             frozen = FIN.read(plan["finite_policy"])
-            self.assertEqual(frozen, {**self.policy, "workers": 150})
+            self.assertEqual(frozen, {"operation_limits": {}, **self.policy, "workers": 150})
             self.assertEqual(self.policy_path.read_bytes(), original)
             self.namespace()
             self.args.workers = self.args.cpus = self.args.finite_policy = None
@@ -272,7 +397,7 @@ class FiniteCampaignTests(unittest.TestCase):
         self.policy_path.write_bytes(FIN.encoded(modified))
         plan = self.plan()
         frozen = FIN.read(plan["finite_policy"])
-        self.assertEqual(frozen, modified)
+        self.assertEqual(frozen, {"operation_limits": {}, **modified})
         self.assertEqual(frozen["windows"], self.policy["windows"])
         self.assertIn("--resume", plan["native_command"])
 
