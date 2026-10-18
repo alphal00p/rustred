@@ -20,6 +20,8 @@ pub(in crate::application::candidate_bundle) struct CheckpointManifest {
     integral_order: String,
     solver_policy: String,
     exact_backend: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    root_zero_census: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     discovery_strategy: Option<super::super::CandidateDiscoveryStrategy>,
     /// None requests the full root downset; Some binds an explicit exact set.
@@ -33,6 +35,10 @@ const VERSION: u32 = 4;
 // Bump when source construction, preconditioning, random seed or backend
 // defaults change in a way incompatible with resuming this generation recipe.
 const RECIPE: &str = "ordinary-family-candidates-checkpoint-selection-v4";
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
 
 impl CheckpointManifest {
     pub(in crate::application::candidate_bundle) fn for_request(
@@ -62,6 +68,7 @@ impl CheckpointManifest {
                 .to_string(),
             solver_policy: policy::encode_request(request),
             exact_backend: request.exact_backend.as_str().into(),
+            root_zero_census: request.root_zero_census,
             discovery_strategy: request.discovery_strategy.clone(),
             selected_sectors,
             sectors,

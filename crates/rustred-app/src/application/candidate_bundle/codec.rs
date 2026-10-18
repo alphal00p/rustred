@@ -81,18 +81,13 @@ pub(super) fn read_structure(
     let program = envelope
         .section(SectionTag::PROGRAM)
         .expect("checked section");
-    let config = bincode::config::standard().with_limit::<MAX_CANDIDATE_BUNDLE_BYTES>();
-    let (schema, _): (String, usize) = bincode::decode_from_slice(program, config)
-        .map_err(|e| AppError::schema(format!("invalid candidate structural schema: {e}")))?;
+    let allowance = limits.bundle_byte_limit();
+    let (schema, _): (String, usize) = decode_record(program, allowance)?;
     let (records, consumed): (ProgramRecord, usize) = match schema.as_str() {
-        DISPATCH_CANDIDATE_BUNDLE_SCHEMA => bincode::decode_from_slice(program, config)
-            .map_err(|e| AppError::schema(format!("invalid candidate structural record: {e}")))?,
-        CANDIDATE_BUNDLE_SCHEMA => dispatch::decode_v2(program)?,
+        DISPATCH_CANDIDATE_BUNDLE_SCHEMA => decode_record(program, allowance)?,
+        CANDIDATE_BUNDLE_SCHEMA => dispatch::decode_v2(program, allowance)?,
         LEGACY_CANDIDATE_BUNDLE_SCHEMA => {
-            let (old, consumed): (LegacyProgramRecord, usize) =
-                bincode::decode_from_slice(program, config).map_err(|e| {
-                    AppError::schema(format!("invalid legacy candidate record: {e}"))
-                })?;
+            let (old, consumed): (LegacyProgramRecord, usize) = decode_record(program, allowance)?;
             let integral_order =
                 super::load::candidate_ordering(old.root_sector.len(), old.permutation.as_deref())?
                     .stable_id()
@@ -125,11 +120,7 @@ pub(super) fn read_structure(
     let encoded_family = envelope
         .section(SectionTag::FAMILY)
         .expect("checked section");
-    let (family, consumed): (NativeFamilyRecord, usize) = bincode::decode_from_slice(
-        encoded_family,
-        bincode::config::standard().with_limit::<MAX_CANDIDATE_BUNDLE_BYTES>(),
-    )
-    .map_err(|e| AppError::schema(format!("invalid native family record: {e}")))?;
+    let (family, consumed): (NativeFamilyRecord, usize) = decode_record(encoded_family, allowance)?;
     if consumed != encoded_family.len() {
         return Err(AppError::schema("trailing native family record bytes"));
     }
@@ -142,6 +133,62 @@ pub(super) fn read_structure(
         ));
     }
     Ok((envelope, records, family))
+}
+
+/// Bincode's public allocation-claim API enforces the caller's runtime grant.
+/// Framing and nested allocation checks remain active above the former 1 GiB
+/// default; native Symbolica payloads still require trusted provenance.
+pub(super) fn decode_record<T: bincode::Decode<()>>(
+    bytes: &[u8],
+    allowance: usize,
+) -> Result<(T, usize), AppError> {
+    use bincode::de::{
+        Decoder,
+        read::{Reader, SliceReader},
+    };
+    struct Counted<'a> {
+        reader: SliceReader<'a>,
+        position: usize,
+    }
+    impl Reader for Counted<'_> {
+        fn read(&mut self, bytes: &mut [u8]) -> Result<(), bincode::error::DecodeError> {
+            self.reader.read(bytes)?;
+            self.position += bytes.len();
+            Ok(())
+        }
+        fn peek_read(&mut self, n: usize) -> Option<&[u8]> {
+            self.reader.peek_read(n)
+        }
+        fn consume(&mut self, n: usize) {
+            self.reader.consume(n);
+            self.position += n;
+        }
+    }
+    if bytes.len() > allowance {
+        return Err(AppError::limit(
+            "candidate structural bytes exceed caller allowance",
+        ));
+    }
+    let mut decoder = bincode::de::DecoderImpl::new(
+        Counted {
+            reader: SliceReader::new(bytes),
+            position: 0,
+        },
+        bincode::config::standard().with_limit::<{ usize::MAX }>(),
+        (),
+    );
+    let error = |e: bincode::error::DecodeError| match e {
+        bincode::error::DecodeError::LimitExceeded => {
+            AppError::limit("candidate structural allocation exceeds caller allowance")
+        }
+        _ => AppError::schema(format!("invalid candidate structural record: {e}")),
+    };
+    decoder
+        .claim_bytes_read(usize::MAX - allowance)
+        .map_err(error)?;
+    let value = T::decode(&mut decoder).map_err(error)?;
+    let consumed = decoder.reader().position;
+    Ok((value, consumed))
 }
 
 #[cfg(test)]
@@ -248,9 +295,7 @@ fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(),
         ));
     }
     let n = bundle.root_sector.len();
-    if !(1..=16).contains(&n) {
-        return Err(AppError::input("candidate root arity must be 1 through 16"));
-    }
+    super::preparation::validate_arity(n)?;
     super::preparation::validate_permutation(n, bundle.permutation.as_deref())?;
     super::order::saved_policy(bundle)?;
     let mut budget = CollectionBudget::new(limits, bundle.sectors.len())?;

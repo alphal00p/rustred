@@ -5,19 +5,18 @@ use crate::AppError;
 use super::preparation::Prepared;
 
 pub(super) fn parse_masks(masks: &[String]) -> Result<Vec<Vec<bool>>, AppError> {
-    if masks.is_empty() || masks.len() > (1 << 16) {
+    if masks.is_empty() {
         return Err(AppError::input(
-            "selected_sectors requires a nonempty list of at most 65536 binary masks",
+            "selected_sectors requires a nonempty list of binary masks",
         ));
     }
     masks
         .iter()
         .map(|mask| {
-            if !(1..=16).contains(&mask.len())
-                || !mask.bytes().all(|byte| matches!(byte, b'0' | b'1'))
-            {
+            super::preparation::validate_arity(mask.len())?;
+            if !mask.bytes().all(|byte| matches!(byte, b'0' | b'1')) {
                 return Err(AppError::input(
-                    "selected_sectors masks must contain 1 through 16 binary digits",
+                    "selected_sectors masks must contain only binary digits",
                 ));
             }
             Ok(mask.bytes().map(|byte| byte == b'1').collect())
@@ -66,15 +65,14 @@ pub(super) fn canonical_masks(
         return Ok(None);
     };
     let arity = root.len();
-    if !(1..=16).contains(&arity) {
-        return Err(AppError::input(
-            "selected_sectors family arity must be 1 through 16",
-        ));
-    }
+    super::preparation::validate_arity(arity)?;
     if selected.is_empty() {
         return Err(AppError::input("selected_sectors must not be empty"));
     }
-    if selected.len() > (1usize << arity)
+    if u32::try_from(arity)
+        .ok()
+        .and_then(|bits| 1usize.checked_shl(bits))
+        .is_some_and(|count| selected.len() > count)
         || selected
             .len()
             .checked_mul(arity + 1)

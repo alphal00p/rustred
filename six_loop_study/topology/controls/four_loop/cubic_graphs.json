@@ -1,0 +1,2002 @@
+{
+  "schema": "rustred.offline-cubic-vacuum-census.v1",
+  "loops": 4,
+  "generation": {
+    "engine": "HEPKit Model.phi3/FeynKit/Symbolica",
+    "options": {
+      "loops": 4,
+      "threads": 1,
+      "max_vertices": 6,
+      "allow_self_loops": true,
+      "allow_zero_flow_edges": true,
+      "maximum_bridges": null,
+      "self_energy": null,
+      "tadpoles": null,
+      "zero_snails": null,
+      "factorized_loop_topologies_count_range": null,
+      "numerator_grouping": null,
+      "filter_zero_color": false,
+      "progress": null
+    },
+    "completed": true,
+    "report": "GenerationReport(topology_count=17, interaction_assignment_count=17, retained_count=17, zero_numerator_count=0, completed=true)",
+    "wall_seconds": 0.030354991962667555
+  },
+  "graph_count": 17,
+  "graphs": [
+    {
+      "id": "cubic-0000",
+      "graph_id": "871d9f903e4b27f31c821e8f73f120fc",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 0,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 1,
+          "target": 1,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 2,
+          "target": 2,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 6,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 3,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 4,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            -1
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 48,
+      "dot": "raw_dot/cubic-0000.dot"
+    },
+    {
+      "id": "cubic-0001",
+      "graph_id": "010069915aa2d2f70b016ad2c2c75454",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 0,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 1,
+          "target": 1,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 2,
+          "target": 2,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 2,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 6,
+          "source": 3,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 8,
+          "source": 4,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 128,
+      "dot": "raw_dot/cubic-0001.dot"
+    },
+    {
+      "id": "cubic-0002",
+      "graph_id": "d7ac268ec313e5eb474b49a940ad6634",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 0,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 1,
+          "target": 1,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            -1,
+            -1
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 4,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            -1
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 16,
+      "dot": "raw_dot/cubic-0002.dot"
+    },
+    {
+      "id": "cubic-0003",
+      "graph_id": "3fd6a1cd1af5f9696933a37558380b0a",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 3,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 4,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            -1,
+            -1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 3,
+          "momentum": [
+            -1,
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "id": 4,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            1,
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "id": 5,
+          "source": 1,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 2,
+          "target": 4,
+          "momentum": [
+            -1,
+            -1,
+            1,
+            -1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 2,
+          "target": 5,
+          "momentum": [
+            1,
+            1,
+            -1,
+            0
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 72,
+      "dot": "raw_dot/cubic-0003.dot"
+    },
+    {
+      "id": "cubic-0004",
+      "graph_id": "6620bfe80656fe73a5e2a38c50ec7790",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 0,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 1,
+          "target": 3,
+          "momentum": [
+            0,
+            -1,
+            -1,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 1,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            1,
+            -1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 2,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "id": 8,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            -1,
+            -1,
+            1
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 8,
+      "dot": "raw_dot/cubic-0004.dot"
+    },
+    {
+      "id": "cubic-0005",
+      "graph_id": "b54767c511b3c3cf5778718143f0f65c",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 0,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 1,
+          "target": 2,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            0,
+            -1,
+            -1,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 1,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            1,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "id": 7,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            1,
+            1,
+            -1
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 8,
+      "dot": "raw_dot/cubic-0005.dot"
+    },
+    {
+      "id": "cubic-0006",
+      "graph_id": "9fc355a24c0505aff4fb6cb7990dedac",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 0,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 1,
+          "target": 1,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 2,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 7,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            1,
+            -1
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 32,
+      "dot": "raw_dot/cubic-0006.dot"
+    },
+    {
+      "id": "cubic-0007",
+      "graph_id": "12296a427ef7108755ed8d9d7a8bc2e8",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 0,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 1,
+          "target": 1,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 2,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            -1,
+            -1
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            1,
+            1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 3,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            -1
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 16,
+      "dot": "raw_dot/cubic-0007.dot"
+    },
+    {
+      "id": "cubic-0008",
+      "graph_id": "94f139c7155dc64f8f79b04e79e9d69c",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 0,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 1,
+          "target": 1,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 2,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "id": 7,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            -1
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 32,
+      "dot": "raw_dot/cubic-0008.dot"
+    },
+    {
+      "id": "cubic-0009",
+      "graph_id": "7a1a0c0ed7d12f379bb5eb566aa61cd4",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 0,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 1,
+          "target": 1,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 2,
+          "target": 2,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 2,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 6,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 3,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 32,
+      "dot": "raw_dot/cubic-0009.dot"
+    },
+    {
+      "id": "cubic-0010",
+      "graph_id": "d3bd9bff66426c93d77aa8716a0ef11c",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 0,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 5,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 1,
+          "target": 5,
+          "momentum": [
+            0,
+            -1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            -1,
+            -1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 2,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            -1
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 16,
+      "dot": "raw_dot/cubic-0010.dot"
+    },
+    {
+      "id": "cubic-0011",
+      "graph_id": "f3c2627eb147230378a9f41c5ff5b77c",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 0,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            0,
+            -1,
+            -1,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 1,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            1,
+            -1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 2,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "id": 8,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 16,
+      "dot": "raw_dot/cubic-0011.dot"
+    },
+    {
+      "id": "cubic-0012",
+      "graph_id": "0d1caaec200d231995dc9bc3d085330a",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 4,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            -1,
+            -1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 3,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            -1,
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            -1,
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 2,
+          "target": 5,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 48,
+      "dot": "raw_dot/cubic-0012.dot"
+    },
+    {
+      "id": "cubic-0013",
+      "graph_id": "49d265ea513a7bdd6a68d1d682aef9c6",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 4,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            -1,
+            -1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            -1,
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 1,
+          "target": 5,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            -1,
+            -1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 2,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 16,
+      "dot": "raw_dot/cubic-0013.dot"
+    },
+    {
+      "id": "cubic-0014",
+      "graph_id": "7c906539a319379b9ae6973ca38aea20",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 3,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 4,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            -1,
+            -1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 2,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            -1,
+            -1
+          ]
+        },
+        {
+          "id": 5,
+          "source": 1,
+          "target": 5,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            -1,
+            -1,
+            1,
+            1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 2,
+          "target": 5,
+          "momentum": [
+            1,
+            1,
+            0,
+            -1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            0,
+            -1,
+            1,
+            1
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 12,
+      "dot": "raw_dot/cubic-0014.dot"
+    },
+    {
+      "id": "cubic-0015",
+      "graph_id": "8f88a962ece6b77558209ea408af7282",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 4,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            -1,
+            -1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 2,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 1,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 1,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            1,
+            -1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 4,
+          "target": 5,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 32,
+      "dot": "raw_dot/cubic-0015.dot"
+    },
+    {
+      "id": "cubic-0016",
+      "graph_id": "d1fd0130dce484c55d761e6cd366bcfa",
+      "vertices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "edges": [
+        {
+          "id": 0,
+          "source": 0,
+          "target": 4,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 1,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "source": 0,
+          "target": 5,
+          "momentum": [
+            -1,
+            -1,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "source": 1,
+          "target": 2,
+          "momentum": [
+            0,
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 4,
+          "source": 1,
+          "target": 3,
+          "momentum": [
+            -1,
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "id": 5,
+          "source": 1,
+          "target": 5,
+          "momentum": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "id": 6,
+          "source": 2,
+          "target": 3,
+          "momentum": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "id": 7,
+          "source": 2,
+          "target": 4,
+          "momentum": [
+            0,
+            0,
+            1,
+            -1
+          ]
+        },
+        {
+          "id": 8,
+          "source": 3,
+          "target": 4,
+          "momentum": [
+            -1,
+            0,
+            -1,
+            1
+          ]
+        }
+      ],
+      "loop_count": 4,
+      "symmetry_factor": 8,
+      "dot": "raw_dot/cubic-0016.dot"
+    }
+  ],
+  "closure_claim": false,
+  "classification_complete": false
+}

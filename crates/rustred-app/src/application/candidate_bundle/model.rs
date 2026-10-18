@@ -10,7 +10,7 @@ pub(super) const DISPATCH_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-can
 pub(super) const LEGACY_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v1";
 pub const FAMILY_CANDIDATES_SCHEMA: &str = "rustred.family-candidates-output.toml.v1";
 pub const CANDIDATE_CERTIFICATION_SCHEMA: &str = "rustred.candidate-certification-output.toml.v1";
-/// Hard ceiling for explicitly enlarged candidate ingress/output policies.
+/// Default allowance for candidate ingress/output policies; callers may enlarge it.
 /// Candidates retain discovery source traces and may exceed closed-artifact
 /// sizes. Defaults remain unchanged; callers must opt into the larger budget.
 pub const MAX_CANDIDATE_BUNDLE_BYTES: usize = 1024 * 1024 * 1024;
@@ -146,7 +146,7 @@ pub struct CandidateBundleLimits {
 
 impl CandidateBundleLimits {
     pub(super) fn bundle_byte_limit(self) -> usize {
-        self.max_bundle_bytes.min(MAX_CANDIDATE_BUNDLE_BYTES)
+        self.max_bundle_bytes
     }
 
     pub(super) fn binary_limits(self) -> rustred::persistence::BinaryIoLimits {
@@ -214,6 +214,10 @@ pub struct FamilyCandidatesRequest {
     /// not their downsets. `None` generates the full nonzero root downset.
     /// Missing sectors remain uncovered; an explicit empty selection is invalid.
     pub selected_sectors: Option<Vec<Vec<bool>>>,
+    /// Analyze zero sectors only inside the requested physical root. This
+    /// avoids enumerating auxiliary-positive masks that cannot be starting
+    /// sectors; it never asserts that unexamined masks are zero.
+    pub root_zero_census: bool,
     pub bundle_limits: CandidateBundleLimits,
     /// Optional trusted-local persistence of completed sectors. Missing work
     /// can resume without repeating completed solves; this grants no authority.
@@ -237,6 +241,7 @@ impl FamilyCandidatesRequest {
             discovery_strategy: None,
             nonpositive_indices: Vec::new(),
             selected_sectors: None,
+            root_zero_census: false,
             bundle_limits: CandidateBundleLimits::default(),
             checkpoint: None,
         }

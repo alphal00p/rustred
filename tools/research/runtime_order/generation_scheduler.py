@@ -77,16 +77,21 @@ def run(jobs, directory, resources, completed, *, retained=(), observer=None, po
         raise ValueError("generation job IDs must be unique filename components")
     try:
         allocation = schedule(resources)
-        host = SUPERVISOR.host_memory()
-        hard, soft, floor = SUPERVISOR.memory_admission(resources["max_memory_bytes"], None, host,
-            resources["host_memory_reserve_bytes"], resources["ram_guard_margin_percent"])
-        guard = SUPERVISOR.RamGuard(hard, soft, floor)
+        host = SUPERVISOR.memory_host_snapshot(resources)
+        hard, soft, floor = SUPERVISOR.memory_admission_for_resources(resources, host)
+        guard = SUPERVISOR.RamGuard(hard, soft, floor,
+            swap_growth_bytes_per_second=resources.get("swap_growth_stop_bytes_per_second",
+                SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_BYTES_PER_SECOND),
+            swap_growth_seconds=resources.get("swap_growth_stop_seconds",
+                SUPERVISOR.DEFAULT_SWAP_GROWTH_STOP_SECONDS))
     except (OSError, ValueError, KeyError) as error:
         (directory / "result.json").write_text(json.dumps(dict(exit_code=None, child_started=False,
             owned_groups_drained=True, stop_reason=f"resource_admission_failed:{error}"), indent=2) + "\n")
         raise
     request = dict(schedule=allocation, started_unix=time.time(), hard_timeout=None,
-        memory=SUPERVISOR.memory_admission_record(resources["max_memory_bytes"], host, floor, hard, soft),
+        memory=SUPERVISOR.memory_admission_record(resources["max_memory_bytes"], host, floor, hard, soft,
+            resources.get("memory_policy", "host-aware")),
+        ram_guard=guard.policy(),
         jobs=[dict(id=job.id, command=list(job.command), metadata=job.metadata) for job in jobs],
         checkpoint="completed native sectors only; active sectors restart")
     (directory / "request.json").write_text(json.dumps(request, indent=2) + "\n")
@@ -136,7 +141,7 @@ def run(jobs, directory, resources, completed, *, retained=(), observer=None, po
             table, diagnostics = collector.sample()
             rss = sum(row["rss_bytes"] for row in table.values())
             peak = max(peak, rss)
-            host = SUPERVISOR.host_memory()
+            host = SUPERVISOR.memory_host_snapshot(resources)
             decision = guard.observe(now, rss, host["available_bytes"], SUPERVISOR.tree_swap_bytes(table))
             elapsed = None if sample_previous is None else now-sample_previous
             delta, cpu_previous, processes = SUPERVISOR.process_cpu_sample(
@@ -232,7 +237,7 @@ def run(jobs, directory, resources, completed, *, retained=(), observer=None, po
             progress.emit("sample", state="draining" if reason else "running", stop_reason=reason,
                 aggregate=dict(sampled_rss_bytes=rss, sampled_peak_tree_rss_bytes=peak,
                     observed_cores=None if elapsed is None else delta/elapsed,
-                    host_available_bytes=host["available_bytes"], active_jobs=len(active),
+                    host_available_bytes=host.get("host_available_bytes", host["available_bytes"]), active_jobs=len(active),
                     pending_jobs=len(pending), guard=decision, sampling=diagnostics))
             if active or pending:
                 time.sleep(poll_seconds)

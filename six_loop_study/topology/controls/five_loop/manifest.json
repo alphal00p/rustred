@@ -1,0 +1,1108 @@
+{
+  "schema": "six-loop-study.topologies.v1",
+  "loop_count": 5,
+  "coordinate_count": 15,
+  "parent_count": 4,
+  "entries": [
+    {
+      "id": "topology-56637102394d35a1",
+      "input": "families/topology-56637102394d35a1.toml",
+      "dot": "dot/topology-56637102394d35a1.dot",
+      "loop_count": 5,
+      "coordinate_count": 15,
+      "physical_edge_count": 12,
+      "physical_propagators": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "auxiliary_slots": [
+        12,
+        13,
+        14
+      ],
+      "momenta": [
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          -1,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          1
+        ],
+        [
+          0,
+          0,
+          1,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          -1,
+          1
+        ],
+        [
+          0,
+          0,
+          1,
+          1,
+          -1
+        ],
+        [
+          1,
+          0,
+          -1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          -1,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          0,
+          0
+        ]
+      ],
+      "native_basis_rank": 15,
+      "common_mass_squared": 1,
+      "denominator_convention": "q^2-1",
+      "representative_graph": "cubic-0033",
+      "coordinate_edge_ids": [
+        0,
+        1,
+        11,
+        5,
+        8,
+        4,
+        7,
+        3,
+        6,
+        2,
+        10,
+        9
+      ],
+      "coordinate_edge_signs": [
+        1,
+        1,
+        -1,
+        1,
+        1,
+        1,
+        -1,
+        -1,
+        1,
+        -1,
+        -1,
+        -1
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[0,20,false,0],[0,25,false,0],[0,26,false,0],[0,29,false,0],[0,30,false,0],[0,31,false,0],[0,32,false,0],[0,35,false,0],[0,36,false,0],[0,37,false,0],[0,38,false,0],[0,39,false,0],[1,17,false,0],[1,18,false,0],[1,23,false,0],[1,24,false,0],[1,27,false,0],[1,28,false,0],[1,31,false,0],[1,32,false,0],[1,33,false,0],[1,34,false,0],[1,37,false,0],[1,38,false,0],[1,39,false,0],[2,15,false,0],[2,16,false,0],[2,21,false,0],[2,22,false,0],[2,27,false,0],[2,28,false,0],[2,29,false,0],[2,30,false,0],[2,33,false,0],[2,34,false,0],[2,35,false,0],[2,36,false,0],[2,39,false,0],[3,13,false,0],[3,14,false,0],[3,18,false,0],[3,20,false,0],[3,21,false,0],[3,22,false,0],[3,24,false,0],[3,26,false,0],[3,28,false,0],[3,30,false,0],[3,34,false,0],[3,36,false,0],[3,37,false,0],[3,38,false,0],[4,13,false,0],[4,14,false,0],[4,17,false,0],[4,19,false,0],[4,21,false,0],[4,22,false,0],[4,23,false,0],[4,25,false,0],[4,27,false,0],[4,29,false,0],[4,33,false,0],[4,35,false,0],[4,37,false,0],[4,38,false,0],[5,12,false,0],[5,14,false,0],[5,16,false,0],[5,20,false,0],[5,22,false,0],[5,23,false,0],[5,24,false,0],[5,25,false,0],[5,28,false,0],[5,32,false,0],[5,33,false,0],[5,35,false,0],[5,36,false,0],[5,38,false,0],[6,12,false,0],[6,14,false,0],[6,15,false,0],[6,19,false,0],[6,21,false,0],[6,23,false,0],[6,24,false,0],[6,26,false,0],[6,27,false,0],[6,31,false,0],[6,34,false,0],[6,35,false,0],[6,36,false,0],[6,37,false,0],[7,12,false,0],[7,13,false,0],[7,16,false,0],[7,18,false,0],[7,21,false,0],[7,23,false,0],[7,25,false,0],[7,26,false,0],[7,30,false,0],[7,32,false,0],[7,33,false,0],[7,34,false,0],[7,35,false,0],[7,37,false,0],[8,12,false,0],[8,13,false,0],[8,15,false,0],[8,17,false,0],[8,22,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,29,false,0],[8,31,false,0],[8,33,false,0],[8,34,false,0],[8,36,false,0],[8,38,false,0],[9,17,false,0],[9,18,false,0],[9,19,false,0],[9,20,false,0],[9,23,false,0],[9,24,false,0],[9,25,false,0],[9,26,false,0],[9,27,false,0],[9,28,false,0],[9,29,false,0],[9,30,false,0],[9,33,false,0],[9,34,false,0],[9,35,false,0],[9,36,false,0],[10,15,false,0],[10,16,false,0],[10,19,false,0],[10,20,false,0],[10,21,false,0],[10,22,false,0],[10,25,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,31,false,0],[10,32,false,0],[10,33,false,0],[10,34,false,0],[10,37,false,0],[10,38,false,0],[11,15,false,0],[11,16,false,0],[11,17,false,0],[11,18,false,0],[11,21,false,0],[11,22,false,0],[11,23,false,0],[11,24,false,0],[11,29,false,0],[11,30,false,0],[11,31,false,0],[11,32,false,0],[11,35,false,0],[11,36,false,0],[11,37,false,0],[11,38,false,0]]}",
+      "selected_sectors": [
+        "111111111111000",
+        "111111110111000",
+        "110111111111000",
+        "111111111110000",
+        "100111111111000",
+        "110111111110000",
+        "110111110111000",
+        "111111111100000",
+        "011111111110000",
+        "111110110111000",
+        "111111100111000",
+        "111111011110000",
+        "111111010111000",
+        "111111110110000",
+        "111101010111000",
+        "111111000111000",
+        "100111111110000",
+        "111011011110000",
+        "110111111100000",
+        "110110110111000",
+        "111110011110000",
+        "111011010111000",
+        "111111111000000",
+        "111111100110000",
+        "111111110100000",
+        "110111100111000",
+        "111101011110000",
+        "111100011110000",
+        "111111010100000",
+        "110111100110000",
+        "111101000111000",
+        "110111000111000",
+        "110111111000000",
+        "111110110100000",
+        "011011011110000",
+        "011110011110000",
+        "110110011110000",
+        "111111100100000",
+        "111111110000000",
+        "111111010000000",
+        "111111000100000",
+        "100111111000000",
+        "011100011110000",
+        "101111100100000",
+        "111111100000000",
+        "111110110000000",
+        "011111110000000",
+        "111011010000000",
+        "111111000000000",
+        "111101010000000",
+        "011111100000000",
+        "111101000000000"
+      ],
+      "selected_topology_classes": [
+        {
+          "id": "contraction-56637102394d35a1",
+          "classification": "nonfactorized",
+          "physical_edge_count": 12
+        },
+        {
+          "id": "contraction-2f1803770b80ad65",
+          "classification": "nonfactorized",
+          "physical_edge_count": 11
+        },
+        {
+          "id": "contraction-86b76a5dfe417b80",
+          "classification": "nonfactorized",
+          "physical_edge_count": 11
+        },
+        {
+          "id": "contraction-9233b14d5da50cfc",
+          "classification": "nonfactorized",
+          "physical_edge_count": 11
+        },
+        {
+          "id": "contraction-6bd6bb207bdf5e4c",
+          "classification": "factorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-1465f40614ce283c",
+          "classification": "nonfactorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-413c605c46422f7a",
+          "classification": "nonfactorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-532b8d1b6702373e",
+          "classification": "nonfactorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-b06616ec5c652cd7",
+          "classification": "nonfactorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-bbe08cce3d95d3f4",
+          "classification": "nonfactorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-c591ac8fc9d45fce",
+          "classification": "nonfactorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-d72c79f04d069dfc",
+          "classification": "nonfactorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-d897e49f842b4977",
+          "classification": "nonfactorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-fdf1cf3267df29bc",
+          "classification": "nonfactorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-0a2ed46764cc03b1",
+          "classification": "factorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-50de3b23a2f1288e",
+          "classification": "factorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-fb159925de07aeac",
+          "classification": "factorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-41995872afcdaf8a",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-41d7b3acc3bda598",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-4cb1931fe44ce70a",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-579013f96a0350de",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-5eb9692894c7e783",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-78e264f80606f970",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-7b7ec326d1ac393c",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-8bc30406353fd7b0",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-dbad67e6c80cb890",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-fd279206efb72307",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-12873aac94b8bab3",
+          "classification": "factorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-4138bff3b4a8c283",
+          "classification": "factorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-5db841bd341d535d",
+          "classification": "factorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-913d71f2c0751961",
+          "classification": "factorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-fcb5b8704d06b50d",
+          "classification": "factorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-148edc7073248a12",
+          "classification": "nonfactorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-3f948c13f4884036",
+          "classification": "nonfactorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-47ccb7f824259303",
+          "classification": "nonfactorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-5339bb6088222697",
+          "classification": "nonfactorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-6b4a2a02a3b059b3",
+          "classification": "nonfactorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-e379cd92369bcaf9",
+          "classification": "nonfactorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-fce1088bca8a176c",
+          "classification": "nonfactorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-6dcb4c111a43ed84",
+          "classification": "factorized",
+          "physical_edge_count": 7
+        },
+        {
+          "id": "contraction-7b5c67d12c042c69",
+          "classification": "factorized",
+          "physical_edge_count": 7
+        },
+        {
+          "id": "contraction-947e8a344cea67f6",
+          "classification": "factorized",
+          "physical_edge_count": 7
+        },
+        {
+          "id": "contraction-ce855de69ca997d4",
+          "classification": "factorized",
+          "physical_edge_count": 7
+        },
+        {
+          "id": "contraction-f04f11e2fc425d0c",
+          "classification": "factorized",
+          "physical_edge_count": 7
+        },
+        {
+          "id": "contraction-6d897964f3a0bc8d",
+          "classification": "nonfactorized",
+          "physical_edge_count": 7
+        },
+        {
+          "id": "contraction-a1cb6e3138c40f7b",
+          "classification": "nonfactorized",
+          "physical_edge_count": 7
+        },
+        {
+          "id": "contraction-c81f51b3a0567d72",
+          "classification": "nonfactorized",
+          "physical_edge_count": 7
+        },
+        {
+          "id": "contraction-b4a5d19eb86bb1eb",
+          "classification": "factorized",
+          "physical_edge_count": 6
+        },
+        {
+          "id": "contraction-b6faf3e1f57dfcfb",
+          "classification": "factorized",
+          "physical_edge_count": 6
+        },
+        {
+          "id": "contraction-fc52cd6c8ea40f95",
+          "classification": "factorized",
+          "physical_edge_count": 6
+        },
+        {
+          "id": "contraction-56e03dceef345802",
+          "classification": "nonfactorized",
+          "physical_edge_count": 6
+        },
+        {
+          "id": "contraction-ba896a860fab9e1f",
+          "classification": "factorized",
+          "physical_edge_count": 5
+        }
+      ]
+    },
+    {
+      "id": "topology-7f04f6e06b09306a",
+      "input": "families/topology-7f04f6e06b09306a.toml",
+      "dot": "dot/topology-7f04f6e06b09306a.dot",
+      "loop_count": 5,
+      "coordinate_count": 15,
+      "physical_edge_count": 12,
+      "physical_propagators": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "auxiliary_slots": [
+        12,
+        13,
+        14
+      ],
+      "momenta": [
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          -1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          1
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          1,
+          1
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          -1,
+          -1
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          -1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          -1
+        ],
+        [
+          0,
+          1,
+          0,
+          -1,
+          0
+        ]
+      ],
+      "native_basis_rank": 15,
+      "common_mass_squared": 1,
+      "denominator_convention": "q^2-1",
+      "representative_graph": "cubic-0040",
+      "coordinate_edge_ids": [
+        6,
+        10,
+        7,
+        9,
+        8,
+        3,
+        0,
+        11,
+        2,
+        4,
+        5,
+        1
+      ],
+      "coordinate_edge_signs": [
+        1,
+        1,
+        -1,
+        1,
+        1,
+        -1,
+        1,
+        -1,
+        -1,
+        -1,
+        1,
+        1
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[0,17,false,0],[0,21,false,0],[0,26,false,0],[0,27,false,0],[0,28,false,0],[0,29,false,0],[0,31,false,0],[0,32,false,0],[0,33,false,0],[0,35,false,0],[0,37,false,0],[0,38,false,0],[0,39,false,0],[1,15,false,0],[1,17,false,0],[1,20,false,0],[1,22,false,0],[1,23,false,0],[1,24,false,0],[1,25,false,0],[1,30,false,0],[1,32,false,0],[1,33,false,0],[1,35,false,0],[1,36,false,0],[1,38,false,0],[1,39,false,0],[2,14,false,0],[2,17,false,0],[2,19,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[2,29,false,0],[2,30,false,0],[2,31,false,0],[2,33,false,0],[2,34,false,0],[2,36,false,0],[2,37,false,0],[2,39,false,0],[3,13,false,0],[3,17,false,0],[3,18,false,0],[3,22,false,0],[3,24,false,0],[3,26,false,0],[3,28,false,0],[3,30,false,0],[3,31,false,0],[3,32,false,0],[3,34,false,0],[3,36,false,0],[3,37,false,0],[3,38,false,0],[4,14,false,0],[4,16,false,0],[4,19,false,0],[4,21,false,0],[4,23,false,0],[4,25,false,0],[4,26,false,0],[4,28,false,0],[4,30,false,0],[4,32,false,0],[4,34,false,0],[4,35,false,0],[4,36,false,0],[4,38,false,0],[5,13,false,0],[5,16,false,0],[5,18,false,0],[5,21,false,0],[5,22,false,0],[5,24,false,0],[5,27,false,0],[5,29,false,0],[5,30,false,0],[5,33,false,0],[5,34,false,0],[5,35,false,0],[5,36,false,0],[5,39,false,0],[6,14,false,0],[6,15,false,0],[6,19,false,0],[6,20,false,0],[6,22,false,0],[6,24,false,0],[6,27,false,0],[6,29,false,0],[6,31,false,0],[6,32,false,0],[6,34,false,0],[6,35,false,0],[6,37,false,0],[6,38,false,0],[7,13,false,0],[7,15,false,0],[7,18,false,0],[7,20,false,0],[7,23,false,0],[7,25,false,0],[7,26,false,0],[7,28,false,0],[7,31,false,0],[7,33,false,0],[7,34,false,0],[7,35,false,0],[7,37,false,0],[7,39,false,0],[8,12,false,0],[8,14,false,0],[8,18,false,0],[8,20,false,0],[8,21,false,0],[8,23,false,0],[8,24,false,0],[8,26,false,0],[8,29,false,0],[8,32,false,0],[8,35,false,0],[8,36,false,0],[8,37,false,0],[8,39,false,0],[9,12,false,0],[9,13,false,0],[9,19,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,25,false,0],[9,27,false,0],[9,28,false,0],[9,33,false,0],[9,35,false,0],[9,36,false,0],[9,37,false,0],[9,38,false,0],[10,12,false,0],[10,16,false,0],[10,18,false,0],[10,19,false,0],[10,20,false,0],[10,24,false,0],[10,25,false,0],[10,28,false,0],[10,29,false,0],[10,30,false,0],[10,34,false,0],[10,37,false,0],[10,38,false,0],[10,39,false,0],[11,12,false,0],[11,15,false,0],[11,18,false,0],[11,19,false,0],[11,21,false,0],[11,22,false,0],[11,23,false,0],[11,26,false,0],[11,27,false,0],[11,31,false,0],[11,34,false,0],[11,36,false,0],[11,38,false,0],[11,39,false,0]]}",
+      "selected_sectors": [
+        "111111111111000",
+        "111111111110000",
+        "011111111110000",
+        "111111111100000",
+        "101111111100000",
+        "001111111100000"
+      ],
+      "selected_topology_classes": [
+        {
+          "id": "contraction-7f04f6e06b09306a",
+          "classification": "nonfactorized",
+          "physical_edge_count": 12
+        },
+        {
+          "id": "contraction-dbfad1d270694d21",
+          "classification": "nonfactorized",
+          "physical_edge_count": 11
+        },
+        {
+          "id": "contraction-98b1a2aa26da0bf5",
+          "classification": "nonfactorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-9a9733ad931b75ba",
+          "classification": "nonfactorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-e35bd83ea1a041e9",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-d0289d97de63756e",
+          "classification": "nonfactorized",
+          "physical_edge_count": 8
+        }
+      ]
+    },
+    {
+      "id": "topology-e781c3e0c617c870",
+      "input": "families/topology-e781c3e0c617c870.toml",
+      "dot": "dot/topology-e781c3e0c617c870.dot",
+      "loop_count": 5,
+      "coordinate_count": 15,
+      "physical_edge_count": 12,
+      "physical_propagators": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "auxiliary_slots": [
+        12,
+        13,
+        14
+      ],
+      "momenta": [
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          -1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          -1,
+          -1,
+          1
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          -1,
+          0
+        ],
+        [
+          1,
+          0,
+          -1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          -1
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          -1
+        ]
+      ],
+      "native_basis_rank": 15,
+      "common_mass_squared": 1,
+      "denominator_convention": "q^2-1",
+      "representative_graph": "cubic-0061",
+      "coordinate_edge_ids": [
+        0,
+        11,
+        6,
+        9,
+        1,
+        7,
+        5,
+        2,
+        4,
+        8,
+        3,
+        10
+      ],
+      "coordinate_edge_signs": [
+        1,
+        -1,
+        1,
+        1,
+        1,
+        -1,
+        1,
+        -1,
+        -1,
+        1,
+        1,
+        -1
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[0,18,false,0],[0,20,false,0],[0,22,false,0],[0,24,false,0],[0,26,false,0],[0,28,false,0],[0,30,false,0],[0,32,false,0],[0,34,false,0],[0,35,false,0],[0,37,false,0],[1,15,false,0],[1,18,false,0],[1,19,false,0],[1,22,false,0],[1,23,false,0],[1,25,false,0],[1,28,false,0],[1,29,false,0],[1,31,false,0],[1,33,false,0],[1,35,false,0],[1,36,false,0],[2,16,false,0],[2,17,false,0],[2,19,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[2,30,false,0],[2,32,false,0],[2,34,false,0],[2,35,false,0],[2,36,false,0],[3,15,false,0],[3,17,false,0],[3,20,false,0],[3,21,false,0],[3,24,false,0],[3,26,false,0],[3,27,false,0],[3,29,false,0],[3,31,false,0],[3,33,false,0],[3,35,false,0],[3,37,false,0],[4,13,false,0],[4,14,false,0],[4,22,false,0],[4,25,false,0],[4,26,false,0],[4,27,false,0],[4,31,false,0],[4,32,false,0],[4,33,false,0],[4,34,false,0],[4,36,false,0],[4,37,false,0],[5,12,false,0],[5,14,false,0],[5,21,false,0],[5,23,false,0],[5,24,false,0],[5,28,false,0],[5,29,false,0],[5,30,false,0],[5,33,false,0],[5,34,false,0],[5,36,false,0],[5,37,false,0],[6,12,false,0],[6,13,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,29,false,0],[6,30,false,0],[6,31,false,0],[6,32,false,0],[6,36,false,0],[6,37,false,0],[7,13,false,0],[7,14,false,0],[7,16,false,0],[7,18,false,0],[7,20,false,0],[7,24,false,0],[7,25,false,0],[7,27,false,0],[7,28,false,0],[7,30,false,0],[7,31,false,0],[7,33,false,0],[7,35,false,0],[7,36,false,0],[8,13,false,0],[8,14,false,0],[8,15,false,0],[8,18,false,0],[8,19,false,0],[8,23,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[8,29,false,0],[8,32,false,0],[8,34,false,0],[8,35,false,0],[8,37,false,0],[9,12,false,0],[9,14,false,0],[9,16,false,0],[9,17,false,0],[9,19,false,0],[9,24,false,0],[9,25,false,0],[9,27,false,0],[9,28,false,0],[9,29,false,0],[9,32,false,0],[9,33,false,0],[9,35,false,0],[9,37,false,0],[10,12,false,0],[10,14,false,0],[10,15,false,0],[10,17,false,0],[10,20,false,0],[10,23,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,30,false,0],[10,31,false,0],[10,34,false,0],[10,35,false,0],[10,36,false,0],[11,15,false,0],[11,16,false,0],[11,19,false,0],[11,20,false,0],[11,23,false,0],[11,24,false,0],[11,25,false,0],[11,26,false,0],[11,29,false,0],[11,30,false,0],[11,31,false,0],[11,32,false,0],[11,33,false,0],[11,34,false,0],[11,36,false,0],[11,37,false,0]]}",
+      "selected_sectors": [
+        "111111111111000",
+        "111011111111000",
+        "111110111111000",
+        "111111011111000",
+        "111010111111000",
+        "111110011111000",
+        "011011111111000",
+        "111100011111000"
+      ],
+      "selected_topology_classes": [
+        {
+          "id": "contraction-e781c3e0c617c870",
+          "classification": "nonfactorized",
+          "physical_edge_count": 12
+        },
+        {
+          "id": "contraction-0e1e940e5400d225",
+          "classification": "nonfactorized",
+          "physical_edge_count": 11
+        },
+        {
+          "id": "contraction-1a85c7da02ea39f3",
+          "classification": "nonfactorized",
+          "physical_edge_count": 11
+        },
+        {
+          "id": "contraction-38c9b0fd56bb3b06",
+          "classification": "nonfactorized",
+          "physical_edge_count": 11
+        },
+        {
+          "id": "contraction-b5936230556420e7",
+          "classification": "factorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-cb5f52fe388005ae",
+          "classification": "nonfactorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-cc51b68048817b56",
+          "classification": "nonfactorized",
+          "physical_edge_count": 10
+        },
+        {
+          "id": "contraction-47ca4bada78ff2d2",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        }
+      ]
+    },
+    {
+      "id": "topology-eff219c6e93773b9",
+      "input": "families/topology-eff219c6e93773b9.toml",
+      "dot": "dot/topology-eff219c6e93773b9.dot",
+      "loop_count": 5,
+      "coordinate_count": 15,
+      "physical_edge_count": 12,
+      "physical_propagators": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "auxiliary_slots": [
+        12,
+        13,
+        14
+      ],
+      "momenta": [
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          1
+        ],
+        [
+          0,
+          1,
+          -1,
+          -1,
+          1
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          -1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          -1,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          0,
+          -1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          -1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          -1
+        ]
+      ],
+      "native_basis_rank": 15,
+      "common_mass_squared": 1,
+      "denominator_convention": "q^2-1",
+      "representative_graph": "cubic-0064",
+      "coordinate_edge_ids": [
+        2,
+        4,
+        7,
+        9,
+        1,
+        5,
+        0,
+        8,
+        10,
+        3,
+        11,
+        6
+      ],
+      "coordinate_edge_signs": [
+        -1,
+        -1,
+        -1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        -1,
+        1,
+        1,
+        1
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[0,20,false,0],[0,23,false,0],[0,24,false,0],[0,27,false,0],[0,28,false,0],[0,31,false,0],[0,32,false,0],[0,35,false,0],[0,36,false,0],[0,37,false,0],[0,38,false,0],[0,39,false,0],[0,40,false,0],[1,17,false,0],[1,18,false,0],[1,22,false,0],[1,24,false,0],[1,25,false,0],[1,26,false,0],[1,30,false,0],[1,32,false,0],[1,33,false,0],[1,34,false,0],[1,37,false,0],[1,38,false,0],[1,39,false,0],[1,40,false,0],[2,15,false,0],[2,16,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,26,false,0],[2,29,false,0],[2,31,false,0],[2,33,false,0],[2,34,false,0],[2,35,false,0],[2,36,false,0],[2,39,false,0],[2,40,false,0],[3,13,false,0],[3,14,false,0],[3,21,false,0],[3,22,false,0],[3,27,false,0],[3,28,false,0],[3,29,false,0],[3,30,false,0],[3,33,false,0],[3,34,false,0],[3,35,false,0],[3,36,false,0],[3,37,false,0],[3,38,false,0],[4,12,false,0],[4,14,false,0],[4,16,false,0],[4,18,false,0],[4,20,false,0],[4,24,false,0],[4,26,false,0],[4,28,false,0],[4,29,false,0],[4,30,false,0],[4,31,false,0],[4,34,false,0],[4,36,false,0],[4,38,false,0],[4,40,false,0],[5,12,false,0],[5,13,false,0],[5,15,false,0],[5,17,false,0],[5,19,false,0],[5,24,false,0],[5,26,false,0],[5,28,false,0],[5,29,false,0],[5,30,false,0],[5,31,false,0],[5,33,false,0],[5,35,false,0],[5,37,false,0],[5,39,false,0],[6,12,false,0],[6,14,false,0],[6,16,false,0],[6,18,false,0],[6,19,false,0],[6,23,false,0],[6,26,false,0],[6,27,false,0],[6,29,false,0],[6,30,false,0],[6,32,false,0],[6,34,false,0],[6,35,false,0],[6,37,false,0],[6,39,false,0],[7,12,false,0],[7,13,false,0],[7,15,false,0],[7,17,false,0],[7,20,false,0],[7,23,false,0],[7,26,false,0],[7,27,false,0],[7,29,false,0],[7,30,false,0],[7,32,false,0],[7,33,false,0],[7,36,false,0],[7,38,false,0],[7,40,false,0],[8,12,false,0],[8,14,false,0],[8,16,false,0],[8,17,false,0],[8,20,false,0],[8,22,false,0],[8,25,false,0],[8,28,false,0],[8,29,false,0],[8,31,false,0],[8,32,false,0],[8,33,false,0],[8,36,false,0],[8,37,false,0],[8,39,false,0],[9,12,false,0],[9,13,false,0],[9,15,false,0],[9,18,false,0],[9,19,false,0],[9,22,false,0],[9,25,false,0],[9,28,false,0],[9,29,false,0],[9,31,false,0],[9,32,false,0],[9,34,false,0],[9,35,false,0],[9,38,false,0],[9,40,false,0],[10,12,false,0],[10,14,false,0],[10,15,false,0],[10,18,false,0],[10,19,false,0],[10,21,false,0],[10,25,false,0],[10,27,false,0],[10,30,false,0],[10,31,false,0],[10,32,false,0],[10,33,false,0],[10,36,false,0],[10,37,false,0],[10,40,false,0],[11,12,false,0],[11,13,false,0],[11,16,false,0],[11,17,false,0],[11,20,false,0],[11,21,false,0],[11,25,false,0],[11,27,false,0],[11,30,false,0],[11,31,false,0],[11,32,false,0],[11,34,false,0],[11,35,false,0],[11,38,false,0],[11,39,false,0]]}",
+      "selected_sectors": [
+        "111111111111000"
+      ],
+      "selected_topology_classes": [
+        {
+          "id": "contraction-eff219c6e93773b9",
+          "classification": "nonfactorized",
+          "physical_edge_count": 12
+        }
+      ]
+    }
+  ],
+  "generation_scope": "one selected sector for every graph-matroid class",
+  "selected_sector_count": 67,
+  "selected_sector_classes": {
+    "nonfactorized": 48,
+    "factorized": 19
+  },
+  "selected_generation_is_not_assembled_full_downset_closure": true,
+  "cross_parent_subsector_work_deduplicated": false,
+  "topology_census": "classified_census.json",
+  "coverage_witnesses": "maximal_parent_cover.json",
+  "contraction_census": "contraction_census.json",
+  "dot_semantics": "native FeynKit phi3 DOT; masses normalized to one in TOML",
+  "ibp_generation_performed": false,
+  "closure_claim": false
+}

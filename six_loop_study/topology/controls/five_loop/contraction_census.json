@@ -1,0 +1,1643 @@
+{
+  "schema": "rustred.offline-parent-contraction-matroids.v1",
+  "loops": 5,
+  "complete": true,
+  "parents_done": [
+    "topology-56637102394d35a1",
+    "topology-7f04f6e06b09306a",
+    "topology-e781c3e0c617c870",
+    "topology-eff219c6e93773b9"
+  ],
+  "counts": {
+    "labelled_sectors": 16384,
+    "rank_deficient_sectors": 5984,
+    "factorized_sectors": 7832,
+    "nonfactorized_sectors": 2568
+  },
+  "classes_by_kind": {
+    "nonfactorized": 48,
+    "factorized": 19
+  },
+  "classes_by_edge_count": {
+    "nonfactorized": {
+      "12": 4,
+      "11": 7,
+      "10": 13,
+      "9": 12,
+      "8": 8,
+      "7": 3,
+      "6": 1
+    },
+    "factorized": {
+      "10": 2,
+      "9": 3,
+      "8": 5,
+      "7": 5,
+      "6": 3,
+      "5": 1
+    }
+  },
+  "total_classes": 67,
+  "representatives": [
+    {
+      "id": "contraction-56637102394d35a1",
+      "classification": "nonfactorized",
+      "physical_edge_count": 12,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[0,20,false,0],[0,25,false,0],[0,26,false,0],[0,29,false,0],[0,30,false,0],[0,31,false,0],[0,32,false,0],[0,35,false,0],[0,36,false,0],[0,37,false,0],[0,38,false,0],[0,39,false,0],[1,17,false,0],[1,18,false,0],[1,23,false,0],[1,24,false,0],[1,27,false,0],[1,28,false,0],[1,31,false,0],[1,32,false,0],[1,33,false,0],[1,34,false,0],[1,37,false,0],[1,38,false,0],[1,39,false,0],[2,15,false,0],[2,16,false,0],[2,21,false,0],[2,22,false,0],[2,27,false,0],[2,28,false,0],[2,29,false,0],[2,30,false,0],[2,33,false,0],[2,34,false,0],[2,35,false,0],[2,36,false,0],[2,39,false,0],[3,13,false,0],[3,14,false,0],[3,18,false,0],[3,20,false,0],[3,21,false,0],[3,22,false,0],[3,24,false,0],[3,26,false,0],[3,28,false,0],[3,30,false,0],[3,34,false,0],[3,36,false,0],[3,37,false,0],[3,38,false,0],[4,13,false,0],[4,14,false,0],[4,17,false,0],[4,19,false,0],[4,21,false,0],[4,22,false,0],[4,23,false,0],[4,25,false,0],[4,27,false,0],[4,29,false,0],[4,33,false,0],[4,35,false,0],[4,37,false,0],[4,38,false,0],[5,12,false,0],[5,14,false,0],[5,16,false,0],[5,20,false,0],[5,22,false,0],[5,23,false,0],[5,24,false,0],[5,25,false,0],[5,28,false,0],[5,32,false,0],[5,33,false,0],[5,35,false,0],[5,36,false,0],[5,38,false,0],[6,12,false,0],[6,14,false,0],[6,15,false,0],[6,19,false,0],[6,21,false,0],[6,23,false,0],[6,24,false,0],[6,26,false,0],[6,27,false,0],[6,31,false,0],[6,34,false,0],[6,35,false,0],[6,36,false,0],[6,37,false,0],[7,12,false,0],[7,13,false,0],[7,16,false,0],[7,18,false,0],[7,21,false,0],[7,23,false,0],[7,25,false,0],[7,26,false,0],[7,30,false,0],[7,32,false,0],[7,33,false,0],[7,34,false,0],[7,35,false,0],[7,37,false,0],[8,12,false,0],[8,13,false,0],[8,15,false,0],[8,17,false,0],[8,22,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,29,false,0],[8,31,false,0],[8,33,false,0],[8,34,false,0],[8,36,false,0],[8,38,false,0],[9,17,false,0],[9,18,false,0],[9,19,false,0],[9,20,false,0],[9,23,false,0],[9,24,false,0],[9,25,false,0],[9,26,false,0],[9,27,false,0],[9,28,false,0],[9,29,false,0],[9,30,false,0],[9,33,false,0],[9,34,false,0],[9,35,false,0],[9,36,false,0],[10,15,false,0],[10,16,false,0],[10,19,false,0],[10,20,false,0],[10,21,false,0],[10,22,false,0],[10,25,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,31,false,0],[10,32,false,0],[10,33,false,0],[10,34,false,0],[10,37,false,0],[10,38,false,0],[11,15,false,0],[11,16,false,0],[11,17,false,0],[11,18,false,0],[11,21,false,0],[11,22,false,0],[11,23,false,0],[11,24,false,0],[11,29,false,0],[11,30,false,0],[11,31,false,0],[11,32,false,0],[11,35,false,0],[11,36,false,0],[11,37,false,0],[11,38,false,0]]}",
+      "labelled_occurrences": 1,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 1
+      }
+    },
+    {
+      "id": "contraction-7f04f6e06b09306a",
+      "classification": "nonfactorized",
+      "physical_edge_count": 12,
+      "representative_parent": "topology-7f04f6e06b09306a",
+      "representative_slots": [
+        10,
+        11,
+        8,
+        9,
+        4,
+        5,
+        6,
+        7,
+        2,
+        3,
+        0,
+        1
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[0,17,false,0],[0,21,false,0],[0,26,false,0],[0,27,false,0],[0,28,false,0],[0,29,false,0],[0,31,false,0],[0,32,false,0],[0,33,false,0],[0,35,false,0],[0,37,false,0],[0,38,false,0],[0,39,false,0],[1,15,false,0],[1,17,false,0],[1,20,false,0],[1,22,false,0],[1,23,false,0],[1,24,false,0],[1,25,false,0],[1,30,false,0],[1,32,false,0],[1,33,false,0],[1,35,false,0],[1,36,false,0],[1,38,false,0],[1,39,false,0],[2,14,false,0],[2,17,false,0],[2,19,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[2,29,false,0],[2,30,false,0],[2,31,false,0],[2,33,false,0],[2,34,false,0],[2,36,false,0],[2,37,false,0],[2,39,false,0],[3,13,false,0],[3,17,false,0],[3,18,false,0],[3,22,false,0],[3,24,false,0],[3,26,false,0],[3,28,false,0],[3,30,false,0],[3,31,false,0],[3,32,false,0],[3,34,false,0],[3,36,false,0],[3,37,false,0],[3,38,false,0],[4,14,false,0],[4,16,false,0],[4,19,false,0],[4,21,false,0],[4,23,false,0],[4,25,false,0],[4,26,false,0],[4,28,false,0],[4,30,false,0],[4,32,false,0],[4,34,false,0],[4,35,false,0],[4,36,false,0],[4,38,false,0],[5,13,false,0],[5,16,false,0],[5,18,false,0],[5,21,false,0],[5,22,false,0],[5,24,false,0],[5,27,false,0],[5,29,false,0],[5,30,false,0],[5,33,false,0],[5,34,false,0],[5,35,false,0],[5,36,false,0],[5,39,false,0],[6,14,false,0],[6,15,false,0],[6,19,false,0],[6,20,false,0],[6,22,false,0],[6,24,false,0],[6,27,false,0],[6,29,false,0],[6,31,false,0],[6,32,false,0],[6,34,false,0],[6,35,false,0],[6,37,false,0],[6,38,false,0],[7,13,false,0],[7,15,false,0],[7,18,false,0],[7,20,false,0],[7,23,false,0],[7,25,false,0],[7,26,false,0],[7,28,false,0],[7,31,false,0],[7,33,false,0],[7,34,false,0],[7,35,false,0],[7,37,false,0],[7,39,false,0],[8,12,false,0],[8,14,false,0],[8,18,false,0],[8,20,false,0],[8,21,false,0],[8,23,false,0],[8,24,false,0],[8,26,false,0],[8,29,false,0],[8,32,false,0],[8,35,false,0],[8,36,false,0],[8,37,false,0],[8,39,false,0],[9,12,false,0],[9,13,false,0],[9,19,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,25,false,0],[9,27,false,0],[9,28,false,0],[9,33,false,0],[9,35,false,0],[9,36,false,0],[9,37,false,0],[9,38,false,0],[10,12,false,0],[10,16,false,0],[10,18,false,0],[10,19,false,0],[10,20,false,0],[10,24,false,0],[10,25,false,0],[10,28,false,0],[10,29,false,0],[10,30,false,0],[10,34,false,0],[10,37,false,0],[10,38,false,0],[10,39,false,0],[11,12,false,0],[11,15,false,0],[11,18,false,0],[11,19,false,0],[11,21,false,0],[11,22,false,0],[11,23,false,0],[11,26,false,0],[11,27,false,0],[11,31,false,0],[11,34,false,0],[11,36,false,0],[11,38,false,0],[11,39,false,0]]}",
+      "labelled_occurrences": 1,
+      "parent_occurrences": {
+        "topology-7f04f6e06b09306a": 1
+      }
+    },
+    {
+      "id": "contraction-e781c3e0c617c870",
+      "classification": "nonfactorized",
+      "physical_edge_count": 12,
+      "representative_parent": "topology-e781c3e0c617c870",
+      "representative_slots": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[0,18,false,0],[0,20,false,0],[0,22,false,0],[0,24,false,0],[0,26,false,0],[0,28,false,0],[0,30,false,0],[0,32,false,0],[0,34,false,0],[0,35,false,0],[0,37,false,0],[1,15,false,0],[1,18,false,0],[1,19,false,0],[1,22,false,0],[1,23,false,0],[1,25,false,0],[1,28,false,0],[1,29,false,0],[1,31,false,0],[1,33,false,0],[1,35,false,0],[1,36,false,0],[2,16,false,0],[2,17,false,0],[2,19,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[2,30,false,0],[2,32,false,0],[2,34,false,0],[2,35,false,0],[2,36,false,0],[3,15,false,0],[3,17,false,0],[3,20,false,0],[3,21,false,0],[3,24,false,0],[3,26,false,0],[3,27,false,0],[3,29,false,0],[3,31,false,0],[3,33,false,0],[3,35,false,0],[3,37,false,0],[4,13,false,0],[4,14,false,0],[4,22,false,0],[4,25,false,0],[4,26,false,0],[4,27,false,0],[4,31,false,0],[4,32,false,0],[4,33,false,0],[4,34,false,0],[4,36,false,0],[4,37,false,0],[5,12,false,0],[5,14,false,0],[5,21,false,0],[5,23,false,0],[5,24,false,0],[5,28,false,0],[5,29,false,0],[5,30,false,0],[5,33,false,0],[5,34,false,0],[5,36,false,0],[5,37,false,0],[6,12,false,0],[6,13,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,29,false,0],[6,30,false,0],[6,31,false,0],[6,32,false,0],[6,36,false,0],[6,37,false,0],[7,13,false,0],[7,14,false,0],[7,16,false,0],[7,18,false,0],[7,20,false,0],[7,24,false,0],[7,25,false,0],[7,27,false,0],[7,28,false,0],[7,30,false,0],[7,31,false,0],[7,33,false,0],[7,35,false,0],[7,36,false,0],[8,13,false,0],[8,14,false,0],[8,15,false,0],[8,18,false,0],[8,19,false,0],[8,23,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[8,29,false,0],[8,32,false,0],[8,34,false,0],[8,35,false,0],[8,37,false,0],[9,12,false,0],[9,14,false,0],[9,16,false,0],[9,17,false,0],[9,19,false,0],[9,24,false,0],[9,25,false,0],[9,27,false,0],[9,28,false,0],[9,29,false,0],[9,32,false,0],[9,33,false,0],[9,35,false,0],[9,37,false,0],[10,12,false,0],[10,14,false,0],[10,15,false,0],[10,17,false,0],[10,20,false,0],[10,23,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,30,false,0],[10,31,false,0],[10,34,false,0],[10,35,false,0],[10,36,false,0],[11,15,false,0],[11,16,false,0],[11,19,false,0],[11,20,false,0],[11,23,false,0],[11,24,false,0],[11,25,false,0],[11,26,false,0],[11,29,false,0],[11,30,false,0],[11,31,false,0],[11,32,false,0],[11,33,false,0],[11,34,false,0],[11,36,false,0],[11,37,false,0]]}",
+      "labelled_occurrences": 1,
+      "parent_occurrences": {
+        "topology-e781c3e0c617c870": 1
+      }
+    },
+    {
+      "id": "contraction-eff219c6e93773b9",
+      "classification": "nonfactorized",
+      "physical_edge_count": 12,
+      "representative_parent": "topology-eff219c6e93773b9",
+      "representative_slots": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[0,20,false,0],[0,23,false,0],[0,24,false,0],[0,27,false,0],[0,28,false,0],[0,31,false,0],[0,32,false,0],[0,35,false,0],[0,36,false,0],[0,37,false,0],[0,38,false,0],[0,39,false,0],[0,40,false,0],[1,17,false,0],[1,18,false,0],[1,22,false,0],[1,24,false,0],[1,25,false,0],[1,26,false,0],[1,30,false,0],[1,32,false,0],[1,33,false,0],[1,34,false,0],[1,37,false,0],[1,38,false,0],[1,39,false,0],[1,40,false,0],[2,15,false,0],[2,16,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,26,false,0],[2,29,false,0],[2,31,false,0],[2,33,false,0],[2,34,false,0],[2,35,false,0],[2,36,false,0],[2,39,false,0],[2,40,false,0],[3,13,false,0],[3,14,false,0],[3,21,false,0],[3,22,false,0],[3,27,false,0],[3,28,false,0],[3,29,false,0],[3,30,false,0],[3,33,false,0],[3,34,false,0],[3,35,false,0],[3,36,false,0],[3,37,false,0],[3,38,false,0],[4,12,false,0],[4,14,false,0],[4,16,false,0],[4,18,false,0],[4,20,false,0],[4,24,false,0],[4,26,false,0],[4,28,false,0],[4,29,false,0],[4,30,false,0],[4,31,false,0],[4,34,false,0],[4,36,false,0],[4,38,false,0],[4,40,false,0],[5,12,false,0],[5,13,false,0],[5,15,false,0],[5,17,false,0],[5,19,false,0],[5,24,false,0],[5,26,false,0],[5,28,false,0],[5,29,false,0],[5,30,false,0],[5,31,false,0],[5,33,false,0],[5,35,false,0],[5,37,false,0],[5,39,false,0],[6,12,false,0],[6,14,false,0],[6,16,false,0],[6,18,false,0],[6,19,false,0],[6,23,false,0],[6,26,false,0],[6,27,false,0],[6,29,false,0],[6,30,false,0],[6,32,false,0],[6,34,false,0],[6,35,false,0],[6,37,false,0],[6,39,false,0],[7,12,false,0],[7,13,false,0],[7,15,false,0],[7,17,false,0],[7,20,false,0],[7,23,false,0],[7,26,false,0],[7,27,false,0],[7,29,false,0],[7,30,false,0],[7,32,false,0],[7,33,false,0],[7,36,false,0],[7,38,false,0],[7,40,false,0],[8,12,false,0],[8,14,false,0],[8,16,false,0],[8,17,false,0],[8,20,false,0],[8,22,false,0],[8,25,false,0],[8,28,false,0],[8,29,false,0],[8,31,false,0],[8,32,false,0],[8,33,false,0],[8,36,false,0],[8,37,false,0],[8,39,false,0],[9,12,false,0],[9,13,false,0],[9,15,false,0],[9,18,false,0],[9,19,false,0],[9,22,false,0],[9,25,false,0],[9,28,false,0],[9,29,false,0],[9,31,false,0],[9,32,false,0],[9,34,false,0],[9,35,false,0],[9,38,false,0],[9,40,false,0],[10,12,false,0],[10,14,false,0],[10,15,false,0],[10,18,false,0],[10,19,false,0],[10,21,false,0],[10,25,false,0],[10,27,false,0],[10,30,false,0],[10,31,false,0],[10,32,false,0],[10,33,false,0],[10,36,false,0],[10,37,false,0],[10,40,false,0],[11,12,false,0],[11,13,false,0],[11,16,false,0],[11,17,false,0],[11,20,false,0],[11,21,false,0],[11,25,false,0],[11,27,false,0],[11,30,false,0],[11,31,false,0],[11,32,false,0],[11,34,false,0],[11,35,false,0],[11,38,false,0],[11,39,false,0]]}",
+      "labelled_occurrences": 1,
+      "parent_occurrences": {
+        "topology-eff219c6e93773b9": 1
+      }
+    },
+    {
+      "id": "contraction-0e1e940e5400d225",
+      "classification": "nonfactorized",
+      "physical_edge_count": 11,
+      "representative_parent": "topology-e781c3e0c617c870",
+      "representative_slots": [
+        2,
+        5,
+        0,
+        6,
+        10,
+        4,
+        1,
+        7,
+        11,
+        8,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[0,22,false,0],[0,23,false,0],[0,25,false,0],[0,27,false,0],[0,30,false,0],[0,31,false,0],[0,32,false,0],[1,18,false,0],[1,20,false,0],[1,21,false,0],[1,24,false,0],[1,26,false,0],[1,28,false,0],[1,29,false,0],[1,32,false,0],[2,13,false,0],[2,14,false,0],[2,15,false,0],[2,16,false,0],[2,26,false,0],[2,27,false,0],[2,28,false,0],[2,29,false,0],[2,30,false,0],[2,31,false,0],[3,12,false,0],[3,15,false,0],[3,16,false,0],[3,17,false,0],[3,21,false,0],[3,23,false,0],[3,24,false,0],[3,25,false,0],[3,29,false,0],[3,31,false,0],[4,11,false,0],[4,14,false,0],[4,16,false,0],[4,17,false,0],[4,20,false,0],[4,22,false,0],[4,24,false,0],[4,25,false,0],[4,28,false,0],[4,30,false,0],[5,12,false,0],[5,13,false,0],[5,14,false,0],[5,17,false,0],[5,18,false,0],[5,19,false,0],[5,20,false,0],[5,22,false,0],[5,29,false,0],[5,31,false,0],[6,11,false,0],[6,13,false,0],[6,15,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,21,false,0],[6,23,false,0],[6,28,false,0],[6,30,false,0],[7,12,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[7,22,false,0],[7,26,false,0],[7,27,false,0],[7,28,false,0],[7,30,false,0],[8,11,false,0],[8,14,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,19,false,0],[8,21,false,0],[8,23,false,0],[8,26,false,0],[8,27,false,0],[8,29,false,0],[8,31,false,0],[9,11,false,0],[9,12,false,0],[9,14,false,0],[9,15,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,28,false,0],[9,29,false,0],[9,30,false,0],[9,31,false,0],[10,18,false,0],[10,19,false,0],[10,20,false,0],[10,21,false,0],[10,22,false,0],[10,23,false,0],[10,24,false,0],[10,25,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,29,false,0],[10,30,false,0],[10,31,false,0]]}",
+      "labelled_occurrences": 4,
+      "parent_occurrences": {
+        "topology-e781c3e0c617c870": 4
+      }
+    },
+    {
+      "id": "contraction-1a85c7da02ea39f3",
+      "classification": "nonfactorized",
+      "physical_edge_count": 11,
+      "representative_parent": "topology-e781c3e0c617c870",
+      "representative_slots": [
+        2,
+        3,
+        0,
+        1,
+        9,
+        10,
+        4,
+        6,
+        7,
+        8,
+        11
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[0,20,false,0],[0,25,false,0],[0,26,false,0],[0,27,false,0],[0,28,false,0],[0,31,false,0],[0,32,false,0],[0,33,false,0],[1,17,false,0],[1,18,false,0],[1,21,false,0],[1,22,false,0],[1,23,false,0],[1,24,false,0],[1,29,false,0],[1,30,false,0],[1,33,false,0],[2,13,false,0],[2,15,false,0],[2,16,false,0],[2,18,false,0],[2,20,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[2,28,false,0],[2,30,false,0],[2,32,false,0],[3,13,false,0],[3,15,false,0],[3,16,false,0],[3,17,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,25,false,0],[3,27,false,0],[3,29,false,0],[3,31,false,0],[4,12,false,0],[4,14,false,0],[4,16,false,0],[4,18,false,0],[4,20,false,0],[4,21,false,0],[4,23,false,0],[4,25,false,0],[4,27,false,0],[4,30,false,0],[4,32,false,0],[5,12,false,0],[5,14,false,0],[5,16,false,0],[5,17,false,0],[5,19,false,0],[5,22,false,0],[5,24,false,0],[5,26,false,0],[5,28,false,0],[5,29,false,0],[5,31,false,0],[6,11,false,0],[6,13,false,0],[6,14,false,0],[6,23,false,0],[6,24,false,0],[6,27,false,0],[6,28,false,0],[6,29,false,0],[6,30,false,0],[6,31,false,0],[6,32,false,0],[7,11,false,0],[7,12,false,0],[7,15,false,0],[7,21,false,0],[7,22,false,0],[7,25,false,0],[7,26,false,0],[7,29,false,0],[7,30,false,0],[7,31,false,0],[7,32,false,0],[8,11,false,0],[8,14,false,0],[8,15,false,0],[8,16,false,0],[8,18,false,0],[8,20,false,0],[8,22,false,0],[8,23,false,0],[8,26,false,0],[8,27,false,0],[8,29,false,0],[8,31,false,0],[9,11,false,0],[9,14,false,0],[9,15,false,0],[9,16,false,0],[9,17,false,0],[9,19,false,0],[9,21,false,0],[9,24,false,0],[9,25,false,0],[9,28,false,0],[9,30,false,0],[9,32,false,0],[10,17,false,0],[10,18,false,0],[10,19,false,0],[10,20,false,0],[10,21,false,0],[10,22,false,0],[10,23,false,0],[10,24,false,0],[10,25,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,29,false,0],[10,30,false,0],[10,31,false,0],[10,32,false,0]]}",
+      "labelled_occurrences": 2,
+      "parent_occurrences": {
+        "topology-e781c3e0c617c870": 2
+      }
+    },
+    {
+      "id": "contraction-2f1803770b80ad65",
+      "classification": "nonfactorized",
+      "physical_edge_count": 11,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        7,
+        4,
+        6,
+        1,
+        2,
+        0,
+        11,
+        3,
+        5,
+        9,
+        10
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[0,17,false,0],[0,24,false,0],[0,25,false,0],[0,29,false,0],[0,30,false,0],[0,31,false,0],[0,32,false,0],[0,33,false,0],[0,34,false,0],[1,15,false,0],[1,19,false,0],[1,21,false,0],[1,23,false,0],[1,26,false,0],[1,27,false,0],[1,28,false,0],[1,30,false,0],[1,32,false,0],[1,34,false,0],[2,14,false,0],[2,18,false,0],[2,20,false,0],[2,22,false,0],[2,26,false,0],[2,27,false,0],[2,28,false,0],[2,29,false,0],[2,31,false,0],[2,33,false,0],[3,12,false,0],[3,13,false,0],[3,15,false,0],[3,17,false,0],[3,18,false,0],[3,20,false,0],[3,23,false,0],[3,25,false,0],[3,28,false,0],[3,33,false,0],[3,34,false,0],[4,12,false,0],[4,13,false,0],[4,14,false,0],[4,16,false,0],[4,19,false,0],[4,21,false,0],[4,22,false,0],[4,24,false,0],[4,28,false,0],[4,33,false,0],[4,34,false,0],[5,11,false,0],[5,13,false,0],[5,20,false,0],[5,21,false,0],[5,22,false,0],[5,23,false,0],[5,24,false,0],[5,25,false,0],[5,27,false,0],[5,31,false,0],[5,32,false,0],[6,14,false,0],[6,15,false,0],[6,16,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[6,24,false,0],[6,25,false,0],[7,11,false,0],[7,12,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,22,false,0],[7,23,false,0],[7,24,false,0],[7,26,false,0],[7,30,false,0],[7,31,false,0],[7,33,false,0],[8,11,false,0],[8,12,false,0],[8,16,false,0],[8,18,false,0],[8,19,false,0],[8,22,false,0],[8,23,false,0],[8,25,false,0],[8,26,false,0],[8,29,false,0],[8,32,false,0],[8,34,false,0],[9,11,false,0],[9,12,false,0],[9,15,false,0],[9,17,false,0],[9,18,false,0],[9,21,false,0],[9,22,false,0],[9,24,false,0],[9,27,false,0],[9,28,false,0],[9,31,false,0],[9,32,false,0],[9,33,false,0],[9,34,false,0],[10,11,false,0],[10,12,false,0],[10,14,false,0],[10,16,false,0],[10,19,false,0],[10,20,false,0],[10,23,false,0],[10,25,false,0],[10,27,false,0],[10,28,false,0],[10,31,false,0],[10,32,false,0],[10,33,false,0],[10,34,false,0]]}",
+      "labelled_occurrences": 10,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 6,
+        "topology-e781c3e0c617c870": 4
+      }
+    },
+    {
+      "id": "contraction-38c9b0fd56bb3b06",
+      "classification": "nonfactorized",
+      "physical_edge_count": 11,
+      "representative_parent": "topology-e781c3e0c617c870",
+      "representative_slots": [
+        7,
+        8,
+        0,
+        1,
+        9,
+        10,
+        2,
+        3,
+        4,
+        5,
+        11
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,14,false,0],[0,16,false,0],[0,18,false,0],[0,20,false,0],[0,22,false,0],[0,24,false,0],[0,26,false,0],[0,28,false,0],[0,30,false,0],[0,32,false,0],[1,14,false,0],[1,16,false,0],[1,17,false,0],[1,19,false,0],[1,21,false,0],[1,23,false,0],[1,25,false,0],[1,27,false,0],[1,29,false,0],[1,31,false,0],[2,13,false,0],[2,16,false,0],[2,18,false,0],[2,20,false,0],[2,22,false,0],[2,24,false,0],[2,25,false,0],[2,27,false,0],[2,29,false,0],[2,31,false,0],[3,13,false,0],[3,16,false,0],[3,17,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,26,false,0],[3,28,false,0],[3,30,false,0],[3,32,false,0],[4,12,false,0],[4,15,false,0],[4,19,false,0],[4,20,false,0],[4,23,false,0],[4,24,false,0],[4,27,false,0],[4,28,false,0],[4,31,false,0],[4,32,false,0],[5,12,false,0],[5,15,false,0],[5,17,false,0],[5,18,false,0],[5,21,false,0],[5,22,false,0],[5,25,false,0],[5,26,false,0],[5,29,false,0],[5,30,false,0],[6,11,false,0],[6,15,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[6,27,false,0],[6,28,false,0],[6,29,false,0],[6,30,false,0],[7,11,false,0],[7,15,false,0],[7,17,false,0],[7,18,false,0],[7,23,false,0],[7,24,false,0],[7,25,false,0],[7,26,false,0],[7,31,false,0],[7,32,false,0],[8,13,false,0],[8,14,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[8,29,false,0],[8,30,false,0],[8,31,false,0],[8,32,false,0],[9,11,false,0],[9,12,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0],[9,29,false,0],[9,30,false,0],[9,31,false,0],[9,32,false,0],[10,17,false,0],[10,18,false,0],[10,19,false,0],[10,20,false,0],[10,21,false,0],[10,22,false,0],[10,23,false,0],[10,24,false,0],[10,25,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,29,false,0],[10,30,false,0],[10,31,false,0],[10,32,false,0]]}",
+      "labelled_occurrences": 1,
+      "parent_occurrences": {
+        "topology-e781c3e0c617c870": 1
+      }
+    },
+    {
+      "id": "contraction-86b76a5dfe417b80",
+      "classification": "nonfactorized",
+      "physical_edge_count": 11,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        0,
+        1,
+        3,
+        10,
+        4,
+        11,
+        5,
+        8,
+        7,
+        6,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,22,false,0],[0,23,false,0],[0,24,false,0],[0,25,false,0],[0,30,false,0],[0,31,false,0],[0,32,false,0],[0,33,false,0],[0,34,false,0],[1,18,false,0],[1,19,false,0],[1,20,false,0],[1,21,false,0],[1,26,false,0],[1,27,false,0],[1,28,false,0],[1,29,false,0],[1,34,false,0],[2,13,false,0],[2,15,false,0],[2,16,false,0],[2,17,false,0],[2,19,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[2,29,false,0],[2,31,false,0],[2,33,false,0],[3,12,false,0],[3,14,false,0],[3,16,false,0],[3,17,false,0],[3,18,false,0],[3,21,false,0],[3,22,false,0],[3,25,false,0],[3,27,false,0],[3,28,false,0],[3,31,false,0],[3,32,false,0],[4,13,false,0],[4,15,false,0],[4,16,false,0],[4,17,false,0],[4,18,false,0],[4,20,false,0],[4,22,false,0],[4,24,false,0],[4,26,false,0],[4,28,false,0],[4,30,false,0],[4,32,false,0],[5,12,false,0],[5,14,false,0],[5,16,false,0],[5,17,false,0],[5,19,false,0],[5,20,false,0],[5,23,false,0],[5,24,false,0],[5,26,false,0],[5,29,false,0],[5,30,false,0],[5,33,false,0],[6,11,false,0],[6,14,false,0],[6,15,false,0],[6,17,false,0],[6,21,false,0],[6,25,false,0],[6,26,false,0],[6,28,false,0],[6,29,false,0],[6,30,false,0],[6,32,false,0],[6,33,false,0],[7,11,false,0],[7,12,false,0],[7,13,false,0],[7,17,false,0],[7,20,false,0],[7,24,false,0],[7,27,false,0],[7,28,false,0],[7,29,false,0],[7,31,false,0],[7,32,false,0],[7,33,false,0],[8,11,false,0],[8,13,false,0],[8,14,false,0],[8,16,false,0],[8,19,false,0],[8,23,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[8,30,false,0],[8,31,false,0],[8,32,false,0],[9,11,false,0],[9,12,false,0],[9,15,false,0],[9,16,false,0],[9,18,false,0],[9,22,false,0],[9,26,false,0],[9,27,false,0],[9,29,false,0],[9,30,false,0],[9,31,false,0],[9,33,false,0],[10,18,false,0],[10,19,false,0],[10,20,false,0],[10,21,false,0],[10,22,false,0],[10,23,false,0],[10,24,false,0],[10,25,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,29,false,0],[10,30,false,0],[10,31,false,0],[10,32,false,0],[10,33,false,0]]}",
+      "labelled_occurrences": 3,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 3
+      }
+    },
+    {
+      "id": "contraction-9233b14d5da50cfc",
+      "classification": "nonfactorized",
+      "physical_edge_count": 11,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        1,
+        2,
+        7,
+        8,
+        3,
+        4,
+        5,
+        6,
+        0,
+        9,
+        10
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,20,false,0],[0,21,false,0],[0,24,false,0],[0,25,false,0],[0,28,false,0],[0,29,false,0],[0,32,false,0],[0,33,false,0],[0,34,false,0],[0,35,false,0],[0,36,false,0],[1,18,false,0],[1,19,false,0],[1,22,false,0],[1,23,false,0],[1,26,false,0],[1,27,false,0],[1,30,false,0],[1,31,false,0],[1,34,false,0],[1,35,false,0],[1,36,false,0],[2,14,false,0],[2,15,false,0],[2,16,false,0],[2,17,false,0],[2,19,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[2,29,false,0],[2,31,false,0],[2,33,false,0],[3,14,false,0],[3,15,false,0],[3,16,false,0],[3,17,false,0],[3,18,false,0],[3,20,false,0],[3,22,false,0],[3,24,false,0],[3,26,false,0],[3,28,false,0],[3,30,false,0],[3,32,false,0],[4,12,false,0],[4,13,false,0],[4,15,false,0],[4,17,false,0],[4,21,false,0],[4,23,false,0],[4,26,false,0],[4,27,false,0],[4,28,false,0],[4,30,false,0],[4,32,false,0],[4,33,false,0],[4,36,false,0],[5,11,false,0],[5,13,false,0],[5,15,false,0],[5,16,false,0],[5,20,false,0],[5,22,false,0],[5,26,false,0],[5,27,false,0],[5,29,false,0],[5,31,false,0],[5,32,false,0],[5,33,false,0],[5,35,false,0],[6,12,false,0],[6,13,false,0],[6,14,false,0],[6,16,false,0],[6,19,false,0],[6,25,false,0],[6,26,false,0],[6,28,false,0],[6,29,false,0],[6,30,false,0],[6,31,false,0],[6,32,false,0],[6,36,false,0],[7,11,false,0],[7,13,false,0],[7,14,false,0],[7,17,false,0],[7,18,false,0],[7,24,false,0],[7,27,false,0],[7,28,false,0],[7,29,false,0],[7,30,false,0],[7,31,false,0],[7,33,false,0],[7,35,false,0],[8,11,false,0],[8,12,false,0],[8,16,false,0],[8,17,false,0],[8,22,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,30,false,0],[8,31,false,0],[8,32,false,0],[8,33,false,0],[8,34,false,0],[9,11,false,0],[9,12,false,0],[9,16,false,0],[9,17,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,28,false,0],[9,29,false,0],[9,30,false,0],[9,31,false,0],[9,35,false,0],[9,36,false,0],[10,11,false,0],[10,12,false,0],[10,16,false,0],[10,17,false,0],[10,18,false,0],[10,19,false,0],[10,24,false,0],[10,25,false,0],[10,26,false,0],[10,27,false,0],[10,32,false,0],[10,33,false,0],[10,35,false,0],[10,36,false,0]]}",
+      "labelled_occurrences": 11,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 3,
+        "topology-eff219c6e93773b9": 8
+      }
+    },
+    {
+      "id": "contraction-dbfad1d270694d21",
+      "classification": "nonfactorized",
+      "physical_edge_count": 11,
+      "representative_parent": "topology-7f04f6e06b09306a",
+      "representative_slots": [
+        6,
+        7,
+        8,
+        9,
+        1,
+        10,
+        0,
+        2,
+        3,
+        4,
+        5
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,15,false,0],[0,18,false,0],[0,19,false,0],[0,21,false,0],[0,23,false,0],[0,25,false,0],[0,27,false,0],[0,29,false,0],[0,31,false,0],[0,33,false,0],[0,35,false,0],[1,14,false,0],[1,17,false,0],[1,19,false,0],[1,21,false,0],[1,22,false,0],[1,24,false,0],[1,27,false,0],[1,28,false,0],[1,30,false,0],[1,32,false,0],[1,34,false,0],[2,15,false,0],[2,16,false,0],[2,17,false,0],[2,20,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[2,29,false,0],[2,31,false,0],[2,33,false,0],[2,34,false,0],[3,14,false,0],[3,16,false,0],[3,18,false,0],[3,20,false,0],[3,23,false,0],[3,25,false,0],[3,26,false,0],[3,28,false,0],[3,30,false,0],[3,32,false,0],[3,35,false,0],[4,12,false,0],[4,13,false,0],[4,21,false,0],[4,24,false,0],[4,25,false,0],[4,26,false,0],[4,30,false,0],[4,31,false,0],[4,32,false,0],[4,33,false,0],[4,34,false,0],[4,35,false,0],[5,11,false,0],[5,13,false,0],[5,20,false,0],[5,22,false,0],[5,23,false,0],[5,27,false,0],[5,28,false,0],[5,29,false,0],[5,32,false,0],[5,33,false,0],[5,34,false,0],[5,35,false,0],[6,11,false,0],[6,12,false,0],[6,16,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,28,false,0],[6,29,false,0],[6,30,false,0],[6,31,false,0],[6,34,false,0],[6,35,false,0],[7,12,false,0],[7,13,false,0],[7,15,false,0],[7,18,false,0],[7,19,false,0],[7,23,false,0],[7,24,false,0],[7,26,false,0],[7,27,false,0],[7,29,false,0],[7,30,false,0],[7,32,false,0],[7,34,false,0],[8,12,false,0],[8,13,false,0],[8,14,false,0],[8,17,false,0],[8,19,false,0],[8,22,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[8,31,false,0],[8,33,false,0],[8,35,false,0],[9,11,false,0],[9,13,false,0],[9,15,false,0],[9,16,false,0],[9,17,false,0],[9,23,false,0],[9,24,false,0],[9,26,false,0],[9,27,false,0],[9,28,false,0],[9,31,false,0],[9,32,false,0],[9,35,false,0],[10,11,false,0],[10,13,false,0],[10,14,false,0],[10,16,false,0],[10,18,false,0],[10,22,false,0],[10,25,false,0],[10,26,false,0],[10,27,false,0],[10,29,false,0],[10,30,false,0],[10,33,false,0],[10,34,false,0]]}",
+      "labelled_occurrences": 17,
+      "parent_occurrences": {
+        "topology-7f04f6e06b09306a": 12,
+        "topology-e781c3e0c617c870": 1,
+        "topology-eff219c6e93773b9": 4
+      }
+    },
+    {
+      "id": "contraction-6bd6bb207bdf5e4c",
+      "classification": "factorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        0,
+        3,
+        6,
+        11,
+        10,
+        7,
+        4,
+        5,
+        9,
+        8
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,25,false,0],[1,12,false,0],[1,15,false,0],[1,17,false,0],[1,18,false,0],[1,21,false,0],[1,22,false,0],[1,23,false,0],[1,24,false,0],[2,11,false,0],[2,14,false,0],[2,16,false,0],[2,18,false,0],[2,20,false,0],[2,22,false,0],[2,23,false,0],[2,24,false,0],[3,10,false,0],[3,13,false,0],[3,16,false,0],[3,17,false,0],[3,20,false,0],[3,21,false,0],[3,23,false,0],[3,24,false,0],[4,12,false,0],[4,13,false,0],[4,14,false,0],[4,16,false,0],[4,19,false,0],[4,21,false,0],[4,22,false,0],[4,24,false,0],[5,11,false,0],[5,13,false,0],[5,15,false,0],[5,17,false,0],[5,19,false,0],[5,20,false,0],[5,22,false,0],[5,24,false,0],[6,10,false,0],[6,14,false,0],[6,15,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,24,false,0],[7,11,false,0],[7,12,false,0],[7,13,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0],[7,23,false,0],[8,10,false,0],[8,12,false,0],[8,14,false,0],[8,17,false,0],[8,19,false,0],[8,20,false,0],[8,22,false,0],[8,23,false,0],[9,10,false,0],[9,11,false,0],[9,15,false,0],[9,16,false,0],[9,19,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0]]}",
+      "labelled_occurrences": 3,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 3
+      }
+    },
+    {
+      "id": "contraction-b5936230556420e7",
+      "classification": "factorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-e781c3e0c617c870",
+      "representative_slots": [
+        2,
+        6,
+        9,
+        10,
+        4,
+        0,
+        1,
+        7,
+        8,
+        11
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,24,false,0],[1,12,false,0],[1,14,false,0],[1,17,false,0],[1,19,false,0],[1,20,false,0],[1,22,false,0],[1,23,false,0],[2,11,false,0],[2,14,false,0],[2,16,false,0],[2,18,false,0],[2,20,false,0],[2,21,false,0],[2,23,false,0],[3,10,false,0],[3,14,false,0],[3,15,false,0],[3,18,false,0],[3,19,false,0],[3,21,false,0],[3,22,false,0],[4,12,false,0],[4,13,false,0],[4,15,false,0],[4,16,false,0],[4,18,false,0],[4,22,false,0],[4,23,false,0],[5,11,false,0],[5,13,false,0],[5,15,false,0],[5,17,false,0],[5,19,false,0],[5,21,false,0],[5,23,false,0],[6,10,false,0],[6,13,false,0],[6,16,false,0],[6,17,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[7,11,false,0],[7,12,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,21,false,0],[7,22,false,0],[8,10,false,0],[8,12,false,0],[8,15,false,0],[8,17,false,0],[8,18,false,0],[8,20,false,0],[8,21,false,0],[8,23,false,0],[9,10,false,0],[9,11,false,0],[9,15,false,0],[9,16,false,0],[9,19,false,0],[9,20,false,0],[9,22,false,0],[9,23,false,0]]}",
+      "labelled_occurrences": 6,
+      "parent_occurrences": {
+        "topology-e781c3e0c617c870": 6
+      }
+    },
+    {
+      "id": "contraction-1465f40614ce283c",
+      "classification": "nonfactorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        0,
+        1,
+        7,
+        8,
+        10,
+        3,
+        4,
+        5,
+        6,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[0,20,false,0],[0,23,false,0],[0,24,false,0],[0,27,false,0],[0,28,false,0],[0,29,false,0],[1,17,false,0],[1,18,false,0],[1,21,false,0],[1,22,false,0],[1,25,false,0],[1,26,false,0],[1,29,false,0],[2,12,false,0],[2,13,false,0],[2,14,false,0],[2,16,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[2,28,false,0],[3,11,false,0],[3,13,false,0],[3,14,false,0],[3,15,false,0],[3,21,false,0],[3,23,false,0],[3,25,false,0],[3,27,false,0],[4,11,false,0],[4,12,false,0],[4,15,false,0],[4,16,false,0],[4,17,false,0],[4,18,false,0],[4,19,false,0],[4,20,false,0],[5,10,false,0],[5,14,false,0],[5,15,false,0],[5,16,false,0],[5,18,false,0],[5,20,false,0],[5,22,false,0],[5,24,false,0],[5,25,false,0],[5,27,false,0],[6,10,false,0],[6,14,false,0],[6,15,false,0],[6,16,false,0],[6,17,false,0],[6,19,false,0],[6,21,false,0],[6,23,false,0],[6,26,false,0],[6,28,false,0],[7,10,false,0],[7,12,false,0],[7,13,false,0],[7,15,false,0],[7,18,false,0],[7,20,false,0],[7,25,false,0],[7,26,false,0],[7,27,false,0],[7,28,false,0],[8,10,false,0],[8,11,false,0],[8,13,false,0],[8,16,false,0],[8,17,false,0],[8,19,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[9,17,false,0],[9,18,false,0],[9,19,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0],[9,25,false,0],[9,26,false,0],[9,27,false,0],[9,28,false,0]]}",
+      "labelled_occurrences": 60,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 12,
+        "topology-7f04f6e06b09306a": 24,
+        "topology-e781c3e0c617c870": 8,
+        "topology-eff219c6e93773b9": 16
+      }
+    },
+    {
+      "id": "contraction-413c605c46422f7a",
+      "classification": "nonfactorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        0,
+        1,
+        4,
+        11,
+        7,
+        6,
+        5,
+        3,
+        10,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,17,false,0],[0,19,false,0],[0,22,false,0],[0,23,false,0],[0,26,false,0],[0,27,false,0],[0,29,false,0],[0,30,false,0],[1,16,false,0],[1,18,false,0],[1,20,false,0],[1,21,false,0],[1,24,false,0],[1,25,false,0],[1,28,false,0],[1,30,false,0],[2,11,false,0],[2,14,false,0],[2,15,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[2,28,false,0],[2,29,false,0],[3,10,false,0],[3,13,false,0],[3,15,false,0],[3,20,false,0],[3,22,false,0],[3,24,false,0],[3,26,false,0],[3,28,false,0],[3,29,false,0],[4,11,false,0],[4,12,false,0],[4,13,false,0],[4,18,false,0],[4,19,false,0],[4,20,false,0],[4,22,false,0],[4,25,false,0],[4,27,false,0],[5,10,false,0],[5,12,false,0],[5,14,false,0],[5,18,false,0],[5,19,false,0],[5,21,false,0],[5,23,false,0],[5,24,false,0],[5,26,false,0],[6,12,false,0],[6,13,false,0],[6,14,false,0],[6,15,false,0],[6,16,false,0],[6,17,false,0],[6,24,false,0],[6,25,false,0],[6,26,false,0],[6,27,false,0],[7,11,false,0],[7,14,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[7,22,false,0],[7,24,false,0],[7,26,false,0],[8,10,false,0],[8,13,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,19,false,0],[8,21,false,0],[8,23,false,0],[8,25,false,0],[8,27,false,0],[9,16,false,0],[9,17,false,0],[9,18,false,0],[9,19,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0],[9,25,false,0],[9,26,false,0],[9,27,false,0],[9,28,false,0],[9,29,false,0]]}",
+      "labelled_occurrences": 20,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 12,
+        "topology-e781c3e0c617c870": 8
+      }
+    },
+    {
+      "id": "contraction-532b8d1b6702373e",
+      "classification": "nonfactorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        2,
+        5,
+        7,
+        0,
+        6,
+        1,
+        8,
+        3,
+        9,
+        4
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,25,false,0],[0,26,false,0],[0,27,false,0],[0,28,false,0],[0,29,false,0],[0,30,false,0],[0,31,false,0],[0,32,false,0],[0,33,false,0],[1,14,false,0],[1,15,false,0],[1,17,false,0],[1,18,false,0],[1,21,false,0],[1,22,false,0],[1,23,false,0],[1,24,false,0],[1,27,false,0],[1,32,false,0],[1,33,false,0],[2,12,false,0],[2,13,false,0],[2,17,false,0],[2,18,false,0],[2,19,false,0],[2,20,false,0],[2,23,false,0],[2,24,false,0],[2,27,false,0],[2,30,false,0],[2,31,false,0],[3,11,false,0],[3,15,false,0],[3,16,false,0],[3,18,false,0],[3,19,false,0],[3,20,false,0],[3,22,false,0],[3,24,false,0],[3,26,false,0],[3,29,false,0],[3,31,false,0],[4,11,false,0],[4,14,false,0],[4,16,false,0],[4,17,false,0],[4,19,false,0],[4,20,false,0],[4,21,false,0],[4,23,false,0],[4,25,false,0],[4,28,false,0],[4,30,false,0],[5,10,false,0],[5,13,false,0],[5,16,false,0],[5,18,false,0],[5,20,false,0],[5,21,false,0],[5,22,false,0],[5,23,false,0],[5,26,false,0],[5,28,false,0],[5,33,false,0],[6,10,false,0],[6,12,false,0],[6,16,false,0],[6,17,false,0],[6,19,false,0],[6,21,false,0],[6,22,false,0],[6,24,false,0],[6,25,false,0],[6,29,false,0],[6,32,false,0],[7,12,false,0],[7,13,false,0],[7,14,false,0],[7,15,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0],[7,30,false,0],[7,31,false,0],[7,32,false,0],[7,33,false,0],[8,10,false,0],[8,11,false,0],[8,13,false,0],[8,15,false,0],[8,19,false,0],[8,21,false,0],[8,23,false,0],[8,24,false,0],[8,28,false,0],[8,29,false,0],[8,31,false,0],[8,33,false,0],[9,10,false,0],[9,11,false,0],[9,12,false,0],[9,14,false,0],[9,20,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0],[9,28,false,0],[9,29,false,0],[9,30,false,0],[9,32,false,0]]}",
+      "labelled_occurrences": 11,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 3,
+        "topology-eff219c6e93773b9": 8
+      }
+    },
+    {
+      "id": "contraction-98b1a2aa26da0bf5",
+      "classification": "nonfactorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-7f04f6e06b09306a",
+      "representative_slots": [
+        6,
+        7,
+        2,
+        3,
+        8,
+        9,
+        4,
+        5,
+        1,
+        10
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,13,false,0],[0,16,false,0],[0,18,false,0],[0,19,false,0],[0,21,false,0],[0,23,false,0],[0,25,false,0],[0,27,false,0],[0,29,false,0],[0,31,false,0],[1,13,false,0],[1,15,false,0],[1,17,false,0],[1,19,false,0],[1,20,false,0],[1,22,false,0],[1,24,false,0],[1,26,false,0],[1,28,false,0],[1,30,false,0],[2,12,false,0],[2,16,false,0],[2,18,false,0],[2,19,false,0],[2,21,false,0],[2,23,false,0],[2,24,false,0],[2,26,false,0],[2,28,false,0],[2,30,false,0],[3,12,false,0],[3,15,false,0],[3,17,false,0],[3,19,false,0],[3,20,false,0],[3,22,false,0],[3,25,false,0],[3,27,false,0],[3,29,false,0],[3,31,false,0],[4,11,false,0],[4,14,false,0],[4,17,false,0],[4,18,false,0],[4,22,false,0],[4,23,false,0],[4,26,false,0],[4,27,false,0],[4,30,false,0],[4,31,false,0],[5,11,false,0],[5,14,false,0],[5,15,false,0],[5,16,false,0],[5,20,false,0],[5,21,false,0],[5,24,false,0],[5,25,false,0],[5,28,false,0],[5,29,false,0],[6,10,false,0],[6,14,false,0],[6,17,false,0],[6,18,false,0],[6,20,false,0],[6,21,false,0],[6,26,false,0],[6,27,false,0],[6,28,false,0],[6,29,false,0],[7,10,false,0],[7,14,false,0],[7,15,false,0],[7,16,false,0],[7,22,false,0],[7,23,false,0],[7,24,false,0],[7,25,false,0],[7,30,false,0],[7,31,false,0],[8,12,false,0],[8,13,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[8,29,false,0],[8,30,false,0],[8,31,false,0],[9,10,false,0],[9,11,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,28,false,0],[9,29,false,0],[9,30,false,0],[9,31,false,0]]}",
+      "labelled_occurrences": 9,
+      "parent_occurrences": {
+        "topology-7f04f6e06b09306a": 6,
+        "topology-e781c3e0c617c870": 1,
+        "topology-eff219c6e93773b9": 2
+      }
+    },
+    {
+      "id": "contraction-9a9733ad931b75ba",
+      "classification": "nonfactorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-7f04f6e06b09306a",
+      "representative_slots": [
+        8,
+        9,
+        4,
+        5,
+        6,
+        7,
+        0,
+        1,
+        2,
+        3
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,18,false,0],[0,19,false,0],[0,24,false,0],[0,25,false,0],[0,26,false,0],[0,27,false,0],[0,30,false,0],[0,31,false,0],[0,32,false,0],[1,16,false,0],[1,17,false,0],[1,20,false,0],[1,21,false,0],[1,22,false,0],[1,23,false,0],[1,28,false,0],[1,29,false,0],[1,32,false,0],[2,12,false,0],[2,14,false,0],[2,15,false,0],[2,17,false,0],[2,19,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[2,29,false,0],[2,31,false,0],[3,12,false,0],[3,14,false,0],[3,15,false,0],[3,16,false,0],[3,18,false,0],[3,20,false,0],[3,22,false,0],[3,24,false,0],[3,26,false,0],[3,28,false,0],[3,30,false,0],[4,11,false,0],[4,13,false,0],[4,15,false,0],[4,17,false,0],[4,19,false,0],[4,20,false,0],[4,22,false,0],[4,24,false,0],[4,26,false,0],[4,29,false,0],[4,31,false,0],[5,11,false,0],[5,13,false,0],[5,15,false,0],[5,16,false,0],[5,18,false,0],[5,21,false,0],[5,23,false,0],[5,25,false,0],[5,27,false,0],[5,28,false,0],[5,30,false,0],[6,10,false,0],[6,12,false,0],[6,13,false,0],[6,22,false,0],[6,23,false,0],[6,26,false,0],[6,27,false,0],[6,28,false,0],[6,29,false,0],[6,30,false,0],[6,31,false,0],[7,10,false,0],[7,11,false,0],[7,14,false,0],[7,20,false,0],[7,21,false,0],[7,24,false,0],[7,25,false,0],[7,28,false,0],[7,29,false,0],[7,30,false,0],[7,31,false,0],[8,10,false,0],[8,13,false,0],[8,14,false,0],[8,15,false,0],[8,17,false,0],[8,19,false,0],[8,21,false,0],[8,22,false,0],[8,25,false,0],[8,26,false,0],[8,28,false,0],[8,30,false,0],[9,10,false,0],[9,13,false,0],[9,14,false,0],[9,15,false,0],[9,16,false,0],[9,18,false,0],[9,20,false,0],[9,23,false,0],[9,24,false,0],[9,27,false,0],[9,29,false,0],[9,31,false,0]]}",
+      "labelled_occurrences": 18,
+      "parent_occurrences": {
+        "topology-7f04f6e06b09306a": 12,
+        "topology-e781c3e0c617c870": 2,
+        "topology-eff219c6e93773b9": 4
+      }
+    },
+    {
+      "id": "contraction-b06616ec5c652cd7",
+      "classification": "nonfactorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        1,
+        2,
+        7,
+        9,
+        8,
+        10,
+        3,
+        6,
+        5,
+        4
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,21,false,0],[0,22,false,0],[0,23,false,0],[0,24,false,0],[0,29,false,0],[0,30,false,0],[0,31,false,0],[0,32,false,0],[0,33,false,0],[1,17,false,0],[1,18,false,0],[1,19,false,0],[1,20,false,0],[1,25,false,0],[1,26,false,0],[1,27,false,0],[1,28,false,0],[1,33,false,0],[2,12,false,0],[2,14,false,0],[2,15,false,0],[2,16,false,0],[2,18,false,0],[2,20,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[2,28,false,0],[2,30,false,0],[2,32,false,0],[3,11,false,0],[3,13,false,0],[3,15,false,0],[3,16,false,0],[3,17,false,0],[3,20,false,0],[3,21,false,0],[3,24,false,0],[3,26,false,0],[3,27,false,0],[3,30,false,0],[3,31,false,0],[4,12,false,0],[4,14,false,0],[4,15,false,0],[4,16,false,0],[4,17,false,0],[4,19,false,0],[4,21,false,0],[4,23,false,0],[4,25,false,0],[4,27,false,0],[4,29,false,0],[4,31,false,0],[5,11,false,0],[5,13,false,0],[5,15,false,0],[5,16,false,0],[5,18,false,0],[5,19,false,0],[5,22,false,0],[5,23,false,0],[5,25,false,0],[5,28,false,0],[5,29,false,0],[5,32,false,0],[6,10,false,0],[6,13,false,0],[6,14,false,0],[6,16,false,0],[6,20,false,0],[6,24,false,0],[6,25,false,0],[6,27,false,0],[6,28,false,0],[6,29,false,0],[6,31,false,0],[6,32,false,0],[7,10,false,0],[7,11,false,0],[7,12,false,0],[7,16,false,0],[7,19,false,0],[7,23,false,0],[7,26,false,0],[7,27,false,0],[7,28,false,0],[7,30,false,0],[7,31,false,0],[7,32,false,0],[8,10,false,0],[8,12,false,0],[8,13,false,0],[8,15,false,0],[8,18,false,0],[8,22,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,29,false,0],[8,30,false,0],[8,31,false,0],[9,10,false,0],[9,11,false,0],[9,14,false,0],[9,15,false,0],[9,17,false,0],[9,21,false,0],[9,25,false,0],[9,26,false,0],[9,28,false,0],[9,29,false,0],[9,30,false,0],[9,32,false,0]]}",
+      "labelled_occurrences": 7,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 3,
+        "topology-eff219c6e93773b9": 4
+      }
+    },
+    {
+      "id": "contraction-bbe08cce3d95d3f4",
+      "classification": "nonfactorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        6,
+        7,
+        2,
+        3,
+        4,
+        0,
+        1,
+        10,
+        11,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,18,false,0],[0,21,false,0],[0,22,false,0],[0,24,false,0],[0,26,false,0],[0,29,false,0],[0,30,false,0],[0,31,false,0],[1,17,false,0],[1,19,false,0],[1,20,false,0],[1,23,false,0],[1,25,false,0],[1,27,false,0],[1,28,false,0],[1,31,false,0],[2,12,false,0],[2,13,false,0],[2,14,false,0],[2,15,false,0],[2,25,false,0],[2,26,false,0],[2,27,false,0],[2,28,false,0],[2,29,false,0],[2,30,false,0],[3,11,false,0],[3,14,false,0],[3,15,false,0],[3,16,false,0],[3,20,false,0],[3,22,false,0],[3,23,false,0],[3,24,false,0],[3,28,false,0],[3,30,false,0],[4,10,false,0],[4,13,false,0],[4,15,false,0],[4,16,false,0],[4,19,false,0],[4,21,false,0],[4,23,false,0],[4,24,false,0],[4,27,false,0],[4,29,false,0],[5,11,false,0],[5,12,false,0],[5,13,false,0],[5,16,false,0],[5,17,false,0],[5,18,false,0],[5,19,false,0],[5,21,false,0],[5,28,false,0],[5,30,false,0],[6,10,false,0],[6,12,false,0],[6,14,false,0],[6,16,false,0],[6,17,false,0],[6,18,false,0],[6,20,false,0],[6,22,false,0],[6,27,false,0],[6,29,false,0],[7,11,false,0],[7,14,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,21,false,0],[7,25,false,0],[7,26,false,0],[7,27,false,0],[7,29,false,0],[8,10,false,0],[8,13,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,20,false,0],[8,22,false,0],[8,25,false,0],[8,26,false,0],[8,28,false,0],[8,30,false,0],[9,10,false,0],[9,11,false,0],[9,13,false,0],[9,14,false,0],[9,19,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,27,false,0],[9,28,false,0],[9,29,false,0],[9,30,false,0]]}",
+      "labelled_occurrences": 12,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 6,
+        "topology-e781c3e0c617c870": 6
+      }
+    },
+    {
+      "id": "contraction-c591ac8fc9d45fce",
+      "classification": "nonfactorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        3,
+        4,
+        5,
+        6,
+        11,
+        0,
+        1,
+        2,
+        9,
+        10
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,14,false,0],[0,18,false,0],[0,20,false,0],[0,23,false,0],[0,24,false,0],[0,27,false,0],[0,28,false,0],[1,13,false,0],[1,17,false,0],[1,20,false,0],[1,21,false,0],[1,22,false,0],[1,25,false,0],[1,26,false,0],[2,12,false,0],[2,16,false,0],[2,19,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[2,28,false,0],[3,11,false,0],[3,15,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,25,false,0],[3,27,false,0],[4,11,false,0],[4,12,false,0],[4,13,false,0],[4,14,false,0],[4,15,false,0],[4,16,false,0],[4,17,false,0],[4,18,false,0],[5,10,false,0],[5,15,false,0],[5,16,false,0],[5,17,false,0],[5,18,false,0],[5,25,false,0],[5,26,false,0],[5,27,false,0],[5,28,false,0],[6,10,false,0],[6,13,false,0],[6,14,false,0],[6,15,false,0],[6,16,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[6,24,false,0],[7,10,false,0],[7,11,false,0],[7,12,false,0],[7,17,false,0],[7,18,false,0],[7,21,false,0],[7,22,false,0],[7,23,false,0],[7,24,false,0],[8,13,false,0],[8,14,false,0],[8,17,false,0],[8,18,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[9,11,false,0],[9,12,false,0],[9,15,false,0],[9,16,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0],[9,25,false,0],[9,26,false,0],[9,27,false,0],[9,28,false,0]]}",
+      "labelled_occurrences": 13,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 3,
+        "topology-e781c3e0c617c870": 10
+      }
+    },
+    {
+      "id": "contraction-cb5f52fe388005ae",
+      "classification": "nonfactorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-e781c3e0c617c870",
+      "representative_slots": [
+        9,
+        10,
+        2,
+        3,
+        7,
+        8,
+        0,
+        1,
+        4,
+        11
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,14,false,0],[0,17,false,0],[0,18,false,0],[0,21,false,0],[0,22,false,0],[0,25,false,0],[0,26,false,0],[0,29,false,0],[0,30,false,0],[1,14,false,0],[1,15,false,0],[1,16,false,0],[1,19,false,0],[1,20,false,0],[1,23,false,0],[1,24,false,0],[1,27,false,0],[1,28,false,0],[2,13,false,0],[2,16,false,0],[2,18,false,0],[2,20,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[2,28,false,0],[2,30,false,0],[3,13,false,0],[3,15,false,0],[3,17,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,25,false,0],[3,27,false,0],[3,29,false,0],[4,11,false,0],[4,12,false,0],[4,19,false,0],[4,20,false,0],[4,21,false,0],[4,22,false,0],[4,27,false,0],[4,28,false,0],[4,29,false,0],[4,30,false,0],[5,11,false,0],[5,12,false,0],[5,15,false,0],[5,16,false,0],[5,17,false,0],[5,18,false,0],[5,23,false,0],[5,24,false,0],[5,25,false,0],[5,26,false,0],[6,10,false,0],[6,12,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[6,24,false,0],[6,25,false,0],[6,26,false,0],[7,10,false,0],[7,12,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,27,false,0],[7,28,false,0],[7,29,false,0],[7,30,false,0],[8,10,false,0],[8,11,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[8,29,false,0],[8,30,false,0],[9,15,false,0],[9,16,false,0],[9,17,false,0],[9,18,false,0],[9,19,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0],[9,25,false,0],[9,26,false,0],[9,27,false,0],[9,28,false,0],[9,29,false,0],[9,30,false,0]]}",
+      "labelled_occurrences": 3,
+      "parent_occurrences": {
+        "topology-e781c3e0c617c870": 3
+      }
+    },
+    {
+      "id": "contraction-cc51b68048817b56",
+      "classification": "nonfactorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-e781c3e0c617c870",
+      "representative_slots": [
+        1,
+        4,
+        2,
+        5,
+        7,
+        11,
+        6,
+        10,
+        8,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,17,false,0],[0,18,false,0],[0,20,false,0],[0,25,false,0],[0,26,false,0],[0,27,false,0],[0,28,false,0],[1,15,false,0],[1,16,false,0],[1,20,false,0],[1,21,false,0],[1,22,false,0],[1,23,false,0],[1,24,false,0],[2,13,false,0],[2,14,false,0],[2,19,false,0],[2,23,false,0],[2,24,false,0],[2,27,false,0],[2,28,false,0],[3,11,false,0],[3,12,false,0],[3,19,false,0],[3,21,false,0],[3,22,false,0],[3,25,false,0],[3,26,false,0],[4,10,false,0],[4,12,false,0],[4,14,false,0],[4,16,false,0],[4,18,false,0],[4,22,false,0],[4,24,false,0],[4,26,false,0],[4,28,false,0],[5,10,false,0],[5,12,false,0],[5,14,false,0],[5,15,false,0],[5,17,false,0],[5,21,false,0],[5,23,false,0],[5,25,false,0],[5,27,false,0],[6,10,false,0],[6,11,false,0],[6,13,false,0],[6,16,false,0],[6,18,false,0],[6,21,false,0],[6,23,false,0],[6,25,false,0],[6,27,false,0],[7,10,false,0],[7,11,false,0],[7,13,false,0],[7,15,false,0],[7,17,false,0],[7,22,false,0],[7,24,false,0],[7,26,false,0],[7,28,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[9,11,false,0],[9,12,false,0],[9,13,false,0],[9,14,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0],[9,25,false,0],[9,26,false,0],[9,27,false,0],[9,28,false,0]]}",
+      "labelled_occurrences": 2,
+      "parent_occurrences": {
+        "topology-e781c3e0c617c870": 2
+      }
+    },
+    {
+      "id": "contraction-d72c79f04d069dfc",
+      "classification": "nonfactorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        8,
+        2,
+        5,
+        1,
+        4,
+        3,
+        0,
+        7,
+        10,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,24,false,0],[0,25,false,0],[0,26,false,0],[0,27,false,0],[0,28,false,0],[0,29,false,0],[0,30,false,0],[0,31,false,0],[0,32,false,0],[1,13,false,0],[1,16,false,0],[1,18,false,0],[1,19,false,0],[1,21,false,0],[1,22,false,0],[1,23,false,0],[1,29,false,0],[1,31,false,0],[1,32,false,0],[2,12,false,0],[2,15,false,0],[2,17,false,0],[2,19,false,0],[2,20,false,0],[2,22,false,0],[2,23,false,0],[2,28,false,0],[2,30,false,0],[2,32,false,0],[3,11,false,0],[3,14,false,0],[3,16,false,0],[3,17,false,0],[3,20,false,0],[3,21,false,0],[3,23,false,0],[3,26,false,0],[3,27,false,0],[3,30,false,0],[4,10,false,0],[4,14,false,0],[4,15,false,0],[4,18,false,0],[4,20,false,0],[4,21,false,0],[4,22,false,0],[4,25,false,0],[4,27,false,0],[4,31,false,0],[5,11,false,0],[5,12,false,0],[5,13,false,0],[5,14,false,0],[5,15,false,0],[5,18,false,0],[5,23,false,0],[5,24,false,0],[5,25,false,0],[5,30,false,0],[5,32,false,0],[6,10,false,0],[6,12,false,0],[6,13,false,0],[6,14,false,0],[6,16,false,0],[6,17,false,0],[6,22,false,0],[6,24,false,0],[6,26,false,0],[6,31,false,0],[6,32,false,0],[7,11,false,0],[7,13,false,0],[7,14,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[7,22,false,0],[7,24,false,0],[7,25,false,0],[7,28,false,0],[8,10,false,0],[8,12,false,0],[8,14,false,0],[8,17,false,0],[8,18,false,0],[8,19,false,0],[8,21,false,0],[8,23,false,0],[8,24,false,0],[8,26,false,0],[8,29,false,0],[9,10,false,0],[9,11,false,0],[9,12,false,0],[9,13,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0],[9,27,false,0],[9,30,false,0],[9,31,false,0],[9,32,false,0]]}",
+      "labelled_occurrences": 66,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 12,
+        "topology-7f04f6e06b09306a": 24,
+        "topology-e781c3e0c617c870": 6,
+        "topology-eff219c6e93773b9": 24
+      }
+    },
+    {
+      "id": "contraction-d897e49f842b4977",
+      "classification": "nonfactorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        5,
+        7,
+        4,
+        10,
+        11,
+        0,
+        1,
+        2,
+        3,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,17,false,0],[0,18,false,0],[0,23,false,0],[0,24,false,0],[0,26,false,0],[0,27,false,0],[1,15,false,0],[1,16,false,0],[1,21,false,0],[1,22,false,0],[1,25,false,0],[1,27,false,0],[2,13,false,0],[2,14,false,0],[2,19,false,0],[2,20,false,0],[2,25,false,0],[2,26,false,0],[3,11,false,0],[3,12,false,0],[3,14,false,0],[3,16,false,0],[3,18,false,0],[3,20,false,0],[3,22,false,0],[3,24,false,0],[4,11,false,0],[4,12,false,0],[4,13,false,0],[4,15,false,0],[4,17,false,0],[4,19,false,0],[4,21,false,0],[4,23,false,0],[5,10,false,0],[5,12,false,0],[5,14,false,0],[5,16,false,0],[5,18,false,0],[5,19,false,0],[5,21,false,0],[5,23,false,0],[6,10,false,0],[6,12,false,0],[6,13,false,0],[6,15,false,0],[6,17,false,0],[6,20,false,0],[6,22,false,0],[6,24,false,0],[7,10,false,0],[7,11,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0],[7,23,false,0],[7,24,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[9,13,false,0],[9,14,false,0],[9,15,false,0],[9,16,false,0],[9,17,false,0],[9,18,false,0],[9,19,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0]]}",
+      "labelled_occurrences": 18,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 6,
+        "topology-e781c3e0c617c870": 12
+      }
+    },
+    {
+      "id": "contraction-fdf1cf3267df29bc",
+      "classification": "nonfactorized",
+      "physical_edge_count": 10,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        1,
+        2,
+        4,
+        6,
+        7,
+        0,
+        9,
+        10,
+        3,
+        5
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,14,false,0],[0,15,false,0],[0,19,false,0],[0,20,false,0],[0,24,false,0],[0,25,false,0],[0,29,false,0],[0,30,false,0],[1,13,false,0],[1,15,false,0],[1,17,false,0],[1,18,false,0],[1,22,false,0],[1,23,false,0],[1,28,false,0],[1,30,false,0],[2,12,false,0],[2,14,false,0],[2,16,false,0],[2,18,false,0],[2,21,false,0],[2,23,false,0],[2,27,false,0],[2,29,false,0],[3,11,false,0],[3,13,false,0],[3,16,false,0],[3,20,false,0],[3,21,false,0],[3,25,false,0],[3,26,false,0],[3,28,false,0],[4,11,false,0],[4,12,false,0],[4,17,false,0],[4,19,false,0],[4,22,false,0],[4,24,false,0],[4,26,false,0],[4,27,false,0],[5,10,false,0],[5,15,false,0],[5,18,false,0],[5,20,false,0],[5,21,false,0],[5,22,false,0],[5,24,false,0],[5,26,false,0],[5,27,false,0],[5,28,false,0],[5,29,false,0],[6,10,false,0],[6,14,false,0],[6,18,false,0],[6,19,false,0],[6,21,false,0],[6,22,false,0],[6,25,false,0],[6,26,false,0],[6,27,false,0],[6,28,false,0],[6,30,false,0],[7,10,false,0],[7,13,false,0],[7,17,false,0],[7,20,false,0],[7,21,false,0],[7,23,false,0],[7,24,false,0],[7,26,false,0],[7,27,false,0],[7,29,false,0],[7,30,false,0],[8,10,false,0],[8,12,false,0],[8,16,false,0],[8,19,false,0],[8,22,false,0],[8,23,false,0],[8,25,false,0],[8,26,false,0],[8,28,false,0],[8,29,false,0],[8,30,false,0],[9,10,false,0],[9,11,false,0],[9,16,false,0],[9,17,false,0],[9,23,false,0],[9,24,false,0],[9,25,false,0],[9,27,false,0],[9,28,false,0],[9,29,false,0],[9,30,false,0]]}",
+      "labelled_occurrences": 16,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 6,
+        "topology-e781c3e0c617c870": 2,
+        "topology-eff219c6e93773b9": 8
+      }
+    },
+    {
+      "id": "contraction-0a2ed46764cc03b1",
+      "classification": "factorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        3,
+        5,
+        7,
+        0,
+        11,
+        2,
+        10,
+        1,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,17,false,0],[0,18,false,0],[1,16,false,0],[1,18,false,0],[2,16,false,0],[2,17,false,0],[3,11,false,0],[3,12,false,0],[3,14,false,0],[3,15,false,0],[4,9,false,0],[4,10,false,0],[4,14,false,0],[4,15,false,0],[5,10,false,0],[5,12,false,0],[5,13,false,0],[5,15,false,0],[6,10,false,0],[6,11,false,0],[6,13,false,0],[6,14,false,0],[7,9,false,0],[7,12,false,0],[7,13,false,0],[7,14,false,0],[8,9,false,0],[8,11,false,0],[8,13,false,0],[8,15,false,0]]}",
+      "labelled_occurrences": 6,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 2,
+        "topology-e781c3e0c617c870": 4
+      }
+    },
+    {
+      "id": "contraction-50de3b23a2f1288e",
+      "classification": "factorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        5,
+        3,
+        4,
+        10,
+        11,
+        0,
+        1,
+        2,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,21,false,0],[1,14,false,0],[1,15,false,0],[1,18,false,0],[1,19,false,0],[1,20,false,0],[2,12,false,0],[2,13,false,0],[2,16,false,0],[2,17,false,0],[2,20,false,0],[3,10,false,0],[3,11,false,0],[3,13,false,0],[3,15,false,0],[3,17,false,0],[3,19,false,0],[4,10,false,0],[4,11,false,0],[4,12,false,0],[4,14,false,0],[4,16,false,0],[4,18,false,0],[5,9,false,0],[5,11,false,0],[5,13,false,0],[5,15,false,0],[5,16,false,0],[5,18,false,0],[6,9,false,0],[6,11,false,0],[6,12,false,0],[6,14,false,0],[6,17,false,0],[6,19,false,0],[7,9,false,0],[7,10,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[8,12,false,0],[8,13,false,0],[8,14,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,19,false,0]]}",
+      "labelled_occurrences": 56,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 12,
+        "topology-e781c3e0c617c870": 44
+      }
+    },
+    {
+      "id": "contraction-fb159925de07aeac",
+      "classification": "factorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        0,
+        7,
+        9,
+        10,
+        8,
+        3,
+        5,
+        4,
+        6
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,22,false,0],[1,12,false,0],[1,13,false,0],[1,16,false,0],[1,17,false,0],[1,20,false,0],[1,21,false,0],[2,11,false,0],[2,13,false,0],[2,14,false,0],[2,15,false,0],[2,19,false,0],[2,21,false,0],[3,10,false,0],[3,12,false,0],[3,14,false,0],[3,15,false,0],[3,18,false,0],[3,20,false,0],[4,10,false,0],[4,11,false,0],[4,16,false,0],[4,17,false,0],[4,18,false,0],[4,19,false,0],[5,9,false,0],[5,13,false,0],[5,15,false,0],[5,17,false,0],[5,18,false,0],[5,19,false,0],[5,20,false,0],[6,9,false,0],[6,12,false,0],[6,15,false,0],[6,16,false,0],[6,18,false,0],[6,19,false,0],[6,21,false,0],[7,9,false,0],[7,11,false,0],[7,14,false,0],[7,17,false,0],[7,18,false,0],[7,20,false,0],[7,21,false,0],[8,9,false,0],[8,10,false,0],[8,14,false,0],[8,16,false,0],[8,19,false,0],[8,20,false,0],[8,21,false,0]]}",
+      "labelled_occurrences": 85,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 27,
+        "topology-7f04f6e06b09306a": 24,
+        "topology-e781c3e0c617c870": 18,
+        "topology-eff219c6e93773b9": 16
+      }
+    },
+    {
+      "id": "contraction-41995872afcdaf8a",
+      "classification": "nonfactorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        4,
+        5,
+        7,
+        8,
+        1,
+        2,
+        0,
+        9,
+        10
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[0,18,false,0],[0,21,false,0],[0,22,false,0],[0,25,false,0],[0,26,false,0],[0,28,false,0],[0,29,false,0],[1,15,false,0],[1,17,false,0],[1,19,false,0],[1,20,false,0],[1,23,false,0],[1,24,false,0],[1,27,false,0],[1,29,false,0],[2,10,false,0],[2,13,false,0],[2,14,false,0],[2,20,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[2,27,false,0],[2,28,false,0],[3,9,false,0],[3,12,false,0],[3,14,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,25,false,0],[3,27,false,0],[3,28,false,0],[4,10,false,0],[4,11,false,0],[4,12,false,0],[4,17,false,0],[4,18,false,0],[4,19,false,0],[4,21,false,0],[4,24,false,0],[4,26,false,0],[5,9,false,0],[5,11,false,0],[5,13,false,0],[5,17,false,0],[5,18,false,0],[5,20,false,0],[5,22,false,0],[5,23,false,0],[5,25,false,0],[6,11,false,0],[6,12,false,0],[6,13,false,0],[6,14,false,0],[6,15,false,0],[6,16,false,0],[6,23,false,0],[6,24,false,0],[6,25,false,0],[6,26,false,0],[7,10,false,0],[7,13,false,0],[7,14,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,21,false,0],[7,23,false,0],[7,25,false,0],[8,9,false,0],[8,12,false,0],[8,14,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,20,false,0],[8,22,false,0],[8,24,false,0],[8,26,false,0]]}",
+      "labelled_occurrences": 76,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 18,
+        "topology-7f04f6e06b09306a": 24,
+        "topology-e781c3e0c617c870": 10,
+        "topology-eff219c6e93773b9": 24
+      }
+    },
+    {
+      "id": "contraction-41d7b3acc3bda598",
+      "classification": "nonfactorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        5,
+        7,
+        6,
+        8,
+        0,
+        1,
+        3,
+        4,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,11,false,0],[0,20,false,0],[0,21,false,0],[0,22,false,0],[0,23,false,0],[1,11,false,0],[1,16,false,0],[1,17,false,0],[1,18,false,0],[1,19,false,0],[2,10,false,0],[2,14,false,0],[2,15,false,0],[2,19,false,0],[2,23,false,0],[3,10,false,0],[3,12,false,0],[3,13,false,0],[3,18,false,0],[3,22,false,0],[4,9,false,0],[4,13,false,0],[4,15,false,0],[4,17,false,0],[4,21,false,0],[5,9,false,0],[5,12,false,0],[5,14,false,0],[5,16,false,0],[5,20,false,0],[6,16,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[7,12,false,0],[7,13,false,0],[7,14,false,0],[7,15,false,0],[7,18,false,0],[7,19,false,0],[7,22,false,0],[7,23,false,0],[8,12,false,0],[8,13,false,0],[8,14,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,20,false,0],[8,21,false,0]]}",
+      "labelled_occurrences": 28,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 6,
+        "topology-7f04f6e06b09306a": 8,
+        "topology-e781c3e0c617c870": 6,
+        "topology-eff219c6e93773b9": 8
+      }
+    },
+    {
+      "id": "contraction-47ca4bada78ff2d2",
+      "classification": "nonfactorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-e781c3e0c617c870",
+      "representative_slots": [
+        9,
+        10,
+        7,
+        8,
+        2,
+        3,
+        0,
+        1,
+        11
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,12,false,0],[0,15,false,0],[0,16,false,0],[0,19,false,0],[0,20,false,0],[0,23,false,0],[0,24,false,0],[0,27,false,0],[0,28,false,0],[1,12,false,0],[1,13,false,0],[1,14,false,0],[1,17,false,0],[1,18,false,0],[1,21,false,0],[1,22,false,0],[1,25,false,0],[1,26,false,0],[2,11,false,0],[2,14,false,0],[2,16,false,0],[2,18,false,0],[2,20,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[2,28,false,0],[3,11,false,0],[3,13,false,0],[3,15,false,0],[3,17,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,25,false,0],[3,27,false,0],[4,10,false,0],[4,17,false,0],[4,18,false,0],[4,19,false,0],[4,20,false,0],[4,25,false,0],[4,26,false,0],[4,27,false,0],[4,28,false,0],[5,10,false,0],[5,13,false,0],[5,14,false,0],[5,15,false,0],[5,16,false,0],[5,21,false,0],[5,22,false,0],[5,23,false,0],[5,24,false,0],[6,9,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[6,24,false,0],[6,25,false,0],[6,26,false,0],[6,27,false,0],[6,28,false,0],[7,9,false,0],[7,13,false,0],[7,14,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[8,13,false,0],[8,14,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,19,false,0],[8,20,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0]]}",
+      "labelled_occurrences": 1,
+      "parent_occurrences": {
+        "topology-e781c3e0c617c870": 1
+      }
+    },
+    {
+      "id": "contraction-4cb1931fe44ce70a",
+      "classification": "nonfactorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        0,
+        1,
+        6,
+        7,
+        10,
+        11,
+        3,
+        4,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[0,17,false,0],[0,23,false,0],[0,24,false,0],[0,25,false,0],[0,26,false,0],[0,27,false,0],[1,14,false,0],[1,15,false,0],[1,19,false,0],[1,20,false,0],[1,21,false,0],[1,22,false,0],[1,27,false,0],[2,12,false,0],[2,13,false,0],[2,18,false,0],[2,21,false,0],[2,22,false,0],[2,25,false,0],[2,26,false,0],[3,10,false,0],[3,11,false,0],[3,18,false,0],[3,19,false,0],[3,20,false,0],[3,23,false,0],[3,24,false,0],[4,9,false,0],[4,11,false,0],[4,13,false,0],[4,15,false,0],[4,17,false,0],[4,20,false,0],[4,22,false,0],[4,24,false,0],[4,26,false,0],[5,9,false,0],[5,11,false,0],[5,13,false,0],[5,14,false,0],[5,16,false,0],[5,19,false,0],[5,21,false,0],[5,23,false,0],[5,25,false,0],[6,9,false,0],[6,10,false,0],[6,12,false,0],[6,15,false,0],[6,17,false,0],[6,19,false,0],[6,21,false,0],[6,23,false,0],[6,25,false,0],[7,9,false,0],[7,10,false,0],[7,12,false,0],[7,14,false,0],[7,16,false,0],[7,20,false,0],[7,22,false,0],[7,24,false,0],[7,26,false,0],[8,14,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,19,false,0],[8,20,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0]]}",
+      "labelled_occurrences": 12,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 6,
+        "topology-e781c3e0c617c870": 6
+      }
+    },
+    {
+      "id": "contraction-579013f96a0350de",
+      "classification": "nonfactorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        3,
+        4,
+        7,
+        8,
+        10,
+        1,
+        0,
+        2,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,13,false,0],[0,17,false,0],[0,21,false,0],[0,22,false,0],[0,25,false,0],[0,26,false,0],[0,27,false,0],[1,12,false,0],[1,16,false,0],[1,19,false,0],[1,20,false,0],[1,23,false,0],[1,24,false,0],[1,27,false,0],[2,11,false,0],[2,15,false,0],[2,18,false,0],[2,20,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[3,10,false,0],[3,14,false,0],[3,18,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,25,false,0],[4,10,false,0],[4,11,false,0],[4,12,false,0],[4,13,false,0],[4,14,false,0],[4,15,false,0],[4,16,false,0],[4,17,false,0],[5,9,false,0],[5,14,false,0],[5,15,false,0],[5,16,false,0],[5,17,false,0],[5,23,false,0],[5,24,false,0],[5,25,false,0],[5,26,false,0],[6,9,false,0],[6,12,false,0],[6,13,false,0],[6,14,false,0],[6,15,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[7,9,false,0],[7,10,false,0],[7,11,false,0],[7,16,false,0],[7,17,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0],[8,12,false,0],[8,13,false,0],[8,16,false,0],[8,17,false,0],[8,19,false,0],[8,20,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0]]}",
+      "labelled_occurrences": 138,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 30,
+        "topology-7f04f6e06b09306a": 48,
+        "topology-e781c3e0c617c870": 28,
+        "topology-eff219c6e93773b9": 32
+      }
+    },
+    {
+      "id": "contraction-5eb9692894c7e783",
+      "classification": "nonfactorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        4,
+        5,
+        7,
+        10,
+        11,
+        0,
+        1,
+        2,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,14,false,0],[0,17,false,0],[0,20,false,0],[0,23,false,0],[0,25,false,0],[0,26,false,0],[1,13,false,0],[1,16,false,0],[1,19,false,0],[1,22,false,0],[1,24,false,0],[1,26,false,0],[2,12,false,0],[2,15,false,0],[2,18,false,0],[2,21,false,0],[2,24,false,0],[2,25,false,0],[3,10,false,0],[3,11,false,0],[3,15,false,0],[3,16,false,0],[3,17,false,0],[3,21,false,0],[3,22,false,0],[3,23,false,0],[4,10,false,0],[4,11,false,0],[4,12,false,0],[4,13,false,0],[4,14,false,0],[4,18,false,0],[4,19,false,0],[4,20,false,0],[5,9,false,0],[5,11,false,0],[5,15,false,0],[5,16,false,0],[5,17,false,0],[5,18,false,0],[5,19,false,0],[5,20,false,0],[6,9,false,0],[6,11,false,0],[6,12,false,0],[6,13,false,0],[6,14,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[7,9,false,0],[7,10,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0],[7,23,false,0],[8,12,false,0],[8,13,false,0],[8,14,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,19,false,0],[8,20,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0]]}",
+      "labelled_occurrences": 14,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 6,
+        "topology-e781c3e0c617c870": 8
+      }
+    },
+    {
+      "id": "contraction-78e264f80606f970",
+      "classification": "nonfactorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[0,17,false,0],[0,22,false,0],[0,23,false,0],[0,26,false,0],[0,27,false,0],[0,28,false,0],[0,29,false,0],[0,30,false,0],[1,14,false,0],[1,15,false,0],[1,20,false,0],[1,21,false,0],[1,24,false,0],[1,25,false,0],[1,28,false,0],[1,29,false,0],[1,30,false,0],[2,12,false,0],[2,13,false,0],[2,18,false,0],[2,19,false,0],[2,24,false,0],[2,25,false,0],[2,26,false,0],[2,27,false,0],[2,30,false,0],[3,10,false,0],[3,11,false,0],[3,15,false,0],[3,17,false,0],[3,18,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,25,false,0],[3,27,false,0],[4,10,false,0],[4,11,false,0],[4,14,false,0],[4,16,false,0],[4,18,false,0],[4,19,false,0],[4,20,false,0],[4,22,false,0],[4,24,false,0],[4,26,false,0],[5,9,false,0],[5,11,false,0],[5,13,false,0],[5,17,false,0],[5,19,false,0],[5,20,false,0],[5,21,false,0],[5,22,false,0],[5,25,false,0],[5,29,false,0],[6,9,false,0],[6,11,false,0],[6,12,false,0],[6,16,false,0],[6,18,false,0],[6,20,false,0],[6,21,false,0],[6,23,false,0],[6,24,false,0],[6,28,false,0],[7,9,false,0],[7,10,false,0],[7,13,false,0],[7,15,false,0],[7,18,false,0],[7,20,false,0],[7,22,false,0],[7,23,false,0],[7,27,false,0],[7,29,false,0],[8,9,false,0],[8,10,false,0],[8,12,false,0],[8,14,false,0],[8,19,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0],[8,26,false,0],[8,28,false,0]]}",
+      "labelled_occurrences": 33,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 7,
+        "topology-7f04f6e06b09306a": 8,
+        "topology-e781c3e0c617c870": 2,
+        "topology-eff219c6e93773b9": 16
+      }
+    },
+    {
+      "id": "contraction-7b7ec326d1ac393c",
+      "classification": "nonfactorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        3,
+        4,
+        5,
+        6,
+        1,
+        2,
+        9,
+        10,
+        0
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,11,false,0],[0,15,false,0],[0,19,false,0],[0,22,false,0],[0,23,false,0],[1,11,false,0],[1,14,false,0],[1,18,false,0],[1,20,false,0],[1,21,false,0],[2,10,false,0],[2,13,false,0],[2,17,false,0],[2,21,false,0],[2,23,false,0],[3,10,false,0],[3,12,false,0],[3,16,false,0],[3,20,false,0],[3,22,false,0],[4,9,false,0],[4,14,false,0],[4,15,false,0],[4,16,false,0],[4,17,false,0],[5,9,false,0],[5,12,false,0],[5,13,false,0],[5,18,false,0],[5,19,false,0],[6,14,false,0],[6,15,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[7,12,false,0],[7,13,false,0],[7,16,false,0],[7,17,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0],[7,23,false,0],[8,9,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,19,false,0],[8,20,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0]]}",
+      "labelled_occurrences": 133,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 39,
+        "topology-7f04f6e06b09306a": 24,
+        "topology-e781c3e0c617c870": 38,
+        "topology-eff219c6e93773b9": 32
+      }
+    },
+    {
+      "id": "contraction-8bc30406353fd7b0",
+      "classification": "nonfactorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        2,
+        6,
+        1,
+        7,
+        4,
+        0,
+        5,
+        9,
+        3
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,18,false,0],[0,19,false,0],[0,22,false,0],[0,23,false,0],[0,26,false,0],[0,27,false,0],[0,28,false,0],[1,16,false,0],[1,17,false,0],[1,20,false,0],[1,21,false,0],[1,24,false,0],[1,25,false,0],[1,28,false,0],[2,11,false,0],[2,12,false,0],[2,13,false,0],[2,15,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[3,10,false,0],[3,12,false,0],[3,13,false,0],[3,14,false,0],[3,20,false,0],[3,22,false,0],[3,24,false,0],[3,26,false,0],[4,10,false,0],[4,11,false,0],[4,14,false,0],[4,15,false,0],[4,16,false,0],[4,17,false,0],[4,18,false,0],[4,19,false,0],[5,9,false,0],[5,13,false,0],[5,14,false,0],[5,15,false,0],[5,17,false,0],[5,19,false,0],[5,21,false,0],[5,23,false,0],[5,24,false,0],[5,26,false,0],[6,9,false,0],[6,13,false,0],[6,14,false,0],[6,15,false,0],[6,16,false,0],[6,18,false,0],[6,20,false,0],[6,22,false,0],[6,25,false,0],[6,27,false,0],[7,9,false,0],[7,11,false,0],[7,12,false,0],[7,14,false,0],[7,17,false,0],[7,19,false,0],[7,24,false,0],[7,25,false,0],[7,26,false,0],[7,27,false,0],[8,9,false,0],[8,10,false,0],[8,12,false,0],[8,15,false,0],[8,16,false,0],[8,18,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0]]}",
+      "labelled_occurrences": 130,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 36,
+        "topology-7f04f6e06b09306a": 24,
+        "topology-e781c3e0c617c870": 14,
+        "topology-eff219c6e93773b9": 56
+      }
+    },
+    {
+      "id": "contraction-dbad67e6c80cb890",
+      "classification": "nonfactorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        5,
+        6,
+        11,
+        3,
+        4,
+        0,
+        1,
+        10,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[0,20,false,0],[0,21,false,0],[0,22,false,0],[0,24,false,0],[0,25,false,0],[1,15,false,0],[1,16,false,0],[1,17,false,0],[1,18,false,0],[1,23,false,0],[1,25,false,0],[2,11,false,0],[2,12,false,0],[2,13,false,0],[2,14,false,0],[2,23,false,0],[2,24,false,0],[3,10,false,0],[3,13,false,0],[3,14,false,0],[3,17,false,0],[3,18,false,0],[3,21,false,0],[3,22,false,0],[4,10,false,0],[4,11,false,0],[4,12,false,0],[4,15,false,0],[4,16,false,0],[4,19,false,0],[4,20,false,0],[5,9,false,0],[5,12,false,0],[5,14,false,0],[5,16,false,0],[5,18,false,0],[5,20,false,0],[5,22,false,0],[6,9,false,0],[6,11,false,0],[6,13,false,0],[6,15,false,0],[6,17,false,0],[6,19,false,0],[6,21,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0],[7,23,false,0],[7,24,false,0],[8,11,false,0],[8,12,false,0],[8,13,false,0],[8,14,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,19,false,0],[8,20,false,0],[8,21,false,0],[8,22,false,0]]}",
+      "labelled_occurrences": 32,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 12,
+        "topology-e781c3e0c617c870": 20
+      }
+    },
+    {
+      "id": "contraction-e35bd83ea1a041e9",
+      "classification": "nonfactorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-7f04f6e06b09306a",
+      "representative_slots": [
+        8,
+        9,
+        6,
+        7,
+        4,
+        5,
+        2,
+        3,
+        0
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,13,false,0],[0,16,false,0],[0,17,false,0],[0,20,false,0],[0,21,false,0],[0,24,false,0],[0,25,false,0],[0,28,false,0],[0,29,false,0],[1,13,false,0],[1,14,false,0],[1,15,false,0],[1,18,false,0],[1,19,false,0],[1,22,false,0],[1,23,false,0],[1,26,false,0],[1,27,false,0],[2,12,false,0],[2,15,false,0],[2,17,false,0],[2,19,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[2,29,false,0],[3,12,false,0],[3,14,false,0],[3,16,false,0],[3,18,false,0],[3,20,false,0],[3,22,false,0],[3,24,false,0],[3,26,false,0],[3,28,false,0],[4,10,false,0],[4,11,false,0],[4,18,false,0],[4,19,false,0],[4,20,false,0],[4,21,false,0],[4,26,false,0],[4,27,false,0],[4,28,false,0],[4,29,false,0],[5,10,false,0],[5,11,false,0],[5,14,false,0],[5,15,false,0],[5,16,false,0],[5,17,false,0],[5,22,false,0],[5,23,false,0],[5,24,false,0],[5,25,false,0],[6,9,false,0],[6,11,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[6,24,false,0],[6,25,false,0],[7,9,false,0],[7,11,false,0],[7,14,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,26,false,0],[7,27,false,0],[7,28,false,0],[7,29,false,0],[8,9,false,0],[8,10,false,0],[8,22,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[8,29,false,0]]}",
+      "labelled_occurrences": 19,
+      "parent_occurrences": {
+        "topology-7f04f6e06b09306a": 12,
+        "topology-e781c3e0c617c870": 3,
+        "topology-eff219c6e93773b9": 4
+      }
+    },
+    {
+      "id": "contraction-fd279206efb72307",
+      "classification": "nonfactorized",
+      "physical_edge_count": 9,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        3,
+        5,
+        8,
+        9,
+        10,
+        1,
+        2,
+        0,
+        7
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[0,17,false,0],[0,22,false,0],[0,23,false,0],[0,25,false,0],[0,26,false,0],[1,14,false,0],[1,15,false,0],[1,20,false,0],[1,21,false,0],[1,24,false,0],[1,26,false,0],[2,12,false,0],[2,13,false,0],[2,18,false,0],[2,19,false,0],[2,24,false,0],[2,25,false,0],[3,10,false,0],[3,11,false,0],[3,13,false,0],[3,15,false,0],[3,17,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[4,10,false,0],[4,11,false,0],[4,12,false,0],[4,14,false,0],[4,16,false,0],[4,18,false,0],[4,20,false,0],[4,22,false,0],[5,9,false,0],[5,11,false,0],[5,13,false,0],[5,15,false,0],[5,17,false,0],[5,18,false,0],[5,20,false,0],[5,22,false,0],[6,9,false,0],[6,11,false,0],[6,12,false,0],[6,14,false,0],[6,16,false,0],[6,19,false,0],[6,21,false,0],[6,23,false,0],[7,9,false,0],[7,10,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0],[7,23,false,0],[8,14,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,20,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0]]}",
+      "labelled_occurrences": 114,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 18,
+        "topology-7f04f6e06b09306a": 48,
+        "topology-e781c3e0c617c870": 16,
+        "topology-eff219c6e93773b9": 32
+      }
+    },
+    {
+      "id": "contraction-12873aac94b8bab3",
+      "classification": "factorized",
+      "physical_edge_count": 8,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        3,
+        7,
+        8,
+        9,
+        10,
+        1,
+        2,
+        0
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,20,false,0],[1,13,false,0],[1,14,false,0],[1,17,false,0],[1,18,false,0],[1,19,false,0],[2,11,false,0],[2,12,false,0],[2,15,false,0],[2,16,false,0],[2,19,false,0],[3,9,false,0],[3,10,false,0],[3,12,false,0],[3,14,false,0],[3,16,false,0],[3,18,false,0],[4,9,false,0],[4,10,false,0],[4,11,false,0],[4,13,false,0],[4,15,false,0],[4,17,false,0],[5,8,false,0],[5,10,false,0],[5,12,false,0],[5,14,false,0],[5,15,false,0],[5,17,false,0],[6,8,false,0],[6,10,false,0],[6,11,false,0],[6,13,false,0],[6,16,false,0],[6,18,false,0],[7,8,false,0],[7,9,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0]]}",
+      "labelled_occurrences": 288,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 66,
+        "topology-7f04f6e06b09306a": 96,
+        "topology-e781c3e0c617c870": 62,
+        "topology-eff219c6e93773b9": 64
+      }
+    },
+    {
+      "id": "contraction-4138bff3b4a8c283",
+      "classification": "factorized",
+      "physical_edge_count": 8,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        2,
+        4,
+        5,
+        7,
+        0,
+        1,
+        3,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,18,false,0],[1,10,false,0],[1,11,false,0],[1,12,false,0],[1,13,false,0],[2,9,false,0],[2,13,false,0],[2,16,false,0],[2,17,false,0],[3,9,false,0],[3,12,false,0],[3,14,false,0],[3,15,false,0],[4,8,false,0],[4,11,false,0],[4,15,false,0],[4,17,false,0],[5,8,false,0],[5,10,false,0],[5,14,false,0],[5,16,false,0],[6,12,false,0],[6,13,false,0],[6,14,false,0],[6,15,false,0],[6,16,false,0],[6,17,false,0],[7,10,false,0],[7,11,false,0],[7,14,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0]]}",
+      "labelled_occurrences": 482,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 132,
+        "topology-7f04f6e06b09306a": 96,
+        "topology-e781c3e0c617c870": 150,
+        "topology-eff219c6e93773b9": 104
+      }
+    },
+    {
+      "id": "contraction-5db841bd341d535d",
+      "classification": "factorized",
+      "physical_edge_count": 8,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        5,
+        6,
+        10,
+        3,
+        4,
+        0,
+        1,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1],\"edges\":[[0,15,false,0],[0,16,false,0],[1,14,false,0],[1,16,false,0],[2,14,false,0],[2,15,false,0],[3,9,false,0],[3,12,false,0],[3,13,false,0],[4,9,false,0],[4,10,false,0],[4,11,false,0],[5,8,false,0],[5,11,false,0],[5,13,false,0],[6,8,false,0],[6,10,false,0],[6,12,false,0],[7,10,false,0],[7,11,false,0],[7,12,false,0],[7,13,false,0]]}",
+      "labelled_occurrences": 112,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 30,
+        "topology-7f04f6e06b09306a": 24,
+        "topology-e781c3e0c617c870": 34,
+        "topology-eff219c6e93773b9": 24
+      }
+    },
+    {
+      "id": "contraction-913d71f2c0751961",
+      "classification": "factorized",
+      "physical_edge_count": 8,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        3,
+        5,
+        0,
+        11,
+        2,
+        10,
+        1,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[1,15,false,0],[2,10,false,0],[2,11,false,0],[2,13,false,0],[2,14,false,0],[3,8,false,0],[3,9,false,0],[3,13,false,0],[3,14,false,0],[4,9,false,0],[4,11,false,0],[4,12,false,0],[4,14,false,0],[5,9,false,0],[5,10,false,0],[5,12,false,0],[5,13,false,0],[6,8,false,0],[6,11,false,0],[6,12,false,0],[6,13,false,0],[7,8,false,0],[7,10,false,0],[7,12,false,0],[7,14,false,0]]}",
+      "labelled_occurrences": 43,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 12,
+        "topology-e781c3e0c617c870": 31
+      }
+    },
+    {
+      "id": "contraction-fcb5b8704d06b50d",
+      "classification": "factorized",
+      "physical_edge_count": 8,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        5,
+        10,
+        11,
+        3,
+        4,
+        0,
+        1,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[1,10,false,0],[1,13,false,0],[1,14,false,0],[1,17,false,0],[1,18,false,0],[2,10,false,0],[2,11,false,0],[2,12,false,0],[2,15,false,0],[2,16,false,0],[3,9,false,0],[3,12,false,0],[3,14,false,0],[3,16,false,0],[3,18,false,0],[4,9,false,0],[4,11,false,0],[4,13,false,0],[4,15,false,0],[4,17,false,0],[5,8,false,0],[5,15,false,0],[5,16,false,0],[5,17,false,0],[5,18,false,0],[6,8,false,0],[6,11,false,0],[6,12,false,0],[6,13,false,0],[6,14,false,0],[7,11,false,0],[7,12,false,0],[7,13,false,0],[7,14,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0]]}",
+      "labelled_occurrences": 38,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 12,
+        "topology-e781c3e0c617c870": 26
+      }
+    },
+    {
+      "id": "contraction-148edc7073248a12",
+      "classification": "nonfactorized",
+      "physical_edge_count": 8,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        5,
+        7,
+        6,
+        8,
+        0,
+        1,
+        3,
+        4
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,10,false,0],[0,14,false,0],[0,18,false,0],[0,21,false,0],[0,22,false,0],[1,10,false,0],[1,13,false,0],[1,17,false,0],[1,19,false,0],[1,20,false,0],[2,9,false,0],[2,12,false,0],[2,16,false,0],[2,20,false,0],[2,22,false,0],[3,9,false,0],[3,11,false,0],[3,15,false,0],[3,19,false,0],[3,21,false,0],[4,8,false,0],[4,15,false,0],[4,16,false,0],[4,17,false,0],[4,18,false,0],[5,8,false,0],[5,11,false,0],[5,12,false,0],[5,13,false,0],[5,14,false,0],[6,13,false,0],[6,14,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[7,11,false,0],[7,12,false,0],[7,15,false,0],[7,16,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0]]}",
+      "labelled_occurrences": 260,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 54,
+        "topology-7f04f6e06b09306a": 84,
+        "topology-e781c3e0c617c870": 42,
+        "topology-eff219c6e93773b9": 80
+      }
+    },
+    {
+      "id": "contraction-3f948c13f4884036",
+      "classification": "nonfactorized",
+      "physical_edge_count": 8,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        2,
+        6,
+        7,
+        1,
+        4,
+        0,
+        3,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,13,false,0],[0,16,false,0],[0,19,false,0],[0,22,false,0],[0,24,false,0],[0,25,false,0],[1,12,false,0],[1,15,false,0],[1,18,false,0],[1,21,false,0],[1,23,false,0],[1,25,false,0],[2,11,false,0],[2,14,false,0],[2,17,false,0],[2,20,false,0],[2,23,false,0],[2,24,false,0],[3,9,false,0],[3,10,false,0],[3,14,false,0],[3,15,false,0],[3,16,false,0],[3,20,false,0],[3,21,false,0],[3,22,false,0],[4,9,false,0],[4,10,false,0],[4,11,false,0],[4,12,false,0],[4,13,false,0],[4,17,false,0],[4,18,false,0],[4,19,false,0],[5,8,false,0],[5,10,false,0],[5,14,false,0],[5,15,false,0],[5,16,false,0],[5,17,false,0],[5,18,false,0],[5,19,false,0],[6,8,false,0],[6,10,false,0],[6,11,false,0],[6,12,false,0],[6,13,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[7,8,false,0],[7,9,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0]]}",
+      "labelled_occurrences": 97,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 24,
+        "topology-7f04f6e06b09306a": 24,
+        "topology-e781c3e0c617c870": 13,
+        "topology-eff219c6e93773b9": 36
+      }
+    },
+    {
+      "id": "contraction-47ccb7f824259303",
+      "classification": "nonfactorized",
+      "physical_edge_count": 8,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        4,
+        5,
+        1,
+        2,
+        8,
+        10,
+        7,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,15,false,0],[0,16,false,0],[0,18,false,0],[0,23,false,0],[0,24,false,0],[0,25,false,0],[0,26,false,0],[1,13,false,0],[1,14,false,0],[1,18,false,0],[1,19,false,0],[1,20,false,0],[1,21,false,0],[1,22,false,0],[2,11,false,0],[2,12,false,0],[2,17,false,0],[2,21,false,0],[2,22,false,0],[2,25,false,0],[2,26,false,0],[3,9,false,0],[3,10,false,0],[3,17,false,0],[3,19,false,0],[3,20,false,0],[3,23,false,0],[3,24,false,0],[4,8,false,0],[4,10,false,0],[4,12,false,0],[4,14,false,0],[4,16,false,0],[4,20,false,0],[4,22,false,0],[4,24,false,0],[4,26,false,0],[5,8,false,0],[5,10,false,0],[5,12,false,0],[5,13,false,0],[5,15,false,0],[5,19,false,0],[5,21,false,0],[5,23,false,0],[5,25,false,0],[6,8,false,0],[6,9,false,0],[6,11,false,0],[6,14,false,0],[6,16,false,0],[6,19,false,0],[6,21,false,0],[6,23,false,0],[6,25,false,0],[7,8,false,0],[7,9,false,0],[7,11,false,0],[7,13,false,0],[7,15,false,0],[7,20,false,0],[7,22,false,0],[7,24,false,0],[7,26,false,0]]}",
+      "labelled_occurrences": 22,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 6,
+        "topology-7f04f6e06b09306a": 6,
+        "topology-e781c3e0c617c870": 4,
+        "topology-eff219c6e93773b9": 6
+      }
+    },
+    {
+      "id": "contraction-5339bb6088222697",
+      "classification": "nonfactorized",
+      "physical_edge_count": 8,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        3,
+        4,
+        10,
+        7,
+        8,
+        1,
+        2,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,18,false,0],[0,19,false,0],[0,20,false,0],[0,21,false,0],[0,23,false,0],[0,24,false,0],[1,14,false,0],[1,15,false,0],[1,16,false,0],[1,17,false,0],[1,22,false,0],[1,24,false,0],[2,10,false,0],[2,11,false,0],[2,12,false,0],[2,13,false,0],[2,22,false,0],[2,23,false,0],[3,9,false,0],[3,12,false,0],[3,13,false,0],[3,16,false,0],[3,17,false,0],[3,20,false,0],[3,21,false,0],[4,9,false,0],[4,10,false,0],[4,11,false,0],[4,14,false,0],[4,15,false,0],[4,18,false,0],[4,19,false,0],[5,8,false,0],[5,11,false,0],[5,13,false,0],[5,15,false,0],[5,17,false,0],[5,19,false,0],[5,21,false,0],[6,8,false,0],[6,10,false,0],[6,12,false,0],[6,14,false,0],[6,16,false,0],[6,18,false,0],[6,20,false,0],[7,14,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0],[7,23,false,0]]}",
+      "labelled_occurrences": 128,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 24,
+        "topology-7f04f6e06b09306a": 48,
+        "topology-e781c3e0c617c870": 24,
+        "topology-eff219c6e93773b9": 32
+      }
+    },
+    {
+      "id": "contraction-6b4a2a02a3b059b3",
+      "classification": "nonfactorized",
+      "physical_edge_count": 8,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        7,
+        8,
+        10,
+        3,
+        4,
+        0,
+        1,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,12,false,0],[0,15,false,0],[0,18,false,0],[0,21,false,0],[0,23,false,0],[0,24,false,0],[1,11,false,0],[1,14,false,0],[1,17,false,0],[1,20,false,0],[1,22,false,0],[1,24,false,0],[2,10,false,0],[2,13,false,0],[2,16,false,0],[2,19,false,0],[2,22,false,0],[2,23,false,0],[3,9,false,0],[3,16,false,0],[3,17,false,0],[3,18,false,0],[3,19,false,0],[3,20,false,0],[3,21,false,0],[4,9,false,0],[4,10,false,0],[4,11,false,0],[4,12,false,0],[4,13,false,0],[4,14,false,0],[4,15,false,0],[5,8,false,0],[5,13,false,0],[5,14,false,0],[5,15,false,0],[5,19,false,0],[5,20,false,0],[5,21,false,0],[6,8,false,0],[6,10,false,0],[6,11,false,0],[6,12,false,0],[6,16,false,0],[6,17,false,0],[6,18,false,0],[7,10,false,0],[7,11,false,0],[7,12,false,0],[7,13,false,0],[7,14,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0]]}",
+      "labelled_occurrences": 46,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 12,
+        "topology-7f04f6e06b09306a": 12,
+        "topology-e781c3e0c617c870": 14,
+        "topology-eff219c6e93773b9": 8
+      }
+    },
+    {
+      "id": "contraction-d0289d97de63756e",
+      "classification": "nonfactorized",
+      "physical_edge_count": 8,
+      "representative_parent": "topology-7f04f6e06b09306a",
+      "representative_slots": [
+        8,
+        9,
+        6,
+        7,
+        4,
+        5,
+        2,
+        3
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,11,false,0],[0,14,false,0],[0,15,false,0],[0,18,false,0],[0,19,false,0],[0,22,false,0],[0,23,false,0],[0,26,false,0],[0,27,false,0],[1,11,false,0],[1,12,false,0],[1,13,false,0],[1,16,false,0],[1,17,false,0],[1,20,false,0],[1,21,false,0],[1,24,false,0],[1,25,false,0],[2,10,false,0],[2,13,false,0],[2,15,false,0],[2,17,false,0],[2,19,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[3,10,false,0],[3,12,false,0],[3,14,false,0],[3,16,false,0],[3,18,false,0],[3,20,false,0],[3,22,false,0],[3,24,false,0],[3,26,false,0],[4,9,false,0],[4,16,false,0],[4,17,false,0],[4,18,false,0],[4,19,false,0],[4,24,false,0],[4,25,false,0],[4,26,false,0],[4,27,false,0],[5,9,false,0],[5,12,false,0],[5,13,false,0],[5,14,false,0],[5,15,false,0],[5,20,false,0],[5,21,false,0],[5,22,false,0],[5,23,false,0],[6,8,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[6,24,false,0],[6,25,false,0],[6,26,false,0],[6,27,false,0],[7,8,false,0],[7,12,false,0],[7,13,false,0],[7,14,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0]]}",
+      "labelled_occurrences": 5,
+      "parent_occurrences": {
+        "topology-7f04f6e06b09306a": 3,
+        "topology-e781c3e0c617c870": 1,
+        "topology-eff219c6e93773b9": 1
+      }
+    },
+    {
+      "id": "contraction-e379cd92369bcaf9",
+      "classification": "nonfactorized",
+      "physical_edge_count": 8,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        3,
+        4,
+        1,
+        2,
+        5,
+        6,
+        9,
+        0
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,14,false,0],[0,18,false,0],[0,19,false,0],[0,20,false,0],[0,22,false,0],[1,14,false,0],[1,15,false,0],[1,16,false,0],[1,17,false,0],[1,21,false,0],[2,11,false,0],[2,12,false,0],[2,13,false,0],[2,21,false,0],[2,22,false,0],[3,9,false,0],[3,10,false,0],[3,13,false,0],[3,17,false,0],[3,20,false,0],[4,8,false,0],[4,10,false,0],[4,12,false,0],[4,16,false,0],[4,19,false,0],[5,8,false,0],[5,9,false,0],[5,11,false,0],[5,15,false,0],[5,18,false,0],[6,15,false,0],[6,16,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[7,11,false,0],[7,12,false,0],[7,13,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0]]}",
+      "labelled_occurrences": 230,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 66,
+        "topology-7f04f6e06b09306a": 48,
+        "topology-e781c3e0c617c870": 52,
+        "topology-eff219c6e93773b9": 64
+      }
+    },
+    {
+      "id": "contraction-fce1088bca8a176c",
+      "classification": "nonfactorized",
+      "physical_edge_count": 8,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        1,
+        4,
+        2,
+        6,
+        7,
+        0,
+        3,
+        5
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,12,false,0],[0,16,false,0],[0,18,false,0],[0,21,false,0],[0,22,false,0],[0,25,false,0],[0,26,false,0],[1,11,false,0],[1,15,false,0],[1,18,false,0],[1,19,false,0],[1,20,false,0],[1,23,false,0],[1,24,false,0],[2,10,false,0],[2,14,false,0],[2,17,false,0],[2,20,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[3,9,false,0],[3,13,false,0],[3,17,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,25,false,0],[4,9,false,0],[4,10,false,0],[4,11,false,0],[4,12,false,0],[4,13,false,0],[4,14,false,0],[4,15,false,0],[4,16,false,0],[5,8,false,0],[5,13,false,0],[5,14,false,0],[5,15,false,0],[5,16,false,0],[5,23,false,0],[5,24,false,0],[5,25,false,0],[5,26,false,0],[6,8,false,0],[6,11,false,0],[6,12,false,0],[6,13,false,0],[6,14,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[7,8,false,0],[7,9,false,0],[7,10,false,0],[7,15,false,0],[7,16,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0]]}",
+      "labelled_occurrences": 187,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 45,
+        "topology-7f04f6e06b09306a": 48,
+        "topology-e781c3e0c617c870": 22,
+        "topology-eff219c6e93773b9": 72
+      }
+    },
+    {
+      "id": "contraction-6dcb4c111a43ed84",
+      "classification": "factorized",
+      "physical_edge_count": 7,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        2,
+        5,
+        7,
+        0,
+        1,
+        4,
+        3
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,17,false,0],[1,10,false,0],[1,14,false,0],[1,15,false,0],[1,16,false,0],[2,10,false,0],[2,11,false,0],[2,12,false,0],[2,13,false,0],[3,8,false,0],[3,9,false,0],[3,13,false,0],[3,16,false,0],[4,7,false,0],[4,9,false,0],[4,12,false,0],[4,15,false,0],[5,7,false,0],[5,8,false,0],[5,11,false,0],[5,14,false,0],[6,11,false,0],[6,12,false,0],[6,13,false,0],[6,14,false,0],[6,15,false,0],[6,16,false,0]]}",
+      "labelled_occurrences": 1012,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 240,
+        "topology-7f04f6e06b09306a": 288,
+        "topology-e781c3e0c617c870": 212,
+        "topology-eff219c6e93773b9": 272
+      }
+    },
+    {
+      "id": "contraction-7b5c67d12c042c69",
+      "classification": "factorized",
+      "physical_edge_count": 7,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        2,
+        5,
+        3,
+        4,
+        0,
+        1,
+        9
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,1,1,1,1,1,1,1,1],\"edges\":[[0,14,false,0],[1,13,false,0],[2,8,false,0],[2,11,false,0],[2,12,false,0],[3,8,false,0],[3,9,false,0],[3,10,false,0],[4,7,false,0],[4,10,false,0],[4,12,false,0],[5,7,false,0],[5,9,false,0],[5,11,false,0],[6,9,false,0],[6,10,false,0],[6,11,false,0],[6,12,false,0]]}",
+      "labelled_occurrences": 889,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 240,
+        "topology-7f04f6e06b09306a": 180,
+        "topology-e781c3e0c617c870": 281,
+        "topology-eff219c6e93773b9": 188
+      }
+    },
+    {
+      "id": "contraction-947e8a344cea67f6",
+      "classification": "factorized",
+      "physical_edge_count": 7,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        0,
+        3,
+        5,
+        7,
+        4,
+        6,
+        8
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,1,1,1,1,1,1,1],\"edges\":[[0,13,false,0],[1,11,false,0],[1,12,false,0],[2,10,false,0],[2,12,false,0],[3,10,false,0],[3,11,false,0],[4,8,false,0],[4,9,false,0],[5,7,false,0],[5,9,false,0],[6,7,false,0],[6,8,false,0]]}",
+      "labelled_occurrences": 290,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 72,
+        "topology-7f04f6e06b09306a": 72,
+        "topology-e781c3e0c617c870": 74,
+        "topology-eff219c6e93773b9": 72
+      }
+    },
+    {
+      "id": "contraction-ce855de69ca997d4",
+      "classification": "factorized",
+      "physical_edge_count": 7,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        3,
+        9,
+        10,
+        7,
+        8,
+        1,
+        2
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,18,false,0],[1,9,false,0],[1,12,false,0],[1,13,false,0],[1,16,false,0],[1,17,false,0],[2,9,false,0],[2,10,false,0],[2,11,false,0],[2,14,false,0],[2,15,false,0],[3,8,false,0],[3,11,false,0],[3,13,false,0],[3,15,false,0],[3,17,false,0],[4,8,false,0],[4,10,false,0],[4,12,false,0],[4,14,false,0],[4,16,false,0],[5,7,false,0],[5,14,false,0],[5,15,false,0],[5,16,false,0],[5,17,false,0],[6,7,false,0],[6,10,false,0],[6,11,false,0],[6,12,false,0],[6,13,false,0]]}",
+      "labelled_occurrences": 142,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 30,
+        "topology-7f04f6e06b09306a": 48,
+        "topology-e781c3e0c617c870": 32,
+        "topology-eff219c6e93773b9": 32
+      }
+    },
+    {
+      "id": "contraction-f04f11e2fc425d0c",
+      "classification": "factorized",
+      "physical_edge_count": 7,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        3,
+        4,
+        9,
+        0,
+        2,
+        5,
+        6
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1],\"edges\":[[0,14,false,0],[0,15,false,0],[1,13,false,0],[1,15,false,0],[2,13,false,0],[2,14,false,0],[3,10,false,0],[3,11,false,0],[3,12,false,0],[4,8,false,0],[4,9,false,0],[4,12,false,0],[5,7,false,0],[5,9,false,0],[5,11,false,0],[6,7,false,0],[6,8,false,0],[6,10,false,0]]}",
+      "labelled_occurrences": 94,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 24,
+        "topology-7f04f6e06b09306a": 24,
+        "topology-e781c3e0c617c870": 22,
+        "topology-eff219c6e93773b9": 24
+      }
+    },
+    {
+      "id": "contraction-6d897964f3a0bc8d",
+      "classification": "nonfactorized",
+      "physical_edge_count": 7,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        1,
+        3,
+        4,
+        2,
+        5,
+        6,
+        0
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,11,false,0],[0,12,false,0],[0,19,false,0],[0,20,false,0],[0,21,false,0],[1,10,false,0],[1,12,false,0],[1,16,false,0],[1,17,false,0],[1,18,false,0],[2,10,false,0],[2,11,false,0],[2,13,false,0],[2,14,false,0],[2,15,false,0],[3,8,false,0],[3,9,false,0],[3,15,false,0],[3,18,false,0],[3,21,false,0],[4,7,false,0],[4,9,false,0],[4,14,false,0],[4,17,false,0],[4,20,false,0],[5,7,false,0],[5,8,false,0],[5,13,false,0],[5,16,false,0],[5,19,false,0],[6,13,false,0],[6,14,false,0],[6,15,false,0],[6,16,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0]]}",
+      "labelled_occurrences": 101,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 27,
+        "topology-7f04f6e06b09306a": 24,
+        "topology-e781c3e0c617c870": 18,
+        "topology-eff219c6e93773b9": 32
+      }
+    },
+    {
+      "id": "contraction-a1cb6e3138c40f7b",
+      "classification": "nonfactorized",
+      "physical_edge_count": 7,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        2,
+        6,
+        7,
+        1,
+        4,
+        0,
+        3
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,11,false,0],[0,14,false,0],[0,17,false,0],[0,20,false,0],[0,22,false,0],[0,23,false,0],[1,10,false,0],[1,13,false,0],[1,16,false,0],[1,19,false,0],[1,21,false,0],[1,23,false,0],[2,9,false,0],[2,12,false,0],[2,15,false,0],[2,18,false,0],[2,21,false,0],[2,22,false,0],[3,8,false,0],[3,15,false,0],[3,16,false,0],[3,17,false,0],[3,18,false,0],[3,19,false,0],[3,20,false,0],[4,8,false,0],[4,9,false,0],[4,10,false,0],[4,11,false,0],[4,12,false,0],[4,13,false,0],[4,14,false,0],[5,7,false,0],[5,12,false,0],[5,13,false,0],[5,14,false,0],[5,18,false,0],[5,19,false,0],[5,20,false,0],[6,7,false,0],[6,9,false,0],[6,10,false,0],[6,11,false,0],[6,15,false,0],[6,16,false,0],[6,17,false,0]]}",
+      "labelled_occurrences": 129,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 30,
+        "topology-7f04f6e06b09306a": 36,
+        "topology-e781c3e0c617c870": 19,
+        "topology-eff219c6e93773b9": 44
+      }
+    },
+    {
+      "id": "contraction-c81f51b3a0567d72",
+      "classification": "nonfactorized",
+      "physical_edge_count": 7,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        3,
+        5,
+        1,
+        2,
+        4,
+        6,
+        7
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,13,false,0],[0,18,false,0],[0,19,false,0],[0,20,false,0],[0,21,false,0],[1,13,false,0],[1,14,false,0],[1,15,false,0],[1,16,false,0],[1,17,false,0],[2,10,false,0],[2,11,false,0],[2,12,false,0],[2,17,false,0],[2,21,false,0],[3,8,false,0],[3,9,false,0],[3,12,false,0],[3,16,false,0],[3,20,false,0],[4,7,false,0],[4,9,false,0],[4,11,false,0],[4,15,false,0],[4,19,false,0],[5,7,false,0],[5,8,false,0],[5,10,false,0],[5,14,false,0],[5,18,false,0],[6,14,false,0],[6,15,false,0],[6,16,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0]]}",
+      "labelled_occurrences": 265,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 63,
+        "topology-7f04f6e06b09306a": 72,
+        "topology-e781c3e0c617c870": 42,
+        "topology-eff219c6e93773b9": 88
+      }
+    },
+    {
+      "id": "contraction-b4a5d19eb86bb1eb",
+      "classification": "factorized",
+      "physical_edge_count": 6,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        2,
+        0,
+        1,
+        4,
+        5,
+        7
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[1,12,false,0],[1,13,false,0],[1,14,false,0],[1,15,false,0],[2,9,false,0],[2,10,false,0],[2,11,false,0],[2,15,false,0],[3,7,false,0],[3,8,false,0],[3,11,false,0],[3,14,false,0],[4,6,false,0],[4,8,false,0],[4,10,false,0],[4,13,false,0],[5,6,false,0],[5,7,false,0],[5,9,false,0],[5,12,false,0]]}",
+      "labelled_occurrences": 343,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 81,
+        "topology-7f04f6e06b09306a": 96,
+        "topology-e781c3e0c617c870": 62,
+        "topology-eff219c6e93773b9": 104
+      }
+    },
+    {
+      "id": "contraction-b6faf3e1f57dfcfb",
+      "classification": "factorized",
+      "physical_edge_count": 6,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        2,
+        5,
+        0,
+        1,
+        3,
+        4
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,1,1,1,1,1,1,1,1],\"edges\":[[0,13,false,0],[1,12,false,0],[2,9,false,0],[2,10,false,0],[2,11,false,0],[3,7,false,0],[3,8,false,0],[3,11,false,0],[4,6,false,0],[4,8,false,0],[4,10,false,0],[5,6,false,0],[5,7,false,0],[5,9,false,0]]}",
+      "labelled_occurrences": 840,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 204,
+        "topology-7f04f6e06b09306a": 228,
+        "topology-e781c3e0c617c870": 188,
+        "topology-eff219c6e93773b9": 220
+      }
+    },
+    {
+      "id": "contraction-fc52cd6c8ea40f95",
+      "classification": "factorized",
+      "physical_edge_count": 6,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        7
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,1,1,1,1,1,1],\"edges\":[[0,11,false,0],[1,10,false,0],[2,9,false,0],[3,7,false,0],[3,8,false,0],[4,6,false,0],[4,8,false,0],[5,6,false,0],[5,7,false,0]]}",
+      "labelled_occurrences": 1628,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 410,
+        "topology-7f04f6e06b09306a": 400,
+        "topology-e781c3e0c617c870": 410,
+        "topology-eff219c6e93773b9": 408
+      }
+    },
+    {
+      "id": "contraction-56e03dceef345802",
+      "classification": "nonfactorized",
+      "physical_edge_count": 6,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[0,17,false,0],[0,18,false,0],[0,19,false,0],[0,20,false,0],[1,12,false,0],[1,13,false,0],[1,14,false,0],[1,15,false,0],[1,20,false,0],[2,9,false,0],[2,10,false,0],[2,11,false,0],[2,15,false,0],[2,19,false,0],[3,7,false,0],[3,8,false,0],[3,11,false,0],[3,14,false,0],[3,18,false,0],[4,6,false,0],[4,8,false,0],[4,10,false,0],[4,13,false,0],[4,17,false,0],[5,6,false,0],[5,7,false,0],[5,9,false,0],[5,12,false,0],[5,16,false,0]]}",
+      "labelled_occurrences": 61,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 15,
+        "topology-7f04f6e06b09306a": 16,
+        "topology-e781c3e0c617c870": 10,
+        "topology-eff219c6e93773b9": 20
+      }
+    },
+    {
+      "id": "contraction-ba896a860fab9e1f",
+      "classification": "factorized",
+      "physical_edge_count": 5,
+      "representative_parent": "topology-56637102394d35a1",
+      "representative_slots": [
+        0,
+        1,
+        2,
+        3,
+        5
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,1,1,1,1,1],\"edges\":[[0,9,false,0],[1,8,false,0],[2,7,false,0],[3,6,false,0],[4,5,false,0]]}",
+      "labelled_occurrences": 1475,
+      "parent_occurrences": {
+        "topology-56637102394d35a1": 363,
+        "topology-7f04f6e06b09306a": 384,
+        "topology-e781c3e0c617c870": 336,
+        "topology-eff219c6e93773b9": 392
+      }
+    }
+  ],
+  "wall_seconds": 1.6954187820083462,
+  "all_duplicate_gl_routing_witnesses": false,
+  "authority": "exact graph-matroid census only; no reduction or numerical master claims",
+  "closure_claim": false
+}

@@ -33,6 +33,7 @@ pub(crate) struct FamilyCandidatesArgs {
     pub integral_order: Option<PathBuf>,
     pub nonpositive_indices: Vec<usize>,
     pub selected_sectors: Option<Vec<Vec<bool>>>,
+    pub root_zero_census: bool,
     pub force: bool,
 }
 
@@ -82,6 +83,8 @@ fn parse(
     let mut bundle_max_entries = None;
     let mut bundle_max_coefficient_bytes = None;
     let mut bundle_max_total_coefficient_bytes = None;
+    let mut bundle_max_polynomial_terms = None;
+    let mut bundle_max_term_operations = None;
     let mut checkpoint_dir = None;
     let mut checkpoint_max_bytes = None;
     let mut resume = false;
@@ -92,6 +95,7 @@ fn parse(
     let mut integral_order = None;
     let mut nonpositive_indices = None;
     let mut selected_sectors = None;
+    let mut root_zero_census = false;
     let mut resources = ResourceLimitsArgs::default();
     let mut max_negative_index_degree = None;
     let mut max_total_excess_degree = None;
@@ -100,6 +104,12 @@ fn parse(
     while let Some(option) = arguments.next() {
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
         match option.as_str() {
+            "--root-zero-census" if !certification => {
+                if root_zero_census {
+                    return Err(ArgError::DuplicateOption("--root-zero-census"));
+                }
+                root_zero_census = true;
+            }
             "--case-max-work-items"
             | "--case-max-terms-per-conjunction"
             | "--case-max-normalizations"
@@ -124,6 +134,8 @@ fn parse(
             | "--bundle-max-entries"
             | "--bundle-max-coefficient-bytes"
             | "--bundle-max-total-coefficient-bytes"
+            | "--bundle-max-polynomial-terms"
+            | "--bundle-max-term-operations"
                 if !certification =>
             {
                 let (name, slot) = match option.as_str() {
@@ -132,6 +144,14 @@ fn parse(
                     "--bundle-max-coefficient-bytes" => (
                         "--bundle-max-coefficient-bytes",
                         &mut bundle_max_coefficient_bytes,
+                    ),
+                    "--bundle-max-polynomial-terms" => (
+                        "--bundle-max-polynomial-terms",
+                        &mut bundle_max_polynomial_terms,
+                    ),
+                    "--bundle-max-term-operations" => (
+                        "--bundle-max-term-operations",
+                        &mut bundle_max_term_operations,
                     ),
                     _ => (
                         "--bundle-max-total-coefficient-bytes",
@@ -397,11 +417,6 @@ fn parse(
         max_retained_terminals: finite_max_retained_terminals
             .unwrap_or(default_finite_limits.max_retained_terminals),
     };
-    if bundle_max_bytes.is_some_and(|bytes| bytes > MAX_CANDIDATE_BUNDLE_BYTES) {
-        return Err(ArgError::InvalidCombination(
-            "--bundle-max-bytes exceeds the hard 1073741824-byte (1 GiB) candidate limit",
-        ));
-    }
     let defaults = CandidateBundleLimits::default();
     let bundle_limits = CandidateBundleLimits {
         max_bundle_bytes: bundle_max_bytes.unwrap_or(defaults.max_bundle_bytes),
@@ -410,7 +425,13 @@ fn parse(
             .unwrap_or(defaults.max_coefficient_bytes),
         max_total_coefficient_bytes: bundle_max_total_coefficient_bytes
             .unwrap_or(defaults.max_total_coefficient_bytes),
-        ..defaults
+        exact_algebra: rustred::algebra::ExactAlgebraLimits {
+            max_polynomial_terms: bundle_max_polynomial_terms
+                .unwrap_or(defaults.exact_algebra.max_polynomial_terms),
+            max_term_operations: bundle_max_term_operations
+                .unwrap_or(defaults.exact_algebra.max_term_operations),
+            ..defaults.exact_algebra
+        },
     };
     if max_negative_index_degree.is_some() && max_total_excess_degree.is_some() {
         return Err(ArgError::InvalidCombination(
@@ -484,6 +505,7 @@ fn parse(
             integral_order,
             nonpositive_indices: nonpositive_indices.unwrap_or_default(),
             selected_sectors,
+            root_zero_census,
             force,
         }))
     }
@@ -539,21 +561,14 @@ mod tests {
             selected.selected_sectors,
             Some(vec![vec![false, true, true], vec![true; 3]])
         );
-        for value in [
-            "",
-            "011,",
-            ",111",
-            "011,,111",
-            "01a",
-            " 011",
-            "11111111111111111",
-        ] {
+        for value in ["", "011,", ",111", "011,,111", "01a", " 011"] {
             assert!(
                 parse_args(&["--selected-sectors", value]).is_err(),
                 "{value}"
             );
         }
         assert!(parse_args(&["--selected-sectors", "1", "--selected-sectors", "1"]).is_err());
+        assert!(parse_args(&["--selected-sectors", "111111111111111111111"]).is_ok());
         assert!(
             parse_certification(["--selected-sectors", "1"].into_iter().map(OsString::from))
                 .is_err()
@@ -658,7 +673,7 @@ mod tests {
             assert!(parse_args(&[option, "1", option, "1"]).is_err());
             assert!(parse_certification([option, "1"].into_iter().map(OsString::from)).is_err());
         }
-        assert!(parse_args(&["--bundle-max-bytes", "1073741825"]).is_err());
+        assert!(parse_args(&["--bundle-max-bytes", "1073741825"]).is_ok());
         let Command::FamilyCandidates(parsed) = parse_args(&[
             "--bundle-max-bytes",
             "1073741824",
@@ -940,10 +955,20 @@ mod tests {
 
     #[test]
     fn explicit_candidate_backend_is_separate_from_certification() {
+        #[cfg(not(feature = "reconstruction"))]
+        assert!(
+            parse_generation(
+                ["--exact-backend", "semi-numerical"]
+                    .into_iter()
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
         for backend in [
             CandidateExactBackend::Sparse,
             CandidateExactBackend::SparseFactorized,
             CandidateExactBackend::SparseTargetOnlyFactorized,
+            #[cfg(feature = "reconstruction")]
             CandidateExactBackend::SemiNumerical,
         ] {
             let Command::FamilyCandidates(args) = parse_generation(

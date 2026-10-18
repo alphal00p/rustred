@@ -95,9 +95,7 @@ fn generate_request(
         None => Arc::new(preparation::family(&request.source, request.input_format)?),
     };
     let n = family.denominator_count();
-    if !(1..=16).contains(&n) {
-        return Err(AppError::input("candidate family arity must be 1..=16"));
-    }
+    preparation::validate_arity(n)?;
     let root = preparation::root(n, &request.nonpositive_indices)?;
     preparation::validate_permutation(n, request.permutation.as_deref())?;
     super::order::request_policy(&request, n)?;
@@ -112,8 +110,13 @@ fn generate_request(
         } };
     }
     {
-        crate::ensure_runtime_arity(n)?;
-        rustred::with_app_runtime_arities!(dispatch)
+        if !rustred::compiled_runtime_arities().contains(&n) {
+            return Err(AppError::input(format!(
+                "candidate arity {n} is not compiled; registered arities are {:?}",
+                rustred::compiled_runtime_arities()
+            )));
+        }
+        rustred::with_candidate_runtime_arities!(dispatch)
     }
 }
 
@@ -126,8 +129,11 @@ fn generate<const N: usize>(
     cancellation: Option<Arc<AtomicBool>>,
 ) -> Result<CandidateBundleResult, AppError> {
     check_cancel(cancellation.as_ref())?;
-    let mut prepared =
-        preparation::prepare_shared::<N>(family, root, request.permutation.as_deref())?;
+    let mut prepared = if request.root_zero_census {
+        preparation::prepare_shared_root::<N>(family, root, request.permutation.as_deref())?
+    } else {
+        preparation::prepare_shared::<N>(family, root, request.permutation.as_deref())?
+    };
     check_cancel(cancellation.as_ref())?;
     let selected_sectors = super::selection::apply(
         &mut prepared,

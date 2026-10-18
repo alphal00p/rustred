@@ -115,6 +115,21 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(len(self.launches), 2)
         self.assertTrue(all(process.reaped for process in self.processes.values()))
 
+    def test_process_limit_ignores_host_reserve_and_can_disable_swap_guard(self):
+        resources = dict(self.resources, memory_policy="process-limit",
+                         swap_growth_stop_bytes_per_second=0)
+        with patch.object(scheduler.SUPERVISOR, "host_memory",
+                          return_value={"available_bytes": 1}), \
+             patch.object(scheduler.SUPERVISOR, "tree_swap_bytes", return_value=100_000_000_000):
+            result = scheduler.run(self.jobs(), self.path / "process-limit", resources,
+                                   lambda _: None, poll_seconds=0)
+        self.assertIsNone(result["stop_reason"])
+        request = json.loads((self.path / "process-limit/request.json").read_text())
+        self.assertEqual(request["memory"]["effective_hard_memory_bytes"], 1_000_000_000)
+        self.assertEqual(request["ram_guard"]["swap_growth_stop_bytes_per_second"], 0)
+        snapshot = json.loads((self.path / "process-limit/snapshot.json").read_text())
+        self.assertEqual(snapshot["aggregate"]["host_available_bytes"], 1)
+
     def test_operator_signal_drains_every_owned_group_and_restores_handlers(self):
         previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
         def observe(event):

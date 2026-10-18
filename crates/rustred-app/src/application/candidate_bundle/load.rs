@@ -93,7 +93,8 @@ pub fn load_generated_candidate_bundle<const N: usize>(
     reduction_limits: ReductionLimits,
 ) -> Result<(IntegralFamily, CandidateReducer<N>), AppError> {
     let bundle = codec::read(bytes, input_limits)?;
-    if !(1..=16).contains(&N) || !rustred::fits_storage(bundle.root_sector.len(), N) {
+    preparation::validate_arity(bundle.root_sector.len())?;
+    if !rustred::fits_storage(bundle.root_sector.len(), N) {
         return Err(AppError::input("candidate bundle/reducer arity mismatch"));
     }
     let family = reconstruct_family::<N>(&bundle, input_limits)?;

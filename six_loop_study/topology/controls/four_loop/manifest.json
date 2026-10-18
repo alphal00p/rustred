@@ -1,0 +1,348 @@
+{
+  "schema": "six-loop-study.topologies.v1",
+  "loop_count": 4,
+  "coordinate_count": 10,
+  "parent_count": 2,
+  "entries": [
+    {
+      "id": "topology-1740406b307145b6",
+      "input": "families/topology-1740406b307145b6.toml",
+      "dot": "dot/topology-1740406b307145b6.dot",
+      "loop_count": 4,
+      "coordinate_count": 10,
+      "physical_edge_count": 9,
+      "physical_propagators": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "auxiliary_slots": [
+        9
+      ],
+      "momenta": [
+        [
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          -1,
+          1
+        ],
+        [
+          1,
+          1,
+          -1,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          1
+        ],
+        [
+          1,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          -1,
+          0
+        ]
+      ],
+      "native_basis_rank": 10,
+      "common_mass_squared": 1,
+      "denominator_convention": "q^2-1",
+      "representative_graph": "cubic-0003",
+      "coordinate_edge_ids": [
+        0,
+        4,
+        8,
+        7,
+        2,
+        3,
+        1,
+        6,
+        5
+      ],
+      "coordinate_edge_signs": [
+        1,
+        1,
+        1,
+        -1,
+        -1,
+        -1,
+        1,
+        1,
+        1
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,11,false,0],[0,14,false,0],[0,16,false,0],[0,17,false,0],[0,20,false,0],[0,21,false,0],[0,22,false,0],[0,23,false,0],[1,10,false,0],[1,13,false,0],[1,15,false,0],[1,17,false,0],[1,19,false,0],[1,21,false,0],[1,22,false,0],[1,23,false,0],[2,9,false,0],[2,12,false,0],[2,15,false,0],[2,16,false,0],[2,19,false,0],[2,20,false,0],[2,22,false,0],[2,23,false,0],[3,11,false,0],[3,12,false,0],[3,13,false,0],[3,15,false,0],[3,18,false,0],[3,20,false,0],[3,21,false,0],[3,23,false,0],[4,10,false,0],[4,12,false,0],[4,14,false,0],[4,16,false,0],[4,18,false,0],[4,19,false,0],[4,21,false,0],[4,23,false,0],[5,9,false,0],[5,13,false,0],[5,14,false,0],[5,17,false,0],[5,18,false,0],[5,19,false,0],[5,20,false,0],[5,23,false,0],[6,10,false,0],[6,11,false,0],[6,12,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,22,false,0],[7,9,false,0],[7,11,false,0],[7,13,false,0],[7,16,false,0],[7,18,false,0],[7,19,false,0],[7,21,false,0],[7,22,false,0],[8,9,false,0],[8,10,false,0],[8,14,false,0],[8,15,false,0],[8,18,false,0],[8,20,false,0],[8,21,false,0],[8,22,false,0]]}",
+      "selected_sectors": [
+        "1111111110",
+        "1111111100",
+        "1111111000",
+        "1111101100",
+        "1011101100",
+        "1111101000",
+        "1111011000",
+        "1111110000",
+        "1111001000",
+        "1111100000",
+        "1110011000",
+        "1111000000"
+      ],
+      "selected_topology_classes": [
+        {
+          "id": "contraction-1740406b307145b6",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-2f4da253bff1924e",
+          "classification": "nonfactorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-4f410f4f03333202",
+          "classification": "nonfactorized",
+          "physical_edge_count": 7
+        },
+        {
+          "id": "contraction-c19e23478e5b6d86",
+          "classification": "nonfactorized",
+          "physical_edge_count": 7
+        },
+        {
+          "id": "contraction-b5700ba22265ab32",
+          "classification": "factorized",
+          "physical_edge_count": 6
+        },
+        {
+          "id": "contraction-eb8625ba985e4171",
+          "classification": "factorized",
+          "physical_edge_count": 6
+        },
+        {
+          "id": "contraction-79f65db1501c8791",
+          "classification": "nonfactorized",
+          "physical_edge_count": 6
+        },
+        {
+          "id": "contraction-c8955c9be12363b5",
+          "classification": "nonfactorized",
+          "physical_edge_count": 6
+        },
+        {
+          "id": "contraction-26225a2f86433da1",
+          "classification": "factorized",
+          "physical_edge_count": 5
+        },
+        {
+          "id": "contraction-2a1ec946b9b0759b",
+          "classification": "factorized",
+          "physical_edge_count": 5
+        },
+        {
+          "id": "contraction-2ae140a3c6090205",
+          "classification": "nonfactorized",
+          "physical_edge_count": 5
+        },
+        {
+          "id": "contraction-304e4e7855b85601",
+          "classification": "factorized",
+          "physical_edge_count": 4
+        }
+      ]
+    },
+    {
+      "id": "topology-799c825fd5e22efa",
+      "input": "families/topology-799c825fd5e22efa.toml",
+      "dot": "dot/topology-799c825fd5e22efa.dot",
+      "loop_count": 4,
+      "coordinate_count": 10,
+      "physical_edge_count": 9,
+      "physical_propagators": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "auxiliary_slots": [
+        9
+      ],
+      "momenta": [
+        [
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          -1
+        ],
+        [
+          1,
+          1,
+          0,
+          -1
+        ],
+        [
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          -1
+        ],
+        [
+          0,
+          0,
+          1,
+          1
+        ],
+        [
+          1,
+          0,
+          -1,
+          0
+        ]
+      ],
+      "native_basis_rank": 10,
+      "common_mass_squared": 1,
+      "denominator_convention": "q^2-1",
+      "representative_graph": "cubic-0014",
+      "coordinate_edge_ids": [
+        0,
+        1,
+        8,
+        7,
+        5,
+        3,
+        2,
+        6,
+        4
+      ],
+      "coordinate_edge_signs": [
+        1,
+        1,
+        -1,
+        1,
+        1,
+        1,
+        -1,
+        -1,
+        -1
+      ],
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,11,false,0],[0,13,false,0],[0,16,false,0],[0,18,false,0],[0,19,false,0],[0,21,false,0],[0,22,false,0],[1,10,false,0],[1,13,false,0],[1,15,false,0],[1,17,false,0],[1,19,false,0],[1,20,false,0],[1,22,false,0],[2,9,false,0],[2,13,false,0],[2,14,false,0],[2,17,false,0],[2,18,false,0],[2,20,false,0],[2,21,false,0],[3,11,false,0],[3,12,false,0],[3,14,false,0],[3,15,false,0],[3,17,false,0],[3,21,false,0],[3,22,false,0],[4,10,false,0],[4,12,false,0],[4,14,false,0],[4,16,false,0],[4,18,false,0],[4,20,false,0],[4,22,false,0],[5,9,false,0],[5,12,false,0],[5,15,false,0],[5,16,false,0],[5,19,false,0],[5,20,false,0],[5,21,false,0],[6,10,false,0],[6,11,false,0],[6,15,false,0],[6,16,false,0],[6,17,false,0],[6,18,false,0],[6,20,false,0],[6,21,false,0],[7,9,false,0],[7,11,false,0],[7,14,false,0],[7,16,false,0],[7,17,false,0],[7,19,false,0],[7,20,false,0],[7,22,false,0],[8,9,false,0],[8,10,false,0],[8,14,false,0],[8,15,false,0],[8,18,false,0],[8,19,false,0],[8,21,false,0],[8,22,false,0]]}",
+      "selected_sectors": [
+        "1111111110",
+        "1111101110",
+        "1111001110",
+        "1101101110"
+      ],
+      "selected_topology_classes": [
+        {
+          "id": "contraction-799c825fd5e22efa",
+          "classification": "nonfactorized",
+          "physical_edge_count": 9
+        },
+        {
+          "id": "contraction-c919410fe1afd38f",
+          "classification": "nonfactorized",
+          "physical_edge_count": 8
+        },
+        {
+          "id": "contraction-8c66b91cb384af3e",
+          "classification": "factorized",
+          "physical_edge_count": 7
+        },
+        {
+          "id": "contraction-28cf7115331d3cca",
+          "classification": "nonfactorized",
+          "physical_edge_count": 7
+        }
+      ]
+    }
+  ],
+  "generation_scope": "one selected sector for every graph-matroid class",
+  "selected_sector_count": 16,
+  "selected_sector_classes": {
+    "nonfactorized": 10,
+    "factorized": 6
+  },
+  "selected_generation_is_not_assembled_full_downset_closure": true,
+  "cross_parent_subsector_work_deduplicated": false,
+  "topology_census": "classified_census.json",
+  "coverage_witnesses": "maximal_parent_cover.json",
+  "contraction_census": "contraction_census.json",
+  "dot_semantics": "native FeynKit phi3 DOT; masses normalized to one in TOML",
+  "ibp_generation_performed": false,
+  "closure_claim": false
+}

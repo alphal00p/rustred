@@ -58,7 +58,7 @@ fn empty_dispatch_has_exact_old_v2_wire_and_read_identity() {
     .unwrap();
     let bytes = encode(&records).unwrap();
     assert_eq!(bytes, old);
-    let (decoded, consumed) = decode_v2(&bytes).unwrap();
+    let (decoded, consumed) = decode_v2(&bytes, MAX_CANDIDATE_BUNDLE_BYTES).unwrap();
     assert_eq!(consumed, bytes.len());
     assert_eq!(decoded, records);
     validate(&decoded, Default::default()).unwrap();

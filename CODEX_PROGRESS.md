@@ -1,5 +1,90 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 18 — independent six-loop topology and generation study
+
+User requests a separate `six_loop_study/`: FeynKit phi3 vacuum graph
+generation, offline removal of matroid-equivalent copies, DOT inputs, and a
+user-launched rank-zero IBP-generation command. No existing campaign is changed
+and no complete six-loop parent generation is launched here.
+
+Delegation: `finite_group_engine` generated/classified/exported the offline
+topology census; `finite_group_validation` prepared the independent launcher,
+parallel parent scheduling and resource/checkpoint tests; `finite_group_audit`
+independently researched and replayed graph/matroid/routing claims and audited
+code; root integrates the generic generation/codec arity capability, builds,
+native tests and delivery. Existing unrelated FeynKit edits remain excluded.
+
+Measured census: FeynKit generated all 388 connected cubic multigraphs in 0.41 s.
+322 are factorized (zero-flow bridges are mass factors, not declared zero);
+66 nonfactorized cubic-derived classes reduce to 14 maximal 15-line parents.
+All 66 have exact integer unimodular routing/contraction witnesses into those
+parents. Enumerating 14 × 2^15 physical masks takes 85.93 s and finds 435 matroid
+classes, 351 nonfactorized and 84 factorized. These 435 representatives become
+selected generation jobs; all 14 full downsets remain an explicit alternative.
+The same scripts reproduce 4L 16 = 10 + 6 and 5L 67 = 48 + 19 including every TIDE
+propagator-count subtotal. Independent graph-simple-cycle analysis (not the
+producer's binary-cycle algorithm) replays the witnesses and 435 representative
+forest contractions; malformed witness controls fail. Full alias GL maps for
+every duplicated labelled subset are NOT claimed or installed in a runtime
+cross-parent application package.
+
+Native changes are topology-generic: generation-specific compiled arity
+dispatch (the dedicated build selects 1,21), candidate shape/codec support with
+no frontend arity ceiling, optional physical-root-only zero
+census, caller bundle-byte/term/work grants without the 1 GiB clamp, bounded
+runtime Bincode allocation claims, and overflow-safe uncapped checkpoint
+file-count permission. Existing symbolic/finite campaign application remains
+on its separately supported arities; this is not a delivered six-loop Vakint
+backend. Root zero-census choice binds generation checkpoints and never marks
+unexamined auxiliary-positive sectors zero.
+
+The study launcher freezes relative inputs and its own executable, defaults to
+R0 / search / depth 0 / sparse-factorized / A1, uses dynamic parent slots with per-parent
+native workers, one user-selected process RSS guard, no runtime/count stop or
+swap-growth stop, structured progress and the existing native dashboard.
+Completed sectors can resume under identical generation policy; increasing
+rank is a fresh generation run, not an automatic incremental generation upgrade.
+
+Independent audit passed for the 14 K21 TOML families/native DOT graphs, all
+three topology censuses, and the source changes. Actual 14-parent / 435-job
+metadata-only preparation passed. All 44 Python steering, scheduler, dashboard
+and pipeline tests pass. Final native regression results are recorded below.
+
+The K21 six-independent-tadpole smoke (not an actual study parent) generated
+6,551 rules / 1 terminal in 121.715 s including preparation and encoding. Cold
+checkpoint resume reproduced byte-identical output in 38.961 s. The final build
+repeated cold inspection and checkpoint resume in 39.003 s with candidate SHA256
+`17d6cc3f0a5ad5f547c9e9c701cbf92bef98df116c6573455ead44630b9862a9`.
+This is a plumbing check, not a coupled-six-loop performance estimate. A full
+JSON diagnostic exceeded its 16 MiB view allowance; selecting one rule tested
+the bounded view without changing the bundle. Parallel K1 launcher creation,
+completed-output reuse, native checkpoint reuse and dashboard gates pass too.
+
+Final optimized binary SHA256:
+`baafaba31980b6a9e2e9fff3f799f4ed26369d3e6f7b135539325df73bb575fc`.
+Path: `six_loop_study/bin/rustred` (local, ignored); build receipt:
+`TMP/six-loop-uncapped-generation-build-20261018/` (279.44 s build wall).
+Evidence paths and launch/resume commands are in `six_loop_study/VALIDATION.md`
+and `six_loop_study/README.md`. Generation, not runtime application or closure,
+is delivered. The compiled binary is independent of the production binaries.
+
+Final native gates: candidate filter 191 passed / 0 failed / 3 ignored; finite
+filter 271 passed / 0 failed / 5 ignored. The latter runs on 32 allowed CPUs,
+so this is not a new execution of the separately affinity-gated 150-worker
+fixtures. Test commands use the existing `toolchain.sh`, one-thread BLAS/OpenMP,
+`RUST_MIN_STACK=67108864`, `taskset -c 200-231`, and
+`TMP/six-loop-fast-native-tests-build-20261018/tests {candidate,finite}
+--test-threads=1`. Receipts: `TMP/six-loop-generation-test-results-20261018/`.
+The unoptimized application test harness initially exhausted the default stack
+in an unrelated epoch fixture; increasing its test-thread stack passes with
+unchanged assertions. Initial tests expecting the removed bundle/arity caps,
+and an optional-backend test assuming reconstruction was compiled, were updated
+to test the new contract and actual feature selection. Optimized CLI evidence
+is separate; no unoptimized test timing is quoted as solver performance.
+
+Delivery remains user-launched: use the rank-zero command in the study README.
+This task has not started the real 14-parent IBP run or mutated production.
+
 ## October 18 — finite R5 hidden execution-quota failure (delivered)
 
 The R5 invocation `20261017T230917.167071Z` stopped with native exit 4,

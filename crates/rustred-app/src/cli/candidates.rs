@@ -44,6 +44,7 @@ pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> 
         .transpose()?;
     request.nonpositive_indices = arguments.nonpositive_indices;
     request.selected_sectors = arguments.selected_sectors;
+    request.root_zero_census = arguments.root_zero_census;
     request.checkpoint = arguments.checkpoint;
     let terminal = std::io::stderr().is_terminal();
     let export = arguments.progress_json.is_some();

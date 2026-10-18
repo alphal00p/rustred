@@ -236,11 +236,12 @@ fn selected_mask_parser_is_strict_and_preserves_axis_positions() {
         vec!["".into()],
         vec!["10a".into()],
         vec![" 01".into()],
-        vec!["1".repeat(17)],
         vec!["１".into()],
     ] {
         assert!(FamilyCandidatesRequest::parse_selected_sectors(&masks).is_err());
     }
+    assert!(FamilyCandidatesRequest::parse_selected_sectors(&["1".repeat(21)]).is_ok());
+    assert!(FamilyCandidatesRequest::parse_selected_sectors(&["1".repeat(128)]).is_ok());
 }
 
 #[test]

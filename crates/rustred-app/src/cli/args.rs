@@ -437,6 +437,7 @@ FAMILY-CANDIDATES OPTIONS:
     --integral-order <PATH>      JSON file selecting a persisted uncut mathematical order
                                 Incompatible with --permutation; separate from source scheduling
     --selected-sectors <MASKS>   Generate only comma-separated nonzero binary masks, not their downsets
+    --root-zero-census          Analyze zeros only in the physical root downset (never assumes omitted sectors zero)
     --nonpositive-indices <N,N,...>  Coordinates restricted to nonpositive powers
     --n-cores <COUNT>            Maximum worker cores [default: 1]
     --exact-backend <BACKEND>    sparse, sparse-factorized, sparse-target-factorized, or semi-numerical [default: sparse]
@@ -449,7 +450,9 @@ FAMILY-CANDIDATES OPTIONS:
     --case-max-terms-per-conjunction <N> Exact geometry term budget (default 100000)
     --case-max-normalizations <N>        Per-conjunction normalization budget (default 1024)
     --case-max-factorizations <N>        Per-conjunction factorization budget (default 4096)
-    --bundle-max-bytes <N>       Native bundle byte budget (default 268435456; hard maximum 1073741824)
+    --bundle-max-bytes <N>       Caller-selected native bundle byte budget (default 268435456)
+    --bundle-max-polynomial-terms <N>   Caller-selected exact coefficient term allowance
+    --bundle-max-term-operations <N>    Caller-selected exact coefficient operation allowance
     --bundle-max-entries <N>     Native collection-entry budget (default 1000000)
     --bundle-max-coefficient-bytes <N>       Per-coefficient byte budget (default 16777216)
     --bundle-max-total-coefficient-bytes <N> Total coefficient-table byte budget (default 134217728)

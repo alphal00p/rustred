@@ -20,12 +20,19 @@ pub(super) fn family(source: &str, format: InputFormat) -> Result<IntegralFamily
     }
     let (_, _, _, lowered) = lower_project(prepare_input(source, format)?)?.into_parts();
     let family = lowered.into_family();
-    if !(1..=16).contains(&family.denominator_count()) {
+    validate_arity(family.denominator_count())?;
+    Ok(family)
+}
+
+/// No frontend arity ceiling. Compiled dispatch, the chosen order and checked
+/// mask enumeration validate their actual representation requirements later.
+pub(super) fn validate_arity(arity: usize) -> Result<(), AppError> {
+    if arity == 0 {
         return Err(AppError::input(
-            "candidate generation supports denominator arities 1 through 16",
+            "candidate family must have at least one denominator coordinate",
         ));
     }
-    Ok(family)
+    Ok(())
 }
 
 pub(super) fn root(arity: usize, nonpositive: &[usize]) -> Result<Vec<bool>, AppError> {
@@ -84,7 +91,15 @@ pub(in crate::application) fn prepare<const N: usize>(
     root: &[bool],
     permutation: Option<&[usize]>,
 ) -> Result<Prepared<N>, AppError> {
-    prepare_inner(family, root, permutation)
+    prepare_inner(family, root, permutation, false)
+}
+
+pub(super) fn prepare_root<const N: usize>(
+    family: IntegralFamily,
+    root: &[bool],
+    permutation: Option<&[usize]>,
+) -> Result<Prepared<N>, AppError> {
+    prepare_inner(family, root, permutation, true)
 }
 
 /// Preserve the host's exact family allocation. The owned preparation entry
@@ -94,13 +109,22 @@ pub(super) fn prepare_shared<const N: usize>(
     root: &[bool],
     permutation: Option<&[usize]>,
 ) -> Result<Prepared<N, Arc<IntegralFamily>>, AppError> {
-    prepare_inner(family, root, permutation)
+    prepare_inner(family, root, permutation, false)
+}
+
+pub(super) fn prepare_shared_root<const N: usize>(
+    family: Arc<IntegralFamily>,
+    root: &[bool],
+    permutation: Option<&[usize]>,
+) -> Result<Prepared<N, Arc<IntegralFamily>>, AppError> {
+    prepare_inner(family, root, permutation, true)
 }
 
 fn prepare_inner<const N: usize, F: Borrow<IntegralFamily>>(
     family: F,
     root: &[bool],
     permutation: Option<&[usize]>,
+    root_only: bool,
 ) -> Result<Prepared<N, F>, AppError> {
     let arity = family.borrow().denominator_count();
     if root.len() != arity {
@@ -114,8 +138,16 @@ fn prepare_inner<const N: usize, F: Borrow<IntegralFamily>>(
         .map_err(|error| AppError::execution(error.to_string()))?;
     let mut zeros = Vec::new();
     let mut sectors = Vec::new();
-    for bits in 0..(1usize << arity) {
-        let sector = std::array::from_fn(|axis| bits & (1 << axis) != 0);
+    let axes: Vec<_> = (0..arity).filter(|&i| !root_only || root[i]).collect();
+    let count = u32::try_from(axes.len())
+        .ok()
+        .and_then(|bits| 1usize.checked_shl(bits))
+        .ok_or_else(|| AppError::limit("zero-sector census mask count overflows platform"))?;
+    for bits in 0..count {
+        let mut sector = [false; N];
+        for (bit, &axis) in axes.iter().enumerate() {
+            sector[axis] = bits & (1usize << bit) != 0;
+        }
         let mask = Mask::try_new(sector[..arity].iter().copied())
             .map_err(|e| AppError::execution(e.to_string()))?;
         match analyzer

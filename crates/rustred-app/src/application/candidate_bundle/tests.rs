@@ -17,9 +17,10 @@ mod declared_affine;
 mod depth;
 mod export;
 mod finite;
+mod higher_arity;
 mod order;
-mod owners;
 mod owner_fixture_extract;
+mod owners;
 mod rank;
 mod saved_program;
 mod selection;
@@ -245,7 +246,7 @@ fn candidate_byte_budget_can_grow_without_changing_artifact_defaults() {
         max_bundle_bytes: usize::MAX,
         ..defaults
     };
-    assert_eq!(excessive.bundle_byte_limit(), MAX_CANDIDATE_BUNDLE_BYTES);
+    assert_eq!(excessive.bundle_byte_limit(), usize::MAX);
     assert_eq!(crate::MAX_CLOSING_ARTIFACT_BYTES, 256 * 1024 * 1024);
 }
 

@@ -29,7 +29,8 @@ pub fn encode_generated_candidate_sector<const N: usize>(
     sector: [bool; N],
     solution: &SectorSolution<N>,
 ) -> Result<Vec<u8>, AppError> {
-    if !(1..=16).contains(&N) || !rustred::fits_storage(family.denominator_count(), N) {
+    preparation::validate_arity(family.denominator_count())?;
+    if !rustred::fits_storage(family.denominator_count(), N) {
         return Err(AppError::input(
             "candidate export family/sector arity mismatch",
         ));

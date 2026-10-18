@@ -1,0 +1,7431 @@
+{
+  "schema": "rustred.offline-vacuum-matroid-census.v1",
+  "loops": 5,
+  "generated_graphs": 71,
+  "classification_counts": {
+    "factorized": 55,
+    "nonfactorized": 16
+  },
+  "representative_count": 16,
+  "representatives_by_edges": {
+    "12": 4,
+    "11": 4,
+    "10": 4,
+    "9": 4
+  },
+  "representatives": [
+    {
+      "id": "topology-56637102394d35a1",
+      "representative": "cubic-0033",
+      "physical_edge_count": 12,
+      "momenta": [
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          -1,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          1
+        ],
+        [
+          0,
+          0,
+          1,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          -1,
+          1
+        ],
+        [
+          0,
+          0,
+          1,
+          1,
+          -1
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 12,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[0,20,false,0],[0,25,false,0],[0,26,false,0],[0,29,false,0],[0,30,false,0],[0,31,false,0],[0,32,false,0],[0,35,false,0],[0,36,false,0],[0,37,false,0],[0,38,false,0],[0,39,false,0],[1,17,false,0],[1,18,false,0],[1,23,false,0],[1,24,false,0],[1,27,false,0],[1,28,false,0],[1,31,false,0],[1,32,false,0],[1,33,false,0],[1,34,false,0],[1,37,false,0],[1,38,false,0],[1,39,false,0],[2,15,false,0],[2,16,false,0],[2,21,false,0],[2,22,false,0],[2,27,false,0],[2,28,false,0],[2,29,false,0],[2,30,false,0],[2,33,false,0],[2,34,false,0],[2,35,false,0],[2,36,false,0],[2,39,false,0],[3,13,false,0],[3,14,false,0],[3,18,false,0],[3,20,false,0],[3,21,false,0],[3,22,false,0],[3,24,false,0],[3,26,false,0],[3,28,false,0],[3,30,false,0],[3,34,false,0],[3,36,false,0],[3,37,false,0],[3,38,false,0],[4,13,false,0],[4,14,false,0],[4,17,false,0],[4,19,false,0],[4,21,false,0],[4,22,false,0],[4,23,false,0],[4,25,false,0],[4,27,false,0],[4,29,false,0],[4,33,false,0],[4,35,false,0],[4,37,false,0],[4,38,false,0],[5,12,false,0],[5,14,false,0],[5,16,false,0],[5,20,false,0],[5,22,false,0],[5,23,false,0],[5,24,false,0],[5,25,false,0],[5,28,false,0],[5,32,false,0],[5,33,false,0],[5,35,false,0],[5,36,false,0],[5,38,false,0],[6,12,false,0],[6,14,false,0],[6,15,false,0],[6,19,false,0],[6,21,false,0],[6,23,false,0],[6,24,false,0],[6,26,false,0],[6,27,false,0],[6,31,false,0],[6,34,false,0],[6,35,false,0],[6,36,false,0],[6,37,false,0],[7,12,false,0],[7,13,false,0],[7,16,false,0],[7,18,false,0],[7,21,false,0],[7,23,false,0],[7,25,false,0],[7,26,false,0],[7,30,false,0],[7,32,false,0],[7,33,false,0],[7,34,false,0],[7,35,false,0],[7,37,false,0],[8,12,false,0],[8,13,false,0],[8,15,false,0],[8,17,false,0],[8,22,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,29,false,0],[8,31,false,0],[8,33,false,0],[8,34,false,0],[8,36,false,0],[8,38,false,0],[9,17,false,0],[9,18,false,0],[9,19,false,0],[9,20,false,0],[9,23,false,0],[9,24,false,0],[9,25,false,0],[9,26,false,0],[9,27,false,0],[9,28,false,0],[9,29,false,0],[9,30,false,0],[9,33,false,0],[9,34,false,0],[9,35,false,0],[9,36,false,0],[10,15,false,0],[10,16,false,0],[10,19,false,0],[10,20,false,0],[10,21,false,0],[10,22,false,0],[10,25,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,31,false,0],[10,32,false,0],[10,33,false,0],[10,34,false,0],[10,37,false,0],[10,38,false,0],[11,15,false,0],[11,16,false,0],[11,17,false,0],[11,18,false,0],[11,21,false,0],[11,22,false,0],[11,23,false,0],[11,24,false,0],[11,29,false,0],[11,30,false,0],[11,31,false,0],[11,32,false,0],[11,35,false,0],[11,36,false,0],[11,37,false,0],[11,38,false,0]]}",
+      "edge_automorphisms": 12,
+      "edge_groups": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          11
+        ],
+        [
+          5
+        ],
+        [
+          8
+        ],
+        [
+          4
+        ],
+        [
+          7
+        ],
+        [
+          3
+        ],
+        [
+          6
+        ],
+        [
+          2
+        ],
+        [
+          10
+        ],
+        [
+          9
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ]
+      ],
+      "aliases": [
+        "cubic-0033"
+      ]
+    },
+    {
+      "id": "topology-7f04f6e06b09306a",
+      "representative": "cubic-0040",
+      "physical_edge_count": 12,
+      "momenta": [
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          -1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          1
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          1,
+          1
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          -1,
+          -1
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 12,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[0,17,false,0],[0,21,false,0],[0,26,false,0],[0,27,false,0],[0,28,false,0],[0,29,false,0],[0,31,false,0],[0,32,false,0],[0,33,false,0],[0,35,false,0],[0,37,false,0],[0,38,false,0],[0,39,false,0],[1,15,false,0],[1,17,false,0],[1,20,false,0],[1,22,false,0],[1,23,false,0],[1,24,false,0],[1,25,false,0],[1,30,false,0],[1,32,false,0],[1,33,false,0],[1,35,false,0],[1,36,false,0],[1,38,false,0],[1,39,false,0],[2,14,false,0],[2,17,false,0],[2,19,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[2,29,false,0],[2,30,false,0],[2,31,false,0],[2,33,false,0],[2,34,false,0],[2,36,false,0],[2,37,false,0],[2,39,false,0],[3,13,false,0],[3,17,false,0],[3,18,false,0],[3,22,false,0],[3,24,false,0],[3,26,false,0],[3,28,false,0],[3,30,false,0],[3,31,false,0],[3,32,false,0],[3,34,false,0],[3,36,false,0],[3,37,false,0],[3,38,false,0],[4,14,false,0],[4,16,false,0],[4,19,false,0],[4,21,false,0],[4,23,false,0],[4,25,false,0],[4,26,false,0],[4,28,false,0],[4,30,false,0],[4,32,false,0],[4,34,false,0],[4,35,false,0],[4,36,false,0],[4,38,false,0],[5,13,false,0],[5,16,false,0],[5,18,false,0],[5,21,false,0],[5,22,false,0],[5,24,false,0],[5,27,false,0],[5,29,false,0],[5,30,false,0],[5,33,false,0],[5,34,false,0],[5,35,false,0],[5,36,false,0],[5,39,false,0],[6,14,false,0],[6,15,false,0],[6,19,false,0],[6,20,false,0],[6,22,false,0],[6,24,false,0],[6,27,false,0],[6,29,false,0],[6,31,false,0],[6,32,false,0],[6,34,false,0],[6,35,false,0],[6,37,false,0],[6,38,false,0],[7,13,false,0],[7,15,false,0],[7,18,false,0],[7,20,false,0],[7,23,false,0],[7,25,false,0],[7,26,false,0],[7,28,false,0],[7,31,false,0],[7,33,false,0],[7,34,false,0],[7,35,false,0],[7,37,false,0],[7,39,false,0],[8,12,false,0],[8,14,false,0],[8,18,false,0],[8,20,false,0],[8,21,false,0],[8,23,false,0],[8,24,false,0],[8,26,false,0],[8,29,false,0],[8,32,false,0],[8,35,false,0],[8,36,false,0],[8,37,false,0],[8,39,false,0],[9,12,false,0],[9,13,false,0],[9,19,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,25,false,0],[9,27,false,0],[9,28,false,0],[9,33,false,0],[9,35,false,0],[9,36,false,0],[9,37,false,0],[9,38,false,0],[10,12,false,0],[10,16,false,0],[10,18,false,0],[10,19,false,0],[10,20,false,0],[10,24,false,0],[10,25,false,0],[10,28,false,0],[10,29,false,0],[10,30,false,0],[10,34,false,0],[10,37,false,0],[10,38,false,0],[10,39,false,0],[11,12,false,0],[11,15,false,0],[11,18,false,0],[11,19,false,0],[11,21,false,0],[11,22,false,0],[11,23,false,0],[11,26,false,0],[11,27,false,0],[11,31,false,0],[11,34,false,0],[11,36,false,0],[11,38,false,0],[11,39,false,0]]}",
+      "edge_automorphisms": 48,
+      "edge_groups": [
+        [
+          6
+        ],
+        [
+          10
+        ],
+        [
+          7
+        ],
+        [
+          9
+        ],
+        [
+          8
+        ],
+        [
+          3
+        ],
+        [
+          0
+        ],
+        [
+          11
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          1
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ]
+      ],
+      "aliases": [
+        "cubic-0040"
+      ]
+    },
+    {
+      "id": "topology-e781c3e0c617c870",
+      "representative": "cubic-0061",
+      "physical_edge_count": 12,
+      "momenta": [
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          -1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          -1,
+          -1,
+          1
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          -1,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 12,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,16,false,0],[0,18,false,0],[0,20,false,0],[0,22,false,0],[0,24,false,0],[0,26,false,0],[0,28,false,0],[0,30,false,0],[0,32,false,0],[0,34,false,0],[0,35,false,0],[0,37,false,0],[1,15,false,0],[1,18,false,0],[1,19,false,0],[1,22,false,0],[1,23,false,0],[1,25,false,0],[1,28,false,0],[1,29,false,0],[1,31,false,0],[1,33,false,0],[1,35,false,0],[1,36,false,0],[2,16,false,0],[2,17,false,0],[2,19,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[2,30,false,0],[2,32,false,0],[2,34,false,0],[2,35,false,0],[2,36,false,0],[3,15,false,0],[3,17,false,0],[3,20,false,0],[3,21,false,0],[3,24,false,0],[3,26,false,0],[3,27,false,0],[3,29,false,0],[3,31,false,0],[3,33,false,0],[3,35,false,0],[3,37,false,0],[4,13,false,0],[4,14,false,0],[4,22,false,0],[4,25,false,0],[4,26,false,0],[4,27,false,0],[4,31,false,0],[4,32,false,0],[4,33,false,0],[4,34,false,0],[4,36,false,0],[4,37,false,0],[5,12,false,0],[5,14,false,0],[5,21,false,0],[5,23,false,0],[5,24,false,0],[5,28,false,0],[5,29,false,0],[5,30,false,0],[5,33,false,0],[5,34,false,0],[5,36,false,0],[5,37,false,0],[6,12,false,0],[6,13,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,29,false,0],[6,30,false,0],[6,31,false,0],[6,32,false,0],[6,36,false,0],[6,37,false,0],[7,13,false,0],[7,14,false,0],[7,16,false,0],[7,18,false,0],[7,20,false,0],[7,24,false,0],[7,25,false,0],[7,27,false,0],[7,28,false,0],[7,30,false,0],[7,31,false,0],[7,33,false,0],[7,35,false,0],[7,36,false,0],[8,13,false,0],[8,14,false,0],[8,15,false,0],[8,18,false,0],[8,19,false,0],[8,23,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[8,29,false,0],[8,32,false,0],[8,34,false,0],[8,35,false,0],[8,37,false,0],[9,12,false,0],[9,14,false,0],[9,16,false,0],[9,17,false,0],[9,19,false,0],[9,24,false,0],[9,25,false,0],[9,27,false,0],[9,28,false,0],[9,29,false,0],[9,32,false,0],[9,33,false,0],[9,35,false,0],[9,37,false,0],[10,12,false,0],[10,14,false,0],[10,15,false,0],[10,17,false,0],[10,20,false,0],[10,23,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,30,false,0],[10,31,false,0],[10,34,false,0],[10,35,false,0],[10,36,false,0],[11,15,false,0],[11,16,false,0],[11,19,false,0],[11,20,false,0],[11,23,false,0],[11,24,false,0],[11,25,false,0],[11,26,false,0],[11,29,false,0],[11,30,false,0],[11,31,false,0],[11,32,false,0],[11,33,false,0],[11,34,false,0],[11,36,false,0],[11,37,false,0]]}",
+      "edge_automorphisms": 4,
+      "edge_groups": [
+        [
+          0
+        ],
+        [
+          11
+        ],
+        [
+          6
+        ],
+        [
+          9
+        ],
+        [
+          1
+        ],
+        [
+          7
+        ],
+        [
+          5
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          8
+        ],
+        [
+          3
+        ],
+        [
+          10
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ]
+      ],
+      "aliases": [
+        "cubic-0061"
+      ]
+    },
+    {
+      "id": "topology-eff219c6e93773b9",
+      "representative": "cubic-0064",
+      "physical_edge_count": 12,
+      "momenta": [
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          1
+        ],
+        [
+          0,
+          1,
+          -1,
+          -1,
+          1
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          -1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          -1,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 12,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[0,20,false,0],[0,23,false,0],[0,24,false,0],[0,27,false,0],[0,28,false,0],[0,31,false,0],[0,32,false,0],[0,35,false,0],[0,36,false,0],[0,37,false,0],[0,38,false,0],[0,39,false,0],[0,40,false,0],[1,17,false,0],[1,18,false,0],[1,22,false,0],[1,24,false,0],[1,25,false,0],[1,26,false,0],[1,30,false,0],[1,32,false,0],[1,33,false,0],[1,34,false,0],[1,37,false,0],[1,38,false,0],[1,39,false,0],[1,40,false,0],[2,15,false,0],[2,16,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,26,false,0],[2,29,false,0],[2,31,false,0],[2,33,false,0],[2,34,false,0],[2,35,false,0],[2,36,false,0],[2,39,false,0],[2,40,false,0],[3,13,false,0],[3,14,false,0],[3,21,false,0],[3,22,false,0],[3,27,false,0],[3,28,false,0],[3,29,false,0],[3,30,false,0],[3,33,false,0],[3,34,false,0],[3,35,false,0],[3,36,false,0],[3,37,false,0],[3,38,false,0],[4,12,false,0],[4,14,false,0],[4,16,false,0],[4,18,false,0],[4,20,false,0],[4,24,false,0],[4,26,false,0],[4,28,false,0],[4,29,false,0],[4,30,false,0],[4,31,false,0],[4,34,false,0],[4,36,false,0],[4,38,false,0],[4,40,false,0],[5,12,false,0],[5,13,false,0],[5,15,false,0],[5,17,false,0],[5,19,false,0],[5,24,false,0],[5,26,false,0],[5,28,false,0],[5,29,false,0],[5,30,false,0],[5,31,false,0],[5,33,false,0],[5,35,false,0],[5,37,false,0],[5,39,false,0],[6,12,false,0],[6,14,false,0],[6,16,false,0],[6,18,false,0],[6,19,false,0],[6,23,false,0],[6,26,false,0],[6,27,false,0],[6,29,false,0],[6,30,false,0],[6,32,false,0],[6,34,false,0],[6,35,false,0],[6,37,false,0],[6,39,false,0],[7,12,false,0],[7,13,false,0],[7,15,false,0],[7,17,false,0],[7,20,false,0],[7,23,false,0],[7,26,false,0],[7,27,false,0],[7,29,false,0],[7,30,false,0],[7,32,false,0],[7,33,false,0],[7,36,false,0],[7,38,false,0],[7,40,false,0],[8,12,false,0],[8,14,false,0],[8,16,false,0],[8,17,false,0],[8,20,false,0],[8,22,false,0],[8,25,false,0],[8,28,false,0],[8,29,false,0],[8,31,false,0],[8,32,false,0],[8,33,false,0],[8,36,false,0],[8,37,false,0],[8,39,false,0],[9,12,false,0],[9,13,false,0],[9,15,false,0],[9,18,false,0],[9,19,false,0],[9,22,false,0],[9,25,false,0],[9,28,false,0],[9,29,false,0],[9,31,false,0],[9,32,false,0],[9,34,false,0],[9,35,false,0],[9,38,false,0],[9,40,false,0],[10,12,false,0],[10,14,false,0],[10,15,false,0],[10,18,false,0],[10,19,false,0],[10,21,false,0],[10,25,false,0],[10,27,false,0],[10,30,false,0],[10,31,false,0],[10,32,false,0],[10,33,false,0],[10,36,false,0],[10,37,false,0],[10,40,false,0],[11,12,false,0],[11,13,false,0],[11,16,false,0],[11,17,false,0],[11,20,false,0],[11,21,false,0],[11,25,false,0],[11,27,false,0],[11,30,false,0],[11,31,false,0],[11,32,false,0],[11,34,false,0],[11,35,false,0],[11,38,false,0],[11,39,false,0]]}",
+      "edge_automorphisms": 16,
+      "edge_groups": [
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          7
+        ],
+        [
+          9
+        ],
+        [
+          1
+        ],
+        [
+          5
+        ],
+        [
+          0
+        ],
+        [
+          8
+        ],
+        [
+          10
+        ],
+        [
+          3
+        ],
+        [
+          11
+        ],
+        [
+          6
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ]
+      ],
+      "aliases": [
+        "cubic-0064"
+      ]
+    },
+    {
+      "id": "topology-0e1e940e5400d225",
+      "representative": "cubic-0063",
+      "physical_edge_count": 11,
+      "momenta": [
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          1
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          -1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          -1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 11,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[0,22,false,0],[0,23,false,0],[0,25,false,0],[0,27,false,0],[0,30,false,0],[0,31,false,0],[0,32,false,0],[1,18,false,0],[1,20,false,0],[1,21,false,0],[1,24,false,0],[1,26,false,0],[1,28,false,0],[1,29,false,0],[1,32,false,0],[2,13,false,0],[2,14,false,0],[2,15,false,0],[2,16,false,0],[2,26,false,0],[2,27,false,0],[2,28,false,0],[2,29,false,0],[2,30,false,0],[2,31,false,0],[3,12,false,0],[3,15,false,0],[3,16,false,0],[3,17,false,0],[3,21,false,0],[3,23,false,0],[3,24,false,0],[3,25,false,0],[3,29,false,0],[3,31,false,0],[4,11,false,0],[4,14,false,0],[4,16,false,0],[4,17,false,0],[4,20,false,0],[4,22,false,0],[4,24,false,0],[4,25,false,0],[4,28,false,0],[4,30,false,0],[5,12,false,0],[5,13,false,0],[5,14,false,0],[5,17,false,0],[5,18,false,0],[5,19,false,0],[5,20,false,0],[5,22,false,0],[5,29,false,0],[5,31,false,0],[6,11,false,0],[6,13,false,0],[6,15,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,21,false,0],[6,23,false,0],[6,28,false,0],[6,30,false,0],[7,12,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[7,22,false,0],[7,26,false,0],[7,27,false,0],[7,28,false,0],[7,30,false,0],[8,11,false,0],[8,14,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,19,false,0],[8,21,false,0],[8,23,false,0],[8,26,false,0],[8,27,false,0],[8,29,false,0],[8,31,false,0],[9,11,false,0],[9,12,false,0],[9,14,false,0],[9,15,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,28,false,0],[9,29,false,0],[9,30,false,0],[9,31,false,0],[10,18,false,0],[10,19,false,0],[10,20,false,0],[10,21,false,0],[10,22,false,0],[10,23,false,0],[10,24,false,0],[10,25,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,29,false,0],[10,30,false,0],[10,31,false,0]]}",
+      "edge_automorphisms": 4,
+      "edge_groups": [
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          0
+        ],
+        [
+          3
+        ],
+        [
+          5
+        ],
+        [
+          11
+        ],
+        [
+          1
+        ],
+        [
+          10
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          8,
+          9
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "aliases": [
+        "cubic-0063"
+      ]
+    },
+    {
+      "id": "topology-1a85c7da02ea39f3",
+      "representative": "cubic-0062",
+      "physical_edge_count": 11,
+      "momenta": [
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          -1,
+          -1,
+          -1
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          -1,
+          -1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          -1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          -1,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 11,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[0,20,false,0],[0,25,false,0],[0,26,false,0],[0,27,false,0],[0,28,false,0],[0,31,false,0],[0,32,false,0],[0,33,false,0],[1,17,false,0],[1,18,false,0],[1,21,false,0],[1,22,false,0],[1,23,false,0],[1,24,false,0],[1,29,false,0],[1,30,false,0],[1,33,false,0],[2,13,false,0],[2,15,false,0],[2,16,false,0],[2,18,false,0],[2,20,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[2,28,false,0],[2,30,false,0],[2,32,false,0],[3,13,false,0],[3,15,false,0],[3,16,false,0],[3,17,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,25,false,0],[3,27,false,0],[3,29,false,0],[3,31,false,0],[4,12,false,0],[4,14,false,0],[4,16,false,0],[4,18,false,0],[4,20,false,0],[4,21,false,0],[4,23,false,0],[4,25,false,0],[4,27,false,0],[4,30,false,0],[4,32,false,0],[5,12,false,0],[5,14,false,0],[5,16,false,0],[5,17,false,0],[5,19,false,0],[5,22,false,0],[5,24,false,0],[5,26,false,0],[5,28,false,0],[5,29,false,0],[5,31,false,0],[6,11,false,0],[6,13,false,0],[6,14,false,0],[6,23,false,0],[6,24,false,0],[6,27,false,0],[6,28,false,0],[6,29,false,0],[6,30,false,0],[6,31,false,0],[6,32,false,0],[7,11,false,0],[7,12,false,0],[7,15,false,0],[7,21,false,0],[7,22,false,0],[7,25,false,0],[7,26,false,0],[7,29,false,0],[7,30,false,0],[7,31,false,0],[7,32,false,0],[8,11,false,0],[8,14,false,0],[8,15,false,0],[8,16,false,0],[8,18,false,0],[8,20,false,0],[8,22,false,0],[8,23,false,0],[8,26,false,0],[8,27,false,0],[8,29,false,0],[8,31,false,0],[9,11,false,0],[9,14,false,0],[9,15,false,0],[9,16,false,0],[9,17,false,0],[9,19,false,0],[9,21,false,0],[9,24,false,0],[9,25,false,0],[9,28,false,0],[9,30,false,0],[9,32,false,0],[10,17,false,0],[10,18,false,0],[10,19,false,0],[10,20,false,0],[10,21,false,0],[10,22,false,0],[10,23,false,0],[10,24,false,0],[10,25,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,29,false,0],[10,30,false,0],[10,31,false,0],[10,32,false,0]]}",
+      "edge_automorphisms": 8,
+      "edge_groups": [
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          0
+        ],
+        [
+          11
+        ],
+        [
+          10
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ],
+        [
+          5
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          8,
+          9
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          -1,
+          -1
+        ]
+      ],
+      "aliases": [
+        "cubic-0062"
+      ]
+    },
+    {
+      "id": "topology-38c9b0fd56bb3b06",
+      "representative": "cubic-0060",
+      "physical_edge_count": 11,
+      "momenta": [
+        [
+          0,
+          0,
+          0,
+          1,
+          1
+        ],
+        [
+          1,
+          0,
+          0,
+          -1,
+          -1
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          -1
+        ],
+        [
+          1,
+          0,
+          -1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 11,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,14,false,0],[0,16,false,0],[0,18,false,0],[0,20,false,0],[0,22,false,0],[0,24,false,0],[0,26,false,0],[0,28,false,0],[0,30,false,0],[0,32,false,0],[1,14,false,0],[1,16,false,0],[1,17,false,0],[1,19,false,0],[1,21,false,0],[1,23,false,0],[1,25,false,0],[1,27,false,0],[1,29,false,0],[1,31,false,0],[2,13,false,0],[2,16,false,0],[2,18,false,0],[2,20,false,0],[2,22,false,0],[2,24,false,0],[2,25,false,0],[2,27,false,0],[2,29,false,0],[2,31,false,0],[3,13,false,0],[3,16,false,0],[3,17,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,26,false,0],[3,28,false,0],[3,30,false,0],[3,32,false,0],[4,12,false,0],[4,15,false,0],[4,19,false,0],[4,20,false,0],[4,23,false,0],[4,24,false,0],[4,27,false,0],[4,28,false,0],[4,31,false,0],[4,32,false,0],[5,12,false,0],[5,15,false,0],[5,17,false,0],[5,18,false,0],[5,21,false,0],[5,22,false,0],[5,25,false,0],[5,26,false,0],[5,29,false,0],[5,30,false,0],[6,11,false,0],[6,15,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[6,27,false,0],[6,28,false,0],[6,29,false,0],[6,30,false,0],[7,11,false,0],[7,15,false,0],[7,17,false,0],[7,18,false,0],[7,23,false,0],[7,24,false,0],[7,25,false,0],[7,26,false,0],[7,31,false,0],[7,32,false,0],[8,13,false,0],[8,14,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[8,29,false,0],[8,30,false,0],[8,31,false,0],[8,32,false,0],[9,11,false,0],[9,12,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0],[9,29,false,0],[9,30,false,0],[9,31,false,0],[9,32,false,0],[10,17,false,0],[10,18,false,0],[10,19,false,0],[10,20,false,0],[10,21,false,0],[10,22,false,0],[10,23,false,0],[10,24,false,0],[10,25,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,29,false,0],[10,30,false,0],[10,31,false,0],[10,32,false,0]]}",
+      "edge_automorphisms": 32,
+      "edge_groups": [
+        [
+          8
+        ],
+        [
+          10
+        ],
+        [
+          7
+        ],
+        [
+          9
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          6
+        ],
+        [
+          11
+        ],
+        [
+          0,
+          3
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1,
+          -1
+        ]
+      ],
+      "aliases": [
+        "cubic-0060"
+      ]
+    },
+    {
+      "id": "topology-86b76a5dfe417b80",
+      "representative": "cubic-0043",
+      "physical_edge_count": 11,
+      "momenta": [
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          1
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          -1,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 11,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,22,false,0],[0,23,false,0],[0,24,false,0],[0,25,false,0],[0,30,false,0],[0,31,false,0],[0,32,false,0],[0,33,false,0],[0,34,false,0],[1,18,false,0],[1,19,false,0],[1,20,false,0],[1,21,false,0],[1,26,false,0],[1,27,false,0],[1,28,false,0],[1,29,false,0],[1,34,false,0],[2,13,false,0],[2,15,false,0],[2,16,false,0],[2,17,false,0],[2,19,false,0],[2,21,false,0],[2,23,false,0],[2,25,false,0],[2,27,false,0],[2,29,false,0],[2,31,false,0],[2,33,false,0],[3,12,false,0],[3,14,false,0],[3,16,false,0],[3,17,false,0],[3,18,false,0],[3,21,false,0],[3,22,false,0],[3,25,false,0],[3,27,false,0],[3,28,false,0],[3,31,false,0],[3,32,false,0],[4,13,false,0],[4,15,false,0],[4,16,false,0],[4,17,false,0],[4,18,false,0],[4,20,false,0],[4,22,false,0],[4,24,false,0],[4,26,false,0],[4,28,false,0],[4,30,false,0],[4,32,false,0],[5,12,false,0],[5,14,false,0],[5,16,false,0],[5,17,false,0],[5,19,false,0],[5,20,false,0],[5,23,false,0],[5,24,false,0],[5,26,false,0],[5,29,false,0],[5,30,false,0],[5,33,false,0],[6,11,false,0],[6,14,false,0],[6,15,false,0],[6,17,false,0],[6,21,false,0],[6,25,false,0],[6,26,false,0],[6,28,false,0],[6,29,false,0],[6,30,false,0],[6,32,false,0],[6,33,false,0],[7,11,false,0],[7,12,false,0],[7,13,false,0],[7,17,false,0],[7,20,false,0],[7,24,false,0],[7,27,false,0],[7,28,false,0],[7,29,false,0],[7,31,false,0],[7,32,false,0],[7,33,false,0],[8,11,false,0],[8,13,false,0],[8,14,false,0],[8,16,false,0],[8,19,false,0],[8,23,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[8,30,false,0],[8,31,false,0],[8,32,false,0],[9,11,false,0],[9,12,false,0],[9,15,false,0],[9,16,false,0],[9,18,false,0],[9,22,false,0],[9,26,false,0],[9,27,false,0],[9,29,false,0],[9,30,false,0],[9,31,false,0],[9,33,false,0],[10,18,false,0],[10,19,false,0],[10,20,false,0],[10,21,false,0],[10,22,false,0],[10,23,false,0],[10,24,false,0],[10,25,false,0],[10,26,false,0],[10,27,false,0],[10,28,false,0],[10,29,false,0],[10,30,false,0],[10,31,false,0],[10,32,false,0],[10,33,false,0]]}",
+      "edge_automorphisms": 16,
+      "edge_groups": [
+        [
+          9
+        ],
+        [
+          10
+        ],
+        [
+          0
+        ],
+        [
+          7
+        ],
+        [
+          3
+        ],
+        [
+          8
+        ],
+        [
+          1
+        ],
+        [
+          5
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          6,
+          11
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "aliases": [
+        "cubic-0043"
+      ]
+    },
+    {
+      "id": "topology-c591ac8fc9d45fce",
+      "representative": "cubic-0031",
+      "physical_edge_count": 10,
+      "momenta": [
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          0,
+          1,
+          0,
+          -1
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          1,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 10,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,14,false,0],[0,18,false,0],[0,20,false,0],[0,23,false,0],[0,24,false,0],[0,27,false,0],[0,28,false,0],[1,13,false,0],[1,17,false,0],[1,20,false,0],[1,21,false,0],[1,22,false,0],[1,25,false,0],[1,26,false,0],[2,12,false,0],[2,16,false,0],[2,19,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[2,28,false,0],[3,11,false,0],[3,15,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,25,false,0],[3,27,false,0],[4,11,false,0],[4,12,false,0],[4,13,false,0],[4,14,false,0],[4,15,false,0],[4,16,false,0],[4,17,false,0],[4,18,false,0],[5,10,false,0],[5,15,false,0],[5,16,false,0],[5,17,false,0],[5,18,false,0],[5,25,false,0],[5,26,false,0],[5,27,false,0],[5,28,false,0],[6,10,false,0],[6,13,false,0],[6,14,false,0],[6,15,false,0],[6,16,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[6,24,false,0],[7,10,false,0],[7,11,false,0],[7,12,false,0],[7,17,false,0],[7,18,false,0],[7,21,false,0],[7,22,false,0],[7,23,false,0],[7,24,false,0],[8,13,false,0],[8,14,false,0],[8,17,false,0],[8,18,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[9,11,false,0],[9,12,false,0],[9,15,false,0],[9,16,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0],[9,25,false,0],[9,26,false,0],[9,27,false,0],[9,28,false,0]]}",
+      "edge_automorphisms": 8,
+      "edge_groups": [
+        [
+          10
+        ],
+        [
+          11
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          8
+        ],
+        [
+          6
+        ],
+        [
+          9
+        ],
+        [
+          4,
+          7
+        ],
+        [
+          0,
+          5
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "aliases": [
+        "cubic-0031"
+      ]
+    },
+    {
+      "id": "topology-cb5f52fe388005ae",
+      "representative": "cubic-0067",
+      "physical_edge_count": 10,
+      "momenta": [
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          1
+        ],
+        [
+          1,
+          0,
+          0,
+          -1,
+          -1
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          -1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 10,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,14,false,0],[0,17,false,0],[0,18,false,0],[0,21,false,0],[0,22,false,0],[0,25,false,0],[0,26,false,0],[0,29,false,0],[0,30,false,0],[1,14,false,0],[1,15,false,0],[1,16,false,0],[1,19,false,0],[1,20,false,0],[1,23,false,0],[1,24,false,0],[1,27,false,0],[1,28,false,0],[2,13,false,0],[2,16,false,0],[2,18,false,0],[2,20,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[2,28,false,0],[2,30,false,0],[3,13,false,0],[3,15,false,0],[3,17,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,25,false,0],[3,27,false,0],[3,29,false,0],[4,11,false,0],[4,12,false,0],[4,19,false,0],[4,20,false,0],[4,21,false,0],[4,22,false,0],[4,27,false,0],[4,28,false,0],[4,29,false,0],[4,30,false,0],[5,11,false,0],[5,12,false,0],[5,15,false,0],[5,16,false,0],[5,17,false,0],[5,18,false,0],[5,23,false,0],[5,24,false,0],[5,25,false,0],[5,26,false,0],[6,10,false,0],[6,12,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[6,24,false,0],[6,25,false,0],[6,26,false,0],[7,10,false,0],[7,12,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,27,false,0],[7,28,false,0],[7,29,false,0],[7,30,false,0],[8,10,false,0],[8,11,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[8,29,false,0],[8,30,false,0],[9,15,false,0],[9,16,false,0],[9,17,false,0],[9,18,false,0],[9,19,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0],[9,25,false,0],[9,26,false,0],[9,27,false,0],[9,28,false,0],[9,29,false,0],[9,30,false,0]]}",
+      "edge_automorphisms": 32,
+      "edge_groups": [
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          8
+        ],
+        [
+          10
+        ],
+        [
+          7
+        ],
+        [
+          9
+        ],
+        [
+          6
+        ],
+        [
+          0,
+          5,
+          11
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1,
+          1,
+          1
+        ]
+      ],
+      "aliases": [
+        "cubic-0067"
+      ]
+    },
+    {
+      "id": "topology-cc51b68048817b56",
+      "representative": "cubic-0034",
+      "physical_edge_count": 10,
+      "momenta": [
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          -1
+        ],
+        [
+          0,
+          0,
+          1,
+          -1,
+          0
+        ],
+        [
+          1,
+          0,
+          -1,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          -1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 10,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,17,false,0],[0,18,false,0],[0,20,false,0],[0,25,false,0],[0,26,false,0],[0,27,false,0],[0,28,false,0],[1,15,false,0],[1,16,false,0],[1,20,false,0],[1,21,false,0],[1,22,false,0],[1,23,false,0],[1,24,false,0],[2,13,false,0],[2,14,false,0],[2,19,false,0],[2,23,false,0],[2,24,false,0],[2,27,false,0],[2,28,false,0],[3,11,false,0],[3,12,false,0],[3,19,false,0],[3,21,false,0],[3,22,false,0],[3,25,false,0],[3,26,false,0],[4,10,false,0],[4,12,false,0],[4,14,false,0],[4,16,false,0],[4,18,false,0],[4,22,false,0],[4,24,false,0],[4,26,false,0],[4,28,false,0],[5,10,false,0],[5,12,false,0],[5,14,false,0],[5,15,false,0],[5,17,false,0],[5,21,false,0],[5,23,false,0],[5,25,false,0],[5,27,false,0],[6,10,false,0],[6,11,false,0],[6,13,false,0],[6,16,false,0],[6,18,false,0],[6,21,false,0],[6,23,false,0],[6,25,false,0],[6,27,false,0],[7,10,false,0],[7,11,false,0],[7,13,false,0],[7,15,false,0],[7,17,false,0],[7,22,false,0],[7,24,false,0],[7,26,false,0],[7,28,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0],[9,11,false,0],[9,12,false,0],[9,13,false,0],[9,14,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0],[9,25,false,0],[9,26,false,0],[9,27,false,0],[9,28,false,0]]}",
+      "edge_automorphisms": 32,
+      "edge_groups": [
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          10
+        ],
+        [
+          11
+        ],
+        [
+          5
+        ],
+        [
+          8
+        ],
+        [
+          3
+        ],
+        [
+          6
+        ],
+        [
+          0,
+          9
+        ],
+        [
+          4,
+          7
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          -1,
+          1
+        ]
+      ],
+      "aliases": [
+        "cubic-0034"
+      ]
+    },
+    {
+      "id": "topology-d897e49f842b4977",
+      "representative": "cubic-0042",
+      "physical_edge_count": 10,
+      "momenta": [
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          -1
+        ],
+        [
+          1,
+          0,
+          0,
+          1,
+          -1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 10,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,17,false,0],[0,18,false,0],[0,23,false,0],[0,24,false,0],[0,26,false,0],[0,27,false,0],[1,15,false,0],[1,16,false,0],[1,21,false,0],[1,22,false,0],[1,25,false,0],[1,27,false,0],[2,13,false,0],[2,14,false,0],[2,19,false,0],[2,20,false,0],[2,25,false,0],[2,26,false,0],[3,11,false,0],[3,12,false,0],[3,14,false,0],[3,16,false,0],[3,18,false,0],[3,20,false,0],[3,22,false,0],[3,24,false,0],[4,11,false,0],[4,12,false,0],[4,13,false,0],[4,15,false,0],[4,17,false,0],[4,19,false,0],[4,21,false,0],[4,23,false,0],[5,10,false,0],[5,12,false,0],[5,14,false,0],[5,16,false,0],[5,18,false,0],[5,19,false,0],[5,21,false,0],[5,23,false,0],[6,10,false,0],[6,12,false,0],[6,13,false,0],[6,15,false,0],[6,17,false,0],[6,20,false,0],[6,22,false,0],[6,24,false,0],[7,10,false,0],[7,11,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0],[7,23,false,0],[7,24,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[9,13,false,0],[9,14,false,0],[9,15,false,0],[9,16,false,0],[9,17,false,0],[9,18,false,0],[9,19,false,0],[9,20,false,0],[9,21,false,0],[9,22,false,0],[9,23,false,0],[9,24,false,0]]}",
+      "edge_automorphisms": 8,
+      "edge_groups": [
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          1
+        ],
+        [
+          10
+        ],
+        [
+          11
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          9
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          0,
+          8
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1,
+          -1
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "aliases": [
+        "cubic-0042"
+      ]
+    },
+    {
+      "id": "topology-41d7b3acc3bda598",
+      "representative": "cubic-0035",
+      "physical_edge_count": 9,
+      "momenta": [
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          1,
+          -1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          1,
+          0,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 9,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,11,false,0],[0,20,false,0],[0,21,false,0],[0,22,false,0],[0,23,false,0],[1,11,false,0],[1,16,false,0],[1,17,false,0],[1,18,false,0],[1,19,false,0],[2,10,false,0],[2,14,false,0],[2,15,false,0],[2,19,false,0],[2,23,false,0],[3,10,false,0],[3,12,false,0],[3,13,false,0],[3,18,false,0],[3,22,false,0],[4,9,false,0],[4,13,false,0],[4,15,false,0],[4,17,false,0],[4,21,false,0],[5,9,false,0],[5,12,false,0],[5,14,false,0],[5,16,false,0],[5,20,false,0],[6,16,false,0],[6,17,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[7,12,false,0],[7,13,false,0],[7,14,false,0],[7,15,false,0],[7,18,false,0],[7,19,false,0],[7,22,false,0],[7,23,false,0],[8,12,false,0],[8,13,false,0],[8,14,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,20,false,0],[8,21,false,0]]}",
+      "edge_automorphisms": 48,
+      "edge_groups": [
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          9
+        ],
+        [
+          10
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          0,
+          5
+        ],
+        [
+          3,
+          11
+        ],
+        [
+          4,
+          8
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          -1,
+          -1
+        ]
+      ],
+      "aliases": [
+        "cubic-0035"
+      ]
+    },
+    {
+      "id": "topology-47ca4bada78ff2d2",
+      "representative": "cubic-0057",
+      "physical_edge_count": 9,
+      "momenta": [
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 9,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,12,false,0],[0,15,false,0],[0,16,false,0],[0,19,false,0],[0,20,false,0],[0,23,false,0],[0,24,false,0],[0,27,false,0],[0,28,false,0],[1,12,false,0],[1,13,false,0],[1,14,false,0],[1,17,false,0],[1,18,false,0],[1,21,false,0],[1,22,false,0],[1,25,false,0],[1,26,false,0],[2,11,false,0],[2,14,false,0],[2,16,false,0],[2,18,false,0],[2,20,false,0],[2,22,false,0],[2,24,false,0],[2,26,false,0],[2,28,false,0],[3,11,false,0],[3,13,false,0],[3,15,false,0],[3,17,false,0],[3,19,false,0],[3,21,false,0],[3,23,false,0],[3,25,false,0],[3,27,false,0],[4,10,false,0],[4,17,false,0],[4,18,false,0],[4,19,false,0],[4,20,false,0],[4,25,false,0],[4,26,false,0],[4,27,false,0],[4,28,false,0],[5,10,false,0],[5,13,false,0],[5,14,false,0],[5,15,false,0],[5,16,false,0],[5,21,false,0],[5,22,false,0],[5,23,false,0],[5,24,false,0],[6,9,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[6,24,false,0],[6,25,false,0],[6,26,false,0],[6,27,false,0],[6,28,false,0],[7,9,false,0],[7,13,false,0],[7,14,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[8,13,false,0],[8,14,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,19,false,0],[8,20,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0],[8,24,false,0],[8,25,false,0],[8,26,false,0],[8,27,false,0],[8,28,false,0]]}",
+      "edge_automorphisms": 384,
+      "edge_groups": [
+        [
+          10
+        ],
+        [
+          11
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          0,
+          3,
+          8,
+          9
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1,
+          1,
+          1,
+          1
+        ]
+      ],
+      "aliases": [
+        "cubic-0057"
+      ]
+    },
+    {
+      "id": "topology-7b7ec326d1ac393c",
+      "representative": "cubic-0044",
+      "physical_edge_count": 9,
+      "momenta": [
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          -1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          1
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 9,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,11,false,0],[0,15,false,0],[0,19,false,0],[0,22,false,0],[0,23,false,0],[1,11,false,0],[1,14,false,0],[1,18,false,0],[1,20,false,0],[1,21,false,0],[2,10,false,0],[2,13,false,0],[2,17,false,0],[2,21,false,0],[2,23,false,0],[3,10,false,0],[3,12,false,0],[3,16,false,0],[3,20,false,0],[3,22,false,0],[4,9,false,0],[4,14,false,0],[4,15,false,0],[4,16,false,0],[4,17,false,0],[5,9,false,0],[5,12,false,0],[5,13,false,0],[5,18,false,0],[5,19,false,0],[6,14,false,0],[6,15,false,0],[6,18,false,0],[6,19,false,0],[6,20,false,0],[6,21,false,0],[6,22,false,0],[6,23,false,0],[7,12,false,0],[7,13,false,0],[7,16,false,0],[7,17,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0],[7,23,false,0],[8,9,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,19,false,0],[8,20,false,0],[8,21,false,0],[8,22,false,0],[8,23,false,0]]}",
+      "edge_automorphisms": 8,
+      "edge_groups": [
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          9
+        ],
+        [
+          10
+        ],
+        [
+          1
+        ],
+        [
+          7
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          6,
+          11
+        ],
+        [
+          0,
+          8
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1,
+          -1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "aliases": [
+        "cubic-0044"
+      ]
+    },
+    {
+      "id": "topology-dbad67e6c80cb890",
+      "representative": "cubic-0058",
+      "physical_edge_count": 9,
+      "momenta": [
+        [
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      ],
+      "native_loop_rank": 5,
+      "native_quadratic_rank": 9,
+      "canonical_matroid": "{\"nodes\":[0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"edges\":[[0,19,false,0],[0,20,false,0],[0,21,false,0],[0,22,false,0],[0,24,false,0],[0,25,false,0],[1,15,false,0],[1,16,false,0],[1,17,false,0],[1,18,false,0],[1,23,false,0],[1,25,false,0],[2,11,false,0],[2,12,false,0],[2,13,false,0],[2,14,false,0],[2,23,false,0],[2,24,false,0],[3,10,false,0],[3,13,false,0],[3,14,false,0],[3,17,false,0],[3,18,false,0],[3,21,false,0],[3,22,false,0],[4,10,false,0],[4,11,false,0],[4,12,false,0],[4,15,false,0],[4,16,false,0],[4,19,false,0],[4,20,false,0],[5,9,false,0],[5,12,false,0],[5,14,false,0],[5,16,false,0],[5,18,false,0],[5,20,false,0],[5,22,false,0],[6,9,false,0],[6,11,false,0],[6,13,false,0],[6,15,false,0],[6,17,false,0],[6,19,false,0],[6,21,false,0],[7,15,false,0],[7,16,false,0],[7,17,false,0],[7,18,false,0],[7,19,false,0],[7,20,false,0],[7,21,false,0],[7,22,false,0],[7,23,false,0],[7,24,false,0],[8,11,false,0],[8,12,false,0],[8,13,false,0],[8,14,false,0],[8,15,false,0],[8,16,false,0],[8,17,false,0],[8,18,false,0],[8,19,false,0],[8,20,false,0],[8,21,false,0],[8,22,false,0]]}",
+      "edge_automorphisms": 16,
+      "edge_groups": [
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          10
+        ],
+        [
+          11
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          0,
+          5
+        ],
+        [
+          3,
+          8,
+          9
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1,
+          1
+        ]
+      ],
+      "aliases": [
+        "cubic-0058"
+      ]
+    }
+  ],
+  "graphs": [
+    {
+      "id": "cubic-0000",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        8
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5,
+        7
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0001",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        8
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5,
+        7,
+        9,
+        10,
+        11
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          8
+        ],
+        [
+          9
+        ],
+        [
+          10
+        ],
+        [
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0002",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        5,
+        7,
+        9
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        4
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0003",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        8
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0004",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        8
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5,
+        7,
+        10,
+        11
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          8,
+          9
+        ],
+        [
+          10
+        ],
+        [
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0005",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        7,
+        9
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5,
+        6,
+        11
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          9,
+          10
+        ],
+        [
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0006",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        9
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5,
+        8
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6,
+          7,
+          9,
+          10,
+          11
+        ],
+        [
+          8
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0007",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        5,
+        6,
+        7
+      ],
+      "zero_flow_edges": [
+        1,
+        3
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0008",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        5,
+        6,
+        7
+      ],
+      "zero_flow_edges": [
+        1,
+        3
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0009",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        7
+      ],
+      "zero_flow_edges": [
+        1,
+        3
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0010",
+      "fundamental_unit_edges": [
+        0,
+        3,
+        5,
+        7,
+        10
+      ],
+      "zero_flow_edges": [
+        1,
+        2
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0011",
+      "fundamental_unit_edges": [
+        0,
+        3,
+        4,
+        5,
+        8
+      ],
+      "zero_flow_edges": [
+        1
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0012",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        5,
+        9
+      ],
+      "zero_flow_edges": [
+        1
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0013",
+      "fundamental_unit_edges": [
+        0,
+        3,
+        6,
+        7,
+        8
+      ],
+      "zero_flow_edges": [
+        1,
+        2
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0014",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        5,
+        9
+      ],
+      "zero_flow_edges": [
+        1
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0015",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        9
+      ],
+      "zero_flow_edges": [
+        1,
+        3
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0016",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        9
+      ],
+      "zero_flow_edges": [
+        1,
+        3
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0017",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        9
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5,
+        8,
+        11
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6,
+          7,
+          9,
+          10
+        ],
+        [
+          8
+        ],
+        [
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0018",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        9
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5,
+        8
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6,
+          7,
+          9,
+          10,
+          11
+        ],
+        [
+          8
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0019",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        5,
+        7,
+        10
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        4,
+        9
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          7,
+          8,
+          10,
+          11
+        ],
+        [
+          9
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0020",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        7,
+        9
+      ],
+      "zero_flow_edges": [
+        1
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0021",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        7,
+        8
+      ],
+      "zero_flow_edges": [
+        1
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0022",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        8,
+        10
+      ],
+      "zero_flow_edges": [
+        1
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0023",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        7,
+        9
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        6
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4,
+          5,
+          7,
+          8,
+          9,
+          10,
+          11
+        ],
+        [
+          6
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0024",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        7,
+        9
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5,
+        6
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0025",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        8
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0026",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        8,
+        6
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0027",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        5,
+        7,
+        8
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        4
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0028",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        7
+      ],
+      "zero_flow_edges": [
+        1,
+        3
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0029",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        8,
+        10
+      ],
+      "zero_flow_edges": [
+        1,
+        5
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          6,
+          7
+        ],
+        [
+          5
+        ],
+        [
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0030",
+      "fundamental_unit_edges": [
+        0,
+        3,
+        4,
+        5,
+        8
+      ],
+      "zero_flow_edges": [
+        1
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0031",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        3,
+        6,
+        10
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-c591ac8fc9d45fce",
+      "physical_edge_count": 10,
+      "edge_groups": [
+        [
+          10
+        ],
+        [
+          11
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          8
+        ],
+        [
+          6
+        ],
+        [
+          9
+        ],
+        [
+          4,
+          7
+        ],
+        [
+          0,
+          5
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3,
+          5
+        ]
+      }
+    },
+    {
+      "id": "cubic-0032",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        7,
+        10
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        6,
+        9
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4,
+          5
+        ],
+        [
+          6
+        ],
+        [
+          7,
+          8,
+          10,
+          11
+        ],
+        [
+          9
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0033",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        4,
+        5,
+        6
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-56637102394d35a1",
+      "physical_edge_count": 12,
+      "edge_groups": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          11
+        ],
+        [
+          5
+        ],
+        [
+          8
+        ],
+        [
+          4
+        ],
+        [
+          7
+        ],
+        [
+          3
+        ],
+        [
+          6
+        ],
+        [
+          2
+        ],
+        [
+          10
+        ],
+        [
+          9
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3,
+          5
+        ]
+      }
+    },
+    {
+      "id": "cubic-0034",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        3,
+        4,
+        10
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-cc51b68048817b56",
+      "physical_edge_count": 10,
+      "edge_groups": [
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          10
+        ],
+        [
+          11
+        ],
+        [
+          5
+        ],
+        [
+          8
+        ],
+        [
+          3
+        ],
+        [
+          6
+        ],
+        [
+          0,
+          9
+        ],
+        [
+          4,
+          7
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          -1,
+          1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    },
+    {
+      "id": "cubic-0035",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        3,
+        6,
+        9
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-41d7b3acc3bda598",
+      "physical_edge_count": 9,
+      "edge_groups": [
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          9
+        ],
+        [
+          10
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          0,
+          5
+        ],
+        [
+          3,
+          11
+        ],
+        [
+          4,
+          8
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          -1,
+          -1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    },
+    {
+      "id": "cubic-0036",
+      "fundamental_unit_edges": [
+        0,
+        3,
+        4,
+        5,
+        10
+      ],
+      "zero_flow_edges": [
+        1
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0037",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        6,
+        4,
+        10
+      ],
+      "zero_flow_edges": [
+        1,
+        3
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0038",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        7
+      ],
+      "zero_flow_edges": [
+        1,
+        3
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0039",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        7
+      ],
+      "zero_flow_edges": [
+        1,
+        3
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0040",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        5,
+        6,
+        9
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-7f04f6e06b09306a",
+      "physical_edge_count": 12,
+      "edge_groups": [
+        [
+          6
+        ],
+        [
+          10
+        ],
+        [
+          7
+        ],
+        [
+          9
+        ],
+        [
+          8
+        ],
+        [
+          3
+        ],
+        [
+          0
+        ],
+        [
+          11
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          1
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3,
+          8
+        ]
+      }
+    },
+    {
+      "id": "cubic-0041",
+      "fundamental_unit_edges": [
+        0,
+        3,
+        4,
+        5,
+        9
+      ],
+      "zero_flow_edges": [
+        1
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0042",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        4,
+        6,
+        9
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-d897e49f842b4977",
+      "physical_edge_count": 10,
+      "edge_groups": [
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          1
+        ],
+        [
+          10
+        ],
+        [
+          11
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          9
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          0,
+          8
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1,
+          -1
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3,
+          5
+        ]
+      }
+    },
+    {
+      "id": "cubic-0043",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        5,
+        6,
+        9
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-86b76a5dfe417b80",
+      "physical_edge_count": 11,
+      "edge_groups": [
+        [
+          9
+        ],
+        [
+          10
+        ],
+        [
+          0
+        ],
+        [
+          7
+        ],
+        [
+          3
+        ],
+        [
+          8
+        ],
+        [
+          1
+        ],
+        [
+          5
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          6,
+          11
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3,
+          6
+        ]
+      }
+    },
+    {
+      "id": "cubic-0044",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        4,
+        6,
+        9
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-7b7ec326d1ac393c",
+      "physical_edge_count": 9,
+      "edge_groups": [
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          9
+        ],
+        [
+          10
+        ],
+        [
+          1
+        ],
+        [
+          7
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          6,
+          11
+        ],
+        [
+          0,
+          8
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1,
+          -1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    },
+    {
+      "id": "cubic-0045",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        7,
+        10
+      ],
+      "zero_flow_edges": [
+        1,
+        9
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        [
+          7,
+          8,
+          10,
+          11
+        ],
+        [
+          9
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0046",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        5,
+        8,
+        10
+      ],
+      "zero_flow_edges": [
+        1,
+        4,
+        7
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          10,
+          11
+        ],
+        [
+          4
+        ],
+        [
+          5,
+          6,
+          8,
+          9
+        ],
+        [
+          7
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0047",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        5,
+        8
+      ],
+      "zero_flow_edges": [
+        1
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0048",
+      "fundamental_unit_edges": [
+        0,
+        4,
+        3,
+        8,
+        10
+      ],
+      "zero_flow_edges": [
+        1
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0049",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        7,
+        9
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        6
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4,
+          5,
+          7,
+          8,
+          9,
+          10,
+          11
+        ],
+        [
+          6
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0050",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        8,
+        10
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        6
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4,
+          5,
+          7,
+          8,
+          9,
+          10,
+          11
+        ],
+        [
+          6
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0051",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        5,
+        7,
+        9
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        4
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5,
+          6,
+          11
+        ],
+        [
+          7,
+          8,
+          9,
+          10
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0052",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        5,
+        8,
+        10
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        4,
+        7
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          7
+        ],
+        [
+          8,
+          9
+        ],
+        [
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0053",
+      "fundamental_unit_edges": [
+        0,
+        3,
+        6,
+        8,
+        10
+      ],
+      "zero_flow_edges": [
+        1,
+        2,
+        5
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0054",
+      "fundamental_unit_edges": [
+        0,
+        3,
+        5,
+        7,
+        8
+      ],
+      "zero_flow_edges": [
+        1,
+        2
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0055",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        9
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5,
+        7,
+        8,
+        11
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          8
+        ],
+        [
+          9,
+          10
+        ],
+        [
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0056",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        6,
+        8
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5,
+        7,
+        10
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          8,
+          9,
+          11
+        ],
+        [
+          10
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0057",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        4,
+        6,
+        10
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-47ca4bada78ff2d2",
+      "physical_edge_count": 9,
+      "edge_groups": [
+        [
+          10
+        ],
+        [
+          11
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          0,
+          3,
+          8,
+          9
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1,
+          1,
+          1,
+          1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          4,
+          6
+        ]
+      }
+    },
+    {
+      "id": "cubic-0058",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        3,
+        6,
+        10
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-dbad67e6c80cb890",
+      "physical_edge_count": 9,
+      "edge_groups": [
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          10
+        ],
+        [
+          11
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          0,
+          5
+        ],
+        [
+          3,
+          8,
+          9
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1,
+          1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3,
+          5
+        ]
+      }
+    },
+    {
+      "id": "cubic-0059",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        5,
+        8
+      ],
+      "zero_flow_edges": [
+        1
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0060",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        5,
+        6,
+        7
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-38c9b0fd56bb3b06",
+      "physical_edge_count": 11,
+      "edge_groups": [
+        [
+          8
+        ],
+        [
+          10
+        ],
+        [
+          7
+        ],
+        [
+          9
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          6
+        ],
+        [
+          11
+        ],
+        [
+          0,
+          3
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1,
+          -1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          4,
+          6
+        ]
+      }
+    },
+    {
+      "id": "cubic-0061",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        3,
+        5,
+        6
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-e781c3e0c617c870",
+      "physical_edge_count": 12,
+      "edge_groups": [
+        [
+          0
+        ],
+        [
+          11
+        ],
+        [
+          6
+        ],
+        [
+          9
+        ],
+        [
+          1
+        ],
+        [
+          7
+        ],
+        [
+          5
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          8
+        ],
+        [
+          3
+        ],
+        [
+          10
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "id": "cubic-0062",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        3,
+        5,
+        6
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-1a85c7da02ea39f3",
+      "physical_edge_count": 11,
+      "edge_groups": [
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          0
+        ],
+        [
+          11
+        ],
+        [
+          10
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ],
+        [
+          5
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          8,
+          9
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          -1,
+          -1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          4,
+          6
+        ]
+      }
+    },
+    {
+      "id": "cubic-0063",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        3,
+        5,
+        6
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-0e1e940e5400d225",
+      "physical_edge_count": 11,
+      "edge_groups": [
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          0
+        ],
+        [
+          3
+        ],
+        [
+          5
+        ],
+        [
+          11
+        ],
+        [
+          1
+        ],
+        [
+          10
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          8,
+          9
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    },
+    {
+      "id": "cubic-0064",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        3,
+        5,
+        6
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-eff219c6e93773b9",
+      "physical_edge_count": 12,
+      "edge_groups": [
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          7
+        ],
+        [
+          9
+        ],
+        [
+          1
+        ],
+        [
+          5
+        ],
+        [
+          0
+        ],
+        [
+          8
+        ],
+        [
+          10
+        ],
+        [
+          3
+        ],
+        [
+          11
+        ],
+        [
+          6
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    },
+    {
+      "id": "cubic-0065",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        3,
+        6,
+        8
+      ],
+      "zero_flow_edges": [
+        5
+      ],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          11
+        ],
+        [
+          3,
+          4,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        [
+          5
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0066",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        3,
+        6,
+        9
+      ],
+      "zero_flow_edges": [
+        5,
+        8
+      ],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          11
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6,
+          7,
+          9,
+          10
+        ],
+        [
+          8
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0067",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        3,
+        6,
+        7
+      ],
+      "zero_flow_edges": [],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "nonfactorized",
+      "topology": "topology-cb5f52fe388005ae",
+      "physical_edge_count": 10,
+      "edge_groups": [
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          8
+        ],
+        [
+          10
+        ],
+        [
+          7
+        ],
+        [
+          9
+        ],
+        [
+          6
+        ],
+        [
+          0,
+          5,
+          11
+        ]
+      ],
+      "edge_group_signs": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          -1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          1,
+          1,
+          1
+        ]
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          4,
+          6
+        ]
+      }
+    },
+    {
+      "id": "cubic-0068",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        3,
+        8,
+        10
+      ],
+      "zero_flow_edges": [
+        6
+      ],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          7
+        ],
+        [
+          6
+        ],
+        [
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0069",
+      "fundamental_unit_edges": [
+        0,
+        1,
+        4,
+        8,
+        10
+      ],
+      "zero_flow_edges": [
+        6
+      ],
+      "factor_blocks": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          7
+        ],
+        [
+          6
+        ],
+        [
+          8,
+          9,
+          10,
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    },
+    {
+      "id": "cubic-0070",
+      "fundamental_unit_edges": [
+        0,
+        2,
+        4,
+        7,
+        9
+      ],
+      "zero_flow_edges": [
+        1,
+        3,
+        5,
+        6,
+        11
+      ],
+      "factor_blocks": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          9,
+          10
+        ],
+        [
+          11
+        ]
+      ],
+      "classification": "factorized",
+      "reason": "zero-flow bridge and factorized blocks"
+    }
+  ],
+  "complete_generated_cubic_classification": true,
+  "maximal_parent_cover_verified": false,
+  "wall_seconds": 0.048459529993124306,
+  "closure_claim": false
+}

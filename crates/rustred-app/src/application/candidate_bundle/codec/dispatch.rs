@@ -34,12 +34,11 @@ struct V2Ref<'a> {
     sectors: &'a [SectorRecord],
 }
 
-pub(super) fn decode_v2(bytes: &[u8]) -> Result<(ProgramRecord, usize), AppError> {
-    let (old, consumed): (V2Record, usize) = bincode::decode_from_slice(
-        bytes,
-        bincode::config::standard().with_limit::<MAX_CANDIDATE_BUNDLE_BYTES>(),
-    )
-    .map_err(|e| AppError::schema(format!("invalid v2 candidate record: {e}")))?;
+pub(super) fn decode_v2(
+    bytes: &[u8],
+    allowance: usize,
+) -> Result<(ProgramRecord, usize), AppError> {
+    let (old, consumed): (V2Record, usize) = super::decode_record(bytes, allowance)?;
     Ok((
         ProgramRecord {
             schema: old.schema,

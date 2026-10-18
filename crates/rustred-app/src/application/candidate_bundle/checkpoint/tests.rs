@@ -133,7 +133,7 @@ fn manifest_identity_excludes_workers_budgets_but_includes_every_recipe_binding(
     changed.bundle_limits.max_bundle_bytes /= 2;
     assert_eq!(original, manifest(&changed));
     let bytes = original.encode(usize::MAX).unwrap();
-    for change in 0..7 {
+    for change in 0..8 {
         let mut changed = request.clone();
         match change {
             0 => changed.source.push_str("\n# different exact source"),
@@ -142,7 +142,8 @@ fn manifest_identity_excludes_workers_budgets_but_includes_every_recipe_binding(
             3 => changed.exact_backend = CandidateExactBackend::SparseFactorized,
             4 => changed.permutation = Some(vec![2, 0, 1]),
             5 => changed.max_numerator_rank = Some(20),
-            _ => changed.discovery_strategy = Some(crate::CandidateDiscoveryStrategy::default()),
+            6 => changed.discovery_strategy = Some(crate::CandidateDiscoveryStrategy::default()),
+            _ => changed.root_zero_census = true,
         }
         assert!(
             manifest(&changed)

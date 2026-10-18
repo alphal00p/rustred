@@ -27,7 +27,7 @@ use super::ingress::IngressBudget;
 /// Request source, root, ordering, rank, finite-case policy, backend and recipe
 /// must match. Worker count is unused: no sector executor is constructed.
 ///
-/// `request.bundle_limits` bounds each shard (at most 1 GiB), cumulative program
+/// `request.bundle_limits` bounds each shard, cumulative program
 /// collection entries, cumulative coefficient-table entries and cumulative
 /// coefficient-table bytes, counting repeated local dictionaries conservatively.
 /// All those cumulative checks precede any native shard import. Native state
@@ -53,15 +53,17 @@ pub fn load_generated_candidate_checkpoint<const N: usize>(
             "checkpoint loading requires explicit resume",
         ));
     }
-    if !(1..=16).contains(&N) {
-        return Err(AppError::input("checkpoint/reducer arity mismatch"));
-    }
+    preparation::validate_arity(N)?;
     let family = preparation::family(&request.source, request.input_format)?;
     if !rustred::fits_storage(family.denominator_count(), N) {
         return Err(AppError::input("checkpoint/reducer arity mismatch"));
     }
     let root = preparation::root(family.denominator_count(), &request.nonpositive_indices)?;
-    let mut prepared = preparation::prepare::<N>(family, &root, request.permutation.as_deref())?;
+    let mut prepared = if request.root_zero_census {
+        preparation::prepare_root::<N>(family, &root, request.permutation.as_deref())?
+    } else {
+        preparation::prepare::<N>(family, &root, request.permutation.as_deref())?
+    };
     super::super::selection::apply(
         &mut prepared,
         request.selected_sectors.as_deref(),

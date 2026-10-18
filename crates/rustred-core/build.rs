@@ -89,12 +89,27 @@ macro_rules! with_app_runtime_arities {
     ($callback:ident) => { $callback!(__APP_ARITIES__) };
 }
 
+/// Candidate generation/transport supports the compiled storage registry.
+/// Other campaign engines retain their separate ingress capabilities.
+#[macro_export]
+macro_rules! with_candidate_runtime_arities {
+    ($callback:ident) => { $callback!(__CANDIDATE_ARITIES__) };
+}
+
 "#;
     template
         .replace("__ARITIES__", &format!("{arities:?}"))
         .replace("__ARMS__", &arms)
         .replace("__CAPACITIES__", &format!("{capacities:?}"))
         .replace("__CAPACITY_ARMS__", &capacity_arms)
+        .replace(
+            "__CANDIDATE_ARITIES__",
+            &capacities
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(", "),
+        )
         .replace(
             "__APP_ARITIES__",
             &capacities

@@ -132,9 +132,8 @@ impl CheckpointStore {
         let max_files = manifest
             .sectors()
             .len()
-            .checked_add(limits.max_collection_entries)
-            .and_then(|n| n.checked_add(2))
-            .ok_or_else(|| AppError::limit("checkpoint file count overflow"))?;
+            .saturating_add(limits.max_collection_entries)
+            .saturating_add(2);
         for (count, entry) in fs::read_dir(&options.directory)
             .map_err(|error| io_error("list directory", &options.directory, error))?
             .enumerate()

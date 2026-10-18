@@ -1,0 +1,324 @@
+{
+  "schema": "rustred.offline-maximal-vacuum-cover.v1",
+  "loops": 4,
+  "maximal_parents": [
+    "topology-1740406b307145b6",
+    "topology-799c825fd5e22efa"
+  ],
+  "covered": 5,
+  "required": 5,
+  "complete": true,
+  "missing": [],
+  "tested": {
+    "subsets": 70,
+    "covered": 5
+  },
+  "wall_seconds": 0.019303142034914345,
+  "witnesses": {
+    "topology-1740406b307145b6": {
+      "parent": "topology-1740406b307145b6",
+      "target_slots": [
+        6,
+        7,
+        8,
+        5,
+        4,
+        3,
+        0,
+        1,
+        2
+      ],
+      "contracted_slots": [],
+      "routing": {
+        "matrix": [
+          [
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            1,
+            -1,
+            0
+          ],
+          [
+            1,
+            0,
+            -1,
+            1
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    "topology-c19e23478e5b6d86": {
+      "parent": "topology-1740406b307145b6",
+      "target_slots": [
+        1,
+        2,
+        7,
+        0,
+        4,
+        3,
+        6
+      ],
+      "contracted_slots": [
+        5,
+        8
+      ],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            1,
+            -1,
+            1
+          ],
+          [
+            -1,
+            -1,
+            1,
+            0
+          ],
+          [
+            0,
+            -1,
+            0,
+            0
+          ],
+          [
+            -1,
+            0,
+            0,
+            0
+          ]
+        ],
+        "determinant": 1,
+        "source_to_target_signs": [
+          1,
+          -1,
+          1,
+          -1,
+          -1,
+          1,
+          -1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    "topology-799c825fd5e22efa": {
+      "parent": "topology-799c825fd5e22efa",
+      "target_slots": [
+        3,
+        4,
+        5,
+        0,
+        1,
+        2,
+        6,
+        7,
+        8
+      ],
+      "contracted_slots": [],
+      "routing": {
+        "matrix": [
+          [
+            1,
+            1,
+            0,
+            -1
+          ],
+          [
+            0,
+            0,
+            0,
+            1
+          ],
+          [
+            0,
+            -1,
+            1,
+            1
+          ],
+          [
+            0,
+            1,
+            0,
+            0
+          ]
+        ],
+        "determinant": -1,
+        "source_to_target_signs": [
+          1,
+          1,
+          -1,
+          1,
+          1,
+          -1,
+          1,
+          1,
+          1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    "topology-c919410fe1afd38f": {
+      "parent": "topology-799c825fd5e22efa",
+      "target_slots": [
+        3,
+        4,
+        7,
+        8,
+        0,
+        1,
+        2,
+        6
+      ],
+      "contracted_slots": [
+        5
+      ],
+      "routing": {
+        "matrix": [
+          [
+            -1,
+            -1,
+            0,
+            0
+          ],
+          [
+            1,
+            1,
+            0,
+            -1
+          ],
+          [
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            -1,
+            1,
+            1
+          ]
+        ],
+        "determinant": -1,
+        "source_to_target_signs": [
+          1,
+          -1,
+          1,
+          -1,
+          1,
+          -1,
+          -1,
+          -1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          4
+        ]
+      }
+    },
+    "topology-28cf7115331d3cca": {
+      "parent": "topology-799c825fd5e22efa",
+      "target_slots": [
+        7,
+        8,
+        3,
+        4,
+        0,
+        1,
+        6
+      ],
+      "contracted_slots": [
+        2,
+        5
+      ],
+      "routing": {
+        "matrix": [
+          [
+            -1,
+            -1,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            1,
+            0,
+            -1
+          ],
+          [
+            1,
+            1,
+            -1,
+            -1
+          ]
+        ],
+        "determinant": -1,
+        "source_to_target_signs": [
+          1,
+          -1,
+          1,
+          -1,
+          1,
+          -1,
+          -1
+        ],
+        "basis_rows": [
+          0,
+          1,
+          2,
+          4
+        ]
+      }
+    }
+  },
+  "integral_scope": "all connected nonfactorized cubic graphs and their contractions",
+  "ibp_closure_claim": false
+}
