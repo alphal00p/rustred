@@ -144,6 +144,24 @@ class SchedulerTests(unittest.TestCase):
         self.assertTrue(all(process.reaped for process in self.processes.values()))
         self.assertEqual(previous, {sig: signal.getsignal(sig) for sig in previous})
 
+    def test_shared_parent_failure_is_detected_before_long_process_exits(self):
+        status=self.path/'batch-status.json'
+        jobs=[scheduler.Job('batch',('batch','500'),{},native_failure_status=status)]
+        def observe(event):
+            if event['event']=='job_started':
+                parent=event['snapshot']['jobs'][0]
+                import time
+                status.write_text(json.dumps(dict(schema='rustred.shared-generation-progress.v1',
+                    pid=parent['pid'],timestamp_unix_seconds=time.time(),
+                    parents=[dict(id='bad-family',state='failed',error='unsupported case')])) )
+        with self.assertRaises(RuntimeError):
+            scheduler.run(jobs,self.path/'batch-failure',dict(self.resources,generation_jobs=1),
+                lambda _:None,observer=observe,poll_seconds=0)
+        result=json.loads((self.path/'batch-failure/result.json').read_bytes())
+        self.assertIn('native_parent_failed:bad-family:unsupported case',result['stop_reason'])
+        self.assertLess(self.tick,500)
+        self.assertTrue(result['owned_groups_drained'])
+
     def test_completion_callback_failure_drains_siblings(self):
         def fail(_):
             raise OSError("receipt write failed")

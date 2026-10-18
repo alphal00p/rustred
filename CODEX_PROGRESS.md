@@ -1,5 +1,56 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 19 — shared work-stealing pool for generation
+
+User requests maximum useful parallelism across all parents, with an optional
+global active-sector limit and no additional cap by default. This is implemented
+in the generic core/app interfaces; the six-loop study supplies ordinary data.
+Production campaigns are not stopped or restarted by the assistant.
+
+`SectorExecutor` handles share one Arc-owned Rayon pool. External family
+coordinators enqueue scoped sector tasks with FIFO work stealing; optional
+admission permits are acquired outside compute workers and released after
+sector consumption/checkpoint output, also on unwind. This avoids deadlock
+with nested Rayon callbacks and permits idle workers to serve another family.
+Default admission is uncapped. Preparation/assembly use the same pool, and the
+zero-sector census is parallel with deterministic result ordering. No CAS
+primitive is added; existing Symbolica/native source and zero analyses are reused.
+
+The new native `family-candidates-batch` CLI reuses the ordinary family parser,
+guards, source policy, artifact writer and per-sector checkpoints. The Python
+study defaults to shared execution and all parent coordinators, with optional
+`--max-active-sectors N` and `--jobs N`. `--execution-mode isolated` retains the
+former mode. CPU/RSS are counted once for the shared process; parent rows show
+active sectors and shared memory instead of fictitious per-parent CPU budgets.
+Progress projection is separate from the supervisor's process ownership/state.
+
+Final optimized release: `six_loop_study/bin/rustred`, SHA256
+`b39c2eff014a9466b10a061534f987e28b01664e6b2dc798ec861c3321db1608`.
+Build: `TMP/shared-generation-release-20261019/` (280.408 s).
+The combined Python gate passes 61 tests: 54 pure Python controls, six native
+PTY checks and one actual parent-failure/resume test. Five public core integration tests
+pass, including native program/value/map equality, full pool reuse, nested-work
+admission, cancellation and panic cleanup. Actual isolated/shared/cap-one
+generation agrees on the two-mass one-loop control, and native resume reports
+one reused / zero newly solved sectors per parent. Byte differences from ambient
+Symbolica registration state are handled by the existing native equality API.
+Typed fatal-parent status is also checked by the supervisor while a shared
+process drains; one failed parent cannot strand other long solves indefinitely.
+Shared resume permits operational `--jobs`/`--max-active-sectors` overrides,
+including explicit `all`, while preserving the frozen plan and sector identity.
+
+Actual 112-worker / 14-parent control completes 14 rules / 14 terminals;
+metadata-only real-manifest preparation confirms 14 parents / 435 sector jobs
+with a 600 GB ceiling. These are correctness/dispatch gates, not evidence of
+whole-six-loop speedup. Evidence: `TMP/shared-generation-native-20261019/` and
+`TMP/shared-sector-pool-test-20261019.log`. Added regular app/core unit gates
+also cover K1/K3 exact program equivalence and checkpoint reuse for future CI.
+
+Next user launch: README command with a new
+`six_loop_study/runs/scalar-r0-shared-112w` directory, 112 workers, CPU IDs
+144–255, 14 parent coordinators and shared execution. No solve-level quota or
+wall deadline is introduced. The assistant has not started that campaign.
+
 ## October 19 — six-loop generation TUI repair
 
 User stopped the first six-loop attempt and requested a fresh-start command

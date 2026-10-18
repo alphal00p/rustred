@@ -34,7 +34,7 @@ The initial generation delivery's optimized executable had SHA256:
 
 `baafaba31980b6a9e2e9fff3f799f4ed26369d3e6f7b135539325df73bb575fc`
 
-The dashboard-only refresh below supersedes it at `bin/rustred`; existing runs
+The subsequent refreshes below supersede it at `bin/rustred`; existing runs
 retain their own frozen executable.
 
 It compiles generation arities 1 and 21, independently of the existing five-loop
@@ -116,7 +116,7 @@ queries, resize-aware drawing and alternate-screen restoration. It never reads
 stdin or requests a cursor reply. The versioned snapshot producer, solver,
 scheduling, resource policy and checkpoint semantics are unchanged.
 
-Current optimized `bin/rustred` SHA256:
+Dashboard-refresh executable SHA256 (superseded by the shared-pool build below):
 `b8b93b976fa1e9e301fb2bf1bfb78ee5a97256558fcafd943fc2d3135be59260`.
 
 Five real native PTY tests cover detached/write-only stderr, colours, NO_COLOR,
@@ -131,3 +131,48 @@ results: `../TMP/six-loop-dashboard-tests-build-20261019/`.
 
 The user's interrupted six-loop run is left intact. No six-loop restart was
 performed by the assistant. Use a new run directory to get the new frozen build.
+
+## October 19 — global generation pool
+
+The current optimized `bin/rustred` SHA256 is:
+`b39c2eff014a9466b10a061534f987e28b01664e6b2dc798ec861c3321db1608`.
+
+`family-candidates-batch` and the Rust `family_candidates_on_executor` API reuse
+ordinary generation with a single caller-owned `SectorExecutor`. Family parsing,
+parallel zero-sector census, checkpoint loading, sector solves and assembly use
+that pool. Family coordinators perform bounded admission outside the compute
+workers; an optional global sector limit also covers nested Rayon callbacks.
+Omitting the limit admits all ready sectors. No independent per-parent compute
+pools are created. Each family retains its own completed-sector checkpoints and
+candidate bundle. The existing isolated mode remains available explicitly.
+
+Validation passed:
+
+- 54 pure Python steering/scheduler/projection tests.
+- Six real-terminal tests, including the shared-pool presentation.
+- Five public native Rust tests: all workers available to a remaining family;
+  global admission across families with nested Rayon; cancellation of a waiting
+  admission; permit release and pool reuse after panic; and native structural,
+  coefficient-value and coefficient-map equality across execution modes.
+- Actual generation for two different one-loop masses through isolated,
+  unlimited shared and cap-one shared execution. Exact native programs agree;
+  ambient Symbolica registration state can make the binary bytes differ.
+- Native checkpoint resume reuses all completed sectors without new solves.
+- A real parent-failure/resume test retains another parent's completed output
+  and successfully resumes the remaining parent. A separate supervisor test
+  detects fatal parent status before waiting for a long shared process to exit.
+- Actual 112-worker / 14-parent configuration completes 14 small control jobs,
+  with 14 rules / 14 terminals. This validates dispatch and thread licensing,
+  not a six-loop throughput claim.
+- Metadata-only preparation of the real 14-parent / 435-sector manifest under
+  the requested 112-worker and 600 GB settings. No full six-loop solve was started.
+
+Evidence: `../TMP/shared-generation-release-20261019/`,
+`../TMP/shared-generation-native-20261019/`, and
+`../TMP/shared-sector-pool-test-20261019.log`. Plumbing/inspection timings are
+not presented as a matched solver performance benchmark.
+
+The combined Python/native-interface run passes 61 tests (54 pure Python,
+six PTY checks and one actual failure/resume gate). Admission limits can be
+overridden on shared resume without altering the frozen inputs or native sector
+checkpoint identity.

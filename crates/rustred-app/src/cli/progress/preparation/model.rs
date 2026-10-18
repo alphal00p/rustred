@@ -31,6 +31,9 @@ pub(super) struct Status {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct Resources {
+    #[serde(default)]
+    pub(super) shared_pool: bool,
+    pub(super) max_active_sectors: Option<u64>,
     pub(super) jobs: u64,
     pub(super) workers_per_job: u64,
     pub(super) total_workers: u64,
@@ -52,6 +55,7 @@ pub(super) struct Memory {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct Aggregate {
+    pub(super) pool: Option<Pool>,
     pub(super) sampled_rss_bytes: Option<u64>,
     pub(super) sampled_peak_tree_rss_bytes: Option<u64>,
     pub(super) observed_cores: Option<f64>,
@@ -63,7 +67,19 @@ pub(super) struct Aggregate {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub(super) struct Pool {
+    pub(super) running: u64,
+    pub(super) waiting_for_worker: u64,
+    pub(super) admitted: u64,
+    pub(super) completed: u64,
+    pub(super) peak_running: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct Job {
+    #[serde(default)]
+    pub(super) shared_process: bool,
+    pub(super) preparation_state: Option<String>,
     pub(super) id: String,
     pub(super) state: String,
     pub(super) metadata: Metadata,

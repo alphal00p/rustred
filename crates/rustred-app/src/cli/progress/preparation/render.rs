@@ -76,6 +76,22 @@ fn title(status: &Status, now: f64) -> String {
 
 fn summary(status: &Status) -> String {
     let aggregate = status.aggregate.as_ref();
+    if status.resources.shared_pool {
+        let pool = aggregate.and_then(|a| a.pool.as_ref());
+        return format!(
+            "Parents {}/{} complete | shared {}-worker pool | sectors {} active / {} queued | cap {} | elapsed {}",
+            status.completed_jobs(),
+            status.jobs.len(),
+            status.resources.total_workers,
+            count(pool.map(|p| p.running)),
+            count(pool.map(|p| p.waiting_for_worker)),
+            status
+                .resources
+                .max_active_sectors
+                .map_or_else(|| "all".into(), |n| n.to_string()),
+            duration(Some(status.elapsed_seconds))
+        );
+    }
     format!(
         "Parents {}/{} complete | {} active / {} queued | workers {} × {} = {} budget | elapsed {}",
         status.completed_jobs(),
@@ -108,6 +124,14 @@ fn resources(status: &Status) -> String {
 }
 
 fn phase(job: &Job) -> String {
+    if job.shared_process {
+        if job.preparation_state.as_deref() == Some("preparing") {
+            return "family preparation".into();
+        }
+        if job.state == "pending" {
+            return "queued".into();
+        }
+    }
     let Some(native) = job.native() else {
         return format!(
             "{}; native {}",
@@ -283,6 +307,26 @@ pub(super) fn render(frame: &mut Frame<'_>, status: &Status, now: f64, color: bo
     } else {
         Style::default()
     };
+    let pool_detail = if status.resources.shared_pool {
+        let pool = aggregate.and_then(|a| a.pool.as_ref());
+        format!(
+            "shared · {} sectors active / {} queued · cap {}",
+            count(pool.map(|p| p.running)),
+            count(pool.map(|p| p.waiting_for_worker)),
+            status
+                .resources
+                .max_active_sectors
+                .map_or_else(|| "all".into(), |n| n.to_string())
+        )
+    } else {
+        format!(
+            "{} slots × {} workers  ·  {} active / {} queued",
+            status.resources.jobs,
+            status.resources.workers_per_job,
+            count(aggregate.and_then(|a| a.active_jobs)),
+            count(aggregate.and_then(|a| a.pending_jobs))
+        )
+    };
     let stats = vec![
         Row::new(vec![
             Cell::from("CPU / reserved"),
@@ -295,13 +339,7 @@ pub(super) fn render(frame: &mut Frame<'_>, status: &Status, now: f64, color: bo
                 Some(status.resources.total_workers),
                 color,
             )),
-            Cell::from(format!(
-                "{} slots × {} workers  ·  {} active / {} queued",
-                status.resources.jobs,
-                status.resources.workers_per_job,
-                count(aggregate.and_then(|a| a.active_jobs)),
-                count(aggregate.and_then(|a| a.pending_jobs))
-            )),
+            Cell::from(pool_detail),
         ]),
         Row::new(vec![
             Cell::from("RAM / ceiling"),
@@ -383,15 +421,29 @@ pub(super) fn render(frame: &mut Frame<'_>, status: &Status, now: f64, color: bo
                 Cell::from(frame_dimensions(job)),
             ]);
         }
-        cells.push(
-            Cell::from(cpu(job.observed_cores, job.workers)).style(cpu_style(
-                job.observed_cores,
-                job.workers,
-                color,
-            )),
-        );
+        if job.shared_process {
+            cells.push(Cell::from(
+                if job.preparation_state.as_deref() == Some("preparing") {
+                    "prep".into()
+                } else {
+                    native.map_or_else(|| "—".into(), |n| n.active_jobs.len().to_string())
+                },
+            ));
+        } else {
+            cells.push(
+                Cell::from(cpu(job.observed_cores, job.workers)).style(cpu_style(
+                    job.observed_cores,
+                    job.workers,
+                    color,
+                )),
+            );
+        }
         if !narrow {
-            cells.push(Cell::from(bytes(job.sampled_rss_bytes)));
+            cells.push(Cell::from(if job.shared_process {
+                "shared".into()
+            } else {
+                bytes(job.sampled_rss_bytes)
+            }));
         }
         if wide {
             cells.push(Cell::from(duration(event_age(job, status.age(now)))));
@@ -425,7 +477,11 @@ pub(super) fn render(frame: &mut Frame<'_>, status: &Status, now: f64, color: bo
             Constraint::Length(11),
         ]);
     }
-    headings.push("CPU/budget");
+    headings.push(if status.resources.shared_pool {
+        "Active"
+    } else {
+        "CPU/budget"
+    });
     widths.push(Constraint::Length(10));
     if !narrow {
         headings.push("RSS");

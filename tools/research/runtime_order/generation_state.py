@@ -70,9 +70,10 @@ def diagnostic_tail(path):
 
 class Progress:
     """Coordinator-owned state; observers receive independent JSON values."""
-    def __init__(self, directory, jobs, resources, observer=None, phase="generation"):
+    def __init__(self, directory, jobs, resources, observer=None, phase="generation", projection=None):
         self.directory = Path(directory)
         self.observer = observer
+        self.projection = projection
         self.started = time.monotonic()
         self.value = dict(schema=SCHEMA, run_id=str(self.directory.parent),
             attempt_id=self.directory.name, snapshot_seq=0, phase=phase, state="running",
@@ -87,7 +88,13 @@ class Progress:
         self.value.update(updates)
         self.value["snapshot_seq"] += 1
         self.value.update(timestamp_unix_seconds=time.time(), elapsed_seconds=time.monotonic()-self.started)
-        encoded = json.dumps(self.value, allow_nan=False, sort_keys=True)
+        presented = self.value
+        if self.projection is not None:
+            try:
+                presented = self.projection(copy.deepcopy(self.value))
+            except Exception as error:
+                self.value["last_projection_error"] = f"{type(error).__name__}: {error}"[:1024]
+        encoded = json.dumps(presented, allow_nan=False, sort_keys=True)
         temporary = self.directory / ".snapshot.json.part"
         with temporary.open("w") as stream:
             stream.write(encoded + "\n")
@@ -97,7 +104,7 @@ class Progress:
         # frame/active-job array or raw stderr tail (which can be large).
         now = time.monotonic()
         if event != "sample" or self.last_sample_event is None or now-self.last_sample_event >= 30:
-            record = {key: self.value[key] for key in ("schema", "run_id", "attempt_id", "snapshot_seq",
+            record = {key: presented[key] for key in ("schema", "run_id", "attempt_id", "snapshot_seq",
                 "phase", "state", "timestamp_unix_seconds", "elapsed_seconds", "aggregate", "stop_reason")}
             record["jobs"] = [dict(id=row["id"], state=row["state"], slot=row.get("slot"),
                 pid=row.get("pid"), observed_cores=row.get("observed_cores"),
@@ -105,7 +112,7 @@ class Progress:
                 checkpoint_files_observed=row.get("checkpoint_files_observed"),
                 native_status=(row.get("native_progress") or {}).get("status"),
                 native_counts=((row.get("native_progress") or {}).get("snapshot") or {}).get("counts"))
-                for row in self.value["jobs"]]
+                for row in presented["jobs"]]
             self.events.write(json.dumps(dict(event=event, snapshot=record), allow_nan=False) + "\n")
             self.events.flush()
             if event == "sample":

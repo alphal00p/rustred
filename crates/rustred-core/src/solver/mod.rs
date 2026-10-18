@@ -96,7 +96,7 @@ pub use error::SolverError;
 pub use exception::{ExceptionError, ExceptionalConditions, extract_exceptions};
 pub use execution::{
     SectorCompleted, SectorExecutionError, SectorExecutor, SectorExecutorBuildError,
-    SectorScheduling,
+    SectorScheduling, SharedSectorSnapshot,
 };
 pub use geometry::GeometryError;
 pub use index::{Integral, IntegralOrder, Power, PowerError};

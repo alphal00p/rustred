@@ -140,6 +140,21 @@ class PreparationTuiTests(unittest.TestCase):
         self.assertEqual(child.wait(timeout=5), 0)
         self.assertEqual(self.path.read_bytes(), before)
 
+    def test_shared_snapshot_labels_global_pool_and_parent_sector_activity(self):
+        self.data['resources'].update(shared_pool=True,workers_per_job=0,max_active_sectors=2)
+        self.data['aggregate']['pool']=dict(running=2,waiting_for_worker=0,admitted=2,completed=0,peak_running=2)
+        for job in self.data['jobs']:
+            job.update(shared_process=True,workers=None,observed_cores=None,sampled_rss_bytes=None)
+        self.data['jobs'][0]['preparation_state']='preparing'
+        self.publish()
+        child,master=self.launch()
+        output=self.read_until(master,b'Read-only;')
+        for marker in [b'Active',b'shared',b'cap',b'preparation']:
+            self.assertIn(marker,output)
+        self.assertNotIn(b'CPU/budget',output)
+        self.assertNotIn(b'unavailable',output)
+        self.assertIsNone(child.poll())
+
     def test_piped_output_stays_plain_and_json_is_unchanged(self):
         self.data["state"] = "completed"
         self.publish()

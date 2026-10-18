@@ -23,7 +23,7 @@ mod portfolio;
 pub fn family_candidates(
     request: FamilyCandidatesRequest,
 ) -> Result<CandidateBundleResult, AppError> {
-    generate_request(request, None, None, None)
+    generate_request(request, None, None, None, None)
 }
 
 /// Observe generation without enabling source replay or closure certification.
@@ -33,7 +33,7 @@ pub fn family_candidates_with_progress(
     request: FamilyCandidatesRequest,
     observe: impl Fn(FamilyCloseProgress) + Send + Sync,
 ) -> Result<CandidateBundleResult, AppError> {
-    generate_request(request, Some(&observe), None, None)
+    generate_request(request, Some(&observe), None, None, None)
 }
 
 /// Controlled in-process generation. Cancellation is checked at sector and
@@ -43,7 +43,29 @@ pub fn family_candidates_controlled(
     cancellation: Arc<AtomicBool>,
     observe: impl Fn(FamilyCloseProgress) + Send + Sync,
 ) -> Result<CandidateBundleResult, AppError> {
-    generate_request(request, Some(&observe), Some(cancellation), None)
+    generate_request(request, Some(&observe), Some(cancellation), None, None)
+}
+
+/// Generate on a caller-owned shared pool. Call from an external coordinator;
+/// family preparation, sector work and assembly share its compute budget.
+pub fn family_candidates_on_executor(
+    request: FamilyCandidatesRequest,
+    executor: &SectorExecutor,
+    cancellation: Arc<AtomicBool>,
+    observe: impl Fn(FamilyCloseProgress) + Send + Sync,
+) -> Result<CandidateBundleResult, AppError> {
+    if request.n_cores != executor.workers() || executor.shared_snapshot().is_none() {
+        return Err(AppError::input(
+            "shared generation requires a matching shared executor",
+        ));
+    }
+    generate_request(
+        request,
+        Some(&observe),
+        Some(cancellation),
+        None,
+        Some(executor),
+    )
 }
 
 /// Generate from an already prepared native family, without a text roundtrip.
@@ -56,7 +78,13 @@ pub fn family_candidates_from_family_controlled(
     observe: impl Fn(FamilyCloseProgress) + Send + Sync,
 ) -> Result<CandidateBundleResult, AppError> {
     options.source = format!("native-family:{}", family.fingerprint());
-    generate_request(options, Some(&observe), Some(cancellation), Some(family))
+    generate_request(
+        options,
+        Some(&observe),
+        Some(cancellation),
+        Some(family),
+        None,
+    )
 }
 
 fn check_cancel(token: Option<&Arc<AtomicBool>>) -> Result<(), AppError> {
@@ -75,6 +103,7 @@ fn generate_request(
     observe: Observer<'_>,
     cancellation: Option<Arc<AtomicBool>>,
     native_family: Option<Arc<IntegralFamily>>,
+    execution: Option<&SectorExecutor>,
 ) -> Result<CandidateBundleResult, AppError> {
     let started = Instant::now();
     check_cancel(cancellation.as_ref())?;
@@ -90,10 +119,14 @@ fn generate_request(
         ));
     }
     policy::validate_request_scope(&request)?;
-    let family = match native_family {
-        Some(family) => family,
-        None => Arc::new(preparation::family(&request.source, request.input_format)?),
+    let parse = || match native_family {
+        Some(family) => Ok(family),
+        None => preparation::family(&request.source, request.input_format).map(Arc::new),
     };
+    let family = match execution {
+        Some(pool) => pool.install(parse),
+        None => parse(),
+    }?;
     let n = family.denominator_count();
     preparation::validate_arity(n)?;
     let root = preparation::root(n, &request.nonpositive_indices)?;
@@ -105,7 +138,7 @@ fn generate_request(
     });
     macro_rules! dispatch {
         ($($n:literal),*) => { match rustred::campaign_storage_arity(n ){
-            $($n => generate::<$n>(family, request, &root, started, observe, cancellation),)*
+            $($n => generate::<$n>(family, request, &root, started, observe, cancellation, execution),)*
             _ => Err(crate::AppError::input("campaign arity is not compiled")),
         } };
     }
@@ -127,13 +160,27 @@ fn generate<const N: usize>(
     started: Instant,
     observe: Observer<'_>,
     cancellation: Option<Arc<AtomicBool>>,
+    execution: Option<&SectorExecutor>,
 ) -> Result<CandidateBundleResult, AppError> {
     check_cancel(cancellation.as_ref())?;
-    let mut prepared = if request.root_zero_census {
-        preparation::prepare_shared_root::<N>(family, root, request.permutation.as_deref())?
-    } else {
-        preparation::prepare_shared::<N>(family, root, request.permutation.as_deref())?
+    let prepare = || {
+        if execution.is_some() {
+            preparation::prepare_shared_parallel::<N>(
+                family,
+                root,
+                request.permutation.as_deref(),
+                request.root_zero_census,
+            )
+        } else if request.root_zero_census {
+            preparation::prepare_shared_root::<N>(family, root, request.permutation.as_deref())
+        } else {
+            preparation::prepare_shared::<N>(family, root, request.permutation.as_deref())
+        }
     };
+    let mut prepared = match execution {
+        Some(pool) => pool.install(prepare),
+        None => prepare(),
+    }?;
     check_cancel(cancellation.as_ref())?;
     let selected_sectors = super::selection::apply(
         &mut prepared,
@@ -153,9 +200,7 @@ fn generate<const N: usize>(
     }
     // Preserve the existing default timing boundary (pool construction belongs
     // to preparation). Checkpoint-only resume must never construct a pool.
-    let default_executor = request
-        .checkpoint
-        .is_none()
+    let default_executor = (request.checkpoint.is_none() && execution.is_none())
         .then(|| SectorExecutor::new(request.n_cores))
         .transpose()
         .map_err(|e| AppError::execution(e.to_string()))?;
@@ -175,23 +220,29 @@ fn generate<const N: usize>(
         global_zero_sectors: prepared.zeros.len(),
         elapsed: prepared_at,
     });
-    let store = request
-        .checkpoint
-        .as_ref()
-        .map(|options| {
-            let manifest = CheckpointManifest::for_request(
-                &request,
-                prepared.family.fingerprint(),
-                root,
-                prepared
-                    .sectors
-                    .iter()
-                    .map(|s| s[..prepared.family.denominator_count()].to_vec())
-                    .collect(),
-            )?;
-            CheckpointStore::open(options, manifest, request.bundle_limits)
-        })
-        .transpose()?;
+    let open_store = || {
+        request
+            .checkpoint
+            .as_ref()
+            .map(|options| {
+                let manifest = CheckpointManifest::for_request(
+                    &request,
+                    prepared.family.fingerprint(),
+                    root,
+                    prepared
+                        .sectors
+                        .iter()
+                        .map(|s| s[..prepared.family.denominator_count()].to_vec())
+                        .collect(),
+                )?;
+                CheckpointStore::open(options, manifest, request.bundle_limits)
+            })
+            .transpose()
+    };
+    let store = match execution {
+        Some(pool) => pool.install(open_store),
+        None => open_store(),
+    }?;
     let pending: Vec<_> = if let Some(store) = &store {
         store
             .pending()?
@@ -226,9 +277,10 @@ fn generate<const N: usize>(
     let solved = if jobs.is_empty() {
         Vec::new()
     } else {
-        let mut executor = match default_executor {
-            Some(executor) => executor,
-            None => SectorExecutor::new(request.n_cores)
+        let mut executor = match (execution, default_executor) {
+            (Some(executor), _) => executor.clone(),
+            (_, Some(executor)) => executor,
+            (_, None) => SectorExecutor::new(request.n_cores)
                 .map_err(|e| AppError::execution(e.to_string()))?,
         };
         if let Some(token) = &cancellation {
@@ -349,174 +401,183 @@ fn generate<const N: usize>(
             )
             .map_err(|e| execution_error(e, &pending))?
     };
-    check_cancel(cancellation.as_ref())?;
-    let mut rule_selection = request
-        .discovery_strategy
-        .as_ref()
-        .and_then(|strategy| strategy.rule_selection.as_ref())
-        .map(|_| portfolio::Report::new());
-    if let Some(report) = &mut rule_selection {
-        for (_, stats) in &solved {
-            report.newly_solved_sectors += 1;
-            if let Some(stats) = stats {
-                report.add(**stats);
+    let assemble = move || {
+        let prepared = prepared;
+        check_cancel(cancellation.as_ref())?;
+        let mut rule_selection = request
+            .discovery_strategy
+            .as_ref()
+            .and_then(|strategy| strategy.rule_selection.as_ref())
+            .map(|_| portfolio::Report::new());
+        if let Some(report) = &mut rule_selection {
+            for (_, stats) in &solved {
+                report.newly_solved_sectors += 1;
+                if let Some(stats) = stats {
+                    report.add(**stats);
+                }
             }
         }
-    }
-    let solved_at = started.elapsed();
-    emit(observe, || FamilyCloseProgress::Encoding {
-        elapsed: solved_at,
-    });
-    let mut coefficients = CoefficientTableBuilder::new(request.bundle_limits.binary_limits());
-    let sectors = if let Some(store) = &store {
-        checkpoint::assemble(store, &prepared, request.bundle_limits, &mut coefficients)?
-    } else {
-        solved
-            // Release each expanded exact solution once its compact record and
-            // native coefficients are interned. Encounter order is unchanged;
-            // keeping all solutions alive until report writing doubles up
-            // their storage with the completed native output unnecessarily.
-            .into_iter()
-            .map(|(solution, _)| solution)
-            .flatten()
-            .map(|(sector, solution)| {
-                codec::physical_sector_record(
-                    prepared.family.denominator_count(),
-                    sector,
-                    &solution,
-                    &mut coefficients,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    let assembled_at = started.elapsed();
-    let solved_sectors = sectors.len();
-    let generated_rules = sectors.iter().map(|s| s.rules.len()).sum();
-    let finite_residuals = sectors.iter().map(|s| s.finite_residuals.len()).sum();
-    let bundle = save::program_record(&request, &prepared.family, root, sectors)?;
-    let family_record = NativeFamilyRecord::from_family(&prepared.family, &mut coefficients)
-        .map_err(codec::binary_error)?;
-    let coefficient_count = coefficients.len();
-    let coefficients = coefficients.finish().map_err(codec::binary_error)?;
-    let bytes = codec::write_records(
-        &bundle,
-        &family_record,
-        &coefficients,
-        request.bundle_limits,
-    )?;
-    let elapsed = started.elapsed();
-    check_cancel(cancellation.as_ref())?;
-    emit(observe, || FamilyCloseProgress::Encoded {
-        bytes: bytes.len(),
-        elapsed,
-    });
-    #[derive(Serialize)]
-    struct Report<'a> {
-        schema: &'static str,
-        status: &'static str,
-        workload: &'static str,
-        family_fingerprint: &'a str,
-        arity: usize,
-        root_sector: &'a [bool],
-        generation_scope: &'static str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        selected_sectors: Option<&'a [Vec<bool>]>,
-        solved_sectors: usize,
-        zero_sectors: usize,
-        generated_rules: usize,
-        finite_residuals: usize,
-        workers: usize,
-        exact_backend: &'static str,
-        integral_order: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        discovery_strategy: Option<&'a super::CandidateDiscoveryStrategy>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        rule_selection: Option<portfolio::Report>,
-        numerical_depth: u32,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        max_numerator_rank: Option<u32>,
-        finite_case_policy: &'static str,
-        finite_max_visited_points: usize,
-        finite_max_retained_terminals: usize,
-        // Invocation resources, not historical allowances for reused shards.
-        case_max_work_items: usize,
-        case_max_terms_per_conjunction: usize,
-        case_max_normalizations: usize,
-        case_max_factorizations: usize,
-        bytes: usize,
-        unique_coefficients: usize,
-        coefficient_table_bytes: usize,
-        symbolica_state_bytes: usize,
-        preparation_us: u128,
-        solve_us: u128,
-        bundle_encoding_us: u128,
-        total_us: u128,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        checkpoint: Option<checkpoint::Report>,
-    }
-    let report = Report {
-        schema: FAMILY_CANDIDATES_SCHEMA,
-        status: STATUS,
-        workload: "prepare-solve-save; no source replay or closure certification",
-        family_fingerprint: prepared.family.fingerprint(),
-        arity: prepared.family.denominator_count(),
-        root_sector: root,
-        generation_scope: if selected_sectors.is_some() {
-            "selected-sectors"
+        let solved_at = started.elapsed();
+        emit(observe, || FamilyCloseProgress::Encoding {
+            elapsed: solved_at,
+        });
+        let mut coefficients = CoefficientTableBuilder::new(request.bundle_limits.binary_limits());
+        let sectors = if let Some(store) = &store {
+            checkpoint::assemble(store, &prepared, request.bundle_limits, &mut coefficients)?
         } else {
-            "root-downset"
-        },
-        selected_sectors: selected_sectors.as_deref(),
-        solved_sectors,
-        zero_sectors: prepared.zeros.len(),
-        generated_rules,
-        finite_residuals,
-        workers: request.n_cores,
-        exact_backend: request.exact_backend.as_str(),
-        integral_order: super::order::request_policy(
-            &request,
-            prepared.family.denominator_count(),
-        )?
-        .stable_id()
-        .to_string(),
-        discovery_strategy: request.discovery_strategy.as_ref(),
-        rule_selection,
-        numerical_depth: request.numerical_depth,
-        max_numerator_rank: request.max_numerator_rank,
-        finite_case_policy: request.finite_case_policy.as_str(),
-        finite_max_visited_points: request.finite_case_limits.max_visited_points,
-        finite_max_retained_terminals: request.finite_case_limits.max_retained_terminals,
-        case_max_work_items: request.case_intersection_limits.max_work_items,
-        case_max_terms_per_conjunction: request.case_intersection_limits.max_terms_per_conjunction,
-        case_max_normalizations: request.case_intersection_limits.max_normalizations,
-        case_max_factorizations: request.case_intersection_limits.max_factorizations,
-        bytes: bytes.len(),
-        unique_coefficients: coefficient_count,
-        coefficient_table_bytes: coefficients.atoms.len(),
-        symbolica_state_bytes: coefficients.state.len(),
-        preparation_us: prepared_at.as_micros(),
-        solve_us: (solved_at - admitted_at).as_micros(),
-        bundle_encoding_us: (elapsed - solved_at).as_micros(),
-        total_us: elapsed.as_micros(),
-        checkpoint: store
-            .as_ref()
-            .map(|store| {
-                Ok::<_, AppError>(checkpoint::Report {
-                    reused_sectors,
-                    newly_solved_sectors: pending.len(),
-                    disk_bytes: store.charged_bytes()?,
-                    resume_validation_us: (admitted_at - prepared_at).as_micros(),
-                    assembly_us: (assembled_at - solved_at).as_micros(),
+            solved
+                // Release each expanded exact solution once its compact record and
+                // native coefficients are interned. Encounter order is unchanged;
+                // keeping all solutions alive until report writing doubles up
+                // their storage with the completed native output unnecessarily.
+                .into_iter()
+                .map(|(solution, _)| solution)
+                .flatten()
+                .map(|(sector, solution)| {
+                    codec::physical_sector_record(
+                        prepared.family.denominator_count(),
+                        sector,
+                        &solution,
+                        &mut coefficients,
+                    )
                 })
-            })
-            .transpose()?,
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let assembled_at = started.elapsed();
+        let solved_sectors = sectors.len();
+        let generated_rules = sectors.iter().map(|s| s.rules.len()).sum();
+        let finite_residuals = sectors.iter().map(|s| s.finite_residuals.len()).sum();
+        let bundle = save::program_record(&request, &prepared.family, root, sectors)?;
+        let family_record = NativeFamilyRecord::from_family(&prepared.family, &mut coefficients)
+            .map_err(codec::binary_error)?;
+        let coefficient_count = coefficients.len();
+        let coefficients = coefficients.finish().map_err(codec::binary_error)?;
+        let bytes = codec::write_records(
+            &bundle,
+            &family_record,
+            &coefficients,
+            request.bundle_limits,
+        )?;
+        let elapsed = started.elapsed();
+        check_cancel(cancellation.as_ref())?;
+        emit(observe, || FamilyCloseProgress::Encoded {
+            bytes: bytes.len(),
+            elapsed,
+        });
+        #[derive(Serialize)]
+        struct Report<'a> {
+            schema: &'static str,
+            status: &'static str,
+            workload: &'static str,
+            family_fingerprint: &'a str,
+            arity: usize,
+            root_sector: &'a [bool],
+            generation_scope: &'static str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            selected_sectors: Option<&'a [Vec<bool>]>,
+            solved_sectors: usize,
+            zero_sectors: usize,
+            generated_rules: usize,
+            finite_residuals: usize,
+            workers: usize,
+            exact_backend: &'static str,
+            integral_order: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            discovery_strategy: Option<&'a super::CandidateDiscoveryStrategy>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            rule_selection: Option<portfolio::Report>,
+            numerical_depth: u32,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            max_numerator_rank: Option<u32>,
+            finite_case_policy: &'static str,
+            finite_max_visited_points: usize,
+            finite_max_retained_terminals: usize,
+            // Invocation resources, not historical allowances for reused shards.
+            case_max_work_items: usize,
+            case_max_terms_per_conjunction: usize,
+            case_max_normalizations: usize,
+            case_max_factorizations: usize,
+            bytes: usize,
+            unique_coefficients: usize,
+            coefficient_table_bytes: usize,
+            symbolica_state_bytes: usize,
+            preparation_us: u128,
+            solve_us: u128,
+            bundle_encoding_us: u128,
+            total_us: u128,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            checkpoint: Option<checkpoint::Report>,
+        }
+        let report = Report {
+            schema: FAMILY_CANDIDATES_SCHEMA,
+            status: STATUS,
+            workload: "prepare-solve-save; no source replay or closure certification",
+            family_fingerprint: prepared.family.fingerprint(),
+            arity: prepared.family.denominator_count(),
+            root_sector: root,
+            generation_scope: if selected_sectors.is_some() {
+                "selected-sectors"
+            } else {
+                "root-downset"
+            },
+            selected_sectors: selected_sectors.as_deref(),
+            solved_sectors,
+            zero_sectors: prepared.zeros.len(),
+            generated_rules,
+            finite_residuals,
+            workers: request.n_cores,
+            exact_backend: request.exact_backend.as_str(),
+            integral_order: super::order::request_policy(
+                &request,
+                prepared.family.denominator_count(),
+            )?
+            .stable_id()
+            .to_string(),
+            discovery_strategy: request.discovery_strategy.as_ref(),
+            rule_selection,
+            numerical_depth: request.numerical_depth,
+            max_numerator_rank: request.max_numerator_rank,
+            finite_case_policy: request.finite_case_policy.as_str(),
+            finite_max_visited_points: request.finite_case_limits.max_visited_points,
+            finite_max_retained_terminals: request.finite_case_limits.max_retained_terminals,
+            case_max_work_items: request.case_intersection_limits.max_work_items,
+            case_max_terms_per_conjunction: request
+                .case_intersection_limits
+                .max_terms_per_conjunction,
+            case_max_normalizations: request.case_intersection_limits.max_normalizations,
+            case_max_factorizations: request.case_intersection_limits.max_factorizations,
+            bytes: bytes.len(),
+            unique_coefficients: coefficient_count,
+            coefficient_table_bytes: coefficients.atoms.len(),
+            symbolica_state_bytes: coefficients.state.len(),
+            preparation_us: prepared_at.as_micros(),
+            solve_us: (solved_at - admitted_at).as_micros(),
+            bundle_encoding_us: (elapsed - solved_at).as_micros(),
+            total_us: elapsed.as_micros(),
+            checkpoint: store
+                .as_ref()
+                .map(|store| {
+                    Ok::<_, AppError>(checkpoint::Report {
+                        reused_sectors,
+                        newly_solved_sectors: pending.len(),
+                        disk_bytes: store.charged_bytes()?,
+                        resume_validation_us: (admitted_at - prepared_at).as_micros(),
+                        assembly_us: (assembled_at - solved_at).as_micros(),
+                    })
+                })
+                .transpose()?,
+        };
+        Ok(CandidateBundleResult {
+            bundle: bytes,
+            bundle_limits: request.bundle_limits,
+            report_toml: toml::to_string_pretty(&report)
+                .map_err(|e| AppError::serialization(e.to_string()))?,
+        })
     };
-    Ok(CandidateBundleResult {
-        bundle: bytes,
-        bundle_limits: request.bundle_limits,
-        report_toml: toml::to_string_pretty(&report)
-            .map_err(|e| AppError::serialization(e.to_string()))?,
-    })
+    match execution {
+        Some(pool) => pool.install(assemble),
+        None => assemble(),
+    }
 }
 
 fn execution_error<const N: usize>(

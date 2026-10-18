@@ -25,6 +25,7 @@ mod rank;
 mod saved_program;
 mod selection;
 mod session_view;
+mod shared;
 
 const K1: &str = r#"
 schema = "rustred.project.toml.v1"

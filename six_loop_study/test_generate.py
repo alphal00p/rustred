@@ -53,7 +53,8 @@ expression = "k2^2-1"
         values = dict(directory=self.output, manifest=self.manifest, executable=self.exe,
             workers=4, cpus="64-67", jobs=2, max_memory_bytes=1_000_000_000,
             ram_margin_percent=None, rank=None, numerical_depth=None, finite_case_policy=None,
-            exact_backend=None, discovery_strategy=None, full_downsets=False)
+            exact_backend=None, discovery_strategy=None, full_downsets=False,
+            execution_mode="isolated", max_active_sectors=None)
         values.update(overrides)
         return argparse.Namespace(**values)
 
@@ -76,6 +77,36 @@ expression = "k2^2-1"
         self.assertEqual(command[command.index("--bundle-max-term-operations")+1], str(generate.USIZE_MAX))
         self.assertEqual(command[command.index("--bundle-max-bytes")+1], "950000000")
         self.assertNotIn("--finite-max-visited-points", command)
+
+    def test_shared_pool_uses_entire_budget_without_dividing_it_between_parents(self):
+        plan = generate.prepare(self.args(execution_mode="shared", jobs=None))
+        self.assertEqual(plan["resources"]["generation_jobs"], 1)
+        self.assertTrue(plan["allocation"]["shared_pool"])
+        self.assertEqual(plan["resources"]["max_active_sectors"], None)
+        command = generate.command(self.output, plan, plan["owners"][0])
+        self.assertEqual(command[command.index("--n-cores")+1], "4")
+
+    def test_shared_parent_count_need_not_divide_workers_and_sector_limit_is_explicit(self):
+        plan = generate.prepare(self.args(execution_mode="shared", jobs=3, max_active_sectors=2))
+        self.assertEqual(plan["allocation"]["jobs"], 3)
+        self.assertEqual(plan["allocation"]["max_active_sectors"], 2)
+        generate.validate(self.output, plan)
+
+    def test_shared_runtime_caps_can_change_on_resume_without_mutating_frozen_plan(self):
+        plan = generate.prepare(self.args(execution_mode="shared", jobs=2, max_active_sectors=2))
+        updated = generate.resume_resources(plan, 1, "all")
+        self.assertEqual(plan["resources"]["max_active_sectors"], 2)
+        self.assertEqual(plan["resources"]["generation_jobs"], 2)
+        self.assertIsNone(updated["resources"]["max_active_sectors"])
+        self.assertEqual(updated["resources"]["generation_jobs"], 1)
+        self.assertEqual(plan["bound_files"], updated["bound_files"])
+        generate.validate(self.output, updated)
+
+    def test_active_sector_limit_accepts_explicit_all_and_positive_counts(self):
+        self.assertEqual(generate.active_sector_limit("all"), "all")
+        self.assertEqual(generate.active_sector_limit("32"), 32)
+        for value in ["0", "-1", "no"]:
+            with self.assertRaises(argparse.ArgumentTypeError): generate.active_sector_limit(value)
 
     def test_abandoned_metadata_temporary_does_not_block_atomic_retry(self):
         stale = self.base / ".receipt.json.old.part"

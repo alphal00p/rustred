@@ -46,7 +46,9 @@ pub use domain_overlay::{
     CandidateDomainOverlayLoadLimits, encode_generated_domain_overlay,
     load_generated_domain_overlay, validate_domain_overlay_ingress,
 };
-pub use generate::{family_candidates, family_candidates_with_progress};
+pub use generate::{
+    family_candidates, family_candidates_on_executor, family_candidates_with_progress,
+};
 pub use inspection::*;
 pub(crate) use load::load_generated_candidate_owners_with_preference_rule_subsets;
 pub use load::{

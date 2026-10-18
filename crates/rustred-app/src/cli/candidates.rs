@@ -10,7 +10,10 @@ use super::io::{preflight_output_destination, read_artifact, read_input, write_o
 use super::progress::{FamilyCloseProgressMonitor, FamilyGenerationTelemetry};
 use crate::{CandidateCertificationRequest, FamilyCandidatesRequest};
 
-pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> {
+pub(super) fn prepare(
+    arguments: &FamilyCandidatesArgs,
+) -> Result<FamilyCandidatesRequest, CliError> {
+    let arguments = arguments.clone();
     preflight_checkpoint_paths(&arguments)?;
     preflight_progress_path(&arguments)?;
     preflight_output_destination(&arguments.output, arguments.force)?;
@@ -46,6 +49,11 @@ pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> 
     request.selected_sectors = arguments.selected_sectors;
     request.root_zero_census = arguments.root_zero_census;
     request.checkpoint = arguments.checkpoint;
+    Ok(request)
+}
+
+pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> {
+    let request = prepare(&arguments)?;
     let terminal = std::io::stderr().is_terminal();
     let export = arguments.progress_json.is_some();
     let telemetry = Mutex::new(FamilyGenerationTelemetry::new(arguments.progress_json));

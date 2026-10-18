@@ -76,23 +76,28 @@ study. Each prepared study freezes its own executable. The selected dispatch
 includes a small one-coordinate smoke control and six-loop generation; it does
 not silently enable unrelated 21-coordinate legacy walking/application paths.
 
-Choose CPU IDs that are actually free. For example, 32 total workers and four
-parent slots give eight sector workers per running parent; each free slot takes
-the next parent. The worker count must be divisible by the number of slots.
-This favors within-parent capacity for the two largest selected groups; it is
-an initial setup, not a measured optimal six-loop allocation.
-Here `192-223` is only an example CPU allocation, not a reservation:
+The default `--execution-mode shared` uses **one global work-stealing Rayon
+pool**. All parents may prepare concurrently; independent zero-sector checks,
+sector solves and family assembly share the compute budget. Workers finishing
+a small parent immediately become available to the other parents. Immutable
+family/source definitions are shared across the workers of each family.
+
+`--jobs` optionally limits the number of concurrent parent coordinators; its
+default is all parents. It does not divide the compute pool. The following
+allocation uses 112 physical cores and all 14 parents. CPU IDs `144-255` are an
+example allocation, not a reservation; stop the previous six-loop run first.
 
 ```bash
 cd /shared/codex-2/rustred
 nix develop
 
-export RUSTRED_6L_RUN="$PWD/six_loop_study/runs/scalar-r0"
+export RUSTRED_6L_RUN="$PWD/six_loop_study/runs/scalar-r0-shared-112w"
 python -B six_loop_study/generate.py \
   --directory "$RUSTRED_6L_RUN" \
   --manifest six_loop_study/topology/manifest.json \
   --executable six_loop_study/bin/rustred \
-  --rank 0 --workers 32 --cpus 192-223 --jobs 4 \
+  --rank 0 --workers 112 --cpus 144-255 --jobs 14 \
+  --execution-mode shared \
   --max-memory-bytes 600000000000 \
   --start
 ```
@@ -107,6 +112,37 @@ launcher. One aggregate process-tree RSS guard covers all concurrent jobs. With
 the example 600 GB request, the default 5% margin requests stopping at 570 GB;
 600 GB is the hard stop. Host available RAM is shown as telemetry but does not
 lower the request. This does not reserve memory or override OS/cgroup limits.
+
+By default every ready sector can enter the pool; there is no additional
+active-sector cap. Add `--max-active-sectors 32`, for example, to limit admitted
+sector jobs globally to 32 for RAM control. Admission includes queued jobs and
+is acquired by external coordinators before dispatch. A job keeps its permit
+throughout nested Rayon calls, so the admitted-sector limit remains enforced
+and compute workers never block waiting for a new sector permit.
+Permits are released after sector output/checkpoint handling, including errors
+and unwinding. Family preparation and assembly also consume RAM and remain
+covered by the aggregate RAM guard. A low `--jobs` can additionally reduce the
+number of simultaneously prepared families.
+
+Both admission controls can be adjusted on shared-mode resume, for example:
+
+```bash
+python -B six_loop_study/generate.py \
+  --directory "$RUSTRED_6L_RUN" --resume --start \
+  --max-active-sectors 32 --jobs 14
+```
+
+Use `--max-active-sectors all` to remove the cap. These overrides apply to that
+invocation and are recorded in its attempt files; the initial frozen plan is
+unchanged. Completed sector checkpoints remain reusable.
+
+An individual serial CAS operation can still limit utilization. A shared pool
+removes the fixed per-parent reservation; it does not establish a measured
+six-loop speedup before a representative campaign has run.
+
+The earlier separate-process mode is available explicitly as
+`--execution-mode isolated`. Only that mode requires `--jobs` to divide
+`--workers`; its per-parent worker counts remain fixed.
 
 Optional native count allowances are set to the largest representable count;
 bundle/coefficient permissions derive from the selected RAM allowance rather
@@ -129,6 +165,11 @@ of the reservation, yellow from 50% to 75%, and green above that. The screen
 resizes with the terminal and is restored on exit. A final summary remains in
 normal scrollback. `NO_COLOR` disables colours without disabling the table;
 redirected output uses periodic plain-text progress.
+
+Shared mode reports CPU and RAM once for the whole native process. Per-parent
+`Active` counts sector jobs; per-parent memory is labelled `shared`, because
+process measurements cannot be attributed accurately to individual families.
+The pool header shows active and queued sector jobs and the optional limit.
 
 The viewer is read-only and needs no stdin or terminal cursor replies, including
 when launched as a detached child in Zellij. An initialization/rendering failure
@@ -165,11 +206,12 @@ The launcher checks frozen input/executable hashes and completed output receipts
 RustRed independently binds each resumed sector checkpoint to its family, root,
 rank, order and solver policy. It refuses a checkpoint directory missing its
 manifest instead of overwriting unknown partial data. Choose a new run directory
-for different rank, solver, or CPU/resource settings. Reusing R0 sector shards
+for different rank, solver, or CPU/RAM settings. Shared-mode parent/sector
+admission can be overridden as described above. Reusing R0 sector shards
 as if they had been generated at R1 is deliberately unsupported.
 
 For a fresh start with an updated executable/dashboard, use a **new directory**
-(for example `six_loop_study/runs/scalar-r0-dashboard`) and repeat the launch
+(for example `six_loop_study/runs/scalar-r0-shared-112w`) and repeat the launch
 command without `--resume`. Keep the earlier directory unchanged; each run
 retains its own frozen executable and checkpoints.
 
@@ -199,7 +241,7 @@ Pure steering regression tests (no native algebra):
 ```bash
 PYTHONPATH=six_loop_study:tools/research/runtime_order \
   python -B -m unittest test_generate test_generation_scheduler \
-  test_generation_monitor test_pipeline
+  test_generation_monitor test_shared_generation_scheduler test_pipeline
 ```
 
 Native terminal regression tests (no IBP generation):

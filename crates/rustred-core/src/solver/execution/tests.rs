@@ -9,6 +9,126 @@ use crate::solver::{Integral, Term};
 
 use super::*;
 
+#[test]
+fn shared_remaining_family_can_use_entire_pool_and_keeps_manifest_order() {
+    if LicenseManager::max_threads(4) < 4 {
+        return;
+    }
+    let executor = SectorExecutor::new(4)
+        .unwrap()
+        .with_shared_scheduling(None)
+        .unwrap();
+    let sources = trivial_sources();
+    let slots = Barrier::new(4);
+    let handles = Mutex::new(HashSet::new());
+    let first = executor.clone();
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                first
+                    .map(
+                        &sources,
+                        &[[true; 3]],
+                        &SectorConfig::default(),
+                        SectorSolveOptions::default(),
+                        |_| Ok::<_, Infallible>(()),
+                    )
+                    .unwrap()
+            })
+            .join()
+            .unwrap();
+        let results = scope
+            .spawn(|| {
+                executor
+                    .map(
+                        &sources,
+                        &[[true; 3]; 8],
+                        &SectorConfig::default(),
+                        SectorSolveOptions::default(),
+                        |done| {
+                            handles.lock().unwrap().insert(std::thread::current().id());
+                            slots.wait();
+                            Ok::<_, Infallible>(done.ordinal)
+                        },
+                    )
+                    .unwrap()
+            })
+            .join()
+            .unwrap();
+        assert_eq!(results, (0..8).collect::<Vec<_>>());
+    });
+    assert_eq!(handles.into_inner().unwrap().len(), 4);
+    let snapshot = executor.shared_snapshot().unwrap();
+    assert!(snapshot.peak_running >= 4);
+    assert_eq!(
+        (snapshot.running, snapshot.admitted, snapshot.completed),
+        (0, 0, 9)
+    );
+}
+
+#[test]
+fn shared_sector_limit_covers_multiple_families_and_nested_rayon_without_deadlock() {
+    if LicenseManager::max_threads(4) < 4 {
+        return;
+    }
+    let executor = SectorExecutor::new(4)
+        .unwrap()
+        .with_shared_scheduling(Some(2))
+        .unwrap();
+    let sources = trivial_sources();
+    let meeting = Barrier::new(2);
+    std::thread::scope(|scope| {
+        for _ in 0..2 {
+            let handle = executor.clone();
+            let (sources, meeting) = (&sources, &meeting);
+            scope.spawn(move || {
+                handle
+                    .map(
+                        sources,
+                        &[[true; 3]; 4],
+                        &SectorConfig::default(),
+                        SectorSolveOptions::default(),
+                        |_| {
+                            let answer = rayon::join(|| 20, || 22);
+                            assert_eq!(answer.0 + answer.1, 42);
+                            meeting.wait();
+                            Ok::<_, Infallible>(())
+                        },
+                    )
+                    .unwrap()
+            });
+        }
+    });
+    let snapshot = executor.shared_snapshot().unwrap();
+    assert_eq!(snapshot.peak_running, 2);
+    assert_eq!(
+        (snapshot.running, snapshot.admitted, snapshot.completed),
+        (0, 0, 8)
+    );
+}
+
+#[test]
+fn shared_admission_wait_observes_cancellation_and_releases_on_unwind() {
+    let shared = Arc::new(super::shared::Admission::new(4, Some(1)));
+    let first = shared.acquire(None).unwrap();
+    let cancellation = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let waiting = scope.spawn(|| shared.acquire(Some(&cancellation)).is_none());
+        cancellation.store(true, Ordering::Release);
+        assert!(waiting.join().unwrap());
+    });
+    drop(first);
+    assert_eq!(shared.snapshot().admitted, 0);
+    assert!(
+        std::panic::catch_unwind(|| {
+            let _permit = shared.acquire(None).unwrap();
+            panic!("simulated consumer unwind");
+        })
+        .is_err()
+    );
+    assert_eq!(shared.snapshot().admitted, 0);
+}
+
 fn trivial_sources() -> SourceSystem<3> {
     let context = CoefficientContext::new(["n0", "n1", "n2"]);
     SourceSystem::new(

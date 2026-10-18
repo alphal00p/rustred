@@ -1,4 +1,5 @@
 mod application;
+pub use application::family_candidates_on_executor;
 pub use application::{
     CacheLookupBudgetPolicy, CachePreparationBackend, CachePreparationCapabilities,
     CachePreparationOptions, CachePreparationPrimerBudget, CachePreparationReport,

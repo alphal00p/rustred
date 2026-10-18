@@ -22,6 +22,7 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools/research/runtime_order"))
 import generation_scheduler as scheduler
+import shared_generation_scheduler as shared_scheduler
 from generation_monitor import Dashboard
 
 SCHEMA = "rustred.independent-generation-study.v1"
@@ -35,6 +36,34 @@ DEFAULT_DISCOVERY = {
         {"feature": {"kind": "coefficient-monomials"}, "descending": False},
     ]},
 }
+
+
+def active_sector_limit(value):
+    if value == "all":
+        return "all"
+    try:
+        number = int(value)
+    except (ValueError, TypeError):
+        raise argparse.ArgumentTypeError("active-sector limit must be a positive integer or 'all'") from None
+    if number <= 0:
+        raise argparse.ArgumentTypeError("active-sector limit must be positive or 'all'")
+    return number
+
+
+def resume_resources(plan, parent_slots=None, sector_limit=None):
+    if parent_slots is None and sector_limit is None:
+        return plan
+    if plan.get("execution_mode") != "shared":
+        raise ValueError("runtime parent/sector overrides require shared execution")
+    # These grants do not enter the native sector checkpoint identity. Keep
+    # the original frozen plan intact and record actual grants in each attempt.
+    plan = dict(plan, resources=dict(plan["resources"]))
+    if parent_slots is not None:
+        plan["resources"]["generation_jobs"] = parent_slots
+    if sector_limit is not None:
+        plan["resources"]["max_active_sectors"] = None if sector_limit == "all" else sector_limit
+    plan["allocation"] = shared_scheduler.schedule(plan["resources"])
+    return plan
 
 
 def read(path):
@@ -156,12 +185,20 @@ def prepare(args):
     if any(value < 0 or value > (1 << 32) - 1 for value in (rank, depth)):
         raise ValueError("rank and numerical depth must fit unsigned 32-bit integers")
     original, entries = manifest_entries(args.manifest)
+    execution_mode = getattr(args, "execution_mode", None) or "shared"
+    max_active = getattr(args, "max_active_sectors", None)
+    if max_active == "all":
+        max_active = None
+    if execution_mode == "isolated" and max_active is not None:
+        raise ValueError("--max-active-sectors applies to the shared pool")
     resources = dict(workers=args.workers, cpus=args.cpus,
-        generation_jobs=1 if args.jobs is None else args.jobs,
+        generation_jobs=(len(entries) if execution_mode == "shared" else 1) if args.jobs is None else args.jobs,
         max_memory_bytes=args.max_memory_bytes, memory_policy="process-limit",
         host_memory_reserve_bytes=0, ram_guard_margin_percent=margin,
         swap_growth_stop_bytes_per_second=0)
-    allocation = scheduler.schedule(resources)
+    if execution_mode == "shared":
+        resources.update(max_active_sectors=max_active)
+    allocation = (shared_scheduler if execution_mode == "shared" else scheduler).schedule(resources)
     executable = args.executable.resolve(strict=True)
     if not executable.is_file() or not os.access(executable, os.X_OK):
         raise ValueError("--executable must be an executable regular file")
@@ -210,7 +247,7 @@ def prepare(args):
         checkpoint="completed sectors only; unfinished sectors restart",
         generation_scope="manifest-selected representatives unless a full downset is requested",
         full_downsets=args.full_downsets, root_zero_census=True,
-        cross_parent_rule_reuse=False)
+        cross_parent_rule_reuse=False, execution_mode=execution_mode)
     write(directory / "generation.json", plan)
     return plan
 
@@ -221,7 +258,8 @@ def validate(directory, plan):
     for name, expected in plan["bound_files"].items():
         if sha(local_file(directory, name)) != expected:
             raise ValueError(f"frozen input or executable changed: {name}")
-    if scheduler.schedule(plan["resources"]) != plan["allocation"]:
+    engine = shared_scheduler if plan.get("execution_mode") == "shared" else scheduler
+    if engine.schedule(plan["resources"]) != plan["allocation"]:
         raise ValueError("frozen CPU allocation changed")
 
 
@@ -233,7 +271,7 @@ def command(directory, plan, owner):
         "--report-output", str(run / "generation.toml"),
         "--checkpoint-dir", str(run / "sectors"), "--checkpoint-max-bytes", str(USIZE_MAX),
         "--progress", "--progress-json", str(run / "native-progress.json"),
-        "--n-cores", str(plan["allocation"]["workers_per_job"]),
+        "--n-cores", str(plan["resources"]["workers"] if plan.get("execution_mode") == "shared" else plan["allocation"]["workers_per_job"]),
         "--max-numerator-rank", str(plan["rank"]),
         "--finite-case-policy", plan["finite_case_policy"],
         "--numerical-depth", str(plan["numerical_depth"]),
@@ -351,8 +389,11 @@ def execute(directory, plan, dashboard=True):
         if jobs:
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
             attempt = directory / "attempts" / stamp
-            print(f"Generation: {len(jobs)} pending parents; "
-                  f"{plan['allocation']['jobs']} slots × {plan['allocation']['workers_per_job']} workers.\n"
+            shared = plan.get("execution_mode") == "shared"
+            layout = (f"one shared {plan['resources']['workers']}-worker pool; "
+                f"active-sector limit {plan['resources'].get('max_active_sectors') or 'all'}" if shared else
+                f"{plan['allocation']['jobs']} slots × {plan['allocation']['workers_per_job']} workers")
+            print(f"Generation: {len(jobs)} pending parents; {layout}.\n"
                   f"Live snapshots/events: {attempt}\n"
                   "Ctrl+C preserves completed sectors; an active sector restarts on resume.", flush=True)
             full = any(owner.get("selected_sectors") is None for owner in plan["owners"])
@@ -386,9 +427,13 @@ def execute(directory, plan, dashboard=True):
                         print(f"  {row['id']}: {row['state']} · "
                               f"generated {counts.get('generated', '?')} sectors · "
                               f"checkpoint files {row.get('checkpoint_files_observed', '?')}", flush=True)
-                scheduler.run(jobs, attempt, plan["resources"],
-                    lambda job: record_completed(directory, plan, owners_by_id[job.id]),
-                    retained=retained, observer=observe)
+                complete = lambda job: record_completed(directory, plan, owners_by_id[job.id])
+                if shared:
+                    shared_scheduler.run(jobs, attempt, plan["resources"], directory / "bin/rustred",
+                        complete, retained=retained, observer=observe)
+                else:
+                    scheduler.run(jobs, attempt, plan["resources"], complete,
+                        retained=retained, observer=observe)
         reports = {owner["id"]: completed(directory, plan, owner) for owner in plan["owners"]}
         if any(value is None for value in reports.values()):
             raise ValueError("generation returned without every parent completed")
@@ -410,7 +455,10 @@ def main(argv=None):
     parser.add_argument("--executable", type=Path)
     parser.add_argument("--workers", type=int)
     parser.add_argument("--cpus")
-    parser.add_argument("--jobs", type=int, help="parent slots; must divide workers [default: 1]")
+    parser.add_argument("--jobs", type=int, help="concurrent parent coordinators [shared default: all parents]")
+    parser.add_argument("--execution-mode", choices=("shared", "isolated"), help="one shared pool or separate fixed pools [default: shared]")
+    parser.add_argument("--max-active-sectors", type=active_sector_limit, metavar="N|all",
+                        help="global admitted-sector limit for RAM control; may override on resume [default: all]")
     parser.add_argument("--max-memory-bytes", type=int)
     parser.add_argument("--ram-margin-percent", type=float, help="RAM stop margin [default: 5]")
     parser.add_argument("--rank", type=int, help="entry negative-index degree [default: 0]")
@@ -434,10 +482,11 @@ def main(argv=None):
             if args.full_downsets or any(value is not None for value in (args.manifest, args.executable, args.workers,
                     args.cpus, args.max_memory_bytes, args.discovery_strategy, args.rank,
                     args.numerical_depth, args.finite_case_policy, args.exact_backend,
-                    args.jobs, args.ram_margin_percent)):
+                    args.ram_margin_percent, args.execution_mode)):
                 raise ValueError("resume uses frozen inputs/resources; omit preparation options")
             plan = read(directory / "generation.json")
             validate(directory, plan)
+            plan = resume_resources(plan, args.jobs, args.max_active_sectors)
         else:
             plan = prepare(args)
         if not args.start:

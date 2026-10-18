@@ -162,6 +162,7 @@ pub(crate) enum Command {
     FamilySolve(FamilySolveArgs),
     FamilyClose(FamilyCloseArgs),
     FamilyCandidates(FamilyCandidatesArgs),
+    FamilyCandidatesBatch(Vec<OsString>),
     CandidateInspect(CandidateInspectArgs),
     CertifyCandidates(CertifyCandidatesArgs),
     CampaignPlan(CampaignPlanArgs),
@@ -285,6 +286,7 @@ pub(crate) fn parse_args(
         "family-solve" => family_solve::parse(arguments),
         "family-close" => family_close::parse(arguments),
         "family-candidates" => candidates::parse_generation(arguments),
+        "family-candidates-batch" => Ok(Command::FamilyCandidatesBatch(arguments.collect())),
         "candidate-inspect" => candidate_inspect::parse(arguments),
         "preparation-monitor" => Ok(Command::PreparationMonitor(arguments.collect())),
         "certify-candidates" => candidates::parse_certification(arguments),
@@ -382,6 +384,7 @@ USAGE:
     rustred family-solve [OPTIONS]
     rustred family-close [OPTIONS]
     rustred family-candidates [OPTIONS]
+    rustred family-candidates-batch --config PATH --progress-json PATH
     rustred candidate-inspect --input BUNDLE [--options OPTIONS_JSON] [--output FILE]
     rustred preparation-monitor --snapshot PATH [--once | --json]
     rustred certify-candidates [OPTIONS]

@@ -4,6 +4,7 @@
 
 use std::{borrow::Borrow, sync::Arc};
 
+use rayon::prelude::*;
 use rustred::family::IntegralFamily;
 use rustred::sector::{Mask, zero};
 use rustred::solver::SourceSystem;
@@ -91,7 +92,7 @@ pub(in crate::application) fn prepare<const N: usize>(
     root: &[bool],
     permutation: Option<&[usize]>,
 ) -> Result<Prepared<N>, AppError> {
-    prepare_inner(family, root, permutation, false)
+    prepare_inner(family, root, permutation, false, false)
 }
 
 pub(super) fn prepare_root<const N: usize>(
@@ -99,7 +100,7 @@ pub(super) fn prepare_root<const N: usize>(
     root: &[bool],
     permutation: Option<&[usize]>,
 ) -> Result<Prepared<N>, AppError> {
-    prepare_inner(family, root, permutation, true)
+    prepare_inner(family, root, permutation, true, false)
 }
 
 /// Preserve the host's exact family allocation. The owned preparation entry
@@ -109,7 +110,7 @@ pub(super) fn prepare_shared<const N: usize>(
     root: &[bool],
     permutation: Option<&[usize]>,
 ) -> Result<Prepared<N, Arc<IntegralFamily>>, AppError> {
-    prepare_inner(family, root, permutation, false)
+    prepare_inner(family, root, permutation, false, false)
 }
 
 pub(super) fn prepare_shared_root<const N: usize>(
@@ -117,7 +118,16 @@ pub(super) fn prepare_shared_root<const N: usize>(
     root: &[bool],
     permutation: Option<&[usize]>,
 ) -> Result<Prepared<N, Arc<IntegralFamily>>, AppError> {
-    prepare_inner(family, root, permutation, true)
+    prepare_inner(family, root, permutation, true, false)
+}
+
+pub(super) fn prepare_shared_parallel<const N: usize>(
+    family: Arc<IntegralFamily>,
+    root: &[bool],
+    permutation: Option<&[usize]>,
+    root_only: bool,
+) -> Result<Prepared<N, Arc<IntegralFamily>>, AppError> {
+    prepare_inner(family, root, permutation, root_only, true)
 }
 
 fn prepare_inner<const N: usize, F: Borrow<IntegralFamily>>(
@@ -125,6 +135,7 @@ fn prepare_inner<const N: usize, F: Borrow<IntegralFamily>>(
     root: &[bool],
     permutation: Option<&[usize]>,
     root_only: bool,
+    parallel: bool,
 ) -> Result<Prepared<N, F>, AppError> {
     let arity = family.borrow().denominator_count();
     if root.len() != arity {
@@ -136,39 +147,55 @@ fn prepare_inner<const N: usize, F: Borrow<IntegralFamily>>(
     let permutation = permutation.map(|p| std::array::from_fn(|i| p.get(i).copied().unwrap_or(i)));
     let analyzer = zero::Analyzer::try_unrestricted(family.borrow())
         .map_err(|error| AppError::execution(error.to_string()))?;
-    let mut zeros = Vec::new();
-    let mut sectors = Vec::new();
+    let mut zeros: Vec<[bool; N]> = Vec::new();
+    let mut sectors: Vec<[bool; N]> = Vec::new();
     let axes: Vec<_> = (0..arity).filter(|&i| !root_only || root[i]).collect();
     let count = u32::try_from(axes.len())
         .ok()
         .and_then(|bits| 1usize.checked_shl(bits))
         .ok_or_else(|| AppError::limit("zero-sector census mask count overflows platform"))?;
-    for bits in 0..count {
+    let analyze = |bits| -> Result<([bool; N], bool), AppError> {
         let mut sector = [false; N];
         for (bit, &axis) in axes.iter().enumerate() {
             sector[axis] = bits & (1usize << bit) != 0;
         }
         let mask = Mask::try_new(sector[..arity].iter().copied())
             .map_err(|e| AppError::execution(e.to_string()))?;
-        match analyzer
+        let zero = match analyzer
             .analyze(&mask)
             .map_err(|e| AppError::execution(e.to_string()))?
         {
-            zero::Decision::ProvedZero(_) => zeros.push(sector),
-            zero::Decision::Inconclusive(_) => {
-                if sector
-                    .iter()
-                    .zip(root)
-                    .all(|(&active, allowed)| !active || allowed)
-                {
-                    sectors.push(sector);
-                }
-            }
+            zero::Decision::ProvedZero(_) => true,
+            zero::Decision::Inconclusive(_) => false,
             zero::Decision::Excluded(_) => {
                 return Err(AppError::internal_invariant(
                     "unrestricted zero analysis excluded a sector",
                 ));
             }
+        };
+        Ok::<_, AppError>((sector, zero))
+    };
+    let mut retain = |decision: Result<([bool; N], bool), AppError>| {
+        let (sector, zero) = decision?;
+        if zero {
+            zeros.push(sector);
+        } else if sector
+            .iter()
+            .zip(root)
+            .all(|(&active, allowed)| !active || allowed)
+        {
+            sectors.push(sector);
+        }
+        Ok::<_, AppError>(())
+    };
+    if parallel {
+        let decisions: Vec<_> = (0..count).into_par_iter().map(analyze).collect();
+        for decision in decisions {
+            retain(decision)?;
+        }
+    } else {
+        for bits in 0..count {
+            retain(analyze(bits))?;
         }
     }
     drop(analyzer);

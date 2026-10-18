@@ -2,7 +2,7 @@
 
 use std::fmt;
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant};
@@ -16,6 +16,10 @@ use super::{
     SectorVisitOrder, SolverError, SourceSystem,
 };
 
+mod shared;
+use shared::Admission;
+pub use shared::SharedSectorSnapshot;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SectorScheduling {
     InputOrder,
@@ -28,6 +32,7 @@ pub enum SectorScheduling {
 #[derive(Debug)]
 pub enum SectorExecutorBuildError {
     ZeroWorkers,
+    ZeroActiveSectors,
     UnsupportedTargetWorkers { requested: usize },
     NativeThreadLimit { requested: usize, allowed: usize },
     WorkerPool { requested: usize, message: String },
@@ -37,6 +42,7 @@ impl fmt::Display for SectorExecutorBuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ZeroWorkers => write!(f, "sector worker budget must be positive"),
+            Self::ZeroActiveSectors => write!(f, "active-sector limit must be positive or omitted"),
             Self::UnsupportedTargetWorkers { requested } => write!(
                 f,
                 "this WebAssembly build supports exactly one inline sector worker, not {requested}"
@@ -157,12 +163,14 @@ impl<const N: usize, E: std::error::Error + 'static> std::error::Error
 /// and are not a process-global one-thread reservation.
 /// Nested Rayon callbacks can suspend one sector frame while executing another;
 /// the thread budget is not a universal bound on live callback allocations.
+#[derive(Clone)]
 pub struct SectorExecutor {
     workers: usize,
     scheduling: SectorScheduling,
     visit_order: Option<SectorVisitOrder>,
-    pool: Option<ThreadPool>,
+    pool: Option<Arc<ThreadPool>>,
     cancellation: Option<Arc<AtomicBool>>,
+    shared: Option<Arc<Admission>>,
 }
 
 impl fmt::Debug for SectorExecutor {
@@ -216,7 +224,7 @@ impl SectorExecutor {
                     allowed,
                 });
             }
-            Some(pool)
+            Some(Arc::new(pool))
         };
         Ok(Self {
             workers,
@@ -224,11 +232,51 @@ impl SectorExecutor {
             visit_order: None,
             pool,
             cancellation: None,
+            shared: None,
         })
     }
 
     pub fn workers(&self) -> usize {
         self.workers
+    }
+
+    /// Share this pool between independent family coordinators. Clones retain
+    /// one worker budget and one optional global admission limit. By default
+    /// every sector may be queued; no extra active-sector cap is imposed.
+    /// Coordinators must run outside this pool: admission waits never occupy
+    /// compute workers, including when Symbolica submits nested Rayon work.
+    pub fn with_shared_scheduling(
+        mut self,
+        max_active_sectors: Option<usize>,
+    ) -> Result<Self, SectorExecutorBuildError> {
+        if max_active_sectors == Some(0) {
+            return Err(SectorExecutorBuildError::ZeroActiveSectors);
+        }
+        if self.pool.is_none() {
+            let pool = ThreadPoolBuilder::new()
+                .num_threads(self.workers)
+                .thread_name(|ordinal| format!("rustred-sector-{ordinal}"))
+                .build()
+                .map_err(|error| SectorExecutorBuildError::WorkerPool {
+                    requested: self.workers,
+                    message: error.to_string(),
+                })?;
+            self.pool = Some(Arc::new(pool));
+        }
+        self.shared = Some(Arc::new(Admission::new(self.workers, max_active_sectors)));
+        Ok(self)
+    }
+
+    pub fn shared_snapshot(&self) -> Option<SharedSectorSnapshot> {
+        self.shared.as_ref().map(|shared| shared.snapshot())
+    }
+
+    /// Run preparation/assembly on the same compute pool as sector solves.
+    pub fn install<R: Send>(&self, operation: impl FnOnce() -> R + Send) -> R {
+        match &self.pool {
+            Some(pool) => pool.install(operation),
+            None => operation(),
+        }
     }
 
     /// Default-off cooperative cancellation. No CAS operation is interrupted;
@@ -400,6 +448,7 @@ impl SectorExecutor {
             });
         }
         let operation = |ordinal: usize| {
+            let _running = self.shared.as_ref().map(|shared| shared.running());
             let sector = sectors[ordinal];
             let result = (|| {
                 if self
@@ -442,9 +491,39 @@ impl SectorExecutor {
             }
             (ordinal, result)
         };
-        let mut results: Vec<_> = match &self.pool {
-            None => jobs.into_iter().map(operation).collect(),
-            Some(pool) => pool.install(|| jobs.into_par_iter().map(operation).collect()),
+        let mut results: Vec<_> = match (&self.pool, &self.shared) {
+            (Some(pool), Some(shared)) => {
+                // in_place_scope keeps this producer on its external family
+                // coordinator. Blocking admission cannot deadlock Rayon workers.
+                assert!(
+                    pool.current_thread_index().is_none(),
+                    "shared family coordinators must run outside the worker pool"
+                );
+                let results = Mutex::new(Vec::with_capacity(jobs.len()));
+                pool.in_place_scope_fifo(|scope| {
+                    for ordinal in jobs {
+                        let Some(permit) = shared.acquire(self.cancellation.as_deref()) else {
+                            let error = SectorExecutionError::Cancelled {
+                                ordinal,
+                                sector: sectors[ordinal],
+                            };
+                            observe_error(&error);
+                            results.lock().unwrap().push((ordinal, Err(error)));
+                            continue;
+                        };
+                        let operation = &operation;
+                        let results = &results;
+                        scope.spawn_fifo(move |_| {
+                            let _permit = permit;
+                            let result = operation(ordinal);
+                            results.lock().unwrap().push(result);
+                        });
+                    }
+                });
+                results.into_inner().unwrap()
+            }
+            (None, _) => jobs.into_iter().map(operation).collect(),
+            (Some(pool), None) => pool.install(|| jobs.into_par_iter().map(operation).collect()),
         };
         results.sort_unstable_by_key(|(ordinal, _)| *ordinal);
         results.into_iter().map(|(_, result)| result).collect()

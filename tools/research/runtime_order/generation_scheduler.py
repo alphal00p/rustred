@@ -38,6 +38,30 @@ class Job:
     metadata: dict
     native_progress: Path | None = None
     checkpoint: Path | None = None
+    native_failure_status: Path | None = None
+
+
+def native_parent_failure(child):
+    """Explicit fatal status from this owned batch, independent of UI projection.
+
+    A shared process may still be draining long in-flight sectors. Do not wait
+    for process exit before starting the ordinary cooperative-stop grace.
+    """
+    path = child.job.native_failure_status
+    if path is None:
+        return None
+    try:
+        value = json.loads(Path(path).read_bytes())
+        if (value.get("schema") != "rustred.shared-generation-progress.v1"
+                or value.get("pid") != child.process.pid
+                or value.get("timestamp_unix_seconds", 0) < child.started_unix):
+            return None
+        for parent in value.get("parents", []):
+            if parent.get("state") == "failed" and isinstance(parent.get("error"), str):
+                return f"native_parent_failed:{parent['id']}:{parent['error'][:1024]}"
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
+        pass
+    return None
 
 
 @dataclass
@@ -61,7 +85,7 @@ def leader_status(process):
     return status.si_status if status.si_code == os.CLD_EXITED else -status.si_status
 
 
-def run(jobs, directory, resources, completed, *, retained=(), observer=None, poll_seconds=2, grace_seconds=10):
+def run(jobs, directory, resources, completed, *, retained=(), observer=None, poll_seconds=2, grace_seconds=10, projection=None):
     """Run a finite job queue; output callbacks follow ALL owned-group drains.
 
     On any failure/cancel, stop dispatch and drain every already-owned group
@@ -132,7 +156,7 @@ def run(jobs, directory, resources, completed, *, retained=(), observer=None, po
         collector = SUPERVISOR.ProcessTreeCollector()
         collector.register(os.getpid())
         progress = Progress(directory, descriptors,
-            dict(**allocation, memory=request["memory"], total_workers=resources["workers"]), observer)
+            dict(**allocation, memory=request["memory"], total_workers=resources["workers"]), observer, projection=projection)
         # Progress keeps a private copy; this is the coordinator's mutable view.
         by_id = {row["id"]: row for row in progress.value["jobs"]}
         progress.emit("started")
@@ -165,6 +189,10 @@ def run(jobs, directory, resources, completed, *, retained=(), observer=None, po
                     diagnostic_stderr_tail=diagnostic_tail(child.directory / "stderr"))
                 if child.job.checkpoint is not None:
                     row["checkpoint_files_observed"] = sum(1 for _ in child.job.checkpoint.glob("sector-*.rrbin"))
+                parent_failure = native_parent_failure(child)
+                if parent_failure is not None and reason is None:
+                    failed_native.add(child.job.id)
+                    stop(parent_failure)
                 code = leader_status(child.process)
                 if code is not None and code != 0:
                     # A failed leader can leave live children behind. Detect

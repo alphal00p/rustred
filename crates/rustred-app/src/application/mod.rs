@@ -116,12 +116,13 @@ pub use candidate_bundle::{
     FiniteCaseLimits, FiniteCasePolicy, MAX_CANDIDATE_BUNDLE_BYTES, certify_candidates,
     certify_candidates_with_progress, encode_checked_priority_owner,
     encode_checked_priority_owner_with_policy, encode_generated_candidate_sector,
-    encode_generated_domain_overlay, family_candidates, family_candidates_with_progress,
-    inspect_generated_candidate_bundle, inspect_generated_candidate_program,
-    inspect_generated_candidate_source_support, load_generated_candidate_bundle,
-    load_generated_candidate_checkpoint, load_generated_candidate_owners,
-    load_generated_candidate_owners_with_preferences, load_generated_domain_overlay,
-    validate_domain_overlay_ingress, with_replayed_candidate_rule_circuits,
+    encode_generated_domain_overlay, family_candidates, family_candidates_on_executor,
+    family_candidates_with_progress, inspect_generated_candidate_bundle,
+    inspect_generated_candidate_program, inspect_generated_candidate_source_support,
+    load_generated_candidate_bundle, load_generated_candidate_checkpoint,
+    load_generated_candidate_owners, load_generated_candidate_owners_with_preferences,
+    load_generated_domain_overlay, validate_domain_overlay_ingress,
+    with_replayed_candidate_rule_circuits,
 };
 pub use error::{AppError, AppErrorKind};
 pub use family_close::{
