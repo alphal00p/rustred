@@ -10,6 +10,8 @@ pub(crate) enum Lookup {
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ReaderStatistics {
+    /// Reused only for the same immutable generation and structural grants.
+    pub metadata_validation_reused: bool,
     /// Convenience `WorkReader::lookup` calls only. Native generated tracing
     /// uses core's directory directly; page IO/cache counters below cover both.
     pub lookups: u64,
@@ -47,21 +49,35 @@ pub(crate) struct WorkReader {
 }
 impl WorkReader {
     pub(super) fn new(generation: ValidatedGeneration, limits: StorageLimits) -> Result<Self> {
-        let (records, _) =
-            wire::validate_manifest(&generation.manifest, generation.execution(), limits)?;
-        wire::validate_state(&generation.state, generation.execution(), records, limits)?;
-        let directory = TrustedGeneratedWorkDirectory::try_from_trusted_generated(
-            generation.execution().clone(),
-            generation.digest,
-            generation.manifest.runs.clone(),
-            limits.directory_limits(),
-        )?;
+        // Cheap framing/grant relationships are always checked. A typed cache
+        // does not authorize interpreting user-supplied tighter bounds as the
+        // saved writer's looser bounds.
+        limits.validate()?;
+        let metadata_validation_reused = limits.validation_key() == generation.validation.grants;
+        let directory = if metadata_validation_reused {
+            generation.validation.directory.clone()
+        } else {
+            let directory = wire::validate_manifest_directory(
+                &generation.manifest,
+                generation.digest,
+                generation.execution(),
+                limits,
+            )?;
+            wire::validate_state(
+                &generation.state,
+                generation.execution(),
+                directory.statistics().records,
+                limits,
+            )?;
+            directory
+        };
         let cache = PageCache::new(
             limits.max_cached_pages.min(directory.statistics().pages),
             limits.max_cached_page_bytes,
             &generation.manifest.runs,
         )?;
         let statistics = ReaderStatistics {
+            metadata_validation_reused,
             retained_cache_metadata_bytes: cache.metadata_bytes(),
             ..Default::default()
         };
@@ -232,7 +248,8 @@ impl ValidatedGeneration {
         let tip_bytes = wire::read(&directory.join(wire::CURRENT), wire::TIP_LIMIT)?;
         let tip: wire::Tip = wire::decode(wire::TIP_MAGIC, &tip_bytes, wire::TIP_LIMIT)?;
         drop(tip_bytes);
-        let (manifest, state) = read_metadata(directory, &tip, expected, limits)?;
+        let (manifest, state, validation) =
+            read_validated_metadata(directory, &tip, expected, limits)?;
         // Required file metadata is bounded by the admitted page directory.
         // Content validation is lazy; no old Work is re-enumerated or reduced.
         for page in manifest.runs.iter().flatten() {
@@ -252,6 +269,7 @@ impl ValidatedGeneration {
             digest: tip.manifest.digest,
             manifest: Arc::new(manifest),
             state: Arc::new(state),
+            validation: Arc::new(validation),
         })
     }
 }
@@ -263,6 +281,16 @@ pub(super) fn read_metadata(
     expected: &RawExecutionBinding,
     limits: StorageLimits,
 ) -> Result<(wire::Manifest, GenerationState)> {
+    read_validated_metadata(directory, tip, expected, limits)
+        .map(|(manifest, state, _)| (manifest, state))
+}
+
+fn read_validated_metadata(
+    directory: &Path,
+    tip: &wire::Tip,
+    expected: &RawExecutionBinding,
+    limits: StorageLimits,
+) -> Result<(wire::Manifest, GenerationState, ValidatedMetadata)> {
     let bytes = wire::read_object(
         directory,
         "generations",
@@ -273,7 +301,9 @@ pub(super) fn read_metadata(
     let manifest: wire::Manifest =
         wire::decode(wire::MANIFEST_MAGIC, &bytes, limits.max_manifest_bytes)?;
     drop(bytes);
-    let (records, _) = wire::validate_manifest(&manifest, expected, limits)?;
+    let validated_directory =
+        wire::validate_manifest_directory(&manifest, tip.manifest.digest, expected, limits)?;
+    let records = validated_directory.statistics().records;
     if tip.generation != manifest.generation {
         return Err(corrupt("generation marker differs from manifest"));
     }
@@ -293,7 +323,14 @@ pub(super) fn read_metadata(
     if wire::scope_digest(&state.state.scope, limits.max_state_bytes)? != manifest.scope_digest {
         return Err(corrupt("finite state scope binding mismatch"));
     }
-    Ok((manifest, state.state))
+    Ok((
+        manifest,
+        state.state,
+        ValidatedMetadata {
+            grants: limits.validation_key(),
+            directory: validated_directory,
+        },
+    ))
 }
 pub(super) fn check_raw_files(directory: &Path, manifest: &wire::Manifest) -> Result<()> {
     for page in manifest.raw.pages() {

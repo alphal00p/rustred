@@ -2,7 +2,7 @@ use super::*;
 use crate::solver::candidate_reduction::owner_test_support::{input, key, programs};
 use std::sync::{Arc, Barrier};
 
-fn fixture(
+pub(super) fn fixture(
     limits: ReductionLimits,
     routing: super::super::super::RoutedCandidateLimits,
 ) -> RoutedCandidateReducer<1> {
@@ -12,7 +12,7 @@ fn fixture(
         .unwrap()
 }
 
-fn route(power: i64) -> Work<1> {
+pub(super) fn route(power: i64) -> Work<1> {
     Work::Route(key([power]))
 }
 

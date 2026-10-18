@@ -14,7 +14,7 @@ pub(super) use chase::ChaseProgress;
 mod eta;
 pub(super) use eta::InputEta;
 
-pub(in crate::cli::progress) const HEIGHT: u16 = 23;
+pub(in crate::cli::progress) const HEIGHT: u16 = 24;
 
 fn memory_gb(value: &Value) -> String {
     value.as_u64().map_or_else(
@@ -93,8 +93,14 @@ fn stage(event: &Value) -> String {
             "Solving current window group".into()
         }
         "finite_backend_native" => "Solving current window".into(),
-        "finite_backend_group_planned" => "Preparing shared window group".into(),
-        "finite_backend_before_commit" => "Committing completed window group".into(),
+        "finite_backend_group_planning" => "Planning shared window group".into(),
+        "finite_backend_group_materializing" => "Materializing exact starting inputs".into(),
+        "finite_backend_group_planned" => "Binding immutable checkpoint".into(),
+        "finite_backend_trace_started" => "Admitting shared starting inputs".into(),
+        "finite_backend_before_commit" => "Preparing atomic commit".into(),
+        "finite_backend_commit_started" => "Writing atomic checkpoint".into(),
+        "finite_backend_group_cleanup" => "Checkpoint safe · releasing prior batch metadata".into(),
+        "finite_worker_pool_ready" => "Persistent worker pool ready".into(),
         "finite_checkpoint_saved" => "Checkpoint committed".into(),
         "finite_checkpoint_restored" => "Checkpoint restored".into(),
         "finite_cleanup_started" => "Solve complete · releasing working memory".into(),
@@ -209,6 +215,16 @@ fn input_average_text(eta: &Value) -> String {
         .map_or_else(|| "—".into(), |rate| format!("{rate:.3}"))
 }
 
+fn timing_pair(timings: &Value, left: &str, right: &str) -> String {
+    let one = |field: &str| {
+        timings[field]
+            .as_f64()
+            .filter(|n| n.is_finite() && *n >= 0.)
+            .map_or_else(|| "—".into(), |n| format!("{n:.3}s"))
+    };
+    format!("{} / {}", one(left), one(right))
+}
+
 pub(super) fn plain_status(record: &Value) -> String {
     let event = &record["progress"];
     let committed = &event["finite_committed"];
@@ -229,7 +245,7 @@ pub(super) fn plain_status(record: &Value) -> String {
                     .collect::<String>()
             )
         });
-    format!(
+    let status = format!(
         "RustRed finite | {} | committed {}/{} rows | inputs {} occurrences (overlap counted) | rough input ETA {} at {}/s (whole invocation; publication excluded) | generation {} / {} committed windows | current group {} windows / {} inputs | last commit new Work {} / reuse hits {} | chase gap {} / elapsed {} | convergence 5 min {} / 30 min {} (negative: shrinking gap, not closure) | CPU {}/{} cores | RSS {} | process RAM cap {} | stop threshold {} | host available {} / {} total | elapsed {}{error}",
         stage(event),
         number(&committed["exhausted_required_rows"]),
@@ -255,6 +271,19 @@ pub(super) fn plain_status(record: &Value) -> String {
         memory_gb(&record["host_available_bytes"]),
         memory_gb(&record["host_total_bytes"]),
         duration(record["elapsed_seconds"].as_f64().unwrap_or(0.))
+    );
+    format!(
+        "{status} | last trace/commit {} | last plan/total {}",
+        timing_pair(
+            &event["finite_last_window"]["timings"],
+            "trace_seconds",
+            "commit_seconds"
+        ),
+        timing_pair(
+            &event["finite_last_window"]["timings"],
+            "planning_seconds",
+            "total_seconds"
+        )
     )
 }
 
@@ -305,7 +334,7 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
-        Constraint::Length(15),
+        Constraint::Length(16),
         Constraint::Length(1),
         Constraint::Min(0),
     ])
@@ -399,6 +428,20 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
             number(&event["finite_last_window"]["new_work"]),
             "Last reuse hits",
             number(&event["finite_last_window"]["baseline_hits"]),
+        ),
+        (
+            "Last trace/commit",
+            timing_pair(
+                &event["finite_last_window"]["timings"],
+                "trace_seconds",
+                "commit_seconds",
+            ),
+            "Last plan/total",
+            timing_pair(
+                &event["finite_last_window"]["timings"],
+                "planning_seconds",
+                "total_seconds",
+            ),
         ),
         (
             "Row (0-based)",
@@ -607,6 +650,9 @@ pub(super) fn retain(previous: &Value, event: &mut Value) {
             }
             if event["window"].is_object() {
                 event["finite_last_window"] = event["window"].clone();
+                if event["window"]["resident"].is_object() {
+                    event["finite_residency"]["resident"] = event["window"]["resident"].clone();
+                }
             }
             // The next cursor may designate a new window. Never display the
             // preceding window's local completion as that window's progress.
@@ -615,6 +661,10 @@ pub(super) fn retain(previous: &Value, event: &mut Value) {
         }
         Some("finite_backend_group_planned") => {
             event["finite_group"] = event["group"].clone();
+            event["finite_local"] = Value::Null;
+        }
+        Some("finite_backend_group_planning") => {
+            event["finite_group"] = Value::Null;
             event["finite_local"] = Value::Null;
         }
         Some("finite_backend_native") => {
@@ -814,7 +864,7 @@ mod tests {
             "row":0,"window":0,"group":group}),
         );
         assert_eq!(latest["finite_group"]["inputs"], 320);
-        assert_eq!(stage(&latest), "Committing completed window group");
+        assert_eq!(stage(&latest), "Preparing atomic commit");
         let plain = plain_status(&json!({"progress":latest}));
         assert!(
             plain.contains("current group 64 windows / 320 inputs"),

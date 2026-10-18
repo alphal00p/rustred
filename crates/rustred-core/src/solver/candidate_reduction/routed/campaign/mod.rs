@@ -16,7 +16,9 @@ pub use generated::{
     CandidateRoutedGeneratedBaseline,
 };
 mod model;
+mod pool;
 pub use inline::CandidateRoutedWorkBudget;
+pub use pool::CandidateRoutedWorkerPool;
 mod scheduler;
 #[cfg(test)]
 mod tests;
@@ -129,6 +131,37 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         census: Option<CandidateRoutedTraceCensusLimits>,
         baseline: Option<scheduler::CompletedBaseline<'_, N>>,
         cancellation: &AtomicBool,
+        observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
+    ) -> Result<
+        (
+            CandidateRoutedCampaignReport<N>,
+            scheduler::membership::Membership<N>,
+        ),
+        CandidateRoutedCampaignError<N>,
+    > {
+        self.trace_with_pool(
+            targets,
+            admission,
+            workers,
+            budget,
+            census,
+            baseline,
+            None,
+            cancellation,
+            observer,
+        )
+    }
+
+    fn trace_with_pool(
+        &self,
+        targets: impl IntoIterator<Item = IntegralKey>,
+        admission: CandidateEntryAdmission<'_, N>,
+        workers: usize,
+        budget: Option<CandidateRoutedWorkBudget>,
+        census: Option<CandidateRoutedTraceCensusLimits>,
+        baseline: Option<scheduler::CompletedBaseline<'_, N>>,
+        pool: Option<&CandidateRoutedWorkerPool>,
+        cancellation: &AtomicBool,
         mut observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
     ) -> Result<
         (
@@ -145,7 +178,15 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             shared.enable_census(census);
         }
         shared.set_completed_baseline(baseline);
-        let preparation = shared.prepare_with_entry_admission(self, targets, admission);
+        // Acquire before admission/observers, not only worker dispatch: a
+        // callback recursively invoking this pool receives a typed busy error.
+        let (_pool_lease, preparation) = match pool.map(|pool| pool.acquire(workers)).transpose() {
+            Ok(lease) => (
+                lease,
+                shared.prepare_with_entry_admission(self, targets, admission),
+            ),
+            Err(error) => (None, Err(CandidateRoutedCampaignFailure::from(error))),
+        };
         if let Err(error) = preparation {
             shared.fail(error);
             let result = shared.into_result_with_membership();
@@ -158,41 +199,51 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             );
             return result;
         }
-        observer(&shared.snapshot());
+        let initial = shared.snapshot();
+        observer(&initial);
+        // An all-baseline-hit batch needs no worker tasks. Entry validation and
+        // the final cancellation/completion checks still run on the same path.
+        if pool.is_some() && initial.finished {
+            return shared.into_result_with_membership();
+        }
         #[cfg(target_arch = "wasm32")]
         {
             worker::run_with_progress(self, &shared, || observer(&shared.snapshot()));
             observer(&shared.snapshot());
         }
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::scope(|scope| {
-            for _ in 0..workers {
-                let shared = &shared;
-                if let Err(error) = std::thread::Builder::new()
-                    .spawn_scoped(scope, move || worker::run(self, shared))
-                {
-                    shared.fail(Failure::Trace(super::CandidateRoutedError::InvalidInput(
-                        format!("cannot start campaign worker: {error}"),
-                    )));
-                    break;
-                }
-            }
-            // Do not invoke user code under the scheduler lock. If it panics,
-            // signal the workers before unwinding/joining the scoped threads.
-            let observed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                loop {
-                    let (snapshot, done) = shared.wait_snapshot(Duration::from_millis(250));
-                    observer(&snapshot);
-                    if done {
+        if let Some(pool) = pool {
+            pool.run(self, &shared, &mut observer);
+        } else {
+            std::thread::scope(|scope| {
+                for _ in 0..workers {
+                    let shared = &shared;
+                    if let Err(error) = std::thread::Builder::new()
+                        .spawn_scoped(scope, move || worker::run(self, shared))
+                    {
+                        shared.fail(Failure::Trace(super::CandidateRoutedError::InvalidInput(
+                            format!("cannot start campaign worker: {error}"),
+                        )));
                         break;
                     }
                 }
-            }));
-            if let Err(panic) = observed {
-                shared.fail(CandidateRoutedCampaignFailure::Cancelled);
-                std::panic::resume_unwind(panic);
-            }
-        });
+                // Do not invoke user code under the scheduler lock. If it panics,
+                // signal the workers before unwinding/joining the scoped threads.
+                let observed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    loop {
+                        let (snapshot, done) = shared.wait_snapshot(Duration::from_millis(250));
+                        observer(&snapshot);
+                        if done {
+                            break;
+                        }
+                    }
+                }));
+                if let Err(panic) = observed {
+                    shared.fail(CandidateRoutedCampaignFailure::Cancelled);
+                    std::panic::resume_unwind(panic);
+                }
+            });
+        }
         shared.into_result_with_membership()
     }
 }

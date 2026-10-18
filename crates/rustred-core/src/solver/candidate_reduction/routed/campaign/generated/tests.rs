@@ -117,6 +117,182 @@ impl GeneratedPageProvider for Pages {
 }
 
 #[test]
+fn persistent_pool_reuses_workers_with_exact_deltas_and_cancellation() {
+    let reducer = super::super::tests::diamond(Default::default(), Default::default());
+    for workers in [1, 4] {
+        if !crate::test_gates::workers_or_skip("persistent generated pool", workers) {
+            continue;
+        }
+        let pool = CandidateRoutedWorkerPool::try_new(workers).unwrap();
+        let mut pages = Pages::default();
+        let empty = pages.directory(vec![], 1);
+        let baseline = reducer
+            .bind_trusted_generated_baseline(
+                &binding(),
+                &empty,
+                &pages,
+                budget(),
+                Default::default(),
+                export(),
+            )
+            .unwrap();
+        let cancel = AtomicBool::new(false);
+        let expected = baseline
+            .trace_batch(
+                [key([6]), key([5])],
+                CandidateEntryAdmission::SavedGenerationScope,
+                workers,
+                &cancel,
+                |_| {},
+            )
+            .unwrap();
+        for _ in 0..3 {
+            let actual = baseline
+                .trace_batch_with_resident_pool(
+                    None,
+                    [key([6]), key([5])],
+                    CandidateEntryAdmission::SavedGenerationScope,
+                    &pool,
+                    &cancel,
+                    |_| {},
+                )
+                .unwrap();
+            assert_eq!(actual.work(), expected.work());
+            assert_eq!(
+                actual.report().complete_census(),
+                expected.report().complete_census()
+            );
+        }
+        let mut nested = false;
+        let outer = baseline
+            .trace_batch_with_resident_pool(
+                None,
+                [key([6])],
+                CandidateEntryAdmission::SavedGenerationScope,
+                &pool,
+                &cancel,
+                |_| {
+                    if !nested {
+                        nested = true;
+                        assert!(
+                            baseline
+                                .trace_batch_with_resident_pool(
+                                    None,
+                                    [key([5])],
+                                    CandidateEntryAdmission::SavedGenerationScope,
+                                    &pool,
+                                    &cancel,
+                                    |_| {}
+                                )
+                                .is_err()
+                        );
+                    }
+                },
+            )
+            .unwrap();
+        assert!(outer.report().snapshot().finished);
+        assert!(nested);
+        let failure = baseline.trace_batch_with_resident_pool(
+            None,
+            [key([6])],
+            CandidateEntryAdmission::SavedGenerationScope,
+            &pool,
+            &cancel,
+            |_| {
+                cancel.store(true, Ordering::Release);
+            },
+        );
+        assert!(failure.is_err());
+        cancel.store(false, Ordering::Release);
+        let mut observed = 0;
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            baseline.trace_batch_with_resident_pool(
+                None,
+                [key([6]), key([5])],
+                CandidateEntryAdmission::SavedGenerationScope,
+                &pool,
+                &cancel,
+                |_| {
+                    observed += 1;
+                    if observed > 1 {
+                        panic!("deliberate observer panic while using shared pool");
+                    }
+                },
+            )
+        }));
+        assert!(panic.is_err());
+        let recovered = baseline
+            .trace_batch_with_resident_pool(
+                None,
+                [key([6]), key([5])],
+                CandidateEntryAdmission::SavedGenerationScope,
+                &pool,
+                &cancel,
+                |_| {},
+            )
+            .unwrap();
+        assert_eq!(recovered.work(), expected.work());
+        let (work, _) = expected.into_parts();
+        let directory = pages.directory(work, 2);
+        let resident =
+            TrustedGeneratedResidentWork::hydrate(&directory, &pages, 1_000_000, 0, &cancel)
+                .unwrap()
+                .unwrap();
+        let baseline = reducer
+            .bind_trusted_generated_baseline(
+                &binding(),
+                &directory,
+                &pages,
+                budget(),
+                Default::default(),
+                export(),
+            )
+            .unwrap();
+        // All-hit shortcut must still honor observer cancellation and admit
+        // every root before a cached completed Work answer is accepted.
+        assert!(
+            baseline
+                .trace_batch_with_resident_pool(
+                    Some(&resident),
+                    [key([6])],
+                    CandidateEntryAdmission::SavedGenerationScope,
+                    &pool,
+                    &cancel,
+                    |_| {
+                        cancel.store(true, Ordering::Release);
+                    }
+                )
+                .is_err()
+        );
+        cancel.store(false, Ordering::Release);
+        let hit = baseline
+            .trace_batch_with_resident_pool(
+                Some(&resident),
+                [key([6])],
+                CandidateEntryAdmission::SavedGenerationScope,
+                &pool,
+                &cancel,
+                |_| {},
+            )
+            .unwrap();
+        assert!(hit.work().is_empty());
+        assert_eq!(hit.report().snapshot().completed_baseline_hits, 1);
+        assert!(
+            baseline
+                .trace_batch_with_resident_pool(
+                    Some(&resident),
+                    [key([-1])],
+                    CandidateEntryAdmission::SavedGenerationScope,
+                    &pool,
+                    &cancel,
+                    |_| {}
+                )
+                .is_err()
+        );
+    }
+}
+
+#[test]
 fn generated_native_delta_then_cold_page_reuse_matches_one_union_w1_w4() {
     let reducer = super::super::tests::diamond(Default::default(), Default::default());
     for workers in [1, 4] {

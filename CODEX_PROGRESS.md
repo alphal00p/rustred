@@ -1,5 +1,195 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 18 — live R5 bottleneck program (delivered)
+
+User requests implementation of all promising improvements indicated by the
+current run, including the next bottlenecks exposed after the first fixes.
+Production remains read-only: run20261017T230917.167071Z, executable8ed4…,
+G64/W150, R≤5/D≤10. No restart, amendment or binary replacement is automatic.
+Unrelated FeynKit work remains excluded. Both campaign lanes must remain.
+
+Measured starting evidence: restore completed591.47s after launch. The next225
+groups took445.73s, adding2,200,186 inputs and4,059,618 Work; median group1.79s.
+Recent process CPU averaged15.61 cores over300.52s, with2s peaks72.55/150.
+Sampled before-commit periods used approximately one core. An8s profile captured
+140 userspace samples:95 from the coordinator and45 from existing workers;
+short-lived replacement workers are underrepresented, so this is not the
+whole-process CPU distribution. Commit handling accounted for43.6% of those
+samples, with repeated full-directory validation, cloning and manifest codec
+work prominent. Evidence:`TMP/r5-grouped-live-profile-20261018.4S1RId/perf.data`.
+One group recorded1.48M baseline hits for12,462 new Work: these are repeated
+edge/probe counts, not a formal unique-key cache-hit percentage.
+
+Prioritized implementation and independent validation:
+
+1. `finite_group_engine`: allocation-free borrowed native resident probes;
+   persistent caller-budgeted worker pool; review and safely separate work and
+   resource wakeups. Preserve all admission/descent/phase/owner checks, shared
+   descendant deduplication, error/cancel behavior and paged fallback.
+2. `finite_group_validation` (implementation role for this slice): reuse typed
+   validated immutable metadata in the hot path; eliminate repeated full-history
+   validation/round trips where exact construction invariants suffice. Evaluate
+   append-oriented/chunked persistent metadata to remove O(history) commit cost.
+   Cold untrusted loads and atomic CURRENT publication remain fully checked.
+3. `finite_group_audit`: independent mathematical, persistence, lifetime,
+   accounting and concurrency audit; anticipate follow-on bottlenecks and
+   required adversarial tests. Never approve its own implementation.
+4. Root: integrate pool/session lifetime, cheap exact group-phase telemetry,
+   assess parallel root preparation and group-size policy from new profiles,
+   resource coordination, matched pilots, final tests and clean release/push.
+
+For each candidate, compare exact Work/census/application results, cancellation
+and cold resume, elapsed time, CPU, memory and serial-phase cost. Use isolated
+scratch work and pilots at most30min including shutdown; no production hard
+limits or active-run mutations. Begin with narrow wins, then profile again to
+decide whether larger metadata/preparation redesign is justified. Do not claim
+success from busier workers or extrapolate small-case gains into a closure ETA.
+Preserve negative experiments and park candidates that fail a bounded retest.
+All algebra remains Symbolica-owned; these changes concern storage/scheduling.
+
+First slice implemented and static-audited: borrowed native resident lookup;
+bounded persistent pool (optional `reuse_worker_pool`, Python `--worker-pool`
+`persistent|per-group`); separated work/resource condition variables; cached
+typed metadata validation with full fallback for changed structural grants;
+capacity-only pre-encode measurement followed by full bounded decode/validation.
+Nested Rayon stealing required a specific fix: nonblocking exclusive batch lease
+before admission/observers plus pool-identity reentrancy protection. This is
+tested explicitly rather than assuming inner Symbolica pools always have size1.
+Lazy pool creation excludes completed resumes and publication.
+
+Root added exact group planning/binding/trace/staging/commit timers and updated
+resident counts at checkpoint boundaries. Audit identified that the first
+`total_seconds` stops before retired-local metadata destruction; final telemetry
+must time that cleanup explicitly. The first UI harness also caught one stale
+phase-label assertion and a table-row count needing adjustment for the new row;
+both are queued for the final build, not claimed passed yet.
+
+`cargo check --release --locked --offline` passed in60.25s. First optimized
+candidate built in321.40s: `TMP/r5-hotpath-candidate-20261018/rustred`, SHA256
+`ca6db34283e87acf1fef43a700273dce3d912adac64c3b3460dd8b789073ed15`.
+This is a pilot build, not a recommended production switch. The baseline and
+candidate four-loop singly-dotted controls have identical Work but roughly
+neutral timings; H/X are slightly slower/noisy with the pool. Pool ablation is
+required before choosing a default. The real five-loop control is only the
+current owner's R≤1,D=10 subset repeated32times (2394 distinct starts,76608
+occurrences), not a copy of the production traversal ledger. Baseline completed
+in147.84s with41055Work, dominated by source preparation. Evidence:
+`TMP/finite-metadata-pilots-20261018-gEuF27/`.
+
+Build/pilot affinity now avoids BOTH live reservations (0–181): builds192–199,
+optional second build232–239, pilot32workers200–231. Other users have unrestricted
+jobs on this host, so elapsed comparisons remain shared-host measurements.
+No host-wide settings are changed. Next: finish dynamic gates and large-history
+optimized metadata profiling; then decide parallel materialization, smarter
+grouping and further immutable checkpoint structure from evidence.
+
+Consolidated implementation is now frozen. Besides the first slice it contains
+ordered parallel window materialization (same pool), cleanup-inclusive group
+timings, conservative encoder-owned manifest decode avoidance, a borrowed
+Work-directory hash uniqueness index, and a bounded two-pass manifest encoder
+using Bincode's public sizing/slice APIs. General/stateful encoding stays
+single-pass. Raw-census hashing was rejected: identical-reference workloads were
+slower and over-reservation increased memory. A changed on-disk directory format
+and immutable-Arc-per-run prototype remain deferred: the narrow profiled changes
+avoid a migration, preserve exact current checkpoints and are independently
+auditable. Full manifests are still encoded per commit; this is not claimed O(1).
+
+Concurrency audits required both an exclusive nonblocking pool lease before
+observer/admission and pool-specific reentry protection. Dynamic tests exercised
+actual nested Rayon stealing, panic recovery, cancellation, two waiter classes,
+ordered errors and exact deltas. Final core gates:86 scheduler/census/pool tests
+passed (one benchmark ignored), plus12 persistence tests. Public resident tests
+passed3; borrowed lookup microbenchmarks were neutral-to-modestly-faster, not
+a claimed universal speedup. The allocation removal remains exact and avoids
+heap contention without changing paged error behavior.
+
+Fully optimized app gates passed368 tests (six explicit ignored fixtures and
+two150-worker tests returned environment skips under32-core test affinity).
+The same phase-B/C gate passed again after metadata changes. The final
+encoder-inclusive app rerun also passed368 tests, six ignored, with the same
+two explicit150-worker affinity skips. Python227, exact-source UI25 and actual
+native PTY3 gates passed. Final public encoder tests passed3 (one optional
+benchmark), including exact old frame bytes, cold decode, cap boundaries,
+first-pass overflow/oversize and second-pass length mutation. Its optimized
+35.69MB library benchmark measured~0.159–0.177s old versus0.062s new; the
+54.37MB representative manifest mirror measured0.1886→0.0850s median across
+six counterbalanced runs. Those are encoder kernels, not full campaign times.
+
+Optimized149442-reference metadata benchmark: three uncached reader creations
+0.12878s versus0.00000093s using the immutable validation memo. The synthetic
+54.37MB manifest breakdown found warm cloning0.020–0.025s, encoding0.227–0.241s,
+decoding0.084–0.121s and full validation0.124–0.132s. This motivated the encoder
+and Work uniqueness changes. The stored output and untrusted cold checks remain
+unchanged. Final hash scratch reservations fit the existing charge or fall back
+to the original tree, including allocation failure; no new hard cap was added.
+
+Matched settings results are in `docs/research/finite_rank6_hotpath_2026-10-18.md`
+and `TMP/finite-metadata-pilots-20261018-gEuF27/`. In the real5LR1 reuse control,
+serial/persistent G64 group time0.74184s became0.55773s with parallel
+materialization (~25%less); materialization0.20349→0.01579s. Cold process times
+remain~145–148s, dominated by loading67 owners; do not claim that full-runtime
+speedup. All completed G64 arms had byte-identical Work/raw-census object maps.
+The higher-rank control materialized4921 fixed admitted inputs (R≤5,D=10,
+one numerator axis and all permitted positive-power compositions), producing
+2,021,866 Work. G64→G256 changed group time25.688→25.068s only2.4%, with~8.35GB
+peakRSS. Hence keepG64 conservative; larger groups remain an explicit option.
+The initial anisotropic-box encoding was correctly rejected before native work;
+the same intended points were then provided as supported fixed queries. No new
+geometry feature or IBP generation was introduced to make that pilot pass.
+
+Compilation was overlapped using a separate non-hardlinked copied Cargo cache
+at `TMP/rank6-delivery-target-Ck2QLU`. One queued build was cancelled before
+starting its child and redirected there; no production process was signaled.
+The fully optimized app test build cost780.81s (correctness O0 builds remain
+separate). Final optimized binary built322.43s and is frozen at
+`TMP/rank6-final-candidate-20261018/rustred`, SHA256
+`74484889485405ff2b712bd894e353fa6caca51f81ae0888dda299672782f475`.
+No further implementation edits are planned unless a final gate finds a defect.
+User now requests the next **rank6** command, after currentR5 publication, with
+this build selected. Production remains untouched throughout.
+
+Final acceptance complete: the consolidated binary repeated all four-loop
+controls and the4921-point higher-rank five-loop control with exact matching
+Work/census. The latter completed2,021,866 Work in170.963s cold, group time25.391s;
+this is essentially unchanged from PhaseB, not a large cold-runtime gain. There
+are26 byte-identical G64 comparison receipts, plus finalW32/W64 H/X byte identity
+and finalD/PhaseB higher-rank identity across1059Work and450raw objects. W64 H/X
+passed with49,423/147,428Work, without a demonstrated speedup overW32. New pooled
+execution was exercised up to64 workers;150 remains a supported budget, not
+a newly demonstrated scaling result while production reserves the other cores.
+
+The explicit old8ed4… checkpoint→finalD resume test enabled BOTH persistent
+workers and parallel preparation. No-op resume retainedCURRENT; a subsequent
+overlapping extension completed2600occurrences/2800Work. Publication retained
+the solving grant, skipped Work hydration, leftCURRENT unchanged and cold-loaded
+one rule/one terminal. Receipt:
+`TMP/finite-cleanup-pilots-20261017-iAwYkn/finalD-parallel-resume-append-publication/summary.json`.
+Independent code/mathematical and measurement audits found no remaining blocker;
+all owned build/pilot children exited. The actual24-row terminal was visually
+reviewed with the final executable. Unrelated FeynKit and untracked work remain
+excluded from the commit.
+
+Final release: `TMP/releases/20261018-finite-rank6-hotpath/rustred`, SHA256
+`74484889485405ff2b712bd894e353fa6caca51f81ae0888dda299672782f475`.
+After the currentR5 run AND publication finish:
+
+```bash
+cd /shared/codex-2/rustred
+export RUSTRED_CAMPAIGN="$PWD/campaigns/five-loop-finite-r0-d10-resident-fixed-20261016"
+nix develop --command python -B examples/python/saved_campaign.py extend \
+  --campaign "$RUSTRED_CAMPAIGN" --rank 6 \
+  --executable "$PWD/TMP/releases/20261018-finite-rank6-hotpath/rustred" \
+  --workers 150 --cpus 0-63,96-181 --windows-per-batch 64 \
+  --worker-pool persistent --window-preparation parallel \
+  --max-memory-bytes 600000000000 --memory-policy process-limit
+```
+
+This retains D≤10, the original window partition and completed Work. No fresh
+campaign is required. After interruption use `run --resume`, not another rank6
+amendment. A fallback can select `--worker-pool per-group --window-preparation
+serial` at cold resume. G256 remains optional, not the conservative recommendation.
+No further implementation or production switch is performed in this delivery.
+
 ## October 18 — bulk resident cleanup and publication without Work hydration (delivered)
 
 User authorizes these two optimizations for the next rank5 extension. The active

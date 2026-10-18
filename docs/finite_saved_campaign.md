@@ -98,6 +98,31 @@ starting inputs remains serial; grouping is not a guarantee of full CPU usage.
 Use `--windows-per-batch 1` to retain the ungrouped finite schedule. The separate
 legacy symbolic-domain/Epoch lane is unaffected.
 
+`--worker-pool persistent|per-group` selects whether finite batches reuse the
+same bounded native worker threads. `--window-preparation serial|parallel`
+selects materialization of immutable planned windows; parallel preparation
+requires the persistent pool and uses those same workers, never a second pool.
+The serial planning/cursor sequence and output target order remain exact.
+Both choices are operational on cold resume, not changes to input coverage.
+The native policy fields are `reuse_worker_pool` (default true) and
+`parallel_window_preparation` (default false). Select both explicitly when
+comparing performance; more threads and parallel preparation need not help
+small batches. Per-group execution remains available for differential tests.
+
+Each committed group's structured event includes wall times for planning,
+materialization, binding, tracing, staging, commit and retired-metadata cleanup.
+The total includes those cleanup costs, but not the later publication stage.
+The dashboard shows the last trace/commit and plan/total times. Resident record
+statistics refresh at commit, rather than remaining at their hydration count.
+
+Readers reuse private immutable validation evidence only at unchanged structural
+grants. Stricter grants and untrusted cold loads retain full validation. The
+writer may avoid decoding its own just-encoded manifest when a conservative
+bound proves that exact structure fits the existing decoder allocation budget;
+otherwise it uses the ordinary checked decode. It still validates the complete
+manifest before publishing CURRENT. This does not weaken cold-load checks or
+add a new certificate/IBP verification step.
+
 The optional resident completed-Work index uses compact hash slots and chunked
 coordinate storage. It retains exact phase/powers identity (Apply owners are
 validated against positive-power support) without a separate allocation per

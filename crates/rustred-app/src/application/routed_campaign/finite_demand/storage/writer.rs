@@ -415,25 +415,40 @@ impl StoreWriter {
             runs: Arc::new(runs),
             raw: Arc::new(raw),
         };
-        let (_, directory_payload) =
-            wire::validate_manifest(&manifest, &self.execution, self.limits)?;
+        // Account constructed capacities before allocating codec buffers. The
+        // one full semantic/directory validation below remains mandatory for
+        // the retained typed value before publishing this generation.
+        let directory_payload =
+            wire::measure_manifest_directory(&manifest, &self.execution, self.limits)?;
         account_directory(directory_payload)?;
-        let manifest_bytes = wire::encode(
-            wire::MANIFEST_MAGIC,
+        let manifest_bytes = wire::encode_manifest(&manifest, self.limits.max_manifest_bytes)?;
+        // Encoder-owned typed values cannot contain malformed varints or
+        // forged lengths. Prove that this exact shape fits the public native
+        // decoder's allocation claims; otherwise retain the old round trip.
+        // Full structural validation below is mandatory in BOTH paths, and
+        // cold readers never accept this process-local optimization as proof.
+        let manifest =
+            if wire::manifest_decode_charge_upper_bound(&manifest).is_some_and(|charge| {
+                charge <= wire::metadata_decode_allowance(self.limits.max_manifest_bytes)
+            }) {
+                manifest
+            } else {
+                drop(manifest);
+                wire::decode(
+                    wire::MANIFEST_MAGIC,
+                    &manifest_bytes,
+                    self.limits.max_manifest_bytes,
+                )?
+            };
+        // Retaining construction or falling back to decoding can have different
+        // capacities. Charge the actual retained representation before CURRENT.
+        let directory = wire::validate_manifest_directory(
             &manifest,
-            self.limits.max_manifest_bytes,
+            *blake3::hash(&manifest_bytes).as_bytes(),
+            &self.execution,
+            self.limits,
         )?;
-        drop(manifest);
-        let manifest: wire::Manifest = wire::decode(
-            wire::MANIFEST_MAGIC,
-            &manifest_bytes,
-            self.limits.max_manifest_bytes,
-        )?;
-        // Decoding can produce different vector capacities from construction.
-        // Refresh the final retained charge before publishing this generation.
-        let (_, directory_payload) =
-            wire::validate_manifest(&manifest, &self.execution, self.limits)?;
-        account_directory(directory_payload)?;
+        account_directory(directory.statistics().payload_bytes)?;
         let reference = self.install("generations", "rrgen", &manifest_bytes)?;
         drop(manifest_bytes);
         #[cfg(test)]
@@ -492,6 +507,10 @@ impl StoreWriter {
             digest: reference.digest,
             manifest: Arc::new(manifest),
             state: Arc::new(state_file.state),
+            validation: Arc::new(ValidatedMetadata {
+                grants: self.limits.validation_key(),
+                directory,
+            }),
         };
         self.current = Some(validated.clone());
         self.poisoned = false;

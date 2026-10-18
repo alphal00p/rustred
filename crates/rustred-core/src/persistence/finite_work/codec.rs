@@ -1,5 +1,7 @@
 use super::*;
 use std::io::Write;
+mod sized;
+pub use sized::encode_metadata_frame_repeatable;
 
 /// Default decoded-allocation allowance, not a maximum accepted frame size.
 /// Larger caller-selected frames raise the decoder allowance with them.

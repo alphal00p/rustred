@@ -179,6 +179,40 @@ impl TrustedGeneratedResidentWork {
         Ok(self.work.contains(key))
     }
 
+    /// Allocation-free exact native membership, with the same full phase,
+    /// physical arity, owner support and zero-padding validation as conversion
+    /// through GeneratedWorkKey::from_native followed by contains().
+    pub fn contains_native<const N: usize>(
+        &self,
+        work: &crate::solver::CandidateRoutedWork<N>,
+    ) -> GeneratedWorkResult<bool> {
+        use crate::solver::CandidateRoutedWork;
+        let powers = work.target().powers();
+        let arity = self.execution.physical_arity as usize;
+        if arity == 0 || powers.len() != arity || !crate::fits_storage(arity, N) {
+            return Err(corrupt(
+                "native resident Work has invalid physical/storage arity",
+            ));
+        }
+        let apply = match work {
+            CandidateRoutedWork::Route(_) => false,
+            CandidateRoutedWork::Apply { owner_sector, .. } => {
+                if owner_sector[arity..].iter().any(|&active| active)
+                    || owner_sector[..arity]
+                        .iter()
+                        .zip(powers)
+                        .any(|(&active, &power)| active != (power > 0))
+                {
+                    return Err(corrupt(
+                        "native resident Apply owner differs from physical support",
+                    ));
+                }
+                true
+            }
+        };
+        Ok(self.work.contains_parts(apply, powers))
+    }
+
     pub fn statistics(&self) -> GeneratedWorkResult<ResidentWorkStatistics> {
         Ok(ResidentWorkStatistics {
             records: self.work.len(),

@@ -89,6 +89,7 @@ fn finite_grouping_policy_defaults_to_one_and_is_positive_operational_metadata()
     let original = policy();
     let parsed = FiniteDemandPolicy::from_json(&serde_json::to_vec(&original).unwrap()).unwrap();
     assert_eq!(parsed.native().max_windows_per_batch, 1);
+    assert!(parsed.native().reuse_worker_pool);
     let windows = parsed.native().windows;
     let mut grouped = original;
     grouped["max_windows_per_batch"] = json!(64);
@@ -97,6 +98,15 @@ fn finite_grouping_policy_defaults_to_one_and_is_positive_operational_metadata()
     assert_eq!(parsed.native().windows, windows);
     let roundtrip: Value = serde_json::from_slice(&parsed.to_json().unwrap()).unwrap();
     assert_eq!(roundtrip["max_windows_per_batch"], 64);
+    grouped["reuse_worker_pool"] = json!(false);
+    let parsed = FiniteDemandPolicy::from_json(&serde_json::to_vec(&grouped).unwrap()).unwrap();
+    assert!(!parsed.native().reuse_worker_pool);
+    assert_eq!(parsed.native().windows, windows);
+    for bad in [json!(0), json!("true"), Value::Null] {
+        let mut invalid = grouped.clone();
+        invalid["reuse_worker_pool"] = bad;
+        assert!(FiniteDemandPolicy::from_json(&serde_json::to_vec(&invalid).unwrap()).is_err());
+    }
     for bad in [json!(0), json!(-1), json!(true), Value::Null] {
         grouped["max_windows_per_batch"] = bad;
         assert!(FiniteDemandPolicy::from_json(&serde_json::to_vec(&grouped).unwrap()).is_err());

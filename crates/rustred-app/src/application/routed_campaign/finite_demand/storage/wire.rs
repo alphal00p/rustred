@@ -1,4 +1,6 @@
 use super::*;
+mod decode_budget;
+pub(super) use decode_budget::manifest_decode_charge_upper_bound;
 use std::{
     fs::{self, File},
     io::Read,
@@ -68,6 +70,57 @@ pub(super) fn validate_manifest(
     expected: &RawExecutionBinding,
     limits: StorageLimits,
 ) -> Result<(u64, usize)> {
+    validate_manifest_header(manifest, expected, limits)?;
+    let stats = rustred::persistence::finite_work::validate_directory(
+        expected,
+        &manifest.runs,
+        limits.directory_limits(),
+    )?;
+    validate_manifest_totals(manifest, expected, limits, stats)?;
+    Ok((stats.records, stats.payload_bytes))
+}
+
+/// Construct the reusable core directory at the one authoritative validation
+/// boundary. Its identity is the actual encoded manifest digest supplied by
+/// the writer, or the content-authenticated CURRENT object on cold opening.
+pub(super) fn validate_manifest_directory(
+    manifest: &Manifest,
+    digest: Digest,
+    expected: &RawExecutionBinding,
+    limits: StorageLimits,
+) -> Result<TrustedGeneratedWorkDirectory> {
+    validate_manifest_header(manifest, expected, limits)?;
+    let directory = TrustedGeneratedWorkDirectory::try_from_trusted_generated(
+        expected.clone(),
+        digest,
+        Arc::clone(&manifest.runs),
+        limits.directory_limits(),
+    )?;
+    validate_manifest_totals(manifest, expected, limits, directory.statistics())?;
+    Ok(directory)
+}
+
+/// Pre-encoding allocation charge only. Full validation still runs after the
+/// bounded codec round trip, before the immutable generation or CURRENT is
+/// installed. Accounting is not a replacement for that authority boundary.
+pub(super) fn measure_manifest_directory(
+    manifest: &Manifest,
+    expected: &RawExecutionBinding,
+    limits: StorageLimits,
+) -> Result<usize> {
+    validate_manifest_header(manifest, expected, limits)?;
+    let bytes = rustred::persistence::finite_work::directory_payload_bytes(&manifest.runs)?;
+    if bytes > limits.directory_limits().max_directory_payload_bytes {
+        return Err(resource("finite directory payload allowance"));
+    }
+    Ok(bytes)
+}
+
+fn validate_manifest_header(
+    manifest: &Manifest,
+    expected: &RawExecutionBinding,
+    limits: StorageLimits,
+) -> Result<()> {
     binding(expected, limits)?;
     if &manifest.execution != expected
         || manifest.generation == 0
@@ -78,11 +131,15 @@ pub(super) fn validate_manifest(
     if manifest.state.bytes == 0 || manifest.state.bytes > limits.max_state_bytes as u64 {
         return Err(resource("finite state bytes"));
     }
-    let stats = rustred::persistence::finite_work::validate_directory(
-        expected,
-        &manifest.runs,
-        limits.directory_limits(),
-    )?;
+    Ok(())
+}
+
+fn validate_manifest_totals(
+    manifest: &Manifest,
+    expected: &RawExecutionBinding,
+    limits: StorageLimits,
+    stats: rustred::persistence::finite_work::GeneratedDirectoryStatistics,
+) -> Result<()> {
     let (_, raw_bytes) =
         raw::validate_directory(&manifest.raw, expected.physical_arity as usize, limits.raw)?;
     if manifest
@@ -101,9 +158,7 @@ pub(super) fn validate_manifest(
     {
         return Err(resource("finite referenced state/page disk allowance"));
     }
-    // Actual Work directory capacity, shared by the manifest and its readers.
-    // The permission cap in StorageLimits is not a resident allocation.
-    Ok((stats.records, stats.payload_bytes))
+    Ok(())
 }
 pub(super) fn validate_page(
     page: &Page,
@@ -261,6 +316,17 @@ pub(super) fn validate_extension(old: &GenerationState, new: &GenerationState) -
 pub(super) fn encode(magic: &[u8], value: &impl bincode::Encode, limit: usize) -> Result<Vec<u8>> {
     rustred::persistence::finite_work::encode_metadata_frame(magic, value, limit)
         .map_err(Into::into)
+}
+/// Manifest is private, immutable integer metadata with derived Encode. It has
+/// no Symbolica state or interior-mutating serializer, so repeated sizing is
+/// safe. Pages, state, tips and arbitrary callers retain single-pass encoding.
+pub(super) fn encode_manifest(value: &Manifest, limit: usize) -> Result<Vec<u8>> {
+    rustred::persistence::finite_work::encode_metadata_frame_repeatable(
+        MANIFEST_MAGIC,
+        value,
+        limit,
+    )
+    .map_err(Into::into)
 }
 pub(super) fn decode<T: bincode::Decode<()>>(
     magic: &[u8],

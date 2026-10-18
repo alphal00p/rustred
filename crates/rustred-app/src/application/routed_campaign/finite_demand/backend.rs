@@ -22,12 +22,13 @@ use rustred::persistence::finite_work::{
 };
 use rustred::solver::{
     CandidateEntryAdmission, CandidateRoutedDeltaExportLimits, CandidateRoutedTraceCensusLimits,
-    CandidateRoutedWorkBudget, FiniteRootAdmission,
+    CandidateRoutedWorkBudget, CandidateRoutedWorkerPool, FiniteRootAdmission,
 };
 use serde_json::{Value, json};
 use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
+    time::Instant,
 };
 use symbolica::domains::integer::Integer;
 
@@ -36,6 +37,8 @@ pub(crate) struct Policy {
     pub workers: usize,
     /// Operational grouping of existing immutable windows, not a new partition.
     pub max_windows_per_batch: usize,
+    pub reuse_worker_pool: bool,
+    pub parallel_window_preparation: bool,
     pub windows: WindowLimits,
     pub per_batch_work: CandidateRoutedWorkBudget,
     pub prepared_reduction_aggregates: Option<ReductionAggregateOverrides>,
@@ -84,6 +87,21 @@ pub(crate) struct CompletedWindow {
     pub new_work: usize,
     pub baseline_hits: usize,
     pub cleanup_warning: Option<String>,
+    pub timings: GroupTimings,
+    pub resident: Value,
+}
+
+/// Cheap wall-clock boundaries, not summed worker time or proof of progress.
+#[derive(Clone, Copy, Debug, Default, serde::Serialize)]
+pub(crate) struct GroupTimings {
+    pub planning_seconds: f64,
+    pub materialization_seconds: f64,
+    pub binding_seconds: f64,
+    pub trace_seconds: f64,
+    pub staging_seconds: f64,
+    pub commit_seconds: f64,
+    pub cleanup_seconds: f64,
+    pub total_seconds: f64,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Step {
@@ -107,6 +125,7 @@ pub(crate) struct Session<const N: usize> {
     stopped: bool,
     source_reduction: rustred::reduction::ReductionLimits,
     effective_reduction: rustred::reduction::ReductionLimits,
+    worker_pool: Option<CandidateRoutedWorkerPool>,
 }
 
 struct Admitted<const N: usize> {
@@ -361,6 +380,7 @@ impl<const N: usize> Session<N> {
             stopped: false,
             source_reduction: admitted.source_reduction,
             effective_reduction: admitted.effective_reduction,
+            worker_pool: None,
         }
     }
 
@@ -445,12 +465,42 @@ impl<const N: usize> Session<N> {
                 progress: self.progress()?,
             });
         };
-        let group =
-            group::WindowGroup::plan(&self.sources, &self.cursors, index, self.policy, cancel)?;
+        // Capture-only publication and already-complete resumes never start
+        // idle workers. The pool's scoped borrows end before delta adoption.
+        if self.policy.reuse_worker_pool && self.worker_pool.is_none() {
+            let started = Instant::now();
+            self.worker_pool = Some(
+                CandidateRoutedWorkerPool::try_new(self.policy.workers)
+                    .map_err(|error| AppError::input(error.to_string()))?,
+            );
+            observer(
+                json!({"event":"finite_worker_pool_ready","workers":self.policy.workers,
+                "seconds":started.elapsed().as_secs_f64()}),
+            );
+        }
+        let group_started = Instant::now();
+        observer(json!({"event":"finite_backend_group_planning","row":index,
+            "window":self.cursors[index].windows()}));
+        let group = group::WindowGroup::plan(
+            &self.sources,
+            &self.cursors,
+            index,
+            self.policy,
+            if self.policy.parallel_window_preparation {
+                self.worker_pool.as_ref()
+            } else {
+                None
+            },
+            observer,
+            cancel,
+        )?;
         let group_metadata = group.metadata();
         let window_ordinal = group.first().ordinal;
+        let planning_seconds = group.planning_seconds;
+        let materialization_seconds = group.materialization_seconds;
         observer(json!({"event":"finite_backend_group_planned","row":index,
             "window":window_ordinal,"group":group_metadata}));
+        let binding_started = Instant::now();
         let previous = self.generation()?;
         let reader_limits = if self.resident.is_some() {
             StorageLimits {
@@ -474,24 +524,39 @@ impl<const N: usize> Session<N> {
             self.policy.max_windows_per_batch,
         )
         .map_err(|e| AppError::input(e.to_string()))?;
-        #[cfg(test)]
-        let native_started = std::time::Instant::now();
-        let delta_result = baseline
-            .trace_batch_with_resident(
+        let binding_seconds = binding_started.elapsed().as_secs_f64();
+        observer(json!({"event":"finite_backend_trace_started","row":index,
+            "window":window_ordinal,"group":group_metadata}));
+        let native_started = Instant::now();
+        let targets = group
+            .windows
+            .iter()
+            .flat_map(|w| w.window.targets().iter().cloned());
+        let native_observer = |s: &rustred::solver::CandidateRoutedCampaignSnapshot<N>| {
+            observer(json!({"event":"finite_backend_native","row":index,
+                "window":window_ordinal,"group":group_metadata,"native":snapshot_json(s)}))
+        };
+        let delta_result = match self.worker_pool.as_ref() {
+            Some(pool) => baseline.trace_batch_with_resident_pool(
                 self.resident.as_ref(),
-                group
-                    .windows
-                    .iter()
-                    .flat_map(|w| w.window.targets().iter().cloned()),
+                targets,
+                CandidateEntryAdmission::ExplicitFinite(&admission),
+                pool,
+                cancel,
+                native_observer,
+            ),
+            None => baseline.trace_batch_with_resident(
+                self.resident.as_ref(),
+                targets,
                 CandidateEntryAdmission::ExplicitFinite(&admission),
                 self.policy.workers,
                 cancel,
-                |s| {
-                    observer(json!({"event":"finite_backend_native","row":index,
-                "window":window_ordinal,"group":group_metadata,"native":snapshot_json(s)}))
-                },
-            )
-            .map_err(errors::completed);
+                native_observer,
+            ),
+        }
+        .map_err(errors::completed);
+        let trace_seconds = native_started.elapsed().as_secs_f64();
+        let staging_started = Instant::now();
         #[cfg(test)]
         observer(
             json!({"event":"finite_backend_native_call_finished","row":index,
@@ -501,6 +566,8 @@ impl<const N: usize> Session<N> {
             "resident":resident_statistics(self.resident.as_ref())}),
         );
         let delta = delta_result?;
+        drop(baseline);
+        drop(admission);
         let snapshot = delta.report().snapshot();
         let multiplicity = delta
             .report()
@@ -530,6 +597,14 @@ impl<const N: usize> Session<N> {
             new_work: delta.work().len(),
             baseline_hits: snapshot.completed_baseline_hits,
             cleanup_warning: None,
+            timings: GroupTimings {
+                planning_seconds,
+                materialization_seconds,
+                binding_seconds,
+                trace_seconds,
+                ..GroupTimings::default()
+            },
+            resident: Value::Null,
         };
         let mut cursors = previous.state().cursors.clone();
         // All cursor allocation/encoding precedes publication. Adoption after
@@ -587,8 +662,10 @@ impl<const N: usize> Session<N> {
             json!({"event":"finite_backend_resident_staged","active":resident.is_some(),
             "records":resident.as_ref().map(|_| completed.new_work)}),
         );
-        #[cfg(test)]
-        let commit_started = std::time::Instant::now();
+        completed.timings.staging_seconds = staging_started.elapsed().as_secs_f64();
+        observer(json!({"event":"finite_backend_commit_started","row":index,
+            "window":window_ordinal,"group":group_metadata}));
+        let commit_started = Instant::now();
         let outcome = self.prepared.commit_delta_with_directory_accounting(
             &self.authenticated,
             &mut self.writer,
@@ -614,6 +691,8 @@ impl<const N: usize> Session<N> {
             resident.after_durable_commit(self.authenticated.generation().digest())
         });
         completed.cleanup_warning = outcome.cleanup_warning;
+        completed.timings.commit_seconds = commit_started.elapsed().as_secs_f64();
+        completed.resident = resident_statistics(self.resident.as_ref());
         if had_resident && self.resident.is_none() {
             observer(
                 json!({"event":"finite_backend_resident_fallback","status":"declined",
@@ -628,9 +707,18 @@ impl<const N: usize> Session<N> {
             "generation":self.authenticated.generation().generation(),
             "resident":resident_statistics(self.resident.as_ref()),
             "resident_staged_records":self.resident.as_ref().map(|_| completed.new_work)}));
+        observer(json!({"event":"finite_backend_group_cleanup","row":index,
+            "window":window_ordinal,"group":group_metadata}));
+        let cleanup_started = Instant::now();
+        drop(reader);
+        drop(previous);
+        drop(group);
+        let progress = self.progress()?;
+        completed.timings.cleanup_seconds = cleanup_started.elapsed().as_secs_f64();
+        completed.timings.total_seconds = group_started.elapsed().as_secs_f64();
         Ok(Step {
             window: Some(completed),
-            progress: self.progress()?,
+            progress,
         })
     }
 }
@@ -682,6 +770,11 @@ fn admit<const N: usize>(
     if policy.workers == 0 || policy.max_windows_per_batch == 0 {
         return Err(AppError::input(
             "finite backend workers and windows per batch must be positive",
+        ));
+    }
+    if policy.parallel_window_preparation && !policy.reuse_worker_pool {
+        return Err(AppError::input(
+            "parallel window preparation requires the persistent worker pool",
         ));
     }
     rustred::campaign::ParallelExecution::preflight_requested_core_budget(policy.workers)

@@ -120,6 +120,126 @@ fn key(arity: usize, n: i64, apply: bool) -> GeneratedWorkKey {
 }
 
 #[test]
+fn borrowed_native_resident_matches_owned_wire_probes_and_validates_padding() {
+    fn check<const N: usize>(arity: usize) {
+        let keys = (0..12)
+            .map(|n| key(arity, n, n % 2 == 0))
+            .collect::<Vec<_>>();
+        let (directory, pages) = fixture(arity, vec![keys.clone()]);
+        let resident = TrustedGeneratedResidentWork::hydrate(
+            &directory,
+            &pages,
+            8 * 1024 * 1024,
+            0,
+            &AtomicBool::new(false),
+        )
+        .unwrap()
+        .unwrap();
+        for n in 0..16 {
+            for apply in [false, true] {
+                let wire = key(arity, n, apply);
+                let native = wire.to_native::<N>().unwrap();
+                assert_eq!(
+                    resident.contains_native(&native).unwrap(),
+                    resident.contains(&wire).unwrap()
+                );
+            }
+        }
+        let mut malformed = key(arity, 1, true).to_native::<N>().unwrap();
+        if let rustred::solver::CandidateRoutedWork::Apply { owner_sector, .. } = &mut malformed {
+            owner_sector[0] = false;
+        }
+        assert_eq!(
+            resident.contains_native(&malformed).unwrap_err().kind,
+            GeneratedWorkErrorKind::Corrupt
+        );
+        if N > arity {
+            let mut malformed = key(arity, 1, true).to_native::<N>().unwrap();
+            if let rustred::solver::CandidateRoutedWork::Apply { owner_sector, .. } = &mut malformed
+            {
+                owner_sector[arity] = true;
+            }
+            assert_eq!(
+                resident.contains_native(&malformed).unwrap_err().kind,
+                GeneratedWorkErrorKind::Corrupt
+            );
+        }
+        let wrong = rustred::solver::CandidateRoutedWork::<N>::Route(
+            rustred::family::IntegralKey::try_new(vec![1; arity + 1]).unwrap(),
+        );
+        assert_eq!(
+            resident.contains_native(&wrong).unwrap_err().kind,
+            GeneratedWorkErrorKind::Corrupt
+        );
+    }
+    check::<1>(1);
+    check::<15>(15);
+    check::<65>(65);
+    #[cfg(feature = "capacity-dispatch")]
+    check::<16>(15);
+}
+
+#[test]
+#[ignore = "measurement only: run explicitly with --ignored --nocapture"]
+fn borrowed_vs_allocated_native_resident_lookup_microbenchmark() {
+    let records = std::env::var("RUSTRED_RESIDENT_BENCH_RECORDS")
+        .ok()
+        .map(|v| v.parse::<usize>().unwrap())
+        .unwrap_or(200_000);
+    assert!(records > 0);
+    let keys = (0..records)
+        .map(|n| key(15, n.try_into().unwrap(), n % 2 == 0))
+        .collect::<Vec<_>>();
+    let native = keys
+        .iter()
+        .map(|key| key.to_native::<15>().unwrap())
+        .collect::<Vec<_>>();
+    let (directory, pages) = fixture(15, vec![keys]);
+    let resident = TrustedGeneratedResidentWork::hydrate(
+        &directory,
+        &pages,
+        usize::MAX,
+        0,
+        &AtomicBool::new(false),
+    )
+    .unwrap()
+    .unwrap();
+    for reverse in [false, true] {
+        let borrowed = || {
+            let start = Instant::now();
+            for _ in 0..3 {
+                for work in &native {
+                    assert!(black_box(
+                        resident.contains_native(black_box(work)).unwrap()
+                    ));
+                }
+            }
+            start.elapsed().as_secs_f64()
+        };
+        let allocated = || {
+            let start = Instant::now();
+            for _ in 0..3 {
+                for work in &native {
+                    let key = GeneratedWorkKey::from_native(black_box(work)).unwrap();
+                    assert!(black_box(resident.contains(&key).unwrap()));
+                }
+            }
+            start.elapsed().as_secs_f64()
+        };
+        let (borrowed_seconds, allocated_seconds) = if reverse {
+            let allocated = allocated();
+            (borrowed(), allocated)
+        } else {
+            let borrowed = borrowed();
+            (borrowed, allocated())
+        };
+        println!(
+            "{{\"records\":{records},\"repeats\":3,\"reversed\":{reverse},\"borrowed_seconds\":{borrowed_seconds},\"allocated_seconds\":{allocated_seconds},\"boundary\":\"native_resident_probe_only\"}}"
+        );
+    }
+}
+
+#[test]
 fn packed_public_hydration_high_arity_exact_phase_and_invalid_owner() {
     for arity in [1, 15, 65, 129, 9000] {
         let keys = (0..6)

@@ -82,6 +82,8 @@ struct State<const N: usize> {
     rule_attempts: usize,
     coalescing: usize,
     reserved_coalescing: usize,
+    work_waiters: usize,
+    reservation_waiters: usize,
     missing_owners: usize,
     missing_rules: usize,
     failure: Option<Failure>,
@@ -95,7 +97,8 @@ pub(super) struct Shared<'a, const N: usize> {
     completed_baseline: Option<CompletedBaseline<'a, N>>,
     // Lookup-order hint only; stale reads cannot alter admission or counters.
     prefer_live_membership: AtomicBool,
-    wake: Condvar,
+    work_ready: Condvar,
+    reservation_changed: Condvar,
     progress: Condvar,
     start: Instant,
     workers: usize,
@@ -126,6 +129,8 @@ impl<'a, const N: usize> Shared<'a, N> {
                 rule_attempts: 0,
                 coalescing: 0,
                 reserved_coalescing: 0,
+                work_waiters: 0,
+                reservation_waiters: 0,
                 missing_owners: 0,
                 missing_rules: 0,
                 failure: None,
@@ -135,7 +140,8 @@ impl<'a, const N: usize> Shared<'a, N> {
             membership: Membership::new(),
             completed_baseline: None,
             prefer_live_membership: AtomicBool::new(false),
-            wake: Condvar::new(),
+            work_ready: Condvar::new(),
+            reservation_changed: Condvar::new(),
             progress: Condvar::new(),
             start: Instant::now(),
             workers,
@@ -210,7 +216,7 @@ impl<'a, const N: usize> Shared<'a, N> {
     fn check_locked(&self, state: &mut State<N>) -> Result<(), Failure> {
         if self.cancellation.load(Ordering::Acquire) && state.failure.is_none() {
             state.failure = Some(Failure::Cancelled);
-            self.wake.notify_all();
+            self.wake_all();
             self.progress.notify_one();
         }
         match &state.failure {
@@ -236,8 +242,19 @@ impl<'a, const N: usize> Shared<'a, N> {
     }
     pub(super) fn fail(&self, error: Failure) {
         self.lock().failure.get_or_insert(error);
-        self.wake.notify_all();
+        self.wake_all();
         self.progress.notify_one();
+    }
+    fn wake_all(&self) {
+        self.work_ready.notify_all();
+        self.reservation_changed.notify_all();
+    }
+    fn wake_work(&self, waiters: usize) {
+        // Work waiters have their own condition variable; resource waiters
+        // cannot consume these notifications and strand a ready queue.
+        for _ in 0..waiters {
+            self.work_ready.notify_one();
+        }
     }
     #[cfg(test)]
     pub(super) fn prepare(
@@ -343,10 +360,9 @@ impl<'a, const N: usize> Shared<'a, N> {
         }
         let shard = self.membership.shard_index(&node);
         let admitted = self.schedule_locked(&mut state, node, shard)?;
+        let wake = usize::from(admitted).min(state.work_waiters);
         drop(state);
-        if admitted {
-            self.wake.notify_all();
-        }
+        self.wake_work(wake);
         Ok(())
     }
     fn baseline_contains(&self, node: &Work<N>) -> Result<bool, Failure> {
@@ -357,17 +373,17 @@ impl<'a, const N: usize> Shared<'a, N> {
                 directory,
                 provider,
                 resident,
-            }) => {
-                let key = GeneratedWorkKey::from_native(node).map_err(Failure::Backing)?;
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match resident {
-                    Some(resident) => resident.contains(&key),
-                    None => directory
+            }) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match resident {
+                Some(resident) => resident.contains_native(node),
+                None => {
+                    let key = GeneratedWorkKey::from_native(node)?;
+                    directory
                         .lookup(&key, provider)
-                        .map(|result| result.present),
-                }))
-                .map_err(|_| Failure::WorkerPanicked)?
-                .map_err(Failure::Backing)
-            }
+                        .map(|result| result.present)
+                }
+            }))
+            .map_err(|_| Failure::WorkerPanicked)?
+            .map_err(Failure::Backing),
         }
     }
     fn baseline_hit(state: &mut State<N>) -> Result<(), Failure> {
@@ -441,7 +457,7 @@ impl<'a, const N: usize> Shared<'a, N> {
     }
     fn commit_batch(&self, batch: ProbedBatch<N>) -> Result<(), Failure> {
         let mut state = self.lock();
-        let mut published = false;
+        let mut published = 0usize;
         let mut result = Ok(());
         for marker in batch.0 {
             // Do not aggregate duplicate counters ahead of a possible cap,
@@ -461,7 +477,7 @@ impl<'a, const N: usize> Shared<'a, N> {
                 ProbedWork::Invalid(error) => Err(error),
             });
             match admitted {
-                Ok(admitted) => published |= admitted,
+                Ok(admitted) => published += usize::from(admitted),
                 Err(error) => {
                     result = Err(error);
                     break;
@@ -473,11 +489,10 @@ impl<'a, const N: usize> Shared<'a, N> {
         // dominate. This update shares the existing scheduler critical section.
         self.prefer_live_membership
             .store(state.dedup > state.baseline_hits, Ordering::Relaxed);
+        let wake = published.min(state.work_waiters);
         drop(state);
         // A valid prefix must wake workers even when a later node hit a cap.
-        if published {
-            self.wake.notify_all();
-        }
+        self.wake_work(wake);
         result
     }
     fn validate_node(node: &Work<N>) -> Result<(), Failure> {
@@ -551,11 +566,13 @@ impl<'a, const N: usize> Shared<'a, N> {
             if state.active.is_empty() {
                 return None;
             }
+            state.work_waiters += 1;
             state = self
-                .wake
+                .work_ready
                 .wait_timeout(state, Duration::from_millis(100))
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .0;
+            state.work_waiters -= 1;
         }
     }
     pub(super) fn finish(&self, node: Work<N>, result: Result<(), Failure>) {
@@ -573,8 +590,13 @@ impl<'a, const N: usize> Shared<'a, N> {
             }
         }
         self.check_locked(&mut state).ok();
-        self.wake.notify_all();
-        if Self::done(&state) || (!already_failed && state.failure.is_some()) {
+        let done = Self::done(&state);
+        let failed = state.failure.is_some();
+        drop(state);
+        if done || failed {
+            self.wake_all();
+        }
+        if done || (!already_failed && failed) {
             self.progress.notify_one();
         }
     }
@@ -693,11 +715,13 @@ impl<'a, const N: usize> Shared<'a, N> {
                 state.reserved_coalescing += bound;
                 return Ok(());
             }
+            state.reservation_waiters += 1;
             state = self
-                .wake
+                .reservation_changed
                 .wait_timeout(state, Duration::from_millis(100))
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .0;
+            state.reservation_waiters -= 1;
         }
     }
     pub(super) fn settle_apply(
@@ -708,24 +732,33 @@ impl<'a, const N: usize> Shared<'a, N> {
     ) -> Result<(), Failure> {
         let mut state = self.lock();
         state.reserved_coalescing -= bound;
-        if actual > bound {
-            self.wake.notify_all();
-            return Err(CandidateRoutedError::InvalidInput(
+        let result = if actual > bound {
+            Err(CandidateRoutedError::InvalidInput(
                 "coalescing exceeded its duplicate-shift bound".into(),
             )
-            .into());
+            .into())
+        } else {
+            limit(
+                state.coalescing,
+                actual,
+                self.reduction.max_coalescing_additions,
+                "coalescing additions",
+            )
+            .map(|coalescing| {
+                state.coalescing = coalescing;
+                if successful {
+                    state.trace.rule_applications += 1;
+                }
+            })
+        };
+        let waiting = state.reservation_waiters != 0;
+        drop(state);
+        // Every release, including a subsequent typed failure, must wake
+        // reservation waiters. Worker finish/fail handles global termination.
+        if waiting {
+            self.reservation_changed.notify_all();
         }
-        state.coalescing = limit(
-            state.coalescing,
-            actual,
-            self.reduction.max_coalescing_additions,
-            "coalescing additions",
-        )?;
-        if successful {
-            state.trace.rule_applications += 1;
-        }
-        self.wake.notify_all();
-        Ok(())
+        result
     }
     fn done(state: &State<N>) -> bool {
         state.active.is_empty() && (state.queue.is_empty() || state.failure.is_some())
@@ -838,3 +871,6 @@ impl<'a, const N: usize> Shared<'a, N> {
 #[cfg(test)]
 #[path = "membership_tests.rs"]
 mod membership_tests;
+#[cfg(test)]
+#[path = "wake_tests.rs"]
+mod wake_tests;

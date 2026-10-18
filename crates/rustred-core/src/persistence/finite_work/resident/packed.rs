@@ -60,6 +60,17 @@ impl PackedWork {
     pub fn contains(&self, key: &GeneratedWorkKey) -> bool {
         self.contains_hashed(key, self.hash(key))
     }
+    /// Validated native keys borrow their coordinates and require no wire-key
+    /// Vec allocation. The caller must validate physical arity and Apply owner.
+    pub fn contains_parts(&self, apply: bool, powers: &[i64]) -> bool {
+        let phase = usize::from(apply);
+        let hash = self.hasher.hash_one((phase, powers));
+        self.table
+            .find(hash, |slot| {
+                slot.tagged_record & 1 == phase && self.arena.get(slot.tagged_record >> 1) == powers
+            })
+            .is_some()
+    }
     fn hash(&self, key: &GeneratedWorkKey) -> u64 {
         self.hasher.hash_one((phase(key), key.powers()))
     }

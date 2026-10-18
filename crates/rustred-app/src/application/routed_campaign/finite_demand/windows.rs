@@ -14,6 +14,8 @@ use std::{
 use symbolica::domains::integer::Integer;
 
 #[cfg(test)]
+mod preparation_tests;
+#[cfg(test)]
 mod tests;
 mod trusted_restore;
 pub(crate) use trusted_restore::{CommittedCursorStatus, inspect_committed_cursor};
@@ -185,6 +187,23 @@ struct Node<const N: usize> {
 struct Plan<const N: usize> {
     node: Node<N>,
     transition: WindowTransition,
+}
+
+/// Opaque proposed enumeration transition, never permission to adopt a cursor.
+/// Constructed only by the bound source; materialization still validates every
+/// emitted target against the original and exact window domains.
+pub(crate) struct PlannedFiniteWindow<const N: usize> {
+    plan: Plan<N>,
+    successor: PrefixCursor,
+    expected: usize,
+}
+impl<const N: usize> PlannedFiniteWindow<N> {
+    pub fn successor(&self) -> &PrefixCursor {
+        &self.successor
+    }
+    pub fn target_count(&self) -> usize {
+        self.expected
+    }
 }
 
 fn encode(value: &impl bincode::Encode) -> Result<Vec<u8>> {
@@ -656,11 +675,51 @@ impl<const N: usize> PrefixWindows<N> {
         cursor: &PrefixCursor,
         cancel: &AtomicBool,
     ) -> Result<Option<FiniteWindow<N>>> {
+        let Some(plan) = self.plan_window(cursor, cancel)? else {
+            return Ok(None);
+        };
+        self.materialize_window(plan, cancel).map(Some)
+    }
+
+    /// Serial deterministic planning: counts and cursor ordering are unchanged.
+    pub(crate) fn plan_window(
+        &self,
+        cursor: &PrefixCursor,
+        cancel: &AtomicBool,
+    ) -> Result<Option<PlannedFiniteWindow<N>>> {
         let Some(plan) = self.plan(cursor, cancel)? else {
             return Ok(None);
         };
         let expected = usize::try_from(plan.node.count.clone())
             .map_err(|error| Error::new(ErrorKind::Resource, error))?;
+        let successor = PrefixCursor(plan.transition.after.clone());
+        Ok(Some(PlannedFiniteWindow {
+            plan,
+            successor,
+            expected,
+        }))
+    }
+
+    /// Independent immutable preparation. Plans may be materialized in any
+    /// order, but their successors become authoritative only after the backend
+    /// proves the whole grouped trace and commits all proposed cursors.
+    pub(crate) fn materialize_window(
+        &self,
+        pending: PlannedFiniteWindow<N>,
+        cancel: &AtomicBool,
+    ) -> Result<FiniteWindow<N>> {
+        check(cancel)?;
+        let PlannedFiniteWindow {
+            plan,
+            successor,
+            expected,
+        } = pending;
+        if plan.transition.after.binding != self.binding {
+            return Err(Error::new(
+                ErrorKind::Cursor,
+                "planned window belongs to another source",
+            ));
+        }
         let mut targets = Vec::new();
         targets
             .try_reserve_exact(expected)
@@ -707,13 +766,12 @@ impl<const N: usize> PrefixWindows<N> {
                 "native iterator did not exhaust exact count",
             ));
         }
-        let successor = PrefixCursor(plan.transition.after.clone());
-        Ok(Some(FiniteWindow {
+        Ok(FiniteWindow {
             targets,
             region: plan.node.region,
             transition: plan.transition,
             successor,
-        }))
+        })
     }
 
     fn scatter(&self, prefix: &[u64], free: &[i64]) -> Result<IntegralKey> {

@@ -17,12 +17,12 @@ pub use application::{
 };
 
 pub use campaign::{
-    CandidateRoutedCompletedDelta, CandidateRoutedDeltaExportLimits, CandidateRoutedGeneratedBaseline,
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
-    CandidateRoutedCampaignSnapshot, CandidateRoutedCompletedTrace,
+    CandidateRoutedCampaignSnapshot, CandidateRoutedCompletedDelta, CandidateRoutedCompletedTrace,
     CandidateRoutedCompletedTraceError, CandidateRoutedCompletedTraceLimits,
+    CandidateRoutedDeltaExportLimits, CandidateRoutedGeneratedBaseline,
     CandidateRoutedSelectionIdentity, CandidateRoutedTraceCensus, CandidateRoutedTraceCensusLimits,
-    CandidateRoutedWork, CandidateRoutedWorkBudget,
+    CandidateRoutedWork, CandidateRoutedWorkBudget, CandidateRoutedWorkerPool,
 };
 pub use domain_overcover::{
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,

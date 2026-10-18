@@ -91,13 +91,19 @@ def engine(campaign, requested=None):
 
 def require_policy(value):
     fields = {"workers", "windows", "census", "export", "storage", "max_total_rows", "max_source_bytes", "control"}
-    optional = {"per_batch_work", "prepared_reduction_aggregates", "max_resident_work_bytes", "max_windows_per_batch"}
+    optional = {"per_batch_work", "prepared_reduction_aggregates", "max_resident_work_bytes", "max_windows_per_batch", "reuse_worker_pool", "parallel_window_preparation"}
     if not isinstance(value, dict) or not fields <= set(value) or set(value) - fields - optional:
         raise ValueError("finite policy must contain the public native policy fields and no diagnostic settings")
     if type(value["workers"]) is not int or value["workers"] <= 0 or not isinstance(value["windows"], dict):
         raise ValueError("finite policy requires positive workers and explicit window limits")
     if type(value.get("max_windows_per_batch", 1)) is not int or value.get("max_windows_per_batch", 1) <= 0:
         raise ValueError("finite max_windows_per_batch must be positive")
+    if type(value.get("reuse_worker_pool", True)) is not bool:
+        raise ValueError("finite reuse_worker_pool must be boolean")
+    if type(value.get("parallel_window_preparation", False)) is not bool:
+        raise ValueError("finite parallel_window_preparation must be boolean")
+    if value.get("parallel_window_preparation", False) and not value.get("reuse_worker_pool", True):
+        raise ValueError("parallel window preparation requires the persistent worker pool")
     resident = value.get("max_resident_work_bytes", 0)
     if type(resident) is not int or not 0 <= resident < 2**64:
         raise ValueError("resident Work allowance must be an unsigned platform byte count")
@@ -364,6 +370,17 @@ def launch_plan(args, campaign, binary, *, apply, startup_progress=None):
     grouping = getattr(args, "windows_per_batch", None)
     if grouping is not None:
         policy = require_policy({**policy, "max_windows_per_batch": grouping})
+    pool = getattr(args, "worker_pool", None)
+    if pool is not None:
+        if pool not in ("persistent", "per-group"):
+            raise ValueError("finite worker pool must be persistent or per-group")
+        policy = {**policy, "reuse_worker_pool": pool == "persistent"}
+    preparation = getattr(args, "window_preparation", None)
+    if preparation is not None:
+        if preparation not in ("serial", "parallel"):
+            raise ValueError("finite window preparation must be serial or parallel")
+        policy = {**policy, "parallel_window_preparation": preparation == "parallel"}
+    policy = require_policy(policy)
     if saved is not None and policy["windows"] != saved["window_policy"]:
         raise ValueError("finite window/partition policy cannot change on resume")
     resources = dict((saved or {}).get("resources", {}))
@@ -481,6 +498,8 @@ def public_main(args, extra):
     parser.add_argument("--finite-policy", type=Path)
     parser.add_argument("--workers", type=int)
     parser.add_argument("--windows-per-batch", type=int)
+    parser.add_argument("--worker-pool", choices=("persistent", "per-group"))
+    parser.add_argument("--window-preparation", choices=("serial", "parallel"))
     parser.add_argument("--cpus")
     parser.add_argument("--max-memory-bytes", type=int)
     parser.add_argument("--host-memory-reserve-bytes", type=int)

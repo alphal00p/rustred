@@ -31,6 +31,10 @@ struct Steering {
     workers: usize,
     #[serde(default = "super::super::lifecycle::policy::one_window")]
     max_windows_per_batch: usize,
+    #[serde(default = "super::super::lifecycle::policy::persistent_workers")]
+    reuse_worker_pool: bool,
+    #[serde(default)]
+    parallel_window_preparation: bool,
     windows: SeedLimits,
     per_batch_work: WorkLimits,
     prepared_reduction_aggregates: Option<ReductionAggregateOverrides>,
@@ -49,6 +53,8 @@ impl Steering {
         Policy {
             workers: self.workers,
             max_windows_per_batch: self.max_windows_per_batch,
+            reuse_worker_pool: self.reuse_worker_pool,
+            parallel_window_preparation: self.parallel_window_preparation,
             windows: self.windows.into(),
             per_batch_work: self.per_batch_work.into(),
             prepared_reduction_aggregates: self.prepared_reduction_aggregates,

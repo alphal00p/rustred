@@ -93,6 +93,11 @@ pub struct FiniteDemandPolicy {
     /// and atomic commit. Operational only: may change on cold resume.
     #[serde(default = "one_window")]
     pub(crate) max_windows_per_batch: usize,
+    /// Reuse one bounded native pool for this process; operational on resume.
+    #[serde(default = "persistent_workers")]
+    pub(crate) reuse_worker_pool: bool,
+    #[serde(default)]
+    pub(crate) parallel_window_preparation: bool,
     pub(crate) windows: trace::SeedLimits,
     #[serde(default = "uncapped_work")]
     pub(crate) per_batch_work: trace::WorkLimits,
@@ -114,6 +119,9 @@ pub struct FiniteDemandPolicy {
 }
 pub(crate) fn one_window() -> usize {
     1
+}
+pub(crate) fn persistent_workers() -> bool {
+    true
 }
 fn uncapped_work() -> trace::WorkLimits {
     trace::WorkLimits {
@@ -145,6 +153,11 @@ impl FiniteDemandPolicy {
                 "finite workers, windows per batch and control grants must be positive",
             ));
         }
+        if value.parallel_window_preparation && !value.reuse_worker_pool {
+            return Err(AppError::input(
+                "parallel window preparation requires the persistent worker pool",
+            ));
+        }
         Ok(value)
     }
     pub fn to_json(&self) -> Result<Vec<u8>, AppError> {
@@ -154,6 +167,8 @@ impl FiniteDemandPolicy {
         backend::Policy {
             workers: self.workers,
             max_windows_per_batch: self.max_windows_per_batch,
+            reuse_worker_pool: self.reuse_worker_pool,
+            parallel_window_preparation: self.parallel_window_preparation,
             windows: self.windows.into(),
             per_batch_work: self.per_batch_work.into(),
             prepared_reduction_aggregates: self.prepared_reduction_aggregates,

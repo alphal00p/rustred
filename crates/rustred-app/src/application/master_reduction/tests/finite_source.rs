@@ -51,6 +51,8 @@ fn policy() -> Policy {
     Policy {
         workers: 1,
         max_windows_per_batch: 1,
+        reuse_worker_pool: true,
+        parallel_window_preparation: false,
         windows: WindowLimits {
             max_seed_points: 1,
             max_seed_bytes: 65536,

@@ -158,7 +158,8 @@ fn run<const N: usize>(
             "window":{"row":window.row,"inputs":window.inputs,"new_work":window.new_work,
                 "windows_count":window.windows_count,"last_row":window.last_row,
                 "last_window":window.last_window,
-                "baseline_hits":window.baseline_hits,"cleanup_warning":window.cleanup_warning}}),
+                "baseline_hits":window.baseline_hits,"cleanup_warning":window.cleanup_warning,
+                "timings":window.timings,"resident":window.resident}}),
         );
     }
     check(cancel)?;

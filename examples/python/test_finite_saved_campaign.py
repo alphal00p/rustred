@@ -187,6 +187,49 @@ class FiniteCampaignTests(unittest.TestCase):
             self.plan(apply=False)
         self.assertEqual(FIXTURE.snapshot(self.campaign), before)
 
+    def test_worker_pool_policy_is_operational_saved_and_type_checked(self):
+        self.plan()
+        self.namespace()
+        original = self.policy_path.read_bytes()
+        self.args.worker_pool = "per-group"
+        disabled = self.plan()
+        self.assertIs(FIN.read(disabled["finite_policy"])["reuse_worker_pool"], False)
+        self.assertEqual(self.policy_path.read_bytes(), original)
+        self.args.finite_policy = None
+        self.args.worker_pool = None
+        self.assertIs(FIN.read(self.plan(apply=False)["finite_policy"])["reuse_worker_pool"], False)
+        self.args.worker_pool = "persistent"
+        enabled = FIN.read(self.plan()["finite_policy"])
+        self.assertIs(enabled["reuse_worker_pool"], True)
+        self.assertEqual(enabled["windows"], self.policy["windows"])
+        for bad in (0, 1, "true", None):
+            with self.assertRaisesRegex(ValueError, "reuse_worker_pool must be boolean"):
+                FIN.require_policy({**self.policy, "reuse_worker_pool": bad})
+
+    def test_parallel_preparation_preserves_partition_and_requires_one_shared_pool(self):
+        self.plan()
+        self.namespace()
+        self.args.worker_pool = "persistent"
+        self.args.window_preparation = "parallel"
+        configured = FIN.read(self.plan()["finite_policy"])
+        self.assertIs(configured["parallel_window_preparation"], True)
+        self.assertIs(configured["reuse_worker_pool"], True)
+        self.assertEqual(configured["windows"], self.policy["windows"])
+        self.args.finite_policy = None
+        self.args.worker_pool = "per-group"
+        self.args.window_preparation = None
+        before = FIXTURE.snapshot(self.campaign)
+        with self.assertRaisesRegex(ValueError, "requires the persistent"):
+            self.plan()
+        self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+        self.args.window_preparation = "serial"
+        configured = FIN.read(self.plan()["finite_policy"])
+        self.assertIs(configured["parallel_window_preparation"], False)
+        self.assertIs(configured["reuse_worker_pool"], False)
+        for bad in (0, 1, "false", None):
+            with self.assertRaisesRegex(ValueError, "parallel_window_preparation must be boolean"):
+                FIN.require_policy({**self.policy, "parallel_window_preparation": bad})
+
     def test_worker_override_is_saved_without_mutating_input_or_window_policy(self):
         original = self.policy_path.read_bytes()
         self.args.workers = 150

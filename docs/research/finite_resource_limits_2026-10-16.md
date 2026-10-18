@@ -1,6 +1,6 @@
 # User-controlled finite campaign limits and dashboard
 
-## Next extension: bulk cleanup, grouped windows and 150 workers
+## Next extension: rank 6 with the optimized finite hot path
 
 The follow-up adds5/30-minute gap convergence, current-chase elapsed time and a
 rough input ETA from the whole invocation's average committed-input throughput,
@@ -14,17 +14,18 @@ share one parallel traversal and an atomic commit. All inner-worker parallelism
 and descendant reuse remain enabled. The legacy symbolic/Epoch lane remains
 available independently; neither engine reads the other's checkpoint format.
 
-After the current rank4 run **and its publication** have finished, select the
+After the current rank5 run **and its publication** have finished, select the
 new optimized executable explicitly for the next extension:
 
 ```bash
 cd /shared/codex-2/rustred
 export RUSTRED_CAMPAIGN="$PWD/campaigns/five-loop-finite-r0-d10-resident-fixed-20261016"
 nix develop --command python -B examples/python/saved_campaign.py extend \
-  --campaign "$RUSTRED_CAMPAIGN" --rank 5 \
-  --executable "$PWD/TMP/releases/20261018-finite-bulk-cleanup-150/rustred" \
+  --campaign "$RUSTRED_CAMPAIGN" --rank 6 \
+  --executable "$PWD/TMP/releases/20261018-finite-rank6-hotpath/rustred" \
   --workers 150 --cpus 0-63,96-181 \
   --windows-per-batch 64 \
+  --worker-pool persistent --window-preparation parallel \
   --max-memory-bytes 600000000000 --memory-policy process-limit
 ```
 
@@ -48,6 +49,13 @@ older campaign's64–95 reservation. This is not an exclusive host reservation o
 a promise of proportional speedup; shared membership, memory bandwidth and serial
 commit work can limit scaling. Full validation and executable identity are in
 the latest `CODEX_PROGRESS.md` delivery entry.
+
+The rank6 release additionally removes temporary resident-probe allocations,
+reuses bounded workers and validated immutable metadata, separates work/resource
+wakeups, optionally materializes planned windows in parallel, and reduces
+checkpoint validation/encoding overhead. Its exact phase measurements and
+limitations are documented in `finite_rank6_hotpath_2026-10-18.md`. The historical
+results below describe earlier releases, not additional full-rank coverage.
 
 ### Resident cleanup and publication (October 18)
 

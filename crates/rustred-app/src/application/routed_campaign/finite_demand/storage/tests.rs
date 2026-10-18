@@ -11,6 +11,7 @@ mod framing;
 mod lookup;
 mod provenance;
 mod raw;
+mod validation;
 
 struct Scratch(PathBuf);
 impl Scratch {

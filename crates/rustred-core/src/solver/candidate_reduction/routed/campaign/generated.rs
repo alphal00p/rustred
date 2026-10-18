@@ -200,6 +200,50 @@ impl<'a, const N: usize> CandidateRoutedGeneratedBaseline<'a, N> {
         admission: CandidateEntryAdmission<'_, N>,
         workers: usize,
         cancellation: &AtomicBool,
+        observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
+    ) -> Result<CandidateRoutedCompletedDelta<'a, N>, CandidateRoutedCompletedTraceError<N>> {
+        self.trace_batch_with_execution(
+            resident,
+            targets,
+            admission,
+            workers,
+            None,
+            cancellation,
+            observer,
+        )
+    }
+
+    /// Reuse a bounded execution pool across independent atomic finite batches.
+    /// All jobs finish before returning; only the reducer is borrowed by the
+    /// returned delta, so the resident index may subsequently be rebound.
+    pub fn trace_batch_with_resident_pool(
+        &self,
+        resident: Option<&TrustedGeneratedResidentWork>,
+        targets: impl IntoIterator<Item = IntegralKey>,
+        admission: CandidateEntryAdmission<'_, N>,
+        pool: &CandidateRoutedWorkerPool,
+        cancellation: &AtomicBool,
+        observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
+    ) -> Result<CandidateRoutedCompletedDelta<'a, N>, CandidateRoutedCompletedTraceError<N>> {
+        self.trace_batch_with_execution(
+            resident,
+            targets,
+            admission,
+            pool.workers(),
+            Some(pool),
+            cancellation,
+            observer,
+        )
+    }
+
+    fn trace_batch_with_execution(
+        &self,
+        resident: Option<&TrustedGeneratedResidentWork>,
+        targets: impl IntoIterator<Item = IntegralKey>,
+        admission: CandidateEntryAdmission<'_, N>,
+        workers: usize,
+        pool: Option<&CandidateRoutedWorkerPool>,
+        cancellation: &AtomicBool,
         mut observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
     ) -> Result<CandidateRoutedCompletedDelta<'a, N>, CandidateRoutedCompletedTraceError<N>> {
         if let Some(resident) = resident {
@@ -223,13 +267,14 @@ impl<'a, const N: usize> CandidateRoutedGeneratedBaseline<'a, N> {
         );
         let (report, delta) = self
             .reducer
-            .trace_parallel(
+            .trace_with_pool(
                 targets,
                 admission,
                 workers,
                 Some(self.budget),
                 Some(self.census_limits),
                 baseline,
+                pool,
                 cancellation,
                 &mut observer,
             )

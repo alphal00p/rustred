@@ -75,6 +75,67 @@ fn assert_row_counts(generation: &ValidatedGeneration, expected: &[u64]) {
 }
 
 #[test]
+fn finite_worker_pool_reuses_once_and_matches_per_group_with_phase_receipts() {
+    let mut expected = None;
+    for (reuse_worker_pool, parallel_window_preparation) in
+        [(false, false), (true, false), (true, true)]
+    {
+        let f = Fixture::new();
+        let source = overlapping_source(&f);
+        let mut p = policy(4);
+        p.reuse_worker_pool = reuse_worker_pool;
+        p.parallel_window_preparation = parallel_window_preparation;
+        p.max_windows_per_batch = 3;
+        p.max_resident_work_bytes = 256 * 1024 * 1024;
+        let path = f.directory.join("pool-comparison");
+        let cancel = AtomicBool::new(false);
+        let events = RefCell::new(Vec::new());
+        let observer = |event| events.borrow_mut().push(event);
+        let mut session = Session::<1>::create(&source, p, &path, &cancel, &observer).unwrap();
+        while let Some(window) = session.step(&cancel, &observer).unwrap().window {
+            let timings = window.timings;
+            assert!(timings.total_seconds >= timings.trace_seconds);
+            assert!(timings.total_seconds >= timings.commit_seconds);
+            assert!(timings.planning_seconds >= 0. && timings.binding_seconds >= 0.);
+            assert!(timings.materialization_seconds >= 0. && timings.cleanup_seconds >= 0.);
+            assert!(timings.staging_seconds >= 0.);
+            assert_eq!(
+                window.resident["records"].as_u64(),
+                Some(session.generation().unwrap().state().completed_work)
+            );
+        }
+        assert_eq!(
+            events
+                .borrow()
+                .iter()
+                .filter(|e| e["event"] == "finite_worker_pool_ready")
+                .count(),
+            usize::from(reuse_worker_pool)
+        );
+        let generation = session.generation().unwrap();
+        assert_row_counts(&generation, &[3, 0, 5]);
+        drop(session);
+        let output = exact_output(&f, &source, p, &path, "exact-pool-output");
+        if let Some(previous) = &expected {
+            assert_eq!(&output, previous);
+        } else {
+            expected = Some(output);
+        }
+        // An already-complete process creates no pool just to shut it down.
+        let events = RefCell::new(Vec::new());
+        let observer = |event| events.borrow_mut().push(event);
+        let mut resumed = Session::<1>::resume(&source, p, &path, &cancel, &observer).unwrap();
+        assert!(resumed.step(&cancel, &observer).unwrap().window.is_none());
+        assert!(
+            !events
+                .borrow()
+                .iter()
+                .any(|e| e["event"] == "finite_worker_pool_ready")
+        );
+    }
+}
+
+#[test]
 fn finite_grouping_w1_w4_g1_g8_g64_preserves_exact_union_and_duplicate_occurrences() {
     let mut expected = None;
     for workers in [1, 4] {

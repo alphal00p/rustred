@@ -87,6 +87,13 @@ pub(crate) struct StorageLimits {
     pub max_transient_bytes: usize,
 }
 impl StorageLimits {
+    /// Page-cache reservations are operational reader state, not structural
+    /// validation privileges. Every other grant stays in the exact memo key.
+    fn validation_key(mut self) -> Self {
+        self.max_cached_pages = 0;
+        self.max_cached_page_bytes = 0;
+        self
+    }
     fn validate(self) -> Result<()> {
         if self.max_arity == 0
             || self.max_page_records == 0
@@ -234,6 +241,23 @@ pub(crate) struct ValidatedGeneration {
     digest: Digest,
     manifest: Arc<wire::Manifest>,
     state: Arc<GenerationState>,
+    validation: Arc<ValidatedMetadata>,
+}
+
+/// In-process proof of the exact immutable generation's metadata validation.
+/// Never serialized, accepted from callers or reused for a different digest.
+struct ValidatedMetadata {
+    grants: StorageLimits,
+    directory: TrustedGeneratedWorkDirectory,
+}
+impl fmt::Debug for ValidatedMetadata {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ValidatedMetadata")
+            .field("grants", &self.grants)
+            .field("directory", &self.directory.statistics())
+            .finish()
+    }
 }
 impl ValidatedGeneration {
     pub fn generation(&self) -> u64 {
