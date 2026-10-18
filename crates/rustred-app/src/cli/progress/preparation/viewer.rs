@@ -8,8 +8,12 @@ use std::sync::{
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crossterm::{cursor, execute, style};
+use crossterm::{
+    cursor, execute, style,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen},
+};
 use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Rect;
 use ratatui::{Terminal, TerminalOptions, Viewport};
 
 use super::{
@@ -88,27 +92,72 @@ fn now() -> f64 {
         .map_or(0.0, |age| age.as_secs_f64())
 }
 
-/// Same inline Ratatui/cursor-guard convention as the native shards monitor.
+/// A write-only, full-screen consumer: no cursor-position query or stdin read.
+/// The scheduler intentionally starts us in a separate session with /dev/null
+/// stdin. Inline viewports require a DSR reply and cannot work reliably there.
 /// NO_COLOR disables color, not the aligned table itself.
 struct Dashboard {
     terminal: Terminal<CrosstermBackend<io::Stderr>>,
     color: bool,
+    area: Rect,
 }
+
+fn terminal_area() -> io::Result<Rect> {
+    // Crossterm's size() may inspect stdout or /dev/tty. Neither need exist for
+    // this detached, stderr-only viewer. Query the actual output descriptor.
+    #[cfg(unix)]
+    let (width, height) = {
+        use std::os::fd::AsRawFd;
+        let mut size = libc::winsize {
+            ws_row: 0,
+            ws_col: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        // SAFETY: size is writable and correctly sized for TIOCGWINSZ; the
+        // borrowed stderr descriptor remains open for the whole call.
+        if unsafe { libc::ioctl(io::stderr().as_raw_fd(), libc::TIOCGWINSZ, &mut size) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        (size.ws_col, size.ws_row)
+    };
+    #[cfg(not(unix))]
+    let (width, height) = crossterm::terminal::size()?;
+    if width == 0 || height == 0 {
+        return Err(io::Error::other("terminal reports an empty viewport"));
+    }
+    Ok(Rect::new(0, 0, width, height))
+}
+
 impl Dashboard {
     fn new(color: bool) -> io::Result<Self> {
-        let height = crossterm::terminal::size()
-            .map_or(24, |(_, h)| h)
-            .clamp(1, 24);
+        let area = terminal_area()?;
         let mut terminal = Terminal::with_options(
             CrosstermBackend::new(io::stderr()),
             TerminalOptions {
-                viewport: Viewport::Inline(height),
+                viewport: Viewport::Fixed(area),
             },
         )?;
-        terminal.hide_cursor()?;
-        Ok(Self { terminal, color })
+        if let Err(error) = execute!(terminal.backend_mut(), EnterAlternateScreen, cursor::Hide) {
+            let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen, cursor::Show);
+            return Err(error);
+        }
+        if let Err(error) = terminal.clear() {
+            let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen, cursor::Show);
+            return Err(error);
+        }
+        Ok(Self {
+            terminal,
+            color,
+            area,
+        })
     }
     fn draw(&mut self, status: &Status) -> io::Result<()> {
+        let area = terminal_area()?;
+        if area != self.area {
+            self.terminal.resize(area)?;
+            self.area = area;
+        }
         self.terminal
             .draw(|frame| render::render(frame, status, now(), self.color))?;
         Ok(())
@@ -121,7 +170,7 @@ impl Drop for Dashboard {
             self.terminal.backend_mut(),
             style::ResetColor,
             cursor::Show,
-            cursor::MoveToNextLine(1)
+            LeaveAlternateScreen
         );
         let _ = self.terminal.backend_mut().flush();
     }
@@ -171,7 +220,13 @@ pub(crate) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     let _signals = Signals::register(&cancel)?;
     let tty = io::stderr().is_terminal() && std::env::var("TERM").ok().as_deref() != Some("dumb");
     let mut dashboard = if tty {
-        Dashboard::new(std::env::var_os("NO_COLOR").is_none()).ok()
+        match Dashboard::new(std::env::var_os("NO_COLOR").is_none()) {
+            Ok(dashboard) => Some(dashboard),
+            Err(error) => {
+                eprintln!("Preparation TUI unavailable ({error}); using plain progress.");
+                None
+            }
+        }
     } else {
         None
     };
@@ -182,8 +237,9 @@ pub(crate) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             return Ok(());
         }
         if let Some(terminal) = &mut dashboard {
-            if terminal.draw(&status).is_err() {
+            if let Err(error) = terminal.draw(&status) {
                 dashboard = None;
+                eprintln!("Preparation TUI stopped ({error}); using plain progress.");
             }
         }
         if dashboard.is_none()
@@ -200,6 +256,16 @@ pub(crate) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         }
         previous_state.clone_from(&status.state);
         if status.terminal() {
+            // Leave one useful final record in normal scrollback after restoring
+            // the caller's terminal. The alternate screen itself is transient.
+            if dashboard.take().is_some() {
+                writeln!(
+                    io::stderr().lock(),
+                    "{}",
+                    render::plain(&status, now(), false)
+                )
+                .map_err(|error| CliError::OutputIo(error.to_string()))?;
+            }
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(250));

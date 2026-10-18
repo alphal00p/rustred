@@ -1,5 +1,41 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 19 — six-loop generation TUI repair
+
+User stopped the first six-loop attempt and requested a fresh-start command
+after a tested, committed and pushed coloured dashboard. Old run
+`six_loop_study/runs/scalar-r0` remains untouched. No solver restart is delegated
+or performed, and unrelated FeynKit edits remain excluded.
+
+Reproduced the plain-text fallback with the previous frozen binary in a detached
+PTY with null stdin and write-only stderr. The inline Ratatui viewport requested
+a cursor reply from an unavailable input/control terminal; failure was silently
+ignored. Replaced this with a full-screen, resize-aware fixed viewport whose size
+is queried on stderr itself. No input reads, terminal replies, raw mode or solver
+control are needed. Initialization/draw failures now explain the fallback.
+Alternate-screen and cursor restoration preserve the shell and final scrollback.
+
+Presentation now has a bordered title/elapsed clock, parent-completion gauge,
+aligned CPU/RAM/host-memory rows, short distinct parent IDs, striped parent rows,
+native phases, sector/checkpoint counts, new rule/residual counts, exact-frame
+sizes and event age. CPU colours retain the requested 50%/75% thresholds.
+NO_COLOR retains the layout; pipes retain plain progress and JSON is unchanged.
+
+Optimized release SHA256:
+`b8b93b976fa1e9e301fb2bf1bfb78ee5a97256558fcafd943fc2d3135be59260`.
+Build receipt (224.39 s): `TMP/six-loop-dashboard-build-20261019/`.
+Five PTY tests, all 12 native preparation model/render/viewer tests, and all 44
+Python steering/scheduler/dashboard tests pass. Visual inspection uses a labelled
+synthetic 14-parent screen, not claimed live measurements. The actual two-K1
+launcher gate completes with 2 rules / 2 terminals and a coloured native viewer.
+No algebra, campaign
+resource grant, checkpoint or generation strategy is changed.
+
+Fresh launch: repeat the study README command with
+`RUSTRED_6L_RUN=$PWD/six_loop_study/runs/scalar-r0-dashboard` and the updated
+`six_loop_study/bin/rustred`, without `--resume`. Existing frozen runs do not
+silently change binaries.
+
 ## October 18 — independent six-loop topology and generation study
 
 User requests a separate `six_loop_study/`: FeynKit phi3 vacuum graph

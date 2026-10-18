@@ -30,9 +30,12 @@ graph/input preparation timings, not IBP generation or closure timings.
 
 ## Native generation plumbing
 
-The frozen optimized executable is `bin/rustred`, SHA256:
+The initial generation delivery's optimized executable had SHA256:
 
 `baafaba31980b6a9e2e9fff3f799f4ed26369d3e6f7b135539325df73bb575fc`
+
+The dashboard-only refresh below supersedes it at `bin/rustred`; existing runs
+retain their own frozen executable.
 
 It compiles generation arities 1 and 21, independently of the existing five-loop
 campaign binaries. The generic candidate codec, explicit input selection and
@@ -101,3 +104,30 @@ Local detailed evidence, not committed output artifacts:
 
 Neither five-loop production campaign was stopped, restarted or modified.
 Unrelated FeynKit edits were preserved and excluded from this delivery.
+
+## October 19 — native dashboard refresh
+
+The initial viewer silently fell back to plain text when its inline viewport
+could not query the cursor position from a detached process with null stdin.
+A write-only stderr PTY reproduces that failure with the initial executable.
+
+The replacement uses a full-screen Ratatui viewport, stderr-descriptor size
+queries, resize-aware drawing and alternate-screen restoration. It never reads
+stdin or requests a cursor reply. The versioned snapshot producer, solver,
+scheduling, resource policy and checkpoint semantics are unchanged.
+
+Current optimized `bin/rustred` SHA256:
+`b8b93b976fa1e9e301fb2bf1bfb78ee5a97256558fcafd943fc2d3135be59260`.
+
+Five real native PTY tests cover detached/write-only stderr, colours, NO_COLOR,
+resize, signal cleanup without snapshot mutation, final scrollback, plain pipes
+and JSON preservation. A synthetic 14-parent snapshot was visually inspected as
+a rendered terminal image; it is explicitly not a campaign measurement. The
+launcher also passes a two-parent K1 generation smoke through the new dashboard
+(2 rules / 2 terminals). All 12 native preparation model/render/viewer tests and
+all 44 Python steering/scheduler/dashboard tests pass.
+Evidence: `../TMP/six-loop-dashboard-build-20261019/`; native layout regression
+results: `../TMP/six-loop-dashboard-tests-build-20261019/`.
+
+The user's interrupted six-loop run is left intact. No six-loop restart was
+performed by the assistant. Use a new run directory to get the new frozen build.

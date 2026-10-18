@@ -121,9 +121,19 @@ this study does not silently relax those or select that backend by default.
 
 ## Monitor, interrupt and resume
 
-The launcher uses the existing native preparation dashboard, with independent
-parent rows, active cores, RSS/host availability, current native phases, and
-completed-sector checkpoint counts. The producer writes `snapshot.json` and
+On a terminal the launcher uses a **full-screen, coloured Ratatui dashboard**:
+parent-completion bar, aligned parent rows with distinguishable short IDs,
+active/reserved cores, RSS/host availability, native phases, rule/residual counts,
+frame sizes and completed-sector checkpoint counts. CPU use is red below 50%
+of the reservation, yellow from 50% to 75%, and green above that. The screen
+resizes with the terminal and is restored on exit. A final summary remains in
+normal scrollback. `NO_COLOR` disables colours without disabling the table;
+redirected output uses periodic plain-text progress.
+
+The viewer is read-only and needs no stdin or terminal cursor replies, including
+when launched as a detached child in Zellij. An initialization/rendering failure
+is reported explicitly before falling back to plain progress. The producer
+writes `snapshot.json` and
 `events.jsonl` beneath each `attempts/<timestamp>/` directory, so the same run can
 be observed from another terminal without controlling the solver:
 
@@ -158,6 +168,11 @@ manifest instead of overwriting unknown partial data. Choose a new run directory
 for different rank, solver, or CPU/resource settings. Reusing R0 sector shards
 as if they had been generated at R1 is deliberately unsupported.
 
+For a fresh start with an updated executable/dashboard, use a **new directory**
+(for example `six_loop_study/runs/scalar-r0-dashboard`) and repeat the launch
+command without `--resume`. Keep the earlier directory unchanged; each run
+retains its own frozen executable and checkpoints.
+
 ## Result and interpretation
 
 Each completed parent produces:
@@ -186,3 +201,14 @@ PYTHONPATH=six_loop_study:tools/research/runtime_order \
   python -B -m unittest test_generate test_generation_scheduler \
   test_generation_monitor test_pipeline
 ```
+
+Native terminal regression tests (no IBP generation):
+
+```bash
+PYTHONPATH=tools/research/runtime_order \
+  RUSTRED_PREPARATION_VIEWER="$PWD/six_loop_study/bin/rustred" \
+  python -B -m unittest test_preparation_tui
+```
+
+These exercise detached/write-only terminal output, resizing, colour suppression,
+interrupt cleanup and the unchanged plain/JSON interfaces.

@@ -5,7 +5,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Cell, Paragraph, Row, Table};
+use ratatui::widgets::{Block, BorderType, Cell, Gauge, Paragraph, Row, Table, Wrap};
 
 pub(super) fn clean(value: &str) -> String {
     value
@@ -224,14 +224,6 @@ pub(super) fn plain(status: &Status, now: f64, all_jobs: bool) -> String {
 }
 
 pub(super) fn render(frame: &mut Frame<'_>, status: &Status, now: f64, color: bool) {
-    let areas = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(2),
-        Constraint::Min(2),
-        Constraint::Length(2),
-    ])
-    .split(frame.area());
     let accent = if color {
         Style::default()
             .fg(if status.failed() {
@@ -245,45 +237,115 @@ pub(super) fn render(frame: &mut Frame<'_>, status: &Status, now: f64, color: bo
     } else {
         Style::default()
     };
-    frame.render_widget(Paragraph::new(title(status, now)).style(accent), areas[0]);
-    frame.render_widget(Paragraph::new(summary(status)), areas[1]);
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(accent)
+        .title(format!(
+            " RustRed / {} / {} / {} ",
+            clean(&status.phase).to_uppercase(),
+            clean(&status.state).to_uppercase(),
+            duration(Some(status.elapsed_seconds))
+        ));
+    let inner = block.inner(frame.area());
+    frame.render_widget(block, frame.area());
+    let areas = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(3),
+        Constraint::Min(2),
+        Constraint::Length(3),
+    ])
+    .split(inner);
+    let ratio = if status.jobs.is_empty() {
+        0.0
+    } else {
+        status.completed_jobs() as f64 / status.jobs.len() as f64
+    };
+    frame.render_widget(
+        Gauge::default()
+            .ratio(ratio)
+            .gauge_style(accent)
+            .label(format!(
+                "PARENTS  {} / {} complete  ·  generation, not closure",
+                status.completed_jobs(),
+                status.jobs.len()
+            )),
+        areas[0],
+    );
     let aggregate = status.aggregate.as_ref();
     let memory = &status.resources.memory;
-    let cpu_line = Span::styled(
-        format!(
-            "CPU {} cores",
-            cpu(
+    let used = aggregate.and_then(|a| a.sampled_rss_bytes);
+    let mem_style = if color
+        && used
+            .zip(memory.effective_soft_memory_bytes)
+            .is_some_and(|(u, s)| u >= s)
+    {
+        Style::default().fg(Color::Red)
+    } else {
+        Style::default()
+    };
+    let stats = vec![
+        Row::new(vec![
+            Cell::from("CPU / reserved"),
+            Cell::from(cpu(
                 aggregate.and_then(|a| a.observed_cores),
-                Some(status.resources.total_workers)
-            )
-        ),
-        cpu_style(
-            aggregate.and_then(|a| a.observed_cores),
-            Some(status.resources.total_workers),
-            color,
-        ),
-    );
-    let resource_lines = vec![
-        Line::from(vec![
-            cpu_line,
-            Span::raw(format!(
-                " | RAM {} / {} hard ({} soft)",
-                bytes(aggregate.and_then(|a| a.sampled_rss_bytes)),
-                bytes(memory.effective_hard_memory_bytes),
-                bytes(memory.effective_soft_memory_bytes)
+                Some(status.resources.total_workers),
+            ))
+            .style(cpu_style(
+                aggregate.and_then(|a| a.observed_cores),
+                Some(status.resources.total_workers),
+                color,
+            )),
+            Cell::from(format!(
+                "{} slots × {} workers  ·  {} active / {} queued",
+                status.resources.jobs,
+                status.resources.workers_per_job,
+                count(aggregate.and_then(|a| a.active_jobs)),
+                count(aggregate.and_then(|a| a.pending_jobs))
             )),
         ]),
-        Line::from(format!(
-            "RAM peak {} | host available {} / floor {}",
-            bytes(aggregate.and_then(|a| a.sampled_peak_tree_rss_bytes)),
-            bytes(aggregate.and_then(|a| a.host_available_bytes)),
-            bytes(memory.host_memory_reserve_bytes)
-        )),
+        Row::new(vec![
+            Cell::from("RAM / ceiling"),
+            Cell::from(format!(
+                "{} / {}",
+                bytes(used),
+                bytes(memory.effective_hard_memory_bytes)
+            ))
+            .style(mem_style),
+            Cell::from(format!(
+                "stop at {}  ·  peak {}",
+                bytes(memory.effective_soft_memory_bytes),
+                bytes(aggregate.and_then(|a| a.sampled_peak_tree_rss_bytes))
+            )),
+        ]),
+        Row::new(vec![
+            Cell::from("Host available"),
+            Cell::from(bytes(aggregate.and_then(|a| a.host_available_bytes))),
+            Cell::from(format!(
+                "status age {}{}",
+                duration(Some(status.age(now))),
+                if !status.terminal() && status.age(now) > STALE_SECONDS {
+                    " · STALE SUPERVISOR"
+                } else {
+                    ""
+                }
+            )),
+        ]),
     ];
-    frame.render_widget(Paragraph::new(resource_lines), areas[2]);
-    let wide = areas[3].width >= 125;
-    let narrow = areas[3].width < 70;
-    let capacity = areas[3].height.saturating_sub(1) as usize;
+    frame.render_widget(
+        Table::new(
+            stats,
+            [
+                Constraint::Length(16),
+                Constraint::Length(24),
+                Constraint::Min(10),
+            ],
+        )
+        .column_spacing(2),
+        areas[1],
+    );
+    let wide = areas[2].width >= 125;
+    let narrow = areas[2].width < 70;
+    let capacity = areas[2].height.saturating_sub(2) as usize;
     let ordered = status
         .jobs
         .iter()
@@ -301,10 +363,10 @@ pub(super) fn render(frame: &mut Frame<'_>, status: &Status, now: f64, color: bo
                 .filter(|job| !job.active() && job.state != "pending"),
         );
     let mut rows = Vec::with_capacity(capacity.min(status.jobs.len()));
-    for job in ordered.take(capacity) {
+    for (index, job) in ordered.take(capacity).enumerate() {
         let native = job.native();
         let mut cells = vec![
-            Cell::from(clean(&job.id)),
+            Cell::from(parent_label(job)),
             Cell::from(phase(job)),
             Cell::from(sectors(job)),
         ];
@@ -338,6 +400,8 @@ pub(super) fn render(frame: &mut Frame<'_>, status: &Status, now: f64, color: bo
             Style::default().fg(Color::Red)
         } else if color && matches!(job.state.as_str(), "completed" | "retained") {
             Style::default().fg(Color::Green)
+        } else if color && index % 2 == 0 {
+            Style::default().bg(Color::Rgb(25, 29, 39))
         } else {
             Style::default()
         };
@@ -345,13 +409,13 @@ pub(super) fn render(frame: &mut Frame<'_>, status: &Status, now: f64, color: bo
     }
     let mut headings = vec!["Parent", "Phase", "Sectors"];
     let mut widths = vec![
-        Constraint::Length(12),
+        Constraint::Length(16),
         Constraint::Min(if wide { 18 } else { 12 }),
         Constraint::Length(7),
     ];
     if !narrow {
         headings.push("CP new/reuse");
-        widths.push(Constraint::Length(13));
+        widths.push(Constraint::Length(12));
     }
     if wide {
         headings.extend(["Rules+", "Resid+", "Max frame"]);
@@ -373,19 +437,42 @@ pub(super) fn render(frame: &mut Frame<'_>, status: &Status, now: f64, color: bo
     }
     frame.render_widget(
         Table::new(rows, widths)
-            .header(Row::new(headings).style(accent))
+            .header(Row::new(headings).style(accent).bottom_margin(1))
             .column_spacing(1),
-        areas[3],
+        areas[2],
     );
     let hidden = status.jobs.len().saturating_sub(capacity);
     let footer = status.stop_reason.as_deref().map(clean).unwrap_or_else(|| {
         format!(
-            "{} hidden parents | status age {} | CP = sector checkpoint, not in-sector resume",
+            "{} hidden parents · CP = completed-sector checkpoint; active sectors restart",
             hidden,
-            duration(Some(status.age(now)))
         )
     });
-    frame.render_widget(Paragraph::new(format!("{footer}\nProgress ≠ closure; Rules+/Resid+ are new this invocation. Read-only; campaign signals still stop work.")), areas[4]);
+    let quiet = if color {
+        Style::default().fg(Color::Gray)
+    } else {
+        Style::default()
+    };
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled(footer, quiet)),
+            Line::from("Rules+/Resid+ = new this invocation, not an independent master count."),
+            Line::from("Read-only; campaign signals still stop work."),
+        ])
+        .wrap(Wrap { trim: false }),
+        areas[3],
+    );
+}
+
+fn parent_label(job: &Job) -> String {
+    let id = clean(&job.id);
+    let short: String = id
+        .strip_prefix("topology-")
+        .unwrap_or(&id)
+        .chars()
+        .take(8)
+        .collect();
+    format!("P{:02} · {short}", job.metadata.parent)
 }
 
 #[cfg(test)]
@@ -475,6 +562,42 @@ mod tests {
         assert_eq!(cpu_style(Some(f64::NAN), Some(4), true), Style::default());
         assert_eq!(cpu_style(Some(4.0), Some(0), true), Style::default());
         assert_eq!(cpu_style(Some(4.0), Some(4), false), Style::default());
+    }
+
+    #[test]
+    fn topology_ids_remain_distinguishable_and_fullscreen_has_borders_and_progress() {
+        let mut value = super::super::model::tests::fixture();
+        value["jobs"][0]["id"] = "topology-05373c99ef72fce4".into();
+        let mut other = value["jobs"][0].clone();
+        other["id"] = "topology-28bbd9922728f59c".into();
+        other["metadata"]["parent"] = 4.into();
+        value["jobs"].as_array_mut().unwrap().push(other);
+        let status = Status::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(160, 32)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &status, 101.0, true))
+            .unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        for expected in [
+            "╭",
+            "╰",
+            "PARENTS",
+            "0 / 2",
+            "05373c99",
+            "28bbd992",
+            "Host available",
+            "RAM / ceiling",
+            "Rules+",
+            "CP new/reuse",
+        ] {
+            assert!(text.contains(expected), "missing {expected:?}");
+        }
     }
 
     #[test]
