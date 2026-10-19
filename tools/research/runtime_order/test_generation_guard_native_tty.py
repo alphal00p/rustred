@@ -289,10 +289,10 @@ powers=[1]
         self.assertIn(b"ETA", after)
         self.assertIn(b"Windows / group", after)
         self.assertIn(b"Last trace/commit", after)
-        # Inline viewport is24 rows in this32-row terminal. Cleanup must land
+        # Inline viewport is26 rows in this32-row terminal. Cleanup must land
         # at the viewport bottom, not scroll the whole screen's last row.
         self.assertNotIn(b"\x1b[32;1H", self.last_display)
-        self.assertIn(b"\x1b[24;1H", self.last_display)
+        self.assertIn(b"\x1b[26;1H", self.last_display)
 
     def test_native_cancellation_keeps_display_and_drains_group(self):
         display, replies, receipt = self.run_guard("cancelled", cancelled=True)

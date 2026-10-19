@@ -1,5 +1,61 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 19 — finite post-chase progress and rank-six delivery
+
+User requested visible post-chase progress, a meaningful non-warming ETA label,
+and an optimized binary/command for the existing campaign's next R≤6 extension.
+Root inspected the live R5 process without changing or interrupting it.
+Five-second CPU sampling attributed 55.56% to completed-key quicksort and
+38.03% to memcmp. A subsequent sample after `finite_backend_before_commit`
+attributed 67.02% to resident membership checks and 26.60% to hashing. This
+was a 308,276,322-record new delta against 500,197,014 saved records, not a
+deadlock. During development the old process committed that batch and advanced
+from generation 151816 to 151823. Its original ETA then became available:
+the warm-up was correctly waiting for this invocation's first new commit.
+
+Implemented bounded `GeneratedWorkProgress` scalar producer/consumer telemetry
+in the Rust core and passed it through native finite lifecycle/CLI. It reports
+export accounting/packing/sort/order validation, resident checks/reservation/
+staging/installation, work/terminal/zero-page writes, metadata, atomic CURRENT
+and batch cleanup. Exact-total stages show a cyan progress bar and counts;
+sorting reports actual comparisons without a made-up percentage. No external
+observer/IO enters post-CURRENT index adoption. Progress is not serialized in
+checkpoint identity or used for coverage/closure decisions.
+
+Ratatui separates phase elapsed/report age from chase age and the independent
+monitor heartbeat. Completed chase metrics say `done`, and the run-average ETA
+says `awaiting first new commit` when appropriate rather than perpetual-looking
+`warming up`. The underlying whole-invocation committed-input ETA is unchanged;
+retained work is never counted as newly solved throughput. Legacy and finite
+lanes, saved schemas, scope and RAM policy are unchanged.
+
+Validation so far: 273 focused finite app checks pass, including byte-identical
+CURRENT with telemetry enabled/disabled, cold resume, interruption, source/raw
+integrity, ETA and terminal layout; five existing manual diagnostics ignored.
+Three packed resident public controls and one public progress control pass;
+two opt-in measurement-only controls ignored. Python steering/startup controls:
+49 passed, and all three actual-native TTY cases pass on the final optimized executable.
+Initial direct unit execution had only environment failures (8-CPU affinity vs
+a shipped 32-worker policy, then missing OMP=1); rerunning on 32 CPUs with all
+inner pools set to one passes without changing those assertions.
+
+The optimized capacity-dispatch build and real-native TTY checks are complete.
+Frozen executable SHA256:
+`9bf9de92618c78511e64643ae744820219d72e9321793c6795d4553148115cd3`.
+Real-terminal checks include interruption/draining, redirected descriptors,
+colour/layout, and restoring the enlarged 26-row viewport correctly. Source builds/tests use workspace-local targets and low-priority
+bounded compilation, leaving both production campaigns alone. No IBP generation,
+master evaluation, numerical substitution or production restart was performed.
+Monitoring contract: `docs/finite_post_chase_monitoring.md`. Local profiling:
+`TMP/finite-post-chase-live-20261019/`. Delivery binary is frozen separately
+under `TMP/releases/20261019-finite-post-chase-progress/`; the default
+`target/release/rustred` is also refreshed atomically. Existing frozen running
+executables remain untouched. The next command is documented in
+`docs/finite_post_chase_monitoring.md`; it extends the existing finite campaign
+to rank six after rank-five solve/publication finishes, preserving D≤10,
+150 workers, the saved partition and the 600 GB process allowance.
+Unrelated FeynKit work is excluded.
+
 ## October 19 — seven-loop offline topology/input study
 
 User requested `seven_loops/`, following the six-loop study if enumeration is

@@ -227,9 +227,18 @@ impl TrustedGeneratedResidentWork {
     /// expose staged keys. Only new powers are copied into shared chunks;
     /// occasional hash growth moves copyable slots, never heap-owned keys.
     pub fn prepare_delta<const N: usize>(
+        self,
+        delta: &crate::solver::CandidateRoutedCompletedDelta<'_, N>,
+        cancel: &AtomicBool,
+    ) -> GeneratedWorkResult<Option<PreparedResidentWork>> {
+        self.prepare_delta_with_progress(delta, cancel, None)
+    }
+
+    pub fn prepare_delta_with_progress<const N: usize>(
         mut self,
         delta: &crate::solver::CandidateRoutedCompletedDelta<'_, N>,
         cancel: &AtomicBool,
+        progress: Option<&GeneratedWorkProgress>,
     ) -> GeneratedWorkResult<Option<PreparedResidentWork>> {
         check(cancel)?;
         if delta.execution() != &self.execution || delta.predecessor() != self.generation {
@@ -237,13 +246,21 @@ impl TrustedGeneratedResidentWork {
                 "resident delta differs from captured execution/generation",
             ));
         }
-        for key in delta.work() {
+        let mut stage = GeneratedWorkProgress::begin(
+            progress,
+            "validate_resident_delta",
+            Some(delta.work().len()),
+            "records",
+        );
+        for (i, key) in delta.work().iter().enumerate() {
             check(cancel)?;
             key.validate(self.execution.physical_arity as usize)?;
             if self.work.contains(key) {
                 return Err(corrupt("native resident delta repeats completed Work"));
             }
+            stage.advance(i + 1);
         }
+        stage.finish(delta.work().len());
         let vector = delta
             .work()
             .len()
@@ -262,19 +279,30 @@ impl TrustedGeneratedResidentWork {
             check(cancel)?;
             return Ok(None);
         }
+        let mut stage =
+            GeneratedWorkProgress::begin(progress, "reserve_resident_index", None, "allocations");
         if !self.work.reserve(delta.work().len(), cancel)? {
             check(cancel)?;
             return Ok(None);
         }
+        stage.finish(1);
         let mut staged = Vec::new();
         if staged.try_reserve_exact(delta.work().len()).is_err() {
             check(cancel)?;
             return Ok(None);
         }
-        for key in delta.work() {
+        let mut stage = GeneratedWorkProgress::begin(
+            progress,
+            "stage_resident_delta",
+            Some(delta.work().len()),
+            "records",
+        );
+        for (i, key) in delta.work().iter().enumerate() {
             check(cancel)?;
             staged.push(self.work.stage(key));
+            stage.advance(i + 1);
         }
+        stage.finish(delta.work().len());
         let staged_payload = slot_payload(staged.capacity())?;
         if sum(&[
             self.reserved,
@@ -331,12 +359,31 @@ impl PreparedResidentWork {
     /// durable native-sealed or unchanged-Work metadata commit. All reservation was done before
     /// CURRENT; moving the staged keys requires no new allocation or I/O.
     pub fn after_durable_commit(
-        mut self,
+        self,
         generation: GeneratedWorkDigest,
     ) -> TrustedGeneratedResidentWork {
-        for slot in self.delta {
+        self.after_durable_commit_with_progress(generation, None)
+    }
+
+    /// Only bounded process-local scalar telemetry is updated; no external
+    /// callback or fallible operation enters the post-CURRENT adoption path.
+    pub fn after_durable_commit_with_progress(
+        mut self,
+        generation: GeneratedWorkDigest,
+        progress: Option<&GeneratedWorkProgress>,
+    ) -> TrustedGeneratedResidentWork {
+        let count = self.delta.len();
+        let mut stage = GeneratedWorkProgress::begin(
+            progress,
+            "install_resident_delta",
+            Some(count),
+            "records",
+        );
+        for (i, slot) in self.delta.into_iter().enumerate() {
             self.previous.work.insert_reserved(slot);
+            stage.advance(i + 1);
         }
+        stage.finish(count);
         self.previous.generation = generation;
         self.previous
     }

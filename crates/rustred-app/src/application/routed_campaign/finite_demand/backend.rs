@@ -18,7 +18,8 @@ use super::{
 use crate::application::routed_campaign::{input::Selection, snapshot_json, walking::finite_scope};
 use crate::{AppError, AppErrorKind, OwnerDomainWalkRequest, RoutedCampaignRequest};
 use rustred::persistence::finite_work::{
-    GeneratedWorkError, GeneratedWorkErrorKind, PreparedResidentWork, TrustedGeneratedResidentWork,
+    GeneratedWorkError, GeneratedWorkErrorKind, GeneratedWorkProgress, PreparedResidentWork,
+    TrustedGeneratedResidentWork,
 };
 use rustred::solver::{
     CandidateEntryAdmission, CandidateRoutedDeltaExportLimits, CandidateRoutedTraceCensusLimits,
@@ -127,6 +128,7 @@ pub(crate) struct Session<const N: usize> {
     source_reduction: rustred::reduction::ReductionLimits,
     effective_reduction: rustred::reduction::ReductionLimits,
     worker_pool: Option<CandidateRoutedWorkerPool>,
+    work_progress: Option<GeneratedWorkProgress>,
 }
 
 struct Admitted<const N: usize> {
@@ -385,7 +387,13 @@ impl<const N: usize> Session<N> {
             source_reduction: admitted.source_reduction,
             effective_reduction: admitted.effective_reduction,
             worker_pool: None,
+            work_progress: None,
         }
+    }
+
+    pub(crate) fn set_work_progress(&mut self, progress: Option<GeneratedWorkProgress>) {
+        self.writer.set_work_progress(progress.clone());
+        self.work_progress = progress;
     }
 
     pub(crate) fn generation(&self) -> Result<ValidatedGeneration, AppError> {
@@ -483,6 +491,9 @@ impl<const N: usize> Session<N> {
             );
         }
         let group_started = Instant::now();
+        if let Some(progress) = &self.work_progress {
+            progress.clear();
+        }
         observer(json!({"event":"finite_backend_group_planning","row":index,
             "window":self.cursors[index].windows()}));
         let group = group::WindowGroup::plan(
@@ -516,13 +527,16 @@ impl<const N: usize> Session<N> {
             self.policy.storage
         };
         let reader = previous.reader(reader_limits).map_err(storage_error)?;
-        let baseline = self.authenticated.bind(
-            &reader,
-            self.policy.per_batch_work,
-            self.policy.census,
-            self.policy.export,
-            cancel,
-        )?;
+        let baseline = self
+            .authenticated
+            .bind(
+                &reader,
+                self.policy.per_batch_work,
+                self.policy.census,
+                self.policy.export,
+                cancel,
+            )?
+            .with_work_progress(self.work_progress.as_ref());
         let admission = FiniteRootAdmission::try_new(
             group.windows.iter().map(|w| w.window.region().clone()),
             self.policy.max_windows_per_batch,
@@ -656,7 +670,7 @@ impl<const N: usize> Session<N> {
             .take()
             .map(|resident| {
                 resident
-                    .prepare_delta(&delta, cancel)
+                    .prepare_delta_with_progress(&delta, cancel, self.work_progress.as_ref())
                     .map_err(|error| storage_error(error.into()))
             })
             .transpose()?
@@ -692,7 +706,10 @@ impl<const N: usize> Session<N> {
         }
         self.authenticated = outcome.generation;
         self.resident = resident.map(|resident| {
-            resident.after_durable_commit(self.authenticated.generation().digest())
+            resident.after_durable_commit_with_progress(
+                self.authenticated.generation().digest(),
+                self.work_progress.as_ref(),
+            )
         });
         completed.cleanup_warning = outcome.cleanup_warning;
         completed.timings.commit_seconds = commit_started.elapsed().as_secs_f64();
@@ -714,9 +731,16 @@ impl<const N: usize> Session<N> {
         observer(json!({"event":"finite_backend_group_cleanup","row":index,
             "window":window_ordinal,"group":group_metadata}));
         let cleanup_started = Instant::now();
+        let mut cleanup_progress = GeneratedWorkProgress::begin(
+            self.work_progress.as_ref(),
+            "cleanup_group",
+            None,
+            "objects",
+        );
         drop(reader);
         drop(previous);
         drop(group);
+        cleanup_progress.finish(3);
         let progress = self.progress()?;
         completed.timings.cleanup_seconds = cleanup_started.elapsed().as_secs_f64();
         completed.timings.total_seconds = group_started.elapsed().as_secs_f64();

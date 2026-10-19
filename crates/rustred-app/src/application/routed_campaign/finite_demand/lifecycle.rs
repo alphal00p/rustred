@@ -62,6 +62,17 @@ pub fn run_finite_demand_with_progress(
     cancel: &AtomicBool,
     observer: impl Fn(Value),
 ) -> Result<FiniteDemandRunResult, AppError> {
+    run_finite_demand_with_work_progress(request, cancel, observer, None)
+}
+
+/// Independent, bounded post-chase telemetry; never serialized into a saved
+/// generation or used to decide completion, admission or atomic publication.
+pub fn run_finite_demand_with_work_progress(
+    request: FiniteDemandRunRequest,
+    cancel: &AtomicBool,
+    observer: impl Fn(Value),
+    work_progress: Option<rustred::persistence::finite_work::GeneratedWorkProgress>,
+) -> Result<FiniteDemandRunResult, AppError> {
     check(cancel)?;
     let (_, arity, _) = Selection::parse_with_byte_limit(
         &request.source.matching.selection_json,
@@ -76,7 +87,7 @@ pub fn run_finite_demand_with_progress(
         cancel,
     )?;
     macro_rules! dispatch { ($($n:literal),*) => { match rustred::campaign_storage_arity(arity) {
-        $($n => run::<$n>(&request, &mut controls, cancel, &observer),)*
+        $($n => run::<$n>(&request, &mut controls, cancel, &observer, work_progress.as_ref()),)*
         _ => Err(AppError::input("finite campaign arity is not compiled")),
     } } }
     rustred::with_app_runtime_arities!(dispatch)
@@ -125,6 +136,7 @@ fn run<const N: usize>(
     controls: &mut control::Control,
     cancel: &AtomicBool,
     observer: &impl Fn(Value),
+    work_progress: Option<&rustred::persistence::finite_work::GeneratedWorkProgress>,
 ) -> Result<FiniteDemandRunResult, AppError> {
     let forward = |mut event: Value| {
         event["operation"] = json!("finite_demand");
@@ -134,6 +146,7 @@ fn run<const N: usize>(
         observer(event);
     };
     let mut session = session::<N>(request, controls, SessionPurpose::Solve, cancel, &forward)?;
+    session.set_work_progress(work_progress.cloned());
     // PrefixWindows already cached each request's exact count during admission.
     // Sum it once; overlapping requests remain separate input occurrences.
     let input_occurrences_total = session.total_input_occurrences().to_string();

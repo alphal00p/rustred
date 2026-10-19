@@ -55,11 +55,13 @@ impl<const N: usize> Membership<N> {
             (),
             crate::solver::candidate_reduction::routed::CandidateRoutedError,
         >,
+        progress: Option<&crate::persistence::finite_work::GeneratedWorkProgress>,
     ) -> Result<
         Vec<crate::persistence::finite_work::GeneratedWorkKey>,
         crate::solver::candidate_reduction::routed::CandidateRoutedError,
     > {
         use crate::persistence::finite_work::GeneratedWorkKey as Key;
+        use crate::persistence::finite_work::GeneratedWorkProgress as Progress;
         use crate::solver::candidate_reduction::routed::CandidateRoutedError as Error;
         let quota = |resource, requested, limit| Error::ResourceLimit {
             resource,
@@ -83,7 +85,16 @@ impl<const N: usize> Membership<N> {
                     limits.max_live_payload_bytes,
                 )
             })?;
-        let membership_bytes = self.payload_bytes(check)?;
+        let mut stage = Progress::begin(progress, "measure_membership", None, "records");
+        let mut measured = 0usize;
+        let membership_bytes = self.payload_bytes(&mut || {
+            check()?;
+            measured += 1;
+            stage.advance(measured);
+            Ok(())
+        })?;
+        stage.finish(measured);
+        let mut stage = Progress::begin(progress, "account_export", Some(expected), "records");
         for shard in &self.shards {
             let shard = shard
                 .lock()
@@ -124,8 +135,10 @@ impl<const N: usize> Membership<N> {
                         limits.max_live_payload_bytes,
                     )
                 })?;
+                stage.advance(count);
             }
         }
+        stage.finish(count);
         if count != expected {
             return Err(Error::InvalidInput(
                 "completed delta phase count differs from scheduled Work".into(),
@@ -149,6 +162,7 @@ impl<const N: usize> Membership<N> {
         result.try_reserve_exact(expected).map_err(|error| {
             Error::InvalidInput(format!("cannot reserve completed Work export: {error}"))
         })?;
+        let mut stage = Progress::begin(progress, "export_keys", Some(expected), "records");
         for shard in self.shards {
             for (key, phases) in shard
                 .into_inner()
@@ -167,18 +181,46 @@ impl<const N: usize> Membership<N> {
                 } else if phases.route {
                     result.push(Key::Route(powers));
                 }
+                stage.advance(result.len());
             }
         }
+        stage.finish(result.len());
         // In-place unstable sort has no second O(n) scratch vector. Keys are
         // unique by phase/owner, so stability carries no semantic information.
         check()?;
-        result.sort_unstable();
+        if progress.is_some() {
+            let mut comparisons = 0usize;
+            let mut stage = Progress::begin(progress, "sort_keys", None, "comparisons");
+            result.sort_unstable_by(|a, b| {
+                comparisons = comparisons.saturating_add(1);
+                stage.advance(comparisons);
+                a.cmp(b)
+            });
+            stage.finish(comparisons);
+        } else {
+            result.sort_unstable();
+        }
         check()?;
-        if result.len() != expected || result.windows(2).any(|pair| pair[0] >= pair[1]) {
+        let mut stage = Progress::begin(
+            progress,
+            "validate_sorted_keys",
+            Some(result.len().saturating_sub(1)),
+            "pairs",
+        );
+        let mut invalid = result.len() != expected;
+        for (i, pair) in result.windows(2).enumerate() {
+            if pair[0] >= pair[1] {
+                invalid = true;
+                break;
+            }
+            stage.advance(i + 1);
+        }
+        if invalid {
             return Err(Error::InvalidInput(
                 "completed Work export is not unique".into(),
             ));
         }
+        stage.finish(result.len().saturating_sub(1));
         Ok(result)
     }
 

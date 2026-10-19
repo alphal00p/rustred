@@ -3,7 +3,7 @@
 use super::*;
 use crate::persistence::finite_work::{
     GeneratedExecutionBinding, GeneratedPageProvider, GeneratedWorkDigest, GeneratedWorkError,
-    GeneratedWorkErrorKind, GeneratedWorkKey, TrustedGeneratedResidentWork,
+    GeneratedWorkErrorKind, GeneratedWorkKey, GeneratedWorkProgress, TrustedGeneratedResidentWork,
     TrustedGeneratedWorkDirectory,
 };
 use std::sync::atomic::Ordering;
@@ -26,6 +26,7 @@ pub struct CandidateRoutedGeneratedBaseline<'a, const N: usize> {
     budget: CandidateRoutedWorkBudget,
     census_limits: CandidateRoutedTraceCensusLimits,
     export_limits: CandidateRoutedDeltaExportLimits,
+    work_progress: Option<GeneratedWorkProgress>,
 }
 
 /// New native-completed Work, RELATIVE to the captured trusted predecessor.
@@ -167,6 +168,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             budget,
             census_limits,
             export_limits,
+            work_progress: None,
         })
     }
 }
@@ -174,6 +176,12 @@ fn invalid(message: &str) -> GeneratedWorkError {
     GeneratedWorkError::new(GeneratedWorkErrorKind::Corrupt, message)
 }
 impl<'a, const N: usize> CandidateRoutedGeneratedBaseline<'a, N> {
+    /// Optional process-local diagnostics, not part of execution/checkpoint identity.
+    pub fn with_work_progress(mut self, progress: Option<&GeneratedWorkProgress>) -> Self {
+        self.work_progress = progress.cloned();
+        self
+    }
+
     /// A successful result contains ONLY new Work/census/terminal/zero deltas.
     /// Prior raw closure stays in the predecessor. Hits are dependencies, never
     /// terminals. All starts are admitted before lookup, including an all-hit
@@ -303,6 +311,7 @@ impl<'a, const N: usize> CandidateRoutedGeneratedBaseline<'a, N> {
             report.snapshot.scheduled_nodes,
             self.export_limits,
             &mut check,
+            self.work_progress.as_ref(),
         ) {
             Ok(work) => work,
             Err(error) => {

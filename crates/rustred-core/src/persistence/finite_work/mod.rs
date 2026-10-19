@@ -4,6 +4,7 @@
 mod codec;
 mod directory;
 mod key;
+mod progress;
 mod resident;
 #[cfg(test)]
 mod tests;
@@ -20,6 +21,9 @@ pub use directory::{
     validate_directory,
 };
 pub use key::GeneratedWorkKey;
+pub use progress::{
+    GeneratedWorkProgress, GeneratedWorkProgressReporter, GeneratedWorkProgressSnapshot,
+};
 pub use resident::{PreparedResidentWork, ResidentWorkStatistics, TrustedGeneratedResidentWork};
 use std::fmt;
 

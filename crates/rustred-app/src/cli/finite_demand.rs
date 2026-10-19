@@ -350,7 +350,7 @@ pub(super) fn run(args: FiniteArgs) -> Result<(), CliError> {
         policy.workers,
         !args.no_progress,
     );
-    let result = crate::run_finite_demand_with_progress(
+    let result = crate::run_finite_demand_with_work_progress(
         FiniteDemandRunRequest {
             source,
             policy: policy.clone(),
@@ -365,6 +365,7 @@ pub(super) fn run(args: FiniteArgs) -> Result<(), CliError> {
         },
         &cancel,
         |event| monitor.observe(event),
+        Some(monitor.work_progress()),
     );
     let document = match &result {
         Ok(result) => result.document.clone(),

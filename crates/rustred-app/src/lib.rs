@@ -18,7 +18,7 @@ pub use application::{EntryPowerBudget, FiniteEntryDomain, entry_domain_plan};
 pub use application::{
     FiniteDemandMode, FiniteDemandPolicy, FiniteDemandRunRequest, FiniteDemandRunResult,
     inspect_finite_demand, inspect_finite_demand_with_policy, publish_finite_demand_with_progress,
-    run_finite_demand_with_progress,
+    run_finite_demand_with_progress, run_finite_demand_with_work_progress,
 };
 pub use application::{
     MasterNormalizationProfile, MasterReductionArtifact, MasterReductionOperation,

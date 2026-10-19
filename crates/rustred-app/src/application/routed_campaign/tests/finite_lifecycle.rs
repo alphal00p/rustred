@@ -42,6 +42,35 @@ fn request(f: &Fixture) -> FiniteDemandRunRequest {
 }
 
 #[test]
+fn finite_work_progress_preserves_checkpoint_identity_and_cold_resume() {
+    let f = Fixture::new();
+    let plain = request(&f);
+    let mut monitored = plain.clone();
+    monitored.directory = f.directory.join("finite-monitored");
+    let cancel = AtomicBool::new(false);
+    let before = run_finite_demand_with_progress(plain.clone(), &cancel, |_| {}).unwrap();
+    let progress = rustred::persistence::finite_work::GeneratedWorkProgress::default();
+    let after = crate::run_finite_demand_with_work_progress(
+        monitored.clone(),
+        &cancel,
+        |_| {},
+        Some(progress.clone()),
+    )
+    .unwrap();
+    assert!(before.complete && after.complete);
+    assert_eq!(
+        fs::read(plain.directory.join("store/CURRENT")).unwrap(),
+        fs::read(monitored.directory.join("store/CURRENT")).unwrap()
+    );
+    assert_eq!(progress.snapshot().unwrap().phase, "cleanup_group");
+    monitored.mode = FiniteDemandMode::Resume;
+    let resumed =
+        crate::run_finite_demand_with_work_progress(monitored, &cancel, |_| {}, Some(progress))
+            .unwrap();
+    assert!(resumed.complete);
+}
+
+#[test]
 fn public_source_join_preserves_native_encoded_request_identity() {
     use crate::application::routed_campaign::finite_demand::backend::original_source_identity;
     let raw = "12".repeat(32);

@@ -13,6 +13,68 @@ fn binding() -> GeneratedExecutionBinding {
         program_identity: [3; 32],
     }
 }
+
+#[test]
+fn generated_postprocess_telemetry_preserves_exact_delta_and_resident_adoption() {
+    let reducer = super::super::tests::diamond(Default::default(), Default::default());
+    let mut pages = Pages::default();
+    let directory = pages.directory(vec![], 1);
+    let cancel = AtomicBool::new(false);
+    let progress = GeneratedWorkProgress::default();
+    let make = || {
+        reducer
+            .bind_trusted_generated_baseline(
+                &binding(),
+                &directory,
+                &pages,
+                budget(),
+                Default::default(),
+                export(),
+            )
+            .unwrap()
+    };
+    let expected = make()
+        .trace_batch(
+            [key([6])],
+            CandidateEntryAdmission::SavedGenerationScope,
+            1,
+            &cancel,
+            |_| {},
+        )
+        .unwrap();
+    let actual = make()
+        .with_work_progress(Some(&progress))
+        .trace_batch(
+            [key([6])],
+            CandidateEntryAdmission::SavedGenerationScope,
+            1,
+            &cancel,
+            |_| {},
+        )
+        .unwrap();
+    assert_eq!(actual.work(), expected.work());
+    assert_eq!(
+        actual.report().complete_census(),
+        expected.report().complete_census()
+    );
+    assert_eq!(progress.snapshot().unwrap().phase, "validate_sorted_keys");
+    let resident = TrustedGeneratedResidentWork::hydrate(&directory, &pages, 1_000_000, 0, &cancel)
+        .unwrap()
+        .unwrap();
+    let staged = resident
+        .prepare_delta_with_progress(&actual, &cancel, Some(&progress))
+        .unwrap()
+        .unwrap();
+    assert_eq!(progress.snapshot().unwrap().phase, "stage_resident_delta");
+    let adopted = staged.after_durable_commit_with_progress([2; 32], Some(&progress));
+    let final_progress = progress.snapshot().unwrap();
+    assert_eq!(final_progress.phase, "install_resident_delta");
+    assert!(final_progress.finished);
+    assert_eq!(final_progress.completed, actual.work().len());
+    for key in actual.work() {
+        assert!(adopted.contains(key).unwrap());
+    }
+}
 fn limits() -> GeneratedDirectoryLimits {
     GeneratedDirectoryLimits {
         max_arity: 16,

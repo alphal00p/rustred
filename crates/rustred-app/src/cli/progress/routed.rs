@@ -16,6 +16,7 @@ pub(crate) struct RoutedProgress {
     latest: Arc<Mutex<(Instant, Value)>>,
     stop: mpsc::SyncSender<Control>,
     handle: Option<JoinHandle<io::Result<()>>>,
+    work_progress: rustred::persistence::finite_work::GeneratedWorkProgress,
 }
 enum Control {
     Checkpoint(Value),
@@ -120,6 +121,8 @@ impl RoutedProgress {
             json!({"event":"starting"})
         };
         let latest = Arc::new(Mutex::new((Instant::now(), initial)));
+        let work_progress = rustred::persistence::finite_work::GeneratedWorkProgress::default();
+        let work_state = work_progress.clone();
         let state = Arc::clone(&latest);
         // Rare state transitions must not disappear between sampled heartbeats.
         // Bound their storage too; a slow journal backpressures the publisher.
@@ -207,6 +210,7 @@ impl RoutedProgress {
                     record["process_memory_soft_bytes"] = json!(process_memory_soft_bytes);
                     chase.annotate(&mut record);
                     input_eta.annotate(&mut record);
+                    finite::annotate_work_progress(&mut record, work_state.snapshot());
                 }
                 add_worker_summary(&mut record);
                 finite::annotate_heartbeat(&mut record);
@@ -252,9 +256,26 @@ impl RoutedProgress {
             latest,
             stop,
             handle: Some(handle),
+            work_progress,
         }
     }
+    pub fn work_progress(&self) -> rustred::persistence::finite_work::GeneratedWorkProgress {
+        self.work_progress.clone()
+    }
     pub fn observe(&self, mut event: Value) {
+        // A completed group must not mask final cleanup or the next committed
+        // checkpoint with its last (100%) post-chase operation.
+        if matches!(
+            event["event"].as_str(),
+            Some(
+                "finite_checkpoint_saved"
+                    | "finite_checkpoint_restored"
+                    | "finite_cleanup_started"
+                    | "finite_cleanup_finished"
+            )
+        ) {
+            self.work_progress.clear();
+        }
         let checkpoint = matches!(
             event["event"].as_str(),
             Some(

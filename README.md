@@ -1657,6 +1657,9 @@ Stable design documents are:
 - [blind-domain-guided Janet closure synthesis](docs/research/blind_domain_janet_closure_2026.md); and
 - [current CLI contract](docs/CLI.md).
 
+Finite-demand campaigns report [post-chase export/index/checkpoint progress](docs/finite_post_chase_monitoring.md)
+separately from descendant chasing and the committed-scope closure bar.
+
 Local LiteRed2, GammaLoop/Vakint, FORM, and other reference checkouts live only
 under ignored `FOR_REFERENCE_ONLY_DO_NOT_PUSH/`. They must never enter RustRed
 history. GammaLoop inside that tree is a separate Git repository.

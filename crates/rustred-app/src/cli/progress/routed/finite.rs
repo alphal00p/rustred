@@ -14,7 +14,83 @@ pub(super) use chase::ChaseProgress;
 mod eta;
 pub(super) use eta::InputEta;
 
-pub(in crate::cli::progress) const HEIGHT: u16 = 24;
+pub(in crate::cli::progress) const HEIGHT: u16 = 26;
+
+pub(super) fn annotate_work_progress(
+    record: &mut Value,
+    snapshot: Option<rustred::persistence::finite_work::GeneratedWorkProgressSnapshot>,
+) {
+    if let Some(snapshot) = snapshot {
+        record["finite_work_progress"] = json!({
+            "phase":snapshot.phase, "unit":snapshot.unit, "completed":snapshot.completed,
+            "total":snapshot.total, "elapsed_seconds":snapshot.elapsed.as_secs_f64(),
+            "counter_age_seconds":snapshot.update_age.as_secs_f64(), "finished":snapshot.finished,
+            "authority":"process-local telemetry only; not a committed checkpoint",
+        });
+    }
+}
+
+fn work_phase_label(phase: &str) -> &str {
+    match phase {
+        "measure_membership" => "Measuring completed membership",
+        "account_export" => "Checking export allocation",
+        "export_keys" => "Packing completed-work keys",
+        "sort_keys" => "Sorting completed-work keys",
+        "validate_sorted_keys" => "Validating sorted-key order",
+        "validate_resident_delta" => "Checking resident-index membership",
+        "reserve_resident_index" => "Reserving resident-index storage",
+        "stage_resident_delta" => "Staging resident-index records",
+        "validate_checkpoint_keys" => "Validating checkpoint records",
+        "sort_checkpoint_keys" => "Ordering checkpoint records",
+        "write_work_pages" => "Writing completed-work pages",
+        "write_terminal_pages" => "Writing terminal-key pages",
+        "write_zero_pages" => "Writing zero-key pages",
+        "write_checkpoint_metadata" => "Writing checkpoint metadata",
+        "publish_checkpoint" => "Publishing atomic checkpoint",
+        "install_resident_delta" => "Installing committed resident-index records",
+        "cleanup_group" => "Checkpoint safe · releasing batch metadata",
+        other => other,
+    }
+}
+
+fn display_stage(record: &Value) -> String {
+    let event = &record["progress"];
+    if let Some(phase) = record["finite_work_progress"]["phase"].as_str()
+        && !matches!(
+            event["status"]
+                .as_str()
+                .or(event["result"]["status"].as_str()),
+            Some("complete" | "completed" | "failed" | "cancelled" | "limited" | "paused")
+        )
+    {
+        return work_phase_label(phase).into();
+    }
+    stage(event)
+}
+
+fn work_count(record: &Value) -> String {
+    let progress = &record["finite_work_progress"];
+    let Some(unit) = progress["unit"].as_str() else {
+        return "—".into();
+    };
+    if let Some(total) = progress["total"].as_u64() {
+        let done = progress["completed"].as_u64().unwrap_or(0);
+        let percent = if total == 0 {
+            100.
+        } else {
+            100. * done as f64 / total as f64
+        };
+        format!(
+            "{} / {} {unit} · {percent:.1}%",
+            number(&progress["completed"]),
+            number(&progress["total"])
+        )
+    } else if progress["completed"].as_u64() == Some(0) {
+        "in progress · total unknown".into()
+    } else {
+        format!("{} {unit} · total unknown", number(&progress["completed"]))
+    }
+}
 
 fn memory_gb(value: &Value) -> String {
     value.as_u64().map_or_else(
@@ -166,7 +242,9 @@ fn convergence_text(chase: &Value, field: &str) -> String {
         Some("history_gap") => "history gap".into(),
         _ => "—".into(),
     };
-    if chase["snapshot_stale"] == true {
+    if chase["status"] == "finished" {
+        format!("{label} · chase done")
+    } else if chase["snapshot_stale"] == true {
         format!("{label} · stale")
     } else {
         label
@@ -178,7 +256,9 @@ fn chase_elapsed(chase: &Value) -> String {
         || "—".into(),
         |elapsed| {
             let label = duration(elapsed);
-            if chase["snapshot_stale"] == true {
+            if chase["status"] == "finished" {
+                format!("{label} · done")
+            } else if chase["snapshot_stale"] == true {
                 format!("{label} · stale")
             } else {
                 label
@@ -203,7 +283,11 @@ fn input_eta_text(eta: &Value) -> String {
                     }
                 },
             ),
-        Some("warming_up") => "warming up".into(),
+        Some("warming_up") => match eta["reason"].as_str() {
+            Some("awaiting_committed_progress") => "awaiting first new commit".into(),
+            Some("awaiting_native_completion") => "awaiting final commit".into(),
+            _ => "awaiting starting checkpoint".into(),
+        },
         _ => "—".into(),
     }
 }
@@ -247,7 +331,7 @@ pub(super) fn plain_status(record: &Value) -> String {
         });
     let status = format!(
         "RustRed finite | {} | committed {}/{} rows | inputs {} occurrences (overlap counted) | rough input ETA {} at {}/s (whole invocation; publication excluded) | generation {} / {} committed windows | current group {} windows / {} inputs | last commit new Work {} / reuse hits {} | chase gap {} / elapsed {} | convergence 5 min {} / 30 min {} (negative: shrinking gap, not closure) | CPU {}/{} cores | RSS {} | process RAM cap {} | stop threshold {} | host available {} / {} total | elapsed {}{error}",
-        stage(event),
+        display_stage(record),
         number(&committed["exhausted_required_rows"]),
         number(&committed["required_rows"]),
         input_occurrences(event),
@@ -273,7 +357,11 @@ pub(super) fn plain_status(record: &Value) -> String {
         duration(record["elapsed_seconds"].as_f64().unwrap_or(0.))
     );
     format!(
-        "{status} | last trace/commit {} | last plan/total {}",
+        "{status} | post-chase {} | phase elapsed {} | last trace/commit {} | last plan/total {}",
+        work_count(record),
+        record["finite_work_progress"]["elapsed_seconds"]
+            .as_f64()
+            .map_or_else(|| "—".into(), duration),
         timing_pair(
             &event["finite_last_window"]["timings"],
             "trace_seconds",
@@ -334,12 +422,15 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
-        Constraint::Length(16),
+        Constraint::Length(18),
         Constraint::Length(1),
         Constraint::Min(0),
     ])
     .split(inner);
-    frame.render_widget(Paragraph::new(stage(event)).style(title), sections[0]);
+    frame.render_widget(
+        Paragraph::new(display_stage(record)).style(title),
+        sections[0],
+    );
     let done = committed["exhausted_required_rows"].as_u64();
     let total = committed["required_rows"].as_u64();
     let ratio = match (done, total) {
@@ -368,10 +459,30 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
             .gauge_style(paint(if stopped { Color::Yellow } else { Color::Green })),
         sections[1],
     );
-    frame.render_widget(
-        Paragraph::new("CHECKPOINT · WINDOW · RESOURCES").style(paint(Color::DarkGray)),
-        sections[2],
-    );
+    let work = &record["finite_work_progress"];
+    if work["phase"].is_string() {
+        if let Some(total) = work["total"].as_u64().filter(|total| *total > 0) {
+            let done = work["completed"].as_u64().unwrap_or(0).min(total);
+            frame.render_widget(
+                Gauge::default()
+                    .ratio(done as f64 / total as f64)
+                    .label(format!("POST-CHASE · {}", work_count(record)))
+                    .gauge_style(paint(Color::Cyan)),
+                sections[2],
+            );
+        } else {
+            frame.render_widget(
+                Paragraph::new(format!("POST-CHASE · {}", work_count(record)))
+                    .style(paint(Color::Cyan)),
+                sections[2],
+            );
+        }
+    } else {
+        frame.render_widget(
+            Paragraph::new("CHECKPOINT · WINDOW · RESOURCES").style(paint(Color::DarkGray)),
+            sections[2],
+        );
+    }
     let position = |field| {
         local.get(field).unwrap_or(
             &committed[match field {
@@ -408,6 +519,14 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
             input_eta_text(eta),
             "Inputs/s · run avg",
             input_average_text(eta),
+        ),
+        (
+            "Post-chase progress",
+            work_count(record),
+            "Phase elapsed",
+            record["finite_work_progress"]["elapsed_seconds"]
+                .as_f64()
+                .map_or_else(|| "—".into(), duration),
         ),
         (
             "Gen / closed win",
@@ -514,11 +633,19 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
             record["recent_nodes_per_second"]
                 .as_f64()
                 .map_or_else(|| "—".into(), |n| format!("{n:.1}")),
-            "Last update",
+            "Chase report age",
             format!(
                 "{:.1}s ago",
                 record["progress_age_seconds"].as_f64().unwrap_or(0.)
             ),
+        ),
+        (
+            "Monitor heartbeat",
+            "live · 1s sampling".into(),
+            "Phase report age",
+            record["finite_work_progress"]["counter_age_seconds"]
+                .as_f64()
+                .map_or_else(|| "—".into(), |age| format!("{age:.1}s ago")),
         ),
     ];
     let wide = sections[3].width >= 88;
@@ -546,6 +673,8 @@ pub(in crate::cli::progress) fn render(frame: &mut Frame<'_>, record: &Value, co
                 "Saved Work" => "Work / inputs",
                 "Stage completed" => "Stage done/total",
                 "ETA · run average" => "ETA / inputs/s",
+                "Post-chase progress" => "Phase work / time",
+                "Monitor heartbeat" => "Monitor / phase age",
                 "Gen / closed win" => "Gen,win / aux",
                 "Last new Work" => "Last new / reuse",
                 "Row (0-based)" => "Row / window (0)",
@@ -840,6 +969,63 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend};
 
     #[test]
+    fn finite_post_chase_progress_is_independent_of_stale_chase_snapshot_and_eta() {
+        let handle = rustred::persistence::finite_work::GeneratedWorkProgress::default();
+        let mut phase = rustred::persistence::finite_work::GeneratedWorkProgress::begin(
+            Some(&handle),
+            "validate_resident_delta",
+            Some(100),
+            "records",
+        );
+        phase.finish(40);
+        let mut record = json!({"progress":{"operation":"finite_demand","event":"finite_backend_native",
+            "finite_committed":{"required_rows":10,"exhausted_required_rows":3},
+            "finite_local":{"snapshot":{"finished":true,"scheduled_nodes":100,"completed_nodes":100}}},
+            "progress_age_seconds":900.,"elapsed_seconds":1000.,
+            "finite_input_eta":{"status":"warming_up","reason":"awaiting_committed_progress"}});
+        annotate_work_progress(&mut record, handle.snapshot());
+        assert_eq!(display_stage(&record), "Checking resident-index membership");
+        assert_eq!(work_count(&record), "40 / 100 records · 40.0%");
+        assert_eq!(
+            input_eta_text(&record["finite_input_eta"]),
+            "awaiting first new commit"
+        );
+        let plain = plain_status(&record);
+        assert!(
+            plain.contains("40 / 100 records") && plain.contains("phase elapsed"),
+            "{plain}"
+        );
+        let mut terminal = Terminal::new(TestBackend::new(170, HEIGHT)).unwrap();
+        terminal.draw(|frame| render(frame, &record, true)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(170)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            text.contains("POST-CHASE") && text.contains("Monitor heartbeat"),
+            "{text}"
+        );
+        assert!(
+            text.contains("Phase report age") && text.contains("Chase report age"),
+            "{text}"
+        );
+        let mut sort = rustred::persistence::finite_work::GeneratedWorkProgress::begin(
+            Some(&handle),
+            "sort_keys",
+            None,
+            "comparisons",
+        );
+        sort.finish(123456);
+        annotate_work_progress(&mut record, handle.snapshot());
+        assert_eq!(work_count(&record), "123,456 comparisons · total unknown");
+        assert!(!work_count(&record).contains('%'));
+    }
+
+    #[test]
     fn finite_group_metadata_survives_chase_and_resets_after_atomic_commit() {
         let mut latest = json!({});
         observe(&mut latest, checkpoint(1, 0));
@@ -924,7 +1110,7 @@ mod tests {
                     std::fs::write(path, format!("{text}\n")).unwrap();
                 }
                 assert!(
-                    text.contains("Recent nodes/s") && text.contains("Last update"),
+                    text.contains("Recent nodes/s") && text.contains("Chase report age"),
                     "{text}"
                 );
                 for label in [
@@ -992,7 +1178,7 @@ mod tests {
         assert_eq!(input_eta_text(&json!({"status":"complete"})), "00:00:00");
         assert_eq!(
             input_eta_text(&json!({"status":"warming_up"})),
-            "warming up"
+            "awaiting starting checkpoint"
         );
         assert_eq!(input_eta_text(&Value::Null), "—");
         let huge = input_eta_text(&json!({"status":"available","remaining_seconds":1e100}));

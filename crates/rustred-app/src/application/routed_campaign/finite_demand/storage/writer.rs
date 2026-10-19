@@ -1,4 +1,5 @@
 use super::*;
+use rustred::persistence::finite_work::GeneratedWorkProgress;
 use std::{
     fs::{self, File, OpenOptions},
     path::Path,
@@ -23,6 +24,7 @@ pub(crate) struct StoreWriter {
     charged: u64,
     files: usize,
     poisoned: bool,
+    work_progress: Option<GeneratedWorkProgress>,
     _lock: File,
     #[cfg(test)]
     fail_at: Option<Stage>,
@@ -119,6 +121,7 @@ impl StoreWriter {
             charged,
             files,
             poisoned: false,
+            work_progress: None,
             _lock: lock,
             #[cfg(test)]
             fail_at: None,
@@ -127,6 +130,10 @@ impl StoreWriter {
     pub fn current(&self) -> Result<Option<&ValidatedGeneration>> {
         self.healthy()?;
         Ok(self.current.as_ref())
+    }
+
+    pub(crate) fn set_work_progress(&mut self, progress: Option<GeneratedWorkProgress>) {
+        self.work_progress = progress;
     }
     /// Share an already validated capture after the locked reopen confirms the
     /// same generation. This releases the duplicate decoded directory without
@@ -257,11 +264,35 @@ impl StoreWriter {
         {
             return Err(resource("finite delta sort-buffer allowance"));
         }
-        for key in &delta {
+        let mut stage = GeneratedWorkProgress::begin(
+            self.work_progress.as_ref(),
+            "validate_checkpoint_keys",
+            Some(delta.len()),
+            "records",
+        );
+        for (i, key) in delta.iter().enumerate() {
             check(cancel)?;
             key.validate(arity)?;
+            stage.advance(i + 1);
         }
-        delta.sort_unstable();
+        stage.finish(delta.len());
+        if self.work_progress.is_some() {
+            let mut comparisons = 0usize;
+            let mut stage = GeneratedWorkProgress::begin(
+                self.work_progress.as_ref(),
+                "sort_checkpoint_keys",
+                None,
+                "comparisons",
+            );
+            delta.sort_unstable_by(|a, b| {
+                comparisons = comparisons.saturating_add(1);
+                stage.advance(comparisons);
+                a.cmp(b)
+            });
+            stage.finish(comparisons);
+        } else {
+            delta.sort_unstable();
+        }
         if delta.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(corrupt("duplicate Work in completed delta"));
         }
@@ -320,6 +351,12 @@ impl StoreWriter {
         // Only this bounded delta is sorted/materialized; older Work is neither
         // decoded nor rewritten. Future fan-out/compaction still needs a gate.
         let mut incoming = delta.into_iter();
+        let mut stage = GeneratedWorkProgress::begin(
+            self.work_progress.as_ref(),
+            "write_work_pages",
+            Some(page_count),
+            "pages",
+        );
         loop {
             let page_records: Vec<_> = incoming
                 .by_ref()
@@ -354,7 +391,9 @@ impl StoreWriter {
                 first,
                 last,
             });
+            stage.poll(run.len());
         }
+        stage.finish(run.len());
         if !run.is_empty() {
             runs.push(run);
         }
@@ -387,6 +426,12 @@ impl StoreWriter {
             cancel.store(true, Ordering::Release);
         }
         check(cancel)?;
+        let mut metadata_stage = GeneratedWorkProgress::begin(
+            self.work_progress.as_ref(),
+            "write_checkpoint_metadata",
+            Some(2),
+            "objects",
+        );
         let state_cap = self
             .limits
             .max_state_bytes
@@ -422,6 +467,7 @@ impl StoreWriter {
             self.limits.max_transient_bytes,
         )?;
         let state_ref = self.install("states", "rrstate", &state_bytes)?;
+        metadata_stage.poll(1);
         drop(state_bytes);
         #[cfg(test)]
         self.fail_before(Stage::AfterState)?;
@@ -519,6 +565,13 @@ impl StoreWriter {
             usize::from(self.current.is_none()),
             usize::from(self.current.is_some()),
         )?;
+        metadata_stage.finish(2);
+        let mut current_stage = GeneratedWorkProgress::begin(
+            self.work_progress.as_ref(),
+            "publish_checkpoint",
+            Some(1),
+            "checkpoint",
+        );
         self.poisoned = true;
         let result = crate::application::atomic_file::write_file_atomically(
             &self.directory.join(wire::CURRENT),
@@ -533,6 +586,7 @@ impl StoreWriter {
                 ),
             ));
         }
+        current_stage.finish(1);
         #[cfg(test)]
         if self
             .fail_at
@@ -592,6 +646,14 @@ impl StoreWriter {
         keys: Box<dyn Iterator<Item = &'a [i64]> + 'a>,
         cancel: &AtomicBool,
     ) -> Result<Vec<raw::RawPageRef>> {
+        let (lower, upper) = keys.size_hint();
+        let total = upper.filter(|upper| *upper == lower);
+        let phase = match kind {
+            RawKeyKind::Terminal => "write_terminal_pages",
+            RawKeyKind::Zero => "write_zero_pages",
+        };
+        let mut progress =
+            GeneratedWorkProgress::begin(self.work_progress.as_ref(), phase, total, "records");
         let mut run = Vec::new();
         let mut keys = keys.peekable();
         let mut last = None::<Vec<i64>>;
@@ -669,7 +731,9 @@ impl StoreWriter {
                 first,
                 last,
             });
+            progress.poll(usize::try_from(references).unwrap_or(usize::MAX));
         }
+        progress.finish(usize::try_from(references).unwrap_or(usize::MAX));
         Ok(run)
     }
     fn check_current(&mut self) -> Result<()> {
