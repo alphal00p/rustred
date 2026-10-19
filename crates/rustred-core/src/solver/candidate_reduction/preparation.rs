@@ -160,6 +160,7 @@ impl<const N: usize> CandidateReducer<N> {
             limits,
             cache: BTreeMap::new(),
             cache_representation: CandidateCacheRepresentation::Sparse,
+            unresolved_policy: super::UnresolvedPolicy::Reject,
             cache_weight: CacheWeight::default(),
             cache_budget: Arc::new(SharedCacheBudget::default()),
             statistics: ReductionStatistics::default(),

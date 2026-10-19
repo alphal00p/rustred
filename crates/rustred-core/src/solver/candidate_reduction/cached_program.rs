@@ -71,8 +71,11 @@ impl<const N: usize> CandidateUnitMassProgram<N> {
     /// boundary, not by rereading a mutable path. The digest supplies identity,
     /// not a proof of candidate formulas. Existing source cache/work is ignored.
     pub fn new(source: &CandidateReducer<N>, program_and_convention_digest: [u8; 32]) -> Self {
+        let mut snapshot = source.fork_empty();
+        // Distributed guarded records always promise complete reductions.
+        snapshot.unresolved_policy = super::UnresolvedPolicy::Reject;
         Self {
-            snapshot: Arc::new(source.fork_empty()),
+            snapshot: Arc::new(snapshot),
             binding: ApplicationCacheBinding {
                 artifact_digest: program_and_convention_digest,
                 family_fingerprint: source.family_fingerprint().into(),
@@ -328,6 +331,7 @@ impl<const N: usize> CandidateUnitMassProgram<N> {
             family_fingerprint: Arc::clone(&self.snapshot.program.family_fingerprint),
             target,
             terms: record.terms.clone(),
+            unresolved: Default::default(),
         }
     }
 

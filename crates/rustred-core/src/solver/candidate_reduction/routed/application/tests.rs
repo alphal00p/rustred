@@ -28,6 +28,144 @@ fn tadpole(limits: ReductionLimits) -> RoutedCandidateReducer<1> {
     RoutedCandidateReducer::try_new(owners, [], Default::default()).unwrap()
 }
 
+fn partial_routed_fixture(limits: ReductionLimits) -> RoutedCandidateReducer<1> {
+    let family = Arc::new(crate::solver::tests::tadpole());
+    let mut owners = CandidateOwnerPrograms::try_new(
+        context(family.clone(), None, limits),
+        [input(
+            [true],
+            None,
+            vec![
+                rule(&family, [4], &[([3], 1), ([2], 3), ([1], -2)]),
+                rule(&family, [3], &[([2], -3), ([1], 2)]),
+            ],
+            &[[1]],
+        )],
+    )
+    .unwrap();
+    let indexed = owners.context.coefficient_context().clone();
+    Arc::get_mut(&mut owners.context)
+        .unwrap()
+        .shared
+        .source_conditions = vec![polynomial(&indexed, "d-7")];
+    RoutedCandidateReducer::try_new(Arc::new(owners), [], Default::default()).unwrap()
+}
+
+#[test]
+fn partial_routed_results_preserve_unknown_coefficients_guards_and_scope_holes() {
+    let routed = partial_routed_fixture(Default::default());
+    let c = routed.programs.context.family().coefficient_context();
+    let admission = FiniteRootAdmission::try_new(
+        [RootRegionInput {
+            support: [true],
+            lower: vec![0],
+            upper: vec![Some(0)],
+            rank: None,
+            powers: DomainPowerBounds::default(),
+        }],
+        1,
+    )
+    .unwrap();
+    let mut application = routed.application();
+    application
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    for _ in 0..2 {
+        let result = application
+            .reduce_routed_linear_combination_with_entry_admission(
+                [(key([3]), c.one())],
+                CandidateEntryAdmission::ExplicitFinite(&admission),
+            )
+            .unwrap();
+        assert_eq!(
+            result.terms(),
+            &BTreeMap::from([(key([2]), c.integer(-3)), (key([1]), c.integer(2))])
+        );
+        assert_eq!(result.unresolved(), &BTreeSet::from([key([2])]));
+        assert_eq!(result.nonzero_conditions(), &[c.coefficient_fixture("d-7")]);
+    }
+    let cancelled = application
+        .reduce_linear_combination([(key([4]), c.one())])
+        .unwrap();
+    assert!(cancelled.is_zero());
+    assert!(cancelled.unresolved().is_empty());
+    assert_eq!(
+        cancelled.nonzero_conditions(),
+        &[c.coefficient_fixture("d-7")]
+    );
+    assert!(
+        application
+            .set_unresolved_policy(UnresolvedPolicy::Reject)
+            .is_err()
+    );
+    application.clear_cache().unwrap();
+    application
+        .set_unresolved_policy(UnresolvedPolicy::Reject)
+        .unwrap();
+    assert!(matches!(
+        application.reduce_linear_combination([(key([3]), c.one())]),
+        Err(CandidateRoutedError::Candidate(
+            CandidateReductionError::Uncovered { .. }
+        ))
+    ));
+}
+
+#[test]
+fn partial_routed_missing_owner_is_retained_and_cancelled_inputs_keep_guards() {
+    let routed = partial_routed_fixture(Default::default());
+    let c = routed.programs.context.family().coefficient_context();
+    let mut application = routed.application();
+    application
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    let result = application
+        .reduce_routed_linear_combination_with_entry_admission(
+            [(key([-1]), c.integer(3))],
+            CandidateEntryAdmission::SavedGenerationScope,
+        )
+        .unwrap();
+    assert_eq!(result.terms(), &BTreeMap::from([(key([-1]), c.integer(3))]));
+    assert_eq!(result.unresolved(), &BTreeSet::from([key([-1])]));
+    assert_eq!(result.nonzero_conditions(), &[c.coefficient_fixture("d-7")]);
+    let result = application
+        .reduce_routed_linear_combination_with_entry_admission(
+            [(key([-2]), c.one()), (key([-2]), c.integer(-1))],
+            CandidateEntryAdmission::SavedGenerationScope,
+        )
+        .unwrap();
+    assert!(result.is_zero());
+    assert!(result.unresolved().is_empty());
+    assert_eq!(result.nonzero_conditions(), &[c.coefficient_fixture("d-7")]);
+    assert!(matches!(
+        application.route_entry_to_owner(&key([-1])),
+        Err(CandidateRoutedError::MissingOwner { .. })
+    ));
+}
+
+#[test]
+fn partial_routed_policy_does_not_hide_malformed_keys_or_operational_limits() {
+    let routed = partial_routed_fixture(ReductionLimits {
+        max_rule_applications: 0,
+        ..Default::default()
+    });
+    let c = routed.programs.context.family().coefficient_context();
+    let mut application = routed.application();
+    application
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    assert!(
+        application
+            .reduce_linear_combination([(key([3]), c.one())])
+            .is_err()
+    );
+    assert!(matches!(
+        application.reduce_linear_combination([(key([1, 0]), c.zero())]),
+        Err(CandidateRoutedError::Candidate(
+            CandidateReductionError::Application(ReductionError::WrongArity { .. })
+        ))
+    ));
+}
+
 #[test]
 fn single_owner_matches_existing_exact_reducer_and_batch_cancels() {
     let routed = tadpole(Default::default());

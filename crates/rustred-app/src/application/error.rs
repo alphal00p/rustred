@@ -15,6 +15,11 @@ pub enum AppErrorKind {
     Lowering,
     Derivation,
     Execution,
+    /// A valid native candidate request reached a point with no applicable rule.
+    UnresolvedReduction,
+    /// The request exceeds the candidate's recorded starting numerator rank.
+    /// Structural root/arity errors and source-condition failures are distinct.
+    OutsideReductionScope,
     Cancelled,
     License,
     Serialization,
@@ -32,6 +37,8 @@ impl AppErrorKind {
             Self::Lowering => "lowering",
             Self::Derivation => "derivation",
             Self::Execution => "execution",
+            Self::UnresolvedReduction => "unresolved-reduction",
+            Self::OutsideReductionScope => "outside-reduction-scope",
             Self::Cancelled => "cancelled",
             Self::License => "license",
             Self::Serialization => "serialization",

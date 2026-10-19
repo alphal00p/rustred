@@ -458,7 +458,7 @@ fn candidate_session_admission_precedes_backing_and_failed_attachment_keeps_old_
     session.attach_bundle(&output, storage).unwrap();
     assert_eq!(
         session.reduce_guarded_root(&key(-1)).unwrap_err().kind(),
-        AppErrorKind::Input
+        AppErrorKind::OutsideReductionScope
     );
     assert_eq!(
         session.io_statistics().unwrap().chunks_read,
@@ -501,7 +501,7 @@ fn candidate_session_admission_precedes_backing_and_failed_attachment_keeps_old_
     );
     assert_eq!(
         session.reduce_guarded_root(&key(3)).unwrap_err().kind(),
-        AppErrorKind::Execution
+        AppErrorKind::UnresolvedReduction
     );
     assert_eq!(
         session.cache_statistics().completed_reductions,

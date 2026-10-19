@@ -26,7 +26,7 @@ use rustred::algebra::Coefficient;
 use rustred::family::{IntegralFamily, IntegralKey};
 use rustred::solver::{
     CandidateRoutedApplicationStatistics, CandidateRoutedCacheStatistics, CandidateRoutedReduction,
-    CandidateStatistics, RoutedCandidateApplication,
+    CandidateStatistics, RoutedCandidateApplication, UnresolvedPolicy,
 };
 use serde_json::Value;
 
@@ -119,6 +119,7 @@ impl SavedApplicationIntegral {
 #[derive(Clone, Debug)]
 pub struct SavedApplicationReduction {
     terms: BTreeMap<SavedApplicationIntegral, Coefficient>,
+    unresolved: BTreeSet<SavedApplicationIntegral>,
     conditions: Vec<Coefficient>,
     statistics: CandidateRoutedApplicationStatistics,
     terminal_substitution_additions: usize,
@@ -126,6 +127,10 @@ pub struct SavedApplicationReduction {
 impl SavedApplicationReduction {
     pub fn terms(&self) -> &BTreeMap<SavedApplicationIntegral, Coefficient> {
         &self.terms
+    }
+    /// Exact nonzero output integrals absent from the publication's terminal inventory.
+    pub fn unresolved(&self) -> &BTreeSet<SavedApplicationIntegral> {
+        &self.unresolved
     }
     pub fn nonzero_conditions(&self) -> &[Coefficient] {
         &self.conditions
@@ -433,7 +438,9 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 ));
             }
             // Admission is deliberately before cancellation and core-cache lookup.
-            self.entry_domain.validate(&key)?;
+            if self.options.unresolved_policy == UnresolvedPolicy::Reject {
+                self.entry_domain.validate(&key)?;
+            }
             inputs.push((key, coefficient));
         }
         let reduced = if let Some(progress) = progress.as_deref_mut() {
@@ -491,15 +498,23 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 family_fingerprint: family.fingerprint().to_owned(),
                 integral: integral.clone(),
             };
-            let row = self.terminals.rows.get(&key).ok_or_else(|| {
-                AppError::execution(
+            let unresolved_terms;
+            let row_terms = if let Some(row) = self.terminals.rows.get(&key) {
+                if seen_guard_vectors.insert(Arc::as_ptr(&row.conditions)) {
+                    append_conditions(&mut conditions, &mut seen_conditions, &row.conditions);
+                }
+                &row.terms
+            } else if self.options.unresolved_policy == UnresolvedPolicy::Preserve
+                && reduced.unresolved().contains(integral)
+            {
+                unresolved_terms = BTreeMap::from([(key.clone(), context.one())]);
+                &unresolved_terms
+            } else {
+                return Err(AppError::execution(
                     "saved owner returned a terminal absent from the published substitutions",
-                )
-            })?;
-            if seen_guard_vectors.insert(Arc::as_ptr(&row.conditions)) {
-                append_conditions(&mut conditions, &mut seen_conditions, &row.conditions);
-            }
-            for (key, coefficient) in &row.terms {
+                ));
+            };
+            for (key, coefficient) in row_terms {
                 let value = context
                     .try_mul(
                         factor,
@@ -538,8 +553,14 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 progress.terminal_row(additions - routed_additions);
             }
         }
+        let unresolved = output
+            .keys()
+            .filter(|key| !self.terminals.remaining.contains(*key))
+            .cloned()
+            .collect();
         Ok(SavedApplicationReduction {
             terms: output,
+            unresolved,
             conditions,
             statistics: reduced.statistics().clone(),
             terminal_substitution_additions: additions - routed_additions,
@@ -683,6 +704,9 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 "saved application manifest family differs from its owners",
             ));
         }
+        application
+            .set_unresolved_policy(options.unresolved_policy)
+            .map_err(failure)?;
         application
             .set_cache_representation(options.cache_representation)
             .map_err(failure)?;

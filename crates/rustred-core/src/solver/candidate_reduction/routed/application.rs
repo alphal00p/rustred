@@ -1,5 +1,6 @@
 //! Exact, memoized application of the same immutable routed owner programs.
-//! No missing rule becomes a terminal and no source generation runs here.
+//! Optional partial application keeps uncovered integrals distinct from declared
+//! terminals. No source generation or certification upgrade runs here.
 mod cache_policy;
 mod engine;
 use crate::reduction::guard_union;
@@ -13,7 +14,7 @@ pub use progress::{
     CandidateRoutedApplicationStatus, CandidateRoutedCacheCensus,
 };
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use super::super::cache::CachedTerms;
@@ -21,7 +22,7 @@ use super::super::owners::PreparedOwner;
 use super::super::{
     CandidateCacheRepresentation, CandidateOwnerContext, CandidateOwnerPrograms,
     CandidateReductionError, CandidateStatistics, DeferredCandidateOwnerPrograms,
-    DeferredCandidateOwnerStatistics,
+    DeferredCandidateOwnerStatistics, UnresolvedPolicy,
 };
 use super::trace::Node;
 use super::{
@@ -46,12 +47,14 @@ pub struct CandidateRoutedApplicationStatistics {
 }
 
 /// Exact coefficients under sufficient generic nonzero conditions. Reduction
-/// methods return declared terminals; `route_entry_to_owner` returns unreduced
-/// owner images. This is not a source replay or family-closure proof.
+/// methods return declared terminals and, in explicit partial mode, unresolved
+/// integrals; `route_entry_to_owner` returns unreduced owner images. This is not
+/// a source replay or family-closure proof.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CandidateRoutedReduction {
     family_fingerprint: Arc<String>,
     terms: BTreeMap<IntegralKey, Coefficient>,
+    unresolved: BTreeSet<IntegralKey>,
     nonzero_conditions: Vec<Coefficient>,
     statistics: CandidateRoutedApplicationStatistics,
 }
@@ -62,6 +65,11 @@ impl CandidateRoutedReduction {
     }
     pub fn terms(&self) -> &BTreeMap<IntegralKey, Coefficient> {
         &self.terms
+    }
+    /// Uncovered output keys remaining after exact back-substitution and cancellation.
+    /// They are integrals, not declared master terminals.
+    pub fn unresolved(&self) -> &BTreeSet<IntegralKey> {
+        &self.unresolved
     }
     pub fn nonzero_conditions(&self) -> &[Coefficient] {
         &self.nonzero_conditions
@@ -116,6 +124,7 @@ pub struct RoutedCandidateApplication<const N: usize> {
     limits: RoutedCandidateLimits,
     cache: BTreeMap<Node<N>, CacheEntry>,
     cache_representation: CandidateCacheRepresentation,
+    unresolved_policy: UnresolvedPolicy,
     cache_policy: CandidateRoutedCachePolicy,
     eviction_index: EvictionIndex<Node<N>>,
     cache_work: CandidateRoutedCacheStatistics,
@@ -133,6 +142,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             limits: self.limits,
             cache: BTreeMap::new(),
             cache_representation: CandidateCacheRepresentation::Sparse,
+            unresolved_policy: UnresolvedPolicy::Reject,
             cache_policy: CandidateRoutedCachePolicy::default(),
             eviction_index: EvictionIndex::default(),
             cache_work: CandidateRoutedCacheStatistics::default(),
@@ -165,6 +175,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             limits,
             cache: BTreeMap::new(),
             cache_representation: CandidateCacheRepresentation::Sparse,
+            unresolved_policy: UnresolvedPolicy::Reject,
             cache_policy: CandidateRoutedCachePolicy::default(),
             eviction_index: EvictionIndex::default(),
             cache_work: CandidateRoutedCacheStatistics::default(),
@@ -183,6 +194,25 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             },
         }
     }
+    pub fn unresolved_policy(&self) -> UnresolvedPolicy {
+        self.unresolved_policy
+    }
+
+    /// A session cannot change residual semantics while it retains memoized
+    /// identities. Source guards, rule domains and all work limits stay active.
+    pub fn set_unresolved_policy(
+        &mut self,
+        policy: UnresolvedPolicy,
+    ) -> Result<(), CandidateRoutedError> {
+        if !self.cache.is_empty() {
+            return Err(CandidateRoutedError::InvalidInput(
+                "unresolved policy requires an empty routed reduction cache".into(),
+            ));
+        }
+        self.unresolved_policy = policy;
+        Ok(())
+    }
+
     pub fn cache_representation(&self) -> CandidateCacheRepresentation {
         self.cache_representation
     }

@@ -25,6 +25,8 @@ mod descendant_cache;
 mod factorized_audit;
 #[path = "tests/intermediate_capture.rs"]
 mod intermediate_capture;
+#[path = "tests/partial.rs"]
+mod partial;
 #[path = "tests/root_guards.rs"]
 mod root_guards;
 #[path = "tests/session.rs"]

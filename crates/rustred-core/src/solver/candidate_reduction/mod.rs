@@ -26,7 +26,7 @@ mod trace;
 pub use cached_program::{CandidateGuardedCacheError, CandidateUnitMassProgram};
 pub use model::{
     CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
-    CandidateReductionError, CandidateStatistics,
+    CandidateReductionError, CandidateStatistics, UnresolvedPolicy,
 };
 pub use owners::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateIntegralIdentity, CandidateOwnerContext,
