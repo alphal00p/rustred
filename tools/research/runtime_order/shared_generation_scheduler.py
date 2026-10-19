@@ -14,13 +14,13 @@ import generation_scheduler as supervisor
 from generation_state import native_observation
 
 
-def schedule(resources):
+def schedule(resources, *, check_affinity=True):
     workers = resources["workers"]
     cpus = sorted(supervisor.SUPERVISOR.parse_cpu_set(resources["cpus"]))
     parents = resources["generation_jobs"]
     limit = resources.get("max_active_sectors")
     if (type(workers) is not int or workers <= 0 or type(parents) is not int or parents <= 0
-            or len(cpus) != workers or not set(cpus) <= os.sched_getaffinity(0)
+            or len(cpus) != workers or (check_affinity and not set(cpus) <= os.sched_getaffinity(0))
             or (limit is not None and (type(limit) is not int or limit <= 0))):
         raise ValueError("shared generation requires positive workers/parent slots, permitted CPU IDs, and an optional positive sector limit")
     return dict(schema="rustred.shared-generation-schedule.v1", jobs=parents,
@@ -48,12 +48,15 @@ class Projection:
         except (OSError, ValueError, TypeError):
             pass
         statuses = {row["id"]: row for row in native["parents"]} if native else {}
+        drained = child.get("state") in ("failed", "interrupted", "completed", "native_finished")
         rows = []
         for job in self.parents:
             parent = statuses.get(job.id, {})
             state = parent.get("state", "pending")
+            if drained and state not in ("completed", "failed"):
+                state = "not_started" if state == "pending" else "interrupted"
             if not native and child.get("state") in ("failed", "interrupted"):
-                state = child["state"]
+                state = "interrupted"  # process failure does not locate a mathematical parent failure
             row = dict(id=job.id, state="running" if state == "preparing" else state,
                 preparation_state=state, metadata=copy.deepcopy(job.metadata), shared_process=True,
                 slot=None, cpus=child.get("cpus", []), workers=None,
@@ -62,6 +65,8 @@ class Projection:
                 native_progress=native_observation(job.native_progress,
                     child.get("started_unix", time.time()), pid=child.get("pid"), pid_start=child.get("pid_start")),
                 checkpoint_files_observed=None, error=parent.get("error"))
+            if drained and row["native_progress"].get("snapshot") is not None:
+                row["native_progress"]["status"] = "historical"
             rows.append(row)
         rows += [dict(copy.deepcopy(row), shared_process=True, preparation_state="retained")
                  for row in self.retained]
@@ -71,6 +76,10 @@ class Projection:
         aggregate.update(active_jobs=sum(row["state"] in ("running", "preparing") for row in rows),
             pending_jobs=sum(row["state"] == "pending" for row in rows),
             pool=None if native is None else native.get("pool"))
+        if drained:
+            aggregate.update(observed_cores=0, sampled_rss_bytes=0, active_jobs=0, pending_jobs=0)
+            if aggregate.get("pool") is not None:
+                aggregate["pool"] = dict(aggregate["pool"], running=0, waiting_for_worker=0, admitted=0)
         snapshot["aggregate"] = aggregate
         return snapshot
 

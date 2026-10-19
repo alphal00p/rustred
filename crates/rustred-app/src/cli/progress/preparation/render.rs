@@ -124,6 +124,18 @@ fn resources(status: &Status) -> String {
 }
 
 fn phase(job: &Job) -> String {
+    if matches!(job.state.as_str(), "interrupted" | "failed" | "not_started") {
+        let last = job.native().and_then(|n| {
+            n.active_jobs.iter().max_by(|a, b| {
+                a.last_event_elapsed_seconds
+                    .total_cmp(&b.last_event_elapsed_seconds)
+            })
+        });
+        return last.map_or_else(
+            || clean(&job.state),
+            |last| format!("{} · last {}", clean(&job.state), clean(&last.phase)),
+        );
+    }
     if job.shared_process {
         if job.preparation_state.as_deref() == Some("preparing") {
             return "family preparation".into();
@@ -422,13 +434,13 @@ pub(super) fn render(frame: &mut Frame<'_>, status: &Status, now: f64, color: bo
             ]);
         }
         if job.shared_process {
-            cells.push(Cell::from(
-                if job.preparation_state.as_deref() == Some("preparing") {
-                    "prep".into()
-                } else {
-                    native.map_or_else(|| "—".into(), |n| n.active_jobs.len().to_string())
-                },
-            ));
+            cells.push(Cell::from(if !job.active() {
+                "0".into()
+            } else if job.preparation_state.as_deref() == Some("preparing") {
+                "prep".into()
+            } else {
+                native.map_or_else(|| "—".into(), |n| n.active_jobs.len().to_string())
+            }));
         } else {
             cells.push(
                 Cell::from(cpu(job.observed_cores, job.workers)).style(cpu_style(
@@ -474,7 +486,7 @@ pub(super) fn render(frame: &mut Frame<'_>, status: &Status, now: f64, color: bo
         widths.extend([
             Constraint::Length(6),
             Constraint::Length(6),
-            Constraint::Length(11),
+            Constraint::Length(16),
         ]);
     }
     headings.push(if status.resources.shared_pool {

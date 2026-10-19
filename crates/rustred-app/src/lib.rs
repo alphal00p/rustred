@@ -133,6 +133,11 @@ pub fn cli_main_entry() -> i32 {
     cli::main_entry()
 }
 
+#[cfg(feature = "cli")]
+pub fn preparation_monitor_main_entry() -> i32 {
+    cli::preparation_monitor_main_entry()
+}
+
 /// Shared admission for the dynamic campaign entry points. Their persisted
 /// representation retains its existing 16-coordinate limit independently of
 /// the finite reducer's larger explicit arities.

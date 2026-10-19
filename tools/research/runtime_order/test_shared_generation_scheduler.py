@@ -80,6 +80,20 @@ class SharedSchedulerTests(unittest.TestCase):
             self.assertEqual(json.loads((self.path/'snapshot.json').read_bytes())['jobs'][0]['id'],'A')
         finally: progress.close()
 
+    def test_dead_shared_process_cannot_leave_parents_or_pool_running(self):
+        status = self.path/'native.json'
+        status.write_text(json.dumps(dict(schema='rustred.shared-generation-progress.v1',pid=123,
+            timestamp_unix_seconds=time.time(), pool=dict(running=4,waiting_for_worker=12,admitted=16,
+                completed=3,peak_running=4), parents=[dict(id='A',state='running'),dict(id='B',state='pending')])))
+        snapshot = dict(jobs=[dict(id='shared-worker-pool',pid=123,pid_start=50,
+            started_unix=time.time()-1,state='failed',cpus=[0,1,2,3])],
+            aggregate=dict(observed_cores=2.5,sampled_rss_bytes=0),resources={})
+        value=shared.Projection(self.jobs(),[],self.resources,status)(snapshot)
+        self.assertEqual([row['state'] for row in value['jobs']], ['interrupted','not_started'])
+        self.assertEqual(value['aggregate']['pool']['running'],0)
+        self.assertEqual(value['aggregate']['pool']['waiting_for_worker'],0)
+        self.assertEqual(value['aggregate']['observed_cores'],0)
+
     def test_partial_completed_parent_is_retained_after_native_failure(self):
         def fail(jobs,directory,resources,callback,**options):
             path=Path(jobs[0].command[5])
@@ -91,7 +105,8 @@ class SharedSchedulerTests(unittest.TestCase):
         self.assertEqual(completed,['A'])
 
 
-@unittest.skipUnless(os.environ.get('RUSTRED_PREPARATION_VIEWER'), 'set RUSTRED_PREPARATION_VIEWER for the native failure/resume gate')
+@unittest.skipUnless(os.environ.get('RUSTRED_GENERATION_TEST_BINARY') or os.environ.get('RUSTRED_PREPARATION_VIEWER'),
+                     'set RUSTRED_GENERATION_TEST_BINARY for the native failure/resume gate')
 class NativeFailureResumeTest(unittest.TestCase):
     def test_failed_parent_preserves_completed_other_parent_and_resumes(self):
         sys.path.insert(0,str(generation_scheduler.ROOT/'six_loop_study'))
@@ -119,7 +134,7 @@ expression = "q^2-{mass}"
             manifest.write_text(json.dumps(dict(schema=generate.TOPOLOGY_SCHEMA,entries=entries)))
             cpus=sorted(os.sched_getaffinity(0))[:2]
             plan=generate.prepare(argparse.Namespace(directory=root/'run',manifest=manifest,
-                executable=Path(os.environ['RUSTRED_PREPARATION_VIEWER']),workers=2,cpus=','.join(map(str,cpus)),
+                executable=Path(os.environ.get('RUSTRED_GENERATION_TEST_BINARY') or os.environ['RUSTRED_PREPARATION_VIEWER']),workers=2,cpus=','.join(map(str,cpus)),
                 jobs=1,max_memory_bytes=8_000_000_000,ram_margin_percent=None,rank=0,numerical_depth=None,
                 finite_case_policy=None,exact_backend=None,discovery_strategy=None,full_downsets=False,
                 execution_mode='shared',max_active_sectors=1))
@@ -138,6 +153,25 @@ expression = "q^2-{mass}"
             self.assertIsNone(generate.completed(root/'run',plan,by_id['B']))
             result=generate.execute(root/'run',plan,dashboard=False)
             self.assertEqual((result['parents'],result['generated_rules'],result['finite_residuals']),(2,2,2))
+            # Repack from the actual native completed-sector checkpoints under
+            # a different worker/CPU/parent budget, never regenerate the math.
+            available=sorted(os.sched_getaffinity(0))
+            variants=[(1,[available[-1]],3)]
+            if len(available)>=4: variants.append((4,available[-4:],1))
+            for workers,affinity,parents in variants:
+                for owner in plan['owners']:
+                    (root/f"run/generation/{owner['id']}/completed.json").unlink()
+                changed=generate.resume_resources(plan,parents,1,workers=workers,
+                    cpus=','.join(map(str,affinity)))
+                result=generate.execute(root/'run',changed,dashboard=False)
+                self.assertEqual((result['parents'],result['generated_rules'],result['finite_residuals']),(2,2,2))
+                self.assertEqual(generate.read(root/'run/generation.json')['resources']['workers'],workers)
+                for owner in plan['owners']:
+                    import tomllib
+                    report=tomllib.loads((root/f"run/generation/{owner['id']}/generation.toml").read_text())
+                    self.assertEqual(report['checkpoint']['reused_sectors'],1)
+                    self.assertEqual(report['checkpoint']['newly_solved_sectors'],0)
+                plan=changed
 
 
 if __name__=='__main__': unittest.main()

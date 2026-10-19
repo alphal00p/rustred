@@ -201,6 +201,9 @@ impl Drop for Signals {
 pub(crate) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     let options = parse(arguments)?;
     let mut status = read(&options.snapshot)?;
+    if !options.json {
+        status.finish_observations();
+    }
     status.expire_native(now());
     if options.once || options.json {
         let mut output = io::stdout().lock();
@@ -258,11 +261,17 @@ pub(crate) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         if status.terminal() {
             // Leave one useful final record in normal scrollback after restoring
             // the caller's terminal. The alternate screen itself is transient.
-            if dashboard.take().is_some() {
-                writeln!(
-                    io::stderr().lock(),
-                    "{}",
-                    render::plain(&status, now(), false)
+            if let Some(terminal) = dashboard.take() {
+                let area = terminal.area;
+                let color = terminal.color;
+                drop(terminal);
+                super::scrollback::write(
+                    &mut io::stderr().lock(),
+                    &status,
+                    now(),
+                    area.width,
+                    area.height,
+                    color,
                 )
                 .map_err(|error| CliError::OutputIo(error.to_string()))?;
             }
@@ -272,6 +281,7 @@ pub(crate) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         // Atomic publication makes partial JSON unlikely, but a failed read is
         // still a viewer error, never a scheduler/campaign state transition.
         status = read(&options.snapshot)?;
+        status.finish_observations();
         status.expire_native(now());
     }
 }

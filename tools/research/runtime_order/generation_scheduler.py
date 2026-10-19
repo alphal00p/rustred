@@ -18,13 +18,13 @@ from generation_guard import ROOT, SUPERVISOR, group_running, native_environment
 from generation_state import Progress, diagnostic_tail, native_observation
 
 
-def schedule(resources):
+def schedule(resources, *, check_affinity=True):
     workers, count = resources["workers"], resources.get("generation_jobs", 1)
     cpus = sorted(SUPERVISOR.parse_cpu_set(resources["cpus"]))
     if (not isinstance(count, int) or isinstance(count, bool) or count <= 0
             or count > workers or workers % count):
         raise ValueError("generation-jobs must divide workers exactly and be in 1..workers")
-    if len(cpus) != workers or not set(cpus) <= os.sched_getaffinity(0):
+    if len(cpus) != workers or (check_affinity and not set(cpus) <= os.sched_getaffinity(0)):
         raise ValueError("provide exactly workers permitted CPU IDs")
     width = workers // count
     return dict(schema="rustred.generation-schedule.v1", jobs=count, workers_per_job=width,

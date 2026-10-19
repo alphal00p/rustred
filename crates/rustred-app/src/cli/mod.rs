@@ -63,6 +63,26 @@ pub(crate) fn main_entry() -> i32 {
     }
 }
 
+/// Dedicated presentation entry point avoids linking every mathematical CLI
+/// dispatch when only the read-only dashboard has changed. Accept the ordinary
+/// subcommand spelling too, so existing dashboard supervisors can use it.
+pub(crate) fn preparation_monitor_main_entry() -> i32 {
+    let mut arguments = std::env::args_os().skip(1).peekable();
+    if arguments
+        .peek()
+        .is_some_and(|value| value == "preparation-monitor")
+    {
+        arguments.next();
+    }
+    match progress::preparation::run(arguments.collect()) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("rustred preparation monitor: {error}");
+            error.exit_code()
+        }
+    }
+}
+
 fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
     match parse_args(arguments)? {
         Command::FiniteDemand(arguments) => finite_demand::run(arguments),

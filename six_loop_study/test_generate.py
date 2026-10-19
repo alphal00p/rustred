@@ -127,6 +127,47 @@ expression = "k2^2-1"
         self.assertEqual(plan["bound_files"], updated["bound_files"])
         generate.validate(self.output, updated)
 
+    def test_resume_accepts_new_workers_cpus_jobs_and_ram_without_touching_math(self):
+        plan = generate.prepare(self.args(execution_mode="shared", jobs=2))
+        changed = generate.resume_resources(plan, 7, 1, workers=2, cpus="64-65", max_memory_bytes=2_000_000_000)
+        self.assertEqual(changed["resources"]["workers"], 2)
+        self.assertEqual(changed["allocation"]["jobs"], 7)
+        self.assertEqual(changed["allocation"]["slots"], [[64,65]])
+        self.assertEqual(changed["resources"]["max_memory_bytes"], 2_000_000_000)
+        self.assertEqual(changed["payload_bytes"], plan["payload_bytes"], "native byte permissions are frozen, not a RAM reservation")
+        self.assertEqual(changed["bound_files"], plan["bound_files"])
+        self.assertEqual(plan["resources"]["workers"], 4)
+        command = generate.command(self.output, changed, changed["owners"][0])
+        self.assertEqual(command[command.index("--n-cores")+1], "2")
+        generate.validate(self.output, changed)
+
+    def test_resource_preview_handles_old_cpu_affinity_without_mutating_plan(self):
+        generate.prepare(self.args(execution_mode="shared"))
+        before = (self.output / "generation.json").read_bytes()
+        output = io.StringIO()
+        with patch.object(generate.scheduler.os, "sched_getaffinity", return_value={64,65}), \
+                contextlib.redirect_stdout(output):
+            result = generate.main(["--directory", str(self.output), "--resume", "--workers", "2", "--cpus", "64-65", "--jobs", "3"])
+        self.assertEqual(result, 0)
+        self.assertEqual(json.loads(output.getvalue())["allocation"]["total_workers"], 2)
+        self.assertIn("--workers 2 --cpus 64-65 --jobs 3", json.loads(output.getvalue())["resume_command"])
+        self.assertEqual((self.output / "generation.json").read_bytes(), before)
+
+    def test_started_resource_choices_persist_and_inputs_stay_frozen(self):
+        plan = generate.prepare(self.args())
+        changed = generate.resume_resources(plan, 1, workers=2, cpus="64-65")
+        def run(jobs, attempt, resources, completed, **kwargs):
+            for job in jobs:
+                self.fake_outputs(job)
+                completed(job)
+        with patch.object(generate.scheduler, "run", side_effect=run), contextlib.redirect_stdout(io.StringIO()):
+            generate.execute(self.output, changed, dashboard=False)
+        stored = generate.read(self.output / "generation.json")
+        self.assertEqual(stored["resources"], changed["resources"])
+        self.assertEqual(stored["bound_files"], plan["bound_files"])
+        with self.assertRaisesRegex(ValueError, "frozen generation inputs"):
+            generate.execute(self.output, {**stored, "rank":1}, dashboard=False)
+
     def test_active_sector_limit_accepts_explicit_all_and_positive_counts(self):
         self.assertEqual(generate.active_sector_limit("all"), "all")
         self.assertEqual(generate.active_sector_limit("32"), 32)

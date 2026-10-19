@@ -1,5 +1,49 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 19 — generation resume resources and final dashboard
+
+User's six-loop attempt failed after 3h44m51 with native exit -9 (SIGKILL),
+not a recorded cooperative RAM-guard stop. Sampled tree peak was 506.7 GiB,
+below the 530.9 GiB soft threshold; host available at exit was 11.8 GiB.
+Memory exhaustion is plausible but kernel attribution is unavailable. The run
+retains 56 sector shards (37/17/2 across three parents); no complete parent
+bundle was published. Production inputs, checkpoints and frozen solver are
+untouched. Responsible implementer/verifier: root; no production restart.
+
+Delivered operational resume overrides for workers, CPUs, parent slots, sector
+concurrency and RAM guard, with math/executable identity frozen. Old affinity
+is authenticated structurally; new affinity is checked against this host.
+Admission atomically persists choices under the existing writer lock; previews
+do not mutate and retain overrides in the printed command. Shared jobs do not
+require fixed pool divisibility. Native sector identity already excluded worker
+budgets, so no checkpoint migration or discarded completed work is needed.
+
+The stopped/failed native Ratatui dashboard now remains as the same coloured
+table in primary scrollback. Historical native counts survive without claiming
+that drained workers still run. Added a standalone read-only
+`rustred-preparation-monitor` binary so UI updates do not replace the frozen
+K21 solver. Piped/JSON behavior remains available; viewer failure falls back
+without aborting mathematical work. No CAS/algebra implementation changed.
+
+Validation: 68 Python/native/PTY controls pass, including actual checkpoint
+reuse with 2 → 1 → 4 workers and different CPU/job allocations. A copied K21
+six-tadpole control resumes with four workers in 39.922 s, zero new sectors,
+one reused sector, byte-identical output. This is not coupled-family closure.
+Actual failed-snapshot read-only PTY replay retains all 56 recorded counts and
+the full 41976r×203032c frame display; screenshot visually audited. Production
+metadata-only resource preview leaves generation.json unchanged. New Rust
+unit controls are included but a fresh full Rust unit suite is not claimed.
+
+Evidence and exact commands: `docs/generation_resume_dashboard.md` and local
+`TMP/generation-resume-ui-20261019/`. Optimized viewer SHA256
+`573f4d453cf383905d4d3a49d55cc31ef109ca3b121141d0a34bdd2d15d77793`, frozen
+under `TMP/releases/20261019-generation-resume-dashboard/` and installed at
+`target/release/rustred-preparation-monitor`. Full solver binary was not swapped.
+Suggested next user launch retains the 600 GB allowance but reduces to 32
+workers / eight active sectors / all fourteen parents; not a proven optimal
+setup or protection against a single oversized frame. Unrelated FeynKit edits
+and all binary/campaign/reference evidence are excluded from this milestone.
+
 ## October 19 — finite post-chase progress and rank-six delivery
 
 User requested visible post-chase progress, a meaningful non-warming ETA label,

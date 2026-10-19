@@ -5,6 +5,7 @@
 
 mod model;
 mod render;
+mod scrollback;
 mod viewer;
 
 pub(crate) use viewer::run;

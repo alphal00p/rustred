@@ -189,6 +189,41 @@ impl Status {
             .count()
     }
 
+    /// Read-only presentation normalization: after the owned process group has
+    /// drained there are no active workers. Preserve the last native counters
+    /// as historical observations, never as new checkpoint/closure authority.
+    pub(super) fn finish_observations(&mut self) {
+        if !self.terminal() {
+            return;
+        }
+        if let Some(aggregate) = &mut self.aggregate {
+            aggregate.observed_cores = Some(0.);
+            aggregate.active_jobs = Some(0);
+            aggregate.pending_jobs = Some(0);
+            if let Some(pool) = &mut aggregate.pool {
+                pool.running = 0;
+                pool.waiting_for_worker = 0;
+                pool.admitted = 0;
+            }
+        }
+        for job in &mut self.jobs {
+            job.observed_cores = Some(0.);
+            job.sampled_rss_bytes = Some(0);
+            if matches!(job.state.as_str(), "running" | "preparing" | "draining") {
+                job.state = "interrupted".into();
+                job.preparation_state = Some("interrupted".into());
+            } else if job.state == "pending" {
+                job.state = "not_started".into();
+            }
+            if let Some(observation) = &mut job.native_progress
+                && observation.snapshot.is_some()
+                && matches!(observation.status.as_str(), "fresh" | "stale")
+            {
+                observation.status = "historical".into();
+            }
+        }
+    }
+
     /// A saved "fresh" flag cannot remain fresh while the supervisor is gone.
     /// Expiration only clears optional presentation data, never parent outcomes.
     pub(super) fn expire_native(&mut self, now: f64) {
@@ -211,7 +246,8 @@ impl Status {
 impl Job {
     pub(super) fn native(&self) -> Option<&NativeSnapshot> {
         let observation = self.native_progress.as_ref()?;
-        if observation.status != "fresh" {
+        if observation.status != "fresh" && !(observation.status == "historical" && !self.active())
+        {
             return None;
         }
         let snapshot = observation.snapshot.as_ref()?;
@@ -276,6 +312,69 @@ pub(super) mod tests {
             "stale"
         );
         assert_eq!(status.jobs[0].state, "pending");
+    }
+
+    #[test]
+    fn stopped_human_view_preserves_historical_sector_counts_without_active_workers() {
+        use crate::cli::progress::family_close::telemetry::{
+            CheckpointSemantics, NativeCounts, NativeState,
+        };
+        let mut input = fixture();
+        input["state"] = "failed".into();
+        input["jobs"][0]["state"] = "running".into();
+        input["jobs"][0]["pid"] = 9.into();
+        input["jobs"][0]["pid_start"] = 17.into();
+        let native = NativeSnapshot {
+            schema: super::super::super::family_close::telemetry::SCHEMA.into(),
+            pid: 9,
+            process_start_ticks: Some(17),
+            invocation_id: "test".into(),
+            revision: 1,
+            state: NativeState::Running,
+            elapsed_seconds: 2.,
+            last_event_elapsed_seconds: Some(1.),
+            counts: NativeCounts {
+                sectors_total: Some(164),
+                generated: 37,
+                checkpointed_new: 37,
+                rules_generated: 14127,
+                ..NativeCounts::default()
+            },
+            active_jobs: Vec::new(),
+            details_truncated: false,
+            last_failure: None,
+            checkpoint: CheckpointSemantics::default(),
+            family_closure_claim: false,
+        };
+        input["jobs"][0]["native_progress"] =
+            serde_json::json!({"status":"fresh","age_seconds":0.,"snapshot":native});
+        input["aggregate"] = serde_json::json!({"observed_cores":2.,"active_jobs":1,
+            "pool":{"running":2,"waiting_for_worker":1,"admitted":3,"completed":37,"peak_running":2}});
+        let mut status = Status::parse(&serde_json::to_vec(&input).unwrap()).unwrap();
+        status.finish_observations();
+        status.expire_native(10000.);
+        assert!(!status.jobs[0].active());
+        assert_eq!(status.jobs[0].state, "interrupted");
+        assert_eq!(status.jobs[0].native().unwrap().counts.generated, 37);
+        assert_eq!(
+            status.jobs[0].native().unwrap().counts.rules_generated,
+            14127
+        );
+        assert_eq!(
+            status
+                .aggregate
+                .as_ref()
+                .unwrap()
+                .pool
+                .as_ref()
+                .unwrap()
+                .running,
+            0
+        );
+        assert_eq!(
+            input["jobs"][0]["state"], "running",
+            "source observations are not rewritten"
+        );
     }
 
     #[test]

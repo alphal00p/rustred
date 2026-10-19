@@ -51,19 +51,28 @@ def active_sector_limit(value):
     return number
 
 
-def resume_resources(plan, parent_slots=None, sector_limit=None):
-    if parent_slots is None and sector_limit is None:
-        return plan
-    if plan.get("execution_mode") != "shared":
-        raise ValueError("runtime parent/sector overrides require shared execution")
-    # These grants do not enter the native sector checkpoint identity. Keep
-    # the original frozen plan intact and record actual grants in each attempt.
+def resume_resources(plan, parent_slots=None, sector_limit=None, *, workers=None, cpus=None,
+                     max_memory_bytes=None, ram_margin_percent=None):
+    if (sector_limit is not None and plan.get("execution_mode") != "shared"):
+        raise ValueError("runtime sector overrides require shared execution")
+    # These grants do not enter native sector checkpoint identity. Copy the
+    # caller's plan; execute persists choices only under the run's writer lock.
     plan = dict(plan, resources=dict(plan["resources"]))
+    for name, value in (("workers", workers), ("cpus", cpus),
+                        ("max_memory_bytes", max_memory_bytes), ("ram_guard_margin_percent", ram_margin_percent)):
+        if value is not None:
+            plan["resources"][name] = value
+    if (type(plan["resources"]["max_memory_bytes"]) is not int
+            or plan["resources"]["max_memory_bytes"] <= 0
+            or not math.isfinite(plan["resources"]["ram_guard_margin_percent"])
+            or not 0 < plan["resources"]["ram_guard_margin_percent"] < 100):
+        raise ValueError("RAM ceiling must be positive; margin must be between 0 and 100 percent")
     if parent_slots is not None:
         plan["resources"]["generation_jobs"] = parent_slots
     if sector_limit is not None:
         plan["resources"]["max_active_sectors"] = None if sector_limit == "all" else sector_limit
-    plan["allocation"] = shared_scheduler.schedule(plan["resources"])
+    engine = shared_scheduler if plan.get("execution_mode") == "shared" else scheduler
+    plan["allocation"] = engine.schedule(plan["resources"])
     return plan
 
 
@@ -253,14 +262,14 @@ def prepare(args):
     return plan
 
 
-def validate(directory, plan):
+def validate(directory, plan, *, check_affinity=True):
     if plan.get("schema") != SCHEMA:
         raise ValueError("unsupported generation study plan")
     for name, expected in plan["bound_files"].items():
         if sha(local_file(directory, name)) != expected:
             raise ValueError(f"frozen input or executable changed: {name}")
     engine = shared_scheduler if plan.get("execution_mode") == "shared" else scheduler
-    if engine.schedule(plan["resources"]) != plan["allocation"]:
+    if engine.schedule(plan["resources"], check_affinity=check_affinity) != plan["allocation"]:
         raise ValueError("frozen CPU allocation changed")
 
 
@@ -370,9 +379,17 @@ def record_completed(directory, plan, owner):
     return value
 
 
-def execute(directory, plan, dashboard=True):
-    validate(directory, plan)
+def execute(directory, plan, dashboard=True, dashboard_executable=None):
     with exclusive(directory):
+        validate(directory, plan)
+        saved = read(directory / "generation.json")
+        immutable = lambda value: {key: item for key, item in value.items() if key not in ("resources", "allocation")}
+        if immutable(saved) != immutable(plan):
+            raise ValueError("resume cannot change frozen generation inputs, executable, or mathematical policy")
+        if saved != plan:
+            # Resource choices are operational and absent from native sector
+            # identity. Persist only after validation and exclusive admission.
+            write(directory / "generation.json", plan)
         jobs, retained = [], []
         owners_by_id = {owner["id"]: owner for owner in plan["owners"]}
         for ordinal, owner in enumerate(plan["owners"], 1):
@@ -403,12 +420,16 @@ def execute(directory, plan, dashboard=True):
                       "using plain generation progress instead of a misleading aggregate sector denominator. "
                       "Structured native progress is retained.", flush=True)
             dashboard = dashboard and not full
-            with Dashboard(directory / "bin/rustred", attempt, plan["resources"], dashboard) as view:
+            viewer = dashboard_executable or next((path for path in (
+                ROOT / "target/release/rustred-preparation-monitor", ROOT / "target/release/rustred")
+                if path.is_file()), directory / "bin/rustred")
+            with Dashboard(viewer, attempt, plan["resources"], dashboard) as view:
                 last_plain = -30.0
                 def observe(event):
                     nonlocal last_plain
                     view.observe(event)
-                    if dashboard:
+                    if dashboard and view.receipt.get("state") != "unavailable" and not (
+                            view.receipt.get("state") == "exited" and view.receipt.get("exit_code") not in (None, 0)):
                         return
                     snapshot = event["snapshot"]
                     elapsed = snapshot["elapsed_seconds"]
@@ -454,8 +475,10 @@ def main(argv=None, *, entrypoint=None):
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--executable", type=Path)
-    parser.add_argument("--workers", type=int)
-    parser.add_argument("--cpus")
+    parser.add_argument("--dashboard-executable", type=Path,
+                        help="optional read-only viewer; may change on resume without replacing the frozen solver")
+    parser.add_argument("--workers", type=int, help="compute budget; may change on resume with matching --cpus")
+    parser.add_argument("--cpus", help="CPU affinity; may change on resume")
     parser.add_argument("--jobs", type=int, help="concurrent parent coordinators [shared default: all parents]")
     parser.add_argument("--execution-mode", choices=("shared", "isolated"), help="one shared pool or separate fixed pools [default: shared]")
     parser.add_argument("--max-active-sectors", type=active_sector_limit, metavar="N|all",
@@ -476,18 +499,29 @@ def main(argv=None, *, entrypoint=None):
     parser.add_argument("--no-dashboard", action="store_true")
     args = parser.parse_args(argv)
     directory = args.directory.resolve()
-    restart = shlex.join([sys.executable, "-B", str(entrypoint or Path(__file__).resolve()),
-                         "--directory", str(directory), "--resume", "--start"])
+    restart_arguments = [sys.executable, "-B", str(entrypoint or Path(__file__).resolve()),
+                         "--directory", str(directory), "--resume", "--start"]
+    # A preview does not save resource overrides. Its printed launch command
+    # must retain them rather than silently returning to the original budget.
+    for flag, value in (("--workers", args.workers), ("--cpus", args.cpus), ("--jobs", args.jobs),
+                        ("--max-active-sectors", args.max_active_sectors),
+                        ("--max-memory-bytes", args.max_memory_bytes), ("--ram-margin-percent", args.ram_margin_percent),
+                        ("--dashboard-executable", args.dashboard_executable)):
+        if value is not None: restart_arguments.extend([flag, str(value)])
+    if args.no_dashboard: restart_arguments.append("--no-dashboard")
+    restart = shlex.join(restart_arguments)
     try:
         if args.resume:
-            if args.full_downsets or any(value is not None for value in (args.manifest, args.executable, args.workers,
-                    args.cpus, args.max_memory_bytes, args.discovery_strategy, args.rank,
+            if args.full_downsets or any(value is not None for value in (args.manifest, args.executable,
+                    args.discovery_strategy, args.rank,
                     args.numerical_depth, args.finite_case_policy, args.exact_backend,
-                    args.ram_margin_percent, args.execution_mode)):
-                raise ValueError("resume uses frozen inputs/resources; omit preparation options")
+                    args.execution_mode)):
+                raise ValueError("resume uses frozen mathematical inputs/executable; only resource and viewer overrides are allowed")
             plan = read(directory / "generation.json")
-            validate(directory, plan)
-            plan = resume_resources(plan, args.jobs, args.max_active_sectors)
+            validate(directory, plan, check_affinity=False)
+            plan = resume_resources(plan, args.jobs, args.max_active_sectors,
+                workers=args.workers, cpus=args.cpus, max_memory_bytes=args.max_memory_bytes,
+                ram_margin_percent=args.ram_margin_percent)
         else:
             plan = prepare(args)
         if not args.start:
@@ -497,7 +531,7 @@ def main(argv=None, *, entrypoint=None):
                     if all(owner.get("selected_sectors") is not None for owner in plan["owners"]) else None),
                 family_closure_claim=False), indent=2))
             return 0
-        execute(directory, plan, dashboard=not args.no_dashboard)
+        execute(directory, plan, dashboard=not args.no_dashboard, dashboard_executable=args.dashboard_executable)
         return 0
     except (OSError, ValueError, RuntimeError, KeyError) as error:
         print(f"Generation stopped: {error}\nCompleted sectors remain in {directory}.\n"

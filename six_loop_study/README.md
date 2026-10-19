@@ -67,7 +67,7 @@ using the supplied frozen binary):
 
 ```bash
 RUSTRED_RUNTIME_ARITIES=1,21 CARGO_TARGET_DIR=TMP/six-loop-build \
-  cargo build --release --locked -p rustred-app --bin rustred \
+  cargo build --release --locked -p rustred-app --bin rustred --bin rustred-preparation-monitor \
   --no-default-features --features native,cli,runtime-arity-selection
 ```
 
@@ -124,17 +124,29 @@ and unwinding. Family preparation and assembly also consume RAM and remain
 covered by the aggregate RAM guard. A low `--jobs` can additionally reduce the
 number of simultaneously prepared families.
 
-Both admission controls can be adjusted on shared-mode resume, for example:
+CPU/worker, parent and sector admission settings can all be adjusted on
+shared-mode resume, for example:
 
 ```bash
 python -B six_loop_study/generate.py \
   --directory "$RUSTRED_6L_RUN" --resume --start \
-  --max-active-sectors 32 --jobs 14
+  --workers 32 --cpus 192-223 --jobs 14 --max-active-sectors 8
 ```
 
-Use `--max-active-sectors all` to remove the cap. These overrides apply to that
-invocation and are recorded in its attempt files; the initial frozen plan is
-unchanged. Completed sector checkpoints remain reusable.
+Use `--max-active-sectors all` to remove the cap. Worker count must match the
+number of distinct permitted CPU IDs, but shared parent slots need not divide
+workers. RAM ceiling/margin can change on resume too. With `--start`, validated
+operational choices persist atomically under the campaign lock for subsequent
+resumes. A preview alone changes nothing and prints a command retaining its
+overrides. Mathematical inputs, executable, strategy, selected sectors and
+native byte permissions remain frozen. Completed sectors are reusable;
+unfinished sectors restart. Resource changes do not require a new campaign.
+
+`--dashboard-executable PATH` can select a separate read-only viewer without
+replacing the frozen solver. The launcher prefers the checkout's
+`target/release/rustred-preparation-monitor`, then `target/release/rustred`,
+then the frozen generation executable. The standalone viewer accepts the same
+`preparation-monitor --snapshot PATH` command as the full executable.
 
 An individual serial CAS operation can still limit utilization. A shared pool
 removes the fixed per-parent reservation; it does not establish a measured
@@ -162,8 +174,10 @@ parent-completion bar, aligned parent rows with distinguishable short IDs,
 active/reserved cores, RSS/host availability, native phases, rule/residual counts,
 frame sizes and completed-sector checkpoint counts. CPU use is red below 50%
 of the reservation, yellow from 50% to 75%, and green above that. The screen
-resizes with the terminal and is restored on exit. A final summary remains in
-normal scrollback. `NO_COLOR` disables colours without disabling the table;
+resizes with the terminal and is restored on exit. The same coloured table
+then remains in normal scrollback instead of the old plain summary. Stopped
+views preserve historical sector counts without claiming workers remain
+active. `NO_COLOR` disables colours without disabling the table;
 redirected output uses periodic plain-text progress.
 
 Shared mode reports CPU and RAM once for the whole native process. Per-parent

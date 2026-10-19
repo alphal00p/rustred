@@ -107,7 +107,7 @@ is ignored by Git. To build from source:
 ```bash
 nix develop
 RUSTRED_RUNTIME_ARITIES=1,21,28 CARGO_TARGET_DIR=TMP/seven-loop-build \
-  cargo build --release --locked -p rustred-app --bin rustred \
+  cargo build --release --locked -p rustred-app --bin rustred --bin rustred-preparation-monitor \
   --no-default-features --features native,cli,runtime-arity-selection
 ```
 
@@ -138,7 +138,13 @@ an active sector restarts. Shared work stealing uses the full configured compute
 pool across all ready parents and sectors, with no fixed per-parent core split.
 The default parent-coordinator count is all 57. Optional `--jobs N` and
 `--max-active-sectors N` control admission for memory; `all` removes the latter
-cap. These controls may be changed on shared-mode resume.
+cap. Workers/CPU affinity, parent slots, sector admission and RAM settings can
+change on resume without resetting completed sectors. With `--start`, validated
+operational choices persist for later resumes; previews alone change nothing.
+Mathematical inputs and native byte permissions remain frozen.
+`--dashboard-executable PATH` optionally changes only the read-only viewer;
+the launcher prefers the installed standalone monitor. The final coloured
+dashboard remains in primary scrollback after stopping.
 
 There is one aggregate RAM guard, with the existing default 5% save/stop margin,
 and no arbitrary wall-time, graph-count, sector-count or swap-growth cutoff.

@@ -127,8 +127,16 @@ class PreparationTuiTests(unittest.TestCase):
         self.data["state"] = "stopped"
         self.data["stop_reason"] = "operator_signal_2"
         self.publish()
-        text = self.read_until(master, b"Stop: operator_signal_2")
+        text = self.read_until(master, b"Read-only; campaign signals still stop work.")
         self.assertIn(b"\x1b[?1049l", text)
+        primary = text.split(b"\x1b[?1049l", 1)[1]
+        if "╯".encode() not in primary:
+            text += self.read_until(master, "╯".encode())
+            primary = text.split(b"\x1b[?1049l", 1)[1]
+        for marker in ("╭".encode(), "╰".encode(), b"PARENTS", b"Parent", b"operator_signal_2"):
+            self.assertIn(marker, primary)
+        self.assertNotIn(b"RustRed preparation |", primary)
+        self.assertNotIn(b"\x1b[6n", primary)
         self.assertEqual(child.wait(timeout=5), 0)
 
     def test_viewer_interrupt_does_not_change_snapshot(self):

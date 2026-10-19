@@ -1,5 +1,6 @@
 [package]
 name = "rustred-app"
+default-run = "rustred"
 version.workspace = true
 authors.workspace = true
 edition = "2024"
@@ -30,6 +31,12 @@ path = "src/lib.rs"
 [[bin]]
 name = "rustred"
 path = "src/main.rs"
+doc = false
+required-features = ["cli"]
+
+[[bin]]
+name = "rustred-preparation-monitor"
+path = "src/preparation_monitor_main.rs"
 doc = false
 required-features = ["cli"]
 

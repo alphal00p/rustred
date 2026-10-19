@@ -3,6 +3,24 @@
 This directory is a prepared input/generation study. The actual 14-parent
 generation campaign has **not** been started by the assistant.
 
+## October 19: resource-changing resume and final table
+
+The user's shared 112-worker attempt ended in native SIGKILL, not a recorded
+cooperative RAM stop. It retains 56 sector checkpoint shards but no completed
+parent bundle. No production restart was performed. Operational workers, CPUs,
+jobs, sector concurrency and RAM grants may now change on resume without
+changing the frozen mathematics or native checkpoint identity.
+
+68 steering, scheduler, pipeline, real-native and PTY controls pass. Actual native
+controls reuse checkpoints across 2 → 1 → 4 workers and different CPU/job choices.
+A copied K21 six-tadpole checkpoint resumes with four workers in 39.922 s,
+reusing one sector, solving no new sectors, and writing byte-identical output.
+The actual failed snapshot was replayed read-only and visually audited: final
+coloured table, historical counters and complete max-frame dimensions survive
+in normal scrollback, with no stale active workers. This is resume/UI validation,
+not coupled-family coverage. See `../docs/generation_resume_dashboard.md` for
+commands, frozen viewer identity, limitations and local evidence paths.
+
 ## Topology checks
 
 Native FeynKit enumeration retained all connected cubic six-loop multigraphs,
