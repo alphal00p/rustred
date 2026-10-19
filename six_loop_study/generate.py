@@ -26,7 +26,8 @@ import shared_generation_scheduler as shared_scheduler
 from generation_monitor import Dashboard
 
 SCHEMA = "rustred.independent-generation-study.v1"
-TOPOLOGY_SCHEMA = "six-loop-study.topologies.v1"
+TOPOLOGY_SCHEMA = "rustred.vacuum-study.topologies.v1"
+TOPOLOGY_SCHEMAS = {TOPOLOGY_SCHEMA, "six-loop-study.topologies.v1"}
 USIZE_MAX = (1 << 64) - 1
 DEFAULT_DISCOVERY = {
     "version": 1,
@@ -110,7 +111,7 @@ def local_file(base, name):
 def manifest_entries(path):
     path = Path(path).resolve(strict=True)
     value = read(path)
-    if value.get("schema") != TOPOLOGY_SCHEMA:
+    if value.get("schema") not in TOPOLOGY_SCHEMAS:
         raise ValueError("unsupported topology manifest")
     entries = value.get("entries")
     if not isinstance(entries, list) or not entries:
@@ -448,7 +449,7 @@ def execute(directory, plan, dashboard=True):
         return summary
 
 
-def main(argv=None):
+def main(argv=None, *, entrypoint=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--manifest", type=Path)
@@ -475,7 +476,7 @@ def main(argv=None):
     parser.add_argument("--no-dashboard", action="store_true")
     args = parser.parse_args(argv)
     directory = args.directory.resolve()
-    restart = shlex.join([sys.executable, "-B", str(Path(__file__).resolve()),
+    restart = shlex.join([sys.executable, "-B", str(entrypoint or Path(__file__).resolve()),
                          "--directory", str(directory), "--resume", "--start"])
     try:
         if args.resume:

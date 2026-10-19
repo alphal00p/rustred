@@ -1650,6 +1650,8 @@ Stable design documents are:
 - [executable K6 breakthrough prototype specification](docs/research/k6_breakthrough_prototype_spec_2026.md);
 - [six-loop algorithm and implementation update](docs/research/six_loop_algorithm_update_2026.md);
 - [six-loop execution runbook](docs/research/six_loop_execution_runbook_2026.md);
+- [six-loop topology and shared-generation input study](six_loop_study/README.md);
+- [seven-loop topology and generation preparation](seven_loops/README.md);
 - [dual-obstruction source-discovery design and evidence boundary](docs/research/dual_obstruction_source_discovery_2026.md);
 - [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md);
 - [blind-domain-guided Janet closure synthesis](docs/research/blind_domain_janet_closure_2026.md); and

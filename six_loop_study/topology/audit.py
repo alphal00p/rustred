@@ -142,6 +142,10 @@ def audit_contractions(directory, loops, graphs, representatives):
     require(census['complete'] and census['loops'] == loops and not census['closure_claim'], 'incomplete contraction census')
     by_id = unique(census['representatives'], 'contraction')
     require(len(by_id) == census['total_classes'], 'contraction count differs')
+    method = census.get('enumeration_method', 'labelled-subsets')
+    require(method in ('labelled-subsets', 'matroid-quotient-frontier'), 'unknown contraction enumeration method')
+    quotient = method == 'matroid-quotient-frontier'
+    successor_keys = set()
     keys, kind, histogram = set(), Counter(), {'factorized': Counter(), 'nonfactorized': Counter()}
     occurrences = Counter()
     for record in by_id.values():
@@ -174,15 +178,41 @@ def audit_contractions(directory, loops, graphs, representatives):
         require(classification == record['classification'], 'contraction factorization differs')
         kind[classification] += 1
         histogram[classification][str(len(edges))] += 1
-        require(sum(record['parent_occurrences'].values()) == record['labelled_occurrences'], 'contraction multiplicity differs')
-        occurrences[classification + '_sectors'] += record['labelled_occurrences']
+        if quotient:
+            # Independent exhaustiveness gate: use graph adjacency, not the
+            # producer's projected binary cycle spaces. Every non-loop edge
+            # is contractible without reducing the vacuum loop count.
+            for ordinal, edge in enumerate(edges):
+                a, b = edge['source'], edge['target']
+                if a == b:
+                    continue
+                def merged(v):
+                    return a if v == b else v
+                child = dict(vertices=sorted({merged(v) for v in contracted['vertices']}),
+                    edges=[{**other, 'source': merged(other['source']), 'target': merged(other['target'])}
+                           for i, other in enumerate(edges) if i != ordinal])
+                child_cycles, _ = graph_cycles(child, loops, cubic=False)
+                successor_keys.add(canonical_key(len(child['edges']), child_cycles))
+        else:
+            require(sum(record['parent_occurrences'].values()) == record['labelled_occurrences'], 'contraction multiplicity differs')
+            occurrences[classification + '_sectors'] += record['labelled_occurrences']
     require(dict(kind) == census['classes_by_kind'], 'contraction classification totals differ')
     require({k: dict(v) for k, v in histogram.items()} == census['classes_by_edge_count'], 'contraction edge histogram differs')
-    require(all(census['counts'][key] == value for key, value in occurrences.items()), 'contraction sector totals differ')
-    require(sum(occurrences.values()) + census['counts']['rank_deficient_sectors']
-            == census['counts']['labelled_sectors'], 'labelled contraction census accounting')
+    if quotient:
+        require(census.get('labelled_occurrences_enumerated') is False, 'unproved labelled multiplicities claimed')
+        require(census['counts']['expanded_classes'] == len(keys), 'unexpanded contraction classes')
+        require(successor_keys <= keys, 'contraction census omits a next-edge contraction')
+        parent_keys = {r['canonical_matroid'] for r in representatives.values()
+                       if len(r['momenta']) == 3*(loops-1)}
+        require(parent_keys <= keys, 'contraction census omits a maximal parent')
+    else:
+        require(all(census['counts'][key] == value for key, value in occurrences.items()), 'contraction sector totals differ')
+        require(sum(occurrences.values()) + census['counts']['rank_deficient_sectors']
+                == census['counts']['labelled_sectors'], 'labelled contraction census accounting')
     return dict(representatives_replayed=len(by_id), classes_by_kind=dict(kind),
                 classes_by_edge_count={k: dict(v) for k, v in histogram.items()},
+                enumeration_method=method,
+                next_edge_class_cover_checked=quotient,
                 all_duplicate_routing_maps_replayed=False,
                 sha256=hashlib.sha256(path.read_bytes()).hexdigest())
 

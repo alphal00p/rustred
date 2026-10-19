@@ -2,7 +2,7 @@
 """Export offline maximal parents using native HEPKit basis completion.
 
 All physical denominators have common unit mass, q²−1. Native completion
-selects six independent auxiliaries; RustRed receives ordinary generic TOML.
+selects independent auxiliaries; RustRed receives ordinary generic TOML.
 """
 import json
 import argparse
@@ -26,10 +26,14 @@ def main():
     directory=parser.parse_args().directory
     census=json.loads((directory/'classified_census.json').read_text())
     cover=json.loads((directory/'maximal_parent_cover.json').read_text())
+    if cover['loops'] != census['loops']:
+        raise RuntimeError('parent cover belongs to another loop-count census')
     contraction_path=directory/'contraction_census.json'
     contractions=json.loads(contraction_path.read_text())if contraction_path.exists()else None
     if contractions is not None and not contractions['complete']:
         raise RuntimeError('refuse to export partial contraction representatives')
+    if contractions is not None and contractions['loops'] != census['loops']:
+        raise RuntimeError('contraction census belongs to another loop count')
     if not cover['complete']:
         raise RuntimeError('refuse incomplete maximal-parent cover')
     raw={g['id']:g for g in json.loads((directory/'cubic_graphs.json').read_text())['graphs']}
@@ -96,7 +100,7 @@ def main():
             if not representatives or len(set(entry['selected_sectors']))!=len(representatives):
                 raise RuntimeError('invalid representative sector assignment')
         entries.append(entry)
-    result=dict(schema='six-loop-study.topologies.v1',loop_count=loops,
+    result=dict(schema='rustred.vacuum-study.topologies.v1',loop_count=loops,
                 coordinate_count=count,parent_count=len(entries),entries=entries,
                 generation_scope=('one selected sector for every graph-matroid class'
                                   if contractions is not None else

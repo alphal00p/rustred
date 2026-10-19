@@ -78,6 +78,31 @@ expression = "k2^2-1"
         self.assertEqual(command[command.index("--bundle-max-bytes")+1], "950000000")
         self.assertNotIn("--finite-max-visited-points", command)
 
+    def test_historical_manifest_remains_readable(self):
+        value = generate.read(self.manifest)
+        value["schema"] = "six-loop-study.topologies.v1"
+        generate.write(self.manifest, value)
+        self.assertEqual(len(generate.manifest_entries(self.manifest)[1]), 1)
+
+    def test_unknown_manifest_schema_is_not_accepted(self):
+        value = generate.read(self.manifest)
+        value["schema"] = "unrecognized"
+        generate.write(self.manifest, value)
+        with self.assertRaisesRegex(ValueError, "unsupported topology manifest"):
+            generate.manifest_entries(self.manifest)
+
+    def test_shared_entrypoint_is_used_in_printed_resume_command(self):
+        entrypoint = generate.ROOT / "seven_loops/generate.py"
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = generate.main([
+                "--directory", str(self.output), "--manifest", str(self.manifest),
+                "--executable", str(self.exe), "--workers", "4", "--cpus", "64-67",
+                "--max-memory-bytes", "1000000000",
+            ], entrypoint=entrypoint)
+        self.assertEqual(code, 0)
+        self.assertIn(str(entrypoint), json.loads(output.getvalue())["resume_command"])
+
     def test_shared_pool_uses_entire_budget_without_dividing_it_between_parents(self):
         plan = generate.prepare(self.args(execution_mode="shared", jobs=None))
         self.assertEqual(plan["resources"]["generation_jobs"], 1)

@@ -1,5 +1,50 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 19 — seven-loop offline topology/input study
+
+User requested `seven_loops/`, following the six-loop study if enumeration is
+feasible. Root reused the existing HEPKit/FeynKit/Symbolica pipeline; no new
+Rust solver/CAS implementation or production campaign was started.
+
+Measured enumeration: 2,592 connected cubic graphs in 5.422 s. Classification:
+2,227 factorized, 365 nonfactorized graphs in 359 matroid classes (4.345 s).
+All 359 classes have exact signed unimodular contraction/routing witnesses
+to 57 maximal eighteen-line parents (222.984 s). Exported 57 native DOTs and
+ordinary TOMLs, each with 28 independent coordinates: 18 physical, 10 auxiliary.
+
+Added a generic offline quotient-contraction traversal: expand each distinct
+matroid class once rather than every labelled subset. It matches every class
+and histogram of the exhaustive 4/5/6-loop censuses (16/67/435). The seven-loop
+census closes its finite graph queue at 4,401 classes = 3,885 nonfactorized +
+516 products, 62,015 candidate subsets, 95.718 s; no labelled multiplicities
+are claimed. Independent adjacency-cycle audit verifies every representative,
+every next-edge class and all maximal roots, plus 365 alias maps, 359 parent
+maps, native basis completion and four mutation controls (PASS, 136.854 s).
+Deleting a descendant while repairing summary counts is rejected. This is
+graph-class coverage, not IBP closure or installed duplicate-sector routing.
+
+The shared study launcher reads a loop-independent topology-manifest schema
+while preserving old six-loop inputs. `seven_loops/generate.py` is a thin
+adapter retaining the shared pool, Ratatui dashboard, completed-sector resume
+and RAM guard. Metadata-only preparation/resume passes for all 57 parents and
+4,401 selected jobs; no sector solve is launched.
+
+Separate optimized local binary: `seven_loops/bin/rustred`, arities 1/21/28,
+SHA256 `f6ad7f3a896f16b7e85901152c9293cb42dc87917502bbcba827c0dcb6c72d0f`.
+Build 276.417 s. All 57 native source inputs pass, 49 ordinary IBPs each,
+2,793 total (23.907 s); these are not solved parametric rules. The previous
+six-loop executable/checkpoints are unchanged. Binary/output evidence is
+ignored, not committed.
+
+Validation: 64 steering/native/PTY tests, five seven-loop input tests and
+three quotient differential/mutation tests pass; existing six-loop audit also
+passes. Commands, authority boundaries, launch/rebuild instructions and evidence
+paths are in `seven_loops/README.md` and `seven_loops/VALIDATION.md`.
+Local evidence: `TMP/seven-loop-release-20261019/`,
+`TMP/seven-loop-native-sources-20261019/`,
+`TMP/seven-loop-prepared-20261019/` (metadata only).
+Unrelated FeynKit edits and untracked work are preserved and excluded.
+
 ## October 19 — shared work-stealing pool for generation
 
 User requests maximum useful parallelism across all parents, with an optional
