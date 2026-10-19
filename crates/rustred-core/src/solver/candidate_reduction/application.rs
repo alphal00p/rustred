@@ -19,7 +19,10 @@ impl<const N: usize> CandidateReducer<N> {
         limits: ReductionLimits,
     ) -> Result<(), CandidateReductionError> {
         self.validate_target_with_limits(target, limits)?;
-        validate_entry_rank(target, self.program.max_numerator_rank)
+        if self.unresolved_policy == super::UnresolvedPolicy::Reject {
+            validate_entry_rank(target, self.program.max_numerator_rank)?;
+        }
+        Ok(())
     }
     pub(super) fn validate_target(
         &self,

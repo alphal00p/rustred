@@ -234,10 +234,64 @@ fn candidate_error(error: CandidateReductionError) -> AppError {
         CandidateReductionError::TraceInputLimit { .. }
         | CandidateReductionError::TraceIntegralLimit { .. }
         | CandidateReductionError::IndexOverflow { .. } => AppError::limit(error.to_string()),
-        CandidateReductionError::Uncovered { .. }
-        | CandidateReductionError::NonDescending { .. } => {
+        CandidateReductionError::Uncovered { .. } => {
+            AppError::new(AppErrorKind::UnresolvedReduction, error.to_string())
+        }
+        CandidateReductionError::OutsideNumeratorRank { .. } => {
+            AppError::new(AppErrorKind::OutsideReductionScope, error.to_string())
+        }
+        CandidateReductionError::NonDescending { .. } => {
             AppError::new(AppErrorKind::Execution, error.to_string())
         }
         _ => AppError::input(error.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[test]
+    fn only_missing_rules_and_entry_rank_have_typed_partial_application_boundaries() {
+        let target = IntegralKey::try_new([2]).unwrap();
+        assert_eq!(
+            candidate_error(CandidateReductionError::Uncovered {
+                target: target.clone()
+            })
+            .kind(),
+            AppErrorKind::UnresolvedReduction
+        );
+        assert_eq!(
+            candidate_error(CandidateReductionError::OutsideNumeratorRank {
+                target: target.clone(),
+                rank: 2,
+                limit: 1
+            })
+            .kind(),
+            AppErrorKind::OutsideReductionScope
+        );
+        assert_eq!(
+            candidate_error(CandidateReductionError::OutsideRoot {
+                target: target.clone()
+            })
+            .kind(),
+            AppErrorKind::Input
+        );
+        assert_eq!(
+            candidate_error(CandidateReductionError::SourceConditionVanished {
+                target: target.clone(),
+                ordinal: 0
+            })
+            .kind(),
+            AppErrorKind::Input
+        );
+        assert_eq!(
+            candidate_error(CandidateReductionError::TraceInputLimit {
+                requested: 2,
+                limit: 1
+            })
+            .kind(),
+            AppErrorKind::Limit
+        );
     }
 }

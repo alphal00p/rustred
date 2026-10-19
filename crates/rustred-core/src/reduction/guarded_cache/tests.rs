@@ -15,6 +15,33 @@ mod descendants;
 mod export_tests;
 mod statistics;
 
+#[test]
+fn shared_closed_program_retains_artifact_without_changing_cache_binding() {
+    let artifact = std::sync::Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let weak = std::sync::Arc::downgrade(&artifact);
+    let borrowed = ClosedUnitMassProgram::new(&artifact, [91; 32]);
+    let owned = ClosedUnitMassProgram::from_shared(artifact.clone(), [91; 32]);
+    assert_eq!(owned.binding(), borrowed.binding());
+    let expected = baseline(&borrowed, 4);
+    drop(borrowed);
+    drop(artifact);
+    let clone = owned.clone();
+    let mut cache = GuardedRootCache::new(&owned, Default::default());
+    let result = owned
+        .reduce_guarded_root(&key(4), &mut cache, Default::default(), None)
+        .unwrap();
+    assert_eq!(result.record, expected);
+    drop(owned);
+    assert!(weak.upgrade().is_some());
+    let warm = clone
+        .reduce_guarded_root(&key(4), &mut cache, Default::default(), None)
+        .unwrap();
+    assert_eq!(warm.record, expected);
+    assert_eq!(warm.work.rule_applications(), 0);
+    drop(clone);
+    assert!(weak.upgrade().is_none());
+}
+
 fn key(n: i64) -> IntegralKey {
     IntegralKey::try_new([n]).unwrap()
 }
