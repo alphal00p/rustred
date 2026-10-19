@@ -75,6 +75,53 @@ fn term(
 struct PolynomialProvider {
     calls: Arc<Mutex<Vec<usize>>>,
 }
+
+#[test]
+fn typed_missing_factor_coverage_is_distinct_from_unsafe_provider_failure() {
+    struct Provider(bool);
+    impl VacuumFactorProvider for Provider {
+        type Error = VacuumProductReductionError;
+        fn error_is_missing_coverage(error: &Self::Error) -> bool {
+            matches!(error, VacuumProductReductionError::UnresolvedFactor { .. })
+        }
+        fn reduce(
+            &mut self,
+            family: Arc<IntegralFamily>,
+            target: &IntegralKey,
+            _: crate::reduction::ReductionLimits,
+        ) -> Result<VacuumFactorReduction, Self::Error> {
+            if self.0 {
+                Err(VacuumProductReductionError::UnresolvedFactor {
+                    family: family.fingerprint().into(),
+                    target: target.clone(),
+                })
+            } else {
+                Err(VacuumProductReductionError::InvalidInput(
+                    "unsafe source condition".into(),
+                ))
+            }
+        }
+    }
+    let f = family("unresolved-factor", 1);
+    for missing in [false, true] {
+        let mut reducer =
+            VacuumProductReducer::try_new(Provider(missing), f.clone(), Default::default())
+                .unwrap();
+        let result =
+            reducer.reduce_products([(vec![factor(&f, [3])], f.coefficient_context().one())], []);
+        if missing {
+            assert!(
+                matches!(result, Err(VacuumProductReductionError::UnresolvedFactor { target, .. }) if target == key([3]))
+            );
+        } else {
+            assert!(matches!(
+                result,
+                Err(VacuumProductReductionError::Provider { .. })
+            ));
+        }
+        assert_eq!(reducer.cache_statistics().cached_factors, 0);
+    }
+}
 impl VacuumFactorProvider for PolynomialProvider {
     type Error = String;
     fn reduce(
