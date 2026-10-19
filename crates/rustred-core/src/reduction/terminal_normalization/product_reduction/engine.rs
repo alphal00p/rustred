@@ -407,10 +407,19 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
         let result = self
             .provider
             .reduce(family.clone(), target.integral(), remaining)
-            .map_err(|error| Error::Provider {
-                family: target.family_fingerprint().to_owned(),
-                target: target.integral().clone(),
-                message: error.to_string(),
+            .map_err(|error| {
+                if P::error_is_missing_coverage(&error) {
+                    Error::UnresolvedFactor {
+                        family: target.family_fingerprint().to_owned(),
+                        target: target.integral().clone(),
+                    }
+                } else {
+                    Error::Provider {
+                        family: target.family_fingerprint().to_owned(),
+                        target: target.integral().clone(),
+                        message: error.to_string(),
+                    }
+                }
             })?;
         request.stats.rule_applications = request
             .stats

@@ -274,6 +274,14 @@ partial session. It must propagate other error kinds: source guards, structural
 root/arity errors, unsafe algebra, corrupt cache records, and work limits are
 not missing reduction coverage. Already completed descendant records remain valid.
 
+Strict factor-product composition similarly reports
+`VacuumProductReductionError::UnresolvedFactor { family, target }` when native
+candidate application lacks a complete terminal expansion. It does not cache a
+partial product. An embedding `VacuumFactorProvider` can preserve this distinction
+through its typed error using `error_is_missing_coverage`; the default is false.
+Adapters may retain the original higher-loop integral on that exact outcome.
+Unsafe algebra, source guards, invalid inputs, and resource failures remain errors.
+
 ## Operational budgets and reuse
 
 `SavedApplicationOptions` keeps mathematical scope separate from operational

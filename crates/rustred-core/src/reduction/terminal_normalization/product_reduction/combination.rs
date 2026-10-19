@@ -27,18 +27,27 @@ pub fn reduce_vacuum_factor_combination<E: fmt::Display>(
     limits: ReductionLimits,
     mut evaluate: impl FnMut(&IntegralKey, ReductionLimits) -> Result<VacuumFactorReduction, E>,
 ) -> Result<VacuumFactorReduction, Error> {
+    let fingerprint = family.fingerprint().to_owned();
     reduce_with_cache_census(
         family,
         terms,
         nonzero_conditions,
         limits,
-        |key, remaining| evaluate(key, remaining).map(|result| (result, CacheCensus::default())),
+        |key, remaining| {
+            evaluate(key, remaining)
+                .map(|result| (result, CacheCensus::default()))
+                .map_err(|error| Error::Provider {
+                    family: fingerprint.clone(),
+                    target: key.clone(),
+                    message: error.to_string(),
+                })
+        },
     )
 }
 
 /// The only cache-owning caller clears its native cache before entering and
 /// after leaving this request. Reported census is inclusive, not a delta.
-pub(super) fn reduce_with_cache_census<E: fmt::Display>(
+pub(super) fn reduce_with_cache_census(
     family: Arc<IntegralFamily>,
     terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
     nonzero_conditions: impl IntoIterator<Item = Coefficient>,
@@ -46,7 +55,7 @@ pub(super) fn reduce_with_cache_census<E: fmt::Display>(
     mut evaluate: impl FnMut(
         &IntegralKey,
         ReductionLimits,
-    ) -> Result<(VacuumFactorReduction, CacheCensus), E>,
+    ) -> Result<(VacuumFactorReduction, CacheCensus), Error>,
 ) -> Result<VacuumFactorReduction, Error> {
     let policy = VacuumProductReductionLimits {
         reduction: limits,
@@ -154,11 +163,7 @@ pub(super) fn reduce_with_cache_census<E: fmt::Display>(
                 .saturating_sub(retained.coefficient_bytes),
             ..limits
         };
-        let (result, census) = evaluate(key, remaining).map_err(|error| Error::Provider {
-            family: family.fingerprint().to_owned(),
-            target: key.clone(),
-            message: error.to_string(),
-        })?;
+        let (result, census) = evaluate(key, remaining)?;
         native_cache = census;
         let retained = retained.checked_add(cache_weight(native_cache))?;
         let retained_keys = retained_keys.saturating_add(native_cache.integrals);

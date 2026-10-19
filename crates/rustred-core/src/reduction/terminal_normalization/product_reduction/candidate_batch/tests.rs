@@ -83,6 +83,46 @@ fn run(
 }
 
 #[test]
+fn partial_candidate_factor_cannot_enter_a_complete_product_result() {
+    use crate::solver::UnresolvedPolicy;
+    let (family, mut reducer) = fixture();
+    let c = family.coefficient_context();
+    reducer
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    let result = run(
+        &mut reducer,
+        family.clone(),
+        vec![(key(4), c.one()), (key(9), c.one())],
+        Default::default(),
+    );
+    assert!(matches!(result, Err(Error::UnresolvedFactor { target, .. }) if target == key(9)));
+    assert_eq!(reducer.statistics().cached_integrals(), 0);
+    let complete = run(
+        &mut reducer,
+        family.clone(),
+        vec![(key(4), c.one())],
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(complete.terms[0].integral, key(1));
+    assert_eq!(
+        complete.terms[0].coefficient,
+        c.coefficient_fixture("1/(d-4)^3")
+    );
+    let unsafe_result = run(
+        &mut reducer,
+        family.clone(),
+        vec![(key(4), c.one())],
+        ReductionLimits {
+            max_rule_applications: 0,
+            ..Default::default()
+        },
+    );
+    assert!(matches!(unsafe_result, Err(Error::Provider { .. })));
+}
+
+#[test]
 fn candidate_batch_reuses_guarded_subtrees_and_reports_only_actual_work() {
     let (family, mut reducer) = fixture();
     let c = family.coefficient_context();
