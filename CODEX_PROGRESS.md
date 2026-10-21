@@ -1,5 +1,47 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 21 — completed preparation-parent counters delivered
+
+The six-loop shared-pool dashboard incorrectly discarded a completed parent's
+last native snapshot after 90 seconds, showing `completed; native stale` and
+unknown sector/rule counters. Root and `modular_refine_integration` corrected
+the Rust consumer and Python producer respectively. The separately assigned
+`modular_final_math_audit` reviewed invocation binding, final/active separation,
+and read-only deployment; its final source audit found no remaining blocker.
+
+Final observations require a supervisor-completed parent, native
+`output_written`, matching PID/start ticks, no active native jobs, and no
+closure claim. The read-only viewer can recover missing final data from the
+current attempt's recorded progress paths; it rejects earlier attempts,
+foreign processes, malformed payloads and nonfinal native states. Future
+producer snapshots carry explicit progress paths and attempt starts. True
+observation ages and newly-generated-versus-reused counter meanings remain
+unchanged. No new solver limit, algebra, campaign mutation or solver restart.
+
+Read-only live validation of
+`six_loop_study/runs/scalar-r0-shared-112w/attempts/20261020T232053.288395Z/snapshot.json`
+now reports parent P04 as `completed · final counters`, 18/18 sectors,
+1 new / 17 reused checkpoints, 1,781 newly generated rules and 31 new finite
+residuals. These are current-attempt counters, not the aggregate rules in
+reused sectors, and do not certify closure. Evidence/build logs:
+`TMP/completed-preparation-monitor-*`. Native preparation tests: 21 passed.
+Final optimized-viewer/producer/process/terminal suite: 52 passed in 19.255 s,
+including an old-producer-format PTY fixture, read-only input preservation,
+and nine CLI cases rejecting nonfinal completed-parent counts. The six-loop
+steering suite separately passes all 22 tests. The final source includes the
+additional native guard regression; that last guard was exercised against the
+final release viewer through the nine CLI cases rather than relinking the
+whole application test binary a second time. An initial combined test command
+incorrectly supplied the viewer-only binary to a full-generation test; rerun
+with the explicit full solver binary passed. No solver failure was involved.
+
+Frozen optimized viewer:
+`TMP/releases/20261021-preparation-final-counters/rustred-preparation-monitor`,
+SHA256 `d94d6029ccc6d254a9c814edf3285a98b45c04d7b8dcfdcfed6b8007d6530a42`.
+The live `--json` check confirms P04's final counters. Existing processes do
+not hot-reload; attach this viewer in a separate pane/tab to the live snapshot.
+The ongoing native solver and its checkpoint/output files remain untouched.
+
 ## October 21 — dashboard work-counter visibility fix
 
 User reported `1,450,023 / 8,502…` despite ample space beside the progress bar.

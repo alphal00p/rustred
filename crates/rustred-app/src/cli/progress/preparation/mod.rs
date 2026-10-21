@@ -3,6 +3,7 @@
 //! The producer owns scheduling and resources. This module only reads snapshots;
 //! interrupting it never sends a signal to a solver or mutates campaign files.
 
+mod final_counts;
 mod model;
 mod render;
 mod scrollback;

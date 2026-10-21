@@ -26,20 +26,28 @@ def reject_constant(text):
     raise ValueError(f"invalid native telemetry constant: {text}")
 
 
-def native_observation(path, attempt_started, now=None, stale_seconds=90, *, pid=None, pid_start=None):
-    """Read an optional absolute native snapshot, never parse human logs."""
+def native_observation(path, attempt_started, now=None, stale_seconds=90, *, pid=None, pid_start=None,
+                       completed=False):
+    """Read invocation-bound telemetry; completed output is final, never live.
+
+    Only the coordinator's completed-parent outcome permits retaining an old
+    output_written snapshot. Age and the actual native counters are preserved.
+    """
     now = time.time() if now is None else now
+    completed = completed is True
     result = dict(status="unavailable", native_observed_at=None, age_seconds=None, snapshot=None)
     if path is None:
         return result
     try:
         path = Path(path)
-        stat = path.stat()
-        result.update(native_observed_at=stat.st_mtime, age_seconds=max(0, now-stat.st_mtime))
-        if stat.st_mtime < attempt_started or now-stat.st_mtime > stale_seconds:
-            result["status"] = "stale"
-            return result
         with path.open("rb") as stream:
+            stat = os.fstat(stream.fileno())
+            result.update(native_observed_at=stat.st_mtime, age_seconds=max(0, now-stat.st_mtime))
+            if type(attempt_started) not in (int, float) or not math.isfinite(attempt_started):
+                raise ValueError("native observation has no frozen attempt start")
+            if stat.st_mtime < attempt_started or (now-stat.st_mtime > stale_seconds and not completed):
+                result["status"] = "stale"
+                return result
             raw = stream.read(MAX_NATIVE_SNAPSHOT_BYTES+1)
         if len(raw) > MAX_NATIVE_SNAPSHOT_BYTES:
             raise ValueError("native snapshot exceeds 1 MiB telemetry limit")
@@ -47,11 +55,22 @@ def native_observation(path, attempt_started, now=None, stale_seconds=90, *, pid
         if not isinstance(value, dict) or value.get("schema") != NATIVE_SCHEMA:
             result["status"] = "unsupported"
             return result
-        if ((pid is not None and value.get("pid") != pid)
-                or (pid_start is not None and value.get("process_start_ticks") != pid_start)):
+        if ((pid is not None and (type(value.get("pid")) is not int or value.get("pid") != pid))
+                or (pid_start is not None and (type(value.get("process_start_ticks")) is not int
+                                               or value.get("process_start_ticks") != pid_start))):
             result["status"] = "wrong_invocation"
             return result
-        result.update(status="fresh", snapshot=value)
+        if value.get("family_closure_claim", False) is not False:
+            raise ValueError("native telemetry cannot claim family closure")
+        if completed:
+            if type(pid) is not int or pid <= 0 or type(pid_start) is not int or pid_start < 0:
+                result["status"] = "wrong_invocation"
+                return result
+            if value.get("state") != "output_written" or value.get("family_closure_claim") is not False:
+                raise ValueError("completed parent has no terminal output_written native snapshot")
+            result.update(status="final", snapshot=value)
+        else:
+            result.update(status="fresh", snapshot=value)
     except FileNotFoundError:
         pass
     except (OSError, ValueError, TypeError) as error:
@@ -107,7 +126,8 @@ class Progress:
             record = {key: presented[key] for key in ("schema", "run_id", "attempt_id", "snapshot_seq",
                 "phase", "state", "timestamp_unix_seconds", "elapsed_seconds", "aggregate", "stop_reason")}
             record["jobs"] = [dict(id=row["id"], state=row["state"], slot=row.get("slot"),
-                pid=row.get("pid"), observed_cores=row.get("observed_cores"),
+                pid=row.get("pid"), pid_start=row.get("pid_start"), started_unix=row.get("started_unix"),
+                native_progress_path=row.get("native_progress_path"), observed_cores=row.get("observed_cores"),
                 sampled_rss_bytes=row.get("sampled_rss_bytes"),
                 checkpoint_files_observed=row.get("checkpoint_files_observed"),
                 native_status=(row.get("native_progress") or {}).get("status"),

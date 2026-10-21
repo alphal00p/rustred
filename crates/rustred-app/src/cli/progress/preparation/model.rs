@@ -1,8 +1,9 @@
 //! Read-only preparation observations. No field is a closure/completion proof.
 
-use super::super::family_close::telemetry::{NativeSnapshot, finite_seconds};
+use super::super::family_close::telemetry::{NativeSnapshot, NativeState, finite_seconds};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 pub(super) const SCHEMA: &str = "rustred.preparation-progress.v1";
 pub(super) const MAX_STATUS_BYTES: u64 = 16 * 1024 * 1024;
@@ -89,6 +90,10 @@ pub(super) struct Job {
     pub(super) workers: Option<u64>,
     pub(super) pid: Option<u32>,
     pub(super) pid_start: Option<u64>,
+    #[serde(default)]
+    pub(super) started_unix: Option<f64>,
+    #[serde(default)]
+    pub(super) native_progress_path: Option<PathBuf>,
     pub(super) elapsed_seconds: Option<f64>,
     pub(super) sampled_rss_bytes: Option<u64>,
     pub(super) observed_cores: Option<f64>,
@@ -158,6 +163,7 @@ impl Status {
                 || job.cpus.len() > 65536
                 || job.elapsed_seconds.is_some_and(|n| !finite_seconds(n))
                 || job.observed_cores.is_some_and(|n| !finite_seconds(n))
+                || job.started_unix.is_some_and(|n| !finite_seconds(n))
             {
                 return Err("invalid preparation job observation".into());
             }
@@ -229,7 +235,24 @@ impl Status {
     pub(super) fn expire_native(&mut self, now: f64) {
         let age = self.age(now);
         for job in &mut self.jobs {
+            let final_counts = job.native_progress.as_ref().is_some_and(|observation| {
+                matches!(
+                    observation.status.as_str(),
+                    "fresh" | "historical" | "final"
+                ) && observation
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|native| job.is_final(native))
+            });
             if let Some(observation) = &mut job.native_progress {
+                if final_counts {
+                    observation.status = "final".into();
+                    continue;
+                }
+                if observation.status == "final" {
+                    observation.status = "invalid".into();
+                    observation.snapshot = None;
+                }
                 if observation.status == "fresh"
                     && observation.age_seconds.is_none_or(|native_age| {
                         !finite_seconds(native_age) || native_age + age > 90.0
@@ -244,13 +267,29 @@ impl Status {
 }
 
 impl Job {
+    pub(super) fn is_final(&self, native: &NativeSnapshot) -> bool {
+        self.state == "completed"
+            && native.state == NativeState::OutputWritten
+            && native.active_jobs.is_empty()
+            && self.pid == Some(native.pid)
+            && self
+                .pid_start
+                .zip(native.process_start_ticks)
+                .is_some_and(|(a, b)| a == b)
+    }
+
     pub(super) fn native(&self) -> Option<&NativeSnapshot> {
         let observation = self.native_progress.as_ref()?;
-        if observation.status != "fresh" && !(observation.status == "historical" && !self.active())
+        let snapshot = observation.snapshot.as_ref()?;
+        if self.state == "completed" && !self.is_final(snapshot) {
+            return None;
+        }
+        if observation.status != "fresh"
+            && !(observation.status == "historical" && !self.active())
+            && !(observation.status == "final" && self.is_final(snapshot))
         {
             return None;
         }
-        let snapshot = observation.snapshot.as_ref()?;
         if self.pid != Some(snapshot.pid)
             || self
                 .pid_start
@@ -259,6 +298,18 @@ impl Job {
             return None;
         }
         Some(snapshot)
+    }
+
+    pub(super) fn retain_final(&mut self, snapshot: NativeSnapshot, observed_at: f64, now: f64) {
+        if self.is_final(&snapshot) {
+            self.native_progress = Some(NativeObservation {
+                status: "final".into(),
+                native_observed_at: Some(observed_at),
+                age_seconds: Some((now - observed_at).max(0.0)),
+                snapshot: Some(snapshot),
+                extra: BTreeMap::new(),
+            });
+        }
     }
 
     pub(super) fn active(&self) -> bool {
@@ -276,6 +327,105 @@ pub(super) mod tests {
             "resources":{"jobs":1,"workers_per_job":2,"total_workers":2,"slots":[[0,1]],"memory":{}},
             "jobs":[{"id":"parent-3","state":"pending","metadata":{"parent":3,"root":"11","selected_sectors":["11"]}}],
             "aggregate":null,"stop_reason":null,"family_closure_claim":false})
+    }
+
+    pub(crate) fn final_snapshot() -> NativeSnapshot {
+        use crate::cli::progress::family_close::telemetry::{CheckpointSemantics, NativeCounts};
+        NativeSnapshot {
+            schema: super::super::super::family_close::telemetry::SCHEMA.into(),
+            pid: 9,
+            process_start_ticks: Some(17),
+            invocation_id: "final-test".into(),
+            revision: 3,
+            state: NativeState::OutputWritten,
+            elapsed_seconds: 20.,
+            last_event_elapsed_seconds: Some(20.),
+            counts: NativeCounts {
+                sectors_total: Some(18),
+                generated: 1,
+                reused: 17,
+                checkpointed_new: 1,
+                rules_generated: 1781,
+                finite_residuals_generated: 31,
+                ..NativeCounts::default()
+            },
+            active_jobs: Vec::new(),
+            details_truncated: false,
+            last_failure: None,
+            checkpoint: CheckpointSemantics::default(),
+            family_closure_claim: false,
+        }
+    }
+
+    #[test]
+    fn completed_final_counts_do_not_expire_while_other_parents_run() {
+        for initial in ["fresh", "final"] {
+            let mut input = fixture();
+            input["jobs"][0]["state"] = "completed".into();
+            input["jobs"][0]["pid"] = 9.into();
+            input["jobs"][0]["pid_start"] = 17.into();
+            input["jobs"][0]["native_progress"] = serde_json::json!({
+                "status":initial,"age_seconds":20000.,"snapshot":final_snapshot()});
+            let mut status = Status::parse(&serde_json::to_vec(&input).unwrap()).unwrap();
+            status.expire_native(50000.);
+            let native = status.jobs[0].native().unwrap();
+            assert_eq!(native.counts.generated + native.counts.reused, 18);
+            assert_eq!(native.counts.rules_generated, 1781);
+            assert_eq!(
+                status.jobs[0].native_progress.as_ref().unwrap().status,
+                "final"
+            );
+            assert!(!status.family_closure_claim);
+        }
+    }
+
+    #[test]
+    fn final_marker_cannot_promote_active_failed_or_wrong_invocation_data() {
+        for (state, pid, ticks, native_state) in [
+            ("running", 9, 17, NativeState::OutputWritten),
+            ("failed", 9, 17, NativeState::OutputWritten),
+            ("completed", 10, 17, NativeState::OutputWritten),
+            ("completed", 9, 18, NativeState::OutputWritten),
+            ("completed", 9, 17, NativeState::Running),
+        ] {
+            let mut input = fixture();
+            let mut native = final_snapshot();
+            native.state = native_state;
+            input["jobs"][0]["state"] = state.into();
+            input["jobs"][0]["pid"] = pid.into();
+            input["jobs"][0]["pid_start"] = ticks.into();
+            input["jobs"][0]["native_progress"] = serde_json::json!({
+                "status":"final","age_seconds":20000.,"snapshot":native});
+            let mut status = Status::parse(&serde_json::to_vec(&input).unwrap()).unwrap();
+            status.expire_native(50000.);
+            assert!(status.jobs[0].native().is_none());
+            assert_ne!(
+                status.jobs[0].native_progress.as_ref().unwrap().status,
+                "final"
+            );
+        }
+    }
+
+    #[test]
+    fn completed_parent_cannot_reuse_a_fresh_or_historical_nonterminal_payload() {
+        for marker in ["fresh", "historical", "final"] {
+            for native_state in [
+                NativeState::Running,
+                NativeState::Failed,
+                NativeState::Stopped,
+            ] {
+                let mut input = fixture();
+                let mut native = final_snapshot();
+                native.state = native_state;
+                input["jobs"][0]["state"] = "completed".into();
+                input["jobs"][0]["pid"] = 9.into();
+                input["jobs"][0]["pid_start"] = 17.into();
+                input["jobs"][0]["native_progress"] = serde_json::json!({
+                    "status":marker,"age_seconds":0.,"snapshot":native});
+                let status = Status::parse(&serde_json::to_vec(&input).unwrap()).unwrap();
+                assert!(status.jobs[0].native().is_none());
+            }
+        }
     }
 
     #[test]

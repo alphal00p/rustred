@@ -5,6 +5,7 @@ process group; native Rust owns family/sector scheduling and checkpoint writes.
 """
 import copy
 import json
+import math
 import os
 from pathlib import Path
 import time
@@ -34,9 +35,18 @@ class Projection:
         self.retained = list(retained)
         self.resources = resources
         self.status_path = Path(status_path)
+        self.invocation = None
+        self.completed_parents = {}
 
     def __call__(self, snapshot):
         child = snapshot["jobs"][0]
+        invocation = (child.get("pid"), child.get("pid_start"), child.get("started_unix"))
+        if invocation != self.invocation:
+            self.invocation = invocation
+            self.completed_parents.clear()
+        bound = (type(invocation[0]) is int and invocation[0] > 0
+                 and type(invocation[1]) is int and invocation[1] >= 0
+                 and type(invocation[2]) in (int, float) and math.isfinite(invocation[2]))
         native = None
         try:
             value = json.loads(self.status_path.read_bytes())
@@ -48,6 +58,14 @@ class Projection:
         except (OSError, ValueError, TypeError):
             pass
         statuses = {row["id"]: row for row in native["parents"]} if native else {}
+        if native and bound:
+            for key, parent in statuses.items():
+                if parent.get("state") == "completed":
+                    self.completed_parents[key] = copy.deepcopy(parent)
+                elif parent.get("state") == "failed":
+                    self.completed_parents.pop(key, None)
+        elif native is None and bound:
+            statuses = copy.deepcopy(self.completed_parents)
         drained = child.get("state") in ("failed", "interrupted", "completed", "native_finished")
         rows = []
         for job in self.parents:
@@ -55,17 +73,19 @@ class Projection:
             state = parent.get("state", "pending")
             if drained and state not in ("completed", "failed"):
                 state = "not_started" if state == "pending" else "interrupted"
-            if not native and child.get("state") in ("failed", "interrupted"):
+            if not native and child.get("state") in ("failed", "interrupted") and state != "completed":
                 state = "interrupted"  # process failure does not locate a mathematical parent failure
             row = dict(id=job.id, state="running" if state == "preparing" else state,
                 preparation_state=state, metadata=copy.deepcopy(job.metadata), shared_process=True,
                 slot=None, cpus=child.get("cpus", []), workers=None,
                 pid=child.get("pid"), pid_start=child.get("pid_start"),
+                started_unix=child.get("started_unix"), native_progress_path=supervisor.native_progress_path(job),
                 elapsed_seconds=child.get("elapsed_seconds"), sampled_rss_bytes=None, observed_cores=None,
-                native_progress=native_observation(job.native_progress,
-                    child.get("started_unix", time.time()), pid=child.get("pid"), pid_start=child.get("pid_start")),
+                native_progress=native_observation(supervisor.native_progress_path(job),
+                    child.get("started_unix"), pid=child.get("pid"), pid_start=child.get("pid_start"),
+                    completed=state == "completed"),
                 checkpoint_files_observed=None, error=parent.get("error"))
-            if drained and row["native_progress"].get("snapshot") is not None:
+            if drained and row["native_progress"].get("snapshot") is not None and row["native_progress"]["status"] != "final":
                 row["native_progress"]["status"] = "historical"
             rows.append(row)
         rows += [dict(copy.deepcopy(row), shared_process=True, preparation_state="retained")
