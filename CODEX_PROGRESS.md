@@ -57,7 +57,7 @@ reconstruction; root gave the verified native PID for a user-controlled kill.
 Only checkpointed progress is recoverable. We did not signal production or
 finalize its moving phase. Export remains pinned to immutable publication e9b2….
 
-Fresh native acceptance now passes all 13 subprocess gates on frozen release
+Fresh native acceptance now passes all 12 subprocess gates on frozen release
 `TMP/releases/20261021-fresh-search/rustred` (SHA256
 `efebfd75ed94deffd7a16e1d3c625ad8591504c9dac90e2ee26b74fda7de9311`).
 A genuine two-loop partial `(2,2)` source had nine ordinary rows, two terminal
