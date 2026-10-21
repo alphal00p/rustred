@@ -12,6 +12,7 @@ mod modular;
 #[cfg(not(feature = "reconstruction"))]
 #[path = "modular_unavailable.rs"]
 mod modular;
+mod numerator_symmetry;
 mod partial;
 mod profile;
 mod refine;
@@ -107,6 +108,9 @@ pub struct MasterReductionOptions {
     /// Add verified circuit-symmetry equations for raw and normalized terminals.
     /// Does not load or certify saved candidate rules.
     pub circuit_symmetry_assistance: bool,
+    /// Add exact finite numerator identities from denominator-preserving
+    /// integration-variable automorphisms. Independent of ordinary IBP search.
+    pub numerator_symmetry_assistance: bool,
     /// Re-eliminate retained family-qualified finite rows after full-U aliases.
     /// New refinements default to enabled; omitted on resume uses the snapshot.
     /// Publication only transports previously proved maps.
@@ -142,6 +146,7 @@ impl MasterReductionOptions {
             containing_sector_depth: 0,
             saved_rule_assistance: false,
             circuit_symmetry_assistance: false,
+            numerator_symmetry_assistance: false,
             finite_feedback: None,
             normalization_profile: None,
             max_relation_columns: None,
@@ -274,6 +279,7 @@ fn load_session_with_policy(
     .map_err(io)?;
     finite_provenance::validate_session(directory, &report, &session, policy)?;
     fresh::validate(directory, &report, &session)?;
+    numerator_symmetry::validate(directory, &session, &report)?;
     if modular::from_report(&report)? == MasterRefinementStrategy::ModularCircuits
         && (report["modular_state"].is_object() || report["status"] == "completed_nonminimal")
     {
@@ -358,6 +364,7 @@ fn master_reduce_source(
     }
     if (options.saved_rule_assistance
         || options.circuit_symmetry_assistance
+        || options.numerator_symmetry_assistance
         || options.finite_feedback.is_some()
         || options.containing_sector_depth != 0
         || !options.collection_artifacts.is_empty())
@@ -414,6 +421,10 @@ fn master_reduce_source(
                 .as_bool()
                 .unwrap_or(false)
                 != options.circuit_symmetry_assistance
+            || report["numerator_symmetry_assistance"]
+                .as_bool()
+                .unwrap_or(false)
+                != options.numerator_symmetry_assistance
         {
             return Err(AppError::input(
                 "cannot change a saved phase operation in place; refine a published artifact into a new directory",
@@ -462,6 +473,7 @@ fn master_reduce_source(
     report["operation"] = json!(operation_name(options.operation));
     report["saved_rule_assistance"] = json!(options.saved_rule_assistance);
     report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);
+    report["numerator_symmetry_assistance"] = json!(options.numerator_symmetry_assistance);
     collection::record_feedback(&mut report, finite_feedback);
     verification::record(&mut report, deep_verification);
     report["status"] = json!("running");

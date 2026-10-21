@@ -21,6 +21,7 @@ pub fn master_publish_partial_refinement(
         || !options.collection_artifacts.is_empty()
         || options.saved_rule_assistance
         || options.circuit_symmetry_assistance
+        || options.numerator_symmetry_assistance
         || options.containing_sector_depth != 0
         || options.seed_depth != 0
         || options.finite_feedback == Some(true)

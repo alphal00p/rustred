@@ -645,6 +645,18 @@ def render_master_table(frame, width=100, height=24, color=True):
         rows.insert(1, (0, full("Fresh relations-only round · shape ("
             + count(master.get("seed_depth")) + "," + count(master.get("containing_sector_depth"))
             + ") · retained proved maps", "36")))
+    numerator = master.get("numerator_symmetry_preparation", {})
+    numerator_reduction = master.get("numerator_symmetry_reduction", {})
+    if master.get("numerator_symmetry_assistance", False) and not publishing:
+        rows.insert(2, (0, row("Numerator symmetry", count(numerator.get("equations")) + " equations",
+                              "finite certified inventory; not global", "36")))
+        rows.insert(3, (1, row("Verified maps", count(numerator.get("verified_generators")),
+                              count(numerator.get("proposed_generators")) + " proposed; denominator-preserving")))
+        if numerator_reduction:
+            rows.insert(4, (1, row("Symmetry feedback", count(numerator_reduction.get("saved_reduced_rows")) + " reduced",
+                count(numerator_reduction.get("saved_application_failures")) + " saved-apply failures; native fallback on failure")))
+    elif master.get("numerator_symmetry_assistance", False) or master.get("inherited_numerator_symmetry_authority", False):
+        rows.insert(2, (1, row("Numerator proofs", "retained", "inherited finite proofs; provider off")))
     rows.insert(0, (0, row("Elapsed time", duration(frame["elapsed_seconds"]),
                           "wall time in this phase; current invocation", "36")))
     if master["artifact"]:
@@ -691,7 +703,11 @@ def plain_summary(frame):
                 "Exact bounded search; no numerical master values or minimality claim",
                 *(["Fresh relations-only round · shape (" + count(master.get("seed_depth")) + ","
                     + count(master.get("containing_sector_depth")) + ") · retained proved maps; new search cursor"]
-                  if master.get("fresh_search", False) and master.get("operation") == "refine" else [])]
+                  if master.get("fresh_search", False) and master.get("operation") == "refine" else []),
+                *(["Numerator symmetry: finite certified inventory; denominator-preserving maps; not a global symmetry claim"]
+                  if master.get("numerator_symmetry_assistance", False) and master.get("operation") == "refine" else
+                  ["Numerator symmetry: inherited finite proofs retained; current provider off"]
+                  if master.get("numerator_symmetry_assistance", False) or master.get("inherited_numerator_symmetry_authority", False) else [])]
     rates, snapshot = frame["rates"], frame["closure_snapshot"]
     completed = rates["local_completion"]["per_second"]
     rate = "unknown" if completed is None else f"{completed * 3600:,.0f}"

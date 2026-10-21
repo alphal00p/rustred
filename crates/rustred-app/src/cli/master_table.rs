@@ -172,6 +172,7 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
         ("Ordinary IBP rows", "relation_rows"),
         ("Saved-rule assistance", "saved_rule_assistance"),
         ("Circuit assistance", "circuit_symmetry_assistance"),
+        ("Numerator symmetries", "numerator_symmetry_assistance"),
         (
             "Inherited saved authority",
             "inherited_equation_authority.saved_rule_assistance",
@@ -179,6 +180,22 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
         (
             "Inherited circuit rows",
             "inherited_equation_authority.circuit_symmetry_assistance",
+        ),
+        (
+            "Inherited numerator rows",
+            "inherited_equation_authority.numerator_symmetry_assistance",
+        ),
+        (
+            "Numerator identities",
+            "numerator_symmetry_preparation.equations",
+        ),
+        (
+            "Saved-reduced identities",
+            "numerator_symmetry_reduction.saved_reduced_rows",
+        ),
+        (
+            "Saved-reduction misses",
+            "numerator_symmetry_reduction.saved_application_failures",
         ),
         ("Assisted equation rows", "completed_assistance_rows"),
         ("Independent sparse rows", "independent_rows"),
@@ -195,6 +212,10 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
         if (name.starts_with("requested_scope.") && summary["requested_scope"].is_null())
             || (name == "refinement_strategy" && summary[name].is_null())
             || (name.starts_with("modular_refinement.") && summary["modular_refinement"].is_null())
+            || (name.starts_with("numerator_symmetry_preparation.")
+                && summary["numerator_symmetry_preparation"].is_null())
+            || (name.starts_with("numerator_symmetry_reduction.")
+                && summary["numerator_symmetry_reduction"].is_null())
             || (name.starts_with("collection.") && summary["collection"].is_null())
             || (name == "source_checkpoint" && summary[name].is_null())
             || (name.starts_with("inherited_equation_authority.")

@@ -30,7 +30,7 @@ impl<'a> SourceRequest<'a> {
         deep: bool,
         normalization: MasterNormalizationProfile,
     ) -> Result<String, AppError> {
-        match self {
+        let binding = match self {
             Self::Walk(request) => storage::scope_binding(
                 request,
                 &options.checkpoint,
@@ -63,6 +63,15 @@ impl<'a> SourceRequest<'a> {
                 }
                 Ok(hash.finalize().to_hex().to_string())
             }
+        }?;
+        if options.numerator_symmetry_assistance {
+            let mut hash = blake3::Hasher::new();
+            hash.update(b"numerator-symmetry-assistance-v1");
+            hash.update(binding.as_bytes());
+            Ok(hash.finalize().to_hex().to_string())
+        } else {
+            // Preserve historical flag-off source identities exactly.
+            Ok(binding)
         }
     }
     /// Must finish before exposing any v3 latest/state marker.

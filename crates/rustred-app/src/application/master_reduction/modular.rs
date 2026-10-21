@@ -32,10 +32,12 @@ pub(super) fn for_phase(
         ));
     }
     if strategy == MasterRefinementStrategy::ModularCircuits
-        && (options.saved_rule_assistance || options.circuit_symmetry_assistance)
+        && (options.saved_rule_assistance
+            || options.circuit_symmetry_assistance
+            || options.numerator_symmetry_assistance)
     {
         return Err(AppError::input(
-            "modular-circuits currently requires ordinary sources without saved-rule or circuit-symmetry assistance",
+            "modular-circuits currently requires ordinary sources without saved-rule, circuit-symmetry or numerator-symmetry assistance",
         ));
     }
     if strategy == MasterRefinementStrategy::ModularCircuits

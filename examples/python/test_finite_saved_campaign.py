@@ -140,6 +140,40 @@ class FiniteCampaignTests(unittest.TestCase):
                 self.assertEqual(configure.call_args.kwargs["containing_sector_depth"], 0)
             self.assertEqual(FIXTURE.snapshot(self.campaign), before)
 
+    def test_public_finite_refine_parses_both_numerator_symmetry_choices(self):
+        self.plan()
+        before = FIXTURE.snapshot(self.campaign)
+        for flag, expected in (("--numerator-symmetry-assistance", True),
+                               ("--no-numerator-symmetry-assistance", False)):
+            with self.subTest(flag=flag), patch.object(FIN, "public_main", return_value=0) as dispatch, \
+                 patch.object(PUBLIC, "native_executable", side_effect=AssertionError("legacy preflight")), \
+                 patch.object(PUBLIC.os, "execv", side_effect=AssertionError("legacy launch")):
+                self.assertEqual(PUBLIC.main(["refine", "--campaign", str(self.campaign),
+                    "--executable", str(self.binary), flag]), 0)
+                supplied, extra = dispatch.call_args.args
+                self.assertIs(supplied.numerator_symmetry_assistance, expected)
+                self.assertEqual(extra, [])
+            self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
+    def test_finite_refinement_forwards_optional_numerator_symmetry_preference(self):
+        self.args.action = "refine"
+        before = FIXTURE.snapshot(self.campaign)
+        for state, expected in (("omitted", None), ("explicit-none", None),
+                                ("disabled", False), ("enabled", True)):
+            if state == "omitted":
+                vars(self.args).pop("numerator_symmetry_assistance", None)
+            else:
+                self.args.numerator_symmetry_assistance = expected
+            with self.subTest(state=state), \
+                 patch.object(FIN.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure, \
+                 patch.object(FIN, "launch_plan", side_effect=AssertionError("launch planning")), \
+                 patch.object(FIN.PHASES, "run", side_effect=AssertionError("native work")):
+                with self.assertRaisesRegex(ValueError, "configuration probe"):
+                    FIN.public_locked(self.args, self.campaign, self.binary, apply=False)
+                self.assertTrue(configure.call_args.kwargs["enabled"])
+                self.assertIs(configure.call_args.kwargs["numerator_symmetry_assistance"], expected)
+            self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
     def test_dry_plan_never_freezes_or_creates_namespace(self):
         before = FIXTURE.snapshot(self.campaign)
         plan = self.plan(apply=False)

@@ -16,6 +16,7 @@
 mod circuit_equations;
 mod corank_one;
 mod model;
+mod numerator_symmetry;
 mod parametric;
 mod product_reduction;
 mod products;
@@ -28,6 +29,11 @@ pub use circuit_equations::{
 pub use model::{
     ProductSkipReason, TerminalAliasError, TerminalAliasPlan, TerminalAliasStatistics,
     TerminalAliasWitness, VerifiedTerminalAlias,
+};
+pub use numerator_symmetry::{
+    TerminalNumeratorSymmetryEquations, TerminalNumeratorSymmetryLimits,
+    TerminalNumeratorSymmetrySkipReason, TerminalNumeratorSymmetryStatistics,
+    TerminalNumeratorSymmetryWitness,
 };
 pub use parametric::{
     VacuumFamilyAliasError, VacuumFamilyAliasLimits, VacuumFamilyAliasPlan, VacuumIntegralKey,

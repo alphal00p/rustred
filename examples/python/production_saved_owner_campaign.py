@@ -1161,6 +1161,8 @@ def main(argv=None):
                         help="only with --refine-masters: add saved-rule/routing equations; omitted resumes the saved preference")
     parser.add_argument("--master-circuit-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
                         help="only with --refine-masters: add native circuit-reflection equations; omitted resumes the saved preference")
+    parser.add_argument("--master-numerator-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
+                        help="only with exact --refine-masters: finitely certified denominator-preserving numerator-map equations; default off, omitted resumes the saved preference, --master-fresh-search clears it")
     parser.add_argument("--master-reduction-executable", type=Path,
                         help="freeze a separate publisher/refiner binary; leaves the original campaign binary and CP6 untouched")
     parser.add_argument("--upgrade-executable", type=Path, metavar="NEW",
@@ -1294,6 +1296,7 @@ def main(argv=None):
                                             saved_rule_assistance=args.master_saved_rule_assistance,
                                             containing_sector_depth=args.master_containing_sector_depth,
                                             circuit_symmetry_assistance=args.master_circuit_symmetry_assistance,
+                                            numerator_symmetry_assistance=args.master_numerator_symmetry_assistance,
                                             normalization_profile=args.master_normalization_profile,
                                             collection_artifacts=args.master_collection_artifact,
                                             finite_feedback=args.master_finite_feedback,

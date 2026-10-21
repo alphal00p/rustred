@@ -141,6 +141,39 @@ class PhaseTests(unittest.TestCase):
         with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
             PRODUCTION.main(["--campaign-directory", str(self.campaign), "--publish-only", "--master-fresh-search"])
 
+    def test_numerator_symmetry_preference_is_exact_only_and_fresh_round_resets_it(self):
+        self.assertFalse(self.policy["numerator_symmetry_assistance"])
+        enabled = PHASES.configuration(self.campaign, enabled=True, numerator_symmetry_assistance=True)
+        self.write("master-reduction/policy.json", enabled)
+        self.assertTrue(PHASES.configuration(self.campaign, enabled=True)["numerator_symmetry_assistance"])
+        self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
+        fresh = PHASES.configuration(self.campaign, enabled=True, fresh_search=True)
+        self.assertFalse(fresh["numerator_symmetry_assistance"])
+        self.assertTrue(PHASES.configuration(self.campaign, enabled=True, fresh_search=True,
+                                            numerator_symmetry_assistance=True)["numerator_symmetry_assistance"])
+        with self.assertRaisesRegex(ValueError, "requires exact refinement"):
+            PHASES.configuration(self.campaign, enabled=True, refinement_strategy="modular-circuits")
+        modular = PHASES.configuration(self.campaign, enabled=True, refinement_strategy="modular-circuits",
+                                       numerator_symmetry_assistance=False)
+        self.assertFalse(modular["numerator_symmetry_assistance"])
+        for value in (True, False):
+            with self.assertRaisesRegex(ValueError, "explicit"):
+                PHASES.configuration(self.campaign, numerator_symmetry_assistance=value)
+        for value in (0, "yes"):
+            with self.assertRaisesRegex(ValueError, "boolean"):
+                PHASES.configuration(self.campaign, enabled=True, numerator_symmetry_assistance=value)
+        self.write("master-reduction/policy.json", {**enabled, "numerator_symmetry_assistance": 1})
+        with self.assertRaisesRegex(ValueError, "invalid persisted"):
+            PHASES.configuration(self.campaign, enabled=True)
+
+    def test_production_numerator_symmetry_flag_reaches_configuration(self):
+        for flag, expected in (("--master-numerator-symmetry-assistance", True),
+                               ("--no-master-numerator-symmetry-assistance", False)):
+            with patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure:
+                with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters", flag])
+            self.assertEqual(configure.call_args.kwargs["numerator_symmetry_assistance"], expected)
+
     def test_parallel_batch_policy_is_positive_operational_and_retained(self):
         policy=PHASES.configuration(self.campaign,enabled=True,relation_batch_rows=128,relation_block_rows=8)
         self.write("master-reduction/policy.json",policy)
@@ -579,6 +612,68 @@ class PhaseTests(unittest.TestCase):
         self.assertEqual(native.call_args.args[1]["source_artifact"], str(export))
         self.assertNotEqual(native.call_args.args[4], phase)
         self.assertEqual((phase / "latest.json").read_bytes(), original_manifest)
+
+    def test_numerator_symmetry_changes_only_enabled_phase_identity(self):
+        self.publish_fixture()
+        selected = {}
+        for value in (None, False, True):
+            policy = PHASES.configuration(self.campaign, enabled=True, numerator_symmetry_assistance=value)
+            with patch.object(PHASES, "phase_two", return_value=4) as native:
+                PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+            directory = native.call_args.args[4]
+            steering = PHASES.read_json(directory / "steering-binding.json")
+            selected[value] = directory
+            self.assertEqual(steering.get("numerator_symmetry_assistance", False), value is True)
+            if value is not True:
+                self.assertNotIn("numerator_symmetry_assistance", steering)
+        self.assertEqual(selected[None], selected[False])
+        self.assertNotEqual(selected[False], selected[True])
+        self.write(str((selected[True] / "latest.json").relative_to(self.campaign)), {"status": "paused"})
+        self.write("master-reduction/active-phase.json", {"operation": "refine", "directory": str(selected[True])})
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True), True,
+                       self.driver, postprocess_only=True)
+        self.assertEqual(native.call_args.args[4], selected[True])
+        self.assertTrue(native.call_args.args[1]["numerator_symmetry_assistance"])
+
+    def test_partial_export_and_publication_preserve_numerator_certificate_not_provider_authority(self):
+        _, phase = self.stopped_refinement_fixture("paused")
+        provenance = {"numerator_symmetry_assistance": True,
+            "numerator_symmetry_certificate": {"recipe": PHASES.NUMERATOR_SYMMETRY_RECIPE,
+                "file": "numerator-symmetry.bin", "bytes": 123, "blake3": "a" * 64,
+                "inventory_binding": "original-finite-inventory", "authority": "finite-equations"},
+            "inherited_equation_authority": {"numerator_symmetry_assistance": True}}
+        latest = {**PHASES.read_json(phase / "latest.json"), **provenance}
+        self.write(str((phase / "latest.json").relative_to(self.campaign)), latest)
+        original = (phase / "latest.json").read_bytes()
+        with patch.object(PHASES, "phase_two", return_value=0) as native:
+            PHASES.run(self.plan, {**self.policy, "operation": "finalize-refinement"}, True,
+                       self.driver, postprocess_only=True)
+        partial = native.call_args.args[1]["partial_refinement"]
+        for key, value in provenance.items():
+            self.assertEqual(partial[key], value)
+        export = native.call_args.args[4]
+        self.write(str((export / "artifact.json").relative_to(self.campaign)), {
+            **provenance, "inventory": {"complete": True}, "finite_search_complete": False,
+            "partial_refinement_source": {"checkpoint": 7}})
+        PHASES.publish_pointer(self.campaign, export, self.binding(), "refine", self.driver, partial)
+        pointer = PHASES.completed_artifact(self.campaign)
+        for key, value in provenance.items():
+            self.assertEqual(pointer[key], value)
+        self.assertFalse(PHASES.configuration(self.campaign, enabled=True, fresh_search=True)["numerator_symmetry_assistance"])
+        self.assertEqual((phase / "latest.json").read_bytes(), original)
+        # Historical provider use can remain in refinement provenance while a
+        # later publication retains those proofs with its current provider off.
+        native_report = PHASES.read_json(export / "artifact.json")
+        native_report["numerator_symmetry_assistance"] = False
+        self.write(str((export / "artifact.json").relative_to(self.campaign)), native_report)
+        PHASES.publish_pointer(self.campaign, export, self.binding(), "refine", self.driver, partial)
+        self.assertFalse(PHASES.completed_artifact(self.campaign)["numerator_symmetry_assistance"])
+        pointer_record = PHASES.read_json(self.campaign / "artifacts/latest.json")
+        pointer_record["numerator_symmetry_certificate"] = {**provenance["numerator_symmetry_certificate"], "blake3": "b" * 64}
+        self.write("artifacts/latest.json", pointer_record)
+        with self.assertRaisesRegex(ValueError, "provenance differs"):
+            PHASES.completed_artifact(self.campaign)
 
     def test_finalize_requires_stopped_current_scope_without_starting_a_solve(self):
         _, phase = self.stopped_refinement_fixture("running")
@@ -1111,11 +1206,19 @@ report = {'status':'published_unrefined', 'operation':'publish',
         self._scratch_native_pause_resume("refine", fresh_search=True, seed_depth=3,
                                          containing_sector_depth=0, inherited_containing_depth=2)
 
+    def test_numerator_symmetry_refinement_forwards_mode_and_resumes_its_checkpoint(self):
+        self._scratch_native_pause_resume("refine", numerator_symmetry_assistance=True)
+
+    def test_fresh_search_can_explicitly_enable_numerator_symmetry(self):
+        self._scratch_native_pause_resume("refine", fresh_search=True, seed_depth=3,
+                                         numerator_symmetry_assistance=True)
+
     def _scratch_native_pause_resume(self, operation, saved_rule_assistance=False,
                                     containing_sector_depth=0, inherited_containing_depth=0,
                                     circuit_symmetry_assistance=False, normalization_profile=None,
                                     deep_verification=False, preserve_refined=False, max_relation_columns=None,
-                                    refinement_workers=None, refinement_cpus=None, fresh_search=False, seed_depth=0):
+                                    refinement_workers=None, refinement_cpus=None, fresh_search=False, seed_depth=0,
+                                    numerator_symmetry_assistance=False):
         # Fake native protocol only; this proves process/checkpoint orchestration,
         # not mathematical correctness or a successful native Rust solve.
         binary = self.campaign / "fake-native"
@@ -1128,6 +1231,7 @@ report = {'status':'published_unrefined', 'operation':'publish',
                           f"expected_column_budget = {max_relation_columns!r}\n"
                           f"expected_fresh = {fresh_search}\n"
                           f"expected_seed_depth = {seed_depth}\n"
+                          f"expected_numerator = {numerator_symmetry_assistance and operation == 'refine'}\n"
                           f"expected_containing_depth = {containing_sector_depth if operation == 'refine' else 0}\n" + '''import json, pathlib, sys, time
 args = sys.argv
 assert int(args[args.index('--threads') + 1]) == expected_threads
@@ -1138,6 +1242,7 @@ if refine:
     assert int(args[args.index('--seed-depth') + 1]) == expected_seed_depth
 assert ('--saved-rule-assistance' in args) == expected_assistance
 assert ('--circuit-symmetry-assistance' in args) == expected_circuit
+assert ('--numerator-symmetry-assistance' in args) == expected_numerator
 assert ('--finite-feedback' in args) == refine
 assert ('--max-relation-columns' in args) == (refine and expected_column_budget is not None)
 if expected_column_budget is not None:
@@ -1151,6 +1256,9 @@ if expected_profile is not None:
 profile = (expected_profile or 'conservative') + '-v1'
 metadata = {'normalization_profile': profile, 'normalization_limits': {'fixture': True}}
 metadata.update(finite_feedback=refine, finite_feedback_recipe='finite-row-feedback-v1')
+if expected_numerator:
+    metadata.update(numerator_symmetry_assistance=True,
+        numerator_symmetry_preparation={'input_keys':4,'verified_generators':1,'proposed_generators':2,'equations':3})
 if expected_fresh:
     metadata.update(fresh_search=True, fresh_search_recipe='relations-only-v1',
                     seed_depth=expected_seed_depth, containing_sector_depth=expected_containing_depth)
@@ -1190,6 +1298,7 @@ event('completed_nonminimal' if refine else 'published_unrefined')
         driver = SimpleNamespace(**vars(PRODUCTION))
         native_policy = {**self.policy, "operation": operation, "saved_rule_assistance": saved_rule_assistance,
                          "fresh_search": fresh_search, "seed_depth": seed_depth,
+                         "numerator_symmetry_assistance": numerator_symmetry_assistance,
                          "max_relation_columns": max_relation_columns,
                          "deep_verification": deep_verification,
                          "circuit_symmetry_assistance": circuit_symmetry_assistance,
@@ -1234,6 +1343,10 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                     with self.assertRaisesRegex(ValueError, "cannot change fresh-search mode on resume"):
                         PHASES.phase_two(plan, {**native_policy, "fresh_search": False},
                                          self.campaign / "runs/first/request.json", binding, directory, driver)
+                if numerator_symmetry_assistance:
+                    with self.assertRaisesRegex(ValueError, "cannot change numerator-symmetry assistance on resume"):
+                        PHASES.phase_two(plan, {**native_policy, "numerator_symmetry_assistance": False},
+                                         self.campaign / "runs/first/request.json", binding, directory, driver)
                 if normalization_profile == "standard":
                     paused_pointer = (self.campaign / "artifacts/latest.json").read_bytes()
                     with self.assertRaisesRegex(ValueError, "cannot change normalization profile on resume"):
@@ -1274,6 +1387,8 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                              circuit_symmetry_assistance)
             self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["saved_rule_assistance"],
                              saved_rule_assistance)
+            self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"].get("numerator_symmetry_assistance", False),
+                             numerator_symmetry_assistance)
             self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["containing_sector_depth"],
                              containing_sector_depth if fresh_search else max(containing_sector_depth, inherited_containing_depth))
             if fresh_search:

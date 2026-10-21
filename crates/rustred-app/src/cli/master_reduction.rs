@@ -36,6 +36,7 @@ pub(crate) struct MasterArgs {
     pub containing_sector_depth: u32,
     pub saved_rule_assistance: bool,
     pub circuit_symmetry_assistance: bool,
+    pub numerator_symmetry_assistance: bool,
     pub finite_feedback: Option<bool>,
     pub normalization_profile: Option<crate::MasterNormalizationProfile>,
     pub max_relation_columns: Option<usize>,
@@ -80,6 +81,7 @@ fn parse_source(
         containing_sector_depth: 0,
         saved_rule_assistance: false,
         circuit_symmetry_assistance: false,
+        numerator_symmetry_assistance: false,
         finite_feedback: None,
         normalization_profile: None,
         max_relation_columns: None,
@@ -112,6 +114,7 @@ fn parse_source(
             "--containing-sector-depth" => "--containing-sector-depth",
             "--saved-rule-assistance" => "--saved-rule-assistance",
             "--circuit-symmetry-assistance" => "--circuit-symmetry-assistance",
+            "--numerator-symmetry-assistance" => "--numerator-symmetry-assistance",
             "--finite-feedback" => "--finite-feedback",
             "--no-finite-feedback" => "--no-finite-feedback",
             "--normalization-profile" => "--normalization-profile",
@@ -135,6 +138,7 @@ fn parse_source(
             }
             "--saved-rule-assistance" => result.saved_rule_assistance = true,
             "--circuit-symmetry-assistance" => result.circuit_symmetry_assistance = true,
+            "--numerator-symmetry-assistance" => result.numerator_symmetry_assistance = true,
             "--finite-feedback" | "--no-finite-feedback" => {
                 if result.finite_feedback.is_some() {
                     return Err(ArgError::InvalidCombination(
@@ -317,6 +321,7 @@ pub(super) fn parse_publish(args: impl Iterator<Item = OsString>) -> Result<Comm
     }
     if args.saved_rule_assistance
         || args.circuit_symmetry_assistance
+        || args.numerator_symmetry_assistance
         || args.finite_feedback.is_some()
         || args.containing_sector_depth != 0
         || !args.collection_artifacts.is_empty()
@@ -577,6 +582,7 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     options.containing_sector_depth = args.containing_sector_depth;
     options.saved_rule_assistance = args.saved_rule_assistance;
     options.circuit_symmetry_assistance = args.circuit_symmetry_assistance;
+    options.numerator_symmetry_assistance = args.numerator_symmetry_assistance;
     options.finite_feedback = args.finite_feedback;
     options.normalization_profile = args.normalization_profile;
     options.max_relation_columns = args.max_relation_columns;
@@ -1071,6 +1077,57 @@ mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn numerator_assistance_is_explicit_independent_and_refine_only() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        let Command::WalkMasterReduce(default) =
+            parse(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert!(!default.numerator_symmetry_assistance);
+        for (saved, circuit) in [(false, false), (true, false), (false, true), (true, true)] {
+            let mut argv: Vec<_> = base
+                .into_iter()
+                .chain(["--numerator-symmetry-assistance"])
+                .map(OsString::from)
+                .collect();
+            if saved {
+                argv.push(OsString::from("--saved-rule-assistance"));
+            }
+            if circuit {
+                argv.push(OsString::from("--circuit-symmetry-assistance"));
+            }
+            let Command::WalkMasterReduce(parsed) = parse(argv.clone().into_iter()).unwrap() else {
+                panic!()
+            };
+            assert!(parsed.numerator_symmetry_assistance);
+            assert_eq!(parsed.saved_rule_assistance, saved);
+            assert_eq!(parsed.circuit_symmetry_assistance, circuit);
+            argv.push(OsString::from("--numerator-symmetry-assistance"));
+            assert!(matches!(
+                parse(argv.into_iter()),
+                Err(ArgError::DuplicateOption("--numerator-symmetry-assistance"))
+            ));
+        }
+        assert!(
+            parse_publish(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--numerator-symmetry-assistance",
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+    }
+
     #[test]
     fn containing_sector_search_is_explicit_and_nonnegative() {
         let argv = [

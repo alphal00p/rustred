@@ -17,6 +17,10 @@ mod inherited_tests;
 #[path = "tests/modular.rs"]
 #[cfg(feature = "reconstruction")]
 mod modular_tests;
+#[path = "tests/numerator_symmetry.rs"]
+mod numerator_symmetry_tests;
+#[path = "tests/numerator_symmetry_measured.rs"]
+mod numerator_symmetry_measured;
 #[path = "tests/profile.rs"]
 mod profile_tests;
 #[path = "tests/resource_budget.rs"]

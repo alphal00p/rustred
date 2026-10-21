@@ -419,6 +419,8 @@ def normalize_status(status, sequence=None):
             "refinement_strategy": clean(master.get("refinement_strategy", "exact"), 100),
             "fresh_search": master.get("fresh_search") is True,
             "fresh_search_recipe": clean(master.get("fresh_search_recipe", ""), 100),
+            "numerator_symmetry_assistance": master.get("numerator_symmetry_assistance") is True,
+            "inherited_numerator_symmetry_authority": mapping(master.get("inherited_equation_authority")).get("numerator_symmetry_assistance") is True,
             "finite_search_complete": master.get("finite_search_complete") is True,
             "modular_search_complete": master.get("modular_search_complete") is True,
             "master_minimality_claim": False,
@@ -442,6 +444,24 @@ def normalize_status(status, sequence=None):
                                       "primes", "discovery_images")),
                 "search_exhausted": modular.get("search_exhausted") is True,
             }
+        numerator = mapping(master.get("numerator_symmetry_preparation"))
+        if numerator:
+            frame["master_reduction"]["numerator_symmetry_preparation"] = {
+                **_numbers(numerator, ("input_keys", "analyzed_supports", "analyzed_denominators",
+                    "proposed_generators", "verified_generators", "equation_targets", "equations",
+                    "output_terms", "trivial_equations", "rejected_power_permutations")),
+                "scope": clean(numerator.get("scope", ""), 300),
+            }
+        reduction = mapping(master.get("numerator_symmetry_reduction"))
+        if reduction:
+            frame["master_reduction"]["numerator_symmetry_reduction"] = {
+                **_numbers(reduction, ("processed_rows", "source_rows", "saved_reduced_rows", "saved_application_failures")),
+                "scope": clean(reduction.get("scope", ""), 300),
+            }
+        certificate = mapping(master.get("numerator_symmetry_certificate"))
+        if certificate:
+            frame["master_reduction"]["numerator_symmetry_certificate"] = {
+                key: clean(certificate.get(key, ""), 300) for key in ("recipe", "inventory_binding", "authority")}
         progress = mapping(master.get("verification_progress"))
         if progress:
             frame["master_reduction"]["verification_progress"] = {

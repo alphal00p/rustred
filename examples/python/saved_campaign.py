@@ -108,14 +108,19 @@ def main(argv=None):
                              help="include applicable saved-rule and routing equations (default saved refinement preference or off)")
             sub.add_argument("--circuit-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
                              help="include native circuit-reflection equations (default saved refinement preference or off)")
+            sub.add_argument("--numerator-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
+                             help="exact-only: add finitely certified denominator-preserving numerator-map equations; off by default, fresh search clears the saved preference")
             sub.add_argument("--finite-feedback", action=argparse.BooleanOptionalAction, default=None,
                              help="combine retained finite rows after full-U aliases (default saved preference or on)")
         if action == "inspect":
             sub.add_argument("--format", choices=("auto", "table", "json"), default="auto")
     args, extra = parser.parse_known_args(argv)
-    if args.action != "refine" and any(option.split("=", 1)[0] in ("--fresh-search", "--master-fresh-search")
-                                       for option in extra):
-        parser.error("fresh search requires the refine action")
+    if args.action != "refine":
+        if any(option.split("=", 1)[0] in ("--fresh-search", "--master-fresh-search") for option in extra):
+            parser.error("fresh search requires the refine action")
+        if any(option.split("=", 1)[0] in ("--numerator-symmetry-assistance", "--no-numerator-symmetry-assistance",
+                   "--master-numerator-symmetry-assistance", "--no-master-numerator-symmetry-assistance") for option in extra):
+            parser.error("numerator-symmetry assistance requires the refine action")
     campaign = args.campaign.resolve()
     try:
         # Engine dispatch precedes all legacy checkpoint access. This regular
@@ -177,6 +182,9 @@ def main(argv=None):
                 if args.circuit_symmetry_assistance is not None:
                     command.append("--master-circuit-symmetry-assistance" if args.circuit_symmetry_assistance
                                    else "--no-master-circuit-symmetry-assistance")
+                if args.numerator_symmetry_assistance is not None:
+                    command.append("--master-numerator-symmetry-assistance" if args.numerator_symmetry_assistance
+                                   else "--no-master-numerator-symmetry-assistance")
                 if args.finite_feedback is not None:
                     command.append("--master-finite-feedback" if args.finite_feedback
                                    else "--no-master-finite-feedback")

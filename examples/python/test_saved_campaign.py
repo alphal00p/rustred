@@ -86,6 +86,8 @@ class SavedCampaignTests(unittest.TestCase):
         self.assertNotIn("--master-containing-sector-depth", command)
         self.assertNotIn("--master-circuit-symmetry-assistance", command)
         self.assertNotIn("--no-master-circuit-symmetry-assistance", command)
+        self.assertNotIn("--master-numerator-symmetry-assistance", command)
+        self.assertNotIn("--no-master-numerator-symmetry-assistance", command)
         self.assertNotIn("--master-normalization-profile", command)
 
     def test_fresh_search_is_explicit_and_keeps_campaign_resume(self):
@@ -195,6 +197,39 @@ class SavedCampaignTests(unittest.TestCase):
             with self.subTest(action=action), patch.object(WRAPPER.sys, "stderr", io.StringIO()):
                 with self.assertRaises(SystemExit):
                     self.invoke(action, "--circuit-symmetry-assistance")
+
+    def test_numerator_symmetry_assistance_forwards_both_choices_independently(self):
+        for supplied, forwarded, opposite in (
+                ("--numerator-symmetry-assistance", "--master-numerator-symmetry-assistance",
+                 "--no-master-numerator-symmetry-assistance"),
+                ("--no-numerator-symmetry-assistance", "--no-master-numerator-symmetry-assistance",
+                 "--master-numerator-symmetry-assistance")):
+            with self.subTest(supplied=supplied):
+                command = self.invoke("refine", supplied)
+                self.assertEqual(command.count(forwarded), 1)
+                self.assertNotIn(opposite, command)
+                self.assertNotIn(supplied, command)
+                self.assertIn("--refine-masters", command)
+                self.assertIn("--resume", command)
+                self.assertIn("--start", command)
+                self.assertNotIn("--master-saved-rule-assistance", command)
+                self.assertNotIn("--master-circuit-symmetry-assistance", command)
+                combined = self.invoke("refine", supplied, "--saved-rule-assistance",
+                                       "--circuit-symmetry-assistance")
+                self.assertIn(forwarded, combined)
+                self.assertNotIn(opposite, combined)
+                self.assertIn("--master-saved-rule-assistance", combined)
+                self.assertIn("--master-circuit-symmetry-assistance", combined)
+
+    def test_numerator_symmetry_assistance_rejects_nonrefinement_actions_before_dispatch(self):
+        for action in ("run", "extend", "inspect", "publish", "finalize-refinement"):
+            options = ["--rank", "1"] if action == "extend" else []
+            for flag in ("--numerator-symmetry-assistance", "--no-numerator-symmetry-assistance",
+                         "--master-numerator-symmetry-assistance", "--no-master-numerator-symmetry-assistance"):
+                with self.subTest(action=action, flag=flag), \
+                     patch.object(WRAPPER, "native_executable", side_effect=AssertionError("native preflight")), \
+                     patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    self.invoke(action, *options, flag)
 
     def test_finite_feedback_mode_is_forwarded_only_by_explicit_refinement(self):
         self.assertNotIn("--master-finite-feedback", self.invoke("refine"))

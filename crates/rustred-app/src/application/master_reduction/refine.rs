@@ -100,6 +100,9 @@ pub fn master_refine_published_artifact(
     if options.circuit_symmetry_assistance {
         hash.update(b"circuit-symmetry-assistance-v1");
     }
+    if options.numerator_symmetry_assistance {
+        hash.update(b"numerator-symmetry-assistance-v1");
+    }
     normalization_profile.hash(&mut hash);
     let collection_identity = collection::input_identity(options, resumed.as_ref())?;
     hash.update(collection::STRATEGY.as_bytes());

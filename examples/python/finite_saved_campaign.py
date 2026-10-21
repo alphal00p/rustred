@@ -656,6 +656,7 @@ def _public_locked(args, campaign, binary, *, apply, startup_progress):
         seed_depth=getattr(args, "seed_depth", None), saved_rule_assistance=getattr(args, "saved_rule_assistance", None),
         containing_sector_depth=getattr(args, "containing_sector_depth", None),
         circuit_symmetry_assistance=getattr(args, "circuit_symmetry_assistance", None),
+        numerator_symmetry_assistance=getattr(args, "numerator_symmetry_assistance", None),
         normalization_profile=getattr(args, "normalization_profile", None),
         collection_artifacts=getattr(args, "collection_artifact", None),
         finite_feedback=getattr(args, "finite_feedback", None),

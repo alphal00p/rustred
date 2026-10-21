@@ -272,6 +272,7 @@ pub(super) fn clone_inputs_with_policy(
     report: &Value,
     policy: Option<&crate::FiniteDemandPolicy>,
 ) -> Result<(), AppError> {
+    super::numerator_symmetry::inherit(source, output, report)?;
     let inputs = &report["inputs"];
     let payloads = inputs["payloads"]
         .as_array()

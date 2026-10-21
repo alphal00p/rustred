@@ -331,12 +331,14 @@ fn write_state(directory: &Path, bytes: &[u8], prefix: &str) -> Result<Value, Ap
 }
 
 fn load_member(directory: &Path, member: &Value) -> Result<TerminalRelationSession, AppError> {
-    TerminalRelationSession::from_native_bytes(
+    let session = TerminalRelationSession::from_native_bytes(
         &read_state(directory, &member["native_state"])?,
         profile::from_report(member)?.relation_limits(),
         profile::native_io_limits(None),
     )
-    .map_err(io)
+    .map_err(io)?;
+    super::numerator_symmetry::validate(directory, &session, member)?;
+    Ok(session)
 }
 
 fn load_members(
@@ -352,6 +354,7 @@ fn load_members(
 }
 
 fn copy_member(source: &Path, output: &Path, member: &Value) -> Result<Value, AppError> {
+    super::numerator_symmetry::inherit(source, output, member)?;
     let mut member = member.clone();
     member["native_state"] = write_state(
         output,
@@ -367,6 +370,8 @@ fn primary_member(report: &Value) -> Result<Value, AppError> {
         "relation_authority",
         "saved_rule_assistance",
         "circuit_symmetry_assistance",
+        "numerator_symmetry_assistance",
+        "numerator_symmetry_certificate",
         "inherited_equation_authority",
     ] {
         if let Some(value) = report.get(field) {

@@ -1,7 +1,8 @@
 //! Connect finite verified symmetries and optional saved candidate programs.
 use super::*;
 use crate::application::routed_campaign::{
-    RoutedCampaignRequest, TerminalEquationProvider, prepare_terminal_equations,
+    PreparedTerminalEquations, RoutedCampaignRequest, TerminalEquationProvider,
+    prepare_terminal_equations,
 };
 use rustred::reduction::terminal_normalization::TerminalCircuitEquations;
 
@@ -41,6 +42,17 @@ pub(super) fn expected_binding(
             hash.finalize().to_hex()
         ));
     }
+    if options.numerator_symmetry_assistance {
+        parts.push(super::numerator_symmetry::binding(
+            session.family_owner().fingerprint(),
+            &session
+                .raw_terminals()
+                .union(session.normalization().canonical_terminals())
+                .cloned()
+                .collect(),
+            profile::from_report(report)?,
+        )?);
+    }
     Ok((!parts.is_empty()).then(|| parts.join(";")))
 }
 
@@ -57,6 +69,7 @@ pub(super) fn configure(
             report["finite_search_restarted_for_policy"] = json!(false);
             report["saved_rule_assistance"] = json!(false);
             report["circuit_symmetry_assistance"] = json!(false);
+            report["numerator_symmetry_assistance"] = json!(false);
             report["relation_authority"] = json!(inherited::authority(report)?);
             fresh::record_authority(report);
             return Ok(());
@@ -81,6 +94,16 @@ pub(super) fn configure(
         .as_object_mut()
         .expect("report object")
         .remove("circuit_equation_preparation");
+    report
+        .as_object_mut()
+        .expect("report object")
+        .remove("numerator_symmetry_preparation");
+    if changes_policy {
+        report
+            .as_object_mut()
+            .expect("report object")
+            .remove("numerator_symmetry_certificate");
+    }
     if changes_policy
         && (session.statistics().completed_source_rows != 0
             || session.statistics().pending_rebuild_rows != 0
@@ -125,26 +148,34 @@ pub(super) fn configure(
     }
     report["saved_rule_assistance"] = json!(options.saved_rule_assistance);
     report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);
+    report["numerator_symmetry_assistance"] = json!(options.numerator_symmetry_assistance);
     report["relation_authority"] = json!(authority(
         options.saved_rule_assistance,
-        options.circuit_symmetry_assistance
+        options.circuit_symmetry_assistance,
+        options.numerator_symmetry_assistance
     ));
     fresh::record_authority(report);
     Ok(())
 }
 
-pub(super) fn authority(saved: bool, circuit: bool) -> &'static str {
-    match (saved, circuit) {
-        (true, true) => {
+pub(super) fn authority(saved: bool, circuit: bool, numerator: bool) -> &'static str {
+    match (saved, circuit, numerator) {
+        (true, _, true) => {
+            "exact consequences of ordinary IBPs, verified numerator momentum-change identities and supplied candidate rules; candidate source provenance is not replay-certified"
+        }
+        (false, _, true) => {
+            "finite ordinary IBPs and independently verified denominator-preserving numerator momentum-change identities with exact normalization; no candidate-rule authority used"
+        }
+        (true, true, false) => {
             "exact consequences of ordinary IBPs, verified circuit symmetries/routes and supplied candidate rules; candidate source provenance is not replay-certified"
         }
-        (true, false) => {
+        (true, false, false) => {
             "exact consequences of ordinary IBPs, verified routes and supplied candidate rules; candidate source provenance is not replay-certified"
         }
-        (false, true) => {
+        (false, true, false) => {
             "finite ordinary IBPs and independently verified circuit change-of-variable equations with exact normalization; no candidate-rule authority used"
         }
-        (false, false) => "finite ordinary IBP equations with exact normalization",
+        (false, false, false) => "finite ordinary IBP equations with exact normalization",
     }
 }
 
@@ -161,8 +192,12 @@ pub(super) fn validate(
     {
         if options.saved_rule_assistance
             || options.circuit_symmetry_assistance
+            || options.numerator_symmetry_assistance
             || report["saved_rule_assistance"].as_bool().unwrap_or(false)
             || report["circuit_symmetry_assistance"]
+                .as_bool()
+                .unwrap_or(false)
+            || report["numerator_symmetry_assistance"]
                 .as_bool()
                 .unwrap_or(false)
         {
@@ -178,6 +213,10 @@ pub(super) fn validate(
             .as_bool()
             .unwrap_or(false)
             != options.circuit_symmetry_assistance
+        || report["numerator_symmetry_assistance"]
+            .as_bool()
+            .unwrap_or(false)
+            != options.numerator_symmetry_assistance
         || session.assistance_binding() != binding.as_deref()
         || (options.operation == MasterReductionOperation::Refine
             && report["requested_containing_sector_depth"]
@@ -201,7 +240,10 @@ pub(super) fn prepare(
     started: Instant,
 ) -> Result<Option<TerminalEquationProvider>, AppError> {
     validate(options, session, report)?;
-    if !options.saved_rule_assistance && !options.circuit_symmetry_assistance {
+    if !options.saved_rule_assistance
+        && !options.circuit_symmetry_assistance
+        && !options.numerator_symmetry_assistance
+    {
         return Ok(None);
     }
     if cancel.load(Ordering::Relaxed) {
@@ -251,9 +293,28 @@ pub(super) fn prepare(
     } else {
         None
     };
+    let numerator = if options.numerator_symmetry_assistance {
+        Some(super::numerator_symmetry::prepare(
+            options, session, report, cancel, observer, started,
+        )?)
+    } else {
+        None
+    };
     let mut saved = if options.saved_rule_assistance {
         Some(prepare_saved(
             options, session, report, cancel, observer, started,
+        )?)
+    } else {
+        None
+    };
+    let numerator_rows = if let Some(numerator) = &numerator {
+        Some(super::numerator_symmetry::prepare_rows(
+            numerator,
+            saved.as_mut(),
+            report,
+            cancel,
+            observer,
+            started,
         )?)
     } else {
         None
@@ -262,8 +323,11 @@ pub(super) fn prepare(
         let mut rows = circuit
             .as_ref()
             .map_or_else(Vec::new, |plan| plan.equations(key).to_vec());
+        if let Some(numerator) = &numerator_rows {
+            rows.extend(numerator.get(key).into_iter().flatten().cloned());
+        }
         if let Some(saved) = &mut saved {
-            rows.extend(saved(key)?);
+            rows.extend((saved.provider)(key)?);
         }
         Ok(rows)
     })))
@@ -276,7 +340,7 @@ fn prepare_saved(
     cancel: &AtomicBool,
     observer: &impl Fn(Value),
     started: Instant,
-) -> Result<TerminalEquationProvider, AppError> {
+) -> Result<PreparedTerminalEquations, AppError> {
     let selection_name = report["inputs"]["selection"]
         .as_str()
         .ok_or_else(|| AppError::input("publication has no saved owner selection"))?;
@@ -317,6 +381,7 @@ fn prepare_saved(
         .ok_or_else(|| AppError::input("saved selection has no parent"))?
         .to_path_buf();
     request.workers = options.threads;
+    configure_saved_resources(options, &mut request);
     let prepared = prepare_terminal_equations(
         &request,
         session.family_owner().fingerprint(),
@@ -329,4 +394,15 @@ fn prepare_saved(
         },
     )?;
     Ok(prepared)
+}
+
+/// Preserve historical saved-only settings; only the opt-in full symmetry-row
+/// application delegates resource ownership to its caller's RAM guard.
+pub(super) fn configure_saved_resources(
+    options: &MasterReductionOptions,
+    request: &mut RoutedCampaignRequest,
+) {
+    if options.numerator_symmetry_assistance {
+        super::numerator_symmetry::configure_saved_resources(request);
+    }
 }

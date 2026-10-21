@@ -63,6 +63,41 @@ def sample_status():
 
 
 class TelemetryTests(unittest.TestCase):
+    def test_numerator_symmetry_progress_is_finite_and_inherited_proofs_do_not_enable_provider(self):
+        status = sample_status()
+        status["master_reduction"] = {"operation": "refine", "stage": "numerator symmetry",
+            "numerator_symmetry_assistance": True,
+            "numerator_symmetry_preparation": {"input_keys": 17, "analyzed_supports": 2,
+                "analyzed_denominators": 3, "proposed_generators": 4, "verified_generators": 2,
+                "equation_targets": 12, "equations": 9, "output_terms": 22, "trivial_equations": 3,
+                "rejected_power_permutations": 1, "scope": "finite original inventory"},
+            "numerator_symmetry_reduction": {"processed_rows": 7, "source_rows": 9,
+                "saved_reduced_rows": 5, "saved_application_failures": 1, "scope": "finite source rows"},
+            "numerator_symmetry_certificate": {"recipe": "verified-denominator-preserving-numerator-maps-v1",
+                "inventory_binding": "original-inventory", "authority": "verified finite equations"}}
+        frame = TELEMETRY.normalize_status(status)
+        master = frame["master_reduction"]
+        self.assertEqual(master["numerator_symmetry_preparation"]["equations"], 9)
+        self.assertEqual(master["numerator_symmetry_reduction"]["saved_application_failures"], 1)
+        self.assertEqual(master["numerator_symmetry_certificate"]["inventory_binding"], "original-inventory")
+        for width in (40, 80, 160):
+            rows = DASHBOARD.render_master_table(frame, width=width, height=40, color=True)
+            self.assertTrue(all(DASHBOARD.cell_width(ANSI.sub("", row)) == width for row in rows))
+        shown = "\n".join(DASHBOARD.render_master_table(frame, width=160, height=40, color=False)
+                          + DASHBOARD.plain_summary(frame))
+        self.assertIn("9 equations", shown)
+        self.assertIn("finite certified inventory; not global", shown)
+        self.assertIn("1 saved-apply failures", shown)
+        for operation in ("refine", "publish", "finalize-refinement"):
+            status["master_reduction"].update(operation=operation, numerator_symmetry_assistance=False,
+                inherited_equation_authority={"numerator_symmetry_assistance": True})
+            retained = TELEMETRY.normalize_status(status)
+            self.assertFalse(retained["master_reduction"]["numerator_symmetry_assistance"])
+            shown = "\n".join(DASHBOARD.render_master_table(retained, width=160, height=40, color=False)
+                              + DASHBOARD.plain_summary(retained))
+            self.assertIn("inherited finite proofs; provider off", shown)
+            self.assertNotIn("9 equations", shown)
+
     def test_fresh_search_displays_active_shape_not_retained_history(self):
         for strategy in ("exact", "modular-circuits"):
             status = sample_status()

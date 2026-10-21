@@ -8,6 +8,8 @@ struct InheritedEquationAuthority {
     provider_binding: String,
     saved_rule_assistance: bool,
     circuit_symmetry_assistance: bool,
+    #[serde(default)]
+    numerator_symmetry_assistance: bool,
     normalization_profile: String,
     source_manifest_blake3: String,
 }
@@ -38,6 +40,9 @@ pub(super) fn capture(
         original.circuit_symmetry_assistance = source["circuit_symmetry_assistance"]
             .as_bool()
             .unwrap_or(false);
+        original.numerator_symmetry_assistance = source["numerator_symmetry_assistance"]
+            .as_bool()
+            .unwrap_or(false);
         let binding = assistance::expected_binding(&original, session, source)?;
         if session.assistance_binding() != binding.as_deref() {
             return Err(AppError::input(
@@ -51,6 +56,7 @@ pub(super) fn capture(
             provider_binding,
             saved_rule_assistance: original.saved_rule_assistance,
             circuit_symmetry_assistance: original.circuit_symmetry_assistance,
+            numerator_symmetry_assistance: original.numerator_symmetry_assistance,
             normalization_profile: source_profile.name().to_owned(),
             source_manifest_blake3: blake3::hash(&serde_json::to_vec(source).map_err(io)?)
                 .to_hex()
@@ -69,7 +75,9 @@ pub(super) fn validate(session: &TerminalRelationSession, report: &Value) -> Res
     if session.assistance_binding() != Some(inherited.provider_binding.as_str())
         || inherited.normalization_profile != profile::from_report(report)?.name()
         || !digest(&inherited.source_manifest_blake3)
-        || (!inherited.saved_rule_assistance && !inherited.circuit_symmetry_assistance)
+        || (!inherited.saved_rule_assistance
+            && !inherited.circuit_symmetry_assistance
+            && !inherited.numerator_symmetry_assistance)
     {
         return Err(AppError::input(
             "inherited equation authority differs from native state or normalization profile",
@@ -98,6 +106,33 @@ pub(super) fn validate(session: &TerminalRelationSession, report: &Value) -> Res
             ));
         }
     }
+    if inherited.numerator_symmetry_assistance {
+        if !parts
+            .next()
+            .and_then(|part| part.strip_prefix("numerator-symmetry-assistance-v1:"))
+            .is_some_and(digest)
+        {
+            return Err(AppError::input(
+                "invalid inherited numerator-symmetry inventory binding",
+            ));
+        }
+        if !report["numerator_symmetry_certificate"]["blake3"]
+            .as_str()
+            .is_some_and(digest)
+            && (session.statistics().completed_assistance_rows != 0
+                || session.statistics().completed_assistance_keys != 0
+                || session.statistics().pending_assistance_rows != 0
+                || report["operation"] == "publish"
+                || matches!(
+                    report["status"].as_str(),
+                    Some("published_unrefined" | "completed_nonminimal")
+                ))
+        {
+            return Err(AppError::input(
+                "inherited numerator-symmetry authority has no exact certificate",
+            ));
+        }
+    }
     if parts.next().is_some() {
         return Err(AppError::input("unsupported inherited equation authority"));
     }
@@ -109,5 +144,6 @@ pub(super) fn authority(report: &Value) -> Result<&'static str, AppError> {
     Ok(assistance::authority(
         inherited.saved_rule_assistance,
         inherited.circuit_symmetry_assistance,
+        inherited.numerator_symmetry_assistance,
     ))
 }

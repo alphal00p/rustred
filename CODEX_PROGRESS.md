@@ -1,5 +1,93 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 21 — numerator-polynomial symmetry refinement (isolated feature)
+
+Branch: `codex/numerator-symmetry-refinement`; worktree:
+`TMP/numerator-symmetry-refinement-20261021`. The separate fresh-search milestone
+is already pushed to `main` as `b54cbef1`, with its final validation report at
+`9f10e6b6`. This branch includes the fresh-search implementation as `951ba310`.
+No production campaign was signalled, resumed, finalized, or modified by us.
+
+Delivered implementation slices, with the full five-loop count assay active:
+
+- `numerator_symmetry_engine`: finite signed line-transposition/reflection
+  discovery, exact weighted-denominator/Jacobian verification, and complete
+  numerator transport through the existing Symbolica-backed native services.
+- `fresh_search_native`: content-addressed binary symmetry witnesses with cold
+  exact replay, guarded source identities, and malformed-certificate controls.
+- `symmetry_refinement_integration`: opt-in exact refinement provider; optional
+  full saved-rule reduction of each complete equation; inherited proof and
+  checkpoint preservation. Missing rule applications retain the exact source
+  equation with unresolved auxiliary columns and an explicit diagnostic.
+- `modular_refine_integration`: matching short/production Python options,
+  one-shot fresh-state behavior and dashboard/report fields. Four affected
+  Python suites pass 198 tests with one pre-existing affinity-dependent skip.
+- `p102_witness_audit`: independently verified all 24 equal-power line
+  permutations and both pinches in the published actual loop basis. The exact
+  identity is `P102 = P162 + P86/2 + m^2 P106/2`; external labels are regression
+  data only, never solver dispatch. The further pinned native-family mapping
+  gate passed: exact fingerprint `44b030da...`, all 15 coordinates, original
+  physical slots and complete numerator. P102 is present among the raw keys
+  and still maps to itself. Source manifest unchanged; 368.801 s, 7.01 GiB peak,
+  dominated by cold collection decoding/validation, not symmetry discovery.
+- `symmetry_lower_loop_validation`: two full packaged 3L/4L studies, all input
+  hashes and 55 exact evidence files reproducible. K6 stays 5 -> 5. Four-loop
+  explicit rank-one numerator probes give 74 -> 70 family-local outputs, but
+  these are four presentations of ONE physical dependency: the common exact-U
+  convention changes 23 -> 22. Rank two adds nothing. Direct raw-key-only
+  discovery gives zero extra dependencies; the production flag currently uses
+  raw plus normalized keys, not these extra probes. This is not an improvement
+  over the separate historical 20-output ordinary/diagonal-refined basis.
+- `modular_final_math_audit`: independent source and lower-loop evidence audit
+  passed; no must-fix finding. Additional symmetry-group completeness or master
+  independence is not claimed.
+- `symmetry_five_loop_validation`: isolated raw-939 / basis-904 assay running;
+  it drains only symmetry-derived assistance, with zero new ordinary IBP rows,
+  and checks every old map/guard and immutable source hash. Measurement pending
+  final cold checks; no five-loop count improvement claimed yet. Inputs remain
+  immutable and the assay has its own 128 GB process guard on CPUs 240-247.
+
+Final integrated validation: optimized CLI compiled; all 116 native terminal-
+normalization tests pass, including actual P102 row-span and pinch fixtures,
+and terminal relations pass 94 tests with one ignored manual control. App tests
+pass 84 master-refinement, 64 saved-application, 17 CLI and one complete-row
+adapter checks (166 passes, four explicit manual ignores). Python passes 198
+tests with one pre-existing affinity-dependent skip. The final release CLI is
+`TMP/releases/20261021-numerator-symmetry/rustred`, SHA256
+`aa6044356f2f59b06f3d08c42371d374a115b52124cf9872cda67b26ed55a1d1`.
+Its independent fresh-search acceptance passes all 12 subprocess gates with
+source hashes unchanged; receipt `TMP/fresh-search-20261021/acceptance-numerator-final-v2/receipts.json`.
+A custom
+app-test build initially reused a stale Symbolica dependency command and failed
+with duplicate-crate type identities; this is a test-tool linkage issue, not a
+production algebra defect. Capturing the contemporary Cargo command resolved
+it without changing solver code. Two subsequent test-only fixture corrections
+were completed before the final successful link. App test/frontend bodies use
+opt-level 0 with optimized core/Symbolica dependencies; their wall times are
+functional-test receipts, not release CLI performance benchmarks.
+
+Final independent resource audit passed: only the new opt-in numerator path
+removes inherited preset application/cache/work quotas in favor of the caller's
+RAM guard. Existing saved-only and flag-off settings remain unchanged, with all
+structural/overflow and exact-authority checks intact. No new CAS primitive or
+hard-coded topology/loop-count dispatch was introduced.
+
+The separate Vakint-ready package is complete and deliberately untracked:
+`TMP/deliveries/five-loop-r6-d10-gen119-20261021/application`, with hosting
+archive `rustred-five-loop-r6-d10-gen119-20261021.tar.zst` beside it (184,908,926
+bytes; SHA256 `eca1d93a0c9d14131e442ad5a4e1c051e293cc485dd80bb26f90316c16f6551e`).
+It pins the original R<=6/D<=10 recorded query union, 67 owners, 9,982 installed
+rules and 939 -> 904 terminal maps. Native cold load/canary and the actual Vakint
+loader both pass. It does not include later in-flight modular relations, nor
+does it imply coverage of every point beneath the reported rank/D maxima.
+
+Next executable steps: finish the immutable five-loop assay;
+record exact before/after counts and limitations; independent result review;
+commit/push the isolated feature and freeze its optimized executable. Deliver
+the user's exact fresh `(2,0)` launch command and package path. Keep reference
+data, artifacts, license values, and unrelated dirty main-worktree files out of
+all commits.
+
 ## October 21 — relations-only fresh search and isolated R6 package (active)
 
 User authorized a fresh master-refinement option and a separate Vakint-ready
@@ -57,7 +145,7 @@ reconstruction; root gave the verified native PID for a user-controlled kill.
 Only checkpointed progress is recoverable. We did not signal production or
 finalize its moving phase. Export remains pinned to immutable publication e9b2….
 
-Fresh native acceptance now passes all 13 subprocess gates on frozen release
+Fresh native acceptance now passes all 12 subprocess gates on frozen release
 `TMP/releases/20261021-fresh-search/rustred` (SHA256
 `efebfd75ed94deffd7a16e1d3c625ad8591504c9dac90e2ee26b74fda7de9311`).
 A genuine two-loop partial `(2,2)` source had nine ordinary rows, two terminal

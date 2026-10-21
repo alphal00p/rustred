@@ -29,6 +29,7 @@ PUBLICATION_VERIFICATION_RECIPE = "publication-verification-v1"
 REFINEMENT_STRATEGIES = ("exact", "modular-circuits")
 MODULAR_SEARCH_RECIPE = "terminal-modular-circuits-v1"
 FRESH_SEARCH_RECIPE = "relations-only-v1"
+NUMERATOR_SYMMETRY_RECIPE = "verified-denominator-preserving-numerator-maps-v1"
 
 
 def read_json(path, max_bytes=None):
@@ -57,7 +58,7 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                   collection_artifacts=None, finite_feedback=None, deep_verification=None,
                   max_relation_columns=None, relation_batch_rows=None, relation_block_rows=None,
                   refinement_workers=None, refinement_cpus=None, refinement_strategy=None,
-                  modular_policy=None, fresh_search=False):
+                  modular_policy=None, fresh_search=False, numerator_symmetry_assistance=None):
     """Read-only configuration. Only this invocation can request refinement.
 
     Historical ``enabled`` policies retain executable/search preferences, never
@@ -98,6 +99,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master saved-rule assistance must be boolean")
     if circuit_symmetry_assistance is not None and type(circuit_symmetry_assistance) is not bool:
         raise ValueError("master circuit-symmetry assistance must be boolean")
+    if numerator_symmetry_assistance is not None and type(numerator_symmetry_assistance) is not bool:
+        raise ValueError("master numerator-symmetry assistance must be boolean")
     if finite_feedback is not None and type(finite_feedback) is not bool:
         raise ValueError("master finite feedback must be boolean")
     if deep_verification is not None and type(deep_verification) is not bool:
@@ -111,6 +114,7 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                 or type(existing.get("seed_depth")) is not int or existing["seed_depth"] < 0
                 or type(existing.get("saved_rule_assistance", False)) is not bool
                 or type(existing.get("circuit_symmetry_assistance", False)) is not bool
+                or type(existing.get("numerator_symmetry_assistance", False)) is not bool
                 or type(existing.get("finite_feedback", True)) is not bool
                 or type(existing.get("deep_verification", False)) is not bool
                 or existing.get("normalization_profile") not in (None, *NORMALIZATION_PROFILES)
@@ -131,6 +135,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master saved-rule assistance requires explicit --refine-masters")
     if circuit_symmetry_assistance is not None and not enabled:
         raise ValueError("master circuit-symmetry assistance requires explicit --refine-masters")
+    if numerator_symmetry_assistance is not None and not enabled:
+        raise ValueError("master numerator-symmetry assistance requires explicit --refine-masters")
     if finite_feedback is not None and not enabled:
         raise ValueError("master finite feedback requires explicit --refine-masters")
     if containing_sector_depth is not None and not enabled:
@@ -153,6 +159,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                                       if saved_rule_assistance is None else saved_rule_assistance),
             "circuit_symmetry_assistance": (preferences.get("circuit_symmetry_assistance", False)
                                             if circuit_symmetry_assistance is None else circuit_symmetry_assistance),
+            "numerator_symmetry_assistance": (preferences.get("numerator_symmetry_assistance", False)
+                                              if numerator_symmetry_assistance is None else numerator_symmetry_assistance),
             "finite_feedback": (preferences.get("finite_feedback", True)
                                 if finite_feedback is None else finite_feedback),
             "deep_verification": (preferences.get("deep_verification", False)
@@ -168,6 +176,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         policy["terminal_policy"] = "heuristic modular source discovery; exact accepted terminal identities; no minimality claim"
     if modular is not None:
         policy["modular_policy"] = modular
+    if enabled and strategy == "modular-circuits" and policy["numerator_symmetry_assistance"]:
+        raise ValueError("numerator-symmetry assistance requires exact refinement; disable it or choose --refinement-strategy exact")
     if enabled and strategy == "modular-circuits" and (policy["saved_rule_assistance"]
                                                       or policy["circuit_symmetry_assistance"]):
         raise ValueError("modular-circuits currently requires ordinary sources without saved-rule or circuit-symmetry assistance")
@@ -353,7 +363,10 @@ def finalize_refinement(plan, policy, binding, request, driver):
         "seed_depth": native.get("seed_depth", steering.get("seed_depth", 0)),
         "containing_sector_depth": native.get("containing_sector_depth", steering.get("containing_sector_depth", 0)),
         "saved_rule_assistance": steering.get("saved_rule_assistance", False),
-        "circuit_symmetry_assistance": steering.get("circuit_symmetry_assistance", False)}
+        "circuit_symmetry_assistance": steering.get("circuit_symmetry_assistance", False),
+        **({"numerator_symmetry_assistance": True}
+           if steering.get("numerator_symmetry_assistance", False) else {}),
+        **numerator_symmetry_metadata(native)}
     key = hashlib.sha256(json.dumps({"partial_refinement": str(source),
                                     "source_manifest_sha256": pending["manifest_sha256"]},
                                    sort_keys=True).encode()).hexdigest()
@@ -398,7 +411,11 @@ def completed_artifact(campaign):
     if ("independently_verified" in record
             and record["independently_verified"] != assurance["independently_verified"]):
         raise ValueError("saved artifact pointer verification assurance differs from native artifact")
-    return {**record, **profile, **assurance, "resolved_directory": directory}
+    numerator = numerator_symmetry_metadata(native)
+    for key, value in numerator.items():
+        if key in record and record[key] != value:
+            raise ValueError("saved artifact pointer numerator-symmetry provenance differs from native artifact")
+    return {**record, **profile, **assurance, **numerator, "resolved_directory": directory}
 
 
 def verification_metadata(report):
@@ -429,6 +446,26 @@ def normalization_metadata(report):
             **({"normalization_limits": report["normalization_limits"]} if "normalization_limits" in report else {})}
 
 
+def numerator_symmetry_metadata(report):
+    """Transport native proof provenance; never infer new provider authority."""
+    result = {}
+    if "numerator_symmetry_assistance" in report:
+        if type(report["numerator_symmetry_assistance"]) is not bool:
+            raise ValueError("invalid native numerator-symmetry assistance mode")
+        result["numerator_symmetry_assistance"] = report["numerator_symmetry_assistance"]
+    certificate = report.get("numerator_symmetry_certificate")
+    if certificate is not None:
+        if not isinstance(certificate, dict) or certificate.get("recipe") != NUMERATOR_SYMMETRY_RECIPE:
+            raise ValueError("invalid native numerator-symmetry certificate descriptor")
+        result["numerator_symmetry_certificate"] = certificate
+    authority = report.get("inherited_equation_authority")
+    if authority is not None:
+        if not isinstance(authority, dict) or type(authority.get("numerator_symmetry_assistance", False)) is not bool:
+            raise ValueError("invalid inherited numerator-symmetry authority")
+        result["inherited_equation_authority"] = authority
+    return result
+
+
 def publish_pointer(campaign, directory, binding, operation, driver, refinement=None):
     # Called under the dispatcher lock, only after native success. An interrupted
     # refinement leaves the last valid publication visible and untouched.
@@ -444,6 +481,7 @@ def publish_pointer(campaign, directory, binding, operation, driver, refinement=
                   "published_unrefined" if operation == "publish" else "completed_nonminimal",
         "completed_unix_time": time.time(), "master_minimality_claim": False,
         **normalization_metadata(native), **verification_metadata(native),
+        **numerator_symmetry_metadata(native),
         **({"refinement_strategy": "modular-circuits",
             "finite_search_complete": native.get("finite_search_complete") is True,
             "modular_search_complete": native.get("modular_search_complete") is True,
@@ -614,6 +652,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
             command.append("--saved-rule-assistance")
         if policy.get("circuit_symmetry_assistance", False):
             command.append("--circuit-symmetry-assistance")
+        if policy.get("numerator_symmetry_assistance", False):
+            command.append("--numerator-symmetry-assistance")
         profile = policy.get("effective_normalization_profile", "conservative-v1")
         if profile != "conservative-v1" or policy.get("normalization_profile") is not None:
             command += ["--normalization-profile", profile.removesuffix("-v1")]
@@ -627,6 +667,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
         else:
             if snapshot.get("refinement_strategy", "exact") != strategy:
                 raise ValueError("cannot change refinement strategy on resume; start a new phase directory")
+            if snapshot.get("numerator_symmetry_assistance", False) != policy.get("numerator_symmetry_assistance", False):
+                raise ValueError("cannot change numerator-symmetry assistance on resume; start a new phase directory")
             if (snapshot.get("fresh_search", False) != policy.get("fresh_search", False)
                     or (policy.get("fresh_search", False)
                         and snapshot.get("fresh_search_recipe") != FRESH_SEARCH_RECIPE)):
@@ -687,7 +729,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
               "containing_sector_depth": (policy.get("effective_containing_sector_depth",
                                                     policy.get("containing_sector_depth", 0)) if not publishing else 0),
               "saved_rule_assistance": not publishing and policy.get("saved_rule_assistance", False),
-              "circuit_symmetry_assistance": not publishing and policy.get("circuit_symmetry_assistance", False)}
+              "circuit_symmetry_assistance": not publishing and policy.get("circuit_symmetry_assistance", False),
+              "numerator_symmetry_assistance": not publishing and policy.get("numerator_symmetry_assistance", False)}
     latest["finite_feedback"] = not publishing and policy.get("finite_feedback", True)
     if not publishing:
         latest["normalization_profile"] = profile
@@ -810,6 +853,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 raise ValueError("native artifact normalization profile differs from requested refinement")
             if not publishing and native_artifact.get("refinement_strategy", "exact") != strategy:
                 raise ValueError("native artifact strategy differs from requested refinement")
+            if not publishing and native_artifact.get("numerator_symmetry_assistance", False) != policy.get("numerator_symmetry_assistance", False):
+                raise ValueError("native artifact numerator-symmetry mode differs from requested refinement")
             if not publishing and (native_artifact.get("fresh_search", False) != policy.get("fresh_search", False)
                     or (policy.get("fresh_search", False)
                         and native_artifact.get("fresh_search_recipe") != FRESH_SEARCH_RECIPE)):
@@ -832,6 +877,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
             if not keep_refined:
                 refinement = None if publishing else {
                         **native_profile,
+                        **numerator_symmetry_metadata(native_artifact),
                         "refinement_strategy": policy.get("refinement_strategy", "exact"),
                         **({"fresh_search": True, "fresh_search_recipe": FRESH_SEARCH_RECIPE}
                            if policy.get("fresh_search", False) else {}),
@@ -872,6 +918,10 @@ def phase_two(plan, policy, request, binding, directory, driver):
             # from that already loaded metadata; never replay owner payloads.
             counts = telemetry.publication_rule_counts(native_artifact)
             latest.update(counts)
+            latest.update(numerator_symmetry_metadata(native_artifact))
+            for name in ("numerator_symmetry_preparation", "numerator_symmetry_reduction"):
+                if isinstance(native_artifact.get(name), dict):
+                    latest[name] = native_artifact[name]
             publish(finished_state, force=True)
             print("Proved refinement maps published; finite search remains incomplete and its cursor is retained." if finalizing else
                   "Scoped artifact published; master refinement was not requested." if publishing else
@@ -892,6 +942,9 @@ def phase_two(plan, policy, request, binding, directory, driver):
                                 + ("--master-circuit-symmetry-assistance "
                                    if policy.get("circuit_symmetry_assistance", False)
                                    else "--no-master-circuit-symmetry-assistance ")
+                                + ("--master-numerator-symmetry-assistance "
+                                   if policy.get("numerator_symmetry_assistance", False)
+                                   else "--no-master-numerator-symmetry-assistance ")
                                 + ("--master-finite-feedback " if policy.get("finite_feedback", True)
                                    else "--no-master-finite-feedback ")
                                 + ("--master-refinement-strategy modular-circuits "
@@ -1063,6 +1116,7 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                     and refinement.get("seed_depth", -1) >= policy["seed_depth"]
                     and refinement.get("containing_sector_depth", 0) >= policy.get("containing_sector_depth", 0)
                     and refinement.get("circuit_symmetry_assistance", False) == policy.get("circuit_symmetry_assistance", False)
+                    and refinement.get("numerator_symmetry_assistance", False) == policy.get("numerator_symmetry_assistance", False)
                     and previous["normalization_profile"] == effective_profile
                     and refinement.get("saved_rule_assistance", False) == policy.get("saved_rule_assistance", False)):
                 if startup_progress is not None:
@@ -1156,6 +1210,8 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
             identity["saved_rule_assistance"] = True
         if operation == "refine" and policy.get("circuit_symmetry_assistance", False):
             identity["circuit_symmetry_assistance"] = True
+        if operation == "refine" and policy.get("numerator_symmetry_assistance", False):
+            identity["numerator_symmetry_assistance"] = True
         if operation == "refine" and policy["effective_normalization_profile"] != "conservative-v1":
             # Legacy conservative phases keep their original checkpoint path.
             identity["normalization_profile"] = policy["effective_normalization_profile"]

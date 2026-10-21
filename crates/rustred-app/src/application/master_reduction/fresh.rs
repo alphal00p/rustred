@@ -165,6 +165,9 @@ pub(super) fn begin(
         "requested_containing_sector_depth",
         "source_selection",
         "circuit_equation_preparation",
+        "numerator_symmetry_preparation",
+        "numerator_symmetry_reduction",
+        "numerator_symmetry_certificate",
         "previous_stage_source",
         "reused_previous_stage",
     ] {
