@@ -181,24 +181,49 @@ fn full_self_exclusion_makes_no_progress_and_malformed_geometry_fails_closed() {
             .is_err()
     );
     let candidate = rule(Case::generic(), context.one(), Vec::new());
-    for excluded in ["n1<2", "n1^2+n2^2==6"] {
+    // An independent parameter leaves genuinely unresolved nonlinear geometry.
+    // A constant right-hand side can instead prove the excluded integer set empty.
+    for (excluded, diagnostic) in [
+        ("n1<2", "reference equality requires exactly one =="),
+        ("n1^2+n2^2==d", "unsupported nonlinear equalities"),
+    ] {
         let reference = format!(
             "{{{},{}}}",
             generic_reference("False"),
             entry("n1==n2+1", excluded, "1")
         );
+        let error = compare_sector_with_aliases(
+            &reference,
+            std::slice::from_ref(&candidate),
+            &system,
+            &[true; 2],
+            None,
+            &[],
+        )
+        .unwrap_err();
         assert!(
-            compare_sector_with_aliases(
-                &reference,
-                std::slice::from_ref(&candidate),
-                &system,
-                &[true; 2],
-                None,
-                &[]
-            )
-            .is_err()
+            error.to_string().contains(diagnostic),
+            "{excluded}: {error}"
         );
     }
+}
+
+#[test]
+fn integer_empty_nonlinear_exclusion_does_not_block_covered_reference() {
+    let (context, system) = fixture();
+    let candidate = rule(Case::generic(), context.one(), Vec::new());
+    // On n1=n2+1, the exclusion is 2*n2^2+2*n2-5=0, which is impossible modulo 2.
+    let reference = format!(
+        "{{{},{}}}",
+        generic_reference("False"),
+        entry("n1==n2+1", "n1^2+n2^2==6", "1"),
+    );
+    let report =
+        compare_sector_with_aliases(&reference, &[candidate], &system, &[true; 2], None, &[])
+            .unwrap();
+    assert_eq!(report.matched_rules, 1);
+    assert_eq!(report.covered_reference_rules, 1);
+    assert_eq!(report.integer_empty_rules, 0);
 }
 
 #[test]
