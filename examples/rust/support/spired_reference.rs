@@ -645,6 +645,7 @@ mod guard_tests {
                     (&context.parameter("a").unwrap() - &context.one()).numerator,
                 ]],
             },
+            dispatch_policy: Default::default(),
         };
         (context, source, rule)
     }

@@ -17,6 +17,13 @@ pub fn write_event<const N: usize>(
         elapsed.as_micros()
     )?;
     match event {
+        SectorEvent::RuleTrialFinished { case, summary } => writeln!(
+            output,
+            "case={} phase=rule-trial-finish trial={} outcome={:?}",
+            case.integral(),
+            summary.trial,
+            summary.outcome,
+        ),
         SectorEvent::CaseStarted { case, pending } => {
             write!(
                 output,

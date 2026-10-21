@@ -120,6 +120,7 @@ fn alias_aware_rule_comparison_does_not_rewrite_coordinate_guards() {
         exceptions: ExceptionalConditions {
             branches: vec![vec![(&a - &context.one()).numerator]],
         },
+        dispatch_policy: Default::default(),
     };
     let text = reference("(dot[p,p]^2+t)/(dot[p,p]-1)");
     assert!(compare_rule(&text, &rule, &source, &[true], None).is_err());
