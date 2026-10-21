@@ -8,10 +8,14 @@ use crate::persistence::{
 };
 use symbolica::tensors::sparse::SparseMatrix;
 
-// This bounds structural decoder allocations, not native algebra. Native atom
-// sections retain their independent caller-owned limits. The matching writer
-// refuses the same metadata envelope so it never emits an unreadable snapshot.
-const MAX_STRUCTURAL_BYTES: usize = 1 << 30;
+// Checkpoints are generated native records, the same trust boundary as their
+// Symbolica atom sections. The outer envelope enforces caller-owned ENCODED
+// byte limits; the semantic checks below enforce retained dimensions/counts.
+// Bincode's with_limit instead charges decoded primitive widths and container
+// allocation claims, which can greatly exceed compact varint wire bytes. Such
+// a fixed claim limit could reject a checkpoint our matching writer admitted.
+// This loader is not a hostile-input allocation sandbox. A separate decoded
+// allocation grant would need an explicit caller policy, not a hidden ceiling.
 
 #[derive(bincode::Encode, bincode::Decode)]
 struct Record {
@@ -54,6 +58,18 @@ struct AssistanceRecord {
 }
 fn binary(error: impl fmt::Display) -> TerminalRelationError {
     TerminalRelationError::Binary(error.to_string())
+}
+
+fn decode_structure<T: bincode::Decode<()>>(
+    bytes: &[u8],
+    record: &'static str,
+) -> Result<(T, usize), TerminalRelationError> {
+    bincode::decode_from_slice(bytes, bincode::config::standard()).map_err(|error| {
+        binary(format!(
+            "{record} structural record ({} encoded bytes): {error}",
+            bytes.len()
+        ))
+    })
 }
 
 pub(super) fn encode(
@@ -173,7 +189,7 @@ pub(super) fn encode(
     check(
         "checkpoint structural bytes",
         records.len(),
-        limits.max_program_bytes.min(MAX_STRUCTURAL_BYTES),
+        limits.max_program_bytes,
     )?;
     let table = table.finish().map_err(binary)?;
     encode_program(
@@ -215,19 +231,12 @@ pub(super) fn decode(
     let data = envelope
         .section(SectionTag::PROGRAM)
         .expect("checked section");
-    let (record, used): (Record, usize) = bincode::decode_from_slice(
-        data,
-        bincode::config::standard().with_limit::<MAX_STRUCTURAL_BYTES>(),
-    )
-    .map_err(binary)?;
+    let (record, used): (Record, usize) = decode_structure(data, "checkpoint")?;
     let assistance = match record.schema {
         1 if used == data.len() => None,
         2 => {
-            let (record, extra): (AssistanceRecord, usize) = bincode::decode_from_slice(
-                &data[used..],
-                bincode::config::standard().with_limit::<MAX_STRUCTURAL_BYTES>(),
-            )
-            .map_err(binary)?;
+            let (record, extra): (AssistanceRecord, usize) =
+                decode_structure(&data[used..], "checkpoint assistance")?;
             if used + extra != data.len() {
                 return Err(binary("trailing terminal-relations assistance records"));
             }
@@ -570,4 +579,52 @@ pub(super) fn decode(
     }
     session.terminal_relations = session.terminal_relation_count();
     Ok(session)
+}
+
+#[cfg(test)]
+mod structural_limit_tests {
+    use super::*;
+
+    #[test]
+    fn compact_varints_are_not_rejected_by_a_decoded_width_ceiling() {
+        // Twelve u64 values encode in far fewer than 128 bytes, but their
+        // nested-container/primitive decode claims exceed that allowance.
+        let expected = vec![vec![1_u64; 12], vec![2_u64; 12]];
+        let bytes = bincode::encode_to_vec(&expected, bincode::config::standard()).unwrap();
+        assert!(bytes.len() < 128);
+        let old = bincode::decode_from_slice::<Vec<Vec<u64>>, _>(
+            &bytes,
+            bincode::config::standard().with_limit::<128>(),
+        );
+        assert!(matches!(
+            old,
+            Err(bincode::error::DecodeError::LimitExceeded)
+        ));
+        let (actual, used): (Vec<Vec<u64>>, usize) =
+            decode_structure(&bytes, "checkpoint").unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(used, bytes.len());
+    }
+
+    #[test]
+    fn malformed_structure_reports_its_record_and_encoded_size() {
+        let bytes = [251_u8]; // Truncated variable-width u64.
+        let error = decode_structure::<u64>(&bytes, "checkpoint assistance").unwrap_err();
+        assert!(matches!(error, TerminalRelationError::Binary(_)));
+        let message = error.to_string();
+        assert!(message.contains("checkpoint assistance structural record"));
+        assert!(message.contains("1 encoded bytes"));
+    }
+
+    #[test]
+    fn caller_encoded_program_limit_remains_enforced_before_structural_decode() {
+        let io = BinaryIoLimits {
+            max_program_bytes: 3,
+            ..Default::default()
+        };
+        let error = decode(&[0_u8; 4], Default::default(), io).err().unwrap();
+        let message = error.to_string();
+        assert!(message.contains("program bytes"), "{message}");
+        assert!(!message.contains("structural record"), "{message}");
+    }
 }
