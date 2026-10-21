@@ -331,6 +331,46 @@ class TelemetryTests(unittest.TestCase):
 
 
 class DashboardTests(unittest.TestCase):
+    def test_master_work_counts_borrow_detail_space_without_truncation(self):
+        for strategy, label in (("exact", "Relation work"),
+                                ("modular-circuits", "Discovery rows")):
+            for completed, total in ((1_450_023, 8_502_333), (999, 1000), (0, 0),
+                                     (1001, 1000), (1_450_023, None),
+                                     (2 ** 64 - 2, 2 ** 64 - 1)):
+                status = sample_status()
+                status["master_reduction"] = {
+                    "operation": "refine", "stage": "relations", "status": "running",
+                    "refinement_strategy": strategy, "completed_work": completed,
+                    "total_work": total, "modular_refinement": {
+                        "source_rows_scanned": completed, "total_source_rows": total}}
+                frame = TELEMETRY.normalize_status(status)
+                expected = (f"{completed:,} / {total:,}" if total is not None
+                            else f"{completed:,} / unknown" if strategy == "modular-circuits"
+                            else f"{completed:,}")
+                widths = (74, 80, 100, 160) if completed > 2 ** 63 else (39, 40, 73, 74, 80, 100, 160)
+                for width in widths:
+                    for color in (False, True):
+                        with self.subTest(strategy=strategy, total=total, width=width, color=color):
+                            lines = DASHBOARD.render_master_table(frame, width, 40, color)
+                            plain = [ANSI.sub("", line) for line in lines]
+                            self.assertTrue(all(DASHBOARD.cell_width(line) == width for line in plain))
+                            work = next(line for line in plain if expected in line)
+                            if len(label) + 1 + len(expected) <= width - 4:
+                                self.assertIn(label, work)
+                            self.assertEqual(any("\x1b" in line for line in lines), color)
+
+    def test_master_work_counts_keep_narrow_dashboards_within_terminal(self):
+        status = sample_status()
+        status["master_reduction"] = {
+            "operation": "refine", "stage": "relations", "status": "running",
+            "completed_work": 2 ** 64 - 2, "total_work": 2 ** 64 - 1}
+        frame = TELEMETRY.normalize_status(status)
+        for width in (20, 35, 40, 60):
+            for color in (False, True):
+                lines = DASHBOARD.render_master_table(frame, width, 24, color)
+                self.assertLessEqual(len(lines), 24)
+                self.assertTrue(all(DASHBOARD.cell_width(ANSI.sub("", line)) == width for line in lines))
+
     def test_exact_indicator_thresholds_and_unknown_neutral(self):
         for kind, cases in {
             "cpu": ((0, "31"), (.4999, "31"), (.5, "33"), (.7499, "33"), (.75, "32"), (1, "32")),

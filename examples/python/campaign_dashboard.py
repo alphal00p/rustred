@@ -525,12 +525,30 @@ def render_master_table(frame, width=100, height=24, color=True):
     partial = master.get("partial_refinement", False)
     publishing = master.get("operation") in ("publish", "finalize-refinement")
     modular = master.get("refinement_strategy") == "modular-circuits" and not publishing
+    total, completed = master.get("total_work"), master.get("completed_work")
+    work = f"{count(completed)} / {count(total)}" if total is not None else count(completed)
+    discovery = master.get("modular_refinement", {}) if modular else {}
+    discovery_work = count(discovery.get("source_rows_scanned")) + " / " + count(discovery.get("total_source_rows"))
     label_width, value_width = (19, 18) if width >= 74 else (10, 8)
+    if not publishing:
+        # Counters take space from optional detail, not from their digits.
+        # Keep one shared value width so the rest of the table stays aligned.
+        available = max(value_width, inner - label_width - 6 - 12)
+        value_width = max(value_width, min(cell_width(discovery_work if modular else work), available))
     detail_width = inner - label_width - value_width - 6
     border = lambda left, right: _paint(left + "─" * (width - 2) + right, "2;36", color)
     full = lambda text, tint=None: "│ " + _paint(fit(text, inner), tint, color) + " │"
 
-    def row(label, value, detail="", tint=None):
+    def row(label, value, detail="", tint=None, preserve_value=False):
+        if preserve_value and (cell_width(value) > value_width or cell_width(label) > label_width):
+            # On narrower terminals span the row before abbreviating a counter.
+            # If needed, omit label spacing/the label rather than its value.
+            prefix = f"{label}: "
+            if cell_width(prefix + value) > inner:
+                prefix = f"{label}:"
+            if cell_width(prefix + value) > inner:
+                prefix = ""
+            return full(prefix + value, tint)
         if detail_width < 12:
             return full(f"{label}: {value}" + (f" · {detail}" if detail else ""), tint)
         return ("│ " + fit(label, label_width) + " │ " + _paint(fit(value, value_width), tint, color)
@@ -541,9 +559,8 @@ def render_master_table(frame, width=100, height=24, color=True):
 
     cpu, workers = resource.get("native_busy_cores"), resource.get("workers")
     cpu_ratio = cpu / workers if number(cpu) is not None and number(workers) is not None and workers > 0 else None
-    total, completed = master.get("total_work"), master.get("completed_work")
-    work = f"{count(completed)} / {count(total)}" if total is not None else count(completed)
-    progress = bar(completed, total, frame["elapsed_seconds"]) if total is not None else "total not yet known"
+    progress = (bar(completed, total, frame["elapsed_seconds"], width=max(1, min(16, detail_width - 2)))
+                if total is not None else "total not yet known")
     rows = [
         (0, row("Stage", master["stage"] or "preparing", "package retained exact maps" if partial else
                 "extract and package exact inventory" if publishing else
@@ -552,7 +569,7 @@ def render_master_table(frame, width=100, height=24, color=True):
         (1, row("Normalized", count(master["normalized_terminals"]), "exact symmetry aliases; not minimal")),
         (0, row("Remaining basis", count(master["remaining_terminals"]), "finite, potentially nonminimal", "32")),
         (1, row("Eliminated", count(master["eliminated_terminals"]), "exact relations between terminal keys", "32")),
-        (0, row("Relation work", work, progress, "35")),
+        (0, row("Relation work", work, progress, "35", preserve_value=True)),
         (1, row("Exact source rows" if modular else "Rows generated", count(master["relation_rows"]),
                 "retained exact proof cursor" if modular else "seed depth " + count(master["seed_depth"]))),
         (1, row("Sparse system", count(master.get("independent_rows")) + " rows", count(master.get("nonzeros")) + " nonzeros")),
@@ -574,9 +591,8 @@ def render_master_table(frame, width=100, height=24, color=True):
             f"eliminated {count(execution.get('rows_eliminated'))} · merged {count(execution.get('rows_committed'))} · "
             f"{count(execution.get('blocks_completed'))} blocks", "36")))
     if modular:
-        discovery = master.get("modular_refinement", {})
-        rows[5] = (0, row("Discovery rows", count(discovery.get("source_rows_scanned")) + " / "
-                          + count(discovery.get("total_source_rows")), "sampled scan; exact span incomplete", "35"))
+        rows[5] = (0, row("Discovery rows", discovery_work, "sampled scan; exact span incomplete", "35",
+                          preserve_value=True))
         rows.insert(1, (0, row("Relation assurance", "exact W*A identity", "every physical column verified", "32")))
         rows.insert(2, (0, row("Modular candidates", count(discovery.get("candidates_found")),
                               count(discovery.get("accepted_relations")) + " accepted; "

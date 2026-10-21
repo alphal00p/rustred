@@ -1,5 +1,29 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 21 — dashboard work-counter visibility fix
+
+User reported `1,450,023 / 8,502…` despite ample space beside the progress bar.
+The consumer used a fixed 18-character value column. Root changed only the
+Python renderer: exact relation and modular discovery counters now widen that
+shared column by borrowing detail space; progress bars shorten as needed. A
+narrow-terminal spanning-row fallback preserves the count before shortening
+label spacing or dropping a label. Row count, telemetry, algebra, pending-growth
+and closure calculations are unchanged. No Rust rebuild or campaign mutation.
+
+Added regressions for million-scale and full uint64 counter pairs, comma
+boundaries, zero/unknown totals, completed exceeding total, ANSI on/off, and
+bounded narrow layouts. The original reproducer failed before the change;
+37 dashboard tests and the full 177-test focused Python suite now pass
+(16.570 s). Evidence: `TMP/dashboard-counts-{before,after,suite}.*`.
+Independent `modular_refine_integration` review and representative 74/100/160
+column renders passed. Unrelated FeynKit/reference/notebook changes remain
+untouched and excluded from the commit.
+
+Already-running Python dashboards retain their imported renderer. A new
+read-only `campaign_monitor.py CAMPAIGN` process picks up this fix immediately;
+the ongoing reduction need not be stopped or restarted. The next normal
+dashboard invocation also uses it.
+
 ## October 21 — delivered opt-in modular refinement and resume fixes
 
 The urgent exact checkpoint decoder fix is already pushed as `a8310684`; the
