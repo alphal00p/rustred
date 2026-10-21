@@ -857,6 +857,12 @@ report = {'status':'published_unrefined', 'operation':'publish',
     def test_explicit_refinement_saves_and_resumes_without_replacing_publication_on_pause(self):
         self._scratch_native_pause_resume("refine")
 
+    def test_refiner_only_128_worker_override_reaches_native_and_keeps_closure_policy(self):
+        cpus=sorted(os.sched_getaffinity(0))[:128]
+        if len(cpus)<128: self.skipTest("requires 128 permitted CPU IDs for the protocol control")
+        self._scratch_native_pause_resume("refine", refinement_workers=128,
+                                         refinement_cpus=",".join(map(str,cpus)))
+
     def test_assisted_refinement_forwards_mode_and_resumes_its_checkpoint(self):
         self._scratch_native_pause_resume("refine", saved_rule_assistance=True)
 
@@ -883,11 +889,13 @@ report = {'status':'published_unrefined', 'operation':'publish',
     def _scratch_native_pause_resume(self, operation, saved_rule_assistance=False,
                                     containing_sector_depth=0, inherited_containing_depth=0,
                                     circuit_symmetry_assistance=False, normalization_profile=None,
-                                    deep_verification=False, preserve_refined=False, max_relation_columns=None):
+                                    deep_verification=False, preserve_refined=False, max_relation_columns=None,
+                                    refinement_workers=None, refinement_cpus=None):
         # Fake native protocol only; this proves process/checkpoint orchestration,
         # not mathematical correctness or a successful native Rust solve.
         binary = self.campaign / "fake-native"
         binary.write_text(f"#!{sys.executable}\nexpected_assistance = {saved_rule_assistance and operation == 'refine'}\n"
+                          f"expected_threads = {refinement_workers or 1}\n"
                           f"expected_circuit = {circuit_symmetry_assistance and operation == 'refine'}\n"
                           f"expected_profile = {repr(normalization_profile if operation == 'refine' else None)}\n"
                           f"expected_deep = {deep_verification}\n"
@@ -895,6 +903,7 @@ report = {'status':'published_unrefined', 'operation':'publish',
                           f"expected_column_budget = {max_relation_columns!r}\n"
                           f"expected_containing_depth = {containing_sector_depth if operation == 'refine' else 0}\n" + '''import json, pathlib, sys, time
 args = sys.argv
+assert int(args[args.index('--threads') + 1]) == expected_threads
 refine = args[1] == 'walk-master-reduce'
 assert ('--seed-depth' in args) == refine
 assert ('--saved-rule-assistance' in args) == expected_assistance
@@ -952,6 +961,8 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                          "circuit_symmetry_assistance": circuit_symmetry_assistance,
                          "containing_sector_depth": containing_sector_depth,
                          "effective_containing_sector_depth": max(containing_sector_depth, inherited_containing_depth)}
+        if refinement_workers is not None:
+            native_policy.update(refinement_workers=refinement_workers,refinement_cpus=refinement_cpus)
         if normalization_profile is not None:
             native_policy["normalization_profile"] = normalization_profile
             native_policy["effective_normalization_profile"] = normalization_profile + "-v1"
@@ -1000,6 +1011,9 @@ event('completed_nonminimal' if refine else 'published_unrefined')
         observer = PRODUCTION.SUPERVISOR.MONITOR
         self.assertEqual(observer.active_status_directory(self.campaign), Path(pointer["run_directory"]))
         status = observer.read_status(self.campaign)
+        self.assertEqual(plan["requested_workers"],1)
+        self.assertEqual(plan["cpus"],str(cpus[0]))
+        self.assertEqual(status["workers"],refinement_workers or 1)
         expected = "published_unrefined" if operation == "publish" else "completed_nonminimal"
         self.assertEqual(status["state"], expected)
         self.assertEqual(status["master_reduction"]["remaining_terminals"], 3)

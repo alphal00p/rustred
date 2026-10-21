@@ -37,7 +37,7 @@ the public parallel entry point is back substitution, not shared forward
 insertion. Existing RustRed target-RREF/sector-executor integrations were also
 checked. No competing CAS or reconstruction kernel added.
 
-Validation: 164 Python steering/phase/dashboard controls and 54 focused native
+Validation: 165 Python steering/phase/dashboard controls and 54 focused native
 terminal-relation tests pass, including exact serial/parallel checkpoint bytes,
 cross-block auxiliary relations, extension rebuild and cancellation. Initial direct test-harness
 attempts needed Cargo's explicit rlib dependencies, build-script environment
@@ -73,9 +73,46 @@ frozen under TMP/releases/20261021-parallel-master-refinement/ and installed
 atomically at target/release/rustred. Final build took 7m38s. Resume commands
 and mechanism are documented in docs/parallel_master_refinement.md.
 
-Next, after the tested milestone push/launch instructions: modular rank/pivot discovery
-and Symbolica rational-function reconstruction are plausible later backends,
-not implemented or claimed as numerical proof in this slice.
+The tested milestone is pushed as 4d020891, and exact stop/resume commands for
+128 physical cores were delivered. Subsequent additional protocol coverage
+checks that a 128-worker refiner override reaches the native command and status
+without modifying the original one-worker closure-plan fixture.
+
+### Follow-up: modular/reconstruction investigation
+
+Root audited pinned Symbolica public APIs and existing RustRed semi-numerical
+source-weight code, then consulted primary Kira/FireFly material. Key finding:
+the ordinary SemiNumerical wrapper still exact-replays full GPLU; the existing
+projected source-weight materializer instead proves the complete exact W*A=r
+product. Reusing the latter for terminal-only circuits is the strongest next
+candidate to avoid the growing symbolic auxiliary U. It needs a compact
+independent source frame and explicit guard/provenance handling, not a blind
+backend switch. An optional modular rank screen can discard candidates safely
+for discovering nonminimal exact relations, but cannot certify exact rank or
+exhaustive span from sampled dependence. No such screen was enabled here.
+
+Optimized API diagnostic on eight actual saved terminal coefficients (one
+variable, degree≤9, terms≤17): Automatic, HuMonagan and CuytLee each recovered
+8/8 with exact rational-polynomial equality, 24/24 total. Total reconstruction
+times for eight functions: 3.190/1.713/1.214 ms; maximum three primes. The oracle
+evaluates already known exact functions, NOT an IBP matrix: these are API checks,
+not end-to-end speedups or justification for a millisecond refinement claim.
+No custom reconstruction kernel was added. The generic diagnostic's prime
+budget is caller supplied. Research build and tests use CPUs224–231, outside
+the proposed 128-core campaign and six-loop reservation. A mistakenly separate
+temporary build target was stopped before continuing with the existing cache;
+production was not signalled.
+
+The final caller-budget diagnostic was rebuilt and repeated: all 24 exact
+comparisons pass again with no reconstruction errors. The 128-worker override
+protocol test and complete 165-test Python group also pass. The diagnostic and
+research report are delivered separately from the frozen production CLI; its
+SHA remains unchanged.
+
+Recommendation and falsifiable full-pipeline gate are documented in
+docs/research/master_refinement_modular_reconstruction_2026-10-21.md. Frozen
+parallel release SHA/path are unchanged. A modular refinement backend remains
+unimplemented; the delivered runtime is exact work-stealing refinement.
 
 ## October 19 — generation resume resources and final dashboard
 

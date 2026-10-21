@@ -98,7 +98,7 @@ whole-refinement speedup nor sustained 32-core utilization is inferred.
 All use affinity 224–255 on a shared, non-isolated host; compilation is excluded.
 The repeated eight-row pair gives 2.32× speedup. 54 focused native relation
 tests pass, including exact serial/parallel checkpoint identity, auxiliary
-cross-block relations, scope-extension rebuilds and cancellation. 164 Python
+cross-block relations, scope-extension rebuilds and cancellation. 165 Python
 controls pass. An actual native CLI run pauses after a committed prefix with
 four workers, then resumes with eight, advancing generations 3→5 and work
 319318→319334. The source publication remains unchanged. These are correctness
