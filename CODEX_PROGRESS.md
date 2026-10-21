@@ -66,6 +66,15 @@ relations and seven auxiliary columns. Fresh exact `(2,0)`/`(3,1)` and modular
 columns, cold resume at changed worker counts, and leave source hashes intact.
 Evidence: `TMP/fresh-search-20261021/ACCEPTANCE_RESULT.md`.
 
+Final focused native gates pass: terminal relations 94 passed/one ignored;
+guard-index collision/order controls five passed; app master reduction 78
+passed/one ignored; CLI master commands 16 passed; saved application 64
+passed/two ignored. The first terminal suite caught an invalid one-coordinate
+test asking to promote two coordinates; its fixture was corrected, then all
+94 controls passed. The genuine two-loop `(2,2)` acceptance remains unchanged.
+Release CLI/example builds completed; no solver source was changed by that
+test-only correction. Logs: `TMP/fresh-search-20261021/*tests*.stdout`.
+
 The optimized isolated R6 export completed in 6m04.76s at 7.05 GiB peak RSS.
 Native cold-load/canary passed: 54.540s load, 0.2354s first application with five
 IBP applications, 0.17365s warm application with zero IBP applications and one
