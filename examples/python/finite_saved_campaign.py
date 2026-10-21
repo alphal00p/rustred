@@ -663,6 +663,7 @@ def _public_locked(args, campaign, binary, *, apply, startup_progress):
         max_relation_columns=getattr(args, "max_relation_columns", None),
         refinement_strategy=getattr(args, "refinement_strategy", None),
         modular_policy=getattr(args, "modular_policy", None),
+        fresh_search=getattr(args, "fresh_search", False),
         relation_batch_rows=getattr(args, "relation_batch_rows", None),
         relation_block_rows=getattr(args, "relation_block_rows", None),
         refinement_workers=getattr(args, "refinement_workers", None),

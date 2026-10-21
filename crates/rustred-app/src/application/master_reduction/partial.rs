@@ -17,6 +17,7 @@ pub fn master_publish_partial_refinement(
     if options.operation != MasterReductionOperation::Publish
         || options.deep_verification.is_some()
         || options.previous_artifact.is_some()
+        || options.fresh_search
         || !options.collection_artifacts.is_empty()
         || options.saved_rule_assistance
         || options.circuit_symmetry_assistance

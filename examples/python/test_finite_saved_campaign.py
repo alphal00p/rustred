@@ -102,6 +102,44 @@ class FiniteCampaignTests(unittest.TestCase):
             self.assertEqual(PUBLIC.main(["run", "--campaign", str(self.campaign), "--resume"]), 0)
         self.assertIsNone(dispatch.call_args.args[0].engine)
 
+    def test_public_finite_refine_parses_fresh_search_without_legacy_dispatch(self):
+        self.plan()
+        before = FIXTURE.snapshot(self.campaign)
+        with patch.object(FIN, "public_main", return_value=0) as dispatch, \
+             patch.object(PUBLIC, "native_executable", side_effect=AssertionError("legacy preflight")), \
+             patch.object(PUBLIC.os, "execv", side_effect=AssertionError("legacy launch")):
+            self.assertEqual(PUBLIC.main(["refine", "--campaign", str(self.campaign),
+                "--executable", str(self.binary), "--fresh-search", "--seed-depth", "3",
+                "--containing-sector-depth", "0"]), 0)
+        supplied, extra = dispatch.call_args.args
+        self.assertTrue(supplied.fresh_search)
+        self.assertEqual(supplied.seed_depth, 3)
+        self.assertEqual(supplied.containing_sector_depth, 0)
+        self.assertEqual(extra, [])
+        self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
+    def test_finite_refinement_forwards_only_the_explicit_fresh_search_request(self):
+        self.args.action = "refine"
+        self.args.seed_depth = 3
+        self.args.containing_sector_depth = 0
+        before = FIXTURE.snapshot(self.campaign)
+        for supplied in (None, False, True):
+            if supplied is None:
+                vars(self.args).pop("fresh_search", None)
+            else:
+                self.args.fresh_search = supplied
+            with self.subTest(fresh_search=supplied), \
+                 patch.object(FIN.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure, \
+                 patch.object(FIN, "launch_plan", side_effect=AssertionError("launch planning")), \
+                 patch.object(FIN.PHASES, "run", side_effect=AssertionError("native work")):
+                with self.assertRaisesRegex(ValueError, "configuration probe"):
+                    FIN.public_locked(self.args, self.campaign, self.binary, apply=False)
+                self.assertTrue(configure.call_args.kwargs["enabled"])
+                self.assertIs(configure.call_args.kwargs["fresh_search"], supplied is True)
+                self.assertEqual(configure.call_args.kwargs["seed_depth"], 3)
+                self.assertEqual(configure.call_args.kwargs["containing_sector_depth"], 0)
+            self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
     def test_dry_plan_never_freezes_or_creates_namespace(self):
         before = FIXTURE.snapshot(self.campaign)
         plan = self.plan(apply=False)

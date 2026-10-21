@@ -582,7 +582,7 @@ pub(super) fn decode(
         }
         validation::validate_circuit(&session, &selected, &required, circuit)?;
         let mut targets: Vec<_> = circuit.image.keys().cloned().collect();
-        elimination::sort_keys(&mut targets);
+        session.sort_existing_columns(&mut targets)?;
         let column = session.columns.len() as u32 - 1 - session.column_offsets[&targets[0]];
         if session.reducer.pivots()[column as usize].is_some() {
             return Err(binary("accepted circuit target was already an exact pivot"));
@@ -626,7 +626,7 @@ pub(super) fn decode(
                     .get(slot)
                     .ok_or_else(|| binary("modular accepted proposal has no exact circuit"))?;
                 let mut keys: Vec<_> = circuit.image.keys().cloned().collect();
-                elimination::sort_keys(&mut keys);
+                session.sort_existing_columns(&mut keys)?;
                 if keys.first() != Some(&target) {
                     return Err(binary(
                         "accepted proposal target differs from its exact circuit",

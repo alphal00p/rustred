@@ -12,6 +12,7 @@ mod elimination;
 mod execution;
 #[cfg(feature = "reconstruction")]
 mod modular;
+mod proved;
 mod sources;
 #[cfg(test)]
 mod tests;
@@ -41,6 +42,7 @@ pub use modular::{
     TerminalRelationModularProgress, TerminalRelationModularProposalStatus,
     TerminalRelationModularSession, TerminalRelationModularSource, TerminalRelationModularStats,
 };
+pub use proved::ProvedTerminalReduction;
 
 /// An exact homogeneous equation, together with the generic-parameter domain
 /// on which its provider authorizes it. A declared terminal is not an equation.
@@ -50,6 +52,14 @@ pub struct TerminalEquation {
     pub nonzero_conditions: Vec<Coefficient>,
 }
 type NativeReducer = SparseRowReducer<RationalPolynomialField<IntegerRing, u16>>;
+
+#[derive(Debug)]
+struct RetainedRelationsAuthority {
+    binding: String,
+    /// Preferred nonminimal output basis inherited from the authenticated flat
+    /// maps. These columns follow eliminable terminals in the native order.
+    protected_outputs: BTreeSet<IntegralKey>,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct TerminalRelationLimits {
@@ -175,6 +185,11 @@ pub struct TerminalRelationSession {
     rebuild_cursor: usize,
     completed_rebuild_rows: u64,
     assistance: Option<assistance::Assistance>,
+    /// Binding of an authenticated relations-only predecessor.  The imported
+    /// terminal equations live in `reducer`; this compact sidecar records their
+    /// transferred authority without retaining the predecessor's auxiliary
+    /// row space, source cursor, or discovery state.
+    retained_relations: Option<RetainedRelationsAuthority>,
     limits: TerminalRelationLimits,
 }
 
@@ -231,6 +246,7 @@ impl TerminalRelationSession {
             rebuild_cursor: 0,
             completed_rebuild_rows: 0,
             assistance: None,
+            retained_relations: None,
             limits,
         })
     }
@@ -263,6 +279,16 @@ impl TerminalRelationSession {
     /// rule coefficients retain their symbolic denominators.
     pub fn nonzero_conditions(&self) -> &[Coefficient] {
         &self.conditions
+    }
+    /// Authenticated predecessor binding for a relations-only fresh search.
+    ///
+    /// This is provenance for already proved terminal maps, not ordinary-source
+    /// provenance and not an independent proof of those maps.  The importing
+    /// application owns the corresponding immutable authority capsule.
+    pub fn retained_relations_binding(&self) -> Option<&str> {
+        self.retained_relations
+            .as_ref()
+            .map(|authority| authority.binding.as_str())
     }
     pub fn is_complete(&self) -> bool {
         self.column_normalized
@@ -444,12 +470,30 @@ impl TerminalRelationSession {
         if changed {
             self.rebuild = self.basis_rows();
             self.rebuild_cursor = 0;
+            self.terminals = normalization.canonical_terminals().clone();
+            let terminals = &self.terminals;
+            if let Some(authority) = &mut self.retained_relations {
+                authority.protected_outputs = authority
+                    .protected_outputs
+                    .iter()
+                    .flat_map(|key| {
+                        normalization
+                            .terms()
+                            .get(key)
+                            .map(|row| row.keys().cloned().collect::<Vec<_>>())
+                            .unwrap_or_else(|| vec![key.clone()])
+                    })
+                    .filter(|key| terminals.contains(key))
+                    .collect();
+            }
             self.columns = normalization
                 .canonical_terminals()
                 .iter()
                 .cloned()
                 .collect();
-            elimination::sort_keys(&mut self.columns);
+            let mut columns = std::mem::take(&mut self.columns);
+            self.sort_terminal_columns(&mut columns);
+            self.columns = columns;
             self.column_offsets = elimination::column_offsets(&self.columns);
             self.reducer = SparseRowReducer::new(
                 u32::try_from(self.columns.len()).map_err(invalid)?,
@@ -457,9 +501,6 @@ impl TerminalRelationSession {
                 LuLMode::None,
             );
             self.terminal_relations = 0;
-        }
-        if changed {
-            self.terminals = normalization.canonical_terminals().clone();
         }
         self.raw = raw;
         self.normalization = normalization;

@@ -398,6 +398,7 @@ pub(super) fn inherit_with_policy(
 ) -> Result<(), AppError> {
     let source_report = inspect_with_policy(source, policy)?;
     let source = directory(source);
+    fresh::inherit(source, output, &source_report, report)?;
     let members = source_report["collection_members"]
         .as_array()
         .into_iter()
@@ -459,6 +460,11 @@ pub(super) fn add_members(
     primary: &TerminalRelationSession,
     report: &mut Value,
 ) -> Result<(), AppError> {
+    if !options.collection_artifacts.is_empty() && primary.retained_relations_binding().is_some() {
+        return Err(AppError::input(
+            "cross-family peer collection of retained-relation rounds is not yet supported; retained compact authority cannot be discarded",
+        ));
+    }
     if options.collection_artifacts.is_empty()
         && report["collection_members"]
             .as_array()
@@ -497,6 +503,11 @@ pub(super) fn add_members(
             &options.directory,
         )?;
         let source_report = inspect_with_policy(artifact, options.finite_policy.as_ref())?;
+        if source_report["retained_relations"].is_object() {
+            return Err(AppError::input(
+                "retained-relation publications cannot yet be added as external collection peers",
+            ));
+        }
         if !matches!(
             source_report["status"].as_str(),
             Some("published_unrefined" | "completed_nonminimal")
@@ -516,6 +527,11 @@ pub(super) fn add_members(
         );
         for member in candidates {
             let loaded = load_member(source_directory, &member)?;
+            if loaded.retained_relations_binding().is_some() {
+                return Err(AppError::input(
+                    "external collection member requires unsupported retained-relation authority transport",
+                ));
+            }
             let fingerprint = loaded.family_owner().fingerprint().to_owned();
             let digest = member["native_state"]["blake3"]
                 .as_str()

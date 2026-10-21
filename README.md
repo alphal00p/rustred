@@ -430,9 +430,9 @@ checkpoint. Opt-in modular discovery keeps a separate cursor and exactly verifie
 every accepted source-circuit identity.
 The last published package remains inspectable while an extension or refinement
 is unfinished. Remaining masters are a nonminimal candidate basis, not numerical
-values. These packages preserve native programs, routing and terminal relations
-for later Vakint integration; the saved-campaign engine does not yet provide
-general coefficient back-substitution through its dependency traces.
+values. These packages preserve native programs, routing and terminal relations.
+The separate [saved application API](docs/saved_application.md) supplies exact
+coefficient back-substitution and a portable generation-free Vakint runtime.
 
 `finalize-refinement` publishes a separate artifact from a stopped refinement's
 durable exact rows and previously proved collection maps. It finishes any
@@ -442,6 +442,22 @@ retained for a later explicit `refine`. Extension requires this step when an
 unfinished current-scope refinement has not yet been retained, so later
 publication carries its proved substitutions forward without new Laporta work.
 Only checkpointed progress is retained; unsaved live progress is not exported.
+
+To change the master-search shape without inheriting an old auxiliary matrix,
+use [`refine --fresh-search`](docs/campaign_master_reduction.md#relations-only-fresh-search).
+It retains the published exact terminal maps and conditions, but starts new
+seed/source cursors with precisely the requested depths. For example, after
+finalizing a stopped `(2,2)` refinement:
+
+```bash
+python -B examples/python/saved_campaign.py refine --campaign "$CAMPAIGN" \
+  --fresh-search --seed-depth 2 --containing-sector-depth 0 \
+  --refinement-strategy exact
+```
+
+Omit `--fresh-search` when subsequently resuming that round; repeating it is a
+request for another round, not a resume. This changes only optional master
+refinement, never the completed starting-input scope or installed parametric IBPs.
 
 The application relation search has no preset aggregate seed, source-row,
 column or nonzero count ceiling by default; campaign RAM guards remain active.

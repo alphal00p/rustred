@@ -63,6 +63,34 @@ def sample_status():
 
 
 class TelemetryTests(unittest.TestCase):
+    def test_fresh_search_displays_active_shape_not_retained_history(self):
+        for strategy in ("exact", "modular-circuits"):
+            status = sample_status()
+            status["master_reduction"] = {"operation": "refine", "stage": "source discovery",
+                "refinement_strategy": strategy, "fresh_search": True,
+                "fresh_search_recipe": "relations-only-v1", "seed_depth": 3, "containing_sector_depth": 0,
+                "completed_work": 0, "total_work": 15, "relation_rows": 0,
+                "historical_search": {"seed_depth": 2, "containing_sector_depth": 2,
+                                      "completed_source_rows": 80000},
+                "modular_refinement": {"source_rows_scanned": 0, "total_source_rows": 15}}
+            frame = TELEMETRY.normalize_status(status)
+            master = frame["master_reduction"]
+            self.assertTrue(master["fresh_search"])
+            self.assertEqual((master["seed_depth"], master["containing_sector_depth"]), (3, 0))
+            self.assertEqual(master["completed_work"], 0)
+            self.assertNotIn("historical_search", master)
+            for width in (40, 80, 160):
+                rows = DASHBOARD.render_master_table(frame, width=width, height=32, color=True)
+                self.assertTrue(all(DASHBOARD.cell_width(ANSI.sub("", row)) == width for row in rows))
+            shown = "\n".join(DASHBOARD.render_master_table(frame, width=160, height=32, color=False)
+                              + DASHBOARD.plain_summary(frame))
+            self.assertIn("Fresh relations-only round", shown)
+            self.assertIn("shape (3,0)", shown)
+            self.assertIn("retained proved maps", shown)
+            self.assertNotIn("80,000", shown)
+            self.assertNotIn("shape (2,2)", shown)
+            self.assertIn("Discovery rows" if strategy == "modular-circuits" else "Relation work", shown)
+
     def test_modular_scan_never_becomes_exact_span_progress(self):
         status = sample_status()
         status["master_reduction"] = {"operation":"refine", "stage":"source-weight reconstruction",

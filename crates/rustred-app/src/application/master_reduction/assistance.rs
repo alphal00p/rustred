@@ -58,6 +58,7 @@ pub(super) fn configure(
             report["saved_rule_assistance"] = json!(false);
             report["circuit_symmetry_assistance"] = json!(false);
             report["relation_authority"] = json!(inherited::authority(report)?);
+            fresh::record_authority(report);
             return Ok(());
         }
         if report.get("inherited_equation_authority").is_some() {
@@ -85,6 +86,11 @@ pub(super) fn configure(
             || session.statistics().pending_rebuild_rows != 0
             || session.assistance_binding().is_some())
     {
+        if session.retained_relations_binding().is_some() {
+            return Err(AppError::input(
+                "changing equation providers on retained relations requires a new --fresh-search round",
+            ));
+        }
         *session = TerminalRelationSession::new(
             session.family_owner().clone(),
             session.raw_terminals().clone(),
@@ -123,6 +129,7 @@ pub(super) fn configure(
         options.saved_rule_assistance,
         options.circuit_symmetry_assistance
     ));
+    fresh::record_authority(report);
     Ok(())
 }
 

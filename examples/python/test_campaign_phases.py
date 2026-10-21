@@ -97,6 +97,50 @@ class PhaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "explicit"):
             PHASES.configuration(self.campaign, max_relation_columns=40)
 
+    def test_fresh_search_discards_search_preferences_but_retains_resources(self):
+        old = PHASES.configuration(self.campaign, enabled=True, seed_depth=2, containing_sector_depth=2,
+                                   saved_rule_assistance=True, circuit_symmetry_assistance=True,
+                                   finite_feedback=False, normalization_profile="standard",
+                                   collection_artifacts=[self.campaign / "peer"], max_relation_columns=0,
+                                   refinement_workers=2, refinement_cpus="0,1", relation_batch_rows=128)
+        self.write("master-reduction/policy.json", {**old, "modular_policy": {"batch_rows": 7}})
+        for containing in (1, 0):
+            with self.subTest(containing=containing):
+                with self.assertRaisesRegex(ValueError, "cannot lower"):
+                    PHASES.configuration(self.campaign, enabled=True, seed_depth=3,
+                                         containing_sector_depth=containing)
+                fresh = PHASES.configuration(self.campaign, enabled=True, fresh_search=True, seed_depth=3,
+                                             containing_sector_depth=containing)
+                self.assertEqual((fresh["seed_depth"], fresh["containing_sector_depth"]), (3, containing))
+                self.assertEqual(fresh["refinement_strategy"], "exact")
+                self.assertFalse(fresh["saved_rule_assistance"])
+                self.assertFalse(fresh["circuit_symmetry_assistance"])
+                self.assertTrue(fresh["finite_feedback"])
+                self.assertEqual(fresh["collection_artifacts"], [])
+                self.assertNotIn("normalization_profile", fresh)
+                self.assertNotIn("modular_policy", fresh)
+                self.assertEqual((fresh["max_relation_columns"], fresh["refinement_workers"],
+                                  fresh["refinement_cpus"], fresh["relation_batch_rows"]), (0, 2, "0,1", 128))
+        default = PHASES.configuration(self.campaign, enabled=True, fresh_search=True)
+        self.assertEqual((default["seed_depth"], default["containing_sector_depth"]), (0, 0))
+        for invalid in (None, 1, "yes"):
+            with self.assertRaisesRegex(ValueError, "boolean"):
+                PHASES.configuration(self.campaign, enabled=True, fresh_search=invalid)
+        with self.assertRaisesRegex(ValueError, "explicit refinement"):
+            PHASES.configuration(self.campaign, fresh_search=True)
+
+    def test_production_fresh_search_reaches_configuration_and_is_refine_only(self):
+        with patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure:
+            with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters",
+                                 "--master-fresh-search", "--master-seed-depth", "3",
+                                 "--master-containing-sector-depth", "0"])
+        self.assertTrue(configure.call_args.kwargs["fresh_search"])
+        self.assertEqual(configure.call_args.args[2], 3)
+        self.assertEqual(configure.call_args.kwargs["containing_sector_depth"], 0)
+        with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+            PRODUCTION.main(["--campaign-directory", str(self.campaign), "--publish-only", "--master-fresh-search"])
+
     def test_parallel_batch_policy_is_positive_operational_and_retained(self):
         policy=PHASES.configuration(self.campaign,enabled=True,relation_batch_rows=128,relation_block_rows=8)
         self.write("master-reduction/policy.json",policy)
@@ -436,6 +480,105 @@ class PhaseTests(unittest.TestCase):
         self.assertEqual(native.call_args.args[4], phase)
         self.assertEqual(native.call_args.args[1]["source_artifact"], str(source))
         self.assertEqual(native.call_args.args[1]["max_relation_columns"], 0)
+
+    def test_fresh_search_requires_latest_stopped_maps_to_be_finalized(self):
+        source, phase = self.stopped_refinement_fixture("paused")
+        policy_path = self.campaign / "master-reduction/policy.json"
+        original_policy = policy_path.read_bytes()
+        original_source = (source / "artifact.json").read_bytes()
+        fresh = PHASES.configuration(self.campaign, enabled=True, fresh_search=True,
+                                     seed_depth=3, containing_sector_depth=1)
+        with patch.object(PHASES, "phase_one") as solve, patch.object(PHASES, "phase_two") as native:
+            with self.assertRaisesRegex(ValueError, "finalize-refinement"):
+                PHASES.run(self.plan, fresh, True, self.driver, postprocess_only=True)
+            solve.assert_not_called()
+            native.assert_not_called()
+        self.assertEqual(policy_path.read_bytes(), original_policy)
+        self.assertEqual((source / "artifact.json").read_bytes(), original_source)
+        # A retained export is sufficient only while it binds this exact source
+        # manifest. More accepted work must be explicitly finalized again.
+        retained = {"source_directory": str(phase.relative_to(self.campaign)),
+                    "source_manifest_sha256": PHASES.digest(phase / "latest.json")}
+        PHASES.publish_pointer(self.campaign, source, self.binding(), "refine", self.driver, retained)
+        self.write("master-reduction/completed-phase.json", {
+            "directory": str(source), "scope_binding": self.binding()})
+        latest = PHASES.read_json(phase / "latest.json")
+        latest["completed_source_rows"] += 1
+        self.write(str((phase / "latest.json").relative_to(self.campaign)), latest)
+        with patch.object(PHASES, "phase_two") as native, self.assertRaisesRegex(ValueError, "finalize-refinement"):
+            PHASES.run(self.plan, fresh, True, self.driver, postprocess_only=True)
+        native.assert_not_called()
+
+    def test_fresh_search_uses_requested_lower_shape_and_resumes_its_new_round(self):
+        source = self.publish_fixture("refine", depth=2, containing_sector_depth=2,
+                                      normalization_profile="standard-v1")
+        source_bytes = (source / "artifact.json").read_bytes()
+        old = PHASES.configuration(self.campaign, enabled=True, seed_depth=2, containing_sector_depth=2)
+        self.write("master-reduction/policy.json", old)
+        directories = set()
+        for containing in (1, 0):
+            fresh = PHASES.configuration(self.campaign, enabled=True, fresh_search=True,
+                                         seed_depth=3, containing_sector_depth=containing)
+            with patch.object(PHASES, "phase_one") as solve, patch.object(PHASES, "phase_two", return_value=4) as native:
+                self.assertEqual(PHASES.run(self.plan, fresh, True, self.driver, postprocess_only=True), 4)
+            solve.assert_not_called()
+            launched, directory = native.call_args.args[1], native.call_args.args[4]
+            self.assertNotIn(directory, directories)
+            directories.add(directory)
+            self.assertEqual(launched["source_artifact"], str(source))
+            self.assertEqual((launched["effective_seed_depth"], launched["effective_containing_sector_depth"]),
+                             (3, containing))
+            self.assertEqual(launched["effective_normalization_profile"], "standard-v1")
+            steering = PHASES.read_json(directory / "steering-binding.json")
+            self.assertTrue(steering["fresh_search"])
+            self.assertEqual(steering["fresh_search_recipe"], PHASES.FRESH_SEARCH_RECIPE)
+            saved = PHASES.read_json(self.campaign / "master-reduction/policy.json")
+            self.assertNotIn("fresh_search", saved)
+            self.assertNotIn("fresh_search_recipe", saved)
+        # The second round pauses durably. A regular invocation infers its mode
+        # from steering, not a sticky reset request in the saved policy.
+        self.write("master-reduction/active-phase.json", {"operation": "refine", "directory": str(directory)})
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True), True,
+                       self.driver, postprocess_only=True)
+        self.assertEqual(native.call_args.args[4], directory)
+        self.assertTrue(native.call_args.args[1]["fresh_search"])
+        self.write(str((directory / "latest.json").relative_to(self.campaign)), {
+            "status": "paused", "fresh_search": True, "fresh_search_recipe": PHASES.FRESH_SEARCH_RECIPE,
+            "seed_depth": 3, "containing_sector_depth": 0, "completed_source_rows": 4})
+        resume = PHASES.configuration(self.campaign, enabled=True)
+        self.assertFalse(resume["fresh_search"])
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, resume, True, self.driver, postprocess_only=True)
+        resumed = native.call_args.args[1]
+        self.assertEqual(native.call_args.args[4], directory)
+        self.assertTrue(resumed["fresh_search"])
+        self.assertEqual((resumed["effective_seed_depth"], resumed["effective_containing_sector_depth"]), (3, 0))
+        with patch.object(PHASES, "phase_two") as native, self.assertRaisesRegex(ValueError, "finalize-refinement"):
+            PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True, fresh_search=True,
+                       seed_depth=3, containing_sector_depth=0), True, self.driver, postprocess_only=True)
+        native.assert_not_called()
+        self.assertEqual((source / "artifact.json").read_bytes(), source_bytes)
+
+    def test_fresh_search_uses_current_finalized_source_not_original_cursor(self):
+        source, phase = self.stopped_refinement_fixture("paused")
+        original_manifest = (phase / "latest.json").read_bytes()
+        export = self.campaign / "master-reduction/scopes/retained-export"
+        self.write(str((export / "artifact.json").relative_to(self.campaign)),
+                   PHASES.read_json(source / "artifact.json"))
+        retained = {"source_directory": str(phase.relative_to(self.campaign)),
+                    "source_manifest_sha256": PHASES.digest(phase / "latest.json"),
+                    "seed_depth": 2, "containing_sector_depth": 2}
+        PHASES.publish_pointer(self.campaign, export, self.binding(), "refine", self.driver, retained)
+        self.write("master-reduction/completed-phase.json", {
+            "directory": str(export), "scope_binding": self.binding()})
+        policy = PHASES.configuration(self.campaign, enabled=True, fresh_search=True,
+                                      seed_depth=3, containing_sector_depth=1)
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+        self.assertEqual(native.call_args.args[1]["source_artifact"], str(export))
+        self.assertNotEqual(native.call_args.args[4], phase)
+        self.assertEqual((phase / "latest.json").read_bytes(), original_manifest)
 
     def test_finalize_requires_stopped_current_scope_without_starting_a_solve(self):
         _, phase = self.stopped_refinement_fixture("running")
@@ -964,11 +1107,15 @@ report = {'status':'published_unrefined', 'operation':'publish',
     def test_containing_sector_refinement_forwards_depth_and_resumes_its_checkpoint(self):
         self._scratch_native_pause_resume("refine", containing_sector_depth=1, inherited_containing_depth=2)
 
+    def test_fresh_refinement_forwards_mode_and_resumes_without_old_shape_in_ui(self):
+        self._scratch_native_pause_resume("refine", fresh_search=True, seed_depth=3,
+                                         containing_sector_depth=0, inherited_containing_depth=2)
+
     def _scratch_native_pause_resume(self, operation, saved_rule_assistance=False,
                                     containing_sector_depth=0, inherited_containing_depth=0,
                                     circuit_symmetry_assistance=False, normalization_profile=None,
                                     deep_verification=False, preserve_refined=False, max_relation_columns=None,
-                                    refinement_workers=None, refinement_cpus=None):
+                                    refinement_workers=None, refinement_cpus=None, fresh_search=False, seed_depth=0):
         # Fake native protocol only; this proves process/checkpoint orchestration,
         # not mathematical correctness or a successful native Rust solve.
         binary = self.campaign / "fake-native"
@@ -979,11 +1126,16 @@ report = {'status':'published_unrefined', 'operation':'publish',
                           f"expected_deep = {deep_verification}\n"
                           f"expected_previous = {preserve_refined}\n"
                           f"expected_column_budget = {max_relation_columns!r}\n"
+                          f"expected_fresh = {fresh_search}\n"
+                          f"expected_seed_depth = {seed_depth}\n"
                           f"expected_containing_depth = {containing_sector_depth if operation == 'refine' else 0}\n" + '''import json, pathlib, sys, time
 args = sys.argv
 assert int(args[args.index('--threads') + 1]) == expected_threads
 refine = args[1] == 'walk-master-reduce'
 assert ('--seed-depth' in args) == refine
+assert ('--fresh-search' in args) == expected_fresh
+if refine:
+    assert int(args[args.index('--seed-depth') + 1]) == expected_seed_depth
 assert ('--saved-rule-assistance' in args) == expected_assistance
 assert ('--circuit-symmetry-assistance' in args) == expected_circuit
 assert ('--finite-feedback' in args) == refine
@@ -999,10 +1151,13 @@ if expected_profile is not None:
 profile = (expected_profile or 'conservative') + '-v1'
 metadata = {'normalization_profile': profile, 'normalization_limits': {'fixture': True}}
 metadata.update(finite_feedback=refine, finite_feedback_recipe='finite-row-feedback-v1')
+if expected_fresh:
+    metadata.update(fresh_search=True, fresh_search_recipe='relations-only-v1',
+                    seed_depth=expected_seed_depth, containing_sector_depth=expected_containing_depth)
 metadata.update(deep_verification=expected_deep, inventory={'complete': True, 'independently_verified': expected_deep,
     'installed': {'rules': 9982}, 'encountered': {'rules': 6698}})
-assert ('--containing-sector-depth' in args) == bool(expected_containing_depth)
-if expected_containing_depth:
+assert ('--containing-sector-depth' in args) == bool(expected_containing_depth or expected_fresh)
+if expected_containing_depth or expected_fresh:
     assert int(args[args.index('--containing-sector-depth') + 1]) == expected_containing_depth
 assert ('--artifact' in args) == refine
 assert ('--command' in args) != refine
@@ -1034,11 +1189,13 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                     "swap_growth_stop_bytes_per_second": 0, "swap_growth_stop_seconds": 120}}
         driver = SimpleNamespace(**vars(PRODUCTION))
         native_policy = {**self.policy, "operation": operation, "saved_rule_assistance": saved_rule_assistance,
+                         "fresh_search": fresh_search, "seed_depth": seed_depth,
                          "max_relation_columns": max_relation_columns,
                          "deep_verification": deep_verification,
                          "circuit_symmetry_assistance": circuit_symmetry_assistance,
                          "containing_sector_depth": containing_sector_depth,
-                         "effective_containing_sector_depth": max(containing_sector_depth, inherited_containing_depth)}
+                         "effective_containing_sector_depth": (containing_sector_depth if fresh_search else
+                                                                max(containing_sector_depth, inherited_containing_depth))}
         if refinement_workers is not None:
             native_policy.update(refinement_workers=refinement_workers,refinement_cpus=refinement_cpus)
         if normalization_profile is not None:
@@ -1073,6 +1230,10 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                 with self.assertRaisesRegex(ValueError, "cannot change finite feedback on resume"):
                     PHASES.phase_two(plan, {**native_policy, "finite_feedback": False},
                                      self.campaign / "runs/first/request.json", binding, directory, driver)
+                if fresh_search:
+                    with self.assertRaisesRegex(ValueError, "cannot change fresh-search mode on resume"):
+                        PHASES.phase_two(plan, {**native_policy, "fresh_search": False},
+                                         self.campaign / "runs/first/request.json", binding, directory, driver)
                 if normalization_profile == "standard":
                     paused_pointer = (self.campaign / "artifacts/latest.json").read_bytes()
                     with self.assertRaisesRegex(ValueError, "cannot change normalization profile on resume"):
@@ -1114,7 +1275,13 @@ event('completed_nonminimal' if refine else 'published_unrefined')
             self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["saved_rule_assistance"],
                              saved_rule_assistance)
             self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["containing_sector_depth"],
-                             max(containing_sector_depth, inherited_containing_depth))
+                             containing_sector_depth if fresh_search else max(containing_sector_depth, inherited_containing_depth))
+            if fresh_search:
+                self.assertEqual(status["master_reduction"]["seed_depth"], seed_depth)
+                self.assertEqual(status["master_reduction"]["containing_sector_depth"], containing_sector_depth)
+                self.assertTrue(status["master_reduction"]["fresh_search"])
+                pointer = PHASES.read_json(self.campaign / "artifacts/latest.json")
+                self.assertTrue(pointer["refinement"]["fresh_search"])
 
 
 class MasterDashboardTests(unittest.TestCase):

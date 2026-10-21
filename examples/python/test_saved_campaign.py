@@ -88,6 +88,30 @@ class SavedCampaignTests(unittest.TestCase):
         self.assertNotIn("--no-master-circuit-symmetry-assistance", command)
         self.assertNotIn("--master-normalization-profile", command)
 
+    def test_fresh_search_is_explicit_and_keeps_campaign_resume(self):
+        self.assertNotIn("--master-fresh-search", self.invoke("refine"))
+        for strategy, containing_depth in (("exact", 0), ("modular-circuits", 1)):
+            with self.subTest(strategy=strategy, containing_depth=containing_depth):
+                command = self.invoke("refine", "--fresh-search", "--refinement-strategy", strategy,
+                                      "--seed-depth", "3", "--containing-sector-depth", str(containing_depth))
+                self.assertEqual(command.count("--master-fresh-search"), 1)
+                self.assertNotIn("--fresh-search", command)
+                self.assertIn("--refine-masters", command)
+                self.assertIn("--resume", command)
+                self.assertIn("--start", command)
+                self.assertEqual(command[command.index("--master-seed-depth") + 1], "3")
+                self.assertEqual(command[command.index("--master-containing-sector-depth") + 1],
+                                 str(containing_depth))
+
+    def test_fresh_search_rejects_nonrefinement_actions_before_dispatch(self):
+        for action in ("run", "extend", "inspect", "publish", "finalize-refinement"):
+            options = ["--rank", "1"] if action == "extend" else []
+            for flag in ("--fresh-search", "--master-fresh-search"):
+                with self.subTest(action=action, flag=flag), \
+                     patch.object(WRAPPER, "native_executable", side_effect=AssertionError("native preflight")), \
+                     patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    self.invoke(action, *options, flag)
+
     def test_refinement_column_budget_can_be_changed_or_removed(self):
         self.assertNotIn("--master-max-relation-columns", self.invoke("refine"))
         for limit in (0, 100, 2_000_000):

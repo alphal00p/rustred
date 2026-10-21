@@ -28,6 +28,7 @@ FINITE_FEEDBACK_RECIPE = "finite-row-feedback-v1"
 PUBLICATION_VERIFICATION_RECIPE = "publication-verification-v1"
 REFINEMENT_STRATEGIES = ("exact", "modular-circuits")
 MODULAR_SEARCH_RECIPE = "terminal-modular-circuits-v1"
+FRESH_SEARCH_RECIPE = "relations-only-v1"
 
 
 def read_json(path, max_bytes=None):
@@ -56,7 +57,7 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                   collection_artifacts=None, finite_feedback=None, deep_verification=None,
                   max_relation_columns=None, relation_batch_rows=None, relation_block_rows=None,
                   refinement_workers=None, refinement_cpus=None, refinement_strategy=None,
-                  modular_policy=None):
+                  modular_policy=None, fresh_search=False):
     """Read-only configuration. Only this invocation can request refinement.
 
     Historical ``enabled`` policies retain executable/search preferences, never
@@ -64,16 +65,24 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
     """
     path = Path(campaign) / "master-reduction" / "policy.json"
     existing = read_json(path) if path.is_file() else None
+    if type(fresh_search) is not bool or (fresh_search and not enabled):
+        raise ValueError("fresh search requires explicit refinement and a boolean request")
+    # A new round retains operational grants, not the preceding search recipe.
+    # This request is deliberately never saved as authority to reset again.
+    preferences = ({key: value for key, value in (existing or {}).items() if key in (
+        "executable", "max_relation_columns", "refinement_workers", "refinement_cpus",
+        "relation_batch_rows", "relation_block_rows", "deep_verification")}
+        if fresh_search else (existing or {}))
     if refinement_strategy is not None and (refinement_strategy not in REFINEMENT_STRATEGIES
                                              or not enabled):
         raise ValueError("master refinement strategy requires explicit refinement and exact or modular-circuits")
-    strategy = refinement_strategy or (existing or {}).get("refinement_strategy", "exact")
+    strategy = refinement_strategy or preferences.get("refinement_strategy", "exact")
     if strategy not in REFINEMENT_STRATEGIES:
         raise ValueError("invalid persisted master refinement strategy")
     if modular_policy is not None and (not enabled or strategy != "modular-circuits"):
         raise ValueError("modular policy requires explicit modular-circuits refinement")
     modular = (read_json(modular_policy) if modular_policy is not None
-               else (existing or {}).get("modular_policy"))
+               else preferences.get("modular_policy"))
     if modular is not None and not isinstance(modular, dict):
         raise ValueError("invalid persisted modular refinement policy")
     if max_relation_columns is not None and (type(max_relation_columns) is not int or max_relation_columns < 0):
@@ -111,9 +120,9 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         cap = existing.get("max_relation_columns")
         if cap is not None and (type(cap) is not int or cap < 0):
             raise ValueError("invalid persisted master relation column budget")
-        if enabled and seed_depth is not None and seed_depth < existing["seed_depth"]:
+        if enabled and not fresh_search and seed_depth is not None and seed_depth < existing["seed_depth"]:
             raise ValueError("cannot lower the previous master seed depth")
-        if (enabled and containing_sector_depth is not None
+        if (enabled and not fresh_search and containing_sector_depth is not None
                 and containing_sector_depth < existing.get("containing_sector_depth", 0)):
             raise ValueError("cannot lower the previous master containing-sector depth")
     if seed_depth is not None and not enabled:
@@ -130,24 +139,25 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master normalization profile requires explicit --refine-masters")
     if collection_artifacts is not None and not enabled:
         raise ValueError("master collection artifacts require explicit --refine-masters")
-    members = ((existing or {}).get("collection_artifacts", []) if collection_artifacts is None
+    members = (preferences.get("collection_artifacts", []) if collection_artifacts is None
                else [str(Path(path).resolve()) for path in collection_artifacts])
     if not isinstance(members, list) or any(not isinstance(path, str) for path in members):
         raise ValueError("invalid persisted master collection artifacts")
-    policy = {**(existing or {}), "schema": SCHEMA, "enabled": True,
+    policy = {**preferences, "schema": SCHEMA, "enabled": True,
             "operation": "refine" if enabled else "publish",
-            "max_relation_columns": ((existing or {}).get("max_relation_columns")
+            "fresh_search": fresh_search,
+            "max_relation_columns": (preferences.get("max_relation_columns")
                                      if max_relation_columns is None else max_relation_columns),
-            "seed_depth": (existing or {}).get("seed_depth", 0) if seed_depth is None else seed_depth,
-            "saved_rule_assistance": ((existing or {}).get("saved_rule_assistance", False)
+            "seed_depth": preferences.get("seed_depth", 0) if seed_depth is None else seed_depth,
+            "saved_rule_assistance": (preferences.get("saved_rule_assistance", False)
                                       if saved_rule_assistance is None else saved_rule_assistance),
-            "circuit_symmetry_assistance": ((existing or {}).get("circuit_symmetry_assistance", False)
+            "circuit_symmetry_assistance": (preferences.get("circuit_symmetry_assistance", False)
                                             if circuit_symmetry_assistance is None else circuit_symmetry_assistance),
-            "finite_feedback": ((existing or {}).get("finite_feedback", True)
+            "finite_feedback": (preferences.get("finite_feedback", True)
                                 if finite_feedback is None else finite_feedback),
-            "deep_verification": ((existing or {}).get("deep_verification", False)
+            "deep_verification": (preferences.get("deep_verification", False)
                                   if deep_verification is None else deep_verification),
-            "containing_sector_depth": ((existing or {}).get("containing_sector_depth", 0)
+            "containing_sector_depth": (preferences.get("containing_sector_depth", 0)
                                         if containing_sector_depth is None else containing_sector_depth),
             "terminal_policy": "bounded exact search; finite nonminimal basis permitted",
             "master_minimality_claim": False}
@@ -168,7 +178,7 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
     if refinement_cpus is not None and (not enabled or not isinstance(refinement_cpus,str) or not refinement_cpus):
         raise ValueError("refinement CPU affinity requires explicit refinement and a nonempty CPU set")
     for name,value in (("refinement_workers",refinement_workers),("refinement_cpus",refinement_cpus)):
-        value=value if value is not None else (existing or {}).get(name)
+        value=value if value is not None else preferences.get(name)
         if value is not None:
             if ((name=="refinement_workers" and (type(value) is not int or value<=0)) or
                     (name=="refinement_cpus" and (not isinstance(value,str) or not value))):
@@ -177,7 +187,7 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
     for name, value in (("relation_batch_rows",relation_batch_rows),("relation_block_rows",relation_block_rows)):
         if value is not None and (type(value) is not int or value <= 0 or not enabled):
             raise ValueError("relation batch/block rows require explicit refinement and positive sizes")
-        value = value if value is not None else (existing or {}).get(name)
+        value = value if value is not None else preferences.get(name)
         if value is not None:
             if type(value) is not int or value <= 0: raise ValueError("invalid saved relation batch/block rows")
             policy[name] = value
@@ -265,7 +275,7 @@ def same_input_scope(left, right):
     return all(left.get("components", {}).get(key) == right.get("components", {}).get(key) for key in fields)
 
 
-def unfinished_refinement(campaign, binding):
+def unfinished_refinement(campaign, binding, include_uncheckpointed_fresh=False):
     """Locate the current scope's retained finite cursor without altering it."""
     campaign = Path(campaign).resolve()
     path = campaign / "master-reduction/active-phase.json"
@@ -278,6 +288,15 @@ def unfinished_refinement(campaign, binding):
     if not source.is_relative_to(campaign / "master-reduction/scopes"):
         raise ValueError("refinement checkpoint must remain inside the campaign scopes directory")
     if not (source / "latest.json").is_file():
+        if include_uncheckpointed_fresh:
+            steering = read_json(source / "steering-binding.json")
+            if (steering.get("fresh_search") is True
+                    and steering.get("fresh_search_recipe") == FRESH_SEARCH_RECIPE
+                    and same_input_scope(steering.get("scope_binding", {}), binding)):
+                # A selected round may stop during native initialization, before
+                # its first checkpoint. Retain the mode, never invent proofs.
+                return {"directory": source, "native": {}, "steering": steering,
+                        "active": active, "manifest_sha256": None}
         return None
     native = read_json(source / "latest.json")
     if native.get("status") in ("completed_nonminimal", "published_unrefined"):
@@ -289,7 +308,7 @@ def unfinished_refinement(campaign, binding):
             "manifest_sha256": digest(source / "latest.json")}
 
 
-def require_retained_refinement(campaign, binding=None):
+def require_retained_refinement(campaign, binding=None, action="extending"):
     """Called while extension holds both the checkpoint and dispatcher locks."""
     campaign = Path(campaign)
     if binding is None:
@@ -308,7 +327,7 @@ def require_retained_refinement(campaign, binding=None):
             if (Path(completed.get("directory", "")).resolve() == previous["resolved_directory"]
                     and same_input_scope(completed.get("scope_binding", {}), binding)):
                 return
-    raise ValueError("current scope has unfinished refinement; retain its proved maps before extending: "
+    raise ValueError(f"current scope has unfinished refinement; retain its proved maps before {action}: "
                      f"saved_campaign.py finalize-refinement --campaign {campaign}")
 
 
@@ -325,6 +344,8 @@ def finalize_refinement(plan, policy, binding, request, driver):
         "source_manifest_sha256": pending["manifest_sha256"],
         "source_artifact": steering["source"],
         "refinement_strategy": steering.get("refinement_strategy", "exact"),
+        **({"fresh_search": True, "fresh_search_recipe": FRESH_SEARCH_RECIPE}
+           if steering.get("fresh_search", False) else {}),
         "collection_strategy": COLLECTION_STRATEGY,
         "collection_inputs": steering.get("collection_inputs", []),
         "finite_feedback": native.get("finite_feedback", steering.get("finite_feedback", False)),
@@ -570,6 +591,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                "--threads", str(plan["requested_workers"])]
     if not publishing:
         command += ["--seed-depth", str(policy["seed_depth"])]
+        if policy.get("fresh_search", False):
+            command.append("--fresh-search")
         strategy = policy.get("refinement_strategy", "exact")
         if strategy != "exact":
             command += ["--refinement-strategy", strategy]
@@ -585,7 +608,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
         command.append("--finite-feedback" if policy.get("finite_feedback", True) else "--no-finite-feedback")
         for member in policy.get("collection_artifacts", []):
             command += ["--collection-artifact", member]
-        if policy.get("containing_sector_depth", 0):
+        if policy.get("containing_sector_depth", 0) or policy.get("fresh_search", False):
             command += ["--containing-sector-depth", str(policy["containing_sector_depth"])]
         if policy.get("saved_rule_assistance", False):
             command.append("--saved-rule-assistance")
@@ -604,6 +627,10 @@ def phase_two(plan, policy, request, binding, directory, driver):
         else:
             if snapshot.get("refinement_strategy", "exact") != strategy:
                 raise ValueError("cannot change refinement strategy on resume; start a new phase directory")
+            if (snapshot.get("fresh_search", False) != policy.get("fresh_search", False)
+                    or (policy.get("fresh_search", False)
+                        and snapshot.get("fresh_search_recipe") != FRESH_SEARCH_RECIPE)):
+                raise ValueError("cannot change fresh-search mode on resume; start a new phase directory")
             pinned = normalization_metadata(snapshot)["normalization_profile"]
             if pinned != profile:
                 raise ValueError("cannot change normalization profile on resume; start a new phase directory")
@@ -665,6 +692,9 @@ def phase_two(plan, policy, request, binding, directory, driver):
     if not publishing:
         latest["normalization_profile"] = profile
         latest["refinement_strategy"] = strategy
+        if policy.get("fresh_search", False):
+            latest.update(fresh_search=True, fresh_search_recipe=FRESH_SEARCH_RECIPE,
+                          stage="loading retained proved maps for a fresh search")
     elif not finalizing:
         latest["deep_verification"] = policy.get("deep_verification", False)
         latest["publication_verification_mode"] = "independent_replay" if latest["deep_verification"] else "inventory"
@@ -780,6 +810,10 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 raise ValueError("native artifact normalization profile differs from requested refinement")
             if not publishing and native_artifact.get("refinement_strategy", "exact") != strategy:
                 raise ValueError("native artifact strategy differs from requested refinement")
+            if not publishing and (native_artifact.get("fresh_search", False) != policy.get("fresh_search", False)
+                    or (policy.get("fresh_search", False)
+                        and native_artifact.get("fresh_search_recipe") != FRESH_SEARCH_RECIPE)):
+                raise ValueError("native artifact fresh-search mode differs from requested refinement")
             if not publishing and (native_artifact.get("finite_feedback") != policy.get("finite_feedback", True)
                                    or native_artifact.get("finite_feedback_recipe") != FINITE_FEEDBACK_RECIPE):
                 raise ValueError("native artifact finite feedback recipe differs from requested refinement")
@@ -799,6 +833,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 refinement = None if publishing else {
                         **native_profile,
                         "refinement_strategy": policy.get("refinement_strategy", "exact"),
+                        **({"fresh_search": True, "fresh_search_recipe": FRESH_SEARCH_RECIPE}
+                           if policy.get("fresh_search", False) else {}),
                         "modular_search_complete": native_artifact.get("modular_search_complete", False),
                         "collection_strategy": COLLECTION_STRATEGY,
                         "finite_feedback": policy.get("finite_feedback", True),
@@ -935,6 +971,7 @@ def phase_source_lock(plan, directory, driver, held, dispatcher_held=False):
 def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=False, startup_progress=None):
     campaign, checkpoint = Path(plan["campaign_directory"]), Path(plan["checkpoint_directory"])
     directory = campaign / "master-reduction"
+    fresh_requested = policy.get("fresh_search", False)
     with ExitStack() as held:
         if startup_progress is not None:
             held.callback(startup_progress.stop)
@@ -947,13 +984,24 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
             evidence = driver.campaign_run_liveness(campaign)
             if evidence:
                 raise ValueError("campaign is still running: " + "; ".join(evidence))
+            if fresh_requested:
+                if policy.get("operation") != "refine":
+                    raise ValueError("fresh search requires explicit refinement")
+                fresh_binding = phase_scope_binding(plan, driver)
+                if fresh_binding is None:
+                    raise ValueError("fresh search requires the completed current input scope")
+                fresh_pending = unfinished_refinement(campaign, fresh_binding)
+                if fresh_pending and fresh_pending["native"].get("status") not in ("paused", "failed"):
+                    raise ValueError("fresh search requires a stopped refinement; finalize-refinement retains its proved maps")
+                require_retained_refinement(campaign, fresh_binding, "starting a fresh search")
             if plan.get("engine") == "rustred.finite-demand.v1" and policy.get("executable"):
                 finite_output_path(plan, directory / policy["executable"]["path"])
             if startup_progress is not None:
                 startup_progress.phase("freezing publication executable")
             freeze_master_executable(directory, policy, driver)
             driver.write_json(directory / "policy.json", {key: value for key, value in policy.items()
-                              if key not in ("operation", "source_artifact", "previous_artifact", "preserved_refinement")})
+                              if key not in ("operation", "source_artifact", "previous_artifact", "preserved_refinement",
+                                             "fresh_search", "fresh_search_recipe")})
             if startup_progress is not None:
                 startup_progress.phase("validating current input scope")
             binding = (None if plan.get("engine") == "rustred.finite-demand.v1" and plan.get("repair_preparation")
@@ -973,6 +1021,7 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
             if not previous or not binding or not same_input_scope(previous.get("scope_binding", {}), binding):
                 raise ValueError("refine requires a completed artifact for the current scope; run or publish it first")
             refinement = previous.get("refinement", {})
+            pending = unfinished_refinement(campaign, binding, include_uncheckpointed_fresh=True)
             effective_profile = (NORMALIZATION_PROFILES[policy["normalization_profile"]]
                                  if policy.get("normalization_profile") is not None
                                  else previous["normalization_profile"])
@@ -1001,6 +1050,8 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
             searched = (refinement.get("modular_search_complete", False) if strategy == "modular-circuits"
                         else previous.get("finite_search_complete", True))
             if (previous.get("operation") == "refine"
+                    and not fresh_requested
+                    and not (pending and pending["steering"].get("fresh_search", False))
                     and searched
                     and not policy.get("retry_modular_proposals", False)
                     and refinement.get("refinement_strategy", "exact") == strategy
@@ -1020,9 +1071,11 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                 return 0
             policy = {**policy, "source_artifact": str(previous["resolved_directory"]),
                       "effective_normalization_profile": effective_profile,
-                      "effective_seed_depth": max(policy["seed_depth"], refinement.get("seed_depth", 0)),
-                      "effective_containing_sector_depth": max(policy.get("containing_sector_depth", 0),
-                                                               refinement.get("containing_sector_depth", 0))}
+                      "effective_seed_depth": (policy["seed_depth"] if fresh_requested else
+                                               max(policy["seed_depth"], refinement.get("seed_depth", 0))),
+                      "effective_containing_sector_depth": (policy.get("containing_sector_depth", 0)
+                          if fresh_requested else max(policy.get("containing_sector_depth", 0),
+                                                      refinement.get("containing_sector_depth", 0)))}
         elif binding:
             previous = completed_artifact(campaign)
             same_scope = previous and same_input_scope(previous.get("scope_binding", {}), binding)
@@ -1089,6 +1142,8 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                                              if policy.get("previous_artifact") else None)
         if operation == "refine":
             identity["collection_strategy"] = COLLECTION_STRATEGY
+            if fresh_requested:
+                identity.update(fresh_search=True, fresh_search_recipe=FRESH_SEARCH_RECIPE)
             if policy.get("refinement_strategy", "exact") != "exact":
                 identity["refinement_strategy"] = policy["refinement_strategy"]
                 identity["modular_search_recipe"] = MODULAR_SEARCH_RECIPE
@@ -1111,11 +1166,12 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
         phase_key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         target = directory / "scopes" / phase_key
         if operation == "refine":
-            pending = unfinished_refinement(campaign, binding)
-            if pending:
+            if pending and not fresh_requested:
                 saved_identity = {key: value for key, value in pending["steering"].items()
                                   if key not in ("scope_binding", "executable")}
                 candidate_identity = dict(identity)
+                if pending["steering"].get("fresh_search", False):
+                    candidate_identity.update(fresh_search=True, fresh_search_recipe=FRESH_SEARCH_RECIPE)
                 if refinement.get("source_directory") == str(pending["directory"].relative_to(campaign)):
                     candidate_identity["source"] = pending["steering"]["source"]
                 requested_identity = {key: value for key, value in candidate_identity.items() if key != "executable"}
@@ -1125,6 +1181,9 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                     target = pending["directory"]
                     identity = candidate_identity
                     policy = {**policy, "source_artifact": str(campaign / identity["source"])}
+                    if identity.get("fresh_search", False):
+                        policy.update(fresh_search=True, effective_seed_depth=policy["seed_depth"],
+                                      effective_containing_sector_depth=policy.get("containing_sector_depth", 0))
                 # A changed search recipe starts from the latest partial artifact
                 # so its already proved maps survive the new finite search.
         finite_output_path(plan, target / "steering-binding.json")

@@ -80,7 +80,7 @@ pub(super) fn validate_circuit(
         ));
     }
     let mut image_keys: Vec<_> = circuit.image.keys().cloned().collect();
-    elimination::sort_keys(&mut image_keys);
+    session.sort_existing_columns(&mut image_keys)?;
     if !circuit.image[&image_keys[0]].is_one() {
         return Err(invalid(
             "circuit does not use the existing unit terminal-pivot convention",

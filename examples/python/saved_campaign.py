@@ -85,6 +85,8 @@ def main(argv=None):
             bounds.add_argument("--max-power-difference", type=int, help="new D=A-R ceiling; omitted preserves current ceiling")
             bounds.add_argument("--unbounded-power-difference", action="store_true", help="remove only the additional stage ceiling")
         if action == "refine":
+            sub.add_argument("--fresh-search", action="store_true",
+                             help="start a new relations-only round after finalizing stopped work; old search cursors/shape are not inherited (specify both depths; defaults 0/0 and exact)")
             sub.add_argument("--refinement-strategy", choices=("exact", "modular-circuits"),
                              help="refinement backend (default saved preference or exact); modular discovery accepts only exactly verified maps")
             sub.add_argument("--modular-policy", type=Path,
@@ -111,6 +113,9 @@ def main(argv=None):
         if action == "inspect":
             sub.add_argument("--format", choices=("auto", "table", "json"), default="auto")
     args, extra = parser.parse_known_args(argv)
+    if args.action != "refine" and any(option.split("=", 1)[0] in ("--fresh-search", "--master-fresh-search")
+                                       for option in extra):
+        parser.error("fresh search requires the refine action")
     campaign = args.campaign.resolve()
     try:
         # Engine dispatch precedes all legacy checkpoint access. This regular
@@ -142,6 +147,8 @@ def main(argv=None):
                 command += ["--executable", str(executable)]
             if args.action == "refine":
                 command.append("--refine-masters")
+                if args.fresh_search:
+                    command.append("--master-fresh-search")
                 if args.refinement_strategy is not None:
                     command += ["--master-refinement-strategy", args.refinement_strategy]
                 if args.modular_policy is not None:
