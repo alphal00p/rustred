@@ -5,6 +5,7 @@ mod budget;
 mod census_cache;
 mod collection;
 mod finite_provenance;
+mod fresh;
 mod inherited;
 #[cfg(feature = "reconstruction")]
 mod modular;
@@ -79,6 +80,10 @@ pub struct MasterReductionOptions {
     /// collected with the primary family during explicit refinement.
     pub collection_artifacts: Vec<PathBuf>,
     pub resume: bool,
+    /// Start a new relations-only round from a completed publication. Retained
+    /// exact maps survive, but old source/search cursors and auxiliary rows do
+    /// not. This is an immutable phase mode; resume does not reset it again.
+    pub fresh_search: bool,
     pub threads: usize,
     /// Optional operational work-stealing window/block sizes, mutable on resume.
     pub relation_batch_rows: Option<usize>,
@@ -126,6 +131,7 @@ impl MasterReductionOptions {
             previous_artifact: None,
             collection_artifacts: Vec::new(),
             resume: false,
+            fresh_search: false,
             threads: 1,
             relation_batch_rows: None,
             relation_block_rows: None,
@@ -267,6 +273,7 @@ fn load_session_with_policy(
     )
     .map_err(io)?;
     finite_provenance::validate_session(directory, &report, &session, policy)?;
+    fresh::validate(directory, &report, &session)?;
     if modular::from_report(&report)? == MasterRefinementStrategy::ModularCircuits
         && (report["modular_state"].is_object() || report["status"] == "completed_nonminimal")
     {
@@ -334,6 +341,11 @@ fn master_reduce_source(
     observer: impl Fn(Value),
 ) -> Result<Value, AppError> {
     let request = source.request();
+    if options.fresh_search {
+        return Err(AppError::input(
+            "relations-only fresh search requires refinement from a completed --artifact source",
+        ));
+    }
     if !options.collection_artifacts.is_empty() {
         return Err(AppError::input(
             "additional collection artifacts require refinement from a published artifact",
@@ -636,6 +648,11 @@ fn run(
                 .seed_depth
                 .max(previous_session.statistics().seed_depth);
             let changes_profile = normalization_profile != profile::from_report(&previous_report)?;
+            if changes_profile && previous_session.retained_relations_binding().is_some() {
+                return Err(AppError::input(
+                    "changing normalization on retained relations requires a relations-only fresh refinement first",
+                ));
+            }
             if !changes_profile && options.operation == MasterReductionOperation::Publish {
                 inherited::capture(&previous_session, &previous_report, report)?;
             }
@@ -943,6 +960,7 @@ fn save(
     observer: &impl Fn(Value),
 ) -> Result<(), AppError> {
     let save_start = Instant::now();
+    fresh::validate(&options.directory, report, session)?;
     report["schema"] = json!(current_schema(report)?);
     let generation = report["checkpoint"]["generation"]
         .as_u64()

@@ -6,7 +6,8 @@ use std::collections::BTreeSet;
 /// No original CP6 checkpoint, reinspection, or campaign inputs are required.
 /// `directory`, `seed_depth`, `resume` and `checkpoint_interval` are used;
 /// `checkpoint` is deliberately irrelevant. Requested depth is a lower bound:
-/// previously completed deeper work is never truncated.
+/// previously completed deeper work is never truncated unless `fresh_search`
+/// explicitly starts a relations-only round with exactly the requested shape.
 pub fn master_refine_published_artifact(
     source: &Path,
     options: &MasterReductionOptions,
@@ -55,6 +56,15 @@ pub fn master_refine_published_artifact(
             "refinement source must be a published artifact",
         ));
     }
+    if options.fresh_search
+        && (source_report["collection"]["status"] != "completed"
+            || !source_report["collection_state"].is_object()
+            || !options.collection_artifacts.is_empty())
+    {
+        return Err(AppError::input(
+            "relations-only fresh search requires a completed single-family publication; finalize interrupted refinement first",
+        ));
+    }
     let source_metadata = serde_json::to_vec(&source_report).map_err(io)?;
     let source_profile = profile::from_report(&source_report)?;
     let latest = options.directory.join("latest.json");
@@ -75,6 +85,9 @@ pub fn master_refine_published_artifact(
     let refinement_strategy = modular::for_phase(options, resumed.as_ref())?;
     let mut hash = blake3::Hasher::new();
     hash.update(b"rustred-published-refinement-v1");
+    if options.fresh_search {
+        hash.update(fresh::RECIPE.as_bytes());
+    }
     hash.update(&source_metadata);
     hash.update(&options.seed_depth.to_le_bytes());
     if options.containing_sector_depth != 0 {
@@ -100,6 +113,7 @@ pub fn master_refine_published_artifact(
     let (mut report, mut session) = if let Some(report) = resumed {
         if (report["schema"] != SCHEMA && report["schema"] != FINITE_SCHEMA)
             || report["refinement_binding"] != binding
+            || report["fresh_search"].as_bool().unwrap_or(false) != options.fresh_search
         {
             return Err(AppError::input(
                 "refinement checkpoint has a different source or requested seed depth",
@@ -114,9 +128,37 @@ pub fn master_refine_published_artifact(
                 "refinement checkpoint exists; use --resume",
             ));
         }
-        let mut session = load_session_with_policy(source, options.finite_policy.as_ref())?;
+        let mut report = source_report.clone();
+        let mut session = if options.fresh_search {
+            let artifact = collection::load_with_policy(source, options.finite_policy.as_ref())?;
+            if serde_json::to_vec(&inspect_with_policy(
+                source,
+                options.finite_policy.as_ref(),
+            )?)
+            .map_err(io)?
+                != source_metadata
+            {
+                return Err(AppError::input(
+                    "published source changed while loading retained relations; retry from an immutable publication",
+                ));
+            }
+            fresh::begin(
+                &source_report,
+                &artifact,
+                options,
+                normalization_profile,
+                &mut report,
+            )?
+        } else {
+            load_session_with_policy(source, options.finite_policy.as_ref())?
+        };
         let changes_profile = normalization_profile != source_profile;
-        if changes_profile {
+        if changes_profile && !options.fresh_search {
+            if session.retained_relations_binding().is_some() {
+                return Err(AppError::input(
+                    "changing normalization on retained relations requires a new --fresh-search round",
+                ));
+            }
             session = TerminalRelationSession::new(
                 session.family_owner().clone(),
                 session.raw_terminals().clone(),
@@ -124,7 +166,7 @@ pub fn master_refine_published_artifact(
                 normalization_profile.relation_limits(),
             )
             .map_err(io)?;
-        } else if options.seed_depth > session.statistics().seed_depth {
+        } else if !options.fresh_search && options.seed_depth > session.statistics().seed_depth {
             session
                 .extend(&BTreeSet::new(), options.seed_depth)
                 .map_err(io)?;
@@ -135,7 +177,6 @@ pub fn master_refine_published_artifact(
             &source_report,
             options.finite_policy.as_ref(),
         )?;
-        let mut report = source_report.clone();
         census_cache::inherit_with_cancel(
             &source_directory,
             &options.directory,
@@ -159,6 +200,13 @@ pub fn master_refine_published_artifact(
             "scope_binding":source_report["scope_binding"]
         });
         report["operation"] = json!("refine");
+        report["fresh_search"] = json!(options.fresh_search);
+        if !options.fresh_search {
+            report
+                .as_object_mut()
+                .unwrap()
+                .remove("fresh_search_recipe");
+        }
         for field in [
             "modular_state",
             "modular_refinement",
@@ -173,12 +221,14 @@ pub fn master_refine_published_artifact(
         report["seed_depth"] = json!(session.statistics().seed_depth);
         profile::record(&mut report, normalization_profile);
         report["finite_search_restarted_for_normalization_profile"] = json!(changes_profile);
-        collection::inherit_with_policy(
-            source,
-            &options.directory,
-            &mut report,
-            options.finite_policy.as_ref(),
-        )?;
+        if !options.fresh_search {
+            collection::inherit_with_policy(
+                source,
+                &options.directory,
+                &mut report,
+                options.finite_policy.as_ref(),
+            )?;
+        }
         collection::add_members(options, &session, &mut report)?;
         assistance::configure(options, &mut session, &mut report)?;
         save(

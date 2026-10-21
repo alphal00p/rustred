@@ -33,7 +33,11 @@ impl ColumnLabels {
         let mut terminals = Vec::new();
         for key in universe {
             if session.terminals.contains(&key) {
-                terminals.push(key);
+                let offset =
+                    image.column_offsets.get(&key).copied().ok_or_else(|| {
+                        invalid("terminal is absent from the frozen modular image")
+                    })?;
+                terminals.push((offset, key));
             } else if let Some(&offset) = image.column_offsets.get(&key) {
                 known.push((offset, key));
             } else {
@@ -44,7 +48,7 @@ impl ColumnLabels {
         // distance-from-end offsets remain stable under such prepending.
         elimination::sort_keys(&mut unknown);
         known.sort_by(|(left, _), (right, _)| right.cmp(left));
-        elimination::sort_keys(&mut terminals);
+        terminals.sort_by(|(left, _), (right, _)| right.cmp(left));
         let arity = session.family.denominator_count();
         if arity == 0 {
             return Err(invalid(
@@ -56,7 +60,7 @@ impl ColumnLabels {
         for (ordinal, key) in unknown
             .into_iter()
             .chain(known.into_iter().map(|(_, key)| key))
-            .chain(terminals)
+            .chain(terminals.into_iter().map(|(_, key)| key))
             .enumerate()
         {
             let ordinal = i64::try_from(ordinal)

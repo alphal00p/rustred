@@ -513,8 +513,13 @@ impl TerminalRelationModularSession {
             },
         )
         .map_err(algebra)?;
-        let mut terminal_order: Vec<_> = self.session.terminals.iter().cloned().collect();
-        elimination::sort_keys(&mut terminal_order);
+        let terminal_order: Vec<_> = self
+            .session
+            .columns
+            .iter()
+            .filter(|key| self.session.terminals.contains(*key))
+            .cloned()
+            .collect();
         let harder: BTreeSet<_> = terminal_order
             .iter()
             .take_while(|key| **key != candidate.target)

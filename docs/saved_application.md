@@ -35,7 +35,7 @@ Runtime loading accepts a directory or its `application.json` file. `N` is a
 compiled storage capacity at least as large as the physical arity; integral
 keys retain their physical coordinate count.
 
-The five-loop integration uses the fixed THE_ONE generation-54 publication:
+The original five-loop integration used the fixed THE_ONE generation-54 publication:
 
 ```text
 campaigns/five-loop-rank-ladder-THE-ONE/master-reduction/scopes/
@@ -46,6 +46,23 @@ Its selection contains 67 owners and 9,982 rule records. It retains 804 query
 records and 939 raw terminal maps with 905 remaining family-qualified keys.
 Native geometry proves 41 historical queries empty; the other 763 define the
 executable union. Empty records remain in provenance and inventories.
+
+An additional external runtime was exported on 2026-10-21 from the immutable
+generation-119 publication of `five-loop-minimal-r0-d10-incremental`, scope
+`e9b2c25c749f937723c8d8412721e90b8e04a2f2425362cc36d3ca5ed63a714a`.
+It retains 9,982 installed rules, all 939 raw terminal definitions, 904 remaining
+basis keys and 812 required query records (54 empty and 758 nonempty). Its
+recorded starting maxima are R≤6 and D≤10; only the actual query union is
+admitted, not every integer tuple beneath those summaries. It contains exact
+symbolic reductions, not numerical five-loop master values.
+
+The exported directory is external data and is not tracked. Vakint's existing
+`rustred_artifact_path` setting and `Vakint::with_rustred_application` load this
+same runtime format; use symbolic master output. Export checked every raw-key
+substitution and native guard. A separate-process canary exercised an admitted
+R=0, A=10, D=10 dotted input: five IBP applications reduced it to one published
+terminal; its warm repeat performed zero IBP applications with exactly equal
+coefficients and guards. This is a canary, not exhaustive five-loop acceptance.
 
 Export checks every retained source terminal substitution, including its
 conditions, through the native compact-map round trip. The package contains:

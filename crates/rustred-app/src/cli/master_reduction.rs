@@ -25,6 +25,7 @@ pub(crate) struct MasterArgs {
     pub events: Option<PathBuf>,
     pub stop_file: Option<PathBuf>,
     pub resume: bool,
+    pub fresh_search: bool,
     pub threads: usize,
     pub relation_batch_rows: Option<usize>,
     pub relation_block_rows: Option<usize>,
@@ -68,6 +69,7 @@ fn parse_source(
         events: None,
         stop_file: None,
         resume: false,
+        fresh_search: false,
         threads: 1,
         relation_batch_rows: None,
         relation_block_rows: None,
@@ -98,6 +100,7 @@ fn parse_source(
             "--events" => "--events",
             "--stop-file" => "--stop-file",
             "--resume" => "--resume",
+            "--fresh-search" => "--fresh-search",
             "--threads" => "--threads",
             "--relation-batch-rows" => "--relation-batch-rows",
             "--relation-block-rows" => "--relation-block-rows",
@@ -121,6 +124,7 @@ fn parse_source(
         }
         match option {
             "--resume" => result.resume = true,
+            "--fresh-search" => result.fresh_search = true,
             "--deep-verification" | "--no-deep-verification" => {
                 if result.deep_verification.is_some() {
                     return Err(ArgError::InvalidCombination(
@@ -270,6 +274,11 @@ fn parse_source(
     if result.artifact.is_some() && result.previous_artifact.is_some() {
         return Err(ArgError::InvalidCombination(
             "--artifact already supplies the previous state",
+        ));
+    }
+    if result.fresh_search && result.artifact.is_none() {
+        return Err(ArgError::InvalidCombination(
+            "--fresh-search requires refinement from a published --artifact source",
         ));
     }
     if !result.collection_artifacts.is_empty() && result.artifact.is_none() {
@@ -547,6 +556,7 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     options.finite_policy = finite_policy.clone();
     options.operation = args.operation;
     options.resume = args.resume;
+    options.fresh_search = args.fresh_search;
     options.previous_artifact = args.previous_artifact;
     options.collection_artifacts = args.collection_artifacts;
     options.threads = args.threads;
@@ -1296,6 +1306,64 @@ mod tests {
                 ]
                 .map(OsString::from)
                 .into_iter()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn fresh_search_is_a_bound_artifact_mode_and_can_resume_without_resetting() {
+        let Command::WalkMasterReduce(args) = parse(
+            [
+                "--artifact",
+                "source",
+                "--directory",
+                "out",
+                "--fresh-search",
+                "--resume",
+                "--seed-depth",
+                "3",
+                "--containing-sector-depth",
+                "0",
+            ]
+            .map(OsString::from)
+            .into_iter(),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert!(args.fresh_search);
+        assert!(args.resume);
+        assert_eq!(args.seed_depth, 3);
+        assert_eq!(args.containing_sector_depth, 0);
+        assert!(
+            parse(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--fresh-search"
+                ]
+                .map(OsString::from)
+                .into_iter(),
+            )
+            .is_err()
+        );
+        assert!(
+            parse(
+                [
+                    "--artifact",
+                    "source",
+                    "--directory",
+                    "out",
+                    "--fresh-search",
+                    "--fresh-search"
+                ]
+                .map(OsString::from)
+                .into_iter(),
             )
             .is_err()
         );

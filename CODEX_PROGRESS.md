@@ -1,5 +1,100 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 21 — relations-only fresh search and isolated R6 package (active)
+
+User authorized a fresh master-refinement option and a separate Vakint-ready
+five-loop export, with the existing large campaign left untouched. This task
+does not implement the proposed higher-level parallel refinement architecture.
+
+- Core implementation: `a0_modular_kernel`, fresh native session importing only
+  authenticated exact terminal maps/conditions, fresh requested seeds and zero
+  cursors, no inherited auxiliary row space or modular search state.
+- Native app/CLI: `fresh_search_native`, explicit `--fresh-search`, compact
+  retained-map authority/provenance, source/application identity checks and
+  cold/resume tests. Cross-family output must fail explicitly if it cannot be
+  represented; it must never be discarded or mislabeled as a local master.
+- Python steering: `modular_refine_integration`, one-shot new-round operation,
+  exact requested lower depths, ordinary resume of the newly created round,
+  old default semantics unchanged. Fresh requests require durable proved maps
+  from a finalized source, rather than silently using an older publication.
+- Independent mathematical/code audit: `modular_final_math_audit`.
+- Isolated offline package: `five_loop_package_export`, pinning immutable
+  publication `master-reduction/scopes/e9b2c25c749f937723c8d8412721e90b8e04a2f2425362cc36d3ca5ed63a714a`
+  of `campaigns/five-loop-minimal-r0-d10-incremental`: generation 119,
+  R≤6/D≤10 recorded scope, 812 starting queries, 9,982 installed rules,
+  939 raw terminal keys and 904 final basis keys. These maxima are not blanket
+  coverage of all integrals beneath those bounds. Export writes outside the
+  campaign and will not be committed or pushed.
+
+No production stop/start/resume/finalize, checkpoint update, policy rewrite,
+binary replacement or campaign writer lock is authorized for our validation.
+Native tests use workspace TMP fixtures; old proofs remain historical authority
+without controlling the fresh round's active search budget. Existing dirty
+FeynKit/notebook/reference work is preserved and excluded from this milestone.
+
+Implementation and audit progress: Python's four-module suite independently
+passes 188 tests; the root's four-CPU-affinity run passes 187 with its existing
+128-CPU protocol control explicitly skipped. Native release type-check passed;
+test metadata caught one new test-only Arc borrow/move error, now corrected.
+The requested final launch shape is `(2,0)` with the exact backend. Generic
+`(3,1)`/`(3,0)`, modular fresh-state and raw-inventory extension remain regression
+controls. Imported output-basis preferences are preserved rather than inverted
+by the default pivot ordering. Existing ordinary refinement behavior is retained.
+
+The isolated export uncovered concrete loading defects before any package was
+claimed ready: a 13.3-million-entry denominator scan spent approximately 95%
+of sampled CPU in linear guard deduplication, followed by repeated per-terminal
+guard-vector clones. The owned helper was stopped after 11m29s at 84.2 GiB peak
+RSS, with no exported artifact. This is a censored baseline, not a successful
+timing. Narrow fixes reuse the existing exact `GuardUnion` index and immutable
+guard buffers; fresh-map import and application-package conversion also share
+those buffers. No algebra, guard order or mathematical assumptions change.
+Evidence remains under `TMP/five-loop-vakint-export-20261021/`.
+
+User separately stopped/restarted the production modular refinement. Read-only
+diagnosis found its stop request was pending inside an uncancellable long
+reconstruction; root gave the verified native PID for a user-controlled kill.
+Only checkpointed progress is recoverable. We did not signal production or
+finalize its moving phase. Export remains pinned to immutable publication e9b2….
+
+Fresh native acceptance now passes all 13 subprocess gates on frozen release
+`TMP/releases/20261021-fresh-search/rustred` (SHA256
+`efebfd75ed94deffd7a16e1d3c625ad8591504c9dac90e2ee26b74fda7de9311`).
+A genuine two-loop partial `(2,2)` source had nine ordinary rows, two terminal
+relations and seven auxiliary columns. Fresh exact `(2,0)`/`(3,1)` and modular
+`(3,0)` preserve all raw maps, start with zero ordinary cursor and no auxiliary
+columns, cold resume at changed worker counts, and leave source hashes intact.
+Evidence: `TMP/fresh-search-20261021/ACCEPTANCE_RESULT.md`.
+
+The optimized isolated R6 export completed in 6m04.76s at 7.05 GiB peak RSS.
+Native cold-load/canary passed: 54.540s load, 0.2354s first application with five
+IBP applications, 0.17365s warm application with zero IBP applications and one
+cache hit; exact output coefficients and all 108,524 guards match. An actual
+existing Vakint loader also passed: 78.624s load/preparation, 2.75 GiB peak RSS,
+67 topology entries prepared only after explicit artifact loading (0.157s).
+It prepared zero owner formulas eagerly, and reports 904 symbolic terminal
+identities, 38 factored terminals and 15 lower families. No numerical values,
+FORM fallback or exhaustive five-loop acceptance is claimed.
+
+External-data delivery (not tracked):
+`TMP/deliveries/five-loop-r6-d10-gen119-20261021/application`,
+624,093,938 logical bytes; hosting archive
+`rustred-five-loop-r6-d10-gen119-20261021.tar.zst`, 184,908,926 bytes,
+SHA256 `eca1d93a0c9d14131e442ad5a4e1c051e293cc485dd80bb26f90316c16f6551e`.
+The same source remains byte-identical. These are completed measurements;
+the earlier 84.2-GiB baseline was stopped and is not a valid speed ratio.
+
+Additional authorized work is isolated on `codex/numerator-symmetry-refinement`
+in `TMP/numerator-symmetry-refinement-20261021`. P102's full-numerator symmetry
+identity and exact P162/P86/P106 momentum witnesses are independently confirmed
+against upstream `aca9b1d324044165c2981213a920d6828d679dc0`; no P-name solver
+dispatch is used. Generic provider/certificate code type-checks; exact runtime
+regressions, retained-set measurements at three/four/five loops and integration
+with this fresh-search baseline remain pending. Responsible agents:
+`numerator_symmetry_engine`, `symmetry_refinement_integration`,
+`p102_witness_audit`, `symmetry_lower_loop_validation`, with independent audit
+by `modular_final_math_audit`. This feature is not yet claimed delivered.
+
 ## October 21 — completed preparation-parent counters delivered
 
 The six-loop shared-pool dashboard incorrectly discarded a completed parent's

@@ -45,8 +45,10 @@ struct Record {
 }
 
 // Schema 1 is deliberately unchanged, including unassisted output bytes.
-// Schema 2 appends this state after that same record; both readers share the
-// original structural and Symbolica coefficient validation.
+// Schema 2 appends assistance after that same record. Schema 3 appends only a
+// retained-relations authority binding, and schema 4 appends assistance followed
+// by that binding. All readers share the original structural and Symbolica
+// coefficient validation; imported terminal equations themselves live in U.
 #[derive(bincode::Encode, bincode::Decode)]
 struct AssistanceRecord {
     binding: String,
@@ -55,6 +57,12 @@ struct AssistanceRecord {
     equations: Vec<(Vec<(Vec<i64>, u32)>, Vec<u32>)>,
     equation_cursor: u64,
     completed_rows: u64,
+}
+
+#[derive(bincode::Encode, bincode::Decode)]
+struct RetainedRelationsRecord {
+    binding: String,
+    protected_outputs: Vec<Vec<i64>>,
 }
 fn binary(error: impl fmt::Display) -> TerminalRelationError {
     TerminalRelationError::Binary(error.to_string())
@@ -145,8 +153,42 @@ pub(super) fn encode(
             })
         })
         .transpose()?;
+    let retained_relations = session
+        .retained_relations
+        .as_ref()
+        .map(
+            |authority| -> Result<RetainedRelationsRecord, TerminalRelationError> {
+                if authority.binding.is_empty() {
+                    return Err(binary("empty retained-relations authority binding"));
+                }
+                check(
+                    "retained-relations binding bytes",
+                    authority.binding.len(),
+                    limits.max_collection_entries,
+                )?;
+                check(
+                    "retained-relations protected outputs",
+                    authority.protected_outputs.len(),
+                    limits.max_collection_entries,
+                )?;
+                Ok(RetainedRelationsRecord {
+                    binding: authority.binding.clone(),
+                    protected_outputs: authority
+                        .protected_outputs
+                        .iter()
+                        .map(|key| key.powers().to_vec())
+                        .collect(),
+                })
+            },
+        )
+        .transpose()?;
     let record = Record {
-        schema: if assistance.is_some() { 2 } else { 1 },
+        schema: match (assistance.is_some(), retained_relations.is_some()) {
+            (false, false) => 1,
+            (true, false) => 2,
+            (false, true) => 3,
+            (true, true) => 4,
+        },
         family,
         fingerprint: session.family.fingerprint().to_owned(),
         raw: session.raw.iter().map(|k| k.powers().to_vec()).collect(),
@@ -184,6 +226,12 @@ pub(super) fn encode(
     if let Some(assistance) = assistance {
         records.extend(
             bincode::encode_to_vec(assistance, bincode::config::standard()).map_err(binary)?,
+        );
+    }
+    if let Some(retained_relations) = retained_relations {
+        records.extend(
+            bincode::encode_to_vec(retained_relations, bincode::config::standard())
+                .map_err(binary)?,
         );
     }
     check(
@@ -232,17 +280,21 @@ pub(super) fn decode(
         .section(SectionTag::PROGRAM)
         .expect("checked section");
     let (record, used): (Record, usize) = decode_structure(data, "checkpoint")?;
-    let assistance = match record.schema {
-        1 if used == data.len() => None,
-        2 => {
-            let (record, extra): (AssistanceRecord, usize) =
+    let schema = record.schema;
+    let (assistance, used) = match schema {
+        1 if used == data.len() => (None, used),
+        2 | 4 => {
+            let (assistance_record, extra): (AssistanceRecord, usize) =
                 decode_structure(&data[used..], "checkpoint assistance")?;
-            if used + extra != data.len() {
+            if schema == 2 && used + extra != data.len() {
                 return Err(binary("trailing terminal-relations assistance records"));
             }
             check(
                 "assistance keys",
-                record.pending.len().saturating_add(record.queried.len()),
+                assistance_record
+                    .pending
+                    .len()
+                    .saturating_add(assistance_record.queried.len()),
                 io.max_collection_entries.min(
                     limits
                         .max_columns
@@ -252,30 +304,58 @@ pub(super) fn decode(
             )?;
             check(
                 "equation-provider binding bytes",
-                record.binding.len(),
+                assistance_record.binding.len(),
                 io.max_collection_entries,
             )?;
             check(
                 "pending assistance rows",
-                record.equations.len(),
+                assistance_record.equations.len(),
                 limits.max_rows,
             )?;
-            let nonzeros = record
+            let nonzeros = assistance_record
                 .equations
                 .iter()
                 .fold(0usize, |n, (terms, _)| n.saturating_add(terms.len()));
-            let conditions = record.equations.iter().fold(0usize, |n, (_, conditions)| {
-                n.saturating_add(conditions.len())
-            });
+            let conditions = assistance_record
+                .equations
+                .iter()
+                .fold(0usize, |n, (_, conditions)| {
+                    n.saturating_add(conditions.len())
+                });
             check("pending assistance nonzeros", nonzeros, limits.max_nonzeros)?;
             check(
                 "pending assistance conditions",
                 conditions,
                 limits.max_nonzeros,
             )?;
+            (Some(assistance_record), used + extra)
+        }
+        3 => (None, used),
+        _ => return Err(binary("unsupported or trailing terminal-relations records")),
+    };
+    let retained_relations = match schema {
+        3 | 4 => {
+            let (record, extra): (RetainedRelationsRecord, usize) =
+                decode_structure(&data[used..], "checkpoint retained relations")?;
+            if used + extra != data.len() || record.binding.is_empty() {
+                return Err(binary(
+                    "invalid or trailing retained-relations authority record",
+                ));
+            }
+            check(
+                "retained-relations binding bytes",
+                record.binding.len(),
+                io.max_collection_entries,
+            )?;
+            check(
+                "retained-relations protected outputs",
+                record.protected_outputs.len(),
+                io.max_collection_entries
+                    .min(limits.normalization.max_terminals),
+            )?;
             Some(record)
         }
-        _ => return Err(binary("unsupported or trailing terminal-relations records")),
+        _ => None,
     };
     check("seeds", record.seeds.len(), limits.max_seeds)?;
     check("columns", record.columns.len(), limits.max_columns)?;
@@ -469,6 +549,25 @@ pub(super) fn decode(
         return Err(binary("rebuild cursor exceeds row inventory"));
     }
     let terminals = normalization.canonical_terminals().clone();
+    let retained_relations = retained_relations
+        .map(|record| -> Result<RetainedRelationsAuthority, TerminalRelationError> {
+            let count = record.protected_outputs.len();
+            let protected_outputs = record
+                .protected_outputs
+                .into_iter()
+                .map(&key)
+                .collect::<Result<BTreeSet<_>, _>>()?;
+            if protected_outputs.len() != count || !protected_outputs.is_subset(&terminals) {
+                return Err(binary(
+                    "retained-relations protected outputs are duplicated or outside the terminal inventory",
+                ));
+            }
+            Ok(RetainedRelationsAuthority {
+                binding: record.binding,
+                protected_outputs,
+            })
+        })
+        .transpose()?;
     let assistance = assistance
         .map(
             |a| -> Result<assistance::Assistance, TerminalRelationError> {
@@ -555,6 +654,7 @@ pub(super) fn decode(
         rebuild_cursor,
         completed_rebuild_rows: record.completed_rebuild_rows,
         assistance,
+        retained_relations,
         limits,
     };
     if let Some(assistance) = &session.assistance {
@@ -564,6 +664,26 @@ pub(super) fn decode(
         let (aliases, terminals) = session.make_aliases(&session.alias_keys)?;
         session.aliases = aliases;
         session.terminals = terminals;
+    }
+    if let Some(authority) = &session.retained_relations {
+        if !authority.protected_outputs.is_subset(&session.terminals) {
+            return Err(binary(
+                "retained-relations outputs are absent after alias reconstruction",
+            ));
+        }
+        let mut expected = session.terminals.iter().cloned().collect::<Vec<_>>();
+        session.sort_terminal_columns(&mut expected);
+        let actual = session
+            .columns
+            .iter()
+            .filter(|key| session.terminals.contains(*key))
+            .cloned()
+            .collect::<Vec<_>>();
+        if actual != expected {
+            return Err(binary(
+                "retained-relations terminal column order differs from its protected output basis",
+            ));
+        }
     }
     let column_set: BTreeSet<_> = session.columns.iter().cloned().collect();
     if !session.terminals.is_subset(&column_set) {

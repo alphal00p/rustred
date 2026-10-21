@@ -52,6 +52,73 @@ finite relation set and ends as `completed_nonminimal`: this is neither
 master independence nor a globally minimal basis. No numerical values are
 computed.
 
+## Relations-only fresh search
+
+Ordinary refinement resumes or extends its saved finite source search. An
+explicit `--fresh-search` instead starts a separate round from the latest
+published terminal substitutions, discarding the previous auxiliary matrix and
+unprocessed search state. A previously requested depth is not a lower bound on
+the new round: `(2,2)` may become `(2,0)`, `(3,1)`, or `(3,0)`.
+
+First stop the old refinement and wait for its durable checkpoint and shell
+prompt. Finalize that checkpoint so its proved maps become the published source:
+
+```bash
+python -B examples/python/saved_campaign.py finalize-refinement \
+  --campaign "$CAMPAIGN" --executable "$BIN"
+python -B examples/python/saved_campaign.py refine \
+  --campaign "$CAMPAIGN" --executable "$BIN" \
+  --fresh-search --seed-depth 2 --containing-sector-depth 0 \
+  --refinement-strategy exact --workers 128 --cpus 64-191
+```
+
+The shorter `--fresh-search` maps to production steering's
+`--master-fresh-search` and native `walk-master-reduce --fresh-search`.
+The source artifact and old refinement checkpoint are not rewritten. The
+operation requires a published, completed collection; it refuses to silently
+omit proved relations still confined to an unfinalized checkpoint.
+
+The fresh round keeps:
+
+- The original raw terminal inventory, published starting-input scope and
+  installed programs/routing witnesses.
+- Every authenticated final terminal map, including collected local-family
+  relations and their conditions, in the same inherited output convention.
+- A compact native authority capsule binding the source artifact, program and
+  family. This records inherited trusted-generated authority; it does not
+  claim to independently regenerate the old relations from ordinary IBPs.
+
+It does not retain old auxiliary U rows, pending reindexing, ordinary or modular
+source cursors, pending reconstruction candidates, probe images, or old minimum
+depths. The authority capsule itself has no searched ordinary rows and no large
+new seed inventory. The active session receives the new requested inventory.
+Dropping auxiliary work may discard opportunities to find further relations;
+it never invalidates the terminal maps already retained.
+
+Always specify both depths when changing shape. Fresh defaults are `(0,0)`,
+exact refinement, assistance disabled, and no new collection peers; operational
+worker/RAM grants and executable preferences remain separate. Current fresh
+search supports a single local family. Cross-family outputs or external peer
+collection involving a compact retained session fail explicitly rather than
+silently dropping equations.
+
+For an interrupted fresh round, use an ordinary refine command with the same
+shape and strategy, **without another `--fresh-search`**:
+
+```bash
+python -B examples/python/saved_campaign.py refine \
+  --campaign "$CAMPAIGN" --executable "$BIN" \
+  --seed-depth 2 --containing-sector-depth 0 --refinement-strategy exact \
+  --workers 128 --cpus 64-191
+```
+
+The launcher restores that round's bound fresh mode and resumes its checkpoint;
+it does not reimport maps or start over. After it completes, or after a clean
+stop followed by finalization, another explicit fresh request may select a
+different shape. Inspection remains available throughout. This operation does
+not alter the completed rank/D input scope, claim master minimality, evaluate
+master values, or generate new parametric IBP rules.
+
 `run`, `publish`, and `extend` accept `--deep-verification` to request independent
 dependency-graph replay during publication, and `--no-deep-verification` for the
 fast inventory path. The default preference is off; an explicitly selected

@@ -525,6 +525,7 @@ def render_master_table(frame, width=100, height=24, color=True):
     partial = master.get("partial_refinement", False)
     publishing = master.get("operation") in ("publish", "finalize-refinement")
     modular = master.get("refinement_strategy") == "modular-circuits" and not publishing
+    fresh = master.get("fresh_search", False) and not publishing
     total, completed = master.get("total_work"), master.get("completed_work")
     work = f"{count(completed)} / {count(total)}" if total is not None else count(completed)
     discovery = master.get("modular_refinement", {}) if modular else {}
@@ -640,6 +641,10 @@ def render_master_table(frame, width=100, height=24, color=True):
                               + count(collection.get("finite_feedback_aliases")) + " full-U aliases")))
         rows.insert(4, (1, row("Feedback nonzeros", count(collection.get("finite_feedback_nonzeros")),
                               count(collection.get("finite_feedback_replay_operations")) + " replay operations")))
+    if fresh:
+        rows.insert(1, (0, full("Fresh relations-only round · shape ("
+            + count(master.get("seed_depth")) + "," + count(master.get("containing_sector_depth"))
+            + ") · retained proved maps", "36")))
     rows.insert(0, (0, row("Elapsed time", duration(frame["elapsed_seconds"]),
                           "wall time in this phase; current invocation", "36")))
     if master["artifact"]:
@@ -683,7 +688,10 @@ def plain_summary(frame):
                 f"Checkpoint {frame['checkpoint']['state']} · {frame['checkpoint']['directory']}",
                 "Retained exact maps; finite search unfinished; no minimality claim" if master.get("partial_refinement") else
                 "Modular discovery; exact accepted identities; exact search incomplete" if master.get("refinement_strategy") == "modular-circuits" else
-                "Exact bounded search; no numerical master values or minimality claim"]
+                "Exact bounded search; no numerical master values or minimality claim",
+                *(["Fresh relations-only round · shape (" + count(master.get("seed_depth")) + ","
+                    + count(master.get("containing_sector_depth")) + ") · retained proved maps; new search cursor"]
+                  if master.get("fresh_search", False) and master.get("operation") == "refine" else [])]
     rates, snapshot = frame["rates"], frame["closure_snapshot"]
     completed = rates["local_completion"]["per_second"]
     rate = "unknown" if completed is None else f"{completed * 3600:,.0f}"

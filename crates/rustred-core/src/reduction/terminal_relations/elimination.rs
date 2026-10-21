@@ -20,6 +20,35 @@ pub(super) fn column_offsets(columns: &[IntegralKey]) -> BTreeMap<IntegralKey, u
 }
 
 impl TerminalRelationSession {
+    pub(super) fn sort_terminal_columns(&self, columns: &mut [IntegralKey]) {
+        sort_keys(columns);
+        if let Some(authority) = &self.retained_relations {
+            // Stable partition: ordinary elimination pivots precede the exact
+            // nonminimal output basis chosen by the imported flat maps, while
+            // each block retains the established Spired order.
+            columns.sort_by_key(|key| authority.protected_outputs.contains(key));
+        }
+    }
+
+    pub(super) fn sort_existing_columns(
+        &self,
+        columns: &mut [IntegralKey],
+    ) -> Result<(), TerminalRelationError> {
+        if columns
+            .iter()
+            .any(|key| !self.column_offsets.contains_key(key))
+        {
+            return Err(invalid("requested ordering contains an unknown column"));
+        }
+        // Larger distance from the physical end means an earlier native column.
+        columns.sort_by(|left, right| {
+            self.column_offsets[right]
+                .cmp(&self.column_offsets[left])
+                .then_with(|| left.cmp(right))
+        });
+        Ok(())
+    }
+
     pub(super) fn normalized_row(
         &self,
         row: &TerminalRelationRow,
@@ -160,8 +189,20 @@ impl TerminalRelationSession {
         self.alias_keys = keys;
         self.aliases = aliases;
         self.terminals = terminals;
+        let aliases = &self.aliases;
+        let terminals = &self.terminals;
+        if let Some(authority) = &mut self.retained_relations {
+            authority.protected_outputs = authority
+                .protected_outputs
+                .iter()
+                .map(|key| aliases.get(key).unwrap_or(key).clone())
+                .filter(|key| terminals.contains(key))
+                .collect();
+        }
         self.columns = self.terminals.iter().cloned().collect();
-        sort_keys(&mut self.columns);
+        let mut columns = std::mem::take(&mut self.columns);
+        self.sort_terminal_columns(&mut columns);
+        self.columns = columns;
         self.column_offsets = column_offsets(&self.columns);
         self.reducer = SparseRowReducer::new(
             u32::try_from(self.columns.len()).map_err(invalid)?,
@@ -295,7 +336,7 @@ impl TerminalRelationSession {
             .collect()
     }
 
-    fn solved_terminal_rows(
+    pub(super) fn solved_terminal_rows(
         &self,
     ) -> Result<BTreeMap<IntegralKey, TerminalRelationRow>, TerminalRelationError> {
         if self.rebuild_cursor < self.rebuild.len() {

@@ -10,6 +10,8 @@ mod collection_audit;
 mod collection_tests;
 #[path = "tests/finite_source.rs"]
 mod finite_source_tests;
+#[path = "tests/fresh.rs"]
+mod fresh_tests;
 #[path = "tests/inherited.rs"]
 mod inherited_tests;
 #[path = "tests/modular.rs"]
