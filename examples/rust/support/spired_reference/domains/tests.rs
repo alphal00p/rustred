@@ -43,6 +43,7 @@ fn rule(
             stats: SearchStats::default(),
         },
         exceptions: ExceptionalConditions { branches },
+        dispatch_policy: Default::default(),
     }
 }
 

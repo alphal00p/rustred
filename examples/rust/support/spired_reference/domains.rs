@@ -276,6 +276,7 @@ fn reference_exceptions<const N: usize>(
             stats: SearchStats::default(),
         },
         exceptions: ExceptionalConditions { branches },
+        dispatch_policy: Default::default(),
     };
     Ok(expected_rule.exceptional_cases(system.index_variables(), sector)?)
 }

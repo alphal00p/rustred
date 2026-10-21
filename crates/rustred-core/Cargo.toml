@@ -37,6 +37,14 @@ rustred-order = { path = "../rustred-order" }
 symbolica.workspace = true
 
 [[example]]
+name = "refinement_modular_probe"
+required-features = ["reconstruction"]
+
+[[example]]
+name = "refinement_reconstruction_probe"
+required-features = ["reconstruction"]
+
+[[example]]
 name = "spired-solve-case"
 path = "../../examples/rust/spired_solve_case.rs"
 

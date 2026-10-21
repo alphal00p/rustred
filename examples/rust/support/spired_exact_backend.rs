@@ -57,12 +57,15 @@ fn parse(mode: Option<&str>, limit: Option<&str>) -> Result<SymbolicExactBackend
                 .ok_or("fraction-free entry limit must be a positive integer")?;
             Ok(SymbolicExactBackend::DenseFractionFree { max_matrix_entries })
         }
+        #[cfg(feature = "reconstruction")]
         "semi-numerical" if limit.is_none() => Ok(SymbolicExactBackend::SemiNumerical {
             max_degree: env_positive_u16("RUSTRED_SPIRED_RECON_MAX_DEGREE", 128)?,
             max_probes: env_positive_usize("RUSTRED_SPIRED_RECON_MAX_PROBES", 200_000)?,
             max_attempts: env_positive_usize("RUSTRED_SPIRED_RECON_MAX_ATTEMPTS", 4)?,
             max_primes: env_positive_usize("RUSTRED_SPIRED_RECON_MAX_PRIMES", 8)?,
         }),
+        #[cfg(not(feature = "reconstruction"))]
+        "semi-numerical" => Err("semi-numerical mode requires the reconstruction feature".into()),
         _ => Err(
             "symbolic exact backend must be sparse, sparse-factorized, sparse-target-only, sparse-target-factorized, dense-fraction-free or semi-numerical"
                 .into(),
@@ -70,6 +73,7 @@ fn parse(mode: Option<&str>, limit: Option<&str>) -> Result<SymbolicExactBackend
     }
 }
 
+#[cfg(feature = "reconstruction")]
 fn env_positive_usize(name: &str, default: usize) -> Result<usize, String> {
     std::env::var(name)
         .ok()
@@ -83,6 +87,7 @@ fn env_positive_usize(name: &str, default: usize) -> Result<usize, String> {
         .unwrap_or(Ok(default))
 }
 
+#[cfg(feature = "reconstruction")]
 fn env_positive_u16(name: &str, default: u16) -> Result<u16, String> {
     env_positive_usize(name, default as usize)
         .and_then(|value| u16::try_from(value).map_err(|_| format!("{name} exceeds u16")))
@@ -139,10 +144,16 @@ mod tests {
                 max_matrix_entries: 143636
             }
         );
+        #[cfg(feature = "reconstruction")]
         assert!(matches!(
             parse(Some("semi-numerical"), None).unwrap(),
             SymbolicExactBackend::SemiNumerical { .. }
         ));
+        #[cfg(not(feature = "reconstruction"))]
+        assert_eq!(
+            parse(Some("semi-numerical"), None).unwrap_err(),
+            "semi-numerical mode requires the reconstruction feature"
+        );
     }
 
     #[test]
