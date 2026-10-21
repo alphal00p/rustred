@@ -88,6 +88,23 @@ mod tests {
             assert!(parse_targets(text, &owner, &fixed).is_err(), "{text}");
         }
     }
+
+    #[test]
+    fn missing_owners_and_backing_failures_have_distinct_diagnostics() {
+        use rustred::persistence::finite_work::{GeneratedWorkError, GeneratedWorkErrorKind};
+
+        let missing = failure(&CandidateRoutedCampaignFailure::Trace(
+            CandidateRoutedError::MissingOwner {
+                target: IntegralKey::try_new(vec![1, -2]).unwrap(),
+            },
+        ));
+        assert_eq!(missing, json!({"kind":"missing-owner","target":[1,-2]}));
+        let backing = failure(&CandidateRoutedCampaignFailure::Backing(
+            GeneratedWorkError::new(GeneratedWorkErrorKind::Corrupt, "invalid page"),
+        ));
+        assert_eq!(backing["kind"], "generated-work-backing-error");
+        assert!(backing["message"].as_str().unwrap().contains("Corrupt"));
+    }
 }
 
 fn local_coordinates(key: &IntegralKey) -> Vec<u64> {
@@ -107,6 +124,9 @@ fn failure(error: &CandidateRoutedCampaignFailure) -> Value {
     match error {
         CandidateRoutedCampaignFailure::Cancelled => json!({"kind":"cancelled"}),
         CandidateRoutedCampaignFailure::WorkerPanicked => json!({"kind":"worker-panicked"}),
+        CandidateRoutedCampaignFailure::Backing(error) => {
+            json!({"kind":"generated-work-backing-error","message":bounded_message(&error.to_string())})
+        }
         CandidateRoutedCampaignFailure::Trace(error) => match error {
             CandidateRoutedError::ResourceLimit {
                 resource,
@@ -117,6 +137,9 @@ fn failure(error: &CandidateRoutedCampaignFailure) -> Value {
             }
             CandidateRoutedError::InvalidInput(message) => {
                 json!({"kind":"invalid-input","message":bounded_message(message)})
+            }
+            CandidateRoutedError::MissingOwner { target } => {
+                json!({"kind":"missing-owner","target":target.powers()})
             }
             CandidateRoutedError::Cycle { target } => {
                 json!({"kind":"operational-cycle","target":target.powers()})
