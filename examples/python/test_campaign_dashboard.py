@@ -63,6 +63,19 @@ def sample_status():
 
 
 class TelemetryTests(unittest.TestCase):
+    def test_master_parallel_batch_transport_and_colored_dashboard(self):
+        status=sample_status()
+        status["master_reduction"]={"stage":"relations","status":"running","operation":"refine",
+            "completed_work":10,"total_work":100,"execution":{"strategy":"ordered-work-stealing-blocks-v1",
+            "stage":"parallel elimination","workers":32,"rows_total":128,"rows_prepared":128,
+            "rows_eliminated":64,"rows_committed":0,"blocks_completed":8}}
+        frame=TELEMETRY.normalize_status(status)
+        self.assertEqual(frame["master_reduction"]["execution"]["rows_eliminated"],64)
+        shown="\n".join(DASHBOARD.render_master_table(frame,width=160,height=32,color=True))
+        self.assertIn("Parallel batch",shown)
+        self.assertIn("eliminated 64",shown)
+        self.assertIn("\x1b[",shown)
+
     def test_dirty_closure_snapshot_must_have_a_scan_inside_window(self):
         status = sample_status()
         gap = status["derived"]["discovery_closure_net_1h"]

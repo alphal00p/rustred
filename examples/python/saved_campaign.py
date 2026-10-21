@@ -83,6 +83,10 @@ def main(argv=None):
             bounds.add_argument("--max-power-difference", type=int, help="new D=A-R ceiling; omitted preserves current ceiling")
             bounds.add_argument("--unbounded-power-difference", action="store_true", help="remove only the additional stage ceiling")
         if action == "refine":
+            sub.add_argument("--workers", dest="refinement_workers", type=int, help="refiner-only worker budget; may change on resume")
+            sub.add_argument("--cpus", dest="refinement_cpus", help="refiner-only CPU affinity; must match --workers")
+            sub.add_argument("--relation-batch-rows", type=int, help="positive operational parallel window; may change on resume")
+            sub.add_argument("--relation-block-rows", type=int, help="positive work-stealing elimination block size; may change on resume")
             sub.add_argument("--max-relation-columns", type=int,
                              help="operational column budget; 0 removes the limit (default saved preference or unlimited); may change on resume")
             sub.add_argument("--collection-artifact", type=Path, action="append", default=[],
@@ -132,6 +136,16 @@ def main(argv=None):
                 command += ["--executable", str(executable)]
             if args.action == "refine":
                 command.append("--refine-masters")
+                if args.refinement_workers is not None:
+                    if args.refinement_workers <= 0: raise ValueError("refinement workers must be positive")
+                    command += ["--master-refinement-workers",str(args.refinement_workers)]
+                if args.refinement_cpus is not None:
+                    command += ["--master-refinement-cpus",args.refinement_cpus]
+                for name in ("relation_batch_rows", "relation_block_rows"):
+                    value = getattr(args, name)
+                    if value is not None:
+                        if value <= 0: raise ValueError("relation batch/block rows must be positive")
+                        command += ["--master-" + name.replace("_", "-"), str(value)]
                 if args.max_relation_columns is not None:
                     if args.max_relation_columns < 0:
                         raise ValueError("max relation columns must be nonnegative (0 means unlimited)")

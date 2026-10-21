@@ -52,7 +52,8 @@ def digest(path):
 def configuration(campaign, enabled=False, seed_depth=None, executable=None, saved_rule_assistance=None,
                   containing_sector_depth=None, circuit_symmetry_assistance=None, normalization_profile=None,
                   collection_artifacts=None, finite_feedback=None, deep_verification=None,
-                  max_relation_columns=None):
+                  max_relation_columns=None, relation_batch_rows=None, relation_block_rows=None,
+                  refinement_workers=None, refinement_cpus=None):
     """Read-only configuration. Only this invocation can request refinement.
 
     Historical ``enabled`` policies retain executable/search preferences, never
@@ -136,6 +137,24 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
             "terminal_policy": "bounded exact search; finite nonminimal basis permitted",
             "master_minimality_claim": False}
     policy["collection_strategy"] = COLLECTION_STRATEGY
+    if refinement_workers is not None and (not enabled or type(refinement_workers) is not int or refinement_workers <= 0):
+        raise ValueError("refinement workers require explicit refinement and a positive count")
+    if refinement_cpus is not None and (not enabled or not isinstance(refinement_cpus,str) or not refinement_cpus):
+        raise ValueError("refinement CPU affinity requires explicit refinement and a nonempty CPU set")
+    for name,value in (("refinement_workers",refinement_workers),("refinement_cpus",refinement_cpus)):
+        value=value if value is not None else (existing or {}).get(name)
+        if value is not None:
+            if ((name=="refinement_workers" and (type(value) is not int or value<=0)) or
+                    (name=="refinement_cpus" and (not isinstance(value,str) or not value))):
+                raise ValueError("invalid saved refinement worker/CPU resource choice")
+            policy[name]=value
+    for name, value in (("relation_batch_rows",relation_batch_rows),("relation_block_rows",relation_block_rows)):
+        if value is not None and (type(value) is not int or value <= 0 or not enabled):
+            raise ValueError("relation batch/block rows require explicit refinement and positive sizes")
+        value = value if value is not None else (existing or {}).get(name)
+        if value is not None:
+            if type(value) is not int or value <= 0: raise ValueError("invalid saved relation batch/block rows")
+            policy[name] = value
     policy["finite_feedback_recipe"] = FINITE_FEEDBACK_RECIPE
     policy["publication_verification_recipe"] = PUBLICATION_VERIFICATION_RECIPE
     policy["collection_artifacts"] = members
@@ -480,6 +499,11 @@ def phase_two(plan, policy, request, binding, directory, driver):
     finalizing = operation == "finalize-refinement"
     publishing = operation != "refine"
     phase = "Partial refinement publication" if finalizing else "Artifact publication" if publishing else "Master refinement"
+    if not publishing:
+        # Refinement resources are independent of the saved closure engine.
+        # Never rewrite its frozen worker/affinity policy just to refine masters.
+        plan = {**plan,"requested_workers":policy.get("refinement_workers",plan["requested_workers"]),
+                "cpus":policy.get("refinement_cpus",plan["cpus"])}
     supervisor = driver.SUPERVISOR
     telemetry, dashboard = supervisor.MONITOR.TELEMETRY, supervisor.MONITOR.DASHBOARD
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
@@ -514,6 +538,9 @@ def phase_two(plan, policy, request, binding, directory, driver):
                "--threads", str(plan["requested_workers"])]
     if not publishing:
         command += ["--seed-depth", str(policy["seed_depth"])]
+        for name in ("relation_batch_rows", "relation_block_rows"):
+            if policy.get(name) is not None:
+                command += ["--" + name.replace("_", "-"), str(policy[name])]
         if policy.get("max_relation_columns") is not None:
             command += ["--max-relation-columns", str(policy["max_relation_columns"])]
         command.append("--finite-feedback" if policy.get("finite_feedback", True) else "--no-finite-feedback")

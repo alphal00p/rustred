@@ -1,5 +1,82 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 21 — delivered: exact work-stealing master refinement
+
+User requested eager parallel finite master refinement, without interrupting
+the already running frozen refiner. Root inspected its source publication and
+native implementation. The publication has 9,982 installed rules, 6,863 observed
+rules, 939 raw/normalized keys and 909 remaining keys after thirty retained
+relations. Its 812 recorded R≤6/D≤10 query domains and all 485,511,911 saved
+domains are recursively closed; independent deep verification remains off.
+
+The new search retained 54,909 ordinary rows and 51,250 independent rows; it did
+not start from zero. Containing-sector depth changed 0→1 while seed depth stayed
+one: 24,010→24,151 seeds, only 3,525 additional ordinary sources. The 868,168
+work denominator includes inherited rebuild work. Most pending search was
+already unfinished at the previous partial-refinement checkpoint. A short live
+profile shows Symbolica polynomial arithmetic and allocation, not a scheduling
+sleep. The refiner used about one core despite --threads 32. Production state
+and process signals were not modified by root.
+
+Implemented and validated: generic native TerminalRelationExecutor using
+the existing licensed SectorExecutor/Rayon work-stealing pool. It prepares rows
+in parallel, copies only reachable frozen-U pivot slices into compact native
+Symbolica SparseRowReducers, eliminates blocks, and merges complete rows in
+source order. Original support is admitted even if local elimination cancels
+it. Auxiliary columns and source guards are retained. Cursors advance only on
+committed rows; speculative blocks are disposable and the native wire schema
+is unchanged. Rebuild rows use the same executor. Mutable external equation
+providers and final collection retain their existing serial authority paths.
+
+Added operational Rust/CLI/Python batch/block controls and atomic progress with
+caller-thread observations and a coloured parallel-batch dashboard row. Counts
+distinguish prepared/eliminated scratch from committed work. Publication-only
+execution is unchanged. Pinned/public Symbolica audit: numerica sparse public
+CSR constructors, from_upper_triangular_matrix and add_row perform all algebra;
+the public parallel entry point is back substitution, not shared forward
+insertion. Existing RustRed target-RREF/sector-executor integrations were also
+checked. No competing CAS or reconstruction kernel added.
+
+Validation: 164 Python steering/phase/dashboard controls and 54 focused native
+terminal-relation tests pass, including exact serial/parallel checkpoint bytes,
+cross-block auxiliary relations, extension rebuild and cancellation. Initial direct test-harness
+attempts needed Cargo's explicit rlib dependencies, build-script environment
+and ThinLTO for bitcode dependencies; these are harness issues, not test passes.
+The read-only optimized 64-row baseline took 145.576 s solver-only,
+2.212 s load, 786,560 KiB peak RSS. With 32 workers and eight-row blocks:
+63.354 s solver-only, 2,388,212 KiB peak; repeated pair 145.593→62.684 s.
+All four checkpoints are byte-identical and their terminal-map digests match:
+measured 2.30–2.32× solver speedup, not a full-refinement projection. Two-row
+blocks gave 57.508 s but cost 225.30 CPU seconds vs 155.62 with eight-row
+blocks and peak 6,721,180 KiB vs 2,388,212. Prefer moderate blocks rather than
+maximal busy-worker count. Affinity 224–255; shared non-isolated host.
+Actual native CLI interruption/resume passes: four workers pause at generation
+3/work319318, eight resume and pause at generation5/work319334, both with live
+batch events and unchanged source publication. A harness's first attempt lacked
+OMP_THREAD_LIMIT=1; its second read a partial JSONL record. Both harness issues
+were corrected without changing production assertions or interrupting its run.
+Evidence and
+commands are under local TMP/master-refinement-parallel-20261021/. No full
+campaign, production checkpoint, artifact, reference or binary is staged.
+
+User next requested 128 cores and then a reconstruction investigation. Public
+refine --workers/--cpus are now refiner-only overrides, separate from frozen
+closure-engine policy and supported for both campaign lanes. Existing unfinished
+refinement selection ignores executable/resource identity and native resume
+authenticates the mathematical source recipe. CPU64–191 gives 128 physical
+cores, outside six-loop CPU192–223. A real 128-worker one-row admission control
+passes (not a scaling result). Existing RAM policy is retained.
+
+Final optimized CLI SHA256:
+8afc9d5ceba1124cb9077de09085f041d9e5f28be82b09163bc212e7f816580a,
+frozen under TMP/releases/20261021-parallel-master-refinement/ and installed
+atomically at target/release/rustred. Final build took 7m38s. Resume commands
+and mechanism are documented in docs/parallel_master_refinement.md.
+
+Next, after the tested milestone push/launch instructions: modular rank/pivot discovery
+and Symbolica rational-function reconstruction are plausible later backends,
+not implemented or claimed as numerical proof in this slice.
+
 ## October 19 — generation resume resources and final dashboard
 
 User's six-loop attempt failed after 3h44m51 with native exit -9 (SIGKILL),

@@ -26,6 +26,8 @@ pub(crate) struct MasterArgs {
     pub stop_file: Option<PathBuf>,
     pub resume: bool,
     pub threads: usize,
+    pub relation_batch_rows: Option<usize>,
+    pub relation_block_rows: Option<usize>,
     pub deep_verification: Option<bool>,
     pub seed_depth: u32,
     pub containing_sector_depth: u32,
@@ -65,6 +67,8 @@ fn parse_source(
         stop_file: None,
         resume: false,
         threads: 1,
+        relation_batch_rows: None,
+        relation_block_rows: None,
         deep_verification: None,
         seed_depth: 0,
         containing_sector_depth: 0,
@@ -91,6 +95,8 @@ fn parse_source(
             "--stop-file" => "--stop-file",
             "--resume" => "--resume",
             "--threads" => "--threads",
+            "--relation-batch-rows" => "--relation-batch-rows",
+            "--relation-block-rows" => "--relation-block-rows",
             "--deep-verification" => "--deep-verification",
             "--no-deep-verification" => "--no-deep-verification",
             "--seed-depth" => "--seed-depth",
@@ -144,6 +150,17 @@ fn parse_source(
             "--threads" => {
                 result.threads =
                     parse_positive_integer(option, next_utf8_value(&mut args, option)?)?
+            }
+            "--relation-batch-rows" | "--relation-block-rows" => {
+                let value = Some(parse_positive_integer(
+                    option,
+                    next_utf8_value(&mut args, option)?,
+                )?);
+                if option == "--relation-batch-rows" {
+                    result.relation_batch_rows = value;
+                } else {
+                    result.relation_block_rows = value;
+                }
             }
             "--max-relation-columns" => {
                 let value = next_utf8_value(&mut args, option)?;
@@ -503,6 +520,8 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     options.previous_artifact = args.previous_artifact;
     options.collection_artifacts = args.collection_artifacts;
     options.threads = args.threads;
+    options.relation_batch_rows = args.relation_batch_rows;
+    options.relation_block_rows = args.relation_block_rows;
     options.deep_verification = args.deep_verification;
     options.seed_depth = args.seed_depth;
     options.containing_sector_depth = args.containing_sector_depth;

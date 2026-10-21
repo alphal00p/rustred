@@ -419,6 +419,14 @@ def normalize_status(status, sequence=None):
             "master_minimality_claim": False,
             "numerical_evaluation": False,
         }
+        execution = mapping(master.get("execution"))
+        if execution:
+            frame["master_reduction"]["execution"] = {
+                "stage": clean(execution.get("stage", ""), 100),
+                "strategy": clean(execution.get("strategy", ""), 100),
+                **_numbers(execution, ("workers", "batch_rows", "block_rows", "rows_total",
+                                       "rows_prepared", "rows_eliminated", "rows_committed", "blocks_completed")),
+            }
         progress = mapping(master.get("verification_progress"))
         if progress:
             frame["master_reduction"]["verification_progress"] = {

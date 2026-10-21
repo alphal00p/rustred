@@ -6,9 +6,10 @@
 //! of minimality, unrestricted closure, or absence of further relations.
 
 mod assistance;
-pub mod collection;
 mod codec;
+pub mod collection;
 mod elimination;
+mod execution;
 mod sources;
 #[cfg(test)]
 mod tests;
@@ -29,6 +30,9 @@ use crate::persistence::BinaryIoLimits;
 use crate::sector::OrderingPolicy;
 
 pub type TerminalRelationRow = BTreeMap<IntegralKey, Coefficient>;
+pub use execution::{
+    TerminalRelationExecutionOptions, TerminalRelationExecutionProgress, TerminalRelationExecutor,
+};
 
 /// An exact homogeneous equation, together with the generic-parameter domain
 /// on which its provider authorizes it. A declared terminal is not an equation.
@@ -261,10 +265,7 @@ impl TerminalRelationSession {
     /// Change an operational column budget without restarting the exact row
     /// space or finite source cursor. `None` removes this optional budget;
     /// native representation and binary-input bounds still apply.
-    pub fn set_max_columns(
-        &mut self,
-        maximum: Option<usize>,
-    ) -> Result<(), TerminalRelationError> {
+    pub fn set_max_columns(&mut self, maximum: Option<usize>) -> Result<(), TerminalRelationError> {
         let maximum = maximum.unwrap_or(usize::MAX);
         if maximum == 0 {
             return Err(invalid("column budget must be positive or absent"));

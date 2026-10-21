@@ -97,6 +97,15 @@ class PhaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "explicit"):
             PHASES.configuration(self.campaign, max_relation_columns=40)
 
+    def test_parallel_batch_policy_is_positive_operational_and_retained(self):
+        policy=PHASES.configuration(self.campaign,enabled=True,relation_batch_rows=128,relation_block_rows=8)
+        self.write("master-reduction/policy.json",policy)
+        self.assertEqual(PHASES.configuration(self.campaign,enabled=True)["relation_batch_rows"],128)
+        self.assertEqual(PHASES.configuration(self.campaign,enabled=True,relation_block_rows=16)["relation_block_rows"],16)
+        for bad in (0,-1,True,"8"):
+            with self.assertRaises(ValueError):
+                PHASES.configuration(self.campaign,enabled=True,relation_batch_rows=bad)
+
     def test_publication_verification_defaults_fast_and_rejects_refinement_flag(self):
         self.assertFalse(self.policy["deep_verification"])
         deep = PHASES.configuration(self.campaign, deep_verification=True)

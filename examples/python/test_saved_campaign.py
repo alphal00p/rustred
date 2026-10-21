@@ -69,6 +69,22 @@ class SavedCampaignTests(unittest.TestCase):
             with patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
                 self.invoke(action, "--max-relation-columns", value)
 
+    def test_refinement_parallel_window_options_are_operational_and_forwarded(self):
+        command=self.invoke("refine","--relation-batch-rows","128","--relation-block-rows","8")
+        self.assertEqual(command[command.index("--master-relation-batch-rows")+1],"128")
+        self.assertEqual(command[command.index("--master-relation-block-rows")+1],"8")
+        for option in ("--relation-batch-rows","--relation-block-rows"):
+            for value in ("0","-1"):
+                with patch.object(WRAPPER.sys,"stderr",io.StringIO()),self.assertRaises(SystemExit):
+                    self.invoke("refine",option,value)
+
+    def test_refinement_workers_and_affinity_do_not_upgrade_the_closure_engine(self):
+        command=self.invoke("refine","--workers","128","--cpus","64-191")
+        self.assertEqual(command[command.index("--master-refinement-workers")+1],"128")
+        self.assertEqual(command[command.index("--master-refinement-cpus")+1],"64-191")
+        self.assertNotIn("--workers",command)
+        self.assertNotIn("--cpus",command)
+
     def test_finalize_refinement_is_explicit_postprocess_without_search_flags(self):
         command = self.invoke("finalize-refinement")
         self.assertIn("--finalize-refinement", command)

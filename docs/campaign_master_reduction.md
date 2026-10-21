@@ -107,6 +107,13 @@ a new phase-two search scope and passes the prior completed artifact to Rust
 for validated reuse of its exact rows. Depth cannot silently decrease. The
 seed depth is **not** the input numerator-rank cap.
 
+Exact source/rebuild work can use the native work-stealing executor under the
+requested thread budget. Optional `refine --relation-batch-rows N` and
+`--relation-block-rows N` tune operational windows and may change on resume.
+The dashboard distinguishes disposable parallel batch progress from committed
+relation work. See [parallel refinement](parallel_master_refinement.md) for
+checkpoint behavior, measured five-loop controls and the remaining serial phases.
+
 Publication summaries and `inspect` expose `published_rule_records`: the total
 recorded executable owner-program rules in the package's selected programs,
 including preferred programs and overlays. `observed_cover_rules` is the

@@ -21,7 +21,10 @@ use crate::{
     AppError, OwnerDomainWalkInventoryOptions, OwnerDomainWalkRequest, owner_domain_walk_inventory,
 };
 use rustred::persistence::BinaryIoLimits;
-use rustred::reduction::terminal_relations::{TerminalRelationLimits, TerminalRelationSession};
+use rustred::reduction::terminal_relations::{
+    TerminalRelationExecutionOptions, TerminalRelationExecutor, TerminalRelationLimits,
+    TerminalRelationSession,
+};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -64,6 +67,9 @@ pub struct MasterReductionOptions {
     pub collection_artifacts: Vec<PathBuf>,
     pub resume: bool,
     pub threads: usize,
+    /// Optional operational work-stealing window/block sizes, mutable on resume.
+    pub relation_batch_rows: Option<usize>,
+    pub relation_block_rows: Option<usize>,
     /// Independently replay the saved dependency graph while extracting the
     /// publication inventory. New phases default off; resume inherits its mode.
     /// Refining an existing artifact preserves its assurance without replay.
@@ -103,6 +109,8 @@ impl MasterReductionOptions {
             collection_artifacts: Vec::new(),
             resume: false,
             threads: 1,
+            relation_batch_rows: None,
+            relation_block_rows: None,
             deep_verification: None,
             seed_depth: 0,
             containing_sector_depth: 0,
@@ -658,6 +666,25 @@ fn execute_session(
     write_json(&options.directory.join("latest.json"), report)?;
     let mut last_checkpoint = Instant::now();
     let mut last_event = Instant::now();
+    let executor = if options.operation == MasterReductionOperation::Refine {
+        let mut execution = TerminalRelationExecutionOptions::new(options.threads);
+        if let Some(rows) = options.relation_batch_rows {
+            execution.batch_rows = rows;
+        }
+        if let Some(rows) = options.relation_block_rows {
+            execution.block_rows = rows;
+        }
+        Some(TerminalRelationExecutor::new(execution).map_err(io)?)
+    } else {
+        None
+    };
+    if let Some(executor) = &executor {
+        let configuration = executor.options();
+        report["execution"] = json!({"strategy":"ordered-work-stealing-blocks-v1",
+            "workers":configuration.workers,"batch_rows":configuration.batch_rows,
+            "block_rows":configuration.block_rows,"checkpoint":"committed source prefix; speculative blocks discarded"});
+        observer(event(report, "master_reduction_progress", started));
+    }
     while !session.is_complete() && !cancel.load(Ordering::Relaxed) {
         // Scope extension may need to reindex old exact rows. This preserves
         // previous refinements, but publication never processes a new source.
@@ -669,9 +696,25 @@ fn execute_session(
         if options.operation == MasterReductionOperation::Publish {
             session.step_rebuild_only(cancel).map_err(io)?;
         } else if let Some(provider) = &mut provider {
-            session.step_with_provider(cancel, provider).map_err(io)?;
+            executor
+                .as_ref()
+                .unwrap()
+                .step_with_provider(session, cancel, provider)
+                .map_err(io)?;
         } else {
-            session.step(cancel).map_err(io)?;
+            executor
+                .as_ref()
+                .unwrap()
+                .step_observed(session, cancel, |progress| {
+                    report["execution"]["stage"] = json!(progress.stage);
+                    report["execution"]["rows_total"] = json!(progress.rows_total);
+                    report["execution"]["rows_prepared"] = json!(progress.rows_prepared);
+                    report["execution"]["rows_eliminated"] = json!(progress.rows_eliminated);
+                    report["execution"]["rows_committed"] = json!(progress.rows_committed);
+                    report["execution"]["blocks_completed"] = json!(progress.blocks_completed);
+                    observer(event(report, "master_reduction_progress", started));
+                })
+                .map_err(io)?;
         }
         if last_event.elapsed() >= Duration::from_millis(250) {
             update_stats(report, &session);

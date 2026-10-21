@@ -656,7 +656,11 @@ def _public_locked(args, campaign, binary, *, apply, startup_progress):
         collection_artifacts=getattr(args, "collection_artifact", None),
         finite_feedback=getattr(args, "finite_feedback", None),
         deep_verification=False if args.action in ("run", "extend", "publish") else None,
-        max_relation_columns=getattr(args, "max_relation_columns", None))
+        max_relation_columns=getattr(args, "max_relation_columns", None),
+        relation_batch_rows=getattr(args, "relation_batch_rows", None),
+        relation_block_rows=getattr(args, "relation_block_rows", None),
+        refinement_workers=getattr(args, "refinement_workers", None),
+        refinement_cpus=getattr(args, "refinement_cpus", None))
     if args.action == "finalize-refinement":
         policy["operation"] = "finalize-refinement"
     startup_progress.phase("acquiring finite control lock")

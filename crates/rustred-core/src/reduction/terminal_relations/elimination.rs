@@ -49,9 +49,9 @@ impl TerminalRelationSession {
         Ok(output)
     }
 
-    pub(super) fn add_row(
+    pub(super) fn ensure_columns(
         &mut self,
-        row: TerminalRelationRow,
+        row: &TerminalRelationRow,
     ) -> Result<(), TerminalRelationError> {
         if row.is_empty() {
             return Ok(());
@@ -98,6 +98,18 @@ impl TerminalRelationSession {
             new.append(&mut self.columns);
             self.columns = new;
         }
+        Ok(())
+    }
+
+    pub(super) fn add_row(
+        &mut self,
+        row: TerminalRelationRow,
+    ) -> Result<(), TerminalRelationError> {
+        if row.is_empty() {
+            return Ok(());
+        }
+        self.ensure_columns(&row)?;
+        let width = self.columns.len();
         let mut terms: Vec<_> = row
             .into_iter()
             .map(|(k, c)| (width as u32 - 1 - self.column_offsets[&k], c))

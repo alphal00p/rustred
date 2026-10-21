@@ -564,6 +564,12 @@ def render_master_table(frame, width=100, height=24, color=True):
         (2, full("Scope " + master["scope_binding"], "2")),
         (2, full("Receipts " + frame["run_directory"], "2")),
     ]
+    execution = master.get("execution", {})
+    if execution and (execution.get("workers") or 0) > 1 and not publishing:
+        rows.insert(6, (0, row("Parallel batch", execution.get("stage") or "preparing",
+            f"prepared {count(execution.get('rows_prepared'))}/{count(execution.get('rows_total'))} · "
+            f"eliminated {count(execution.get('rows_eliminated'))} · merged {count(execution.get('rows_committed'))} · "
+            f"{count(execution.get('blocks_completed'))} blocks", "36")))
     if publishing:
         rows = [entry for index, entry in enumerate(rows) if index not in (4, 5, 6, 7)]
         verified = master.get("independently_verified", False)
