@@ -8,7 +8,13 @@ use crate::persistence::{
     DecodedCoefficientTable, NativeFamilyRecord, SectionTag, encode_program, inspect_program,
 };
 
-const MAX_RECORD_BYTES: usize = 1 << 30;
+// Generated native sidecars share their Symbolica sections' trust boundary.
+// The envelope enforces caller-owned encoded-byte grants, and exact replay
+// below validates semantic counts, provenance, guards and maps. Bincode's
+// with_limit charges decoded widths/container claims, not compact wire bytes;
+// a fixed claim ceiling can reject output admitted by our matching writer.
+// This is not a hostile-input allocation sandbox. Any separate allocation
+// grant must be an explicit caller policy, not an implicit transport ceiling.
 
 type Key = (u32, Vec<i64>);
 type NativeRow = Vec<(Key, u32)>;
@@ -68,8 +74,7 @@ mod compatibility_tests {
     use super::*;
     use crate::family::AffineDenominator;
 
-    #[test]
-    fn schema_one_diagonal_sidecar_remains_valid_refinement_input() {
+    fn session() -> TerminalRelationSession {
         let context = CoefficientContext::new(["d"]);
         let family = Arc::new(
             IntegralFamily::new(
@@ -87,7 +92,7 @@ mod compatibility_tests {
             )
             .unwrap(),
         );
-        let session = TerminalRelationSession::new(
+        TerminalRelationSession::new(
             family,
             BTreeSet::from([
                 IntegralKey::try_new([1]).unwrap(),
@@ -96,7 +101,12 @@ mod compatibility_tests {
             0,
             Default::default(),
         )
-        .unwrap();
+        .unwrap()
+    }
+
+    #[test]
+    fn schema_one_diagonal_sidecar_remains_valid_refinement_input() {
+        let session = session();
         let plan = TerminalCollectionPlan::prepare(&[&session], Default::default()).unwrap();
         let (record, table) = record(&plan, Default::default()).unwrap();
         let legacy = LegacyRecord {
@@ -142,9 +152,95 @@ mod compatibility_tests {
         assert_eq!(refined.remaining_terminals(), plan.remaining_terminals());
         assert_eq!(refined.proofs().len(), plan.proofs().len());
     }
+
+    #[test]
+    fn current_sidecar_roundtrip_preserves_maps_and_wire_bytes_with_caller_grants() {
+        let session = session();
+        let plan = TerminalCollectionPlan::prepare(&[&session], Default::default()).unwrap();
+        let io = BinaryIoLimits::unbounded_resources();
+        let bytes = encode(&plan, io).unwrap();
+        assert_eq!(bytes, encode(&plan, Default::default()).unwrap());
+        let loaded = decode(&bytes, &[&session], Default::default(), io).unwrap();
+        assert_eq!(loaded.statistics(), plan.statistics());
+        assert_eq!(loaded.remaining_terminals(), plan.remaining_terminals());
+        for raw in session.raw_terminals() {
+            let expected = plan.apply(session.family_owner(), raw).unwrap();
+            let actual = loaded.apply(session.family_owner(), raw).unwrap();
+            assert_eq!(actual.terms(), expected.terms());
+            assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+        }
+        assert_eq!(encode(&loaded, io).unwrap(), bytes);
+    }
+
+    #[test]
+    fn compact_records_are_not_rejected_by_a_decoded_allocation_claim_ceiling() {
+        let expected = vec![vec![1_u64; 12], vec![2_u64; 12]];
+        let bytes = bincode::encode_to_vec(&expected, bincode::config::standard()).unwrap();
+        assert!(bytes.len() < 128);
+        assert!(matches!(
+            bincode::decode_from_slice::<Vec<Vec<u64>>, _>(
+                &bytes,
+                bincode::config::standard().with_limit::<128>(),
+            ),
+            Err(bincode::error::DecodeError::LimitExceeded)
+        ));
+        let (actual, used): (Vec<Vec<u64>>, usize) =
+            decode_structure(&bytes, "synthetic collection").unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(used, bytes.len());
+    }
+
+    #[test]
+    fn malformed_structure_identifies_its_record_and_encoded_size() {
+        let error = decode_structure::<u64>(&[251], "legacy collection").unwrap_err();
+        assert!(matches!(error, VacuumCollectionError::Binary(_)));
+        let message = error.to_string();
+        assert!(message.contains("legacy collection structural record"));
+        assert!(message.contains("1 encoded bytes"));
+    }
+
+    #[test]
+    fn explicit_encoded_byte_grants_still_refuse_writer_and_reader() {
+        let session = session();
+        let plan = TerminalCollectionPlan::prepare(&[&session], Default::default()).unwrap();
+        let io = BinaryIoLimits::unbounded_resources();
+        let bytes = encode(&plan, io).unwrap();
+        let envelope = inspect_program(&bytes, io).unwrap();
+        let structural_bytes = envelope.section(SectionTag::PROGRAM).unwrap().len();
+        let small = BinaryIoLimits {
+            max_program_bytes: structural_bytes - 1,
+            ..io
+        };
+        assert!(
+            matches!(encode(&plan, small), Err(VacuumCollectionError::Limit {
+            resource: "collection structural bytes", requested, limit,
+        }) if requested == structural_bytes && limit == structural_bytes - 1)
+        );
+        let read_limit = BinaryIoLimits {
+            max_program_bytes: bytes.len() - 1,
+            ..io
+        };
+        let error = decode(&bytes, &[&session], Default::default(), read_limit)
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("program bytes"));
+        assert!(!error.to_string().contains("structural record"));
+    }
 }
 fn binary(e: impl std::fmt::Display) -> VacuumCollectionError {
     VacuumCollectionError::Binary(e.to_string())
+}
+
+fn decode_structure<T: bincode::Decode<()>>(
+    bytes: &[u8],
+    record: &'static str,
+) -> Result<(T, usize)> {
+    bincode::decode_from_slice(bytes, bincode::config::standard()).map_err(|error| {
+        binary(format!(
+            "{record} structural record ({} encoded bytes): {error}",
+            bytes.len()
+        ))
+    })
 }
 
 struct Intern {
@@ -395,7 +491,7 @@ pub(super) fn encode(plan: &TerminalCollectionPlan, io: BinaryIoLimits) -> Resul
     check(
         "collection structural bytes",
         records.len(),
-        io.max_program_bytes.min(MAX_RECORD_BYTES),
+        io.max_program_bytes,
     )?;
     let table = table.native.finish().map_err(binary)?;
     encode_program(
@@ -439,16 +535,11 @@ pub(super) fn decode(
     check(
         "collection structural bytes",
         bytes.len(),
-        io.max_program_bytes.min(MAX_RECORD_BYTES),
+        io.max_program_bytes,
     )?;
-    let (schema, _): (u32, usize) =
-        bincode::decode_from_slice(bytes, bincode::config::standard()).map_err(binary)?;
+    let (schema, _): (u32, usize) = decode_structure(bytes, "collection schema")?;
     let (stored, used) = if schema == 1 {
-        let (legacy, used): (LegacyRecord, usize) = bincode::decode_from_slice(
-            bytes,
-            bincode::config::standard().with_limit::<MAX_RECORD_BYTES>(),
-        )
-        .map_err(binary)?;
+        let (legacy, used): (LegacyRecord, usize) = decode_structure(bytes, "legacy collection")?;
         if legacy.schema != 1 {
             return Err(binary("unsupported collection schema"));
         }
@@ -465,11 +556,7 @@ pub(super) fn decode(
             used,
         )
     } else {
-        bincode::decode_from_slice::<Record, _>(
-            bytes,
-            bincode::config::standard().with_limit::<MAX_RECORD_BYTES>(),
-        )
-        .map_err(binary)?
+        decode_structure::<Record>(bytes, "current collection")?
     };
     if used != bytes.len() || stored.schema != 2 {
         return Err(binary("unsupported or trailing collection records"));

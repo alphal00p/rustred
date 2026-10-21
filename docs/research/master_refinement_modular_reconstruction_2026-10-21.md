@@ -1,5 +1,10 @@
 # Modular/reconstruction acceleration of finite master refinement
 
+Implementation follow-up: the subsequently authorized opt-in backend is
+documented in [modular master refinement](../modular_master_refinement.md).
+The investigation below records the starting point, before its implementation;
+its coefficient-only timings are not end-to-end refinement measurements.
+
 ## Status
 
 The exact parallel implementation is delivered in `4d020891`. Its frozen CLI

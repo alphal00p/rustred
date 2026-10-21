@@ -416,6 +416,9 @@ def normalize_status(status, sequence=None):
                for key in ("stage", "status", "artifact", "scope_binding", "publication_verification_mode",
                            "publication_assurance")},
             "independently_verified": master.get("independently_verified") is True,
+            "refinement_strategy": clean(master.get("refinement_strategy", "exact"), 100),
+            "finite_search_complete": master.get("finite_search_complete") is True,
+            "modular_search_complete": master.get("modular_search_complete") is True,
             "master_minimality_claim": False,
             "numerical_evaluation": False,
         }
@@ -424,8 +427,18 @@ def normalize_status(status, sequence=None):
             frame["master_reduction"]["execution"] = {
                 "stage": clean(execution.get("stage", ""), 100),
                 "strategy": clean(execution.get("strategy", ""), 100),
-                **_numbers(execution, ("workers", "batch_rows", "block_rows", "rows_total",
+                **_numbers(execution, ("workers", "reserved_workers", "discovery_workers", "batch_rows", "block_rows", "rows_total",
                                        "rows_prepared", "rows_eliminated", "rows_committed", "blocks_completed")),
+            }
+        modular = mapping(master.get("modular_refinement"))
+        if modular:
+            frame["master_reduction"]["modular_refinement"] = {
+                **{key: clean(modular.get(key, ""), 300) for key in
+                   ("stage", "search_recipe", "discovery_assurance", "accepted_relation_assurance")},
+                **_numbers(modular, ("source_rows_scanned", "total_source_rows", "candidates_found",
+                                      "accepted_relations", "reconstruction_misses", "oracle_probes",
+                                      "primes", "discovery_images")),
+                "search_exhausted": modular.get("search_exhausted") is True,
             }
         progress = mapping(master.get("verification_progress"))
         if progress:
@@ -444,6 +457,8 @@ def normalize_status(status, sequence=None):
             }
         frame["scope"] = ("retained exact maps; finite search unfinished; no minimality claim" if partial else
                           "exact saved-scope inventory; independent graph replay only when explicitly requested" if operation == "publish" else
+                          "heuristic modular discovery; accepted full-column identities exactly verified; exhaustive exact search incomplete"
+                          if master.get("refinement_strategy") == "modular-circuits" else
                           "bounded exact terminal relations; no minimality or numerical master evaluation claim")
     return frame
 

@@ -1,7 +1,7 @@
 //! Versioned application resource recipes for reproducible normalization.
 //! These are explicit snapshots, never aliases for changing core defaults.
 use super::*;
-use rustred::algebra::ExactAlgebraLimits;
+use rustred::algebra::{ExactAlgebraLimits, IndexedAlgebraLimits};
 use rustred::family::symanzik::FeynmanPolynomialLimits;
 use rustred::reduction::terminal_normalization::{
     TerminalNormalizationLimits, VacuumParametricLimits,
@@ -63,7 +63,7 @@ impl MasterNormalizationProfile {
             max_rows: usize::MAX,
             max_nonzeros: usize::MAX,
             normalization: self.normalization_limits(),
-            ..Default::default()
+            algebra: IndexedAlgebraLimits::unbounded_resources(),
         }
     }
 
@@ -98,6 +98,22 @@ impl MasterNormalizationProfile {
             },
         })
     }
+}
+
+/// Native checkpoints are trusted generated state governed by the caller's
+/// process RAM policy. No byte/count/arithmetic quota is inferred from saved
+/// metadata. An explicit native grant is preserved verbatim, including tighter
+/// admission limits; representation bounds remain enforced by native codecs.
+pub(super) fn native_io_limits(explicit: Option<BinaryIoLimits>) -> BinaryIoLimits {
+    explicit.unwrap_or(BinaryIoLimits {
+        max_program_bytes: usize::MAX,
+        max_sections: usize::MAX,
+        max_collection_entries: usize::MAX,
+        max_state_bytes: usize::MAX,
+        max_atom_bytes: usize::MAX,
+        max_total_atom_bytes: usize::MAX,
+        exact_algebra: ExactAlgebraLimits::unbounded_resources(),
+    })
 }
 
 pub(super) fn from_report(report: &Value) -> Result<MasterNormalizationProfile, AppError> {

@@ -340,6 +340,12 @@ fn summarize_refinement(report: &mut Value) {
     if report["partial_refinement_source"].is_object() && report["finite_search_complete"] == false
     {
         report["refinement_status"] = json!("partial retained; search unfinished");
+    } else if report["refinement_strategy"] == "modular-circuits" {
+        report["refinement_status"] = json!(if report["modular_search_complete"] == true {
+            "modular pass completed; exact span unfinished"
+        } else {
+            "modular discovery unfinished; exact span unfinished"
+        });
     } else if report["refinement_status"].is_null() {
         report["refinement_status"] = json!(if report["status"] == "published_unrefined" {
             "not requested"

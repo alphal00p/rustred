@@ -26,6 +26,8 @@ NORMALIZATION_PROFILES = {"conservative": "conservative-v1", "standard": "standa
 COLLECTION_STRATEGY = "full-u-diagonal-v1"
 FINITE_FEEDBACK_RECIPE = "finite-row-feedback-v1"
 PUBLICATION_VERIFICATION_RECIPE = "publication-verification-v1"
+REFINEMENT_STRATEGIES = ("exact", "modular-circuits")
+MODULAR_SEARCH_RECIPE = "terminal-modular-circuits-v1"
 
 
 def read_json(path, max_bytes=None):
@@ -53,7 +55,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                   containing_sector_depth=None, circuit_symmetry_assistance=None, normalization_profile=None,
                   collection_artifacts=None, finite_feedback=None, deep_verification=None,
                   max_relation_columns=None, relation_batch_rows=None, relation_block_rows=None,
-                  refinement_workers=None, refinement_cpus=None):
+                  refinement_workers=None, refinement_cpus=None, refinement_strategy=None,
+                  modular_policy=None):
     """Read-only configuration. Only this invocation can request refinement.
 
     Historical ``enabled`` policies retain executable/search preferences, never
@@ -61,6 +64,18 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
     """
     path = Path(campaign) / "master-reduction" / "policy.json"
     existing = read_json(path) if path.is_file() else None
+    if refinement_strategy is not None and (refinement_strategy not in REFINEMENT_STRATEGIES
+                                             or not enabled):
+        raise ValueError("master refinement strategy requires explicit refinement and exact or modular-circuits")
+    strategy = refinement_strategy or (existing or {}).get("refinement_strategy", "exact")
+    if strategy not in REFINEMENT_STRATEGIES:
+        raise ValueError("invalid persisted master refinement strategy")
+    if modular_policy is not None and (not enabled or strategy != "modular-circuits"):
+        raise ValueError("modular policy requires explicit modular-circuits refinement")
+    modular = (read_json(modular_policy) if modular_policy is not None
+               else (existing or {}).get("modular_policy"))
+    if modular is not None and not isinstance(modular, dict):
+        raise ValueError("invalid persisted modular refinement policy")
     if max_relation_columns is not None and (type(max_relation_columns) is not int or max_relation_columns < 0):
         raise ValueError("master max relation columns must be nonnegative (0 means unlimited)")
     if max_relation_columns is not None and not enabled:
@@ -137,6 +152,17 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
             "terminal_policy": "bounded exact search; finite nonminimal basis permitted",
             "master_minimality_claim": False}
     policy["collection_strategy"] = COLLECTION_STRATEGY
+    policy["refinement_strategy"] = strategy
+    policy["retry_modular_proposals"] = modular_policy is not None
+    if strategy == "modular-circuits":
+        policy["terminal_policy"] = "heuristic modular source discovery; exact accepted terminal identities; no minimality claim"
+    if modular is not None:
+        policy["modular_policy"] = modular
+    if enabled and strategy == "modular-circuits" and (policy["saved_rule_assistance"]
+                                                      or policy["circuit_symmetry_assistance"]):
+        raise ValueError("modular-circuits currently requires ordinary sources without saved-rule or circuit-symmetry assistance")
+    if strategy == "modular-circuits" and (relation_batch_rows is not None or relation_block_rows is not None):
+        raise ValueError("relation batch/block rows configure exact refinement; use --modular-policy batch_rows/max_candidates for modular-circuits")
     if refinement_workers is not None and (not enabled or type(refinement_workers) is not int or refinement_workers <= 0):
         raise ValueError("refinement workers require explicit refinement and a positive count")
     if refinement_cpus is not None and (not enabled or not isinstance(refinement_cpus,str) or not refinement_cpus):
@@ -298,6 +324,7 @@ def finalize_refinement(plan, policy, binding, request, driver):
         "source_directory": str(source.relative_to(campaign)),
         "source_manifest_sha256": pending["manifest_sha256"],
         "source_artifact": steering["source"],
+        "refinement_strategy": steering.get("refinement_strategy", "exact"),
         "collection_strategy": COLLECTION_STRATEGY,
         "collection_inputs": steering.get("collection_inputs", []),
         "finite_feedback": native.get("finite_feedback", steering.get("finite_feedback", False)),
@@ -396,6 +423,11 @@ def publish_pointer(campaign, directory, binding, operation, driver, refinement=
                   "published_unrefined" if operation == "publish" else "completed_nonminimal",
         "completed_unix_time": time.time(), "master_minimality_claim": False,
         **normalization_metadata(native), **verification_metadata(native),
+        **({"refinement_strategy": "modular-circuits",
+            "finite_search_complete": native.get("finite_search_complete") is True,
+            "modular_search_complete": native.get("modular_search_complete") is True,
+            "refinement_complete": native.get("refinement_complete") is True}
+           if native.get("refinement_strategy") == "modular-circuits" else {}),
         **({"finite_search_complete": False, "refinement_complete": False,
             "partial_refinement_source": native.get("partial_refinement_source")} if partial else {}),
         **({"refinement": refinement} if refinement is not None else {})})
@@ -538,8 +570,15 @@ def phase_two(plan, policy, request, binding, directory, driver):
                "--threads", str(plan["requested_workers"])]
     if not publishing:
         command += ["--seed-depth", str(policy["seed_depth"])]
+        strategy = policy.get("refinement_strategy", "exact")
+        if strategy != "exact":
+            command += ["--refinement-strategy", strategy]
+            if policy.get("modular_policy") is not None:
+                modular_path = attempt / "modular-policy.json"
+                driver.write_json(modular_path, policy["modular_policy"])
+                command += ["--modular-policy", str(modular_path)]
         for name in ("relation_batch_rows", "relation_block_rows"):
-            if policy.get(name) is not None:
+            if strategy == "exact" and policy.get(name) is not None:
                 command += ["--" + name.replace("_", "-"), str(policy[name])]
         if policy.get("max_relation_columns") is not None:
             command += ["--max-relation-columns", str(policy["max_relation_columns"])]
@@ -563,6 +602,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
             if snapshot.get("deep_verification", True) != policy.get("deep_verification", False):
                 raise ValueError("cannot change deep verification on resume; start a new publication phase")
         else:
+            if snapshot.get("refinement_strategy", "exact") != strategy:
+                raise ValueError("cannot change refinement strategy on resume; start a new phase directory")
             pinned = normalization_metadata(snapshot)["normalization_profile"]
             if pinned != profile:
                 raise ValueError("cannot change normalization profile on resume; start a new phase directory")
@@ -623,6 +664,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
     latest["finite_feedback"] = not publishing and policy.get("finite_feedback", True)
     if not publishing:
         latest["normalization_profile"] = profile
+        latest["refinement_strategy"] = strategy
     elif not finalizing:
         latest["deep_verification"] = policy.get("deep_verification", False)
         latest["publication_verification_mode"] = "independent_replay" if latest["deep_verification"] else "inventory"
@@ -736,6 +778,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 raise ValueError("native artifact verification assurance differs from requested publication")
             if not publishing and native_profile["normalization_profile"] != profile:
                 raise ValueError("native artifact normalization profile differs from requested refinement")
+            if not publishing and native_artifact.get("refinement_strategy", "exact") != strategy:
+                raise ValueError("native artifact strategy differs from requested refinement")
             if not publishing and (native_artifact.get("finite_feedback") != policy.get("finite_feedback", True)
                                    or native_artifact.get("finite_feedback_recipe") != FINITE_FEEDBACK_RECIPE):
                 raise ValueError("native artifact finite feedback recipe differs from requested refinement")
@@ -754,6 +798,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
             if not keep_refined:
                 refinement = None if publishing else {
                         **native_profile,
+                        "refinement_strategy": policy.get("refinement_strategy", "exact"),
+                        "modular_search_complete": native_artifact.get("modular_search_complete", False),
                         "collection_strategy": COLLECTION_STRATEGY,
                         "finite_feedback": policy.get("finite_feedback", True),
                         "finite_feedback_recipe": FINITE_FEEDBACK_RECIPE,
@@ -793,6 +839,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
             publish(finished_state, force=True)
             print("Proved refinement maps published; finite search remains incomplete and its cursor is retained." if finalizing else
                   "Scoped artifact published; master refinement was not requested." if publishing else
+                  "Modular discovery pass completed; accepted maps are exactly verified; exhaustive exact search remains incomplete."
+                  if policy.get("refinement_strategy", "exact") == "modular-circuits" else
                   "Explicit master refinement completed (bounded search, not a minimality proof).", flush=True)
             for label, key in (("Published executable rule records", "published_rule_records"),
                                ("Encountered cover rule records", "observed_cover_rules")):
@@ -810,6 +858,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                                    else "--no-master-circuit-symmetry-assistance ")
                                 + ("--master-finite-feedback " if policy.get("finite_feedback", True)
                                    else "--no-master-finite-feedback ")
+                                + ("--master-refinement-strategy modular-circuits "
+                                   if policy.get("refinement_strategy", "exact") == "modular-circuits" else "")
                                 + "--master-normalization-profile " + profile.removesuffix("-v1") + " ") if not publishing else (
                                     "--deep-verification " if policy.get("deep_verification", False) else "--no-deep-verification ")
             if finalizing:
@@ -947,8 +997,13 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                 collection_inputs = read_json(phase_directory / "steering-binding.json")["collection_inputs"]
             collection_inputs.sort(key=lambda value: value["manifest_sha256"])
             policy = {**policy, "collection_inputs": collection_inputs}
+            strategy = policy.get("refinement_strategy", "exact")
+            searched = (refinement.get("modular_search_complete", False) if strategy == "modular-circuits"
+                        else previous.get("finite_search_complete", True))
             if (previous.get("operation") == "refine"
-                    and previous.get("finite_search_complete", True)
+                    and searched
+                    and not policy.get("retry_modular_proposals", False)
+                    and refinement.get("refinement_strategy", "exact") == strategy
                     and refinement.get("collection_strategy") == COLLECTION_STRATEGY
                     and refinement.get("finite_feedback", False) == policy.get("finite_feedback", True)
                     and (not policy.get("finite_feedback", True)
@@ -1034,6 +1089,9 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                                              if policy.get("previous_artifact") else None)
         if operation == "refine":
             identity["collection_strategy"] = COLLECTION_STRATEGY
+            if policy.get("refinement_strategy", "exact") != "exact":
+                identity["refinement_strategy"] = policy["refinement_strategy"]
+                identity["modular_search_recipe"] = MODULAR_SEARCH_RECIPE
             identity["collection_inputs"] = policy.get("collection_inputs", [])
             identity["finite_feedback"] = policy.get("finite_feedback", True)
             identity["finite_feedback_recipe"] = FINITE_FEEDBACK_RECIPE

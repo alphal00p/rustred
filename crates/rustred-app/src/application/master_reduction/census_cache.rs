@@ -13,7 +13,6 @@ const FILE: &str = "inventory-census.bin";
 const FIELD: &str = "inventory_census_cache";
 const SCHEMA: &str = "rustred.walk-inventory-census.v1";
 const FINITE_SCHEMA: &str = "rustred.walk-inventory-census.finite.v1";
-const MAX_COPY_BYTES: usize = 256 << 20;
 
 pub(super) fn current(directory: &Path, report: &Value) -> Option<OwnerDomainWalkCensusSource> {
     let receipt = &report[FIELD];
@@ -120,9 +119,6 @@ fn required_bytes(directory: &Path, report: &Value) -> Result<Option<Vec<u8>>, A
         .as_u64()
         .filter(|&size| size > 0)
         .ok_or_else(|| AppError::input("required finite census byte count is missing or empty"))?;
-    if size > MAX_COPY_BYTES as u64 {
-        return Err(AppError::limit("finite census exceeds copy byte limit"));
-    }
     let digest = receipt["blake3"]
         .as_str()
         .ok_or_else(|| AppError::input("required finite census digest is missing"))?;
@@ -136,7 +132,7 @@ fn required_bytes(directory: &Path, report: &Value) -> Result<Option<Vec<u8>>, A
             "required finite census file shape or size differs",
         ));
     }
-    let data = storage::read_bounded(&path, MAX_COPY_BYTES)?;
+    let data = storage::read_bounded(&path, profile::native_io_limits(None).max_program_bytes)?;
     if data.len() as u64 != size || blake3::hash(&data) != digest {
         return Err(AppError::input(
             "required finite census size or digest differs",
@@ -198,10 +194,10 @@ pub(super) fn inherit_with_cancel(
     let Some(candidate) = candidate else {
         return Ok(());
     };
-    if candidate.bytes > MAX_COPY_BYTES as u64 {
-        return Ok(());
-    }
-    let Ok(data) = storage::read_bounded(&candidate.path, MAX_COPY_BYTES) else {
+    let Ok(data) = storage::read_bounded(
+        &candidate.path,
+        profile::native_io_limits(None).max_program_bytes,
+    ) else {
         return Ok(());
     };
     if data.len() as u64 != candidate.bytes

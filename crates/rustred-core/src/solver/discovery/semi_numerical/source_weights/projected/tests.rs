@@ -391,3 +391,255 @@ fn exact_full_product_rejects_mutated_weight_or_missing_lower_tail() {
             .is_err()
     );
 }
+
+#[test]
+fn exact_full_product_rejects_an_auxiliary_that_vanished_at_the_discovery_point() {
+    use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
+
+    let c = context();
+    let hidden = c
+        .sub_with_limits(&c.index(0).unwrap(), &c.integer(5), limits().arithmetic)
+        .unwrap();
+    let original_one = c.one();
+    let input = [hidden.raw(), original_one.raw()];
+    let variables = FrameVariables::from_coefficients(
+        c.one().raw().get_variables().clone(),
+        input.iter().copied(),
+    )
+    .unwrap();
+    let one = variables.map_coefficient(c.one().raw()).unwrap();
+    let frame = ProbeFrame::from_ordered_rows(
+        vec![vec![
+            (0, variables.map_coefficient(hidden.raw()).unwrap()),
+            (1, one.clone()),
+        ]],
+        2,
+    )
+    .unwrap();
+    let field = Zp64::new(101);
+    let sample = super::super::probe::probe_image(&frame, 1, 10, &field, &[field.to_element(5)])
+        .unwrap()
+        .unwrap();
+    assert_eq!(sample.row, vec![(1, field.to_element(1))]);
+    assert_eq!(sample.weights, vec![field.to_element(1)]);
+    let error = super::super::validation::validate_product(
+        &frame,
+        1,
+        1,
+        &[one.clone()],
+        &[(1, one)],
+        &variables,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("exact full-column source product differs"),
+        "the omitted auxiliary must reach the exact full-column comparison: {error}"
+    );
+}
+
+#[test]
+fn full_forbidden_row_rank_refuses_without_reconstruction_or_a_retry_quota() {
+    let c = context();
+    // The only available source has a nonzero forbidden coefficient. At any
+    // valid nonzero sample this supplies a nonzero 1x1 minor, so no nonzero
+    // rational source weight can eliminate F on this selected frame.
+    let rows = vec![row(&[(1, c.index(0).unwrap()), (0, c.one())])];
+    let mut policy = limits();
+    policy.max_probes = usize::MAX;
+    policy.max_primes = usize::MAX;
+    let mut events = Vec::new();
+    assert!(
+        reconstruct_projected_source_weights(
+            &c,
+            &rows,
+            &key(0),
+            &BTreeSet::from([key(1)]),
+            policy,
+            |event| events.push(event),
+        )
+        .is_err()
+    );
+    assert!(matches!(
+        events.as_slice(),
+        [ProjectedSourceWeightEvent::FramePrepared { .. }]
+    ));
+    // This is only a selected-frame generic-field refusal, not a claim that
+    // the target cannot reduce using different sources or on a rank-drop face.
+}
+
+#[test]
+fn a_false_first_scout_hit_can_abort_native_reconstruction_without_a_retry_quota() {
+    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use symbolica::domains::finite_field::{FiniteFieldCore, PrimeIteratorU64, Zp64};
+
+    let c = context();
+    let prime = PrimeIteratorU64::new(1 << 61).next().unwrap();
+    let mut random = StdRng::seed_from_u64(0x7372635f77656967);
+    let sample = random.random_range(1..prime);
+    let hidden = c
+        .sub_with_limits(
+            &c.index(0).unwrap(),
+            &c.integer(i64::try_from(sample).unwrap()),
+            limits().arithmetic,
+        )
+        .unwrap();
+    let rows = vec![row(&[(1, hidden.clone()), (0, c.one())])];
+    let variables = FrameVariables::from_coefficients(
+        c.one().raw().get_variables().clone(),
+        rows[0].values().map(IndexedCoefficient::raw),
+    )
+    .unwrap();
+    let frame = ProbeFrame::from_ordered_rows(
+        vec![vec![
+            (0, variables.map_coefficient(hidden.raw()).unwrap()),
+            (1, variables.map_coefficient(c.one().raw()).unwrap()),
+        ]],
+        2,
+    )
+    .unwrap();
+    let field = Zp64::new(prime);
+    let false_hit = super::super::probe::probe_image(
+        &frame,
+        1,
+        usize::MAX,
+        &field,
+        &[field.to_element(sample)],
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(false_hit.pivots, [Some(1)]);
+
+    // The scout deliberately sees the exceptional zero first and freezes that
+    // chronology. A later generic reconstruction probe must propagate the
+    // permanent full-F-rank witness out of Symbolica's Option-valued oracle,
+    // rather than responding None until a hidden fixed retry limit expires.
+    let mut policy = limits();
+    policy.max_probes = usize::MAX;
+    policy.max_attempts = usize::MAX;
+    policy.max_primes = usize::MAX;
+    let mut events = Vec::new();
+    assert!(
+        reconstruct_projected_source_weights(
+            &c,
+            &rows,
+            &key(0),
+            &BTreeSet::from([key(1)]),
+            policy,
+            |event| events.push(event),
+        )
+        .is_err()
+    );
+    assert!(matches!(
+        events.as_slice(),
+        [ProjectedSourceWeightEvent::FramePrepared { .. }]
+    ));
+}
+
+#[test]
+fn rank_drop_bad_characteristic_and_poles_are_not_generic_rank_witnesses() {
+    use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
+
+    let c = context();
+    let n = c.index(0).unwrap();
+    let field = Zp64::new(101);
+    let make_frame = |forbidden: &IndexedCoefficient, target: &IndexedCoefficient| {
+        let variables = FrameVariables::from_coefficients(
+            c.one().raw().get_variables().clone(),
+            [forbidden.raw(), target.raw()].into_iter(),
+        )
+        .unwrap();
+        ProbeFrame::from_ordered_rows(
+            vec![vec![
+                (0, variables.map_coefficient(forbidden.raw()).unwrap()),
+                (1, variables.map_coefficient(target.raw()).unwrap()),
+            ]],
+            2,
+        )
+        .unwrap()
+    };
+    let probe = |frame: &ProbeFrame, point: u64| {
+        super::super::probe::probe_image(frame, 1, usize::MAX, &field, &[field.to_element(point)])
+    };
+
+    let vanishing_row = make_frame(&n, &n);
+    assert!(probe(&vanishing_row, 0).unwrap().is_none());
+    assert!(matches!(
+        probe(&vanishing_row, 1),
+        Err(MaterializationError::SourceFrameIneligible {
+            rows: 1,
+            forbidden_columns: 1,
+        })
+    ));
+
+    let denominator = c
+        .sub_with_limits(&n, &c.integer(5), limits().arithmetic)
+        .unwrap();
+    let pole = c
+        .div_with_limits(&c.one(), &denominator, limits().arithmetic)
+        .unwrap();
+    let pole_frame = make_frame(&pole, &n);
+    assert!(probe(&pole_frame, 5).unwrap().is_none());
+    assert!(matches!(
+        probe(&pole_frame, 6),
+        Err(MaterializationError::SourceFrameIneligible {
+            rows: 1,
+            forbidden_columns: 1,
+        })
+    ));
+
+    let bad_prime_coefficient = c
+        .mul_with_limits(&c.integer(101), &n, limits().arithmetic)
+        .unwrap();
+    let bad_prime_frame = make_frame(&bad_prime_coefficient, &c.one());
+    let bad_prime_hit = probe(&bad_prime_frame, 2).unwrap().unwrap();
+    assert_eq!(bad_prime_hit.harder_rank, 0);
+    assert_eq!(bad_prime_hit.pivots, [Some(1)]);
+    let other_prime = Zp64::new(103);
+    assert!(matches!(
+        super::super::probe::probe_image(
+            &bad_prime_frame,
+            1,
+            usize::MAX,
+            &other_prime,
+            &[other_prime.to_element(2)],
+        ),
+        Err(MaterializationError::SourceFrameIneligible {
+            rows: 1,
+            forbidden_columns: 1,
+        })
+    ));
+}
+
+#[test]
+fn fair_prime_admission_does_not_starve_a_genuine_circuit_after_a_globally_bad_prime() {
+    use symbolica::domains::finite_field::PrimeIteratorU64;
+
+    let c = context();
+    let first_prime = PrimeIteratorU64::new(1 << 61).next().unwrap();
+    let coefficient = c
+        .mul_with_limits(
+            &c.integer(i64::try_from(first_prime).unwrap()),
+            &c.index(0).unwrap(),
+            limits().arithmetic,
+        )
+        .unwrap();
+    let rows = vec![row(&[(0, coefficient.clone())])];
+    let mut policy = limits();
+    policy.max_probes = usize::MAX;
+    policy.max_attempts = usize::MAX;
+    policy.max_primes = usize::MAX;
+    // Both admission and native reconstruction must reach another prime with
+    // caller-unbounded grants. Finite growing native passes are scheduling
+    // windows, not a rejection quota or a RustRed reconstruction algorithm.
+    let proposal =
+        reconstruct_projected_source_weights(&c, &rows, &key(0), &BTreeSet::new(), policy, |_| {})
+            .unwrap();
+    assert_eq!(proposal.image, row(&[(0, c.one())]));
+    let expected_weight = c
+        .div_with_limits(&c.one(), &coefficient, limits().arithmetic)
+        .unwrap();
+    assert_eq!(proposal.weights, BTreeMap::from([(0, expected_weight)]));
+    assert_eq!(multiply(&c, &rows, &proposal.weights), proposal.image);
+}

@@ -69,7 +69,11 @@ def digest(raw):
 
 
 def engine(campaign, requested=None):
-    """Must run before any legacy reader/lock/preflight (including freshness)."""
+    """Fresh omission selects legacy; saved finite markers retain their engine.
+
+    Must run before any legacy reader/lock/preflight (including freshness).
+    Keep the caller's omitted value distinct from an explicit legacy request.
+    """
     path = Path(campaign) / "bin/steering.json"
     saved = read(path) if path.is_file() else None
     if saved is not None and not isinstance(saved, dict):
@@ -657,6 +661,8 @@ def _public_locked(args, campaign, binary, *, apply, startup_progress):
         finite_feedback=getattr(args, "finite_feedback", None),
         deep_verification=False if args.action in ("run", "extend", "publish") else None,
         max_relation_columns=getattr(args, "max_relation_columns", None),
+        refinement_strategy=getattr(args, "refinement_strategy", None),
+        modular_policy=getattr(args, "modular_policy", None),
         relation_batch_rows=getattr(args, "relation_batch_rows", None),
         relation_block_rows=getattr(args, "relation_block_rows", None),
         refinement_workers=getattr(args, "refinement_workers", None),

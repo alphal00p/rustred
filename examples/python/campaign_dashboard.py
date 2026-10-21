@@ -524,6 +524,7 @@ def render_master_table(frame, width=100, height=24, color=True):
     master, resource, checkpoint = frame["master_reduction"], frame["resources"], frame["checkpoint"]
     partial = master.get("partial_refinement", False)
     publishing = master.get("operation") in ("publish", "finalize-refinement")
+    modular = master.get("refinement_strategy") == "modular-circuits" and not publishing
     label_width, value_width = (19, 18) if width >= 74 else (10, 8)
     detail_width = inner - label_width - value_width - 6
     border = lambda left, right: _paint(left + "─" * (width - 2) + right, "2;36", color)
@@ -545,13 +546,15 @@ def render_master_table(frame, width=100, height=24, color=True):
     progress = bar(completed, total, frame["elapsed_seconds"]) if total is not None else "total not yet known"
     rows = [
         (0, row("Stage", master["stage"] or "preparing", "package retained exact maps" if partial else
-                "extract and package exact inventory" if publishing else "bounded exact relation search", "36")),
+                "extract and package exact inventory" if publishing else
+                "modular discovery; exact accepted maps" if modular else "bounded exact relation search", "36")),
         (1, row("Retained keys", count(master["raw_terminals"]), "phase-one keys, including prior stages")),
         (1, row("Normalized", count(master["normalized_terminals"]), "exact symmetry aliases; not minimal")),
         (0, row("Remaining basis", count(master["remaining_terminals"]), "finite, potentially nonminimal", "32")),
         (1, row("Eliminated", count(master["eliminated_terminals"]), "exact relations between terminal keys", "32")),
         (0, row("Relation work", work, progress, "35")),
-        (1, row("Rows generated", count(master["relation_rows"]), "seed depth " + count(master["seed_depth"]))),
+        (1, row("Exact source rows" if modular else "Rows generated", count(master["relation_rows"]),
+                "retained exact proof cursor" if modular else "seed depth " + count(master["seed_depth"]))),
         (1, row("Sparse system", count(master.get("independent_rows")) + " rows", count(master.get("nonzeros")) + " nonzeros")),
         (0, row("Active CPU cores", f"{'unknown' if cpu is None else f'{cpu:.1f}'} / {count(workers)}",
                 "observed / reserved", indicator_color(cpu_ratio, "cpu"))),
@@ -565,11 +568,22 @@ def render_master_table(frame, width=100, height=24, color=True):
         (2, full("Receipts " + frame["run_directory"], "2")),
     ]
     execution = master.get("execution", {})
-    if execution and (execution.get("workers") or 0) > 1 and not publishing:
+    if execution and (execution.get("workers") or 0) > 1 and not publishing and not modular:
         rows.insert(6, (0, row("Parallel batch", execution.get("stage") or "preparing",
             f"prepared {count(execution.get('rows_prepared'))}/{count(execution.get('rows_total'))} · "
             f"eliminated {count(execution.get('rows_eliminated'))} · merged {count(execution.get('rows_committed'))} · "
             f"{count(execution.get('blocks_completed'))} blocks", "36")))
+    if modular:
+        discovery = master.get("modular_refinement", {})
+        rows[5] = (0, row("Discovery rows", count(discovery.get("source_rows_scanned")) + " / "
+                          + count(discovery.get("total_source_rows")), "sampled scan; exact span incomplete", "35"))
+        rows.insert(1, (0, row("Relation assurance", "exact W*A identity", "every physical column verified", "32")))
+        rows.insert(2, (0, row("Modular candidates", count(discovery.get("candidates_found")),
+                              count(discovery.get("accepted_relations")) + " accepted; "
+                              + count(discovery.get("reconstruction_misses")) + " lifting misses", "36")))
+        if execution:
+            rows.insert(3, (1, row("Candidate workers", count(execution.get("workers")),
+                                  "discovery uses " + count(execution.get("discovery_workers")) + " worker")))
     if publishing:
         rows = [entry for index, entry in enumerate(rows) if index not in (4, 5, 6, 7)]
         verified = master.get("independently_verified", False)
@@ -652,6 +666,7 @@ def plain_summary(frame):
                 f"Relations {count(master['relation_rows'])} · {count(master['eliminated_terminals'])} eliminated",
                 f"Checkpoint {frame['checkpoint']['state']} · {frame['checkpoint']['directory']}",
                 "Retained exact maps; finite search unfinished; no minimality claim" if master.get("partial_refinement") else
+                "Modular discovery; exact accepted identities; exact search incomplete" if master.get("refinement_strategy") == "modular-circuits" else
                 "Exact bounded search; no numerical master values or minimality claim"]
     rates, snapshot = frame["rates"], frame["closure_snapshot"]
     completed = rates["local_completion"]["per_second"]

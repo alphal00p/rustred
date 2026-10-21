@@ -450,6 +450,19 @@ pub enum MaterializationError {
     FractionFreeDimensionOverflow,
     #[cfg(feature = "reconstruction")]
     SemiNumericalReconstruction(String),
+    /// A native nonzero forbidden-column minor witnesses full row rank for
+    /// this exact selected frame/prefix. No nonzero generic source circuit can
+    /// annihilate its forbidden columns; other frames/families are unaffected.
+    #[cfg(feature = "reconstruction")]
+    SourceFrameIneligible {
+        rows: usize,
+        forbidden_columns: usize,
+    },
+    /// An abort-only embedding cannot interrupt a permanent failure inside
+    /// Symbolica's Option-valued reconstruction oracle. Such hosts must choose
+    /// finite explicit probe/attempt/prime grants rather than unbounded ones.
+    #[cfg(feature = "reconstruction")]
+    SourceWeightUnboundedOracleUnsupported,
 }
 
 /// Native factorized replay of a shared finite-corner trace. Column ordering
@@ -507,6 +520,19 @@ impl fmt::Display for MaterializationError {
             Self::SemiNumericalReconstruction(reason) => {
                 write!(f, "semi-numerical reconstruction failed: {reason}")
             }
+            #[cfg(feature = "reconstruction")]
+            Self::SourceFrameIneligible {
+                rows,
+                forbidden_columns,
+            } => write!(
+                f,
+                "selected {rows}-row source frame/prefix has full generic row rank on its {forbidden_columns} forbidden columns; no terminal circuit exists within this frame/prefix"
+            ),
+            #[cfg(feature = "reconstruction")]
+            Self::SourceWeightUnboundedOracleUnsupported => write!(
+                f,
+                "unbounded source-weight reconstruction requires panic=unwind; this host must supply finite probe, attempt and prime grants"
+            ),
             Self::CoefficientVariableMapMismatch => {
                 write!(
                     f,

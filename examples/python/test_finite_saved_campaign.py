@@ -88,6 +88,20 @@ class FiniteCampaignTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not import"):
             FIN.engine(self.campaign)
 
+    def test_fresh_engine_default_is_legacy_and_saved_finite_engine_is_inherited(self):
+        before = FIXTURE.snapshot(self.campaign)
+        self.assertIsNone(FIN.engine(self.campaign))
+        self.assertIsNone(FIN.engine(self.campaign, "legacy"))
+        self.assertEqual(FIN.engine(self.campaign, "finite-demand"), FIN.ENGINE)
+        self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+        self.plan()
+        self.assertEqual(FIN.engine(self.campaign), FIN.ENGINE)
+        with patch.object(FIN, "public_main", return_value=0) as dispatch, \
+             patch.object(PUBLIC, "native_executable", side_effect=AssertionError("legacy preflight")), \
+             patch.object(PUBLIC.os, "execv", side_effect=AssertionError("legacy launch")):
+            self.assertEqual(PUBLIC.main(["run", "--campaign", str(self.campaign), "--resume"]), 0)
+        self.assertIsNone(dispatch.call_args.args[0].engine)
+
     def test_dry_plan_never_freezes_or_creates_namespace(self):
         before = FIXTURE.snapshot(self.campaign)
         plan = self.plan(apply=False)

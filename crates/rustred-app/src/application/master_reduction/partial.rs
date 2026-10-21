@@ -25,6 +25,8 @@ pub fn master_publish_partial_refinement(
         || options.finite_feedback == Some(true)
         || options.checkpoint_interval.is_zero()
         || options.threads == 0
+        || options.refinement_strategy.is_some()
+        || options.modular_policy.is_some()
     {
         return Err(AppError::input(
             "partial refinement publication requires Publish, positive limits and no new search or verification strategy",
@@ -90,6 +92,7 @@ pub fn master_publish_partial_refinement(
             ));
         }
         let mut report = source_report.clone();
+        modular::inherit_state(&source_directory, &options.directory, &report)?;
         inherited::capture(&session, &source_report, &mut report)?;
         storage::clone_inputs_with_policy(
             &source_directory,

@@ -12,6 +12,9 @@ mod collection_tests;
 mod finite_source_tests;
 #[path = "tests/inherited.rs"]
 mod inherited_tests;
+#[path = "tests/modular.rs"]
+#[cfg(feature = "reconstruction")]
+mod modular_tests;
 #[path = "tests/profile.rs"]
 mod profile_tests;
 #[path = "tests/resource_budget.rs"]

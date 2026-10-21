@@ -10,6 +10,8 @@ mod codec;
 pub mod collection;
 mod elimination;
 mod execution;
+#[cfg(feature = "reconstruction")]
+mod modular;
 mod sources;
 #[cfg(test)]
 mod tests;
@@ -32,6 +34,12 @@ use crate::sector::OrderingPolicy;
 pub type TerminalRelationRow = BTreeMap<IntegralKey, Coefficient>;
 pub use execution::{
     TerminalRelationExecutionOptions, TerminalRelationExecutionProgress, TerminalRelationExecutor,
+};
+#[cfg(feature = "reconstruction")]
+pub use modular::{
+    TerminalRelationModularCircuit, TerminalRelationModularOptions,
+    TerminalRelationModularProgress, TerminalRelationModularProposalStatus,
+    TerminalRelationModularSession, TerminalRelationModularSource, TerminalRelationModularStats,
 };
 
 /// An exact homogeneous equation, together with the generic-parameter domain

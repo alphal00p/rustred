@@ -53,7 +53,9 @@ def main(argv=None):
     for action in ("run", "extend", "inspect", "refine", "finalize-refinement", "publish"):
         sub = commands.add_parser(action, allow_abbrev=False)
         if action != "inspect":
-            sub.epilog = ("Finite engine: first run --engine finite-demand --finite-policy POLICY.json "
+            sub.epilog = ("Fresh campaigns default to the legacy symbolic-domain engine (Epoch/CP6); "
+                          "existing campaigns retain their saved engine. Finite-demand is opt-in: "
+                          "first run --engine finite-demand --finite-policy POLICY.json "
                           "--cpus CPUSET --max-memory-bytes BYTES --host-memory-reserve-bytes BYTES. "
                           "Subsequent finite commands retain these settings; --workers N with --cpus CPUSET "
                           "changes the reserved worker budget. Explicit policy/RAM overrides "
@@ -75,7 +77,7 @@ def main(argv=None):
                              help="independently replay the saved dependency graph before publication (default saved preference or off)")
         if action == "run":
             sub.add_argument("--engine", choices=("legacy", "finite-demand"),
-                             help="checkpoint engine for a fresh campaign (saved engine retained on resume)")
+                             help="fresh default: legacy symbolic-domain (Epoch/CP6); finite-demand is opt-in; saved engine retained on resume")
             sub.add_argument("--resume", action="store_true", help="resume; also selected automatically if a checkpoint exists")
         if action == "extend":
             sub.add_argument("--rank", type=int, required=True, help="new cumulative input numerator-rank ceiling")
@@ -83,10 +85,14 @@ def main(argv=None):
             bounds.add_argument("--max-power-difference", type=int, help="new D=A-R ceiling; omitted preserves current ceiling")
             bounds.add_argument("--unbounded-power-difference", action="store_true", help="remove only the additional stage ceiling")
         if action == "refine":
+            sub.add_argument("--refinement-strategy", choices=("exact", "modular-circuits"),
+                             help="refinement backend (default saved preference or exact); modular discovery accepts only exactly verified maps")
+            sub.add_argument("--modular-policy", type=Path,
+                             help="JSON modular discovery/reconstruction resource allowances; explicit modular refinement only")
             sub.add_argument("--workers", dest="refinement_workers", type=int, help="refiner-only worker budget; may change on resume")
             sub.add_argument("--cpus", dest="refinement_cpus", help="refiner-only CPU affinity; must match --workers")
-            sub.add_argument("--relation-batch-rows", type=int, help="positive operational parallel window; may change on resume")
-            sub.add_argument("--relation-block-rows", type=int, help="positive work-stealing elimination block size; may change on resume")
+            sub.add_argument("--relation-batch-rows", type=int, help="exact refiner's positive parallel window; may change on resume")
+            sub.add_argument("--relation-block-rows", type=int, help="exact refiner's positive elimination block size; may change on resume")
             sub.add_argument("--max-relation-columns", type=int,
                              help="operational column budget; 0 removes the limit (default saved preference or unlimited); may change on resume")
             sub.add_argument("--collection-artifact", type=Path, action="append", default=[],
@@ -136,6 +142,10 @@ def main(argv=None):
                 command += ["--executable", str(executable)]
             if args.action == "refine":
                 command.append("--refine-masters")
+                if args.refinement_strategy is not None:
+                    command += ["--master-refinement-strategy", args.refinement_strategy]
+                if args.modular_policy is not None:
+                    command += ["--master-modular-policy", str(args.modular_policy.resolve())]
                 if args.refinement_workers is not None:
                     if args.refinement_workers <= 0: raise ValueError("refinement workers must be positive")
                     command += ["--master-refinement-workers",str(args.refinement_workers)]

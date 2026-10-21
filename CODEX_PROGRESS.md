@@ -1,5 +1,254 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 21 — delivered opt-in modular refinement and resume fixes
+
+The urgent exact checkpoint decoder fix is already pushed as `a8310684`; the
+128-worker command and separate frozen binary were delivered before continuing
+modular development. No production process or checkpoint was changed.
+
+The reconstruction-enabled optimized libraries, CLI and public diagnostic
+example compile. Coordinated native receipts under
+`TMP/modular-master-refinement-20261021/` now record: terminal relations 76
+passed/one explicitly ignored experimental workload; source weights 41 passed;
+indexed algebra 74 passed; persistence 100 passed; app master reduction 71
+passed/one explicitly ignored workload; CLI master commands 15 passed. The final
+Python delivery run is 175 passed, zero skipped, in 16.215 s; its exact command
+is in `python-delivery-tests.command.txt`. Earlier paragraphs below are the
+chronological investigation, not the current gate status.
+
+Final native CLI controls include a new modular phase, exact accepted relation,
+fresh-process sidecar replay, and an immediate stop followed by a fresh-process
+resume changing six workers to one. Both reach the same exact terminal maps.
+These are small genuine tadpole-source transport controls, not five-loop owner
+coverage tests. The existing core already rejects `panic=abort` in its matrix
+boundary; the metadata check confirms that pre-existing contract. The private
+native oracle failure marker follows the existing unwind requirement rather
+than introducing a new panic-abort compatibility promise.
+
+Independent `modular_final_math_audit` found no further exact-authority defect.
+It required fresh timings after the final build, inclusion of modular
+initialization, separation of heuristic negative scans from exact row-space
+work, and no per-method attribution of combined-process RSS. Root is repeating
+the optimized one/six-worker small fixtures and real next-64-source negative
+control, recording executable SHA256 and actual affinity in each receipt.
+Earlier receipts' hard-coded affinity label was incorrect: actual shell
+placement was CPUs 232–239, not 240–247. The corrected harness queries affinity.
+
+The real positive experiment omits one already known terminal U row from an
+in-memory copy of immutable R6 state, exports a fresh experimental TMP native
+snapshot, then asks the public release probe to reconstruct it. It must recover
+all original exact terminal coefficients and guards; it cannot count as a new
+production relation. The pre-cache full-prefix run completed: 54,909 sources,
+one accepted recovery, zero misses, all terminal coefficients equal to the
+original, 909 remaining keys, and all original guards retained. Solver time was
+796.950 s (46.225 s source preparation/discovery, 750.725 s lifting/exact
+verification), initialization 2.431 s, same-process native replay 91.783 s,
+process wall 899.421 s, CPU 897.686 s, peak 5.430 GB. This is not a newly found
+production relation or full refinement: the source inventory is not exhausted,
+and there is no matched exact timing control. A five-second
+release profile assigns 40.6% of sampled CPU to native polynomial evaluation,
+30.9% to the numerical source-weight probe, 18.3% to integer-to-field conversion,
+and 4.9% to native back substitution. Root delegated a narrow per-prime native
+polynomial-image cache to `modular_refine_core`, after checking Symbolica's
+public mapping/evaluation APIs. No local reconstruction or polynomial evaluator
+was introduced. Its independent audit passed; five new adversarial
+controls cover field/source binding, original poles, bad primes, equality with
+the raw native evaluator, and shared retained-slot accounting/eviction. Trial
+source-weight tests were 46/46, and terminal controls remained 76 passed/one
+ignored. The full mapped-cache release build succeeded in 6m31s and the
+exact-only application feature check succeeded in 2m25s (including a build-lock
+wait). Final-cache CLI generation and fresh-process resume also pass. New
+post-cache small one/six-worker positive fixtures match their exact maps.
+
+The real repeated cache trial was rejected: root interrupted its own PID 1932489
+with SIGTERM after 925.639 s wall/923.844 s CPU, peak 15.822 GB, with no final
+recovery result, compared with the completed 899.421 s/5.430 GB baseline. This
+is a censored performance experiment, not an algebraic failure or a completed
+runtime ratio. The raw receipt retains return code -15; its `censored:null` means
+the supervisor's own deadline/RSS trigger did not fire. The sibling
+`positive-release-mapped-full.disposition.json` records root's interruption.
+Native source inspection explains the cost: both evaluator APIs use the same
+monomial/power loop, while mapped multivariate polynomials duplicate exponent
+storage and padded contexts per retained prime. `modular_refine_core` reverted
+this trial using apply_patch, retaining the prior rank, unwind marker, fair
+windows, ordering labels, shared image cache and full exact validation. Trial
+source is preserved as `rejected-mapped-polynomial-cache.patch` under TMP.
+The shipping source-weight suite returns to 41 tests; the five cache-specific
+tests belong to the rejected experiment. A native dense-univariate/Horner
+representation is deferred with its own future memory/performance gate.
+
+The first hot-prefix recovery attempt `[45000,45064)` was negative, not a
+successful recovery (an older diagnostic returned exit 0 while reporting false
+reference equality). The example now fails on reference-map disagreement.
+An explicit discovery-only mode subsequently located the first sampled
+candidate after 45,889 rows in 3.884 s, with 2.456 s initialization and zero
+accepted relations. It is diagnostics only and cannot create an artifact or
+closure claim. All experimental snapshots are fresh files under TMP; production
+source state remains untouched.
+
+The final private-transport sweep also found the same fixed 1 GiB ceiling in
+saved collection decoding and a 256 MiB census-copy ceiling. Core/integration
+agents removed those, not raised them. Caller I/O grants, exact source/map
+replay, file paths/shapes/digests and explicit finite-provenance policies remain;
+schemas and versioned normalization recipes are unchanged. An independent
+audit approved both. Four new collection controls and one census-shape control
+exercise compact decoded claims, malformed records, actual round trips and
+caller-budget refusals without allocating large artificial files.
+
+Final coordinated gates: 80 terminal tests/one ignored workload; 41 source
+weights; 74 indexed algebra; 110 persistence-filter tests (overlapping filters,
+not a unique-test sum); 72 app tests/one ignored fixture writer; 15 CLI tests;
+175 Python tests/zero skipped. The final release build succeeded in 6m47s.
+Native exact-only feature checking also passed before the feature-independent
+last transport changes. All source and measurement audits are delivered.
+
+Frozen CLI `TMP/releases/20261021-modular-master-refinement/rustred`, SHA256
+`83f19eb0600400b9642a5bf5dff8cb29d0d1d557ac4b62aa6ef70888914d98d7`,
+is independent of the prior exact repair binary. Final CLI pause/resume changes
+six workers to one and preserves maps; tiny positive controls match exact at
+one/six workers. Real next-64 control matches prior exact native hash `2f5db653…`
+and modular hash `0a274a6e…`; final source scan 0.117777 s + initialization
+2.535056 s, exact insertion 60.009684 s, zero new relations. No full-refinement
+speedup is inferred. Receipts are `delivery-*` under the same evidence directory.
+
+Delivery backlog: backend/CLI/Python [delivered]; exact resume repair [delivered,
+`a8310684`]; positive real recovery [delivered]; mapped cache [rejected]; native
+transport cleanup [delivered]; independent audits [delivered]; final build,
+tests and frozen binary [delivered]. The commit carrying this entry is the
+selective delivery checkpoint; its identity is recorded in the frozen local
+manifest. No campaign outputs, licenses, references, or unrelated FeynKit work
+are included. Exact stays the default;
+modular discovery is serial with parallel independent exact lifts, not a claim
+of 128-core scaling. No full-refinement speedup, minimality, additional campaign
+coverage or five-loop completion is claimed.
+
+## October 21 — active: modular master-refinement implementation
+
+The user authorized implementation of the modular/source-weight route described
+in `docs/research/master_refinement_modular_reconstruction_2026-10-21.md`.
+Starting revision: `9a9ca9c9` on main. Existing production campaigns and the
+frozen exact-refinement executable are unchanged. This is an opt-in relation
+discovery method, not a completeness or master-independence proof.
+
+Delegation: `modular_refine_core` implements native modular discovery and compact
+Symbolica source-weight lifts; `modular_refine_integration` implements app,
+CLI, Python and dashboard selection; `modular_refine_audit` independently tests
+mathematics, guards, provenance and persistence. Root integrates, implements
+the binary codec, coordinates builds and measures release controls.
+
+Delivered source, not yet accepted: incremental finite-field sparse reduction,
+direct dependency traces, selected-frame Symbolica reconstruction, exact
+full-physical-column `W*A=image` validation, ordered exact commits, and a
+separate native checkpoint preserving the old exact cursor. Loading replays
+each accepted exact circuit before admitting its maps; the numerical U/L state
+is never authority. Strategy and operational policy are explicit. Exact remains
+the default and previous exact schema/selection identities remain unchanged.
+
+Initial independent audit caught numerical row-index ancestry assumptions,
+source-cursor corruption risk and zero-weight source guard obligations; fixes
+and regression tests are present. Current status: Python integration 170/170;
+first native check identified a missing Symbolica trait import, now corrected;
+native test execution and end-to-end release measurements are pending. Evidence:
+`TMP/modular-master-refinement-20261021/`. Builds use CPUs 224–231 and the
+existing build lock. Production CPU ranges and source files are not modified.
+
+Backlog: native/compiler acceptance [active]; cold-load/corruption and
+pause/resume tests [pending]; positive real-source reconstruction and matched
+exact/modular release pilots [pending]; independent final audit [pending];
+documentation, coherent commit/push and opt-in commands [pending]. No speedup,
+new real-campaign relation or completed refinement is claimed yet.
+
+Validation follow-up: reconstruction-enabled native app check passes; first
+optimized CLI compiled in 5m45s. Native terminal controls initially gave 67
+passes, one fixture failure, one explicitly ignored workload experiment. The
+failed zero-weight test had allowed a newly prepended auxiliary to bypass its
+intended ancestor. The independent auditor changed the fixture to a genuinely
+independent two-column prefix with exact circuit `(0,-1,1)`, preserving and
+strengthening the guard assertion. All nine projected source-weight tests pass,
+including hidden sampled-zero auxiliary rejection. Corrected native tests are
+being rebuilt. App test compilation exposed two iterator typos in new test
+setup; fixed, not production behavior. Release probe had used a test-only
+coefficient constructor; fixed to the public `try_new` API.
+
+The first real-data positive-recovery experiments (omit one known U terminal
+row in memory, replay 64 then 5,000 authentic old sources) found no recovered
+circuit in those prefixes: 51.82/53.56s in the unoptimized test harness. These
+are **inconclusive**, not speed measurements or a new relation claim. The known
+row need not be generated early. The harness now supports the full recorded
+prefix without the expensive matched exact control, while still requiring
+all recovered coefficients to equal the original immutable terminal maps.
+
+Independent integration review found and fixed a direct-source modular scope
+binding mismatch and an assistance metadata overwrite; regression controls
+were added. Published-artifact refinement was not affected by the binding
+issue. User additionally selected the old symbolic-domain/Epoch CP6 campaign
+as the default (observed fastest R6). Fresh default and saved-engine dispatch
+are now explicit in help/docs and tested: all 174 Python controls pass. Exact
+master refinement also remains the default. Existing finite campaigns continue
+in their saved lane. No production state or launch policy was changed.
+
+### Urgent exact-resume repair delivered before continuing modular work
+
+The user's 128-worker resume failed before work with `terminal relations
+binary: LimitExceeded`. Root read the failure and paused generation-5 metadata;
+core identified the hidden fixed 1 GiB bincode decoded-allocation claim cap.
+That cap is not an encoded-byte bound: the valid 272,182,620-byte checkpoint
+contains 216,776,509 bytes of structural varint records with much larger decoded
+vector/primitive claims. The inconsistent cap was removed, not raised; schema,
+source bindings and normalization recipes stay unchanged. Independent
+`checkpoint_repair_audit` found no source blocker, with the generated-native
+trust boundary explicitly retained.
+
+Root tested the actual state in a separate reflinked scratch phase. The fixed
+optimized exact CLI cold-loaded gen5 and saved gen6 with exactly identical
+native BLAKE3 `ee4066c4c376abb2c6440672e53141803993bfa915a0f8912ea0397cc2e6f6a5`,
+272,182,620 bytes, 901,801 completed work, 33,633 current U rows and 594,636
+nonzeros. No source/rebuild work advanced. This took 28.18 s, peak 8,518,576 KiB.
+Original production generation5 and file SHA256 were independently unchanged.
+The first scratch invocation lacked OMP_NUM_THREADS=1 and was rejected before
+loading; the corrected native environment passed. The earlier probe loaded the
+file successfully but incorrectly asked for terminal maps during a pending
+rebuild; the probe-only handling is corrected, not a production decoder fault.
+
+Codec fix and tested resume instructions are pushed as `a8310684` on main.
+Frozen local exact repair executable:
+`TMP/releases/20261021-checkpoint-resume-repair/rustred`, SHA256
+`bde684441170c2db06736ad182cc46dcab08544107f98393ce9b6fff4c327b38`.
+User received the original-campaign resume command with 128 workers/CPU64–191,
+600 GB process-limit policy and swap-growth guard disabled. Only the user
+starts production. Wider native-transport quota cleanup remains in the working
+tree for the subsequent modular integration milestone; it is included in this
+local exact-only binary and identified in the repair documentation.
+
+Updated gates before the final quota/source-scout changes: 68 terminal controls,
+9 projected-weight controls, 68 app controls and 15 native CLI controls pass;
+Python controls are now 175/175. Native app tests include genuine modular
+publication, cold loading, partial export, resume and changed operational grants.
+All six optimized small fixtures (one-loop tadpole, connected two-loop sunset,
+three-loop **factorized tadpoles**, each one/six workers) recover 2/1/2 new
+relations, have exact-map equality with exact controls, and identical
+cross-process modular checkpoint hashes across worker counts. These tiny
+controls do not demonstrate a speed advantage: reconstruction overhead is
+larger than exact arithmetic on such small matrices.
+
+The opt0 full-known-relation replay was stopped read-only after about 21min
+(censored, no positive result); it reached 45,000 observed sources rapidly then
+spent a long indivisible step in native finite-field sparse scatter/forward
+elimination. A five-second own-process perf sample assigns 61.8% to native
+scatter, 9.7% to unoptimized iterator traversal. This is NOT release performance
+evidence. Next: export the legitimate minus-one-row experimental native snapshot
+and run the public **release** probe, comparing all maps to the immutable input.
+
+User explicitly forbids hard-coded arbitrary resource ceilings. New modular
+quotas and native transport now default to machine/unbounded grants, while
+caller-specified caps remain possible and scheduling batches remain windows.
+Versioned normalization snapshots are not silently rewritten. Core and new
+independent `modular_final_math_audit` are replacing clipped admission scouts
+with a sound full-forbidden-rank frame rejection and an explicit native-oracle
+failure bridge. A nonzero minor rejects only that generic selected frame, not
+the family or exceptional parameter loci; numerical rank drops never authorize
+rejection or publication. Root coordinates the final native rebuild and pilots.
+
 ## October 21 — delivered: exact work-stealing master refinement
 
 User requested eager parallel finite master refinement, without interrupting

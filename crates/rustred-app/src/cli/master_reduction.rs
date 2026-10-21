@@ -28,6 +28,8 @@ pub(crate) struct MasterArgs {
     pub threads: usize,
     pub relation_batch_rows: Option<usize>,
     pub relation_block_rows: Option<usize>,
+    pub refinement_strategy: Option<crate::MasterRefinementStrategy>,
+    pub modular_policy: Option<PathBuf>,
     pub deep_verification: Option<bool>,
     pub seed_depth: u32,
     pub containing_sector_depth: u32,
@@ -69,6 +71,8 @@ fn parse_source(
         threads: 1,
         relation_batch_rows: None,
         relation_block_rows: None,
+        refinement_strategy: None,
+        modular_policy: None,
         deep_verification: None,
         seed_depth: 0,
         containing_sector_depth: 0,
@@ -97,6 +101,8 @@ fn parse_source(
             "--threads" => "--threads",
             "--relation-batch-rows" => "--relation-batch-rows",
             "--relation-block-rows" => "--relation-block-rows",
+            "--refinement-strategy" => "--refinement-strategy",
+            "--modular-policy" => "--modular-policy",
             "--deep-verification" => "--deep-verification",
             "--no-deep-verification" => "--no-deep-verification",
             "--seed-depth" => "--seed-depth",
@@ -143,6 +149,20 @@ fn parse_source(
                             option,
                             value,
                             expected: "conservative or standard",
+                        });
+                    }
+                });
+            }
+            "--refinement-strategy" => {
+                let value = next_utf8_value(&mut args, option)?;
+                result.refinement_strategy = Some(match value.as_str() {
+                    "exact" => crate::MasterRefinementStrategy::Exact,
+                    "modular-circuits" => crate::MasterRefinementStrategy::ModularCircuits,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option,
+                            value,
+                            expected: "exact or modular-circuits",
                         });
                     }
                 });
@@ -210,6 +230,7 @@ fn parse_source(
                     "--command" => result.command = path,
                     "--finite-directory" => result.finite_directory = Some(path),
                     "--finite-policy" => result.finite_policy = Some(path),
+                    "--modular-policy" => result.modular_policy = Some(path),
                     "--artifact" => result.artifact = Some(path),
                     "--checkpoint" => result.checkpoint = path,
                     "--directory" => result.directory = path,
@@ -266,6 +287,13 @@ fn parse_source(
             "--resume and --previous-artifact cannot be combined",
         ));
     }
+    if result.modular_policy.is_some()
+        && result.refinement_strategy == Some(crate::MasterRefinementStrategy::Exact)
+    {
+        return Err(ArgError::InvalidCombination(
+            "--modular-policy requires modular-circuits refinement",
+        ));
+    }
     Ok(Command::WalkMasterReduce(result))
 }
 
@@ -284,6 +312,8 @@ pub(super) fn parse_publish(args: impl Iterator<Item = OsString>) -> Result<Comm
         || args.containing_sector_depth != 0
         || !args.collection_artifacts.is_empty()
         || args.max_relation_columns.is_some()
+        || args.refinement_strategy.is_some()
+        || args.modular_policy.is_some()
     {
         return Err(ArgError::InvalidCombination(
             "additional terminal-search strategies require refinement and cannot be used with walk-publish",
@@ -522,6 +552,16 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     options.threads = args.threads;
     options.relation_batch_rows = args.relation_batch_rows;
     options.relation_block_rows = args.relation_block_rows;
+    options.refinement_strategy = args.refinement_strategy;
+    options.modular_policy = args
+        .modular_policy
+        .as_ref()
+        .map(|path| {
+            let bytes = std::fs::read(path).map_err(|e| CliError::InputIo(e.to_string()))?;
+            serde_json::from_slice(&bytes)
+                .map_err(|e| CliError::Input(format!("{}: {e}", path.display())))
+        })
+        .transpose()?;
     options.deep_verification = args.deep_verification;
     options.seed_depth = args.seed_depth;
     options.containing_sector_depth = args.containing_sector_depth;
@@ -654,6 +694,77 @@ fn prospective_path(path: &Path) -> Result<PathBuf, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modular_strategy_is_explicit_and_has_a_caller_policy() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        let Command::WalkMasterReduce(default) =
+            parse(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert!(default.refinement_strategy.is_none());
+        let Command::WalkMasterReduce(modular) = parse(
+            base.into_iter()
+                .chain([
+                    "--refinement-strategy",
+                    "modular-circuits",
+                    "--modular-policy",
+                    "grants.json",
+                ])
+                .map(OsString::from),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(
+            modular.refinement_strategy,
+            Some(crate::MasterRefinementStrategy::ModularCircuits)
+        );
+        assert_eq!(modular.modular_policy, Some(PathBuf::from("grants.json")));
+        for value in ["sampled", "EXACT", ""] {
+            assert!(
+                parse(
+                    base.into_iter()
+                        .chain(["--refinement-strategy", value])
+                        .map(OsString::from)
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            parse_publish(
+                [
+                    "--command",
+                    "walk.json",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--refinement-strategy",
+                    "modular-circuits"
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+        assert!(
+            parse_finalize(
+                [
+                    "--refinement",
+                    "paused",
+                    "--directory",
+                    "out",
+                    "--modular-policy",
+                    "grants.json"
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn finite_policy_is_shared_by_artifact_cold_read_and_refinement_commands() {

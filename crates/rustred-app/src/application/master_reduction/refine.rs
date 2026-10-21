@@ -72,6 +72,7 @@ pub fn master_refine_published_artifact(
         options.normalization_profile.unwrap_or(source_profile)
     };
     let finite_feedback = collection::feedback_for_phase(options, resumed.as_ref())?;
+    let refinement_strategy = modular::for_phase(options, resumed.as_ref())?;
     let mut hash = blake3::Hasher::new();
     hash.update(b"rustred-published-refinement-v1");
     hash.update(&source_metadata);
@@ -93,6 +94,7 @@ pub fn master_refine_published_artifact(
         hash.update(collection::FEEDBACK_RECIPE.as_bytes());
     }
     hash.update(&serde_json::to_vec(&collection_identity).map_err(io)?);
+    modular::hash(refinement_strategy, &mut hash);
     let binding = hash.finalize().to_hex().to_string();
     let started = Instant::now();
     let (mut report, mut session) = if let Some(report) = resumed {
@@ -157,6 +159,16 @@ pub fn master_refine_published_artifact(
             "scope_binding":source_report["scope_binding"]
         });
         report["operation"] = json!("refine");
+        for field in [
+            "modular_state",
+            "modular_refinement",
+            "modular_search_complete",
+            "modular_policy",
+            "exact_source_search_complete",
+        ] {
+            report.as_object_mut().unwrap().remove(field);
+        }
+        modular::record(&mut report, refinement_strategy, options)?;
         collection::record_feedback(&mut report, finite_feedback);
         report["seed_depth"] = json!(session.statistics().seed_depth);
         profile::record(&mut report, normalization_profile);
@@ -179,9 +191,13 @@ pub fn master_refine_published_artifact(
         )?;
         (report, session)
     };
-    if report["status"] == "completed_nonminimal" && report["collection"]["status"] == "completed" {
+    if report["status"] == "completed_nonminimal"
+        && report["collection"]["status"] == "completed"
+        && !(refinement_strategy == MasterRefinementStrategy::ModularCircuits
+            && options.modular_policy.is_some())
+    {
         let _ = collection::load_with_policy(&options.directory, options.finite_policy.as_ref())?;
-        if !session.is_complete() {
+        if !modular::phase_complete(&options.directory, &report, &session)? {
             return Err(AppError::input(
                 "completed refinement manifest has unfinished native state",
             ));

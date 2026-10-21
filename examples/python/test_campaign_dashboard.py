@@ -63,6 +63,24 @@ def sample_status():
 
 
 class TelemetryTests(unittest.TestCase):
+    def test_modular_scan_never_becomes_exact_span_progress(self):
+        status = sample_status()
+        status["master_reduction"] = {"operation":"refine", "stage":"source-weight reconstruction",
+            "refinement_strategy":"modular-circuits", "completed_work":9, "total_work":100,
+            "finite_search_complete":False, "modular_search_complete":True,
+            "modular_refinement":{"source_rows_scanned":100, "total_source_rows":100,
+                "candidates_found":3, "accepted_relations":1, "reconstruction_misses":2,
+                "search_exhausted":True, "accepted_relation_assurance":"exact full-column W*A identity"}}
+        frame = TELEMETRY.normalize_status(status)
+        self.assertFalse(frame["master_reduction"]["finite_search_complete"])
+        self.assertTrue(frame["master_reduction"]["modular_search_complete"])
+        self.assertEqual(frame["master_reduction"]["completed_work"], 9)
+        self.assertIn("heuristic modular discovery", frame["scope"])
+        shown = "\n".join(DASHBOARD.render_master_table(frame, width=160, height=32, color=False))
+        self.assertIn("exact W*A identity", shown)
+        self.assertIn("sampled scan; exact span incomplete", shown)
+        self.assertNotIn("Parallel batch", shown)
+
     def test_master_parallel_batch_transport_and_colored_dashboard(self):
         status=sample_status()
         status["master_reduction"]={"stage":"relations","status":"running","operation":"refine",

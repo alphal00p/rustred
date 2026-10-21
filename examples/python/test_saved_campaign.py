@@ -39,6 +39,17 @@ class SavedCampaignTests(unittest.TestCase):
         self.assertNotIn("--resume", command)
         self.assertIn("--master-reduction-executable", command)
 
+    def test_modular_strategy_and_policy_are_explicit_refinement_controls(self):
+        policy = self.campaign / "modular.json"
+        policy.write_text('{"reconstruction":{"max_primes":24}}')
+        command = self.invoke("refine", "--refinement-strategy", "modular-circuits", "--modular-policy", str(policy))
+        self.assertEqual(command[command.index("--master-refinement-strategy") + 1], "modular-circuits")
+        self.assertEqual(command[command.index("--master-modular-policy") + 1], str(policy))
+        self.assertNotIn("--master-refinement-strategy", self.invoke("refine"))
+        for action in ("publish", "inspect", "finalize-refinement"):
+            with patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                self.invoke(action, "--refinement-strategy", "modular-circuits")
+
     def test_run_autoresumes_but_does_not_refine(self):
         path = self.campaign / "checkpoints/main/latest.json"
         path.parent.mkdir(parents=True)
@@ -46,6 +57,23 @@ class SavedCampaignTests(unittest.TestCase):
         command = self.invoke("run")
         self.assertIn("--resume", command)
         self.assertNotIn("--refine-masters", command)
+
+    def test_fresh_run_defaults_to_symbolic_domain_without_selecting_a_refinement_backend(self):
+        import finite_saved_campaign as finite
+        with patch.object(finite, "engine", wraps=finite.engine) as choose, \
+             patch.object(finite, "public_main", side_effect=AssertionError("finite backend was not requested")):
+            command = self.invoke("run")
+        choose.assert_called_once_with(self.campaign, None)
+        self.assertIn("production_saved_owner_campaign.py", command[2])
+        self.assertNotIn("--refine-masters", command)
+        self.assertNotIn("--master-refinement-strategy", command)
+
+    def test_engine_help_names_fresh_legacy_default(self):
+        output = io.StringIO()
+        with patch.object(WRAPPER.sys, "stdout", output), self.assertRaises(SystemExit):
+            WRAPPER.main(["run", "--help"])
+        self.assertIn("Epoch/CP6", output.getvalue())
+        self.assertIn("finite-demand is opt-in", output.getvalue())
 
     def test_refine_is_only_explicit_postprocess_and_seed_depth_is_forwarded(self):
         command = self.invoke("refine", "--seed-depth", "2")

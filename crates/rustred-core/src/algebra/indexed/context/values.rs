@@ -74,6 +74,40 @@ impl IndexedCoefficientContext {
         self.base
             .validate_with_limits(value, ExactAlgebraLimits::default())
             .map_err(|_| IndexedAlgebraError::WrongContext)?;
+        self.lift_authenticated_base_with_limits(value, ExactAlgebraLimits::default())
+    }
+
+    /// Inject an authenticated base-field coefficient into this indexed field
+    /// using the caller's resource grant at both admission boundaries.
+    ///
+    /// Symbolica performs the variable-map extension and normalization. No
+    /// index is specialized and no source/domain condition is discharged.
+    /// Unlike [`Self::lift`], this method applies no default term quota.
+    pub fn lift_with_limits(
+        &self,
+        value: &Coefficient,
+        limits: ExactAlgebraLimits,
+    ) -> Result<IndexedCoefficient, IndexedAlgebraError> {
+        self.base
+            .validate_with_limits(value, limits)
+            .map_err(|error| {
+                if matches!(
+                    error,
+                    crate::algebra::ExactAlgebraError::VariableMapMismatch { .. }
+                ) {
+                    IndexedAlgebraError::WrongContext
+                } else {
+                    error.into()
+                }
+            })?;
+        self.lift_authenticated_base_with_limits(value, limits)
+    }
+
+    fn lift_authenticated_base_with_limits(
+        &self,
+        value: &Coefficient,
+        limits: ExactAlgebraLimits,
+    ) -> Result<IndexedCoefficient, IndexedAlgebraError> {
         let numerator = self.extend_authenticated_base_polynomial(&value.numerator);
         let denominator = self.extend_authenticated_base_polynomial(&value.denominator);
         if denominator.is_zero() {
@@ -84,7 +118,7 @@ impl IndexedCoefficientContext {
             IntegerRing,
             u16,
         >>::from_num_den(numerator, denominator, &Z, true);
-        self.wrap_checked(raw)
+        self.wrap_checked_with_limits(raw, limits)
     }
 
     pub fn lift_base_polynomial(
@@ -209,10 +243,6 @@ impl IndexedCoefficientContext {
         polynomial_has_shape(&raw.numerator)
             && polynomial_has_shape(&raw.denominator)
             && !raw.denominator.coefficients.is_empty()
-    }
-
-    fn wrap_checked(&self, raw: Coefficient) -> Result<IndexedCoefficient, IndexedAlgebraError> {
-        self.wrap_checked_with_limits(raw, ExactAlgebraLimits::default())
     }
 
     pub(in crate::algebra::indexed) fn wrap_checked_with_limits(
@@ -475,4 +505,43 @@ fn decimal_digits(mut value: usize) -> usize {
         digits += 1;
     }
     digits
+}
+
+#[cfg(test)]
+mod lift_grant_tests {
+    use super::*;
+    use crate::algebra::{CoefficientContext, ExactAlgebraError, IndexedAlgebraLimits};
+
+    #[test]
+    fn native_base_lift_uses_the_supplied_grant_without_default_term_quotas() {
+        let base = CoefficientContext::new(["lift_grant_x"]);
+        let context = IndexedCoefficientContext::try_new(&base, "lift-grant-test", 1).unwrap();
+        let value = base.coefficient_fixture("lift_grant_x+1");
+        let small = ExactAlgebraLimits {
+            max_polynomial_terms: 1,
+            ..ExactAlgebraLimits::unbounded_resources()
+        };
+        assert!(matches!(
+            context.lift_with_limits(&value, small),
+            Err(IndexedAlgebraError::ExactAlgebra(
+                ExactAlgebraError::ResourceLimit { .. }
+            ))
+        ));
+        let lifted = context
+            .lift_with_limits(&value, ExactAlgebraLimits::unbounded_resources())
+            .unwrap();
+        assert_eq!(
+            context
+                .specialize(&lifted, &[11], IndexedAlgebraLimits::unbounded_resources())
+                .unwrap()
+                .0,
+            value
+        );
+        assert_eq!(context.lift(&value).unwrap(), lifted);
+        let foreign = CoefficientContext::new(["lift_grant_foreign"]);
+        assert!(matches!(
+            context.lift_with_limits(&foreign.one(), ExactAlgebraLimits::unbounded_resources()),
+            Err(IndexedAlgebraError::WrongContext)
+        ));
+    }
 }

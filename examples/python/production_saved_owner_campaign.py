@@ -1135,8 +1135,12 @@ def main(argv=None):
                             help="publish proved maps from the stopped current refinement without finishing its finite search")
     parser.add_argument("--master-max-relation-columns", type=int,
                         help="only with --refine-masters: operational column budget; 0 removes it; may change on resume")
-    parser.add_argument("--master-relation-batch-rows", type=int, help="refinement operational parallel window; positive, mutable on resume")
-    parser.add_argument("--master-relation-block-rows", type=int, help="refinement work-stealing block rows; positive, mutable on resume")
+    parser.add_argument("--master-refinement-strategy", choices=("exact", "modular-circuits"),
+                        help="explicit refinement backend (default saved preference or exact)")
+    parser.add_argument("--master-modular-policy", type=Path,
+                        help="modular discovery/reconstruction JSON resource allowances; explicit modular refinement only")
+    parser.add_argument("--master-relation-batch-rows", type=int, help="exact refiner's parallel window; positive, mutable on resume")
+    parser.add_argument("--master-relation-block-rows", type=int, help="exact refiner's elimination block rows; positive, mutable on resume")
     parser.add_argument("--master-refinement-workers", type=int, help="refiner-only compute budget; mutable on resume")
     parser.add_argument("--master-refinement-cpus", help="refiner-only CPU affinity; must match its worker count")
     parser.add_argument("--master-seed-depth", type=int,
@@ -1293,6 +1297,8 @@ def main(argv=None):
                                             finite_feedback=args.master_finite_feedback,
                                             deep_verification=args.deep_verification,
                                             max_relation_columns=args.master_max_relation_columns,
+                                            refinement_strategy=args.master_refinement_strategy,
+                                            modular_policy=args.master_modular_policy,
                                             relation_batch_rows=args.master_relation_batch_rows,
                                             relation_block_rows=args.master_relation_block_rows,
                                             refinement_workers=args.master_refinement_workers,

@@ -24,6 +24,17 @@ fn field(summary: &Value, name: &str) -> String {
     if name == "normalization_profile" && value.is_null() {
         return "conservative-v1 (legacy)".into();
     }
+    if name == "refinement_status" && summary["refinement_strategy"] == "modular-circuits" {
+        if summary["partial_refinement_source"].is_object() && summary["operation"] == "publish" {
+            return "partial retained; search unfinished".into();
+        }
+        return if summary["modular_search_complete"] == true {
+            "modular pass completed; exact span unfinished"
+        } else {
+            "modular discovery unfinished; exact span unfinished"
+        }
+        .into();
+    }
     if name == "inventory.authority" && value == "trusted_saved_scope" {
         return "trusted_saved_scope (not independently verified)".into();
     }
@@ -80,6 +91,29 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
         ("Status", "status"),
         ("Selection", "scope_selection"),
         ("Master refinement", "refinement_status"),
+        ("Refinement strategy", "refinement_strategy"),
+        ("Modular discovery stage", "modular_refinement.stage"),
+        (
+            "Modular rows scanned",
+            "modular_refinement.source_rows_scanned",
+        ),
+        ("Modular candidates", "modular_refinement.candidates_found"),
+        (
+            "Exact accepted circuits",
+            "modular_refinement.accepted_relations",
+        ),
+        (
+            "Reconstruction misses",
+            "modular_refinement.reconstruction_misses",
+        ),
+        (
+            "Modular discovery claim",
+            "modular_refinement.discovery_assurance",
+        ),
+        (
+            "Accepted map assurance",
+            "modular_refinement.accepted_relation_assurance",
+        ),
         ("Publication verification", "publication_verification_mode"),
         ("Inventory assurance", "inventory.authority"),
         ("Inventory complete", "inventory.complete"),
@@ -159,6 +193,8 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
     ];
     for (label, name) in fields {
         if (name.starts_with("requested_scope.") && summary["requested_scope"].is_null())
+            || (name == "refinement_strategy" && summary[name].is_null())
+            || (name.starts_with("modular_refinement.") && summary["modular_refinement"].is_null())
             || (name.starts_with("collection.") && summary["collection"].is_null())
             || (name == "source_checkpoint" && summary[name].is_null())
             || (name.starts_with("inherited_equation_authority.")
@@ -228,6 +264,19 @@ pub(super) fn render_master_table(summary: &Value, color: bool, width: usize) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modular_summary_separates_discovery_from_exact_identity_assurance() {
+        let summary = serde_json::json!({"status":"completed_nonminimal", "refinement_strategy":"modular-circuits",
+            "modular_search_complete":true,"finite_search_complete":false,
+            "modular_refinement":{"source_rows_scanned":12,"candidates_found":2,"accepted_relations":1,
+                "reconstruction_misses":1,"discovery_assurance":"heuristic finite-field discovery",
+                "accepted_relation_assurance":"exact full-column W*A identity"}});
+        let shown = render_master_table(&summary, false, 160);
+        assert!(shown.contains("modular pass completed; exact span unfinished"));
+        assert!(shown.contains("Exact accepted circuits"));
+        assert!(shown.contains("exact full-column W*A identity"));
+    }
 
     #[test]
     fn published_and_observed_rule_counts_are_distinct_for_old_metadata() {

@@ -111,9 +111,11 @@ pub(super) fn configure(
             "containing_sector_depth": depth,
             "new_seeds_are_terminals": false,
         });
-        report["completion_policy"] = json!(
-            "finite recorded ordinary-IBP seeds and optional verified circuit/saved equations; retain unresolved auxiliaries"
-        );
+        if report["refinement_strategy"] != "modular-circuits" {
+            report["completion_policy"] = json!(
+                "finite recorded ordinary-IBP seeds and optional verified circuit/saved equations; retain unresolved auxiliaries"
+            );
+        }
     }
     report["saved_rule_assistance"] = json!(options.saved_rule_assistance);
     report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);

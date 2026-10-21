@@ -106,6 +106,43 @@ class PhaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 PHASES.configuration(self.campaign,enabled=True,relation_batch_rows=bad)
 
+    def test_modular_policy_is_portable_explicit_and_has_separate_strategy(self):
+        path = self.campaign / "modular.json"
+        path.write_text('{"batch_rows":7,"reconstruction":{"max_primes":24}}')
+        policy = PHASES.configuration(self.campaign, enabled=True,
+                                     refinement_strategy="modular-circuits", modular_policy=path)
+        self.assertEqual(policy["refinement_strategy"], "modular-circuits")
+        self.assertEqual(policy["modular_policy"]["reconstruction"]["max_primes"], 24)
+        self.write("master-reduction/policy.json", policy)
+        path.unlink()
+        self.assertEqual(PHASES.configuration(self.campaign, enabled=True)["modular_policy"], policy["modular_policy"])
+        self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
+        self.assertEqual(PHASES.configuration(self.campaign, enabled=True, refinement_strategy="exact")["refinement_strategy"], "exact")
+        for supplied in ({"refinement_strategy":"modular-circuits"}, {"modular_policy":path}):
+            with self.assertRaisesRegex(ValueError, "explicit"):
+                PHASES.configuration(self.campaign, **supplied)
+        with self.assertRaisesRegex(ValueError, "ordinary"):
+            PHASES.configuration(self.campaign, enabled=True, saved_rule_assistance=True)
+
+    def test_modular_rejects_explicit_exact_batch_knobs_and_retains_saved_preferences(self):
+        exact = PHASES.configuration(self.campaign, enabled=True, relation_batch_rows=128, relation_block_rows=8)
+        self.write("master-reduction/policy.json", exact)
+        modular = PHASES.configuration(self.campaign, enabled=True, refinement_strategy="modular-circuits")
+        self.assertEqual(modular["refinement_strategy"], "modular-circuits")
+        self.assertEqual(modular["relation_batch_rows"], 128)
+        for supplied in ({"relation_batch_rows":64}, {"relation_block_rows":4}):
+            with self.assertRaisesRegex(ValueError, "--modular-policy batch_rows/max_candidates"):
+                PHASES.configuration(self.campaign, enabled=True, refinement_strategy="modular-circuits", **supplied)
+
+    def test_production_modular_options_reach_configuration(self):
+        with patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure:
+            with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters",
+                                 "--master-refinement-strategy", "modular-circuits",
+                                 "--master-modular-policy", "grants.json"])
+            self.assertEqual(configure.call_args.kwargs["refinement_strategy"], "modular-circuits")
+            self.assertEqual(configure.call_args.kwargs["modular_policy"], Path("grants.json"))
+
     def test_publication_verification_defaults_fast_and_rejects_refinement_flag(self):
         self.assertFalse(self.policy["deep_verification"])
         deep = PHASES.configuration(self.campaign, deep_verification=True)
@@ -552,6 +589,47 @@ report = {'status':'published_unrefined', 'operation':'publish',
             self.assertEqual(second.call_args.args[4], old_directory)
         first.assert_not_called()
         self.assertEqual((source / "artifact.json").read_bytes(), source_bytes)
+
+    def test_modular_recipe_is_distinct_from_exact_and_grants_are_operational(self):
+        self.publish_fixture()
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True), True, self.driver, postprocess_only=True)
+            exact = native.call_args.args[4]
+            modular = PHASES.configuration(self.campaign, enabled=True, refinement_strategy="modular-circuits")
+            PHASES.run(self.plan, modular, True, self.driver, postprocess_only=True)
+            target = native.call_args.args[4]
+            self.assertNotEqual(target, exact)
+            identity = PHASES.read_json(target / "steering-binding.json")
+            self.assertEqual(identity["modular_search_recipe"], PHASES.MODULAR_SEARCH_RECIPE)
+            path = self.campaign / "modular-grants.json"
+            path.write_text('{"reconstruction":{"max_primes":32}}')
+            larger = PHASES.configuration(self.campaign, enabled=True, modular_policy=path)
+            PHASES.run(self.plan, larger, True, self.driver, postprocess_only=True)
+            self.assertEqual(native.call_args.args[4], target)
+
+    def test_completed_modular_pointer_keeps_exact_search_incomplete_and_allows_retry(self):
+        source = self.publish_fixture("refine")
+        report = PHASES.read_json(source / "artifact.json")
+        report.update(status="completed_nonminimal", refinement_strategy="modular-circuits",
+                      finite_search_complete=False, modular_search_complete=True, refinement_complete=True)
+        PRODUCTION.write_json(source / "artifact.json", report)
+        refinement = PHASES.completed_artifact(self.campaign)["refinement"]
+        refinement.update(refinement_strategy="modular-circuits", modular_search_complete=True)
+        PHASES.publish_pointer(self.campaign, source, self.binding(), "refine", self.driver, refinement)
+        pointer = PHASES.completed_artifact(self.campaign)
+        self.assertFalse(pointer["finite_search_complete"])
+        self.assertTrue(pointer["refinement_complete"])
+        policy = PHASES.configuration(self.campaign, enabled=True, refinement_strategy="modular-circuits")
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            self.assertEqual(PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True), 0)
+            native.assert_not_called()
+            grants = self.campaign / "larger-grants.json"
+            grants.write_text('{"reconstruction":{"max_primes":32}}')
+            retry = PHASES.configuration(self.campaign, enabled=True, modular_policy=grants)
+            self.assertEqual(PHASES.run(self.plan, retry, True, self.driver, postprocess_only=True), 4)
+            self.assertEqual(native.call_args.args[1]["source_artifact"], str(source))
+            exact = PHASES.configuration(self.campaign, enabled=True, refinement_strategy="exact")
+            self.assertEqual(PHASES.run(self.plan, exact, True, self.driver, postprocess_only=True), 4)
 
     def test_completed_refinement_only_satisfies_the_same_assistance_mode(self):
         for previous_mode in (False, True):

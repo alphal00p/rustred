@@ -6,6 +6,11 @@ mod census_cache;
 mod collection;
 mod finite_provenance;
 mod inherited;
+#[cfg(feature = "reconstruction")]
+mod modular;
+#[cfg(not(feature = "reconstruction"))]
+#[path = "modular_unavailable.rs"]
+mod modular;
 mod partial;
 mod profile;
 mod refine;
@@ -53,6 +58,14 @@ pub enum MasterReductionOperation {
     Refine,
 }
 
+/// Discovery policy. Both strategies publish only exact terminal identities.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MasterRefinementStrategy {
+    #[default]
+    Exact,
+    ModularCircuits,
+}
+
 #[derive(Clone, Debug)]
 pub struct MasterReductionOptions {
     /// Caller-selected resource grants for all finite publication provenance
@@ -70,6 +83,11 @@ pub struct MasterReductionOptions {
     /// Optional operational work-stealing window/block sizes, mutable on resume.
     pub relation_batch_rows: Option<usize>,
     pub relation_block_rows: Option<usize>,
+    /// Omitted new phases use exact refinement; resume inherits its strategy.
+    pub refinement_strategy: Option<MasterRefinementStrategy>,
+    /// Strict JSON modular discovery/reconstruction grants. Omitted on resume
+    /// inherits the checkpoint; coefficients and accepted maps remain native.
+    pub modular_policy: Option<Value>,
     /// Independently replay the saved dependency graph while extracting the
     /// publication inventory. New phases default off; resume inherits its mode.
     /// Refining an existing artifact preserves its assurance without replay.
@@ -111,6 +129,8 @@ impl MasterReductionOptions {
             threads: 1,
             relation_batch_rows: None,
             relation_block_rows: None,
+            refinement_strategy: None,
+            modular_policy: None,
             deep_verification: None,
             seed_depth: 0,
             containing_sector_depth: 0,
@@ -202,6 +222,7 @@ fn inspect_with_policy(
         }
     }
     report_counts::update(&mut report);
+    modular::validate_metadata(parent, &report)?;
     Ok(report)
 }
 
@@ -234,7 +255,7 @@ fn load_session_with_policy(
         .as_str()
         .ok_or_else(|| AppError::input("master reduction has not yet prepared native state"))?;
     let state = storage::safe_child(directory, name)?;
-    let limits = BinaryIoLimits::default();
+    let limits = profile::native_io_limits(None);
     let bytes = storage::read_bounded(&state, limits.max_program_bytes)?;
     if Some(blake3::hash(&bytes).to_hex().as_str()) != report["native_state"]["blake3"].as_str() {
         return Err(AppError::input("native master state digest mismatch"));
@@ -246,6 +267,16 @@ fn load_session_with_policy(
     )
     .map_err(io)?;
     finite_provenance::validate_session(directory, &report, &session, policy)?;
+    if modular::from_report(&report)? == MasterRefinementStrategy::ModularCircuits
+        && (report["modular_state"].is_object() || report["status"] == "completed_nonminimal")
+    {
+        let complete = modular::complete(directory, &report)?;
+        if report["status"] == "completed_nonminimal" && !complete {
+            return Err(AppError::input(
+                "completed modular artifact has an unfinished native discovery state",
+            ));
+        }
+    }
     Ok(session)
 }
 
@@ -347,13 +378,17 @@ fn master_reduce_source(
         options.normalization_profile.unwrap_or_default()
     };
     let finite_feedback = collection::feedback_for_phase(options, resumed.as_ref())?;
+    let refinement_strategy = modular::for_phase(options, resumed.as_ref())?;
     let deep_verification = verification::for_phase(options, resumed.as_ref())?;
-    let binding = source.binding(
-        options,
-        finite_feedback,
-        deep_verification,
-        normalization_profile,
-    )?;
+    let binding = strategy_scope_binding(
+        source.binding(
+            options,
+            finite_feedback,
+            deep_verification,
+            normalization_profile,
+        )?,
+        refinement_strategy,
+    );
     let mut report = if let Some(report) = resumed {
         if report["schema"] != source.schema() || report["scope_binding"] != binding {
             return Err(AppError::input(
@@ -387,9 +422,13 @@ fn master_reduce_source(
             "application":"exact terminal substitutions; routed saved-owner coefficient back-substitution is a separate interface",
             "numerical_master_values_included":false});
         profile::record(&mut report, normalization_profile);
+        modular::record(&mut report, refinement_strategy, options)?;
         report
     };
-    if (report["status"] == "completed_nonminimal" && report["collection"]["status"] == "completed")
+    if (report["status"] == "completed_nonminimal"
+        && report["collection"]["status"] == "completed"
+        && !(refinement_strategy == MasterRefinementStrategy::ModularCircuits
+            && options.modular_policy.is_some()))
         || (options.operation == MasterReductionOperation::Publish
             && report["status"] == "published_unrefined"
             && report["collection"]["status"] == "completed")
@@ -397,7 +436,9 @@ fn master_reduce_source(
         let session = load_session_with_policy(&options.directory, options.finite_policy.as_ref())?;
         let _ = collection::load_with_policy(&options.directory, options.finite_policy.as_ref())?;
         assistance::validate(options, &session, &report)?;
-        if report["status"] == "completed_nonminimal" && !session.is_complete() {
+        if report["status"] == "completed_nonminimal"
+            && !modular::phase_complete(&options.directory, &report, &session)?
+        {
             return Err(AppError::input(
                 "completed manifest has unfinished native session",
             ));
@@ -539,12 +580,15 @@ fn run(
             report["inputs"] = storage::package_inputs(request, &options.directory, &digests)?;
         }
         let normalization_profile = profile::from_report(report)?;
-        if source.binding(
-            options,
-            collection::feedback_for_phase(options, Some(report))?,
-            deep_verification,
-            normalization_profile,
-        )? != report["scope_binding"]
+        if strategy_scope_binding(
+            source.binding(
+                options,
+                collection::feedback_for_phase(options, Some(report))?,
+                deep_verification,
+                normalization_profile,
+            )?,
+            modular::from_report(report)?,
+        ) != report["scope_binding"]
         {
             return Err(AppError::input(
                 "saved scope changed while preparing master reduction",
@@ -659,6 +703,11 @@ fn execute_session(
     observer: &impl Fn(Value),
     started: Instant,
 ) -> Result<(), AppError> {
+    if options.operation == MasterReductionOperation::Refine
+        && modular::from_report(report)? == MasterRefinementStrategy::ModularCircuits
+    {
+        return modular::execute(options, session, report, cancel, observer, started);
+    }
     budget::configure(options, session, report)?;
     let mut provider = assistance::prepare(options, session, report, cancel, observer, started)?;
     // Changing an equation-provider policy can replace the native session.
@@ -771,6 +820,16 @@ fn operation_name(operation: MasterReductionOperation) -> &'static str {
     }
 }
 
+fn strategy_scope_binding(binding: String, strategy: MasterRefinementStrategy) -> String {
+    if strategy == MasterRefinementStrategy::Exact {
+        return binding;
+    }
+    let mut hash = blake3::Hasher::new();
+    hash.update(binding.as_bytes());
+    modular::hash(strategy, &mut hash);
+    hash.finalize().to_hex().to_string()
+}
+
 fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     // The core owns all algebraic counts and work cursors; this is only their
     // presentation/transport boundary, shared by CLI and notebook consumers.
@@ -837,8 +896,26 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     report["completed_assistance_rows"] = json!(stats.completed_assistance_rows);
     report["pending_assistance_rows"] = json!(stats.pending_assistance_rows);
     report["finite_search_complete"] = json!(stats.complete);
-    report["refinement_complete"] =
-        json!(stats.complete && report["collection"]["status"] == "completed");
+    let modular = report["refinement_strategy"] == "modular-circuits";
+    let partial_export =
+        report["operation"] == "publish" && report["partial_refinement_source"].is_object();
+    report["refinement_complete"] = json!(
+        !partial_export
+            && (if modular {
+                report["modular_search_complete"] == true
+            } else {
+                stats.complete
+            })
+            && report["collection"]["status"] == "completed"
+    );
+    if modular {
+        report["exact_source_search_complete"] = json!(stats.complete);
+        if report["collection"]["status"] != "preparing" {
+            report["stage"] = report["modular_refinement"]["stage"]
+                .as_str()
+                .map_or_else(|| json!("modular_discovery"), |stage| json!(stage));
+        }
+    }
     report["capabilities"] = json!({
         "saved_scope_inventory_complete": report["inventory"]["complete"] == true,
         "saved_scope_coverage_verified": verification::independently_verified(report),
@@ -849,6 +926,12 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
         "numerical_master_values": false,
         "minimality_proved": false
     });
+    if modular {
+        report["capabilities"]["modular_discovery_complete"] =
+            report["modular_search_complete"].clone();
+        report["capabilities"]["exact_source_span_exhausted"] = json!(stats.complete);
+        report["capabilities"]["accepted_modular_relations_exactly_verified"] = json!(true);
+    }
 }
 
 fn save(
@@ -867,7 +950,7 @@ fn save(
         .checked_add(1)
         .ok_or_else(|| AppError::limit("checkpoint generation overflow"))?;
     let bytes = session
-        .to_native_bytes(BinaryIoLimits::default())
+        .to_native_bytes(profile::native_io_limits(None))
         .map_err(io)?;
     let file = format!("state-{generation:016}.rrbin");
     write_file_atomically(&options.directory.join(&file), &bytes, true).map_err(io)?;

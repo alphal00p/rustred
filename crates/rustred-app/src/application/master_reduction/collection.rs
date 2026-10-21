@@ -119,13 +119,7 @@ fn limit_snapshot(limits: TerminalCollectionLimits) -> Value {
 }
 
 fn collection_io_limits() -> BinaryIoLimits {
-    let mut limits = BinaryIoLimits::default();
-    // Collection maps carry a u32 atom ID for every retained guard occurrence.
-    // A valid finite matrix can have >8M such references while staying well
-    // inside the existing 1GiB payload budget. Tie their allowance to that
-    // structural storage budget; keep byte, atom and algebra checks intact.
-    limits.max_collection_entries = limits.max_program_bytes / std::mem::size_of::<u32>();
-    limits
+    profile::native_io_limits(None)
 }
 
 fn budget_snapshot(d: VacuumDiagonalCollectionLimits) -> Value {
@@ -217,14 +211,8 @@ mod resource_recipe_tests {
         report["collection_limits"]["recipe"] = json!("terminal-collection-limits-v2");
         assert!(limits(&report).is_err());
         let wire = collection_io_limits();
-        assert_eq!(
-            wire.max_program_bytes,
-            BinaryIoLimits::default().max_program_bytes
-        );
-        assert_eq!(
-            wire.max_collection_entries * std::mem::size_of::<u32>(),
-            wire.max_program_bytes
-        );
+        assert_eq!(wire.max_program_bytes, usize::MAX);
+        assert_eq!(wire.max_collection_entries, usize::MAX);
     }
 }
 
@@ -323,7 +311,7 @@ fn read_state(directory: &Path, state: &Value) -> Result<Vec<u8>, AppError> {
         .ok_or_else(|| AppError::input("native collection member missing"))?;
     let bytes = storage::read_bounded(
         &storage::safe_child(directory, name)?,
-        BinaryIoLimits::default().max_program_bytes,
+        profile::native_io_limits(None).max_program_bytes,
     )?;
     if state["bytes"].as_u64() != Some(bytes.len() as u64)
         || state["blake3"].as_str() != Some(blake3::hash(&bytes).to_hex().as_str())
@@ -346,7 +334,7 @@ fn load_member(directory: &Path, member: &Value) -> Result<TerminalRelationSessi
     TerminalRelationSession::from_native_bytes(
         &read_state(directory, &member["native_state"])?,
         profile::from_report(member)?.relation_limits(),
-        BinaryIoLimits::default(),
+        profile::native_io_limits(None),
     )
     .map_err(io)
 }
@@ -480,7 +468,7 @@ pub(super) fn add_members(
         return Ok(());
     }
     let primary_bytes = primary
-        .to_native_bytes(BinaryIoLimits::default())
+        .to_native_bytes(profile::native_io_limits(None))
         .map_err(io)?;
     let mut known = BTreeMap::from([(
         primary.family_owner().fingerprint().to_owned(),
