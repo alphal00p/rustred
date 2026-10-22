@@ -1,5 +1,55 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 22 — isolated numerator-symmetry milestone delivered
+
+Implementation and full evidence report are pushed on
+`codex/numerator-symmetry-refinement` at `6bb38744`; its local worktree is
+`TMP/numerator-symmetry-refinement-20261021`. The original main-worktree
+FeynKit/notebook/reference edits remain untouched. Production campaigns were
+not modified or signalled.
+
+- Exact direct symmetry refinement: 904 -> 873 basis keys, three reproducible
+  ~16-second optimized helper runs including native compact input/proof replay.
+- P102's actual three witnessed rows, applied with existing saved rules, give
+  exactly `P162 + P86/2 + P106/2` at unit mass, or `m^2 P106/2` after mass
+  restoration. Selected test: 904 -> 901; total 137.630 s, including 120.296 s
+  saved-program loading. The three row reductions alone took 20.34 ms; this is
+  not an end-to-end generation/refinement time.
+- Independent union with one completed additional rank-one row gives **871**
+  basis keys, 33 new dependencies relative to 904, after removing overlap.
+  All 939 original maps and every inherited guard compose exactly; no ordinary
+  IBPs, minimality or whole-family closure are claimed. Native evidence is
+  `TMP/numerator-symmetry-combined-evidence-20261022/with-p102/combined.rrbin`.
+- Lower-loop exact tests: K6 stays 5; explicit rank-one probes give four-loop
+  family-local 74 -> 70 but only one global relation (common full-U 23 -> 22).
+  This does not beat the separate historical 20-output finite/diagonal basis.
+- Full eager saved projection is not recommended: a high-rank-first test was
+  stopped after eight hours; a later optimized rank-one scan was stopped in its
+  second row after preserving its first exact result. Both are censored. The
+  measured cheap production option is numerator assistance **without** saved
+  assistance. The public prepared-identity facade enables separate cost-guided
+  cohort experiments without rebuilding the engine.
+
+The fresh-search implementation is already on `main` (`b54cbef1`). The isolated
+feature includes it and adds exact symmetry witnesses and matching CLI/Python
+options. Frozen optimized CLI:
+`TMP/releases/20261021-numerator-symmetry/rustred`, SHA256
+`ed52628d52d56732fa16ff747f4ef676eb37ee3ff71dfa02c20e296038e45fa3`.
+Validation: 210 focused core passes, 166 app/CLI passes, 198 Python passes,
+documented manual/affinity skips, independent mathematical/code audits, and all
+12 native fresh-search subprocess checks. The narrow public facade additionally
+passed actual optimized saved-application and cold map/guard validation.
+
+The separate **Vakint-ready package** is unchanged and deliberately not pushed:
+`TMP/deliveries/five-loop-r6-d10-gen119-20261021/application`. Its hosting archive
+is `rustred-five-loop-r6-d10-gen119-20261021.tar.zst` in that directory's parent,
+SHA256 `eca1d93a0c9d14131e442ad5a4e1c051e293cc485dd80bb26f90316c16f6551e`.
+It pins the original 939 -> 904 publication, not the research 871-key snapshot.
+Native and actual Vakint loader/canary checks passed. The feature's detailed
+log and research READMEs distinguish these outputs and give the exact fresh
+`(2,0)` command; release-local `TMP/releases/20261021-numerator-symmetry/README.md`
+also contains that command with the correct feature Python adapter.
+
 ## October 21 — relations-only fresh search and isolated R6 package (active)
 
 User authorized a fresh master-refinement option and a separate Vakint-ready
