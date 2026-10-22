@@ -264,7 +264,8 @@ class TelemetryTests(unittest.TestCase):
                   ("preparing rows", "parallel", "Parallel batch"),
                   ("mapping columns", "serial", "Column mapping"),
                   ("parallel elimination", "parallel", "Parallel batch"),
-                  ("ordered merge", "merge", "Ordered merge"))
+                  ("ordered merge", "merge", "Ordered merge"),
+                  ("atomic block merge", "merge", "Atomic block merge"))
         for strategy, provider_kind in strategies:
             for stage, mode, label in stages:
                 with self.subTest(provider_kind=provider_kind, stage=stage):

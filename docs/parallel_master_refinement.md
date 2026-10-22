@@ -6,6 +6,43 @@ Ordinary serial `TerminalRelationSession` APIs remain available. Refinement
 uses the parallel executor when its requested thread budget exceeds one;
 publication-only execution is unchanged.
 
+## Current delivery: 22 October
+
+The assisted executor now genuinely parallelizes ordinary exact IBPs even when
+finite numerator-symmetry assistance is enabled. Its two work-stealing stages
+prepare sources and reduce exact blocks against immutable U; the final exact
+join remains ordered. A configured worker count is not a claim of CPU use.
+
+The final `capacity-dispatch` release is
+`TMP/releases/20261022-parallel-refinement/rustred`, SHA256
+`70dd9ee7d41ee32a10b0b23470b73a5552f0be5f7e645cad8d08fd57105c21a1`.
+The matching source/driver is on `codex/numerator-symmetry-refinement` in
+`TMP/numerator-symmetry-refinement-20261021`. Use its adapter, not the older main
+adapter. No production campaign was started, stopped or modified by validation.
+
+Validation: **677 native passes, zero failures, five explicit manual ignores**;
+**218 Python passes and one existing affinity skip**; 12 fresh-search and six
+recovery CLI controls, real SIGINT/checkpoint/changed-worker continuation, and
+reverse continuation through the older executable. Independent mathematical,
+implementation and lifecycle audits passed. Native functional frontends use
+unoptimized test code with the matching optimized dependencies; their runtimes
+are not solver benchmarks. The optimized application build took 6m18s, excluded
+from all timings.
+
+The newer bulk join registers each committing block's new-column prefix once,
+then passes its owned CSR to Symbolica. It never admits columns from a future
+block. All dimensions, source support and guards are preflighted; a conservative
+allowance miss falls back to per-row admission, rather than rejecting valid work.
+Cancellation/checkpoint boundaries occur before/after a mutating block. There
+is no fallible return within that mutation; panic/OOM is not transactional
+rollback and requires restoring the last durable checkpoint. Reuse-only blocks
+retain the old per-row cancellation points.
+
+The command examples and measurements below dated 21 October are historical;
+they do not describe the final assisted path. The current sourceable release
+helper and final hot-window results are documented in the 22 October section
+at the end of this file.
+
 ## Algorithm and exact authority
 
 ### Assisted execution and finite providers (22 October update)
@@ -178,3 +215,87 @@ or zeros alone cannot prove relations. Such a backend must provide exact
 identity/provenance validation and preserve guards. This implementation remains
 exact Symbolica arithmetic throughout: no CRT/interpolation/reconstruction kernel
 is added to RustRed.
+
+## 22 October: assisted hot-window results and workflow
+
+The release-profile helper cold-loads an independent immutable copy of the real
+five-loop generation-8 assisted session and commits the same next **256 ordinary
+sources**, cursor 639637 -> 639893, using batch 256/block 8. The frozen session
+already contains approximately 607k independent rows and 1.45M columns. These
+are fixed-prefix controls, not completed whole refinements. Runs are serialized
+on physical CPUs 224-255 on a shared host; compiler/setup time is excluded from
+the solver timer. Whole-process wall/CPU/RSS include loading, proof replay,
+encoding and cold verification. Verification includes encoding; do not add the
+two timers twice. GB below is decimal.
+
+| Final build mode | Workers | Solver, s | Whole process, s | Process CPU, s | Peak RSS, GB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original serial provider | 1 | 108.610 | 153.122 | 151.098 | 11.942 |
+| Finite-provider serial | 1 | 108.975 | 153.125 | 151.396 | 11.940 |
+| Finite parallel | 6 | 76.946 | 122.666 | 174.676 | 14.769 |
+| Finite parallel | 16 | 52.815 | 99.824 | 216.430 | 19.383 |
+| Finite parallel, unprofiled | 32 | 57.061 | 103.628 | 352.632 | 26.191 |
+
+Every arm retains the same 939 exact terminal maps, 108,524 guards, 864 basis
+keys and committed source prefix. Native cold loading passes. Parallel runs
+have identical native states; serial and parallel use different but equivalent
+upper-echelon representations. Final parallel U has 607,556 rows, 1,454,289
+columns and 13,024,941 nonzeros versus serial 13,024,869. All-map/guard comparison
+and the auxiliary-row span argument—not equal counts or sampled zeros—support
+correctness. These particular hot maps predate the user's later 862-key import.
+
+The initial final-build 16-worker result is 2.06x solver / 1.53x whole-process
+faster than serial. Sixteen is better than thirty-two here; this is not evidence
+of linear scaling to 128 workers or of a full-refinement speedup. In the earlier
+64-source cohort, two six-worker pairs reproduced 2.67x solver gains, but those
+prototypes lacked the final production-compatible capacity-dispatch feature and
+are not silently pooled into the final table.
+
+Negative results matter. Reducing blocks from eight to two exposed 32 jobs and
+about 31 active cores, yet increased wall/CPU/RAM. Splitting 256 sources into
+four 64-source windows improved six-worker time (81.995 -> 64.087s) but worsened
+32-worker time (61.585 -> 67.001s) on the earlier graph. More frequent fresh-U
+joins therefore are not universally better. Bulk joining improves the matched
+6/16-worker first implementation by about 6-7%, not an order of magnitude.
+
+Own-process profiles identify the remaining limits: local frozen-U coefficient
+copying/allocation (about 49% malloc-related self samples and 16% integer-vector
+clone in the sampled parallel stage), and exact Symbolica polynomial division/
+GCD at the serial join. `add_cols` itself was only about 2% of join self samples.
+These ten-second samples do not prove whole-run fractions or Arc contention.
+No competing CAS, host-wide allocator change or Symbolica patch is included.
+
+Detailed local evidence is under
+`TMP/parallel-assisted-refinement-20261022/`, including
+`R2_HOT_WINDOW_RESULTS.md`, `final-cap/README.md`,
+`CLI_ACCEPTANCE_R2_RESULT.md` and `REVERSE_COMPATIBILITY_RESULT.md`.
+Generated data and executables are deliberately not committed.
+
+### Current campaign commands
+
+The user's proof import has already completed: scope `528866...` preserves all
+maps/guards and changes the current basis **864 -> 862**, without ordinary IBP
+generation. Do not repeat recovery or import. Start a new exact `(2,0)` round
+from that publication using the new release helper:
+
+```bash
+cd /shared/codex-2/rustred
+source TMP/releases/20261022-parallel-refinement/workflow.sh
+rrfresh 2 0
+```
+
+The helper uses the matching feature adapter, exact strategy, finite numerator
+assistance, no dynamic saved-rule assistance, a 600 GB process RAM grant,
+16 workers/CPUs 64-79, batch 256/block 8, and no explicit column ceiling.
+These worker/window choices are mutable operational settings, not mathematical
+search or inventory caps. They can be overridden with the corresponding
+`--master-refinement-*` / `--master-relation-*` arguments. No allocator preload
+is installed. The new round retains proved relations but intentionally does
+not retain the old search matrix; earlier checkpoints remain on disk.
+
+After Ctrl+C, wait for the checkpoint acknowledgement and process exit. Resume
+the **same** round with `rr --refine-masters` (omit fresh). Inspect at any time
+with `rrinspect`. To retain interrupted maps and publish without advancing
+source work, use `rr --finalize-refinement`. Changing to a deliberately fresh
+shape, for example `(3,0)`, requires finalizing first, then `rrfresh 3 0`.
+Never run two writers for the same campaign.

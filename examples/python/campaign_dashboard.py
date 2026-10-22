@@ -524,7 +524,8 @@ def master_execution_phase(execution):
         return None
     labels = {"provider request": "Provider barrier", "assistance equation": "Exact publication",
               "filtering provider requests": "Provider filter", "mapping columns": "Column mapping",
-              "ordered merge": "Ordered merge", "waiting for native batch": "Execution"}
+              "ordered merge": "Ordered merge", "atomic block merge": "Atomic block merge",
+              "waiting for native batch": "Execution"}
     if stage in labels:
         return labels[stage]
     parallel_strategies = ("ordered-work-stealing-blocks-v1", "assisted-ordered-work-stealing-blocks-v1",

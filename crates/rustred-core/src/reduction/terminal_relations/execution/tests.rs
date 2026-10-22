@@ -527,3 +527,166 @@ fn dynamic_provider_error_and_callback_cancellation_leave_durable_barriers() {
             .contains(&equation.nonzero_conditions[0])
     );
 }
+
+fn first_prepared_rows(session: &TerminalRelationSession, count: usize) -> Vec<PreparedRow> {
+    (0..count)
+        .map(|ordinal| {
+            let (row, conditions) = session
+                .sources
+                .row(
+                    &session.seeds[ordinal / session.sources.len()],
+                    ordinal % session.sources.len(),
+                    session.limits.algebra,
+                )
+                .unwrap();
+            let original = session.normalized_row(&row).unwrap();
+            let support = session
+                .assistance_support(row.keys().chain(original.keys()))
+                .unwrap();
+            PreparedRow {
+                original,
+                conditions,
+                support,
+            }
+        })
+        .collect()
+}
+
+fn old_ordered_commit(session: &mut TerminalRelationSession, rows: &[PreparedRow]) {
+    for row in rows {
+        session.ensure_columns(&row.original).unwrap();
+        session.add_row(row.original.clone()).unwrap();
+        if let Some(assistance) = &mut session.assistance {
+            assistance.pending.extend(row.support.iter().cloned());
+        }
+        for condition in &row.conditions {
+            if !session.conditions.contains(condition) {
+                session.conditions.push(condition.clone());
+            }
+        }
+        session.source_cursor += 1;
+        if session.source_cursor == session.sources.len() {
+            session.source_cursor = 0;
+            session.seed_cursor += 1;
+        }
+    }
+}
+
+#[test]
+fn bulk_column_commit_matches_serial_bytes_maps_and_ordered_conditions() {
+    let mut legacy = session();
+    let mut bulk = session();
+    let mut rows = first_prepared_rows(&bulk, 8);
+    let context = bulk.family.coefficient_context();
+    rows[0].conditions.push(context.parameter("d").unwrap());
+    rows[3].conditions.push(context.integer(2));
+    rows[7].conditions.push(context.parameter("d").unwrap());
+    let residuals: Vec<_> = rows.iter().map(|row| row.original.clone()).collect();
+    let plan = BulkBlock::prepare(&bulk, &rows, &residuals, false).expect("nonempty new prefix");
+    let matrix = plan.matrix(&bulk, residuals);
+    old_ordered_commit(&mut legacy, &rows);
+    plan.commit(&mut bulk, &rows, matrix);
+    assert_eq!(bulk.statistics(), legacy.statistics());
+    assert_eq!(bulk.nonzero_conditions(), legacy.nonzero_conditions());
+    assert_eq!(
+        bulk.apply_all_terminals().unwrap(),
+        legacy.apply_all_terminals().unwrap()
+    );
+    assert_eq!(
+        bulk.to_native_bytes(Default::default()).unwrap(),
+        legacy.to_native_bytes(Default::default()).unwrap()
+    );
+}
+
+#[test]
+fn bulk_commits_only_its_own_prefix_and_cold_resumes_after_atomic_boundary() {
+    let mut reference = session();
+    let mut bulk = session();
+    let rows = first_prepared_rows(&bulk, 8);
+    let residuals = rows[..4]
+        .iter()
+        .map(|row| row.original.clone())
+        .collect::<Vec<_>>();
+    let plan = BulkBlock::prepare(&bulk, &rows[..4], &residuals, false).unwrap();
+    let matrix = plan.matrix(&bulk, residuals);
+    // A cooperative stop arriving after this indivisible operation begins
+    // cannot expose future registered columns with an older source cursor.
+    let cancel = AtomicBool::new(true);
+    plan.commit(&mut bulk, &rows[..4], matrix);
+    old_ordered_commit(&mut reference, &rows[..4]);
+    let checkpoint = bulk.to_native_bytes(Default::default()).unwrap();
+    assert_eq!(
+        checkpoint,
+        reference.to_native_bytes(Default::default()).unwrap()
+    );
+    executor(4, 64, 4).step(&mut bulk, &cancel).unwrap();
+    assert_eq!(
+        bulk.to_native_bytes(Default::default()).unwrap(),
+        checkpoint
+    );
+    let mut restored = TerminalRelationSession::from_native_bytes(
+        &checkpoint,
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    parallel_finish(&mut restored, &executor(4, 64, 4));
+    serial_finish(&mut reference);
+    assert_eq!(
+        restored.apply_all_terminals().unwrap(),
+        reference.apply_all_terminals().unwrap()
+    );
+    assert_eq!(
+        restored.nonzero_conditions(),
+        reference.nonzero_conditions()
+    );
+}
+
+#[test]
+fn bulk_conservative_allowance_miss_falls_back_without_rejecting_valid_rows() {
+    let mut constrained = session();
+    let mut reference = session();
+    let rows = first_prepared_rows(&constrained, 8);
+    old_ordered_commit(&mut reference, &rows);
+    let residuals = rows
+        .iter()
+        .map(|row| row.original.clone())
+        .collect::<Vec<_>>();
+    let width = ColumnPlan::new(&constrained, &rows).unwrap().new.len() + constrained.columns.len();
+    constrained.limits.max_nonzeros = reference.reducer.u().nvalues() + width;
+    assert!(constrained.limits.max_nonzeros < rows.len() * width);
+    assert!(BulkBlock::prepare(&constrained, &rows, &residuals, false).is_none());
+    // The operational bulk bound is deliberately conservative; normal exact
+    // row-by-row admission remains available under the user's actual budget.
+    old_ordered_commit(&mut constrained, &rows);
+    assert_eq!(constrained.statistics(), reference.statistics());
+    assert_eq!(
+        constrained.apply_all_terminals().unwrap(),
+        reference.apply_all_terminals().unwrap()
+    );
+}
+
+#[test]
+fn bulk_never_crosses_provider_barrier_and_reuse_only_needs_no_atomic_commit() {
+    let mut source = session();
+    source.enable_assistance("barrier-boundary".into()).unwrap();
+    source.assistance.as_mut().unwrap().pending.clear();
+    // These constructed provider supports exercise the commit contract rather
+    // than asking any callback speculatively.
+    let mut rows = first_prepared_rows(&source, 4);
+    rows.iter_mut().for_each(|row| row.support.clear());
+    rows[0].support.insert(key([7, 1, 1]));
+    let residuals = rows
+        .iter()
+        .map(|row| row.original.clone())
+        .collect::<Vec<_>>();
+    assert!(BulkBlock::prepare(&source, &rows, &residuals, false).is_none());
+    rows[0].support.clear();
+    rows[3].support.insert(key([7, 1, 1]));
+    assert!(BulkBlock::prepare(&source, &rows, &residuals, false).is_some());
+    rows[3].support.clear();
+    old_ordered_commit(&mut source, &rows);
+    // Existing physical columns require no expensive U reindex, so this path
+    // retains the old row-level cooperative cancellation responsiveness.
+    assert!(BulkBlock::prepare(&source, &rows, &residuals, false).is_none());
+}

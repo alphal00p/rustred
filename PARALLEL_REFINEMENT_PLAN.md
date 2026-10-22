@@ -79,6 +79,31 @@ little elimination work. Evidence: `TMP/refinement-serial-path-audit-20261022/`.
 
 ## Performance and delivery gates
 
+### Evidence-triggered second pass
+
+The first hot 64-row pairs reproduce a 2.67x six-worker solver gain, but a matched
+256-row cohort exposes the next bottleneck: 109.180s serial, 81.995s at six,
+56.689s at sixteen and 61.585s at thirty-two workers. Ordered merging consumes
+about 27.7s, nearly half the best parallel time. Shrinking blocks to increase
+busy cores costs more CPU/RAM and is slower. These negative results are retained.
+
+Therefore amortize whole-matrix column shifts with one preflighted, block-atomic
+commit using existing Symbolica `add_cols` and `add_matrix`. Stage CSR before
+mutation, preserve serial final column order and original support/conditions,
+advance all cursors together, and checkpoint only complete blocks. Conservative
+grant/representation misses use the legacy per-row path, not a new rejection.
+Panic/OOM does not imply rollback; restore the last durable checkpoint. Test
+native equivalence, cancellation and constrained-budget fallback explicitly.
+Also compare several short windows against one larger window over the same
+source prefix, since stale-U redundancy is not solved by adding cores.
+
+The final build must match the old production `capacity-dispatch` feature
+profile. The first standard-default prototype exposed six pre-existing
+finite-source fixture/storage assumptions (physical arity 1 vs capacity 4), not
+parallel mathematics failures. Do not silently change that storage convention
+or weaken assertions to hide the mismatch. Repeat final native/runtime gates
+and performance measurements on the actual delivery graph.
+
 Use optimized matched binaries and fixed CPU placement, respecting the current
 campaign's reservation. Compare serial, six-worker and larger 16/32-worker
 budgets on representative lower-loop controls and an isolated five-loop hot

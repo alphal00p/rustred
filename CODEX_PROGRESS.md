@@ -1,11 +1,65 @@
 # Codex progress: five-loop optimization and controlled deployment
 
-## October 22 — genuinely parallel assisted refinement (active)
+## October 22 — final parallel-assisted validation and delivery (closing)
+
+The final production-compatible capacity graph is frozen: optimized executable
+`TMP/releases/20261022-parallel-refinement/rustred`, SHA256
+`70dd9ee7d41ee32a10b0b23470b73a5552f0be5f7e645cad8d08fd57105c21a1`.
+Build took 6m18s, outside every solver timer. Core `eff2385c1e81a410`, app
+`8e8ae9cdecba33ff`, Symbolica `cda55c135abebab8`.
+
+Independent final gates: **677 native passes, zero failures, five explicit
+manual ignores** (104 terminal relations, 116 normalization, 102 master app,
+290 CLI, 64 saved application, one complete-row adapter). Python: **218 pass,
+one existing affinity skip**; final 45 dashboard checks pass. Existing storage
+fixtures all pass under the intended capacity profile without assertion edits.
+Twelve fresh and six recovery CLI controls pass. Actual old -> new and new -> old
+SIGINT/checkpoint continuation and changed worker counts pass, including exact
+maps and inherited guard containment. Source campaigns were never written or
+signalled; disposable TMP copies only. Mathematical/code bulk-join audit passes.
+
+Final fixed hot 256-source prefix: serial108.610s, finite serial108.975s,
+W6=76.946s, W16=52.815s, clean W32=57.061s solver. W16 whole process99.824s
+vs serial153.122s; process CPU216.430 vs151.098s, peak19.383 vs11.942GB.
+All 939 exact maps/108,524 guards and source639893 agree; basis864 unchanged.
+Final W32 uses more CPU/RAM and is slower than16; profiled63.394s arm is kept
+separate from clean timing. R2 bulk join only adds about6-7% over R1, not8x.
+The separate four64-row-window experiment helps W6 but hurts W32: no universal
+small-window claim. Larger block32 costs68.320s vs52.815s at16, saving CPU/RAM
+but worsening time; negative result retained.
+
+Profiles explain remaining work: sampled local stage ~49% malloc self and16%
+integer-vector clone; join exact Symbolica division/GCD, add_cols~2% self.
+Not evidence for Arc-contention or whole-campaign fractions. A first available
+jemalloc library exports `_rjem_` and cannot interpose Rust malloc; rejected by
+actual loader binding before benchmarking. A second already-local unprefixed
+jemalloc really interposes malloc/free; one authorized bounded same-build probe
+and matched repeats are active. No host-wide setting, new kernel or engine
+rebuild. Final allocator decision and final lower-loop controls are pending.
+
+User independently finalized the old `(2,0)` and completed the finite proof
+import. Read-only metadata confirms latest scope528866..., published, basis
+**864 -> 862**, import/collection complete and all maps/guards retained. No
+ordinary source generated. Active operation is now import: the correct next
+action is explicit **fresh `(2,0)`**, not pretending to resume old7748... matrix.
+Sourceable release helper exists; 16-worker defaults remain provisional pending
+the final allocator result. Same-round continuation omits fresh. Independent
+argparse/lifecycle audit confirms flags and source selection; no launches.
+
+Queued next task (do not start before parallel delivery): deep primary-literature
+and local TIDE/reference study of five-loop single-scale vacuum master counts,
+published~100 vs our retained~800, with convention matching and missing-relation
+hypotheses. User explicitly requests finishing this implementation first.
+
+## October 22 — genuinely parallel assisted refinement (chronological build log)
 
 User explicitly requested implementation after the read-only diagnosis. Plan:
 `PARALLEL_REFINEMENT_PLAN.md`. The old broad tool-managed goal is still paused;
 this explicit new task is active without changing that historical goal status.
-Production `(2,0)` remains untouched and running on its frozen binary.
+At this starting diagnosis, production `(2,0)` was running on its frozen binary.
+It remained untouched by us; the user's later finalization/import is recorded
+above. Build/test statuses below are the chronological intermediate results,
+not remaining blockers after the final validation entry.
 
 Starting defect: app-assisted execution always calls the serial provider method,
 bypassing existing source-row/block work stealing even after all 961 finite
@@ -129,6 +183,37 @@ source search before interruption, and a strict equality check incorrectly
 rejected legitimately added guards. A larger caller-selected fixture and exact
 coefficient composition/inherited-guard containment fixed the *test*, not the
 engine. Full app-unit runtime gates and larger matched scaling remain pending.
+
+Implementation milestone `19c035d0` is pushed with a frozen R1 fallback. Its
+independent default-profile suite completed: 666 native passes, six existing
+`finite_source.rs` fixture failures, five ignores. All new parallel tests pass.
+Those six fixtures hard-code storage 4 for a physical-one-slot family, while
+this prototype omitted the old executable's `capacity-dispatch` build feature.
+No engine or assertions were changed to hide them. Final delivery will use the
+same capacity feature as old production and re-run the matching gates, avoiding
+an unrelated storage-convention change. CLI inner-pool launch variables were
+made explicit; all 290 broad CLI controls pass, as do 63 saved-application and
+one complete-row adapter controls. Native default-profile build time is separate
+(core ~304s; app ~1531s); this is not solver runtime.
+
+Larger R1 fixed-prefix result (256 ordinary rows, 32 eight-row jobs): legacy
+109.180s; W6 81.995s; W16 56.689s; W32 61.585s. All 939 maps/108,524 guards,
+source cursor 639893 and basis 864 agree exactly; W6/W32 native states are
+byte-identical. More cores are genuinely active (W32 ~30.83 observed peak) but
+do not automatically win: merge is ~27.7s and local frozen-U work/CPU rises.
+The 32-worker two-row-block probe used ~30.88 cores yet took 35.054s versus
+29.034s for six workers/eight-row blocks, CPU 407.30 vs 129.08s and peak
+26.73 vs 14.77 GB. This negative tuning result is preserved, not advertised.
+
+The measured 34–49% serial merge share justified one additional focused pass:
+preflight and register new columns once per committing block, stage owned CSR,
+then use existing Symbolica `add_matrix`. Whole blocks become cancellation
+boundaries only when adding columns; reuse-only blocks retain row boundaries.
+Conservative resource misses fall back, not error. Independent source audit
+passes; four focused bulk/cancellation/fallback/provider-barrier tests were added.
+Runtime APIs and native schemas remain unchanged. The final CAP optimized build
+is active (`build-r2-cap.*`), along with lower-cost final native-unit compilation
+and a final-graph matched pilot. No production files/processes were changed.
 
 ## October 22 — recovery/import bridge delivery validation
 

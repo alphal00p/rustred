@@ -865,7 +865,7 @@ fn observed_execution(
     report["execution"]["mode"] = json!(match progress.stage {
         "preparing rows" | "parallel elimination" => "parallel",
         "provider request" => "barrier",
-        "ordered merge" => "merge",
+        "ordered merge" | "atomic block merge" => "merge",
         _ => "serial",
     });
     report["execution"]["rows_total"] = json!(progress.rows_total);

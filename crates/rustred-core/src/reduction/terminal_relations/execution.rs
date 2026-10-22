@@ -46,7 +46,8 @@ impl Progress {
                 5 => "assistance equation",
                 6 => "filtering provider requests",
                 7 => "serial row",
-                _ => "provider barrier planning",
+                8 => "provider barrier planning",
+                _ => "atomic block merge",
             },
             rows_total: self.total.load(Ordering::Relaxed),
             rows_prepared: self.prepared.load(Ordering::Relaxed),
@@ -63,7 +64,9 @@ pub struct TerminalRelationExecutionOptions {
     pub workers: usize,
     /// Operational window, not a limit on the finite search inventory.
     pub batch_rows: usize,
-    /// Smaller blocks expose more stealable jobs; larger blocks amortize U slices.
+    /// Smaller blocks expose more stealable jobs; larger blocks amortize U
+    /// slices and column registration. A block adding columns is an atomic
+    /// cooperative-cancellation boundary; no partial block is checkpointed.
     pub block_rows: usize,
 }
 impl TerminalRelationExecutionOptions {
@@ -148,6 +151,214 @@ impl<'a> ColumnPlan<'a> {
         } else {
             &self.old[index - self.new.len()]
         }
+    }
+}
+
+/// A preflighted commit of one completed local block. Only this block's new
+/// columns belong here, never those from later speculative source blocks.
+/// Conservative resource bounds select the fast path; failure to establish a
+/// bound falls back to normal per-row admission, not a new resource rejection.
+struct BulkBlock {
+    prefix: Vec<IntegralKey>,
+    prefix_offsets: BTreeMap<IntegralKey, u32>,
+    width: u32,
+    next_seed: usize,
+    next_source: usize,
+    next_rebuild: usize,
+    next_completed_rebuild: u64,
+}
+
+impl BulkBlock {
+    fn prepare(
+        session: &TerminalRelationSession,
+        original: &[PreparedRow],
+        residuals: &[TerminalRelationRow],
+        rebuild: bool,
+    ) -> Option<Self> {
+        if original.len() <= 1 || original.len() != residuals.len() {
+            return None;
+        }
+        // A new provider request is a hard ordered barrier. Its source may be
+        // the final row, but no later ordinary source may enter this commit.
+        if original[..original.len() - 1]
+            .iter()
+            .any(|row| !row.support.is_empty())
+        {
+            return None;
+        }
+        let columns = ColumnPlan::new(session, original).ok()?;
+        if columns.new.is_empty() {
+            // No historical column shifting to amortize: preserve row-level
+            // cancellation responsiveness on the ordinary reuse-only path.
+            return None;
+        }
+        let width = columns.new.len().checked_add(session.columns.len())?;
+        let independent = (session.reducer.u().nrows() as usize).checked_add(original.len())?;
+        let nonzeros = original
+            .len()
+            .checked_mul(width)?
+            .checked_add(session.reducer.u().nvalues())?;
+        if width > session.limits.max_columns
+            || independent > session.limits.max_rows
+            || nonzeros > session.limits.max_nonzeros
+            || u32::try_from(independent).is_err()
+        {
+            return None;
+        }
+        let mut condition_count = session.conditions.len();
+        for row in original {
+            condition_count = condition_count.checked_add(row.conditions.len())?;
+        }
+        if let Some(assistance) = &session.assistance {
+            if !assistance.is_complete() {
+                return None;
+            }
+            let mut support_count = assistance
+                .pending
+                .len()
+                .checked_add(assistance.queried.len())?;
+            for row in original {
+                support_count = support_count.checked_add(row.support.len())?;
+            }
+            if support_count > session.assistance_key_limit() {
+                return None;
+            }
+        }
+        // Exact block residuals can contain frozen-U columns as well as their
+        // original support, but never columns from a future source block.
+        if residuals.iter().flat_map(|row| row.keys()).any(|key| {
+            !columns.new_offsets.contains_key(key) && !session.column_offsets.contains_key(key)
+        }) {
+            return None;
+        }
+        let (next_seed, next_source, next_rebuild, next_completed_rebuild) = if rebuild {
+            let next = session.rebuild_cursor.checked_add(original.len())?;
+            if next > session.rebuild.len() {
+                return None;
+            }
+            (
+                session.seed_cursor,
+                session.source_cursor,
+                next,
+                session
+                    .completed_rebuild_rows
+                    .checked_add(u64::try_from(original.len()).ok()?)?,
+            )
+        } else {
+            let source_count = session.sources.len();
+            let next = session.source_cursor.checked_add(original.len())?;
+            let seed = session
+                .seed_cursor
+                .checked_add(next.checked_div(source_count)?)?;
+            let source = next.checked_rem(source_count)?;
+            if seed > session.seeds.len() || (seed == session.seeds.len() && source != 0) {
+                return None;
+            }
+            (
+                seed,
+                source,
+                session.rebuild_cursor,
+                session.completed_rebuild_rows,
+            )
+        };
+        Some(Self {
+            prefix: columns.new,
+            prefix_offsets: columns.new_offsets,
+            width: u32::try_from(width).ok()?,
+            next_seed,
+            next_source,
+            next_rebuild,
+            next_completed_rebuild,
+        })
+    }
+
+    /// Prepare owned CSR storage before any session mutation. Coefficients are
+    /// moved from the completed residuals, not cloned into another row matrix.
+    fn matrix(
+        &self,
+        session: &TerminalRelationSession,
+        rows: Vec<TerminalRelationRow>,
+    ) -> SparseMatrix<RationalPolynomialField<IntegerRing, u16>> {
+        let count = rows.len() as u32;
+        let mut values = Vec::new();
+        let mut ids = Vec::new();
+        let mut row_ptrs = vec![0];
+        for row in rows {
+            let mut entries: Vec<_> = row
+                .into_iter()
+                .map(|(key, coefficient)| {
+                    let index = self
+                        .prefix_offsets
+                        .get(&key)
+                        .copied()
+                        .unwrap_or_else(|| self.width - 1 - session.column_offsets[&key]);
+                    (index, coefficient)
+                })
+                .collect();
+            entries.sort_by_key(|(index, _)| *index);
+            for (index, coefficient) in entries {
+                ids.push(index);
+                values.push(coefficient);
+            }
+            row_ptrs.push(ids.len());
+        }
+        SparseMatrix::from_csr(
+            count,
+            self.width,
+            values,
+            row_ptrs,
+            ids,
+            RationalPolynomialField::new(Z),
+        )
+    }
+
+    /// No fallible Result or cooperative cancellation exit is allowed after
+    /// prefix registration until all rows, conditions, supports and cursors
+    /// are committed. Native panic/OOM discards in-flight state and requires
+    /// the last durable checkpoint; this is not an in-memory rollback scheme.
+    fn commit(
+        mut self,
+        session: &mut TerminalRelationSession,
+        original: &[PreparedRow],
+        matrix: SparseMatrix<RationalPolynomialField<IntegerRing, u16>>,
+    ) {
+        let before = session.reducer.u().nrows() as usize;
+        session.reducer.add_cols(&vec![0; self.prefix.len()]);
+        for (index, key) in self.prefix.iter().enumerate() {
+            session
+                .column_offsets
+                .insert(key.clone(), self.width - 1 - index as u32);
+        }
+        self.prefix.append(&mut session.columns);
+        session.columns = self.prefix;
+        // Symbolica owns all arithmetic and processes the exact same ordered
+        // row sequence as repeated add_row calls.
+        session.reducer.add_matrix(&matrix);
+        let u = session.reducer.u();
+        for row in before..u.nrows() as usize {
+            let span = u.row_ptrs()[row]..u.row_ptrs()[row + 1];
+            if u.col_idcs()[span].iter().all(|index| {
+                session
+                    .terminals
+                    .contains(&session.columns[*index as usize])
+            }) {
+                session.terminal_relations += 1;
+            }
+        }
+        for row in original {
+            if let Some(assistance) = &mut session.assistance {
+                assistance.pending.extend(row.support.iter().cloned());
+            }
+            for condition in &row.conditions {
+                if !session.conditions.contains(condition) {
+                    session.conditions.push(condition.clone());
+                }
+            }
+        }
+        session.seed_cursor = self.next_seed;
+        session.source_cursor = self.next_source;
+        session.rebuild_cursor = self.next_rebuild;
+        session.completed_rebuild_rows = self.next_completed_rebuild;
     }
 }
 
@@ -502,6 +713,32 @@ impl TerminalRelationExecutor {
         let mut ordinal = 0;
         for block in results {
             let block = block?;
+            if cancel.load(Ordering::Relaxed) {
+                return Ok(session.statistics());
+            }
+            let original = &rows[ordinal..ordinal + block.len()];
+            if let Some(bulk) = BulkBlock::prepare(session, original, &block, rebuild) {
+                let count = block.len();
+                let matrix = bulk.matrix(session, block);
+                // Staging owned CSR can take time. Cancellation still leaves
+                // the old exact prefix intact until the atomic commit starts.
+                if cancel.load(Ordering::Relaxed) {
+                    return Ok(session.statistics());
+                }
+                progress.stage.store(9, Ordering::Relaxed);
+                bulk.commit(session, original, matrix);
+                ordinal += count;
+                progress.committed.store(ordinal, Ordering::Relaxed);
+                progress.stage.store(3, Ordering::Relaxed);
+                if session
+                    .assistance
+                    .as_ref()
+                    .is_some_and(|assistance| !assistance.is_complete())
+                {
+                    return Ok(session.statistics());
+                }
+                continue;
+            }
             for residual in block {
                 if cancel.load(Ordering::Relaxed) {
                     return Ok(session.statistics());
