@@ -7,6 +7,15 @@ dependencies), after exact union and independent validation of the direct
 symmetry pass and selected saved-rule consequences. The original 939 keys
 remain defined. No numerical evaluations or new ordinary IBPs were used.
 
+A final TMP-only preconditioning prototype also passed independent audit:
+forbidden-numerator-first Symbolica sparse elimination combines P102's three
+witness rows with exact weights `(1/4,1/4,1/4)` into one seven-term scalar/pinch
+consequence. Symbolica checks `W*A` exactly and confirms physical rank 3 remains
+3. Whole runtime 10.289 s includes cold loading/replay. It is not deployed and
+must not replace all three source equations: one consequence can lose other
+dependencies. Evidence and source remain under
+`TMP/numerator-symmetry-five-loop-p102-projection-evidence-20261022/`.
+
 The optimized P102 regression completed all three source witnesses. Its actual
 saved-artifact result is exactly `P162 + P86/2 + P106/2` at unit mass, with the
 mass-restored P106 coefficient `m^2/2`. All three native output tuples match the
