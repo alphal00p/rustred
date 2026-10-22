@@ -21,6 +21,10 @@ mod modular_tests;
 mod numerator_symmetry_tests;
 #[path = "tests/numerator_symmetry_measured.rs"]
 mod numerator_symmetry_measured;
+#[path = "tests/recovery.rs"]
+mod recovery_tests;
+#[path = "tests/terminal_import.rs"]
+mod terminal_import_tests;
 #[path = "tests/profile.rs"]
 mod profile_tests;
 #[path = "tests/resource_budget.rs"]

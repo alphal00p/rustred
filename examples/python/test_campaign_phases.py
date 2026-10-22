@@ -691,6 +691,247 @@ class PhaseTests(unittest.TestCase):
             native.assert_not_called()
         self.assertTrue((phase / "latest.json").is_file())
 
+    def protocol_plan(self, binary):
+        cpu = sorted(os.sched_getaffinity(0))[0]
+        return {**self.plan, "steering_policy": {"command_arguments": ["--executable", str(binary)]},
+                "requested_workers": 1, "cpus": str(cpu), "checkpoint_interval_seconds": 3600,
+                "supervisor_ram_policy": {"max_memory_bytes": 2_000_000_000,
+                    "ram_guard_margin_percent": 5, "host_memory_reserve_bytes": 1_000_000,
+                    "swap_growth_stop_bytes_per_second": 0, "swap_growth_stop_seconds": 120}}
+
+    def test_explicit_interrupted_recovery_preserves_running_source_and_allows_fresh(self):
+        _, source = self.stopped_refinement_fixture("running")
+        original = (source / "latest.json").read_bytes()
+        plain = PHASES.postprocess_configuration(self.policy, "finalize-refinement")
+        with patch.object(PHASES, "phase_two") as native, self.assertRaisesRegex(ValueError, "recover-interrupted"):
+            PHASES.run(self.plan, plain, True, self.driver, postprocess_only=True)
+        native.assert_not_called()
+        binary = self.campaign / "fake-recover"
+        binary.write_text(f"#!{sys.executable}\n" + '''import json, pathlib, sys
+args = sys.argv
+assert args[1] == 'walk-finalize-refinement' and '--recover-interrupted' in args
+assert '--seed-depth' not in args and '--artifact' not in args
+directory = pathlib.Path(args[args.index('--directory') + 1])
+report = {'status':'published_unrefined','operation':'publish','inventory':{'complete':True},
+          'finite_search_complete':False,'refinement_complete':False,
+          'partial_refinement_source':{'status':'running','recovered_interrupted':True}}
+(directory/'artifact.json').write_text(json.dumps(report))
+(directory/'latest.json').write_text(json.dumps(report))
+''')
+        binary.chmod(0o700)
+        recovery = PHASES.postprocess_configuration(self.policy, "finalize-refinement", recover_interrupted=True)
+        driver = SimpleNamespace(**vars(PRODUCTION))
+        with patch.object(PHASES.sys, "stdout", io.StringIO()), patch.object(PHASES.sys, "stderr", io.StringIO()):
+            self.assertEqual(PHASES.run(self.protocol_plan(binary), recovery, True, driver, postprocess_only=True), 0)
+        pointer = PHASES.completed_artifact(self.campaign)
+        self.assertTrue(pointer["refinement"]["recovered_interrupted"])
+        self.assertEqual(pointer["refinement"]["original_source_status"], "running")
+        self.assertEqual((source / "latest.json").read_bytes(), original)
+        saved_policy = PHASES.read_json(self.campaign / "master-reduction/policy.json")
+        self.assertNotIn("recover_interrupted", saved_policy)
+        PHASES.require_retained_refinement(self.campaign)
+        fresh = PHASES.configuration(self.campaign, enabled=True, fresh_search=True,
+                                     seed_depth=2, containing_sector_depth=0)
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, fresh, True, self.driver, postprocess_only=True)
+        self.assertEqual(native.call_args.args[1]["source_artifact"], str(pointer["resolved_directory"]))
+        # Neither a changed checkpoint nor an active process may be hidden by
+        # the earlier recovered pointer.
+        changed = PHASES.read_json(source / "latest.json")
+        changed["completed_source_rows"] += 1
+        self.write(str((source / "latest.json").relative_to(self.campaign)), changed)
+        with patch.object(PHASES, "phase_two") as native, self.assertRaisesRegex(ValueError, "finalize-refinement"):
+            PHASES.run(self.plan, fresh, True, self.driver, postprocess_only=True)
+        native.assert_not_called()
+        with patch.object(self.driver, "campaign_run_liveness", return_value=["foreign writer"]), \
+             patch.object(PHASES, "phase_two") as native, self.assertRaisesRegex(ValueError, "still running"):
+            PHASES.run(self.plan, recovery, True, self.driver, postprocess_only=True)
+        native.assert_not_called()
+
+    def test_recovery_is_explicit_nonsticky_and_has_a_distinct_output_identity(self):
+        _, source = self.stopped_refinement_fixture("paused")
+        targets = []
+        for recover in (False, True):
+            policy = PHASES.postprocess_configuration(self.policy, "finalize-refinement", recover_interrupted=recover)
+            with patch.object(PHASES, "phase_two", return_value=4) as native:
+                PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+            targets.append(native.call_args.args[4])
+            self.assertEqual(native.call_args.args[1]["recover_interrupted"], recover)
+        self.assertNotEqual(*targets)
+        expected = hashlib.sha256(json.dumps({"partial_refinement": str(source),
+            "source_manifest_sha256": PHASES.digest(source / "latest.json")}, sort_keys=True).encode()).hexdigest()
+        self.assertEqual(targets[0].name, expected)  # Existing ordinary export hashes remain unchanged.
+        for operation in ("publish", "import-refinement"):
+            with self.assertRaisesRegex(ValueError, "invalid explicit"):
+                PHASES.postprocess_configuration(self.policy, operation, recover_interrupted=True)
+
+    def test_import_recipe_is_bound_archived_and_resumed_without_original_file(self):
+        source = self.publish_fixture()
+        original = (source / "artifact.json").read_bytes()
+        recipe = self.campaign / "proof-recipe.json"
+        recipe.write_text('{"schema":"test-native-proof-recipe"}')
+        recipe_bytes = recipe.read_bytes()
+        policy = PHASES.postprocess_configuration(self.policy, "import-refinement", proof_recipe=recipe)
+        with patch.object(PHASES, "phase_one") as solve, patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+        solve.assert_not_called()
+        target = native.call_args.args[4]
+        self.assertEqual(native.call_args.args[1]["source_artifact"], str(source))
+        steering = PHASES.read_json(target / "steering-binding.json")
+        self.assertEqual(steering["proof_recipe"]["sha256"], PHASES.digest(recipe))
+        self.assertEqual(steering["source_manifest_sha256"], PHASES.digest(source / "artifact.json"))
+        self.assertNotIn("proof_recipe", PHASES.read_json(self.campaign / "master-reduction/policy.json"))
+        archive = target / "proof-import/recipe.json"
+        archive.parent.mkdir()
+        archive.write_bytes(recipe_bytes)
+        self.write(str((target / "import-state.json").relative_to(self.campaign)), {"status": "paused"})
+        self.write("master-reduction/active-phase.json", {"operation": "import-refinement", "directory": str(target)})
+        recipe.unlink()
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+        self.assertEqual(native.call_args.args[4], target)
+        self.assertEqual(native.call_args.args[1]["proof_recipe"], str(archive))
+        self.assertEqual((source / "artifact.json").read_bytes(), original)
+        archive.write_text('{}')
+        with patch.object(PHASES, "phase_two") as native, self.assertRaisesRegex(ValueError, "archived proof recipe"):
+            PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+        native.assert_not_called()
+        archive.write_bytes(recipe_bytes)
+        changed_recipe = self.campaign / "different-recipe.json"
+        changed_recipe.write_text('{"different":true}')
+        different = PHASES.postprocess_configuration(self.policy, "import-refinement", proof_recipe=changed_recipe)
+        with patch.object(PHASES, "phase_two") as native, self.assertRaisesRegex(ValueError, "cannot change proof recipe"):
+            PHASES.run(self.plan, different, True, self.driver, postprocess_only=True)
+        native.assert_not_called()
+        self.write(str((source / "artifact.json").relative_to(self.campaign)), {"inventory": {"complete": True}, "changed": True})
+        with patch.object(PHASES, "phase_two") as native, self.assertRaisesRegex(ValueError, "source publication changed"):
+            PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+        native.assert_not_called()
+
+    def test_import_requires_retained_current_refinement_and_completed_scope(self):
+        self.stopped_refinement_fixture("paused")
+        recipe = self.campaign / "proof.json"
+        recipe.write_text('{}')
+        policy = PHASES.postprocess_configuration(self.policy, "import-refinement", proof_recipe=recipe)
+        with patch.object(PHASES, "phase_one") as solve, patch.object(PHASES, "phase_two") as native:
+            with self.assertRaisesRegex(ValueError, "finalize-refinement"):
+                PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+            self.result["recursive_worklist_exhausted"] = False
+            self.write("runs/first/result.json", self.result)
+            with self.assertRaisesRegex(ValueError, "completed current input scope"):
+                PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+        solve.assert_not_called()
+        native.assert_not_called()
+
+    def test_import_native_protocol_pauses_before_latest_then_publishes_and_feeds_fresh(self):
+        source = self.publish_fixture("refine", depth=2, containing_sector_depth=2)
+        source_bytes = (source / "artifact.json").read_bytes()
+        recipe = self.campaign / "proof-recipe.json"
+        recipe.write_text('{"schema":"test-native-proof-recipe"}')
+        binary = self.campaign / "fake-import"
+        binary.write_text(f"#!{sys.executable}\n" + '''import json, pathlib, sys
+args = sys.argv
+assert args[1] == 'walk-import-refinement'
+assert '--artifact' in args and '--proof-recipe' in args
+assert not any(x in args for x in ['--command','--checkpoint','--seed-depth','--fresh-search',
+    '--saved-rule-assistance','--deep-verification','--no-deep-verification','--previous-artifact'])
+directory = pathlib.Path(args[args.index('--directory') + 1])
+recipe = pathlib.Path(args[args.index('--proof-recipe') + 1])
+events = pathlib.Path(args[args.index('--events') + 1])
+archive = directory/'proof-import/recipe.json'
+archive.parent.mkdir(exist_ok=True)
+data = recipe.read_bytes()
+archive.write_bytes(data)
+if '--resume' not in args:
+    (directory/'import-state.json').write_text(json.dumps({'status':'paused','proof_import':{'stage':'preparing'}}))
+    with events.open('a') as out:
+        out.write(json.dumps({'event':'proof_import_progress','status':'paused','stage':'replaying symmetry',
+            'proof_import':{'stage':'preparing'}})+'\\n')
+    sys.exit(4)
+assert recipe == archive
+report = {'status':'published_unrefined','operation':'publish','deep_verification':False,
+    'inventory':{'complete':True,'independently_verified':False}, 'import_complete':True,
+    'proof_import':{'stage':'published','recipe':{'path':'proof-import/recipe.json','blake3':'native-test-hash'},
+                    'source_manifest_blake3':'source-native-test-hash'}, 'remaining_terminals':5}
+(directory/'artifact.json').write_text(json.dumps(report))
+(directory/'latest.json').write_text(json.dumps(report))
+with events.open('a') as out:
+    out.write(json.dumps({'event':'proof_import_progress','status':'published_unrefined','stage':'publishing',
+        'remaining_terminals':5, 'proof_import':report['proof_import']})+'\\n')
+''')
+        binary.chmod(0o700)
+        plan, driver = self.protocol_plan(binary), SimpleNamespace(**vars(PRODUCTION))
+        # Both adapter invocations intentionally share this test interpreter;
+        # no earlier supervisor process survives between the fake native calls.
+        driver.campaign_run_liveness = lambda _: []
+        policy = PHASES.postprocess_configuration(self.policy, "import-refinement", proof_recipe=recipe)
+        with patch.object(PHASES.sys, "stdout", io.StringIO()), patch.object(PHASES.sys, "stderr", io.StringIO()):
+            self.assertEqual(PHASES.run(plan, policy, True, driver, postprocess_only=True), 4)
+        active = PHASES.read_json(self.campaign / "master-reduction/active-phase.json")
+        target = Path(active["directory"])
+        self.assertFalse((target / "latest.json").exists())
+        self.assertTrue((target / "import-state.json").is_file())
+        self.assertEqual(PHASES.completed_artifact(self.campaign)["resolved_directory"], source)
+        recipe.unlink()
+        with patch.object(PHASES.sys, "stdout", io.StringIO()), patch.object(PHASES.sys, "stderr", io.StringIO()):
+            self.assertEqual(PHASES.run(plan, policy, True, driver, postprocess_only=True), 0)
+        pointer = PHASES.completed_artifact(self.campaign)
+        self.assertEqual(pointer["resolved_directory"], target)
+        self.assertEqual(pointer["operation"], "publish")
+        self.assertTrue(pointer["import_complete"])
+        self.assertNotIn("refinement", pointer)  # Old (2,2) search metadata is not the new round.
+        self.assertEqual((source / "artifact.json").read_bytes(), source_bytes)
+        status = PRODUCTION.SUPERVISOR.MONITOR.read_status(self.campaign)
+        self.assertEqual(status["master_reduction"]["operation"], "import-refinement")
+        self.assertTrue(status["master_reduction"]["import_complete"])
+        with patch.object(PHASES, "phase_two") as native:
+            self.assertEqual(PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True), 0)
+        native.assert_not_called()
+        fresh = PHASES.configuration(self.campaign, enabled=True, fresh_search=True,
+                                     seed_depth=2, containing_sector_depth=0)
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, fresh, True, self.driver, postprocess_only=True)
+        self.assertEqual(native.call_args.args[1]["source_artifact"], str(target))
+        self.assertEqual(native.call_args.args[1]["effective_containing_sector_depth"], 0)
+
+    def test_import_success_does_not_promote_changed_recipe_or_source(self):
+        source = self.publish_fixture()
+        source_bytes = (source / "artifact.json").read_bytes()
+        pointer_bytes = (self.campaign / "artifacts/latest.json").read_bytes()
+        recipe = self.campaign / "proof.json"
+        recipe.write_text('{"original":true}')
+        binary = self.campaign / "fake-mutated-import"
+        driver = SimpleNamespace(**vars(PRODUCTION))
+        for mutation, expected in (("recipe", "archived proof recipe differs"),
+                                    ("source", "source changed during replay")):
+            with self.subTest(mutation=mutation):
+                (source / "artifact.json").write_bytes(source_bytes)
+                binary.write_text(f"#!{sys.executable}\nmutation={mutation!r}\n" + '''import json, pathlib, sys
+args = sys.argv
+directory = pathlib.Path(args[args.index('--directory') + 1])
+source = pathlib.Path(args[args.index('--artifact') + 1])
+recipe = pathlib.Path(args[args.index('--proof-recipe') + 1])
+archive = directory/'proof-import/recipe.json'
+archive.parent.mkdir()
+archive.write_bytes(b'{}' if mutation == 'recipe' else recipe.read_bytes())
+if mutation == 'source':
+    (source/'artifact.json').write_text(json.dumps({'inventory':{'complete':True},'changed':True}))
+report = {'status':'published_unrefined','operation':'publish','deep_verification':False,
+          'inventory':{'complete':True,'independently_verified':False},
+          'import_complete':True,'proof_import':{'stage':'published'}}
+(directory/'artifact.json').write_text(json.dumps(report))
+''')
+                binary.chmod(0o700)
+                directory = self.campaign / "master-reduction/scopes" / ("mutated-" + mutation)
+                policy = {**self.policy, "operation": "import-refinement", "source_artifact": str(source),
+                          "proof_recipe": str(recipe), "import_recipe_sha256": PHASES.digest(recipe),
+                          "import_source_manifest_sha256": PHASES.digest(source / "artifact.json")}
+                with patch.object(PHASES.sys, "stdout", io.StringIO()), patch.object(PHASES.sys, "stderr", io.StringIO()), \
+                     self.assertRaisesRegex(ValueError, expected):
+                    PHASES.phase_two(self.protocol_plan(binary), policy, self.campaign / "runs/first/request.json",
+                                     self.binding(), directory, driver)
+                self.assertEqual((self.campaign / "artifacts/latest.json").read_bytes(), pointer_bytes)
+
     def test_partial_export_retains_cursor_updates_both_pointers_and_resumes_same_refinement(self):
         source, phase = self.stopped_refinement_fixture()
         source_manifest = (phase / "latest.json").read_bytes()

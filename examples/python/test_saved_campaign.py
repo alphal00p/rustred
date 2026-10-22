@@ -148,6 +148,74 @@ class SavedCampaignTests(unittest.TestCase):
         with patch.object(WRAPPER.sys, "stdout", io.StringIO()):
             self.assertIsNone(self.invoke("finalize-refinement", "--dry-run"))
 
+    def test_finalize_refinement_recovery_is_explicit_and_forwards_without_search(self):
+        self.assertNotIn("--recover-interrupted-refinement", self.invoke("finalize-refinement"))
+        command = self.invoke("finalize-refinement", "--recover-interrupted")
+        self.assertEqual(command.count("--recover-interrupted-refinement"), 1)
+        self.assertNotIn("--recover-interrupted", command)
+        self.assertIn("--finalize-refinement", command)
+        self.assertIn("--resume", command)
+        self.assertIn("--start", command)
+        for option in ("--refine-masters", "--import-refinement", "--master-proof-recipe",
+                       "--master-seed-depth", "--master-containing-sector-depth", "--master-fresh-search"):
+            self.assertNotIn(option, command)
+
+    def test_interrupted_recovery_rejects_other_actions_before_dispatch(self):
+        recipe = self.campaign / "proof-recipe.json"
+        for action in ("run", "extend", "inspect", "refine", "publish", "import-refinement"):
+            options = (["--rank", "1"] if action == "extend" else
+                       ["--proof-recipe", str(recipe)] if action == "import-refinement" else [])
+            for flag in ("--recover-interrupted", "--recover-interrupted-refinement"):
+                with self.subTest(action=action, flag=flag), \
+                     patch.object(WRAPPER, "native_executable", side_effect=AssertionError("native preflight")), \
+                     patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    self.invoke(action, *options, flag)
+
+    def test_import_refinement_requires_recipe_and_forwards_without_search(self):
+        with patch.object(WRAPPER, "native_executable", side_effect=AssertionError("native preflight")), \
+             patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+            self.invoke("import-refinement")
+        recipe = self.campaign / "proof-recipe.json"
+        recipe.write_text('{"fixture":"proof import"}')
+        original = recipe.read_bytes()
+        command = self.invoke("import-refinement", "--proof-recipe", str(recipe))
+        self.assertEqual(command.count("--import-refinement"), 1)
+        self.assertEqual(command[command.index("--master-proof-recipe") + 1], str(recipe))
+        self.assertNotIn("--proof-recipe", command)
+        self.assertIn("--resume", command)
+        self.assertIn("--start", command)
+        for option in ("--refine-masters", "--publish-only", "--finalize-refinement",
+                       "--recover-interrupted-refinement", "--master-seed-depth",
+                       "--master-containing-sector-depth", "--master-fresh-search",
+                       "--master-refinement-strategy", "--master-numerator-symmetry-assistance"):
+            self.assertNotIn(option, command)
+        with patch.object(WRAPPER.sys, "stdout", io.StringIO()) as output:
+            self.assertIsNone(self.invoke("import-refinement", "--proof-recipe", str(recipe), "--dry-run"))
+        self.assertIn("--import-refinement", output.getvalue())
+        self.assertIn("--master-proof-recipe", output.getvalue())
+        self.assertEqual(recipe.read_bytes(), original)
+
+    def test_proof_recipe_rejects_other_actions_before_dispatch(self):
+        recipe = self.campaign / "proof-recipe.json"
+        for action in ("run", "extend", "inspect", "refine", "publish", "finalize-refinement"):
+            options = ["--rank", "1"] if action == "extend" else []
+            for flag in ("--proof-recipe", "--master-proof-recipe"):
+                with self.subTest(action=action, flag=flag), \
+                     patch.object(WRAPPER, "native_executable", side_effect=AssertionError("native preflight")), \
+                     patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    self.invoke(action, *options, flag, str(recipe))
+
+    def test_import_refinement_rejects_search_controls(self):
+        recipe = self.campaign / "proof-recipe.json"
+        for options in (("--seed-depth", "3"), ("--containing-sector-depth", "1"),
+                        ("--fresh-search",), ("--refinement-strategy", "exact"),
+                        ("--saved-rule-assistance",), ("--circuit-symmetry-assistance",),
+                        ("--numerator-symmetry-assistance",)):
+            with self.subTest(options=options), \
+                 patch.object(WRAPPER, "native_executable", side_effect=AssertionError("native preflight")), \
+                 patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                self.invoke("import-refinement", "--proof-recipe", str(recipe), *options)
+
     def test_collection_peers_are_repeatable_and_only_refine(self):
         first, second = self.campaign / "first", self.campaign / "second"
         command = self.invoke("refine", "--collection-artifact", str(first), "--collection-artifact", str(second))

@@ -669,8 +669,10 @@ def _public_locked(args, campaign, binary, *, apply, startup_progress):
         relation_block_rows=getattr(args, "relation_block_rows", None),
         refinement_workers=getattr(args, "refinement_workers", None),
         refinement_cpus=getattr(args, "refinement_cpus", None))
-    if args.action == "finalize-refinement":
-        policy["operation"] = "finalize-refinement"
+    if args.action in ("finalize-refinement", "import-refinement"):
+        policy = PHASES.postprocess_configuration(policy, args.action,
+            proof_recipe=getattr(args, "proof_recipe", None),
+            recover_interrupted=getattr(args, "recover_interrupted", False))
     startup_progress.phase("acquiring finite control lock")
     with control_lock(campaign / "finite-demand"):
         if (campaign / "finite-demand").exists() and not args.repair_preparation:
@@ -687,7 +689,7 @@ def _public_locked(args, campaign, binary, *, apply, startup_progress):
         print("No native work launched. Native source command: " + shlex.join(plan["native_command"]))
         return 0
     return PHASES.run(plan, policy, Path(plan["checkpoint_directory"]).exists(), sys.modules[__name__],
-                      postprocess_only=args.action in ("publish", "refine", "finalize-refinement"),
+                      postprocess_only=args.action in ("publish", "refine", "finalize-refinement", "import-refinement"),
                       dispatcher_held=True, startup_progress=startup_progress)
 
 

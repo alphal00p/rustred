@@ -1,5 +1,57 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 22 — recovery/import bridge implementation (active)
+
+Frozen optimized candidate:
+`TMP/releases/20261022-refinement-bridge/rustred`, SHA256
+`4a8ffc2a5c0cac878895f36a58866e7776fd09a17fffd38a256a45d0e8f52f0d`.
+Focused acceptance passes: **181 native app/CLI tests**, four manual ignores;
+**214 Python tests**, one pre-existing affinity skip; 12 independent native
+fresh-search checks and six independent CLI recovery checks. Actual accepted
+modular-relation recovery, proof/codec mutations, direct/symlink pre-write
+protection, interrupted import, source relocation and stronger-current-map
+preservation are included. Independent code/mathematics review found no remaining
+blocker. Receipt: `TMP/recovery-import-20261022/ACCEPTANCE_RESULT.md`.
+
+A read-only-source filesystem clone of the real interrupted generation-3 phase
+is being recovered at `TMP/recovery-import-20261022/real-stale-source` into
+`real-recovered`. The untouched original remains under `campaigns/`. Native
+authentication passed and the isolated derivative is materializing its retained
+collection with no new ordinary/modular source work. This is still running;
+no real-five-loop bridge success or elapsed-time claim is made yet. Full proof
+import and independent verification of all 939 maps remain the final gate.
+
+User explicitly approved `RECOVERY_IMPORT_PLAN.md`. Work remains isolated on
+`codex/numerator-symmetry-refinement`; production campaign files are read-only.
+The currently durable modular `(2,2)` generation-3 manifest says `running` but
+has no live native process, explaining why ordinary finalization refuses it.
+
+Lanes:
+
+- `symmetry_refinement_integration`: explicit native recovery/finalize operation,
+  immutable source, existing exclusive writer lock, normal cold validation, no
+  new source/discovery/reconstruction work. App/lib/test metadata passes (43.74s).
+  Runtime acceptance and independent audit remain pending.
+- `symmetry_five_loop_validation`: generic recipe-driven import, replaying the
+  native symmetry certificate and four selected complete saved equations before
+  exact map union/publication. Research output hashes are expectations, not
+  authority. Current additional proved maps must survive; no older basis overwrite.
+- `modular_refine_integration`: Python recovery/import actions, bound phase
+  identity and resume, precise finalization and fresh-round pointer semantics.
+- `fresh_search_acceptance`: independent acceptance protocol registered at
+  `TMP/recovery-import-20261022/ACCEPTANCE_PLAN.md`; no production writes.
+- `modular_final_math_audit`: independent authority/scope/guards design audit.
+  Existing inherited generic-parameter authority is not upgraded to uniform
+  exceptional-dimension validity or independent ordinary-source certification.
+- Root: integration, CLI/export wiring, optimized builds and final verification.
+
+All new operations write distinct outputs. Imported native state must cold-load
+as a normal application-aware publication with unchanged original admission;
+then fresh `(2,0)` resets only search state. Safe old-checkpoint recovery,
+proof/certificate mutation tests, all-map/guard composition, interruption/resume
+and `(3,0)` transition are delivery gates. No user command is represented as
+fully implementing P102 import until this bridge passes those gates.
+
 ## October 22 — measured five-loop symmetry-only gain
 
 Final combined result: **904 -> 871** finite retained basis keys (33 additional

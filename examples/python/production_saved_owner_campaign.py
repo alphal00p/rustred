@@ -1133,6 +1133,12 @@ def main(argv=None):
                             help="publish an already completed current checkpoint; never start a solve")
     postprocess.add_argument("--finalize-refinement", action="store_true",
                             help="publish proved maps from the stopped current refinement without finishing its finite search")
+    postprocess.add_argument("--import-refinement", action="store_true",
+                            help="replay an explicit native proof recipe against the current publication without starting a solve")
+    parser.add_argument("--recover-interrupted-refinement", action="store_true",
+                        help="only with --finalize-refinement: explicitly recover a durable running checkpoint under the native writer lock")
+    parser.add_argument("--master-proof-recipe", type=Path,
+                        help="only with --import-refinement: native relation replay recipe; immutable and archived for resume")
     parser.add_argument("--master-fresh-search", action="store_true",
                         help="only with --refine-masters: new relations-only round; finalize stopped work first; specify both depths (defaults 0/0 and exact), no old search cursor/shape reuse")
     parser.add_argument("--master-max-relation-columns", type=int,
@@ -1309,10 +1315,16 @@ def main(argv=None):
                                             relation_block_rows=args.master_relation_block_rows,
                                             refinement_workers=args.master_refinement_workers,
                                             refinement_cpus=args.master_refinement_cpus)
-        if args.finalize_refinement:
+        if args.recover_interrupted_refinement and not args.finalize_refinement:
+            raise ValueError("interrupted recovery requires --finalize-refinement")
+        if args.master_proof_recipe is not None and not args.import_refinement:
+            raise ValueError("proof recipe requires --import-refinement")
+        if args.finalize_refinement or args.import_refinement:
             if args.deep_verification is not None:
                 raise ValueError("deep verification applies to publication, not finalize-refinement")
-            phase_policy["operation"] = "finalize-refinement"
+            phase_policy = phases.postprocess_configuration(phase_policy,
+                "finalize-refinement" if args.finalize_refinement else "import-refinement",
+                proof_recipe=args.master_proof_recipe, recover_interrupted=args.recover_interrupted_refinement)
     except (OSError, ValueError, TypeError) as error:
         parser.error(str(error))
     if (args.epoch_inspector_lookup is not None or args.epoch_rolling or args.epoch_dispatch is not None
@@ -1502,7 +1514,7 @@ def main(argv=None):
             from types import SimpleNamespace
             driver = SimpleNamespace(**globals())
             return phases.run(plan, phase_policy, args.resume, driver,
-                              postprocess_only=args.publish_only or args.refine_masters or args.finalize_refinement)
+                              postprocess_only=args.publish_only or args.refine_masters or args.finalize_refinement or args.import_refinement)
         except (OSError, ValueError, TypeError) as error:
             parser.error(str(error))
     write_json(campaign / "active-run.json", plan)

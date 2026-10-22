@@ -216,6 +216,21 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
     return policy
 
 
+def postprocess_configuration(policy, operation, *, proof_recipe=None, recover_interrupted=False):
+    """One-invocation authority; never persist import/recovery as a default."""
+    if (operation not in ("finalize-refinement", "import-refinement")
+            or type(recover_interrupted) is not bool
+            or (recover_interrupted and operation != "finalize-refinement")
+            or (proof_recipe is not None and operation != "import-refinement")):
+        raise ValueError("invalid explicit recovery/import operation")
+    if operation == "import-refinement" and proof_recipe is None:
+        raise ValueError("import-refinement requires --proof-recipe")
+    result = {**policy, "operation": operation, "recover_interrupted": recover_interrupted}
+    if proof_recipe is not None:
+        result["proof_recipe"] = str(Path(proof_recipe).resolve())
+    return result
+
+
 def freeze_master_executable(directory, policy, driver):
     """Optional phase-two binary, deliberately separate from the phase-one build."""
     executable = policy.get("executable")
@@ -347,7 +362,9 @@ def finalize_refinement(plan, policy, binding, request, driver):
     if pending is None:
         raise ValueError("no unfinished refinement checkpoint for the current scope")
     if pending["native"].get("status") not in ("paused", "failed"):
-        raise ValueError("finalize-refinement requires a stopped paused or failed native refinement checkpoint")
+        if not (policy.get("recover_interrupted", False) and pending["native"].get("status") == "running"):
+            raise ValueError("finalize-refinement requires a stopped paused or failed native refinement checkpoint; "
+                             "explicit --recover-interrupted is required for durable running metadata")
     source, steering, native = pending["directory"], pending["steering"], pending["native"]
     refinement = {
         "source_directory": str(source.relative_to(campaign)),
@@ -367,8 +384,13 @@ def finalize_refinement(plan, policy, binding, request, driver):
         **({"numerator_symmetry_assistance": True}
            if steering.get("numerator_symmetry_assistance", False) else {}),
         **numerator_symmetry_metadata(native)}
-    key = hashlib.sha256(json.dumps({"partial_refinement": str(source),
-                                    "source_manifest_sha256": pending["manifest_sha256"]},
+    if policy.get("recover_interrupted", False):
+        refinement["recovered_interrupted"] = True
+        refinement["original_source_status"] = native.get("status")
+    identity = {"partial_refinement": str(source), "source_manifest_sha256": pending["manifest_sha256"]}
+    if policy.get("recover_interrupted", False):
+        identity["recover_interrupted"] = True
+    key = hashlib.sha256(json.dumps(identity,
                                    sort_keys=True).encode()).hexdigest()
     target = campaign / "master-reduction/scopes" / key
     previous = completed_artifact(campaign)
@@ -384,6 +406,68 @@ def finalize_refinement(plan, policy, binding, request, driver):
         print("Proved refinement maps already published; finite search remains incomplete.", flush=True)
         return 0
     return phase_two(plan, {**policy, "partial_source": str(source), "partial_refinement": refinement},
+                     request, binding, target, driver)
+
+
+def import_refinement(plan, policy, binding, request, driver):
+    """Bind an explicit native proof replay, not an unchecked session import."""
+    campaign = Path(plan["campaign_directory"]).resolve()
+    previous = completed_artifact(campaign)
+    if not previous or not same_input_scope(previous.get("scope_binding", {}), binding):
+        raise ValueError("import-refinement requires a completed publication for the current input scope")
+    require_retained_refinement(campaign, binding, "importing proved relations")
+    recipe = Path(policy["proof_recipe"]).resolve()
+    recipe_sha = digest(recipe) if recipe.is_file() else None
+    active_path = campaign / "master-reduction/active-phase.json"
+    active = read_json(active_path) if active_path.is_file() else {}
+    selected = None
+    if active.get("operation") == "import-refinement":
+        candidate = Path(active["directory"]).resolve()
+        if not candidate.is_relative_to(campaign / "master-reduction/scopes"):
+            raise ValueError("proof import phase must remain inside the campaign scopes directory")
+        steering = read_json(candidate / "steering-binding.json")
+        if same_input_scope(steering.get("scope_binding", {}), binding):
+            recorded = steering.get("proof_recipe", {})
+            same_recipe = (recorded.get("sha256") == recipe_sha if recipe_sha is not None else
+                           recorded.get("original_path") == str(recipe))
+            if same_recipe:
+                selected = (candidate, steering)
+            elif not (candidate / "artifact.json").is_file():
+                raise ValueError("cannot change proof recipe during a paused import; resume its original --proof-recipe")
+    if selected:
+        target, identity = selected
+        descriptor = identity["proof_recipe"]
+        archived = target / "proof-import/recipe.json"
+        if archived.is_file():
+            if digest(archived) != descriptor["sha256"]:
+                raise ValueError("archived proof recipe differs from the immutable import identity")
+            recipe = archived
+        elif recipe_sha != descriptor["sha256"]:
+            raise ValueError("proof import has not archived its recipe yet; restore the original --proof-recipe")
+        source = campaign / identity["source"]
+        if digest(source / "artifact.json") != identity["source_manifest_sha256"]:
+            raise ValueError("proof import source publication changed; cannot resume this import")
+        if ((target / "artifact.json").is_file() and previous["resolved_directory"] == target
+                and previous.get("import_complete") is True):
+            print("Proved relation import already completed: " + str(target), flush=True)
+            return 0
+    else:
+        if recipe_sha is None:
+            raise ValueError("proof recipe is missing and has no matching archived import")
+        source = previous["resolved_directory"]
+        identity = {"scope": binding["key"], "operation": "import-refinement",
+                    "source": str(source.relative_to(campaign)),
+                    "source_manifest_sha256": digest(source / "artifact.json"),
+                    "proof_recipe": {"original_path": str(recipe), "sha256": recipe_sha},
+                    "recipe": "native-proved-relation-import-v1"}
+        phase_key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        target = campaign / "master-reduction/scopes" / phase_key
+        finite_output_path(plan, target / "steering-binding.json")
+        target.mkdir(parents=True, exist_ok=True)
+        driver.write_json(target / "steering-binding.json", {"scope_binding": binding, **identity})
+    return phase_two(plan, {**policy, "source_artifact": str(source), "proof_recipe": str(recipe),
+                            "import_recipe_sha256": identity["proof_recipe"]["sha256"],
+                            "import_source_manifest_sha256": identity["source_manifest_sha256"]},
                      request, binding, target, driver)
 
 
@@ -415,7 +499,11 @@ def completed_artifact(campaign):
     for key, value in numerator.items():
         if key in record and record[key] != value:
             raise ValueError("saved artifact pointer numerator-symmetry provenance differs from native artifact")
-    return {**record, **profile, **assurance, **numerator, "resolved_directory": directory}
+    if "proof_import" in record and record["proof_import"] != native.get("proof_import"):
+        raise ValueError("saved artifact pointer proof-import provenance differs from native artifact")
+    return {**record, **profile, **assurance, **numerator,
+            **({"proof_import": native["proof_import"], "import_complete": native.get("import_complete") is True}
+               if isinstance(native.get("proof_import"), dict) else {}), "resolved_directory": directory}
 
 
 def verification_metadata(report):
@@ -482,6 +570,8 @@ def publish_pointer(campaign, directory, binding, operation, driver, refinement=
         "completed_unix_time": time.time(), "master_minimality_claim": False,
         **normalization_metadata(native), **verification_metadata(native),
         **numerator_symmetry_metadata(native),
+        **({"proof_import": native["proof_import"], "import_complete": native.get("import_complete") is True}
+           if isinstance(native.get("proof_import"), dict) else {}),
         **({"refinement_strategy": "modular-circuits",
             "finite_search_complete": native.get("finite_search_complete") is True,
             "modular_search_complete": native.get("modular_search_complete") is True,
@@ -588,9 +678,11 @@ def phase_two(plan, policy, request, binding, directory, driver):
     """Native publication or explicit refinement, never Python algebra."""
     operation = policy.get("operation", "publish")
     finalizing = operation == "finalize-refinement"
+    importing = operation == "import-refinement"
     publishing = operation != "refine"
-    phase = "Partial refinement publication" if finalizing else "Artifact publication" if publishing else "Master refinement"
-    if not publishing:
+    phase = ("Proved relation import" if importing else "Partial refinement publication" if finalizing else
+             "Artifact publication" if publishing else "Master refinement")
+    if not publishing or importing:
         # Refinement resources are independent of the saved closure engine.
         # Never rewrite its frozen worker/affinity policy just to refine masters.
         plan = {**plan,"requested_workers":policy.get("refinement_workers",plan["requested_workers"]),
@@ -605,10 +697,14 @@ def phase_two(plan, policy, request, binding, directory, driver):
     executable = driver.steering_executable(plan["steering_policy"])[1]
     if policy.get("executable"):
         executable = Path(plan["campaign_directory"]) / "master-reduction" / policy["executable"]["path"]
-    command = [str(executable), "walk-finalize-refinement" if finalizing else
+    command = [str(executable), "walk-import-refinement" if importing else "walk-finalize-refinement" if finalizing else
                "walk-publish" if publishing else "walk-master-reduce"]
     if finalizing:
         command += ["--refinement", str(policy["partial_source"])]
+        if policy.get("recover_interrupted", False):
+            command.append("--recover-interrupted")
+    elif importing:
+        command += ["--artifact", policy["source_artifact"], "--proof-recipe", policy["proof_recipe"]]
     elif publishing:
         command += ["--command", str(request)]
         if plan.get("engine") == "rustred.finite-demand.v1":
@@ -619,7 +715,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
         command.append("--deep-verification" if policy.get("deep_verification", False) else "--no-deep-verification")
     else:
         command += ["--artifact", str(policy["source_artifact"])]
-    if plan.get("engine") == "rustred.finite-demand.v1" and (finalizing or not publishing):
+    if plan.get("engine") == "rustred.finite-demand.v1" and (finalizing or importing or not publishing):
         # The same caller-selected IO policy governs publication, refinement,
         # and cold reads; artifact metadata cannot silently enlarge it.
         command += ["--finite-policy", plan["finite_policy"]]
@@ -657,9 +753,9 @@ def phase_two(plan, policy, request, binding, directory, driver):
         profile = policy.get("effective_normalization_profile", "conservative-v1")
         if profile != "conservative-v1" or policy.get("normalization_profile") is not None:
             command += ["--normalization-profile", profile.removesuffix("-v1")]
-    if (directory / "latest.json").is_file():
-        snapshot = read_json(directory / "latest.json")
-        if finalizing:
+    if (directory / "latest.json").is_file() or (importing and (directory / "import-state.json").is_file()):
+        snapshot = read_json(directory / ("latest.json" if (directory / "latest.json").is_file() else "import-state.json"))
+        if finalizing or importing:
             pass  # Native authenticates the retained source generation.
         elif publishing:
             if snapshot.get("deep_verification", True) != policy.get("deep_verification", False):
@@ -681,7 +777,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
                         and snapshot.get("finite_feedback_recipe") != FINITE_FEEDBACK_RECIPE)):
                 raise ValueError("cannot change finite feedback on resume; start a new phase directory")
         command.append("--resume")
-    elif publishing and not finalizing:
+    elif publishing and not finalizing and not importing:
         previous_path = directory.parent.parent / "completed-phase.json"
         if policy.get("previous_artifact"):
             command += ["--previous-artifact", policy["previous_artifact"]]
@@ -722,10 +818,10 @@ def phase_two(plan, policy, request, binding, directory, driver):
     stream = telemetry.TelemetryStream(attempt / "telemetry.jsonl")
     tail = supervisor.MONITOR.EventTail(events)
     latest = {"phase": phase, "operation": operation,
-              "stage": "rebinding retained refinement" if finalizing else
+              "stage": "replaying proved relation recipe" if importing else "rebinding retained refinement" if finalizing else
                        ("independent_graph_replay" if policy.get("deep_verification", False) else "inventory_census")
                        if publishing else "loading published artifact", "status": "running",
-              "seed_depth": policy.get("effective_seed_depth", policy["seed_depth"]), "scope_binding": binding["key"],
+              "seed_depth": 0 if importing else policy.get("effective_seed_depth", policy["seed_depth"]), "scope_binding": binding["key"],
               "containing_sector_depth": (policy.get("effective_containing_sector_depth",
                                                     policy.get("containing_sector_depth", 0)) if not publishing else 0),
               "saved_rule_assistance": not publishing and policy.get("saved_rule_assistance", False),
@@ -738,9 +834,11 @@ def phase_two(plan, policy, request, binding, directory, driver):
         if policy.get("fresh_search", False):
             latest.update(fresh_search=True, fresh_search_recipe=FRESH_SEARCH_RECIPE,
                           stage="loading retained proved maps for a fresh search")
-    elif not finalizing:
+    elif not finalizing and not importing:
         latest["deep_verification"] = policy.get("deep_verification", False)
         latest["publication_verification_mode"] = "independent_replay" if latest["deep_verification"] else "inventory"
+    if importing:
+        latest["proof_import"] = {"stage": "preparing", "recipe_sha256": policy["import_recipe_sha256"]}
     checkpoint = {}
 
     def observe(event):
@@ -748,7 +846,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
         payload = event.get("progress", event)
         if not isinstance(payload, dict):
             return
-        if payload.get("event", "").startswith(("master_reduction", "artifact_")) or payload.get("phase") in ("Master reduction", phase):
+        if payload.get("event", "").startswith(("master_reduction", "artifact_", "proof_import")) or payload.get("phase") in ("Master reduction", phase):
             latest.update({key: value for key, value in payload.items() if value is not None})
             latest.update(phase=phase, operation=operation)
             if isinstance(payload.get("checkpoint"), dict):
@@ -846,7 +944,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
             native_artifact = read_json(directory / "artifact.json")
             native_profile = normalization_metadata(native_artifact)
             native_assurance = verification_metadata(native_artifact)
-            if publishing and not finalizing and (native_assurance["deep_verification"] != policy.get("deep_verification", False)
+            if publishing and not finalizing and not importing and (native_assurance["deep_verification"] != policy.get("deep_verification", False)
                                or (policy.get("deep_verification", False) and not native_assurance["independently_verified"])):
                 raise ValueError("native artifact verification assurance differs from requested publication")
             if not publishing and native_profile["normalization_profile"] != profile:
@@ -868,11 +966,20 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 raise ValueError("native partial export must attest incomplete refinement and its source")
             if finalizing and digest(Path(policy["partial_source"]) / "latest.json") != policy["partial_refinement"]["source_manifest_sha256"]:
                 raise ValueError("refinement source changed during partial export; artifact retained but pointer not updated")
+            if importing and (native_artifact.get("import_complete") is not True
+                              or not isinstance(native_artifact.get("proof_import"), dict)):
+                raise ValueError("native proof import success must attest completed proof replay")
+            if importing:
+                archive = directory / "proof-import/recipe.json"
+                if not archive.is_file() or digest(archive) != policy["import_recipe_sha256"]:
+                    raise ValueError("native archived proof recipe differs from the immutable import identity; pointer not updated")
+                if digest(Path(policy["source_artifact"]) / "artifact.json") != policy["import_source_manifest_sha256"]:
+                    raise ValueError("proof import source changed during replay; artifact retained but pointer not updated")
             current = phase_scope_binding(plan, driver)
             if not same_input_scope(current, binding):
                 raise ValueError("campaign scope changed during postprocessing; artifact retained but latest pointer not updated")
             previous = completed_artifact(plan["campaign_directory"])
-            keep_refined = publishing and not finalizing and previous and same_input_scope(previous.get("scope_binding", {}), binding) \
+            keep_refined = publishing and not finalizing and not importing and previous and same_input_scope(previous.get("scope_binding", {}), binding) \
                 and previous.get("operation") == "refine" and not policy.get("previous_artifact")
             if not keep_refined:
                 refinement = None if publishing else {
@@ -892,6 +999,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                         "saved_rule_assistance": policy.get("saved_rule_assistance", False), "source_artifact": str(
                             Path(policy["source_artifact"]).relative_to(Path(plan["campaign_directory"])))}
                 pointer_operation = operation
+                if importing:
+                    pointer_operation = "publish"
                 if finalizing:
                     refinement = {**policy["partial_refinement"], **native_profile,
                                   "finite_search_complete": False, "refinement_complete": False}
@@ -919,11 +1028,14 @@ def phase_two(plan, policy, request, binding, directory, driver):
             counts = telemetry.publication_rule_counts(native_artifact)
             latest.update(counts)
             latest.update(numerator_symmetry_metadata(native_artifact))
+            if importing:
+                latest.update(proof_import=native_artifact["proof_import"], import_complete=True)
             for name in ("numerator_symmetry_preparation", "numerator_symmetry_reduction"):
                 if isinstance(native_artifact.get(name), dict):
                     latest[name] = native_artifact[name]
             publish(finished_state, force=True)
-            print("Proved refinement maps published; finite search remains incomplete and its cursor is retained." if finalizing else
+            print("Proved relation import published; no new ordinary source search was performed." if importing else
+                  "Proved refinement maps published; finite search remains incomplete and its cursor is retained." if finalizing else
                   "Scoped artifact published; master refinement was not requested." if publishing else
                   "Modular discovery pass completed; accepted maps are exactly verified; exhaustive exact search remains incomplete."
                   if policy.get("refinement_strategy", "exact") == "modular-circuits" else
@@ -952,7 +1064,11 @@ def phase_two(plan, policy, request, binding, directory, driver):
                                 + "--master-normalization-profile " + profile.removesuffix("-v1") + " ") if not publishing else (
                                     "--deep-verification " if policy.get("deep_verification", False) else "--no-deep-verification ")
             if finalizing:
-                print(f"Resume export with: saved_campaign.py finalize-refinement --campaign {plan['campaign_directory']}", flush=True)
+                recovery_flag = " --recover-interrupted" if policy.get("recover_interrupted", False) else ""
+                print(f"Resume export with: saved_campaign.py finalize-refinement --campaign {plan['campaign_directory']}{recovery_flag}", flush=True)
+            elif importing:
+                print(f"Resume import with: saved_campaign.py import-refinement --campaign {plan['campaign_directory']} "
+                      f"--proof-recipe {policy['proof_recipe']}", flush=True)
             elif plan.get("engine") == "rustred.finite-demand.v1":
                 print(f"Resume with: saved_campaign.py {'publish' if publishing else 'refine'} "
                       f"--campaign {plan['campaign_directory']}", flush=True)
@@ -1044,9 +1160,12 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                 if fresh_binding is None:
                     raise ValueError("fresh search requires the completed current input scope")
                 fresh_pending = unfinished_refinement(campaign, fresh_binding)
-                if fresh_pending and fresh_pending["native"].get("status") not in ("paused", "failed"):
-                    raise ValueError("fresh search requires a stopped refinement; finalize-refinement retains its proved maps")
                 require_retained_refinement(campaign, fresh_binding, "starting a fresh search")
+                if fresh_pending and fresh_pending["native"].get("status") not in ("paused", "failed"):
+                    retained = (completed_artifact(campaign) or {}).get("refinement", {})
+                    if not (fresh_pending["native"].get("status") == "running"
+                            and retained.get("recovered_interrupted") is True):
+                        raise ValueError("fresh search requires a stopped or explicitly recovered refinement")
             if plan.get("engine") == "rustred.finite-demand.v1" and policy.get("executable"):
                 finite_output_path(plan, directory / policy["executable"]["path"])
             if startup_progress is not None:
@@ -1054,7 +1173,8 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
             freeze_master_executable(directory, policy, driver)
             driver.write_json(directory / "policy.json", {key: value for key, value in policy.items()
                               if key not in ("operation", "source_artifact", "previous_artifact", "preserved_refinement",
-                                             "fresh_search", "fresh_search_recipe")})
+                                             "fresh_search", "fresh_search_recipe", "recover_interrupted", "proof_recipe",
+                                             "import_recipe_sha256", "import_source_manifest_sha256")})
             if startup_progress is not None:
                 startup_progress.phase("validating current input scope")
             binding = (None if plan.get("engine") == "rustred.finite-demand.v1" and plan.get("repair_preparation")
@@ -1067,6 +1187,12 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
             if startup_progress is not None:
                 startup_progress.stop()
             return finalize_refinement(plan, policy, binding, request, driver)
+        if operation == "import-refinement":
+            if not binding or request is None:
+                raise ValueError("import-refinement requires the completed current input scope")
+            if startup_progress is not None:
+                startup_progress.stop()
+            return import_refinement(plan, policy, binding, request, driver)
         if startup_progress is not None:
             startup_progress.phase("checking existing publication")
         if operation == "refine":

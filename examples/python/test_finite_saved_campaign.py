@@ -174,6 +174,80 @@ class FiniteCampaignTests(unittest.TestCase):
                 self.assertIs(configure.call_args.kwargs["numerator_symmetry_assistance"], expected)
             self.assertEqual(FIXTURE.snapshot(self.campaign), before)
 
+    def test_public_finite_postprocess_parses_recovery_and_import_without_legacy_dispatch(self):
+        self.plan()
+        recipe = self.root / "proof-recipe.json"
+        recipe.write_text('{"fixture":"proof import"}')
+        before = FIXTURE.snapshot(self.campaign)
+        for action, options, recovery, proof in (
+                ("finalize-refinement", ["--recover-interrupted"], True, None),
+                ("import-refinement", ["--proof-recipe", str(recipe)], False, recipe)):
+            with self.subTest(action=action), patch.object(FIN, "public_main", return_value=0) as dispatch, \
+                 patch.object(PUBLIC, "native_executable", side_effect=AssertionError("legacy preflight")), \
+                 patch.object(PUBLIC.os, "execv", side_effect=AssertionError("legacy launch")):
+                self.assertEqual(PUBLIC.main([action, "--campaign", str(self.campaign),
+                    "--executable", str(self.binary), *options]), 0)
+                supplied, extra = dispatch.call_args.args
+                self.assertEqual(supplied.action, action)
+                self.assertIs(getattr(supplied, "recover_interrupted", False), recovery)
+                self.assertEqual(getattr(supplied, "proof_recipe", None), proof)
+                self.assertEqual(extra, [])
+            self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
+    def test_finite_postprocess_forwards_transient_requests_before_launch(self):
+        recipe = self.root / "proof-recipe.json"
+        recipe.write_text('{"fixture":"proof import"}')
+        before = FIXTURE.snapshot(self.campaign)
+        for action, supplied, recovery, proof in (
+                ("finalize-refinement", {}, False, None),
+                ("finalize-refinement", {"recover_interrupted": False}, False, None),
+                ("finalize-refinement", {"recover_interrupted": True}, True, None),
+                ("import-refinement", {"proof_recipe": recipe}, False, recipe)):
+            self.args.action = action
+            for name in ("recover_interrupted", "proof_recipe"):
+                vars(self.args).pop(name, None)
+            vars(self.args).update(supplied)
+            policy = {"fixture": "ordinary publication configuration"}
+            with self.subTest(action=action, supplied=supplied), \
+                 patch.object(FIN.PHASES, "configuration", return_value=policy) as configure, \
+                 patch.object(FIN.PHASES, "postprocess_configuration", side_effect=ValueError("postprocess probe")) as postprocess, \
+                 patch.object(FIN, "launch_plan", side_effect=AssertionError("launch planning")), \
+                 patch.object(FIN.PHASES, "run", side_effect=AssertionError("native work")):
+                with self.assertRaisesRegex(ValueError, "postprocess probe"):
+                    FIN.public_locked(self.args, self.campaign, self.binary, apply=False)
+                self.assertFalse(configure.call_args.kwargs["enabled"])
+                self.assertNotIn("recover_interrupted", configure.call_args.kwargs)
+                self.assertNotIn("proof_recipe", configure.call_args.kwargs)
+                self.assertIs(postprocess.call_args.args[0], policy)
+                operation = (postprocess.call_args.args[1] if len(postprocess.call_args.args) > 1
+                             else postprocess.call_args.kwargs["operation"])
+                self.assertEqual(operation, action)
+                self.assertIs(postprocess.call_args.kwargs["recover_interrupted"], recovery)
+                self.assertEqual(postprocess.call_args.kwargs["proof_recipe"], proof)
+            self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
+    def test_finite_import_is_forwarded_as_postprocess_only(self):
+        plan = self.plan()
+        self.namespace()
+        self.native["committed"].update(required_complete=True, all_rows_exhausted=True)
+        self.args.action = "import-refinement"
+        self.args.repair_preparation = False
+        self.args.proof_recipe = self.root / "proof-recipe.json"
+        self.args.proof_recipe.write_text('{"fixture":"proof import"}')
+        policy = {"operation": "import-refinement", "proof_recipe": str(self.args.proof_recipe)}
+        before = FIXTURE.snapshot(self.campaign)
+        with patch.object(FIN, "inspect", return_value=self.native), \
+             patch.object(FIN, "launch_plan", return_value=plan), \
+             patch.object(FIN.PHASES, "postprocess_configuration", return_value=policy), \
+             patch.object(FIN.PHASES, "phase_one", side_effect=AssertionError("unexpected solve")), \
+             patch.object(FIN.PRODUCTION, "checkpoint_lock", side_effect=AssertionError("CP6 touched")), \
+             patch.object(FIN.PHASES, "run", return_value=0) as launch:
+            self.assertEqual(FIN.public_locked(self.args, self.campaign, self.binary, apply=True), 0)
+        self.assertIs(launch.call_args.args[1], policy)
+        self.assertTrue(launch.call_args.kwargs["postprocess_only"])
+        self.assertTrue(launch.call_args.kwargs["dispatcher_held"])
+        self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
     def test_dry_plan_never_freezes_or_creates_namespace(self):
         before = FIXTURE.snapshot(self.campaign)
         plan = self.plan(apply=False)

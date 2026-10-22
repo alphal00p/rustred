@@ -523,7 +523,8 @@ def render_master_table(frame, width=100, height=24, color=True):
     inner = width - 4
     master, resource, checkpoint = frame["master_reduction"], frame["resources"], frame["checkpoint"]
     partial = master.get("partial_refinement", False)
-    publishing = master.get("operation") in ("publish", "finalize-refinement")
+    importing = master.get("proof_importing", False)
+    publishing = master.get("operation") in ("publish", "finalize-refinement", "import-refinement")
     modular = master.get("refinement_strategy") == "modular-circuits" and not publishing
     fresh = master.get("fresh_search", False) and not publishing
     total, completed = master.get("total_work"), master.get("completed_work")
@@ -563,7 +564,7 @@ def render_master_table(frame, width=100, height=24, color=True):
     progress = (bar(completed, total, frame["elapsed_seconds"], width=max(1, min(16, detail_width - 2)))
                 if total is not None else "total not yet known")
     rows = [
-        (0, row("Stage", master["stage"] or "preparing", "package retained exact maps" if partial else
+        (0, row("Stage", master["stage"] or "preparing", "replay symmetry, saved rows and exact union" if importing else "package retained exact maps" if partial else
                 "extract and package exact inventory" if publishing else
                 "modular discovery; exact accepted maps" if modular else "bounded exact relation search", "36")),
         (1, row("Retained keys", count(master["raw_terminals"]), "phase-one keys, including prior stages")),
@@ -605,11 +606,14 @@ def render_master_table(frame, width=100, height=24, color=True):
         rows = [entry for index, entry in enumerate(rows) if index not in (4, 5, 6, 7)]
         verified = master.get("independently_verified", False)
         mode = master.get("publication_verification_mode", "")
-        rows.insert(1, (0, row("Assurance", "deep replay passed" if verified else
+        rows.insert(1, (0, row("Assurance", "exact replay" if importing else "deep replay passed" if verified else
                               "trusted saved scope" if master.get("publication_assurance") == "trusted_saved_scope" else "pending",
-                              "inherited saved assurance" if partial else "independent graph replay" if mode == "independent_replay" else "exact inventory; deep replay not requested", "32")))
-        rows.insert(2, (0, row("Refinement", "partial retained" if partial else "not requested",
-                              "finite search unfinished" if partial else "explicit refine command only", "36")))
+                              "native proof replay; authenticated exact rows" if importing else "inherited saved assurance" if partial else "independent graph replay" if mode == "independent_replay" else "exact inventory; deep replay not requested", "32")))
+        rows.insert(2, (0, row("Proof import" if importing else "Refinement",
+                              "completed" if importing and master.get("import_complete") else
+                              master.get("proof_import", {}).get("stage") or "preparing" if importing else
+                              "partial retained" if partial else "not requested",
+                              "no new ordinary source search" if importing else "finite search unfinished" if partial else "explicit refine command only", "36")))
         verification_progress = master.get("verification_progress", {})
         if verification_progress:
             deep = mode == "independent_replay"
@@ -666,11 +670,12 @@ def render_master_table(frame, width=100, height=24, color=True):
     if frame["heartbeat_stale"]:
         rows.insert(0, (-2, full("STALE HEARTBEAT — current activity unverified", "1;31")))
     fixed = [border("╭", "╮"),
-             full(f"RustRed / {'ARTIFACT PUBLICATION' if publishing else 'MASTER REFINEMENT'} / {clean(frame['state']).upper()} / {duration(frame['elapsed_seconds'])}", "1;36"),
+             full(f"RustRed / {'PROVED RELATION IMPORT' if importing else 'ARTIFACT PUBLICATION' if publishing else 'MASTER REFINEMENT'} / {clean(frame['state']).upper()} / {duration(frame['elapsed_seconds'])}", "1;36"),
              border("├", "┤")]
     if detail_width >= 12 and height >= 20:
         fixed += [row("METRIC", "VALUE", "DETAIL", "1"), border("├", "┤")]
-    footer = [border("├", "┤"), full("Retained exact maps · finite search unfinished · no minimality claim" if partial else
+    footer = [border("├", "┤"), full("Native proved-relation replay · no new ordinary search · no minimality claim" if importing else
+              "Retained exact maps · finite search unfinished · no minimality claim" if partial else
               "Portable scoped artifact · unrefined terminals · no numerical values" if publishing else
               "Exact bounded search · nonminimal basis allowed · no numerical values", "2"), border("╰", "╯")]
     if height < 14:
@@ -698,6 +703,7 @@ def plain_summary(frame):
                 f"{'Published' if master.get('artifact') else 'Available'} executable rule records {count(master.get('published_rule_records'))} · observed cover rules {count(master.get('observed_cover_rules'))}",
                 f"Relations {count(master['relation_rows'])} · {count(master['eliminated_terminals'])} eliminated",
                 f"Checkpoint {frame['checkpoint']['state']} · {frame['checkpoint']['directory']}",
+                "Native proved-relation replay; no new ordinary source search; no minimality claim" if master.get("proof_importing") else
                 "Retained exact maps; finite search unfinished; no minimality claim" if master.get("partial_refinement") else
                 "Modular discovery; exact accepted identities; exact search incomplete" if master.get("refinement_strategy") == "modular-circuits" else
                 "Exact bounded search; no numerical master values or minimality claim",

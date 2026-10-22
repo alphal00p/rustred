@@ -63,6 +63,65 @@ def sample_status():
 
 
 class TelemetryTests(unittest.TestCase):
+    def test_proof_import_stages_show_native_replay_without_inferred_search_counts(self):
+        for stage in ("replaying symmetry", "saved projection", "combining", "publishing"):
+            with self.subTest(stage=stage):
+                status = sample_status()
+                status["master_reduction"] = {
+                    "operation": "import-refinement", "stage": stage, "status": "running",
+                    "proof_import": {"stage": stage, "recipe_blake3": "a" * 64,
+                        "source_manifest_blake3": "b" * 64, "recipe_sha256": "c" * 64},
+                    "historical_search": {"remaining_terminals": 999_991,
+                        "completed_source_rows": 999_992, "total_source_rows": 999_993}}
+                frame = TELEMETRY.normalize_status(status)
+                master = frame["master_reduction"]
+                self.assertEqual(frame["phase"], "Proved relation import")
+                self.assertTrue(master["proof_importing"])
+                self.assertFalse(master["import_complete"])
+                self.assertFalse(master["finite_search_complete"])
+                self.assertEqual(master["stage"], stage)
+                self.assertEqual(master["proof_import"]["stage"], stage)
+                self.assertEqual(master["proof_import"]["recipe_sha256"], "c" * 64)
+                for key in ("remaining_terminals", "relation_rows", "completed_work", "total_work"):
+                    self.assertIsNone(master[key])
+                self.assertNotIn("historical_search", master)
+                shown = "\n".join(DASHBOARD.render_master_table(frame, width=160, height=40, color=False)
+                                  + DASHBOARD.plain_summary(frame))
+                self.assertIn("PROVED RELATION IMPORT", shown)
+                self.assertIn("Proof import", shown)
+                self.assertIn(stage, shown)
+                self.assertIn("Native proved-relation replay", shown)
+                self.assertIn("no new ordinary source search", shown)
+                self.assertRegex(shown, r"Remaining basis\s+│ unknown")
+                self.assertIn("unknown remaining terminals", shown)
+                for ordinary in ("Relation work", "Rows generated", "bounded exact relation search",
+                                 "Exact bounded search", "999,991", "999,992", "999,993"):
+                    self.assertNotIn(ordinary, shown)
+
+    def test_proof_import_layout_fits_small_terminals_and_completion_is_not_search_exhaustion(self):
+        status = sample_status()
+        status["master_reduction"] = {"operation": "import-refinement", "stage": "publishing",
+            "proof_import": {"stage": "publishing"}, "import_complete": True,
+            "finite_search_complete": False, "refinement_complete": False, "remaining_terminals": 17}
+        frame = TELEMETRY.normalize_status(status)
+        self.assertTrue(frame["master_reduction"]["import_complete"])
+        self.assertFalse(frame["master_reduction"]["finite_search_complete"])
+        self.assertEqual(frame["master_reduction"]["remaining_terminals"], 17)
+        for width in (20, 35, 40, 60, 80, 160):
+            for height in (8, 12, 24, 40):
+                for color in (False, True):
+                    with self.subTest(width=width, height=height, color=color):
+                        rows = DASHBOARD.render_master_table(frame, width, height, color)
+                        self.assertLessEqual(len(rows), height)
+                        self.assertTrue(all(DASHBOARD.cell_width(ANSI.sub("", row)) == width for row in rows))
+        shown = "\n".join(DASHBOARD.render_master_table(frame, width=160, height=40, color=False)
+                          + DASHBOARD.plain_summary(frame))
+        self.assertRegex(shown, r"Proof import\s+│ completed")
+        self.assertRegex(shown, r"Remaining basis\s+│ 17\s+│")
+        self.assertIn("no new ordinary source search", shown)
+        self.assertIn("no minimality claim", shown)
+        self.assertNotIn("Exact bounded search", shown)
+
     def test_numerator_symmetry_progress_is_finite_and_inherited_proofs_do_not_enable_provider(self):
         status = sample_status()
         status["master_reduction"] = {"operation": "refine", "stage": "numerator symmetry",

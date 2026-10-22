@@ -400,13 +400,17 @@ def normalize_status(status, sequence=None):
     master = mapping(status.get("master_reduction"))
     if master:
         operation = master.get("operation", "refine")
+        importing = operation == "import-refinement"
         partial = (operation == "finalize-refinement"
                    or (operation == "publish" and isinstance(master.get("partial_refinement_source"), dict)
                        and master.get("finite_search_complete") is False))
-        frame["phase"] = "Partial refinement publication" if partial else "Artifact publication" if operation == "publish" else "Master refinement"
+        frame["phase"] = ("Proved relation import" if importing else "Partial refinement publication" if partial else
+                          "Artifact publication" if operation == "publish" else "Master refinement")
         frame["master_reduction"] = {
             "operation": operation,
             "partial_refinement": partial,
+            "proof_importing": importing,
+            "import_complete": master.get("import_complete") is True,
             **publication_rule_counts(master),
             "published_rule_records_scope": "installed executable owner-program records; not uninstalled embedded sectors or newly generated rules",
             **_numbers(master, ("raw_terminals", "normalized_terminals", "remaining_terminals",
@@ -462,6 +466,11 @@ def normalize_status(status, sequence=None):
         if certificate:
             frame["master_reduction"]["numerator_symmetry_certificate"] = {
                 key: clean(certificate.get(key, ""), 300) for key in ("recipe", "inventory_binding", "authority")}
+        proof_import = mapping(master.get("proof_import"))
+        if proof_import:
+            frame["master_reduction"]["proof_import"] = {
+                key: clean(proof_import.get(key, ""), 300) for key in
+                ("stage", "recipe_blake3", "source_manifest_blake3", "recipe_sha256")}
         progress = mapping(master.get("verification_progress"))
         if progress:
             frame["master_reduction"]["verification_progress"] = {
@@ -477,7 +486,8 @@ def normalize_status(status, sequence=None):
                                         "finite_feedback_equations", "finite_feedback_nonzeros",
                                         "finite_feedback_replay_operations")),
             }
-        frame["scope"] = ("retained exact maps; finite search unfinished; no minimality claim" if partial else
+        frame["scope"] = ("native proved-relation replay; no new ordinary source search or minimality claim" if importing else
+                          "retained exact maps; finite search unfinished; no minimality claim" if partial else
                           "exact saved-scope inventory; independent graph replay only when explicitly requested" if operation == "publish" else
                           "heuristic modular discovery; accepted full-column identities exactly verified; exhaustive exact search incomplete"
                           if master.get("refinement_strategy") == "modular-circuits" else

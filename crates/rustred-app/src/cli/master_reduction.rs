@@ -17,6 +17,8 @@ pub(crate) struct MasterArgs {
     pub finite_policy: Option<PathBuf>,
     pub artifact: Option<PathBuf>,
     pub partial_refinement: Option<PathBuf>,
+    pub recover_interrupted: bool,
+    pub proof_recipe: Option<PathBuf>,
     pub operation: crate::MasterReductionOperation,
     pub checkpoint: PathBuf,
     pub directory: PathBuf,
@@ -62,6 +64,8 @@ fn parse_source(
         finite_policy: None,
         artifact: None,
         partial_refinement: None,
+        recover_interrupted: false,
+        proof_recipe: None,
         operation: crate::MasterReductionOperation::Refine,
         checkpoint: PathBuf::new(),
         directory: PathBuf::new(),
@@ -337,15 +341,75 @@ pub(super) fn parse_publish(args: impl Iterator<Item = OsString>) -> Result<Comm
     Ok(Command::WalkMasterReduce(args))
 }
 
+/// Import is deliberately separate from ordinary source searching. Its finite
+/// proof recipe, not a search flag or an output hash, determines the work.
+pub(super) fn parse_import(mut args: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
+    let mut forwarded = Vec::new();
+    let mut recipe = None;
+    while let Some(option) = args.next() {
+        let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
+        match option.as_str() {
+            "--proof-recipe" => {
+                if recipe.is_some() {
+                    return Err(ArgError::DuplicateOption("--proof-recipe"));
+                }
+                recipe = Some(PathBuf::from(next_value(&mut args, "--proof-recipe")?));
+            }
+            "--resume" => forwarded.push(OsString::from(option)),
+            "--artifact"
+            | "--directory"
+            | "--finite-policy"
+            | "--threads"
+            | "--events"
+            | "--stop-file"
+            | "--checkpoint-interval-seconds" => {
+                let name = match option.as_str() {
+                    "--artifact" => "--artifact",
+                    "--directory" => "--directory",
+                    "--finite-policy" => "--finite-policy",
+                    "--threads" => "--threads",
+                    "--events" => "--events",
+                    "--stop-file" => "--stop-file",
+                    _ => "--checkpoint-interval-seconds",
+                };
+                let value = next_value(&mut args, name)?;
+                forwarded.push(OsString::from(option));
+                forwarded.push(value);
+            }
+            _ => return Err(ArgError::UnknownOption(option)),
+        }
+    }
+    let recipe = recipe.ok_or(ArgError::MissingRequiredOption("--proof-recipe"))?;
+    if recipe.as_os_str().is_empty() {
+        return Err(ArgError::EmptyPath);
+    }
+    let Command::WalkMasterReduce(mut args) = parse(forwarded.into_iter())? else {
+        unreachable!()
+    };
+    if args.artifact.is_none() {
+        return Err(ArgError::MissingRequiredOption("--artifact"));
+    }
+    args.proof_recipe = Some(recipe);
+    args.operation = crate::MasterReductionOperation::Publish;
+    Ok(Command::WalkMasterReduce(args))
+}
+
 pub(super) fn parse_finalize(
     mut args: impl Iterator<Item = OsString>,
 ) -> Result<Command, ArgError> {
     // Keep export controls separate from the search recipe: this command may
     // materialize proved maps, but must never start another finite search.
     let mut forwarded = Vec::new();
+    let mut recover_interrupted = false;
     while let Some(option) = args.next() {
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
         match option.as_str() {
+            "--recover-interrupted" => {
+                if recover_interrupted {
+                    return Err(ArgError::DuplicateOption("--recover-interrupted"));
+                }
+                recover_interrupted = true;
+            }
             "--resume" => forwarded.push(OsString::from(option)),
             "--refinement"
             | "--finite-policy"
@@ -380,6 +444,7 @@ pub(super) fn parse_finalize(
         unreachable!()
     };
     args.partial_refinement = args.artifact.take();
+    args.recover_interrupted = recover_interrupted;
     args.operation = crate::MasterReductionOperation::Publish;
     Ok(Command::WalkMasterReduce(args))
 }
@@ -493,6 +558,9 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     if let Some(policy_path) = &args.finite_policy {
         protected.push(policy_path.clone());
     }
+    if let Some(recipe) = &args.proof_recipe {
+        protected.push(recipe.clone());
+    }
     if source.is_none() {
         protected.push(args.command.clone());
         if let Some(finite) = &args.finite_directory {
@@ -543,7 +611,10 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     }
     // The phase directory must never be an original input/checkpoint or its
     // ancestor. Explicit paths avoid accidental writes to production state.
-    let directory = if args.partial_refinement.is_some() || args.finite_directory.is_some() {
+    let directory = if args.partial_refinement.is_some()
+        || args.finite_directory.is_some()
+        || args.proof_recipe.is_some()
+    {
         // Native export acquires the source lock before creating its output.
         prospective_path(&args.directory)?
     } else {
@@ -635,7 +706,19 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
             }
         };
         let result = if let Some(source) = &args.partial_refinement {
-            crate::master_publish_partial_refinement(source, &options, &cancel, observe)
+            if args.recover_interrupted {
+                crate::master_recover_interrupted_refinement(source, &options, &cancel, observe)
+            } else {
+                crate::master_publish_partial_refinement(source, &options, &cancel, observe)
+            }
+        } else if let Some(recipe) = &args.proof_recipe {
+            crate::master_import_proved_refinement(
+                args.artifact.as_ref().expect("import artifact parsed"),
+                recipe,
+                &options,
+                &cancel,
+                observe,
+            )
         } else if let Some(source) = &args.artifact {
             crate::master_refine_published_artifact(source, &options, &cancel, observe)
         } else if let Some(finite) = &args.finite_directory {
@@ -710,6 +793,68 @@ fn prospective_path(path: &Path) -> Result<PathBuf, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proof_import_has_an_explicit_recipe_and_cannot_request_source_search() {
+        let command = [
+            "--artifact",
+            "source",
+            "--directory",
+            "out",
+            "--proof-recipe",
+            "proof.json",
+        ];
+        let Command::WalkMasterReduce(parsed) =
+            parse_import(command.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(parsed.operation, crate::MasterReductionOperation::Publish);
+        assert_eq!(parsed.proof_recipe, Some(PathBuf::from("proof.json")));
+        assert_eq!(parsed.artifact, Some(PathBuf::from("source")));
+        assert!(!parsed.fresh_search);
+        assert!(!parsed.recover_interrupted);
+        for option in [
+            "--seed-depth",
+            "--saved-rule-assistance",
+            "--fresh-search",
+            "--recover-interrupted",
+        ] {
+            assert!(parse_import(command.into_iter().chain([option]).map(OsString::from)).is_err());
+        }
+        assert!(
+            parse_import(
+                command
+                    .into_iter()
+                    .chain(["--proof-recipe", "duplicate.json"])
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+        assert!(
+            parse_import(
+                ["--artifact", "source", "--directory", "out"]
+                    .map(OsString::from)
+                    .into_iter()
+            )
+            .is_err()
+        );
+        assert!(
+            parse(
+                [
+                    "--artifact",
+                    "source",
+                    "--directory",
+                    "out",
+                    "--proof-recipe",
+                    "proof.json"
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn modular_strategy_is_explicit_and_has_a_caller_policy() {
@@ -864,6 +1009,67 @@ mod tests {
                 .is_err()
             );
         }
+    }
+
+    #[test]
+    fn interrupted_recovery_is_explicit_finalize_only_and_never_a_search_control() {
+        let base = ["--refinement", "abandoned", "--directory", "recovered"];
+        let Command::WalkMasterReduce(ordinary) =
+            parse_finalize(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert!(!ordinary.recover_interrupted);
+        let Command::WalkMasterReduce(recovery) = parse_finalize(
+            base.into_iter()
+                .chain(["--recover-interrupted"])
+                .map(OsString::from),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert!(recovery.recover_interrupted);
+        assert_eq!(recovery.operation, crate::MasterReductionOperation::Publish);
+        assert!(!recovery.fresh_search);
+        assert!(recovery.refinement_strategy.is_none());
+        assert!(matches!(
+            parse_finalize(
+                base.into_iter()
+                    .chain(["--recover-interrupted", "--recover-interrupted"])
+                    .map(OsString::from),
+            ),
+            Err(ArgError::DuplicateOption("--recover-interrupted"))
+        ));
+        assert!(
+            parse(
+                [
+                    "--artifact",
+                    "source",
+                    "--directory",
+                    "out",
+                    "--recover-interrupted"
+                ]
+                .map(OsString::from)
+                .into_iter(),
+            )
+            .is_err()
+        );
+        assert!(
+            parse_publish(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--recover-interrupted"
+                ]
+                .map(OsString::from)
+                .into_iter(),
+            )
+            .is_err()
+        );
     }
 
     #[test]

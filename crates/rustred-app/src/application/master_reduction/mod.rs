@@ -19,6 +19,7 @@ mod refine;
 mod report_counts;
 mod source;
 mod storage;
+mod terminal_import;
 #[cfg(test)]
 mod tests;
 mod verification;
@@ -43,9 +44,10 @@ use storage::{io, write_json};
 pub use collection::{
     MasterReductionArtifact, load_master_reduction, load_master_reduction_with_policy,
 };
-pub use partial::master_publish_partial_refinement;
+pub use partial::{master_publish_partial_refinement, master_recover_interrupted_refinement};
 pub use profile::MasterNormalizationProfile;
 pub use refine::master_refine_published_artifact;
+pub use terminal_import::master_import_proved_refinement;
 
 const SCHEMA: &str = "rustred.master-reduction.v2";
 const FINITE_SCHEMA: &str = "rustred.master-reduction.v3";
