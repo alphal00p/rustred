@@ -1,5 +1,47 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 22 — parallel assisted exact refinement delivered
+
+The isolated feature `codex/numerator-symmetry-refinement` is tested/pushed:
+engine `191c0965` after `19c035d0`, final report `4f4623ae`. Source worktree:
+`TMP/numerator-symmetry-refinement-20261021`. It fixes the assisted serial
+bypass, adds explicit complete finite providers and borrowed column views,
+retains every auxiliary row/guard, and uses preflighted atomic block joins.
+No production campaign was changed or signalled. Existing unrelated work remains
+untouched. Exact arithmetic remains Symbolica-owned; native schemas unchanged.
+
+Final acceptance:677 native passes/zero failures/five manual ignores;218 Python
+passes/one existing affinity skip;18 fresh/recovery CLI controls; actual old/new
+bidirectional checkpoints, changed-worker SIGINT continuation, and real native
+allocator-wrapper/Python-dispatcher/RAM-guard checks. K6/H/FG/BMW/X exact-prefix
+controls pass with nonempty conditions. Independent math/code audits pass.
+
+Two same-allocator real five-loop hot256-source pairs reproduce solver
+**105.464->47.092s and105.815->47.301s**, **2.239x/2.237x**; full-process
+1.589x/1.640x. Selected16workers/batch256/block8 uses15.65-15.85GB peak, versus
+10.75GB serial. All939exact maps/108,524conditions agree; hot basis864 unchanged.
+This is not whole-refinement speed or128core scaling. More workers/larger blocks
+were not universally faster; negative results preserved. Remaining limits are
+copied frozen-U coefficients and serial exact division/GCD, not a missing thread
+option. The accepted process-local unprefixed jemalloc reduces allocation cost;
+the first prefixed library was rejected by loader inspection, not benchmarked.
+
+Frozen raw executable `TMP/releases/20261022-parallel-refinement/rustred`, SHA256
+`70dd9ee7d41ee32a10b0b23470b73a5552f0be5f7e645cad8d08fd57105c21a1`.
+Sourceable release `workflow.sh` selects a checked native-only allocator wrapper
+and the matching feature Python driver; the raw new executable remains fallback.
+The user independently completed proof import528866...:864->862basis keys,
+all maps/guards retained, no new ordinary sources. Next action is fresh2,0 from
+that publication (`source .../workflow.sh; rrfresh 2 0`); same-round resume omits
+fresh (`rr --refine-masters`). Exact commands/rollback/boundaries are in the
+feature's `docs/parallel_master_refinement.md` and release README. No generated
+states, binaries, reference material or credentials are pushed.
+
+The user-requested deep literature/code study of published five-loop~100 versus
+our~800retained outputs starts only after this parallel delivery. Its aim is
+convention-matched counts and concrete missing-relation diagnoses, not claiming
+that our retained keys are independent masters or starting numerical evaluation.
+
 ## October 22 — interrupted recovery/import bridge and 871-key application
 
 The isolated feature `codex/numerator-symmetry-refinement` now includes the tested
