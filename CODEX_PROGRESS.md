@@ -1,5 +1,51 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 22 — combined full-integral symmetry refinement delivered
+
+Implementation is isolated and pushed as `d3549795` on
+`codex/numerator-symmetry-refinement`, worktree
+`TMP/numerator-symmetry-refinement-20261021`. Main receives this progress pointer
+only; unrelated FeynKit/notebook work is untouched. The audited detailed report
+on that feature is `docs/research/combined_sector_symmetry_refinement_2026-10-22.md`.
+
+Matched current939-key/862-basis results: existing normalization ->693;
+broader verified generator identities ->667 (195 new dependencies total);
+optional whole-polynomial orbits ->660 (202 total). All original maps/guards
+compose exactly; no minimality claim and no new IBP campaign. Generator pure
+client43.446s/3.45GB versus full-orbit1368.163s/28.026GB, different source spans.
+Lower saved-rule projection: K6 remains5; H22->18,FG16->15,BMW17->14,X19->15.
+Family-local four-loop74->62 is not a global master count; qualified full-U
+representatives23->22. All1193lower raw maps and conditions check exactly.
+
+Final native827pass/0fail/5manualignores; Python298checks; independent math/code
+audits pass. Native v3 replays signed maps, complete numerators/mass constants,
+moved dots, selected generator/orbit cohort and the nested old P102 equations.
+Saved projection is independently optional. Its false mode avoids expensive
+candidate loading/application while retaining ordinary finite seed work.
+Generic lifetime-bound guard-ID memo removes repeated cold serialization work
+without changing wire bytes, authority or grants. No custom CAS/reconstruction.
+
+Real command reaches667, ingests2134assistance rows, checkpoints and cold-resumes
+with1->4workers preserving byte-identical native state. Finalized source artifact
+passes normal public application for all939maps/1052terms, with667leaves and all
+136725inheritedguards retained. Real command had3cornerIBP rows before polling
+stop; pure clients had0. Source campaign/checkpoints were never modified/signalled.
+Runtime application-directory export is a separate existing-API acceptance step,
+not silently equated with the finalized master-reduction source directory.
+
+Frozen binary: `TMP/releases/20261022-combined-master-refinement/rustred`, SHA256
+`0aba2d21431f05015b7077e1ad4d5ee1470bf6798134ed2cdba6cd3da9efeb7a`.
+Local helper `workflow.sh` in that directory defines commands but starts nothing.
+After user-managed graceful interruption/finalization, `rrfresh 2 0` selects the
+fast witnessed cohort; resume uses `rr --refine-masters` without fresh-search.
+The source-only choice does NOT disable ordinary corner/seed IBPs. Optional
+saved projection remains expensive: real15minute control pauses24/2134tasks,
+with a reusable exact prefix, no failures, and no false gain claim.
+
+No large artifacts, binary payloads, references, private notes or license are
+pushed. No numerical master evaluation, production mutation or Vakint packaged
+artifact replacement occurred. Historical broader paused goal is unchanged.
+
 ## October 22 — master-count research delivered after parallel completion
 
 Four independent literature/code/methods/critical-review lanes completed the
