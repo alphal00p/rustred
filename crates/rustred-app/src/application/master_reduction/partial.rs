@@ -55,6 +55,7 @@ fn publish_partial(
         || options.sector_symmetry_assistance
         || options.sector_symmetry_policy.is_some()
         || options.sector_symmetry_saved_projection.is_some()
+        || options.selective_symmetry_feedback
         || options.containing_sector_depth != 0
         || options.seed_depth != 0
         || options.finite_feedback == Some(true)
@@ -180,6 +181,7 @@ fn publish_partial(
         if statistics.completed_seeds == statistics.seeds
             && statistics.pending_assistance_keys == 0
             && statistics.pending_assistance_rows == 0
+            && selective_symmetry::complete(&source_report)
         {
             return Err(AppError::input(if recover_interrupted {
                 "interrupted recovery of a completed finite source search with unfinished collection is not supported; use its normal collection-resume path"

@@ -37,6 +37,7 @@ SECTOR_SYMMETRY_REDUCED_RECIPE = "sector-symmetry-saved-projection-v1"
 SECTOR_SYMMETRY_SOURCE_ROWS_RECIPE = "sector-symmetry-source-rows-v1"
 SECTOR_SYMMETRY_NORMALIZATION_RECIPE = "sector-symmetry-normalization-v1"
 SECTOR_SYMMETRY_TASK_RECIPE = "sector-symmetry-composed-source-rows-v1"
+SELECTIVE_SYMMETRY_FEEDBACK_RECIPE = "selective-symmetry-ibp-feedback-v1"
 
 
 def read_json(path, max_bytes=None):
@@ -67,7 +68,7 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                   refinement_workers=None, refinement_cpus=None, refinement_strategy=None,
                   modular_policy=None, fresh_search=False, numerator_symmetry_assistance=None,
                   sector_symmetry_assistance=None, sector_symmetry_policy=None,
-                  sector_symmetry_saved_projection=None):
+                  sector_symmetry_saved_projection=None, selective_symmetry_feedback=None):
     """Read-only configuration. Only this invocation can request refinement.
 
     Historical ``enabled`` policies retain executable/search preferences, never
@@ -116,6 +117,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master sector-symmetry policy must be generators or polynomial-orbits")
     if sector_symmetry_saved_projection is not None and type(sector_symmetry_saved_projection) is not bool:
         raise ValueError("master sector-symmetry saved projection must be boolean")
+    if selective_symmetry_feedback is not None and type(selective_symmetry_feedback) is not bool:
+        raise ValueError("master selective-symmetry feedback must be boolean")
     if finite_feedback is not None and type(finite_feedback) is not bool:
         raise ValueError("master finite feedback must be boolean")
     if deep_verification is not None and type(deep_verification) is not bool:
@@ -133,6 +136,7 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                 or type(existing.get("sector_symmetry_assistance", False)) is not bool
                 or existing.get("sector_symmetry_policy", "generators") not in SECTOR_SYMMETRY_POLICIES
                 or type(existing.get("sector_symmetry_saved_projection", True)) is not bool
+                or type(existing.get("selective_symmetry_feedback", False)) is not bool
                 or type(existing.get("finite_feedback", True)) is not bool
                 or type(existing.get("deep_verification", False)) is not bool
                 or existing.get("normalization_profile") not in (None, *NORMALIZATION_PROFILES)
@@ -161,6 +165,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master sector-symmetry policy requires explicit --refine-masters")
     if sector_symmetry_saved_projection is not None and not enabled:
         raise ValueError("master sector-symmetry saved projection requires explicit --refine-masters")
+    if selective_symmetry_feedback is not None and not enabled:
+        raise ValueError("master selective-symmetry feedback requires explicit --refine-masters")
     if finite_feedback is not None and not enabled:
         raise ValueError("master finite feedback requires explicit --refine-masters")
     if containing_sector_depth is not None and not enabled:
@@ -191,6 +197,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                                        if sector_symmetry_policy is None else sector_symmetry_policy),
             "sector_symmetry_saved_projection": (preferences.get("sector_symmetry_saved_projection", True)
                 if sector_symmetry_saved_projection is None else sector_symmetry_saved_projection),
+            "selective_symmetry_feedback": (preferences.get("selective_symmetry_feedback", False)
+                if selective_symmetry_feedback is None else selective_symmetry_feedback),
             "finite_feedback": (preferences.get("finite_feedback", True)
                                 if finite_feedback is None else finite_feedback),
             "deep_verification": (preferences.get("deep_verification", False)
@@ -206,6 +214,10 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master sector-symmetry policy requires sector-symmetry assistance")
     if sector_symmetry_saved_projection is not None and not policy["sector_symmetry_assistance"]:
         raise ValueError("master sector-symmetry saved projection requires sector-symmetry assistance")
+    if policy["selective_symmetry_feedback"] and not policy["sector_symmetry_assistance"]:
+        raise ValueError("selective-symmetry feedback requires sector-symmetry assistance")
+    if policy["selective_symmetry_feedback"] and (policy["saved_rule_assistance"] or policy["circuit_symmetry_assistance"]):
+        raise ValueError("selective-symmetry feedback requires no dynamic saved-rule or separate circuit providers")
     if strategy == "modular-circuits":
         policy["terminal_policy"] = "heuristic modular source discovery; exact accepted terminal identities; no minimality claim"
     if modular is not None:
@@ -425,6 +437,8 @@ def finalize_refinement(plan, policy, binding, request, driver):
            if steering.get("sector_symmetry_assistance", False) else {}),
         **({"sector_symmetry_saved_projection": steering.get("sector_symmetry_saved_projection", True)}
            if steering.get("sector_symmetry_assistance", False) else {}),
+        **({"selective_symmetry_feedback_enabled": True}
+           if steering.get("selective_symmetry_feedback", False) else {}),
         **symmetry_metadata(native)}
     if policy.get("recover_interrupted", False):
         refinement["recovered_interrupted"] = True
@@ -611,6 +625,10 @@ def sector_symmetry_metadata(report):
         if type(report["sector_symmetry_saved_projection"]) is not bool:
             raise ValueError("invalid native sector-symmetry saved projection")
         result["sector_symmetry_saved_projection"] = report["sector_symmetry_saved_projection"]
+    if "selective_symmetry_feedback_enabled" in report:
+        if type(report["selective_symmetry_feedback_enabled"]) is not bool:
+            raise ValueError("invalid native selective-symmetry feedback mode")
+        result["selective_symmetry_feedback_enabled"] = report["selective_symmetry_feedback_enabled"]
     for key, recipe in (("sector_symmetry_certificate", SECTOR_SYMMETRY_RECIPE),
                         ("sector_symmetry_reduced_certificate", SECTOR_SYMMETRY_REDUCED_RECIPE),
                         ("sector_symmetry_normalization_certificate", SECTOR_SYMMETRY_NORMALIZATION_RECIPE),
@@ -666,7 +684,19 @@ def sector_symmetry_metadata(report):
 
 
 def symmetry_metadata(report):
-    return {**numerator_symmetry_metadata(report), **sector_symmetry_metadata(report)}
+    result = {**numerator_symmetry_metadata(report), **sector_symmetry_metadata(report)}
+    feedback = report.get("selective_symmetry_feedback")
+    if feedback is not None:
+        if not isinstance(feedback, dict) or feedback.get("recipe") != SELECTIVE_SYMMETRY_FEEDBACK_RECIPE:
+            raise ValueError("invalid native selective-symmetry feedback receipt")
+        rounds = feedback.get("rounds", [])
+        if not isinstance(rounds, list) or any(not isinstance(row, dict) for row in rounds):
+            raise ValueError("invalid native selective-symmetry round receipt")
+        # This metadata contains exact binary descriptors, not reconstructed
+        # algebra. Native cold replay authenticates those files. Preserve ALL
+        # round descriptors in exported provenance; only telemetry is bounded.
+        result["selective_symmetry_feedback"] = feedback
+    return result
 
 
 def symmetry_progress_metadata(report):
@@ -725,6 +755,24 @@ def symmetry_progress_metadata(report):
             if isinstance(active.get("phase"), str):
                 header["active_row"]["phase"] = active["phase"][:100]
         result[name] = header
+    value = report.get("selective_symmetry_feedback")
+    if isinstance(value, dict):
+        # Round rows/witnesses live in native capsules. Dashboard consumers get
+        # only scalar headers, never a possibly huge selected-target inventory.
+        header = {key: value[key] for key in (
+            "round", "completed_rounds", "selected_targets", "completed_targets", "pending_targets",
+            "new_target_proposals", "new_relations", "eliminated_targets", "stagnant_rounds",
+            "source_rows", "ordinary_source_rows", "unresolved_leaves", "frontier_keys", "deferred_targets",
+            "unattempted_targets", "terminal_rank_epoch", "visited_supports", "unsearched_auxiliary_keys")
+            if type(value.get(key)) is int and value[key] >= 0}
+        for key in ("enabled", "selected_queue_exhausted", "source_jobs_complete", "ordinary_work_complete",
+                    "complete", "budget_exhausted"):
+            if type(value.get(key)) is bool:
+                header[key] = value[key]
+        for key in ("stage", "status", "reason", "exact_parent_maps_blake3", "scope"):
+            if isinstance(value.get(key), str):
+                header[key] = value[key][:300]
+        result["selective_symmetry_feedback"] = header
     return result
 
 
@@ -929,6 +977,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
             command += ["--sector-symmetry-policy", policy.get("sector_symmetry_policy", "generators")]
             command.append("--sector-symmetry-saved-projection" if policy.get("sector_symmetry_saved_projection", True)
                            else "--no-sector-symmetry-saved-projection")
+        if policy.get("selective_symmetry_feedback", False):
+            command.append("--selective-symmetry-feedback")
         profile = policy.get("effective_normalization_profile", "conservative-v1")
         if profile != "conservative-v1" or policy.get("normalization_profile") is not None:
             command += ["--normalization-profile", profile.removesuffix("-v1")]
@@ -952,6 +1002,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
             if (policy.get("sector_symmetry_assistance", False)
                     and snapshot.get("sector_symmetry_saved_projection", True) != policy.get("sector_symmetry_saved_projection", True)):
                 raise ValueError("cannot change sector-symmetry saved projection on resume; start a new phase directory")
+            if snapshot.get("selective_symmetry_feedback_enabled", False) != policy.get("selective_symmetry_feedback", False):
+                raise ValueError("cannot change selective-symmetry feedback on resume; start a new phase directory")
             if (snapshot.get("fresh_search", False) != policy.get("fresh_search", False)
                     or (policy.get("fresh_search", False)
                         and snapshot.get("fresh_search_recipe") != FRESH_SEARCH_RECIPE)):
@@ -1018,6 +1070,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
     if not publishing and policy.get("sector_symmetry_assistance", False):
         latest["sector_symmetry_policy"] = policy.get("sector_symmetry_policy", "generators")
         latest["sector_symmetry_saved_projection"] = policy.get("sector_symmetry_saved_projection", True)
+    if not publishing and policy.get("selective_symmetry_feedback", False):
+        latest["selective_symmetry_feedback_enabled"] = True
     latest["finite_feedback"] = not publishing and policy.get("finite_feedback", True)
     if not publishing:
         latest["normalization_profile"] = profile
@@ -1040,7 +1094,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
         if payload.get("event", "").startswith(("master_reduction", "artifact_", "proof_import")) or payload.get("phase") in ("Master reduction", phase):
             latest.update({key: value for key, value in payload.items() if value is not None
                            and key not in ("numerator_symmetry_preparation", "numerator_symmetry_reduction",
-                                           "sector_symmetry_preparation", "sector_symmetry_reduction")})
+                                           "sector_symmetry_preparation", "sector_symmetry_reduction",
+                                           "selective_symmetry_feedback")})
             latest.update(symmetry_progress_metadata(payload))
             latest.update(phase=phase, operation=operation)
             if isinstance(payload.get("checkpoint"), dict):
@@ -1155,6 +1210,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
             if (not publishing and policy.get("sector_symmetry_assistance", False)
                     and native_artifact.get("sector_symmetry_saved_projection", True) != policy.get("sector_symmetry_saved_projection", True)):
                 raise ValueError("native artifact sector-symmetry saved projection differs from requested refinement")
+            if not publishing and native_artifact.get("selective_symmetry_feedback_enabled", False) != policy.get("selective_symmetry_feedback", False):
+                raise ValueError("native artifact selective-symmetry feedback differs from requested refinement")
             if not publishing and (native_artifact.get("fresh_search", False) != policy.get("fresh_search", False)
                     or (policy.get("fresh_search", False)
                         and native_artifact.get("fresh_search_recipe") != FRESH_SEARCH_RECIPE)):
@@ -1266,6 +1323,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                                     if policy.get("sector_symmetry_saved_projection", True)
                                     else "--no-master-sector-symmetry-saved-projection ")
                                    if policy.get("sector_symmetry_assistance", False) else "")
+                                + ("--master-selective-symmetry-feedback "
+                                   if policy.get("selective_symmetry_feedback", False) else "")
                                 + ("--master-finite-feedback " if policy.get("finite_feedback", True)
                                    else "--no-master-finite-feedback ")
                                 + ("--master-refinement-strategy modular-circuits "
@@ -1457,6 +1516,7 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                          or refinement.get("sector_symmetry_policy", "generators") == policy.get("sector_symmetry_policy", "generators"))
                     and (not policy.get("sector_symmetry_assistance", False)
                          or refinement.get("sector_symmetry_saved_projection", True) == policy.get("sector_symmetry_saved_projection", True))
+                    and refinement.get("selective_symmetry_feedback_enabled", False) == policy.get("selective_symmetry_feedback", False)
                     and previous["normalization_profile"] == effective_profile
                     and refinement.get("saved_rule_assistance", False) == policy.get("saved_rule_assistance", False)):
                 if startup_progress is not None:
@@ -1558,6 +1618,9 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
             identity["sector_symmetry_policy"] = policy.get("sector_symmetry_policy", "generators")
             if not policy.get("sector_symmetry_saved_projection", True):
                 identity["sector_symmetry_saved_projection"] = False
+        if operation == "refine" and policy.get("selective_symmetry_feedback", False):
+            identity["selective_symmetry_feedback"] = True
+            identity["selective_symmetry_feedback_recipe"] = SELECTIVE_SYMMETRY_FEEDBACK_RECIPE
         if operation == "refine" and policy["effective_normalization_profile"] != "conservative-v1":
             # Legacy conservative phases keep their original checkpoint path.
             identity["normalization_profile"] = policy["effective_normalization_profile"]

@@ -284,6 +284,32 @@ class FiniteCampaignTests(unittest.TestCase):
                     self.assertFalse(configure.call_args.kwargs["numerator_symmetry_assistance"])
                 self.assertEqual(FIXTURE.snapshot(self.campaign), before)
 
+    def test_finite_refinement_forwards_selective_feedback_without_mutation(self):
+        self.args.action = "refine"
+        self.args.sector_symmetry_assistance = True
+        before = FIXTURE.snapshot(self.campaign)
+        for state, value in (("omitted", None), ("none", None), ("off", False), ("on", True)):
+            if state == "omitted":
+                vars(self.args).pop("selective_symmetry_feedback", None)
+            else:
+                self.args.selective_symmetry_feedback = value
+            with self.subTest(state=state), \
+                 patch.object(FIN.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure, \
+                 patch.object(FIN, "launch_plan", side_effect=AssertionError("launch planning")):
+                with self.assertRaisesRegex(ValueError, "configuration probe"):
+                    FIN.public_locked(self.args, self.campaign, self.binary, apply=False)
+                self.assertIs(configure.call_args.kwargs["selective_symmetry_feedback"], value)
+            self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+        self.plan()
+        for flag, value in (("--selective-symmetry-feedback", True), ("--no-selective-symmetry-feedback", False)):
+            with patch.object(FIN, "public_main", return_value=0) as dispatch, \
+                 patch.object(PUBLIC.os, "execv", side_effect=AssertionError("legacy launch")):
+                self.assertEqual(PUBLIC.main(["refine", "--campaign", str(self.campaign),
+                    "--executable", str(self.binary), "--sector-symmetry-assistance", flag]), 0)
+                supplied, extra = dispatch.call_args.args
+                self.assertIs(supplied.selective_symmetry_feedback, value)
+                self.assertEqual(extra, [])
+
     def test_public_finite_postprocess_parses_recovery_and_import_without_legacy_dispatch(self):
         self.plan()
         recipe = self.root / "proof-recipe.json"

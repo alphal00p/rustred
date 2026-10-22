@@ -75,6 +75,9 @@ impl<'a> SourceRequest<'a> {
                 hash.update(b"sector-symmetry-source-rows-v1");
             }
             hash.update(binding.as_bytes());
+            if options.selective_symmetry_feedback {
+                hash.update(super::selective_symmetry::RECIPE.as_bytes());
+            }
             Ok(hash.finalize().to_hex().to_string())
         } else if options.numerator_symmetry_assistance {
             let mut hash = blake3::Hasher::new();

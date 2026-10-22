@@ -1175,6 +1175,8 @@ def main(argv=None):
                         help="sector assistance row policy (default saved preference or generators); polynomial-orbits explicitly enumerates whole-polynomial orbits; --master-fresh-search resets it")
     parser.add_argument("--master-sector-symmetry-saved-projection", action=argparse.BooleanOptionalAction, default=None,
                         help="project sector rows through saved programs (default saved preference or on); disable explicitly for a finite source-only cohort; --master-fresh-search resets it to on")
+    parser.add_argument("--master-selective-symmetry-feedback", action=argparse.BooleanOptionalAction, default=None,
+                        help="exact refinement with sector assistance: selectively revisit terminal-relevant symmetry/IBP consequences; off by default, omitted resumes the saved preference, fresh search clears it; selected queue exhaustion is not family closure")
     parser.add_argument("--master-reduction-executable", type=Path,
                         help="freeze a separate publisher/refiner binary; leaves the original campaign binary and CP6 untouched")
     parser.add_argument("--upgrade-executable", type=Path, metavar="NEW",
@@ -1312,6 +1314,7 @@ def main(argv=None):
                                             sector_symmetry_assistance=args.master_sector_symmetry_assistance,
                                             sector_symmetry_policy=args.master_sector_symmetry_policy,
                                             sector_symmetry_saved_projection=args.master_sector_symmetry_saved_projection,
+                                            selective_symmetry_feedback=args.master_selective_symmetry_feedback,
                                             normalization_profile=args.master_normalization_profile,
                                             collection_artifacts=args.master_collection_artifact,
                                             finite_feedback=args.master_finite_feedback,

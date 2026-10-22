@@ -18,6 +18,7 @@ mod profile;
 mod refine;
 mod report_counts;
 mod sector_symmetry;
+mod selective_symmetry;
 mod source;
 mod storage;
 mod terminal_import;
@@ -124,6 +125,10 @@ pub struct MasterReductionOptions {
     /// Apply authenticated saved programs to symmetry offspring. New strong
     /// phases default to true; omission on resume preserves the saved mode.
     pub sector_symmetry_saved_projection: Option<bool>,
+    /// Iteratively inspect selected terminal-relevant auxiliary integrals.
+    /// New equations remain auxiliary and never enlarge the raw master roster.
+    /// This opt-in exact strategy is immutable across a resumed phase.
+    pub selective_symmetry_feedback: bool,
     /// Re-eliminate retained family-qualified finite rows after full-U aliases.
     /// New refinements default to enabled; omitted on resume uses the snapshot.
     /// Publication only transports previously proved maps.
@@ -163,6 +168,7 @@ impl MasterReductionOptions {
             sector_symmetry_assistance: false,
             sector_symmetry_policy: None,
             sector_symmetry_saved_projection: None,
+            selective_symmetry_feedback: false,
             finite_feedback: None,
             normalization_profile: None,
             max_relation_columns: None,
@@ -297,6 +303,7 @@ fn load_session_with_policy(
     fresh::validate(directory, &report, &session)?;
     numerator_symmetry::validate(directory, &session, &report)?;
     sector_symmetry::validate(directory, &session, &report)?;
+    selective_symmetry::validate(directory, &session, &report)?;
     if modular::from_report(&report)? == MasterRefinementStrategy::ModularCircuits
         && (report["modular_state"].is_object() || report["status"] == "completed_nonminimal")
     {
@@ -422,6 +429,11 @@ fn master_reduce_source(
         ));
     }
     let options = &effective_options;
+    selective_symmetry::validate_options(
+        options,
+        resumed.as_ref(),
+        modular::for_phase(options, resumed.as_ref())?,
+    )?;
     let normalization_profile = if let Some(report) = &resumed {
         profile::for_resume(options.normalization_profile, report)?
     } else if let Some(previous) = &options.previous_artifact {
@@ -491,6 +503,7 @@ fn master_reduce_source(
     };
     if (report["status"] == "completed_nonminimal"
         && report["collection"]["status"] == "completed"
+        && selective_symmetry::complete(&report)
         && !(refinement_strategy == MasterRefinementStrategy::ModularCircuits
             && options.modular_policy.is_some()))
         || (options.operation == MasterReductionOperation::Publish
@@ -516,6 +529,9 @@ fn master_reduce_source(
     report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);
     report["numerator_symmetry_assistance"] = json!(options.numerator_symmetry_assistance);
     report["sector_symmetry_assistance"] = json!(options.sector_symmetry_assistance);
+    if !options.resume {
+        selective_symmetry::record(options, &mut report);
+    }
     if options.sector_symmetry_assistance {
         report["sector_symmetry_policy"] = json!(sector_symmetry::policy_name(
             options.sector_symmetry_policy.unwrap_or_default()
@@ -874,6 +890,24 @@ fn execute_session(
         save(options, &session, report, "paused", started, observer)?;
         return Ok(());
     }
+    if options.operation == MasterReductionOperation::Refine && options.selective_symmetry_feedback
+    {
+        selective_symmetry::execute(
+            options,
+            session,
+            report,
+            cancel,
+            observer,
+            started,
+            executor.as_ref().expect("refinement executor"),
+            provider.as_mut(),
+        )?;
+        if cancel.load(Ordering::Relaxed) {
+            reset_execution_phase(report, "paused", "idle");
+            save(options, session, report, "paused", started, observer)?;
+            return Ok(());
+        }
+    }
     reset_execution_phase(report, "terminal collection", "serial");
     collection::complete(options, session, report, cancel, observer, started)?;
     if cancel.load(Ordering::Relaxed) {
@@ -886,7 +920,7 @@ fn execute_session(
         options,
         &session,
         report,
-        if session.is_complete() {
+        if session.is_complete() && selective_symmetry::complete(report) {
             "completed_nonminimal"
         } else {
             "published_unrefined"
@@ -1036,7 +1070,8 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     report["pending_assistance_keys"] = json!(stats.pending_assistance_keys);
     report["completed_assistance_rows"] = json!(stats.completed_assistance_rows);
     report["pending_assistance_rows"] = json!(stats.pending_assistance_rows);
-    report["finite_search_complete"] = json!(stats.complete);
+    report["finite_search_complete"] =
+        json!(stats.complete && selective_symmetry::complete(report));
     let modular = report["refinement_strategy"] == "modular-circuits";
     let partial_export =
         report["operation"] == "publish" && report["partial_refinement_source"].is_object();
@@ -1045,7 +1080,7 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
             && (if modular {
                 report["modular_search_complete"] == true
             } else {
-                stats.complete
+                stats.complete && selective_symmetry::complete(report)
             })
             && report["collection"]["status"] == "completed"
     );

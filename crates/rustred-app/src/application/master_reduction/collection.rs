@@ -339,6 +339,7 @@ fn load_member(directory: &Path, member: &Value) -> Result<TerminalRelationSessi
     .map_err(io)?;
     super::numerator_symmetry::validate(directory, &session, member)?;
     super::sector_symmetry::validate(directory, &session, member)?;
+    super::selective_symmetry::validate(directory, &session, member)?;
     Ok(session)
 }
 
@@ -357,6 +358,7 @@ fn load_members(
 fn copy_member(source: &Path, output: &Path, member: &Value) -> Result<Value, AppError> {
     super::numerator_symmetry::inherit(source, output, member)?;
     super::sector_symmetry::inherit(source, output, member)?;
+    super::selective_symmetry::inherit(source, output, member)?;
     let mut member = member.clone();
     member["native_state"] = write_state(
         output,
@@ -384,6 +386,8 @@ fn primary_member(report: &Value) -> Result<Value, AppError> {
         "sector_symmetry_task_certificate",
         "sector_symmetry_reduced_certificate",
         "sector_symmetry_projection_checkpoint",
+        "selective_symmetry_feedback_enabled",
+        "selective_symmetry_feedback",
         "inherited_equation_authority",
     ] {
         if let Some(value) = report.get(field) {
@@ -393,6 +397,7 @@ fn primary_member(report: &Value) -> Result<Value, AppError> {
     if report["sector_symmetry_assistance"] == true
         || report["inherited_equation_authority"]["sector_symmetry_assistance"] == true
         || report["sector_symmetry_certificate"].is_object()
+        || super::selective_symmetry::enabled(report)
     {
         result["inputs"] = json!({"program_binding":report["inputs"]["program_binding"]});
     }

@@ -8,10 +8,11 @@
 mod assistance;
 mod authorized_basis;
 mod codec;
-mod condition_merge;
 pub mod collection;
+mod condition_merge;
 mod elimination;
 mod execution;
+mod feedback;
 #[cfg(feature = "reconstruction")]
 mod modular;
 mod proved;

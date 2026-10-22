@@ -42,6 +42,7 @@ pub(crate) struct MasterArgs {
     pub sector_symmetry_assistance: bool,
     pub sector_symmetry_policy: Option<crate::MasterSectorSymmetryPolicy>,
     pub sector_symmetry_saved_projection: Option<bool>,
+    pub selective_symmetry_feedback: bool,
     pub finite_feedback: Option<bool>,
     pub normalization_profile: Option<crate::MasterNormalizationProfile>,
     pub max_relation_columns: Option<usize>,
@@ -92,6 +93,7 @@ fn parse_source(
         sector_symmetry_assistance: false,
         sector_symmetry_policy: None,
         sector_symmetry_saved_projection: None,
+        selective_symmetry_feedback: false,
         finite_feedback: None,
         normalization_profile: None,
         max_relation_columns: None,
@@ -129,6 +131,7 @@ fn parse_source(
             "--sector-symmetry-policy" => "--sector-symmetry-policy",
             "--sector-symmetry-saved-projection" => "--sector-symmetry-saved-projection",
             "--no-sector-symmetry-saved-projection" => "--no-sector-symmetry-saved-projection",
+            "--selective-symmetry-feedback" => "--selective-symmetry-feedback",
             "--finite-feedback" => "--finite-feedback",
             "--no-finite-feedback" => "--no-finite-feedback",
             "--normalization-profile" => "--normalization-profile",
@@ -154,6 +157,7 @@ fn parse_source(
             "--circuit-symmetry-assistance" => result.circuit_symmetry_assistance = true,
             "--numerator-symmetry-assistance" => result.numerator_symmetry_assistance = true,
             "--sector-symmetry-assistance" => result.sector_symmetry_assistance = true,
+            "--selective-symmetry-feedback" => result.selective_symmetry_feedback = true,
             "--sector-symmetry-policy" => {
                 let value = next_utf8_value(&mut args, option)?;
                 result.sector_symmetry_policy = Some(match value.as_str() {
@@ -355,6 +359,16 @@ fn parse_source(
             "sector symmetry saved projection flags require --sector-symmetry-assistance",
         ));
     }
+    if result.selective_symmetry_feedback
+        && (!result.sector_symmetry_assistance
+            || result.refinement_strategy == Some(crate::MasterRefinementStrategy::ModularCircuits)
+            || result.saved_rule_assistance
+            || result.circuit_symmetry_assistance)
+    {
+        return Err(ArgError::InvalidCombination(
+            "--selective-symmetry-feedback requires exact sector refinement without dynamic saved-rule or separate circuit providers",
+        ));
+    }
     Ok(Command::WalkMasterReduce(result))
 }
 
@@ -373,6 +387,7 @@ pub(super) fn parse_publish(args: impl Iterator<Item = OsString>) -> Result<Comm
         || args.sector_symmetry_assistance
         || args.sector_symmetry_policy.is_some()
         || args.sector_symmetry_saved_projection.is_some()
+        || args.selective_symmetry_feedback
         || args.finite_feedback.is_some()
         || args.containing_sector_depth != 0
         || !args.collection_artifacts.is_empty()
@@ -704,6 +719,7 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     options.sector_symmetry_assistance = args.sector_symmetry_assistance;
     options.sector_symmetry_policy = args.sector_symmetry_policy;
     options.sector_symmetry_saved_projection = args.sector_symmetry_saved_projection;
+    options.selective_symmetry_feedback = args.selective_symmetry_feedback;
     options.finite_feedback = args.finite_feedback;
     options.normalization_profile = args.normalization_profile;
     options.max_relation_columns = args.max_relation_columns;
@@ -1447,6 +1463,55 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn selective_feedback_is_explicit_exact_and_sector_only() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        let Command::WalkMasterReduce(default) =
+            parse(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert!(!default.selective_symmetry_feedback);
+        let Command::WalkMasterReduce(selected) = parse(
+            base.into_iter()
+                .chain([
+                    "--sector-symmetry-assistance",
+                    "--selective-symmetry-feedback",
+                ])
+                .map(OsString::from),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert!(selected.selective_symmetry_feedback);
+        assert!(
+            parse(
+                base.into_iter()
+                    .chain(["--selective-symmetry-feedback"])
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+        for extra in [
+            vec!["--refinement-strategy", "modular-circuits"],
+            vec!["--saved-rule-assistance"],
+            vec!["--circuit-symmetry-assistance"],
+        ] {
+            assert!(
+                parse(
+                    base.into_iter()
+                        .chain([
+                            "--sector-symmetry-assistance",
+                            "--selective-symmetry-feedback"
+                        ])
+                        .chain(extra)
+                        .map(OsString::from)
+                )
+                .is_err()
+            );
+        }
     }
 
     #[test]

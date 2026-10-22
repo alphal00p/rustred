@@ -408,6 +408,26 @@ class SavedCampaignTests(unittest.TestCase):
                                          "--master-saved-rule-assistance", "--master-circuit-symmetry-assistance"):
                                 self.assertEqual(combined.count(flag), 1)
 
+    def test_selective_symmetry_feedback_forwards_only_explicit_refinement_flags(self):
+        command = self.invoke("refine")
+        self.assertNotIn("--master-selective-symmetry-feedback", command)
+        self.assertNotIn("--no-master-selective-symmetry-feedback", command)
+        for supplied, forwarded, opposite in (
+                ("--selective-symmetry-feedback", "--master-selective-symmetry-feedback", "--no-master-selective-symmetry-feedback"),
+                ("--no-selective-symmetry-feedback", "--no-master-selective-symmetry-feedback", "--master-selective-symmetry-feedback")):
+            command = self.invoke("refine", "--sector-symmetry-assistance", supplied)
+            self.assertEqual(command.count(forwarded), 1)
+            self.assertNotIn(opposite, command)
+            self.assertNotIn(supplied, command)
+        for action in ("run", "extend", "inspect", "publish", "finalize-refinement"):
+            options = ["--rank", "1"] if action == "extend" else []
+            for flag in ("--selective-symmetry-feedback", "--no-selective-symmetry-feedback",
+                         "--master-selective-symmetry-feedback", "--no-master-selective-symmetry-feedback"):
+                with self.subTest(action=action, flag=flag), patch.object(WRAPPER.sys, "stderr", io.StringIO()), \
+                     patch.object(WRAPPER, "native_executable", side_effect=AssertionError("native preflight")), \
+                     self.assertRaises(SystemExit):
+                    self.invoke(action, *options, flag)
+
     def test_sector_symmetry_saved_projection_rejects_nonrefinement_actions_before_dispatch(self):
         recipe = self.campaign / "proof-recipe.json"
         for action in ("run", "extend", "inspect", "publish", "finalize-refinement", "import-refinement"):

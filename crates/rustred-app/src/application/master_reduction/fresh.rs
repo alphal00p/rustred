@@ -177,6 +177,8 @@ pub(super) fn begin(
         "sector_symmetry_task_certificate",
         "sector_symmetry_reduced_certificate",
         "sector_symmetry_projection_checkpoint",
+        "selective_symmetry_feedback_enabled",
+        "selective_symmetry_feedback",
         "previous_stage_source",
         "reused_previous_stage",
     ] {

@@ -276,6 +276,72 @@ class PhaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid persisted"):
             PHASES.configuration(self.campaign, enabled=True)
 
+    def test_selective_symmetry_feedback_is_explicit_exact_and_fresh_resets_it(self):
+        self.assertFalse(self.policy["selective_symmetry_feedback"])
+        for bad in (1, "yes", [], {}):
+            with self.assertRaises(ValueError):
+                PHASES.configuration(self.campaign, enabled=True, selective_symmetry_feedback=bad)
+        with self.assertRaisesRegex(ValueError, "explicit"):
+            PHASES.configuration(self.campaign, selective_symmetry_feedback=True)
+        with self.assertRaisesRegex(ValueError, "requires sector-symmetry"):
+            PHASES.configuration(self.campaign, enabled=True, selective_symmetry_feedback=True)
+        for conflicting in ("saved_rule_assistance", "circuit_symmetry_assistance"):
+            with self.assertRaisesRegex(ValueError, "no dynamic saved-rule"):
+                PHASES.configuration(self.campaign, enabled=True, sector_symmetry_assistance=True,
+                    selective_symmetry_feedback=True, **{conflicting: True})
+        selected = PHASES.configuration(self.campaign, enabled=True,
+            sector_symmetry_assistance=True, selective_symmetry_feedback=True)
+        self.write("master-reduction/policy.json", selected)
+        self.assertTrue(PHASES.configuration(self.campaign, enabled=True)["selective_symmetry_feedback"])
+        self.assertFalse(PHASES.configuration(self.campaign, enabled=True,
+            fresh_search=True, sector_symmetry_assistance=True)["selective_symmetry_feedback"])
+        disabled = PHASES.configuration(self.campaign, enabled=True, selective_symmetry_feedback=False)
+        self.assertFalse(disabled["selective_symmetry_feedback"])
+        for flag, expected in (("--master-selective-symmetry-feedback", True),
+                               ("--no-master-selective-symmetry-feedback", False)):
+            with patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure:
+                with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters",
+                        "--master-sector-symmetry-assistance", flag])
+            self.assertIs(configure.call_args.kwargs["selective_symmetry_feedback"], expected)
+        self.write("master-reduction/policy.json", {**selected, "selective_symmetry_feedback": 1})
+        with self.assertRaisesRegex(ValueError, "invalid persisted"):
+            PHASES.configuration(self.campaign, enabled=True)
+
+    def test_selective_symmetry_feedback_changes_enabled_phase_identity_only(self):
+        self.publish_fixture()
+        selected = {}
+        for value in (None, False, True):
+            policy = PHASES.configuration(self.campaign, enabled=True,
+                sector_symmetry_assistance=True, selective_symmetry_feedback=value)
+            with patch.object(PHASES, "phase_two", return_value=4) as native:
+                PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+            selected[value] = native.call_args.args[4]
+            steering = PHASES.read_json(selected[value] / "steering-binding.json")
+            if value is True:
+                self.assertIs(steering["selective_symmetry_feedback"], True)
+                self.assertEqual(steering["selective_symmetry_feedback_recipe"], PHASES.SELECTIVE_SYMMETRY_FEEDBACK_RECIPE)
+            else:
+                self.assertNotIn("selective_symmetry_feedback", steering)
+                self.assertNotIn("selective_symmetry_feedback_recipe", steering)
+        self.assertEqual(selected[None], selected[False])
+        self.assertNotEqual(selected[False], selected[True])
+
+    def test_selective_feedback_progress_is_bounded_and_not_payload_authority(self):
+        result = PHASES.symmetry_progress_metadata({"selective_symmetry_feedback": {
+            "enabled": True, "round": 2, "selected_targets": 9, "completed_targets": 6,
+            "pending_targets": 3, "selected_queue_exhausted": False, "source_jobs_complete": True,
+            "ordinary_work_complete": False, "stage": "x" * 1000,
+            "target_payloads": ["huge"] * 1000, "new_relations": True}})
+        header = result["selective_symmetry_feedback"]
+        self.assertEqual(header["pending_targets"], 3)
+        self.assertIs(header["selected_queue_exhausted"], False)
+        self.assertNotIn("new_relations", header)
+        self.assertNotIn("target_payloads", header)
+        self.assertEqual(len(header["stage"]), 300)
+        with self.assertRaisesRegex(ValueError, "invalid native selective"):
+            PHASES.sector_symmetry_metadata({"selective_symmetry_feedback_enabled": 1})
+
     def test_parallel_batch_policy_is_positive_operational_and_retained(self):
         policy=PHASES.configuration(self.campaign,enabled=True,relation_batch_rows=128,relation_block_rows=8)
         self.write("master-reduction/policy.json",policy)
@@ -1813,13 +1879,18 @@ report = {'status':'published_unrefined', 'operation':'publish',
         self._scratch_native_pause_resume("refine", sector_symmetry_assistance=True,
                                          sector_symmetry_saved_projection=False)
 
+    def test_selective_feedback_native_round_receipts_pause_resume_and_publish(self):
+        self._scratch_native_pause_resume("refine", sector_symmetry_assistance=True,
+                                         selective_symmetry_feedback=True)
+
     def _scratch_native_pause_resume(self, operation, saved_rule_assistance=False,
                                     containing_sector_depth=0, inherited_containing_depth=0,
                                     circuit_symmetry_assistance=False, normalization_profile=None,
                                     deep_verification=False, preserve_refined=False, max_relation_columns=None,
                                     refinement_workers=None, refinement_cpus=None, fresh_search=False, seed_depth=0,
                                     numerator_symmetry_assistance=False, sector_symmetry_assistance=False,
-                                    sector_symmetry_policy="generators", sector_symmetry_saved_projection=True):
+                                    sector_symmetry_policy="generators", sector_symmetry_saved_projection=True,
+                                    selective_symmetry_feedback=False):
         # Fake native protocol only; this proves process/checkpoint orchestration,
         # not mathematical correctness or a successful native Rust solve.
         binary = self.campaign / "fake-native"
@@ -1836,6 +1907,7 @@ report = {'status':'published_unrefined', 'operation':'publish',
                           f"expected_sector = {sector_symmetry_assistance and operation == 'refine'}\n"
                           f"expected_sector_policy = {sector_symmetry_policy!r}\n"
                           f"expected_sector_projection = {sector_symmetry_saved_projection}\n"
+                          f"expected_selective = {selective_symmetry_feedback and operation == 'refine'}\n"
                           f"expected_containing_depth = {containing_sector_depth if operation == 'refine' else 0}\n" + '''import json, pathlib, sys, time
 args = sys.argv
 assert int(args[args.index('--threads') + 1]) == expected_threads
@@ -1853,6 +1925,7 @@ if expected_sector:
     assert args[args.index('--sector-symmetry-policy') + 1] == expected_sector_policy
 assert args.count('--sector-symmetry-saved-projection') == int(expected_sector and expected_sector_projection)
 assert args.count('--no-sector-symmetry-saved-projection') == int(expected_sector and not expected_sector_projection)
+assert args.count('--selective-symmetry-feedback') == int(expected_selective)
 assert ('--finite-feedback' in args) == refine
 assert ('--max-relation-columns' in args) == (refine and expected_column_budget is not None)
 if expected_column_budget is not None:
@@ -1866,6 +1939,14 @@ if expected_profile is not None:
 profile = (expected_profile or 'conservative') + '-v1'
 metadata = {'normalization_profile': profile, 'normalization_limits': {'fixture': True}}
 metadata.update(finite_feedback=refine, finite_feedback_recipe='finite-row-feedback-v1')
+if expected_selective:
+    metadata.update(selective_symmetry_feedback_enabled=True, selective_symmetry_feedback={
+        'recipe':'selective-symmetry-ibp-feedback-v1','stage':'executing','completed_rounds':1,
+        'round':2,'selected_targets':5,'completed_targets':3,'pending_targets':2,
+        'selected_queue_exhausted':False,'source_jobs_complete':True,'ordinary_work_complete':False,
+        'rounds':[{'round':1,'stage':'complete','parent_native_state':
+            {'file':'round-1-parent.rrbin','bytes':12,'blake3':'a'*64},
+            'selection':{'file':'round-1-selection.rrbin','bytes':13,'blake3':'b'*64}}]})
 if expected_numerator:
     metadata.update(numerator_symmetry_assistance=True,
         numerator_symmetry_preparation={'input_keys':4,'verified_generators':1,'proposed_generators':2,'equations':3})
@@ -1933,6 +2014,7 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                          "sector_symmetry_assistance": sector_symmetry_assistance,
                          "sector_symmetry_policy": sector_symmetry_policy,
                          "sector_symmetry_saved_projection": sector_symmetry_saved_projection,
+                         "selective_symmetry_feedback": selective_symmetry_feedback,
                          "max_relation_columns": max_relation_columns,
                          "deep_verification": deep_verification,
                          "circuit_symmetry_assistance": circuit_symmetry_assistance,
@@ -1992,6 +2074,10 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                     with self.assertRaisesRegex(ValueError, "cannot change sector-symmetry saved projection on resume"):
                         PHASES.phase_two(plan, {**native_policy, "sector_symmetry_saved_projection": not sector_symmetry_saved_projection},
                             self.campaign / "runs/first/request.json", binding, directory, driver)
+                if selective_symmetry_feedback:
+                    with self.assertRaisesRegex(ValueError, "cannot change selective-symmetry feedback on resume"):
+                        PHASES.phase_two(plan, {**native_policy, "selective_symmetry_feedback": False},
+                            self.campaign / "runs/first/request.json", binding, directory, driver)
                 if normalization_profile == "standard":
                     paused_pointer = (self.campaign / "artifacts/latest.json").read_bytes()
                     with self.assertRaisesRegex(ValueError, "cannot change normalization profile on resume"):
@@ -2044,6 +2130,14 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                 self.assertEqual(status["master_reduction"]["sector_symmetry_preparation"]["equations"], 5)
                 terms_field = "projected_terms" if sector_symmetry_saved_projection else "source_terms"
                 self.assertEqual(status["master_reduction"]["sector_symmetry_reduction"][terms_field], 9)
+            if selective_symmetry_feedback:
+                published = PHASES.completed_artifact(self.campaign)
+                self.assertTrue(published["selective_symmetry_feedback_enabled"])
+                self.assertEqual(published["selective_symmetry_feedback"]["rounds"][0]["parent_native_state"]["file"],
+                                 "round-1-parent.rrbin")
+                feedback = status["master_reduction"]["selective_symmetry_feedback"]
+                self.assertEqual(feedback["pending_targets"], 2)
+                self.assertNotIn("rounds", feedback)
             self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["containing_sector_depth"],
                              containing_sector_depth if fresh_search else max(containing_sector_depth, inherited_containing_depth))
             if fresh_search:

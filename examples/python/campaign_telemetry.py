@@ -432,6 +432,7 @@ def normalize_status(status, sequence=None):
                 if master.get("sector_symmetry_policy", "generators") in ("generators", "polynomial-orbits") else "unknown"),
             "sector_symmetry_saved_projection": (master.get("sector_symmetry_saved_projection")
                 if type(master.get("sector_symmetry_saved_projection")) is bool else None),
+            "selective_symmetry_feedback_enabled": master.get("selective_symmetry_feedback_enabled") is True,
             "inherited_sector_symmetry_authority": mapping(master.get("inherited_equation_authority")).get("sector_symmetry_assistance") is True,
             "finite_search_complete": master.get("finite_search_complete") is True,
             "modular_search_complete": master.get("modular_search_complete") is True,
@@ -527,6 +528,21 @@ def normalize_status(status, sequence=None):
                 header["active_row"]["elapsed_seconds"] = elapsed if elapsed is not None and elapsed >= 0 else None
                 header["active_row"]["phase"] = clean(active.get("phase", ""), 100)
             frame["master_reduction"][name] = header
+        feedback = mapping(master.get("selective_symmetry_feedback"))
+        if feedback:
+            frame["master_reduction"]["selective_symmetry_feedback"] = {
+                **{key: feedback[key] if type(feedback.get(key)) is int and feedback[key] >= 0 else None
+                   for key in ("round", "completed_rounds", "selected_targets", "completed_targets", "pending_targets",
+                               "new_target_proposals", "new_relations", "eliminated_targets", "stagnant_rounds",
+                               "source_rows", "ordinary_source_rows", "unresolved_leaves", "frontier_keys",
+                               "deferred_targets", "unattempted_targets", "terminal_rank_epoch", "visited_supports",
+                               "unsearched_auxiliary_keys")},
+                **{key: feedback.get(key) if type(feedback.get(key)) is bool else None
+                   for key in ("enabled", "selected_queue_exhausted", "source_jobs_complete", "ordinary_work_complete",
+                               "complete", "budget_exhausted")},
+                **{key: clean(feedback.get(key, ""), 300)
+                   for key in ("stage", "status", "reason", "exact_parent_maps_blake3", "scope")},
+            }
         for name in ("sector_symmetry_certificate", "sector_symmetry_reduced_certificate",
                      "sector_symmetry_normalization_certificate", "sector_symmetry_task_certificate",
                      "sector_symmetry_projection_checkpoint"):

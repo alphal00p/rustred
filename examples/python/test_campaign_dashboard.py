@@ -157,6 +157,25 @@ class TelemetryTests(unittest.TestCase):
             self.assertIn("inherited finite proofs; provider off", shown)
             self.assertNotIn("9 equations", shown)
 
+    def test_selective_feedback_separates_source_queue_and_ordinary_progress(self):
+        master = {"operation": "refine", "sector_symmetry_assistance": True,
+            "selective_symmetry_feedback_enabled": True,
+            "selective_symmetry_feedback": {"enabled": True, "round": 3, "completed_rounds": 2,
+                "selected_targets": 19, "completed_targets": 12, "pending_targets": 7,
+                "new_target_proposals": 4, "new_relations": 8, "eliminated_targets": 2,
+                "source_jobs_complete": True, "ordinary_work_complete": False,
+                "selected_queue_exhausted": True, "stage": "joining selected proofs"}}
+        text = "\n".join(" | ".join(row) for row in DASHBOARD.selective_symmetry_feedback_metrics(master))
+        self.assertIn("round 3", text)
+        self.assertIn("12/19", text)
+        self.assertIn("complete / incomplete", text)
+        self.assertIn("not family closure or minimality", text)
+        self.assertNotIn("family complete", text)
+        master["selective_symmetry_feedback"]["budget_exhausted"] = True
+        self.assertIn("caller budget", str(DASHBOARD.selective_symmetry_feedback_metrics(master)))
+        master["selective_symmetry_feedback_enabled"] = False
+        self.assertEqual(DASHBOARD.selective_symmetry_feedback_metrics(master), [])
+
     def test_sector_symmetry_preparation_reports_actual_finite_work_and_projection_boundaries(self):
         status = sample_status()
         status["master_reduction"] = {

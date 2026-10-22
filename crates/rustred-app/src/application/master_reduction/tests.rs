@@ -31,6 +31,10 @@ mod recovery_tests;
 mod resource_budget_tests;
 #[path = "tests/sector_symmetry.rs"]
 mod sector_symmetry_tests;
+#[path = "tests/selective_symmetry_lifecycle.rs"]
+mod selective_symmetry_lifecycle;
+#[path = "tests/selective_symmetry.rs"]
+mod selective_symmetry_tests;
 #[path = "tests/terminal_import.rs"]
 mod terminal_import_tests;
 

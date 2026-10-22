@@ -48,6 +48,11 @@ pub fn master_refine_published_artifact(
     }
     let _lock = storage::WriterLock::acquire(&options.directory)?;
     let source_report = inspect_with_policy(source, options.finite_policy.as_ref())?;
+    if selective_symmetry::enabled(&source_report) && !options.fresh_search && !options.resume {
+        return Err(AppError::input(
+            "a new refinement of a selective-feedback publication requires --fresh-search to preserve its proved maps without discarding round provenance; use --resume for the same phase",
+        ));
+    }
     if !matches!(
         source_report["status"].as_str(),
         Some("published_unrefined" | "completed_nonminimal")
@@ -102,6 +107,7 @@ pub fn master_refine_published_artifact(
     };
     let finite_feedback = collection::feedback_for_phase(options, resumed.as_ref())?;
     let refinement_strategy = modular::for_phase(options, resumed.as_ref())?;
+    selective_symmetry::validate_options(options, resumed.as_ref(), refinement_strategy)?;
     let mut hash = blake3::Hasher::new();
     hash.update(b"rustred-published-refinement-v1");
     if options.fresh_search {
@@ -131,6 +137,9 @@ pub fn master_refine_published_artifact(
         if options.sector_symmetry_saved_projection == Some(false) {
             hash.update(b"sector-symmetry-source-rows-v1");
         }
+    }
+    if options.selective_symmetry_feedback {
+        hash.update(selective_symmetry::RECIPE.as_bytes());
     }
     normalization_profile.hash(&mut hash);
     let collection_identity = collection::input_identity(options, resumed.as_ref())?;
@@ -206,7 +215,11 @@ pub fn master_refine_published_artifact(
         storage::clone_inputs_with_policy(
             &source_directory,
             &options.directory,
-            &source_report,
+            if options.fresh_search {
+                &report
+            } else {
+                &source_report
+            },
             options.finite_policy.as_ref(),
         )?;
         census_cache::inherit_with_cancel(
@@ -249,6 +262,7 @@ pub fn master_refine_published_artifact(
             report.as_object_mut().unwrap().remove(field);
         }
         modular::record(&mut report, refinement_strategy, options)?;
+        selective_symmetry::record(options, &mut report);
         collection::record_feedback(&mut report, finite_feedback);
         report["seed_depth"] = json!(session.statistics().seed_depth);
         profile::record(&mut report, normalization_profile);
@@ -275,6 +289,7 @@ pub fn master_refine_published_artifact(
     };
     if report["status"] == "completed_nonminimal"
         && report["collection"]["status"] == "completed"
+        && selective_symmetry::complete(&report)
         && !(refinement_strategy == MasterRefinementStrategy::ModularCircuits
             && options.modular_policy.is_some())
     {

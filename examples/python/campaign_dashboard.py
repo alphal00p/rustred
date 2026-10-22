@@ -548,7 +548,10 @@ def master_batch_execution(master):
             or master.get("status") in ("completed_nonminimal", "published_unrefined")):
         return {}
     execution = master.get("execution", {})
-    if master.get("stage") in ("preparing_sector_symmetry_equations", "reducing_sector_symmetry_equations"):
+    if (master.get("stage") in ("preparing_sector_symmetry_equations", "reducing_sector_symmetry_equations")
+            or str(master.get("stage", "")).startswith("selective_symmetry_")
+            or master.get("selective_symmetry_feedback", {}).get("stage") in
+               ("selecting_sources", "preparing_selected_sources", "prepared")):
         # A previous elimination receipt is not activity in provider preparation.
         # The configured pool remains useful, but supplies no busy-worker count.
         return {key: value for key, value in execution.items()
@@ -718,6 +721,42 @@ def sector_symmetry_metrics(master):
                               "finite weaker cohort before combined row deduplication"))
     result[1:1] = normalization
     result.insert(0, ("Symmetry policy", clean(policy)[:80], policy_detail))
+    result[0:0] = selective_symmetry_feedback_metrics(master)
+    return result
+
+
+def selective_symmetry_feedback_metrics(master):
+    """Selected finite work is not an algebraic family-completeness theorem."""
+    if not master.get("selective_symmetry_feedback_enabled", False) or master.get("operation") != "refine":
+        return []
+    feedback = master.get("selective_symmetry_feedback", {})
+
+    def state(key):
+        return "complete" if feedback.get(key) is True else "incomplete" if feedback.get(key) is False else "not reported"
+
+    queue = feedback.get("selected_queue_exhausted")
+    result = [
+        ("Selective feedback", "round " + count(feedback.get("round")),
+         clean(feedback.get("stage") or "awaiting native selected-work receipt")[:160]),
+        ("Selected targets", count(feedback.get("completed_targets")) + "/" + count(feedback.get("selected_targets")),
+         count(feedback.get("pending_targets")) + " pending; "
+         + count(feedback.get("new_target_proposals")) + " new proposals"),
+        ("Feedback gains", count(feedback.get("new_relations")) + " rows",
+         count(feedback.get("eliminated_targets")) + " eliminated; "
+         + count(feedback.get("completed_rounds")) + " committed rounds; "
+         + count(feedback.get("stagnant_rounds")) + " no-gain rounds"),
+        ("Selected queue", "exhausted" if queue is True else "open" if queue is False else "not reported",
+         count(feedback.get("frontier_keys")) + " frontier keys; selected-worklist boundary only; not family closure or minimality"),
+        ("Support epoch", count(feedback.get("terminal_rank_epoch")) + " basis keys",
+         count(feedback.get("visited_supports")) + " supports visited at this rank; reopen after strict rank decrease"),
+        ("Source / IBP work", state("source_jobs_complete") + " / " + state("ordinary_work_complete"),
+         count(feedback.get("source_rows")) + " symmetry rows; "
+         + count(feedback.get("ordinary_source_rows")) + " ordinary source rows; "
+         + count(feedback.get("unresolved_leaves")) + " unresolved leaves"),
+    ]
+    if feedback.get("budget_exhausted") is True or feedback.get("reason"):
+        result.append(("Feedback boundary", "caller budget" if feedback.get("budget_exhausted") is True else "reported",
+                       clean(feedback.get("reason") or "selected work incomplete; accepted proofs retained")[:240]))
     return result
 
 

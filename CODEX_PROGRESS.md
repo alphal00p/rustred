@@ -1,5 +1,71 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 23 — selective feedback then local dimensional recurrence (started)
+
+User requests implementation in that order, with resulting run commands.
+Plan: SELECTIVE_SYMMETRY_DIMREC_PLAN.md. New isolated worktree/branch starts at
+1487abe8; the user's existing full-orbit0,0 run and delivered Python files/binary
+remain untouched. Main's unrelated changes and broad paused goal are preserved.
+Stage1 native/app/Python/audit lanes start with an interface/design audit; stage2
+may be researched read-only but cannot be implemented before stage1 passes.
+No new generation, numerical values, physics scope, arbitrary limits or CAS.
+
+Stage1 selection decision: one cheapest actual terminal-linked key per support
+and protected-terminal-rank epoch. New supports can chain through no-gain
+intermediates; an old support reopens only on a strict retained-rank decrease.
+Frozen exact U/maps/guards bind tasks. This is a finite selected-worklist policy,
+not all-monomial saturation or a minimality claim. Core/native queue and app
+durable-round implementation are active; Python opt-in/lifecycle/dashboard tests
+have 206 focused passes, with finite-adapter coverage being added. Independent
+math/code audit is separate. Stage2 read-only audit confirms local dimension-pair
+identity 2 U(A) P(B) - (d-E) G(B), with noncommuting order and full signed-index
+terms; existing tangent polynomial-vector/source replay is the intended reuse.
+Its source implementation remains gated on Stage1 acceptance. Evidence note:
+TMP/local_dimrec_readonly_audit_20261023.md. No production writes or signals.
+
+Stage1 core release library builds (1m37s), and core lib/test metadata checks
+pass after fixing a test-only immutable/mutable borrow conflict. Central target
+rank6-delivery-target-Ck2QLU, native capture core archive SHA256
+c291d9bfd4b7e015e4c4e9b445e34b8351105cec97fa6dd91859b5142b2ea303.
+Root's actual Nix3.11 Python regression:305 tests/27.823s, one explicit skip,
+no failures. Core native frontend and independent lower-control harness are
+compiling in owned TMP; app durable-round source/queue validation is still being
+strengthened following independent audit (no false completion from metadata).
+No Stage2 source implementation yet. No new terminal-rank gain claimed.
+
+Independent release-linked lower matrix passes all10 baseline/selected controls:
+K6 5->5 (0.402/0.602s), H22->19 (14.02/18.63s), FG16->15 (6.01/8.01s),
+BMW17->15 (7.61/8.82s), X19->16 (15.83/18.43s); selected feedback adds NO
+extra rank on these controls. All1193 maps/guards and cold checks pass. Actual
+no-gain new-support chains terminate in4/6/5/5/5rounds. This is positive
+mechanical/finite-policy evidence and negative master-gain evidence, not a
+performance win. First core native frontend passes17 focused checks, including
+new8 feedback, old6source-seed and3codec checks. Later narrow audit accessors and
+batched containment tests await final rebuild. App lifecycle validation binds
+source/seed/queue prefixes and parent maps; existing native U remains trusted
+generated authority, not a newly claimed independent full W*A certificate.
+Owned evidence: TMP/selective-symmetry-{acceptance,native-tests}-20261023.
+
+First full relevant native matrix:362 passes/0failures/1explicit ignore
+(normalization160, terminal-relations125, sector-symmetry30, routed-application47).
+These precede the last narrow batch/pending-rebuild additions and do not replace
+the final native rerun. App Stage1 source is frozen with6new focused tests plus
+4lifecycle tests and1CLI case; independent source audit finds no app blocker.
+The final core adjustment makes semantic containment include pending normalized
+rebuild rows, avoiding false cold rejection of a legitimate paused rebuild.
+Central app/core metadata and optimized delivery build follow that freeze.
+All heavy lower probes are finished; only the read-only compiler watcher waits.
+
+Stage1 final source audit PASSES, including pending rebuild span and lifecycle
+authority. Combined core/app lib+test metadata PASSES1m14s (only existing
+warnings). Central optimized build is running; final exact graph captures and
+functional frontends use TMP/selective-symmetry-native-tests-20261023/final-stage1.
+Final core archive SHA723cc6f8a70409e87983d132afe9406a5fd24584412402d1a2d4255639e8d071;
+app archive SHA8b447602530e85ded3aaf9f5bbdc70fbd75bc2ae007b440abe114e5d839eda57.
+App six focused +four lifecycle tests execute first when frontend links. New
+Stage2 source remains gated. Lower matrix is being relinked/rerun against this
+final unified graph, preserving initial measurements rather than overwriting.
+
 ## October 22 — combined sector-symmetry implementation (validated; delivery)
 
 Delivery code is pushed as `d3549795`; main progress pointer `8514273d` does not

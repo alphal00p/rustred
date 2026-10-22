@@ -37,6 +37,9 @@ pub(super) struct Assistance {
     pub equations: Vec<TerminalEquation>,
     pub equation_cursor: usize,
     pub completed_rows: u64,
+    /// A separately authenticated finite round, not a callback response for a
+    /// queried key. Its pending cursor has an explicit native schema marker.
+    pub externally_queued: bool,
     /// Operational acceleration only. The authenticated equation binding,
     /// queued rows and all cursors remain in the existing checkpoint format;
     /// this complete map is supplied and revalidated after each cold load.
@@ -90,6 +93,7 @@ impl TerminalRelationSession {
             equations: Vec::new(),
             equation_cursor: 0,
             completed_rows: 0,
+            externally_queued: false,
             finite_provider: None,
         });
         Ok(())
@@ -284,6 +288,7 @@ impl TerminalRelationSession {
             if assistance.equation_cursor == assistance.equations.len() {
                 assistance.equations.clear();
                 assistance.equation_cursor = 0;
+                assistance.externally_queued = false;
             }
             // Adding a row after an extension can introduce columns outside
             // the previous quotient; they must join final normalization too.
@@ -296,6 +301,7 @@ impl TerminalRelationSession {
             assistance.queried.insert(key);
             assistance.equations = equations;
             assistance.equation_cursor = 0;
+            assistance.externally_queued = false;
         } else {
             return self.step_ordinary(cancel);
         }

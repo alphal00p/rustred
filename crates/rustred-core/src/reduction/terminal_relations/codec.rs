@@ -49,6 +49,9 @@ struct Record {
 // retained-relations authority binding, and schema 4 appends assistance followed
 // by that binding. All readers share the original structural and Symbolica
 // coefficient validation; imported terminal equations themselves live in U.
+// Schemas 5/6 retain the exact schema-2/4 structure but explicitly identify an
+// externally authorized pending queue, which need not have a queried-key owner.
+// Once that queue drains, flag-off output returns to the original schemas.
 #[derive(bincode::Encode, bincode::Decode)]
 struct AssistanceRecord {
     binding: String,
@@ -183,11 +186,20 @@ pub(super) fn encode(
         )
         .transpose()?;
     let record = Record {
-        schema: match (assistance.is_some(), retained_relations.is_some()) {
-            (false, false) => 1,
-            (true, false) => 2,
-            (false, true) => 3,
-            (true, true) => 4,
+        schema: match (
+            assistance.is_some(),
+            retained_relations.is_some(),
+            session
+                .assistance
+                .as_ref()
+                .is_some_and(|a| a.externally_queued),
+        ) {
+            (false, false, _) => 1,
+            (true, false, false) => 2,
+            (false, true, _) => 3,
+            (true, true, false) => 4,
+            (true, false, true) => 5,
+            (true, true, true) => 6,
         },
         family,
         fingerprint: session.family.fingerprint().to_owned(),
@@ -283,10 +295,10 @@ pub(super) fn decode(
     let schema = record.schema;
     let (assistance, used) = match schema {
         1 if used == data.len() => (None, used),
-        2 | 4 => {
+        2 | 4 | 5 | 6 => {
             let (assistance_record, extra): (AssistanceRecord, usize) =
                 decode_structure(&data[used..], "checkpoint assistance")?;
-            if schema == 2 && used + extra != data.len() {
+            if matches!(schema, 2 | 5) && used + extra != data.len() {
                 return Err(binary("trailing terminal-relations assistance records"));
             }
             check(
@@ -334,7 +346,7 @@ pub(super) fn decode(
         _ => return Err(binary("unsupported or trailing terminal-relations records")),
     };
     let retained_relations = match schema {
-        3 | 4 => {
+        3 | 4 | 6 => {
             let (record, extra): (RetainedRelationsRecord, usize) =
                 decode_structure(&data[used..], "checkpoint retained relations")?;
             if used + extra != data.len() || record.binding.is_empty() {
@@ -614,9 +626,12 @@ pub(super) fn decode(
                     })
                     .collect::<Result<Vec<_>, TerminalRelationError>>()?;
                 let equation_cursor = usize::try_from(a.equation_cursor).map_err(binary)?;
+                let externally_queued = matches!(schema, 5 | 6);
                 if (equations.is_empty() && equation_cursor != 0)
+                    || (externally_queued && equations.is_empty())
                     || (!equations.is_empty()
-                        && (equation_cursor >= equations.len() || queried.is_empty()))
+                        && (equation_cursor >= equations.len()
+                            || (!externally_queued && queried.is_empty())))
                     || equation_cursor as u64 > a.completed_rows
                 {
                     return Err(binary("invalid assistance equation cursor"));
@@ -628,6 +643,7 @@ pub(super) fn decode(
                     equations,
                     equation_cursor,
                     completed_rows: a.completed_rows,
+                    externally_queued,
                     finite_provider: None,
                 })
             },

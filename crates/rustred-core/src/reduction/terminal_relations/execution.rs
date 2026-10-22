@@ -886,5 +886,71 @@ fn reduce_block(
     Ok(result)
 }
 
+/// Reuse the compact frozen-U reducer for feedback selection; do not publish
+/// its normalized coefficients as new unguarded source authority.
+pub(super) fn residual_support(
+    session: &TerminalRelationSession,
+    original: TerminalRelationRow,
+    cancel: &AtomicBool,
+) -> Result<BTreeSet<IntegralKey>, TerminalRelationError> {
+    let rows = [PreparedRow {
+        original,
+        conditions: Vec::new(),
+        support: BTreeSet::new(),
+    }];
+    let columns = ColumnPlan::new(session, &rows)?;
+    let reduced = reduce_block(session, &rows, &columns, cancel)?;
+    if cancel.load(Ordering::Relaxed) {
+        return Err(invalid("selective refinement inspection cancelled"));
+    }
+    Ok(reduced
+        .into_iter()
+        .next()
+        .ok_or_else(|| invalid("selective refinement reduction omitted its row"))?
+        .into_keys()
+        .collect())
+}
+
+/// A single compact-U copy serves a whole cold-validation cohort. A paused
+/// normalization rebuild retains trusted old U rows outside the new reducer;
+/// put that pending normalized prefix into the scratch span before queries.
+/// Query rows may reduce against earlier query residuals, but *all query*
+/// residuals are empty iff each query belonged to the trusted saved span.
+/// Do not expose per-row span claims from this incremental scratch reducer.
+pub(super) fn rows_are_satisfied(
+    session: &TerminalRelationSession,
+    originals: Vec<TerminalRelationRow>,
+    cancel: &AtomicBool,
+) -> Result<bool, TerminalRelationError> {
+    let trusted_prefix = session.rebuild.len() - session.rebuild_cursor;
+    let mut rows = Vec::with_capacity(trusted_prefix.saturating_add(originals.len()));
+    for original in &session.rebuild[session.rebuild_cursor..] {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(invalid("selective refinement inspection cancelled"));
+        }
+        rows.push(PreparedRow {
+            original: session.normalized_row(original)?,
+            conditions: Vec::new(),
+            support: BTreeSet::new(),
+        });
+    }
+    rows.extend(originals.into_iter().map(|original| PreparedRow {
+        original,
+        conditions: Vec::new(),
+        support: BTreeSet::new(),
+    }));
+    let columns = ColumnPlan::new(session, &rows)?;
+    let reduced = reduce_block(session, &rows, &columns, cancel)?;
+    if cancel.load(Ordering::Relaxed) {
+        return Err(invalid("selective refinement inspection cancelled"));
+    }
+    if reduced.len() != rows.len() {
+        return Err(invalid(
+            "selective refinement reduction omitted cohort rows",
+        ));
+    }
+    Ok(reduced[trusted_prefix..].iter().all(BTreeMap::is_empty))
+}
+
 #[cfg(test)]
 mod tests;

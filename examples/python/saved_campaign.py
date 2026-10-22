@@ -125,6 +125,8 @@ def main(argv=None):
                              help="sector assistance row policy (default saved preference or generators); polynomial-orbits explicitly enumerates whole-polynomial orbits; fresh search resets to generators")
             sub.add_argument("--sector-symmetry-saved-projection", action=argparse.BooleanOptionalAction, default=None,
                              help="project sector rows through saved programs (default saved preference or on); disable explicitly for a finite source-only cohort; fresh search resets to on")
+            sub.add_argument("--selective-symmetry-feedback", action=argparse.BooleanOptionalAction, default=None,
+                             help="exact sector-assisted refinement: revisit selected terminal-relevant symmetry/IBP consequences; off by default, fresh search clears it; heuristic queue exhaustion is not family closure")
             sub.add_argument("--finite-feedback", action=argparse.BooleanOptionalAction, default=None,
                              help="combine retained finite rows after full-U aliases (default saved preference or on)")
         if action == "inspect":
@@ -150,6 +152,9 @@ def main(argv=None):
         if any(option.split("=", 1)[0] in ("--sector-symmetry-saved-projection", "--no-sector-symmetry-saved-projection",
                    "--master-sector-symmetry-saved-projection", "--no-master-sector-symmetry-saved-projection") for option in extra):
             parser.error("sector-symmetry saved projection requires the refine action")
+        if any(option.split("=", 1)[0] in ("--selective-symmetry-feedback", "--no-selective-symmetry-feedback",
+                   "--master-selective-symmetry-feedback", "--no-master-selective-symmetry-feedback") for option in extra):
+            parser.error("selective-symmetry feedback requires the refine action")
     campaign = args.campaign.resolve()
     try:
         # Engine dispatch precedes all legacy checkpoint access. This regular
@@ -222,6 +227,9 @@ def main(argv=None):
                 if args.sector_symmetry_saved_projection is not None:
                     command.append("--master-sector-symmetry-saved-projection" if args.sector_symmetry_saved_projection
                                    else "--no-master-sector-symmetry-saved-projection")
+                if args.selective_symmetry_feedback is not None:
+                    command.append("--master-selective-symmetry-feedback" if args.selective_symmetry_feedback
+                                   else "--no-master-selective-symmetry-feedback")
                 if args.finite_feedback is not None:
                     command.append("--master-finite-feedback" if args.finite_feedback
                                    else "--no-master-finite-feedback")
