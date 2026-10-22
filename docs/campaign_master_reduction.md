@@ -54,6 +54,10 @@ computed.
 
 ## Relations-only fresh search
 
+For a killed stale-running round and a finite import of newly proved numerator
+relations, see [recovery and proved-relation import](refinement_recovery_import.md).
+That workflow preserves existing maps before starting a clean search shape.
+
 Ordinary refinement resumes or extends its saved finite source search. An
 explicit `--fresh-search` instead starts a separate round from the latest
 published terminal substitutions, discarding the previous auxiliary matrix and

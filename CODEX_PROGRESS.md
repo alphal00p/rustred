@@ -1,6 +1,6 @@
 # Codex progress: five-loop optimization and controlled deployment
 
-## October 22 — recovery/import bridge implementation (active)
+## October 22 — recovery/import bridge delivery validation
 
 Frozen optimized candidate:
 `TMP/releases/20261022-refinement-bridge/rustred`, SHA256
@@ -13,13 +13,61 @@ protection, interrupted import, source relocation and stronger-current-map
 preservation are included. Independent code/mathematics review found no remaining
 blocker. Receipt: `TMP/recovery-import-20261022/ACCEPTANCE_RESULT.md`.
 
-A read-only-source filesystem clone of the real interrupted generation-3 phase
-is being recovered at `TMP/recovery-import-20261022/real-stale-source` into
-`real-recovered`. The untouched original remains under `campaigns/`. Native
-authentication passed and the isolated derivative is materializing its retained
-collection with no new ordinary/modular source work. This is still running;
-no real-five-loop bridge success or elapsed-time claim is made yet. Full proof
-import and independent verification of all 939 maps remain the final gate.
+The read-only-source filesystem clone of the real interrupted generation-3 phase
+recovered successfully into `TMP/recovery-import-20261022/real-recovered`:
+**10m26.67s**, 20.11 GiB peak RSS, unchanged 904-key basis and exact native
+checkpoint bytes. Full original/clone comparison reports no differences.
+No ordinary/modular source cursor advanced.
+That real recovery used the immediately preceding optimized preview
+`0de9bbb7...7a9145` while the final import-only output-path protection was
+compiling. Its recovery implementation is identical; the six independent
+recovery CLI gates ran against the final `4a8ffc2a...2f0d` executable.
+
+The frozen release then imported the finite proof recipe into the separate
+`TMP/recovery-import-20261022/real-imported`: **16m09.71s**, 20.11 GiB peak RSS,
+exit 0 including final normal-artifact cold validation. Result: **904 -> 871**
+basis keys, all 939 original keys retained as exact maps, zero auxiliary output
+columns and zero new ordinary IBP rows. It replayed 961 witnessed raw symmetry
+equations and four selected complete saved-rule consequences. The expected
+research output was checked only as a coefficient-map assertion, never used as
+proof authority. The source campaign was not modified. Independent core checks
+passed for every one of the 939 recovered/full-collection maps, retaining all
+108,524 full source guards. Independent normal-application checking also passed:
+all 939 public application maps equal the final native and expected research
+coefficient maps exactly; all 108,916 final guards, 587 selected-row guards and
+362 new equation guards are present. P102's exact three terms have coefficients
+`1/2,1/2,1`; no foreign/unresolved output occurs. Public cold load was 141.108s,
+whole verification 143.36s, peak 1.744 GiB. Receipt:
+`TMP/recovery-import-20261022/independent-normal-app.json`.
+
+The new external application export also completed in 237.62s process / 237.075s
+native API, with every one of the 939 source substitutions checked, source
+unchanged, 871 outputs and the original 812 recorded query domains. It is under
+`TMP/deliveries/five-loop-r6-d10-871-20261022/application`. Fresh native load and
+exact canary passed: load 45.6465s, first application 0.22024s with five IBPs,
+warm 0.15964s with zero new IBPs and one cache hit; output and guards identical,
+all output leaves in the 871-key basis. The actual existing Vakint loader also
+passed without rebuild: 77.9403s load/preparation, catalogue absent beforehand,
+67 topologies prepared in 0.15749s, all owner formula programs still deferred.
+Its product preparation recognizes 37 factored outputs plus 834 other outputs;
+this is not a new claim of a smaller independent master basis. No numerical
+five-loop evaluation or full acceptance inventory was run. The old 904-key
+package is unchanged. No full `(2,0)` search is being launched by us.
+
+Real fresh `(2,0)` initialization/pause also passed: **156.61s**, 1.75 GiB peak,
+939 maps and basis 871 retained, zero ordinary work, zero auxiliary columns and
+no old modular history. The generation-2 checkpoint is 42.85 MB. A separate
+public-core check verified all 939 maps and all 108,916 final guards exactly in
+3.62s; the entire source publication's byte tree is unchanged. Its new finite
+inventory has 305,867 seeds / 7,646,675 ordinary source-work items, untouched by
+this test. This is initialization/checkpoint acceptance, not a completed `(2,0)`
+timing. Receipt: `TMP/recovery-import-20261022/REAL_FRESH20_RESULT.md`.
+
+Implementation milestone `12ee99bb` is pushed to the isolated feature branch.
+Final user commands use that branch's production Python adapter and the frozen
+binary together; the older main adapter does not have these recovery/import
+options. Argparse-only independent audit passed for recovery, import, fresh
+`(2,0)`, ordinary resume/finalize, fresh `(3,0)` and monotone `(3,0)` extension.
 
 User explicitly approved `RECOVERY_IMPORT_PLAN.md`. Work remains isolated on
 `codex/numerator-symmetry-refinement`; production campaign files are read-only.
@@ -31,7 +79,8 @@ Lanes:
 - `symmetry_refinement_integration`: explicit native recovery/finalize operation,
   immutable source, existing exclusive writer lock, normal cold validation, no
   new source/discovery/reconstruction work. App/lib/test metadata passes (43.74s).
-  Runtime acceptance and independent audit remain pending.
+  Runtime acceptance and independent audit passed, including a genuine accepted
+  modular relation and the isolated real stale-running checkpoint.
 - `symmetry_five_loop_validation`: generic recipe-driven import, replaying the
   native symmetry certificate and four selected complete saved equations before
   exact map union/publication. Research output hashes are expectations, not
@@ -45,12 +94,12 @@ Lanes:
   exceptional-dimension validity or independent ordinary-source certification.
 - Root: integration, CLI/export wiring, optimized builds and final verification.
 
-All new operations write distinct outputs. Imported native state must cold-load
-as a normal application-aware publication with unchanged original admission;
-then fresh `(2,0)` resets only search state. Safe old-checkpoint recovery,
-proof/certificate mutation tests, all-map/guard composition, interruption/resume
-and `(3,0)` transition are delivery gates. No user command is represented as
-fully implementing P102 import until this bridge passes those gates.
+All new operations write distinct outputs. Imported native state cold-loads as
+a normal application-aware publication with unchanged original admission; fresh
+`(2,0)` resets only search state. The safe recovery, proof/certificate mutation,
+all-map/guard composition, interruption/resume and `(3,0)` transition gates have
+passed. The feature's `docs/refinement_recovery_import.md` gives the exact
+recovery -> import -> fresh `(2,0)` -> pause/resume/change-shape commands.
 
 ## October 22 — measured five-loop symmetry-only gain
 
