@@ -2,6 +2,21 @@
 
 ## October 22 — combined sector-symmetry implementation (validated; delivery)
 
+Delivery code is pushed as `d3549795`; main progress pointer `8514273d` does not
+merge implementation into main. Final runtime export/load/admission gate now
+PASSES: supported directory `TMP/sector-symmetry-acceptance-20261022/runtime-application`,
+all939maps/667outputs/812authenticatedqueries+geometry+roles, typed admitted and
+rejected controls, no physical integral solve. Cold69.016s/process73.021s/3.134GB.
+Portable archive `runtime-application.tar.zst` beside that directory:196636047bytes,
+SHA256 ab0424bba5a31b00fe3d32b1bc583658612f228b30b0c86d732d0d9fc9767cb2.
+All77archivefileshashchecked; normalizedmtime/owner, no links/absolute/../members.
+Both lateharnessnegatives preserved/corrected (116basevs812amendedunion;
+physical15vsruntimecapacity16witness). No engine code/format changed for export.
+Python298also passes actualNix3.11.15/27.764s (in addition3.13). Exactobserved
+firstnativeevent improves177.974s->12.095s on frozen source, sharedhostnotpaired.
+Final combined receipts `TMP/sector-symmetry-acceptance-20261022/combined-summary.json`.
+All owned agents' child processes exited; production remains untouched.
+
 Final feature implementation is validated: **827 native passes**, zero failures,
 five explicit ignores; **298 Python checks**. Independent math/code audits pass.
 Both exact source policies preserve P102/weak rows, symbolic masses/dimension,

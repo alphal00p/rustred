@@ -249,9 +249,16 @@ Final optimized native executable (local, not committed):
 `0aba2d21431f05015b7077e1ad4d5ee1470bf6798134ed2cdba6cd3da9efeb7a`.
 All **827 native tests pass** (five explicit manual ignores), including seven
 wire-byte memo regressions and twelve strong-provider lifecycle/policy tests.
-All **298 Python checks pass**. Independent audits cover exact discovery,
+All **298 Python checks pass**, both on Python 3.13 (27.349 s) and the user's
+Nix Python 3.11.15 (27.764 s). Independent audits cover exact discovery,
 Jacobian/mass/power transport, source-cohort replay, guard authority, saved/source
 mode binding, immutable tasks, slice-cache lifetime safety and flag-off behavior.
+
+The profiled old command's first native event/checkpoint takes 177.973709 s;
+the final binary on the same frozen 113-file source takes 12.095371 s. Its
+generator stage starts at 12.127343 s, normalization at 19.453472 s and source
+span work at 29.330740 s. These contextual shared-host observations are not an
+isolated paired benchmark, but verify removal of the sampled interning hot path.
 
 An actual final-binary source-only command on a copy of the current publication
 reaches 667, ingests all 2,134 assistance rows, and cooperatively pauses in
@@ -278,6 +285,37 @@ Local finalized source artifact:
 `TMP/sector-symmetry-acceptance-20261022/native-cli-final-source-only/finalized-application`.
 This source folder and an exported runtime application package are different
 objects; only a successful separately checked export establishes the latter.
+
+The supported existing `export_saved_application::<16>` / `load_saved_application`
+runtime-directory gate has now PASSED. It preserves all 939 checked source maps,
+667 outputs, all 812 authenticated ordered queries (116 base + six 116-query
+amendments), exact native geometry and roles, source selection and guards. Typed
+entry validation accepts a native witness and rejects an out-of-scope control;
+no physical integral was reduced. Runtime cold load takes 69.016 seconds
+(73.021 s process, 3.134 GB peak). All source/runtime hashes remain unchanged.
+
+Canonical runtime directory (application API input):
+`TMP/sector-symmetry-acceptance-20261022/runtime-application`.
+It has 77 files / 763,654,489 content bytes, including 67 owners, two overlays,
+and native compact terminal maps. `application.json` SHA256:
+`c26d66c959ff908402da33c9463b6c9896b7aeb19b2e6a46f9200273ef1a0526`.
+No traversal ledger or refinement search matrix is needed by this runtime bundle.
+
+Portable deterministic archive:
+`TMP/sector-symmetry-acceptance-20261022/runtime-application.tar.zst`,
+196,636,047 bytes, SHA256
+`ab0424bba5a31b00fe3d32b1bc583658612f228b30b0c86d732d0d9fc9767cb2`.
+Every archived file hash matches the canonical bundle; timestamps/ownership are
+normalized, with no links, absolute paths or parent traversal. Unpack and point
+the existing application loader at the resulting `runtime-application` directory.
+The archive is not a new runtime file format and is deliberately not pushed.
+
+Two test-harness negatives are retained, not disguised as runtime failures:
+the first oracle checked only 116 base queries instead of the authenticated812
+union; a diagnostic witness helper then confused physical15-coordinate geometry
+with the16-slot runtime capacity. Corrected cold-only checks pass without engine
+changes or re-exporting. Final receipt summary:
+`TMP/sector-symmetry-acceptance-20261022/combined-summary.json`.
 
 The old full-projection CLI control cooperatively pauses after 932.26 seconds,
 24/2,134 projected tasks, 11 saved-reduced rows, zero application failures and

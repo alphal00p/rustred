@@ -1,5 +1,13 @@
 # Five-loop vacuum masters: why roughly 100 in the literature, but 862 retained here?
 
+Implementation follow-up: the matched current-set census and broader exact
+symmetry provider are now tested in `d3549795`. Existing normalization reduces
+862 -> 693; generator relations reach667 and optional full orbits660, with
+all939 original maps/conditions retained. These remain nonminimal finite bases.
+See [the combined refinement report](combined_sector_symmetry_refinement_2026-10-22.md)
+for exact workload, timings, lower-loop controls and recovery tests. The study
+below preserves the original research snapshot and its then-pending proposals.
+
 Research date: 22 October 2026. This study followed completion of the parallel
 refinement delivery. It adds no solver code, performs no new IBP search or
 numerical master evaluation, and changes no production campaign. Four independent
