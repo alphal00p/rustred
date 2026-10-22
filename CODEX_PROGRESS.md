@@ -1,5 +1,54 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 22 — interrupted recovery/import bridge and 871-key application
+
+The isolated feature `codex/numerator-symmetry-refinement` now includes the tested
+recovery/import bridge (`12ee99bb`, final validation/report `8996495f`), not just
+a research result. No production
+campaign has been finalized, resumed, imported into, or republished by us. All
+real runtime gates used a separate checkpoint filesystem clone and new TMP
+outputs. Existing unrelated main-worktree edits remain untouched.
+
+- Explicit killed-process recovery takes the existing exclusive writer lock,
+  validates the durable native/modular state and publishes retained maps without
+  advancing search. Real recovery: 10m26.67s, 20.1 GiB peak, 904 basis unchanged.
+  The immediately preceding optimized preview had identical recovery code;
+  final-release recovery CLI acceptance also passes.
+- Finite proof import authenticates/replays the native symmetry witnesses and
+  four selected complete saved equations, preserves newer current maps/guards,
+  checkpoints selected rows and publishes normal application data. Real import
+  including final cold load: 16m09.71s, 20.1 GiB peak, **904 -> 871** outputs.
+  No new ordinary IBP sources, no auxiliary outputs, all 939 raw keys retained.
+- Independent normal-app audit verifies every one of the 939 exact maps, all
+  108,916 conditions, selected/equation guards and P102's exact three-term formula.
+  Whole check 143.36s, peak 1.74 GiB; source manifest unchanged.
+- Real fresh exact `(2,0)` initialization/pause: 156.61s, 1.75 GiB peak,
+  42.85 MB checkpoint. All 939 maps/108,916 guards survive; zero ordinary work,
+  old auxiliary columns or old modular history. The new 7,646,675 finite source
+  items were not consumed; no full `(2,0)` runtime or minimality claim is made.
+- Focused acceptance: 181 native passes/four ignored, 214 Python passes/one
+  existing affinity skip, 12 fresh-search and six recovery CLI checks. Independent
+  source/mathematics, all-map and command/lifecycle audits pass.
+
+Frozen executable: `TMP/releases/20261022-refinement-bridge/rustred`, SHA256
+`4a8ffc2a5c0cac878895f36a58866e7776fd09a17fffd38a256a45d0e8f52f0d`.
+Use the matching feature adapter, not the older main wrapper. Sourceable
+`TMP/releases/20261022-refinement-bridge/workflow.sh` defines `rr` and `rrinspect`
+without starting work. The feature's `docs/refinement_recovery_import.md`
+contains recovery -> import -> fresh `(2,0)`, ordinary pause/resume and fresh or
+monotone `(3,0)` commands. Proof/application data remain untracked and unpushed.
+
+New external package: `TMP/deliveries/five-loop-r6-d10-871-20261022/application`.
+Export completed in 237.62s; fresh native load/canary passed (45.65s load,
+0.220s first application/five IBPs, 0.160s exact warm/zero new IBPs, one cache
+hit). Actual frozen Vakint loader also passed without rebuild: 77.94s
+load/preparation, catalogue absent before load and 67 topologies prepared in
+0.15749s; all owner programs remain deferred. No numerical five-loop evaluation
+or full application inventory was run. The older 904-key package is unchanged.
+The delivery README contains archive/hash details. Evidence:
+`TMP/recovery-import-20261022/` and
+`TMP/five-loop-vakint-export-871-20261022/`.
+
 ## October 22 — isolated numerator-symmetry milestone delivered
 
 Implementation and full evidence report are pushed on
