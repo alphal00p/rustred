@@ -2,6 +2,18 @@
 
 ## October 22 — combined full-integral symmetry refinement delivered
 
+Final feature handoff is pushed as `1487abe8` (code `d3549795`). Runtime bundle
+export/cold admission also PASSES: all939maps,667outputs and812authenticated
+query/geometry/role records; exact admitted/out-of-scope controls. Canonical
+directory: `TMP/sector-symmetry-acceptance-20261022/runtime-application`.
+Portable archive beside it: `runtime-application.tar.zst`,196636047bytes,
+SHA256 `ab0424bba5a31b00fe3d32b1bc583658612f228b30b0c86d732d0d9fc9767cb2`.
+All77archivedfileshashchecked, no links/absolute/../members; nothing large pushed.
+Runtime cold69.016s/process73.021s/3.134GB; no physical integral evaluation.
+Python298checks also pass actualNix3.11.15. All owned children exited. Source
+publication/runtime package are distinct and separately verified. Detailed final
+report/evidence on feature; this main commit remains documentation-only.
+
 Implementation is isolated and pushed as `d3549795` on
 `codex/numerator-symmetry-refinement`, worktree
 `TMP/numerator-symmetry-refinement-20261021`. Main receives this progress pointer
