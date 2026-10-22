@@ -1280,8 +1280,13 @@ created.
 ```bash
 nix develop --command cargo fmt --all -- --check
 SYMBOLICA_LICENSE=... nix develop --command cargo check --workspace --all-targets
-SYMBOLICA_LICENSE=... nix develop --command cargo test --workspace --all-targets
+SYMBOLICA_LICENSE=... RUST_MIN_STACK=33554432 nix develop --command cargo test --workspace --all-targets
 ```
+
+The debug workspace tests need a 32 MiB libtest thread stack for the CP6
+checkpoint fixture. The [recorded same-binary stack control](docs/research/profile_guided_rule_optimizer_audit_2026-10-03.md)
+isolates its default-stack overflow; the setting above applies only to the test
+command, preserving production and benchmark stack settings.
 
 Inspect the current CLI contract with:
 
