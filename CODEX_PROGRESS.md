@@ -1,5 +1,50 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 22 — five-loop master-count literature and implementation study
+
+Parallel delivery finished/pushed before this research began. Four lanes:
+`five_loop_master_literature` (TIDE/primary counts),
+`master_gap_implementation_audit` (code/current metadata/historical evidence),
+`master_relations_methods` (primary methods/critical geometry), and independent
+`master_gap_critical_review` (mathematics/counting/source audit). Final original
+synthesis: `docs/research/five_loop_master_count_gap_2026-10-22.md`.
+
+Verified: TIDE2015 lists131=109nonfactorized+22products, 2016classification132=
+110+22 across the same67topologyclasses.103/110short-paper/QCDcounts have
+incompletely specified conventions. Our862are retained outputs, not independent
+masters; product bookkeeping alone cannot explain the gap. Conditional on actual
+support matching,~131-132 is a useful comparable reduction benchmark, not a new
+minimum proof. Möller2012§3.4Eq3.32 documents a false extra dotted master30858,
+recovered by a small ordinaryIBP solve; f(d)=1−d/4 warns against d=4sampling.
+
+Actual current normalization profile is conservative-v1 with20kSymanzik terms;
+raw=normalized939. Historical different829fixture standard normalization found
+164scalaraliases+14weightedprojections,829->651beforeIBP, then608withcircuits.
+No matchedcurrent939census was run: compatibleexistingbinary unavailable without
+a new client/build. Do not transfer608to862, silently change a liveprofile, or
+assume freshstandard can preserve inherited-coordinate checks automatically.
+
+Numerator transport is exact/full but discovery heuristic, not complete group
+enumeration. Weightedstabilizerwitness excludes unequal dotted permutations;
+validcross-integral maps need simultaneouspow/numeratortransport. Moreordinary
+rows do not imply moreterminalrank: existing607,556row/1.45Mcolumn hotmatrix
+mostly eliminatesauxiliaries. Containing-sector constraints can be retained when
+generated; no globaldiscardbug is asserted. VendoredSpiReD also has bounded
+residual-master policy, not a hidden exhaustive minimization stage.
+
+Next sequence: matchednormalization/skipcensus; compose usefulaliasmaps without
+renamingpublickeys; currenttopology/product/dot/numeratorcensus; usefulbroader
+symmetrymaps; target-awareIBPhalos/modularscouting with exactproof; optional
+critical-locus guidance. TIDE2015 says dimension shifts unnecessary; generic-index
+criticalcounts cannot be blindly applied to integer-indexQ(d)terminals. Correct
+notation isTIDEr=A−t,s=R,ourD=t+r−s. Independentreviewcaught/correctedinitial
+r/Dandtransport/enumeration confusions and passes the final synthesis.
+
+All reading/probes are research-only: no newIBPsearch, master evaluation, source
+code changes, production writes/signals, CAS installation or payload push.
+Detailed untracked lane reports and references are under
+`TMP/research-five-loop-master-gap-20261022/`. Only original synthesis/log pushed.
+
 ## October 22 — parallel-assisted refinement delivered
 
 The final production-compatible capacity graph is frozen: optimized executable
