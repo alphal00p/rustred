@@ -1,10 +1,11 @@
 # Codex progress: five-loop optimization and controlled deployment
 
-## October 22 — final parallel-assisted validation and delivery (closing)
+## October 22 — parallel-assisted refinement delivered
 
 The final production-compatible capacity graph is frozen: optimized executable
 `TMP/releases/20261022-parallel-refinement/rustred`, SHA256
 `70dd9ee7d41ee32a10b0b23470b73a5552f0be5f7e645cad8d08fd57105c21a1`.
+Engine implementation is pushed as `191c0965` after R1 `19c035d0`.
 Build took 6m18s, outside every solver timer. Core `eff2385c1e81a410`, app
 `8e8ae9cdecba33ff`, Symbolica `cda55c135abebab8`.
 
@@ -23,7 +24,8 @@ W6=76.946s, W16=52.815s, clean W32=57.061s solver. W16 whole process99.824s
 vs serial153.122s; process CPU216.430 vs151.098s, peak19.383 vs11.942GB.
 All 939 exact maps/108,524 guards and source639893 agree; basis864 unchanged.
 Final W32 uses more CPU/RAM and is slower than16; profiled63.394s arm is kept
-separate from clean timing. R2 bulk join only adds about6-7% over R1, not8x.
+separate from clean timing. R1->R2 observed6-7% timing deltas are descriptive,
+not isolated bulk-join gains: the capacity feature profile also changes.
 The separate four64-row-window experiment helps W6 but hurts W32: no universal
 small-window claim. Larger block32 costs68.320s vs52.815s at16, saving CPU/RAM
 but worsening time; negative result retained.
@@ -33,20 +35,34 @@ integer-vector clone; join exact Symbolica division/GCD, add_cols~2% self.
 Not evidence for Arc-contention or whole-campaign fractions. A first available
 jemalloc library exports `_rjem_` and cannot interpose Rust malloc; rejected by
 actual loader binding before benchmarking. A second already-local unprefixed
-jemalloc really interposes malloc/free; one authorized bounded same-build probe
-and matched repeats are active. No host-wide setting, new kernel or engine
-rebuild. Final allocator decision and final lower-loop controls are pending.
+jemalloc really interposes malloc/free. Two completed same-allocator matched
+pairs reproduce **105.464 ->47.092s (2.239x)** and **105.815 ->47.301s (2.237x)**
+solver gains; whole-process gains1.589x/1.640x. Selected16worker/batch256/block8
+uses15.65-15.85GB peak vs10.75GB serial. W32jemalloc47.572s essentially ties
+but costs21.80GB. All native parallel states are byte-identical, including both
+allocators. No host-wide setting, new kernel or engine rebuild. The native-only
+wrapper hashes raw/library, rejects unexpected preloads, and passed real Python
+dispatcher/RAM-guard SIGINT and changed-worker resume. /proc confirmed native
+alone mapped the library. Direct70dd remains the no-preload fallback.
+
+Final genuine K6/H/FG/BMW/X128-source controls pass exact map, nonempty guard,
+cursor and unchanged source checks. Raw/basis/guards are38/5/17,386/21/420,
+145/15/731,179/16/825,445/18/1449 respectively. Their4-13ms solver cohorts are
+correctness gates, not claimed lower-loop speedups. The full hot check compares
+all939maps/108,524guards. Evidence/report:
+`TMP/parallel-assisted-refinement-20261022/R2_HOT_WINDOW_RESULTS.md`,
+`r2-lower-controls.receipts.json`, `JEMALLOC_WRAPPER_SAFETY_RESULT.md`.
 
 User independently finalized the old `(2,0)` and completed the finite proof
 import. Read-only metadata confirms latest scope528866..., published, basis
 **864 -> 862**, import/collection complete and all maps/guards retained. No
 ordinary source generated. Active operation is now import: the correct next
 action is explicit **fresh `(2,0)`**, not pretending to resume old7748... matrix.
-Sourceable release helper exists; 16-worker defaults remain provisional pending
-the final allocator result. Same-round continuation omits fresh. Independent
+Sourceable release helper selects the tested native-only wrapper and16workers
+onCPUs64-79, batch256/block8. Same-round continuation omits fresh. Independent
 argparse/lifecycle audit confirms flags and source selection; no launches.
 
-Queued next task (do not start before parallel delivery): deep primary-literature
+Next task (start only after this tested delivery is pushed): deep primary-literature
 and local TIDE/reference study of five-loop single-scale vacuum master counts,
 published~100 vs our retained~800, with convention matching and missing-relation
 hypotheses. User explicitly requests finishing this implementation first.

@@ -235,6 +235,10 @@ two timers twice. GB below is decimal.
 | Finite parallel | 6 | 76.946 | 122.666 | 174.676 | 14.769 |
 | Finite parallel | 16 | 52.815 | 99.824 | 216.430 | 19.383 |
 | Finite parallel, unprofiled | 32 | 57.061 | 103.628 | 352.632 | 26.191 |
+| Original serial provider, jemalloc | 1 | 105.464 | 149.734 | 148.170 | 10.751 |
+| Finite parallel, jemalloc | 16 | 47.092 | 94.212 | 177.262 | 15.854 |
+| Original serial provider, jemalloc, repeat | 1 | 105.815 | 151.520 | 149.893 | 10.750 |
+| Finite parallel, jemalloc, repeat | 16 | 47.301 | 92.411 | 174.576 | 15.649 |
 
 Every arm retains the same 939 exact terminal maps, 108,524 guards, 864 basis
 keys and committed source prefix. Native cold loading passes. Parallel runs
@@ -245,8 +249,12 @@ and the auxiliary-row span argument—not equal counts or sampled zeros—suppor
 correctness. These particular hot maps predate the user's later 862-key import.
 
 The initial final-build 16-worker result is 2.06x solver / 1.53x whole-process
-faster than serial. Sixteen is better than thirty-two here; this is not evidence
-of linear scaling to 128 workers or of a full-refinement speedup. In the earlier
+faster than serial. The two matched same-allocator pairs reproduce **2.239x and
+2.237x solver speedups**, or **1.589x and 1.640x whole-process speedups**.
+The selected setting is 16 workers, batch256/block8, with the native-only pinned
+jemalloc wrapper. A 32-worker allocator trial took47.572s, essentially tied with
+16, but used21.803GB versus15.854GB and more CPU. This is not evidence of linear
+scaling to128 workers or of a full-refinement speedup. In the earlier
 64-source cohort, two six-worker pairs reproduced 2.67x solver gains, but those
 prototypes lacked the final production-compatible capacity-dispatch feature and
 are not silently pooled into the final table.
@@ -255,8 +263,19 @@ Negative results matter. Reducing blocks from eight to two exposed 32 jobs and
 about 31 active cores, yet increased wall/CPU/RAM. Splitting 256 sources into
 four 64-source windows improved six-worker time (81.995 -> 64.087s) but worsened
 32-worker time (61.585 -> 67.001s) on the earlier graph. More frequent fresh-U
-joins therefore are not universally better. Bulk joining improves the matched
-6/16-worker first implementation by about 6-7%, not an order of magnitude.
+joins therefore are not universally better. R2's observed 6/16-worker times are
+about 6-7% lower than the first implementation, not an order of magnitude. That
+comparison also changes the capacity-dispatch feature profile, so it does not
+isolate a causal bulk-join gain. Serial/parallel comparisons within each graph
+are matched.
+
+Final K6/H/FG/BMW/X controls each commit the same128-source prefix through
+serial and six-worker paths, checking exact maps, nonempty guards, cursors and
+unchanged inputs. Raw keys/basis/guards respectively are38/5/17,386/21/420,
+145/15/731,179/16/825 and445/18/1449. These4-13ms solver cohorts are correctness
+controls, not lower-loop throughput claims. The final independent hot comparison
+also directly verifies all939maps and108,524guards under the selected allocator;
+the coarse-block negative probe passes the same exact comparison.
 
 Own-process profiles identify the remaining limits: local frozen-U coefficient
 copying/allocation (about 49% malloc-related self samples and 16% integer-vector
@@ -264,6 +283,18 @@ clone in the sampled parallel stage), and exact Symbolica polynomial division/
 GCD at the serial join. `add_cols` itself was only about 2% of join self samples.
 These ten-second samples do not prove whole-run fractions or Arc contention.
 No competing CAS, host-wide allocator change or Symbolica patch is included.
+
+The first local jemalloc candidate exported `_rjem_` symbols: loader inspection
+proved it did not replace Rust's malloc, so no benchmark conclusion was drawn.
+The accepted existing unprefixed library is
+`/nix/store/gg44883i8mz5kkn5ziccv9h62zaqn8mm-jemalloc-5.3.1/lib/libjemalloc.so.2`,
+SHA256 `1d12cb7be363c4b69c4f065e7f583a5e9d231410a572fe7aaabcf193602e7418`.
+Actual malloc/free loader bindings and native process mappings were checked.
+The frozen wrapper verifies native/library hashes and rejects an unexpected
+preload; it execs the native binary with the same supervised PID. A real
+dispatcher/RAM-guard pause/resume check confirmed native alone maps the library,
+not Python; changed-worker continuation and exact cold maps passed. It does not
+install a system allocator. The direct new binary remains a no-preload fallback.
 
 Detailed local evidence is under
 `TMP/parallel-assisted-refinement-20261022/`, including
@@ -289,8 +320,10 @@ assistance, no dynamic saved-rule assistance, a 600 GB process RAM grant,
 16 workers/CPUs 64-79, batch 256/block 8, and no explicit column ceiling.
 These worker/window choices are mutable operational settings, not mathematical
 search or inventory caps. They can be overridden with the corresponding
-`--master-refinement-*` / `--master-relation-*` arguments. No allocator preload
-is installed. The new round retains proved relations but intentionally does
+`--master-refinement-*` / `--master-relation-*` arguments. The helper selects
+the checked native-only allocator wrapper; use
+`export RUSTRED_BIN="$RUSTRED_NATIVE_BIN"` for the direct-binary fallback.
+The new round retains proved relations but intentionally does
 not retain the old search matrix; earlier checkpoints remain on disk.
 
 After Ctrl+C, wait for the checkpoint acknowledgement and process exit. Resume

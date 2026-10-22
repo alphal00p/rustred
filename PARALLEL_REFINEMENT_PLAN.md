@@ -1,5 +1,24 @@
 # Genuinely parallel exact master refinement
 
+## Delivery outcome
+
+Engine milestones `19c035d0` and `191c0965` are pushed. Final release70dd uses
+the matching capacity profile. Independent audits and677native/218Python
+passes, native old/new rollback, real wrapper SIGINT/RAM-guard continuation and
+K6/H/FG/BMW/X exact-prefix controls pass. Two same-allocator hot256-source
+pairs reproduce2.239x/2.237x solver gains at16workers, batch256/block8.
+The checked process-local unprefixed jemalloc wrapper is recommended; the direct
+new binary remains the fallback. Larger pools/blocks are not universally faster;
+negative and profiler-confounded results are retained. No whole-refinement time,
+linear128core scaling, minimality or new coverage claim is made.
+
+Production was read-only throughout. The user independently finalized/imported
+864->862; the release helper starts fresh2,0 from that latest publication and
+resumes that same round without fresh after a clean interruption. Detailed
+measurements, wrapper identities and lifecycle are in
+`docs/parallel_master_refinement.md` and the untracked release/evidence README.
+The subsequently requested master-count literature study is a separate task.
+
 ## Objective
 
 Make assisted exact `refine` use its configured compute budget effectively,
