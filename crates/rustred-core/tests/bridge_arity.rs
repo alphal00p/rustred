@@ -298,6 +298,11 @@ fn assert_solutions_equal(left: &DynamicSolution, right: &DynamicSolution) {
 fn padded_one_in_four_matches_exact() {
     check_capacity::<1, 4>();
 }
+
+#[test]
+fn explicit_noncanonical_capacity_matches_exact() {
+    check_capacity::<1, 3>();
+}
 #[test]
 fn padded_six_in_eight_matches_exact() {
     check_capacity::<6, 8>();

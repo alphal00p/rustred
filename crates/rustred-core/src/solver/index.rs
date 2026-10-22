@@ -169,7 +169,10 @@ impl<const N: usize> IntegralOrder<N> {
     }
 
     pub fn with_physical_arity(mut self, arity: usize) -> Result<Self, SolverError> {
-        if !crate::fits_storage(arity, N)
+        // Explicit capacity entry points allow any sufficiently large storage,
+        // independently of the compiled runtime dispatch capacity policy.
+        if arity == 0
+            || arity > N
             || self.sector[arity..].iter().any(|&v| v)
             || self.deltas[arity..].iter().any(|&v| v)
         {
@@ -483,6 +486,31 @@ mod permutation_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn physical_arity_accepts_explicit_capacity_but_rejects_active_padding() {
+        let order = IntegralOrder::new([true, false, false], [false; 3]);
+        assert_eq!(
+            order
+                .clone()
+                .with_physical_arity(1)
+                .unwrap()
+                .physical_arity(),
+            1
+        );
+        assert!(order.clone().with_physical_arity(0).is_err());
+        assert!(order.with_physical_arity(4).is_err());
+        assert!(
+            IntegralOrder::new([true, true, false], [false; 3])
+                .with_physical_arity(1)
+                .is_err()
+        );
+        assert!(
+            IntegralOrder::new([true, false, false], [false, true, false])
+                .with_physical_arity(1)
+                .is_err()
+        );
+    }
 
     #[test]
     fn powers_round_trip_all_encodings_and_are_one_byte() {
