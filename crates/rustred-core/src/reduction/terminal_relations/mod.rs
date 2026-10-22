@@ -6,7 +6,9 @@
 //! of minimality, unrestricted closure, or absence of further relations.
 
 mod assistance;
+mod authorized_basis;
 mod codec;
+mod condition_merge;
 pub mod collection;
 mod elimination;
 mod execution;
@@ -34,6 +36,7 @@ use crate::sector::OrderingPolicy;
 
 pub type TerminalRelationRow = BTreeMap<IntegralKey, Coefficient>;
 pub use assistance::TerminalRelationFiniteProvider;
+pub use authorized_basis::TerminalRelationEquationBasis;
 pub use execution::{
     TerminalRelationExecutionOptions, TerminalRelationExecutionProgress, TerminalRelationExecutor,
 };
@@ -402,11 +405,7 @@ impl TerminalRelationSession {
             if let Some(assistance) = &mut self.assistance {
                 assistance.pending.extend(support);
             }
-            for guard in conditions {
-                if !self.conditions.contains(&guard) {
-                    self.conditions.push(guard);
-                }
-            }
+            Self::merge_nonzero_conditions(&mut self.conditions, &conditions);
             self.source_cursor += 1;
             if self.source_cursor == self.sources.len() {
                 self.source_cursor = 0;

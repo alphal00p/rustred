@@ -2,7 +2,7 @@
 use super::*;
 use crate::application::routed_campaign::{
     PreparedTerminalEquations, RoutedCampaignRequest, TerminalEquationProvider,
-    prepare_terminal_equations,
+    prepare_terminal_equations_with_cache_mode,
 };
 use rustred::family::IntegralKey;
 use rustred::reduction::terminal_normalization::TerminalCircuitEquations;
@@ -65,7 +65,9 @@ pub(super) fn expected_binding(
             hash.finalize().to_hex()
         ));
     }
-    if options.numerator_symmetry_assistance {
+    if options.sector_symmetry_assistance {
+        parts.push(super::sector_symmetry::binding(options, session, report)?);
+    } else if options.numerator_symmetry_assistance {
         parts.push(super::numerator_symmetry::binding(
             session.family_owner().fingerprint(),
             &session
@@ -86,6 +88,15 @@ pub(super) fn configure(
     session: &mut TerminalRelationSession,
     report: &mut Value,
 ) -> Result<(), AppError> {
+    if (options.sector_symmetry_policy.is_some()
+        || options.sector_symmetry_saved_projection.is_some())
+        && (!options.sector_symmetry_assistance
+            || options.operation != MasterReductionOperation::Refine)
+    {
+        return Err(AppError::input(
+            "sector-symmetry policy requires explicit sector-symmetry refinement",
+        ));
+    }
     if options.operation == MasterReductionOperation::Publish {
         if session.assistance_binding().is_some() {
             inherited::validate(session, report)?;
@@ -93,6 +104,7 @@ pub(super) fn configure(
             report["saved_rule_assistance"] = json!(false);
             report["circuit_symmetry_assistance"] = json!(false);
             report["numerator_symmetry_assistance"] = json!(false);
+            report["sector_symmetry_assistance"] = json!(false);
             report["relation_authority"] = json!(inherited::authority(report)?);
             fresh::record_authority(report);
             return Ok(());
@@ -105,6 +117,22 @@ pub(super) fn configure(
     }
     if options.resume && report["native_state"].is_object() {
         return validate(options, session, report);
+    }
+    if options.sector_symmetry_assistance {
+        report["sector_symmetry_policy"] = json!(sector_symmetry::policy_name(
+            sector_symmetry::for_phase(options, report)?
+        ));
+        report["sector_symmetry_saved_projection"] =
+            json!(sector_symmetry::projection_for_phase(options, report)?);
+    } else {
+        report
+            .as_object_mut()
+            .expect("report object")
+            .remove("sector_symmetry_policy");
+        report
+            .as_object_mut()
+            .expect("report object")
+            .remove("sector_symmetry_saved_projection");
     }
     let binding = expected_binding(options, session, report)?;
     report
@@ -121,11 +149,25 @@ pub(super) fn configure(
         .as_object_mut()
         .expect("report object")
         .remove("numerator_symmetry_preparation");
+    report
+        .as_object_mut()
+        .expect("report object")
+        .remove("sector_symmetry_preparation");
     if changes_policy {
         report
             .as_object_mut()
             .expect("report object")
             .remove("numerator_symmetry_certificate");
+        for field in [
+            "sector_symmetry_certificate",
+            "sector_symmetry_normalization_certificate",
+            "sector_symmetry_task_certificate",
+            "sector_symmetry_reduced_certificate",
+            "sector_symmetry_projection_checkpoint",
+            "sector_symmetry_reduction",
+        ] {
+            report.as_object_mut().expect("report object").remove(field);
+        }
     }
     if changes_policy
         && (session.statistics().completed_source_rows != 0
@@ -172,16 +214,31 @@ pub(super) fn configure(
     report["saved_rule_assistance"] = json!(options.saved_rule_assistance);
     report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);
     report["numerator_symmetry_assistance"] = json!(options.numerator_symmetry_assistance);
+    report["sector_symmetry_assistance"] = json!(options.sector_symmetry_assistance);
     report["relation_authority"] = json!(authority(
         options.saved_rule_assistance,
         options.circuit_symmetry_assistance,
-        options.numerator_symmetry_assistance
+        options.numerator_symmetry_assistance,
+        options.sector_symmetry_assistance,
+        sector_symmetry::projection_from_report(report)?
     ));
     fresh::record_authority(report);
     Ok(())
 }
 
-pub(super) fn authority(saved: bool, circuit: bool, numerator: bool) -> &'static str {
+pub(super) fn authority(
+    saved: bool,
+    circuit: bool,
+    numerator: bool,
+    sector: bool,
+    projection: bool,
+) -> &'static str {
+    if sector {
+        if !projection && !saved {
+            return "finite ordinary IBPs and independently replayed sector momentum-change and exact normalization identities composed with retained exact maps; no new candidate-program application";
+        }
+        return "exact consequences of ordinary IBPs, independently replayed sector momentum-change identities and authenticated supplied candidate programs; candidate source provenance is not replay-certified";
+    }
     match (saved, circuit, numerator) {
         (true, _, true) => {
             "exact consequences of ordinary IBPs, verified numerator momentum-change identities and supplied candidate rules; candidate source provenance is not replay-certified"
@@ -208,6 +265,8 @@ pub(super) fn validate(
     session: &TerminalRelationSession,
     report: &Value,
 ) -> Result<(), AppError> {
+    sector_symmetry::for_phase(options, report)?;
+    sector_symmetry::projection_for_phase(options, report)?;
     profile::for_resume(options.normalization_profile, report)?;
     if options.operation == MasterReductionOperation::Publish
         && (session.assistance_binding().is_some()
@@ -216,11 +275,15 @@ pub(super) fn validate(
         if options.saved_rule_assistance
             || options.circuit_symmetry_assistance
             || options.numerator_symmetry_assistance
+            || options.sector_symmetry_assistance
             || report["saved_rule_assistance"].as_bool().unwrap_or(false)
             || report["circuit_symmetry_assistance"]
                 .as_bool()
                 .unwrap_or(false)
             || report["numerator_symmetry_assistance"]
+                .as_bool()
+                .unwrap_or(false)
+            || report["sector_symmetry_assistance"]
                 .as_bool()
                 .unwrap_or(false)
         {
@@ -240,6 +303,10 @@ pub(super) fn validate(
             .as_bool()
             .unwrap_or(false)
             != options.numerator_symmetry_assistance
+        || report["sector_symmetry_assistance"]
+            .as_bool()
+            .unwrap_or(false)
+            != options.sector_symmetry_assistance
         || session.assistance_binding() != binding.as_deref()
         || (options.operation == MasterReductionOperation::Refine
             && report["requested_containing_sector_depth"]
@@ -281,6 +348,7 @@ pub(super) fn prepare_for_execution(
     if !options.saved_rule_assistance
         && !options.circuit_symmetry_assistance
         && !options.numerator_symmetry_assistance
+        && !options.sector_symmetry_assistance
     {
         return Ok(None);
     }
@@ -331,14 +399,25 @@ pub(super) fn prepare_for_execution(
     } else {
         None
     };
-    let numerator = if options.numerator_symmetry_assistance {
+    let sector = if options.sector_symmetry_assistance {
+        Some(super::sector_symmetry::prepare(
+            options, session, report, cancel, observer, started,
+        )?)
+    } else {
+        None
+    };
+    let numerator = if options.numerator_symmetry_assistance && !options.sector_symmetry_assistance
+    {
         Some(super::numerator_symmetry::prepare(
             options, session, report, cancel, observer, started,
         )?)
     } else {
         None
     };
-    let mut saved = if options.saved_rule_assistance {
+    let mut saved = if options.saved_rule_assistance
+        || (options.sector_symmetry_assistance
+            && sector_symmetry::projection_for_phase(options, report)?)
+    {
         Some(prepare_saved(
             options, session, report, cancel, observer, started,
         )?)
@@ -357,14 +436,31 @@ pub(super) fn prepare_for_execution(
     } else {
         None
     };
-    if saved.is_none() {
+    let sector_rows = if let Some(sector) = &sector {
+        Some(super::sector_symmetry::prepare_rows(
+            options,
+            session,
+            sector,
+            saved.as_mut(),
+            report,
+            cancel,
+            observer,
+            started,
+        )?)
+    } else {
+        None
+    };
+    if !options.saved_rule_assistance {
         // Both native witness services define a finite immutable map over the
         // exact raw/canonical inventory and return [] at every other key.
-        let keys: std::collections::BTreeSet<_> = session
+        let mut keys: std::collections::BTreeSet<_> = session
             .raw_terminals()
             .union(session.normalization().canonical_terminals())
             .cloned()
             .collect();
+        if let Some(sector) = &sector_rows {
+            keys.extend(sector.keys().cloned());
+        }
         let mut rows_by_key = BTreeMap::<IntegralKey, Vec<TerminalEquation>>::new();
         for key in keys {
             let mut rows = circuit
@@ -372,6 +468,9 @@ pub(super) fn prepare_for_execution(
                 .map_or_else(Vec::new, |plan| plan.equations(&key).to_vec());
             if let Some(numerator) = &numerator_rows {
                 rows.extend(numerator.get(&key).into_iter().flatten().cloned());
+            }
+            if let Some(sector) = &sector_rows {
+                rows.extend(sector.get(&key).into_iter().flatten().cloned());
             }
             if !rows.is_empty() {
                 rows_by_key.insert(key, rows);
@@ -392,6 +491,9 @@ pub(super) fn prepare_for_execution(
                 .map_or_else(Vec::new, |plan| plan.equations(key).to_vec());
             if let Some(numerator) = &numerator_rows {
                 rows.extend(numerator.get(key).into_iter().flatten().cloned());
+            }
+            if let Some(sector) = &sector_rows {
+                rows.extend(sector.get(key).into_iter().flatten().cloned());
             }
             if let Some(saved) = &mut saved {
                 rows.extend((saved.provider)(key)?);
@@ -450,7 +552,7 @@ fn prepare_saved(
         .to_path_buf();
     request.workers = options.threads;
     configure_saved_resources(options, &mut request);
-    let prepared = prepare_terminal_equations(
+    let prepared = prepare_terminal_equations_with_cache_mode(
         &request,
         session.family_owner().fingerprint(),
         &expected_digests,
@@ -460,6 +562,7 @@ fn prepare_saved(
             output["preparation_event"] = native;
             observer(output);
         },
+        options.sector_symmetry_assistance,
     )?;
     Ok(prepared)
 }
@@ -470,7 +573,7 @@ pub(super) fn configure_saved_resources(
     options: &MasterReductionOptions,
     request: &mut RoutedCampaignRequest,
 ) {
-    if options.numerator_symmetry_assistance {
+    if options.numerator_symmetry_assistance || options.sector_symmetry_assistance {
         super::numerator_symmetry::configure_saved_resources(request);
     }
 }

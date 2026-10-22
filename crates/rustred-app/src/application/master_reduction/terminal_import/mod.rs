@@ -2,7 +2,7 @@
 //! application publication. No campaign traversal or new ordinary IBP search.
 mod maps;
 mod recipe;
-mod rows;
+pub(super) mod rows;
 mod state;
 
 use super::*;
@@ -127,6 +127,9 @@ fn validate_options(options: &MasterReductionOptions) -> Result<(), AppError> {
         || options.saved_rule_assistance
         || options.circuit_symmetry_assistance
         || options.numerator_symmetry_assistance
+        || options.sector_symmetry_assistance
+        || options.sector_symmetry_policy.is_some()
+        || options.sector_symmetry_saved_projection.is_some()
         || options.seed_depth != 0
         || options.containing_sector_depth != 0
         || options.deep_verification.is_some()
@@ -305,6 +308,15 @@ fn execute(
         "modular_search_complete",
         "modular_policy",
         "numerator_symmetry_certificate",
+        "sector_symmetry_preparation",
+        "sector_symmetry_policy",
+        "sector_symmetry_saved_projection",
+        "sector_symmetry_reduction",
+        "sector_symmetry_certificate",
+        "sector_symmetry_normalization_certificate",
+        "sector_symmetry_task_certificate",
+        "sector_symmetry_reduced_certificate",
+        "sector_symmetry_projection_checkpoint",
         "refinement_binding",
         "partial_refinement_binding",
         "partial_refinement_source",
@@ -323,6 +335,7 @@ fn execute(
     report["saved_rule_assistance"] = json!(false);
     report["circuit_symmetry_assistance"] = json!(false);
     report["numerator_symmetry_assistance"] = json!(false);
+    report["sector_symmetry_assistance"] = json!(false);
     report["relation_authority"] = json!(
         "exact retained published maps and finite replayed numerator-momentum-change identities composed with supplied candidate rules; imported rule provenance is not upgraded to independent ordinary-IBP certification"
     );

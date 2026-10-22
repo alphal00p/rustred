@@ -20,6 +20,7 @@ mod numerator_symmetry;
 mod parametric;
 mod product_reduction;
 mod products;
+mod sector_symmetry;
 mod vacuum_products;
 mod weighted;
 
@@ -45,6 +46,13 @@ pub use product_reduction::{
     VacuumProductReductionError, VacuumProductReductionLimits, VacuumProductReductionStatistics,
     reduce_transported_candidate_factor, reduce_transported_vacuum_factor,
     reduce_vacuum_factor_combination,
+};
+pub use sector_symmetry::{
+    TerminalSectorSymmetryControl, TerminalSectorSymmetryEquations, TerminalSectorSymmetryLimits,
+    TerminalSectorSymmetryOrbitWitness, TerminalSectorSymmetryPolicy,
+    TerminalSectorSymmetryProgress, TerminalSectorSymmetryRoundTrip, TerminalSectorSymmetryRoute,
+    TerminalSectorSymmetrySkipReason, TerminalSectorSymmetryStatistics,
+    TerminalSectorSymmetryWitness,
 };
 pub use vacuum_products::{
     VacuumProductChartLimits, VacuumProductChartPlan, VacuumProductComponent, VacuumProductError,

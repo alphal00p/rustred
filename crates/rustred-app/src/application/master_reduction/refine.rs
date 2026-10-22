@@ -76,6 +76,25 @@ pub fn master_refine_published_artifact(
     } else {
         None
     };
+    let mut effective_options = options.clone();
+    if options.sector_symmetry_assistance {
+        effective_options.sector_symmetry_policy = Some(sector_symmetry::for_phase(
+            options,
+            resumed.as_ref().unwrap_or(&Value::Null),
+        )?);
+        effective_options.sector_symmetry_saved_projection =
+            Some(sector_symmetry::projection_for_phase(
+                options,
+                resumed.as_ref().unwrap_or(&Value::Null),
+            )?);
+    } else if options.sector_symmetry_policy.is_some()
+        || options.sector_symmetry_saved_projection.is_some()
+    {
+        return Err(AppError::input(
+            "sector-symmetry policy requires sector-symmetry assistance",
+        ));
+    }
+    let options = &effective_options;
     let normalization_profile = if let Some(report) = &resumed {
         profile::for_resume(options.normalization_profile, report)?
     } else {
@@ -102,6 +121,16 @@ pub fn master_refine_published_artifact(
     }
     if options.numerator_symmetry_assistance {
         hash.update(b"numerator-symmetry-assistance-v1");
+    }
+    if options.sector_symmetry_assistance {
+        hash.update(b"sector-symmetry-assistance-v1");
+        hash.update(
+            sector_symmetry::policy_name(options.sector_symmetry_policy.unwrap_or_default())
+                .as_bytes(),
+        );
+        if options.sector_symmetry_saved_projection == Some(false) {
+            hash.update(b"sector-symmetry-source-rows-v1");
+        }
     }
     normalization_profile.hash(&mut hash);
     let collection_identity = collection::input_identity(options, resumed.as_ref())?;

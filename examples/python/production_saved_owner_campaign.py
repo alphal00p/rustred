@@ -1169,6 +1169,12 @@ def main(argv=None):
                         help="only with --refine-masters: add native circuit-reflection equations; omitted resumes the saved preference")
     parser.add_argument("--master-numerator-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
                         help="only with exact --refine-masters: finitely certified denominator-preserving numerator-map equations; default off, omitted resumes the saved preference, --master-fresh-search clears it")
+    parser.add_argument("--master-sector-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
+                        help="only with exact --refine-masters: certified sector-generator relations for original source keys; endpoint monomials are auxiliary columns; includes legacy numerator assistance; default off, omitted resumes the saved preference, --master-fresh-search clears it")
+    parser.add_argument("--master-sector-symmetry-policy", choices=("generators", "polynomial-orbits"),
+                        help="sector assistance row policy (default saved preference or generators); polynomial-orbits explicitly enumerates whole-polynomial orbits; --master-fresh-search resets it")
+    parser.add_argument("--master-sector-symmetry-saved-projection", action=argparse.BooleanOptionalAction, default=None,
+                        help="project sector rows through saved programs (default saved preference or on); disable explicitly for a finite source-only cohort; --master-fresh-search resets it to on")
     parser.add_argument("--master-reduction-executable", type=Path,
                         help="freeze a separate publisher/refiner binary; leaves the original campaign binary and CP6 untouched")
     parser.add_argument("--upgrade-executable", type=Path, metavar="NEW",
@@ -1303,6 +1309,9 @@ def main(argv=None):
                                             containing_sector_depth=args.master_containing_sector_depth,
                                             circuit_symmetry_assistance=args.master_circuit_symmetry_assistance,
                                             numerator_symmetry_assistance=args.master_numerator_symmetry_assistance,
+                                            sector_symmetry_assistance=args.master_sector_symmetry_assistance,
+                                            sector_symmetry_policy=args.master_sector_symmetry_policy,
+                                            sector_symmetry_saved_projection=args.master_sector_symmetry_saved_projection,
                                             normalization_profile=args.master_normalization_profile,
                                             collection_artifacts=args.master_collection_artifact,
                                             finite_feedback=args.master_finite_feedback,

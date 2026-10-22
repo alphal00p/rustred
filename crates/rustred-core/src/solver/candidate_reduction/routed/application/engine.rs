@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use super::cache_policy::DependencyPins;
@@ -109,9 +110,21 @@ struct Request<'a, const N: usize> {
     stack: Vec<Frame<N>>,
     pins: DependencyPins<N>,
     progress: Option<Progress<'a>>,
+    cancel: Option<&'a AtomicBool>,
 }
 
 impl<const N: usize> Request<'_, N> {
+    fn check_cancel(&self) -> Result<(), CandidateRoutedError> {
+        if self
+            .cancel
+            .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
+        {
+            Err(CandidateRoutedError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+
     fn observe(
         &mut self,
         application: &RoutedCandidateApplication<N>,
@@ -199,7 +212,21 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         admission: CandidateEntryAdmission<'_, N>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        self.reduce_observed_request(terms, admission, None)
+        self.reduce_observed_request(terms, admission, None, None)
+    }
+
+    /// Cooperatively cancel an exact request between complete operational
+    /// frames and root collections. All inputs cross entry admission before
+    /// cancellation is checked. Completed cache entries and their guards remain
+    /// reusable; pending nodes never become terminal results. A single owner
+    /// preparation, transport, or CAS operation cannot be interrupted here.
+    pub fn reduce_linear_combination_with_entry_admission_cancellable(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        admission: CandidateEntryAdmission<'_, N>,
+        cancel: &AtomicBool,
+    ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        self.reduce_observed_request(terms, admission, None, Some(cancel))
     }
 
     /// Observe one exact request on its calling thread. No observation runs
@@ -219,18 +246,44 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             terms,
             admission,
             Some(Progress::new(interval, &mut observer)),
+            None,
         )
     }
 
-    fn reduce_observed_request(
+    /// Observe and cooperatively cancel the same exact traversal as the
+    /// ordinary application API. The flag is checked at every operational
+    /// frame boundary, independently of the observer interval, and between
+    /// root collections. Cancellation returns `CandidateRoutedError::Cancelled`
+    /// with a final failed snapshot before normal dependency-pin cleanup.
+    /// It cannot interrupt an individual owner preparation, transport or CAS
+    /// operation. Input admission still precedes the first cancellation check.
+    pub fn reduce_linear_combination_with_entry_admission_and_control(
         &mut self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         admission: CandidateEntryAdmission<'_, N>,
-        progress: Option<Progress<'_>>,
+        cancel: &AtomicBool,
+        interval: Duration,
+        mut observer: impl FnMut(&CandidateRoutedApplicationSnapshot),
+    ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        self.reduce_observed_request(
+            terms,
+            admission,
+            Some(Progress::new(interval, &mut observer)),
+            Some(cancel),
+        )
+    }
+
+    fn reduce_observed_request<'a>(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        admission: CandidateEntryAdmission<'_, N>,
+        progress: Option<Progress<'a>>,
+        cancel: Option<&'a AtomicBool>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
         let observed = progress.is_some();
         let mut request = Request {
             progress,
+            cancel,
             ..Default::default()
         };
         if observed && self.cache_policy.evicts() {
@@ -396,9 +449,11 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 &mut request.stats.work,
             )?;
         }
+        request.check_cancel()?;
         request.stats.requested_targets = entries.len();
         let mut output = BTreeMap::new();
         for (target, factor) in entries {
+            request.check_cancel()?;
             let root = Node::Route(target);
             self.pin_dependency(&root, &mut request.pins)?;
             request.push(Frame::Enter(root.clone()), limits.max_pending_frames)?;
@@ -409,6 +464,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 CandidateRoutedApplicationStatus::Running,
                 false,
             );
+            request.check_cancel()?;
             let entry = self
                 .cache
                 .get(&root)
@@ -440,6 +496,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             self.touch_cache(&root)?;
             self.release_dependency(&root, &mut request.pins)?;
         }
+        request.check_cancel()?;
         charge(
             &mut request.stats.operational_nodes,
             request.seen.len(),
@@ -481,6 +538,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 CandidateRoutedApplicationStatus::Running,
                 false,
             );
+            request.check_cancel()?;
             let node = match frame {
                 Frame::Combine {
                     node,

@@ -338,6 +338,7 @@ fn load_member(directory: &Path, member: &Value) -> Result<TerminalRelationSessi
     )
     .map_err(io)?;
     super::numerator_symmetry::validate(directory, &session, member)?;
+    super::sector_symmetry::validate(directory, &session, member)?;
     Ok(session)
 }
 
@@ -355,6 +356,7 @@ fn load_members(
 
 fn copy_member(source: &Path, output: &Path, member: &Value) -> Result<Value, AppError> {
     super::numerator_symmetry::inherit(source, output, member)?;
+    super::sector_symmetry::inherit(source, output, member)?;
     let mut member = member.clone();
     member["native_state"] = write_state(
         output,
@@ -372,11 +374,27 @@ fn primary_member(report: &Value) -> Result<Value, AppError> {
         "circuit_symmetry_assistance",
         "numerator_symmetry_assistance",
         "numerator_symmetry_certificate",
+        "sector_symmetry_assistance",
+        "sector_symmetry_policy",
+        "sector_symmetry_saved_projection",
+        "sector_symmetry_preparation",
+        "sector_symmetry_reduction",
+        "sector_symmetry_certificate",
+        "sector_symmetry_normalization_certificate",
+        "sector_symmetry_task_certificate",
+        "sector_symmetry_reduced_certificate",
+        "sector_symmetry_projection_checkpoint",
         "inherited_equation_authority",
     ] {
         if let Some(value) = report.get(field) {
             result[field] = value.clone();
         }
+    }
+    if report["sector_symmetry_assistance"] == true
+        || report["inherited_equation_authority"]["sector_symmetry_assistance"] == true
+        || report["sector_symmetry_certificate"].is_object()
+    {
+        result["inputs"] = json!({"program_binding":report["inputs"]["program_binding"]});
     }
     result["source_manifest_blake3"] = json!(
         blake3::hash(&serde_json::to_vec(report).map_err(io)?)

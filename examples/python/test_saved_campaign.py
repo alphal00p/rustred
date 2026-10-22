@@ -88,6 +88,11 @@ class SavedCampaignTests(unittest.TestCase):
         self.assertNotIn("--no-master-circuit-symmetry-assistance", command)
         self.assertNotIn("--master-numerator-symmetry-assistance", command)
         self.assertNotIn("--no-master-numerator-symmetry-assistance", command)
+        self.assertNotIn("--master-sector-symmetry-assistance", command)
+        self.assertNotIn("--no-master-sector-symmetry-assistance", command)
+        self.assertNotIn("--master-sector-symmetry-policy", command)
+        self.assertNotIn("--master-sector-symmetry-saved-projection", command)
+        self.assertNotIn("--no-master-sector-symmetry-saved-projection", command)
         self.assertNotIn("--master-normalization-profile", command)
 
     def test_fresh_search_is_explicit_and_keeps_campaign_resume(self):
@@ -187,7 +192,10 @@ class SavedCampaignTests(unittest.TestCase):
         for option in ("--refine-masters", "--publish-only", "--finalize-refinement",
                        "--recover-interrupted-refinement", "--master-seed-depth",
                        "--master-containing-sector-depth", "--master-fresh-search",
-                       "--master-refinement-strategy", "--master-numerator-symmetry-assistance"):
+                       "--master-refinement-strategy", "--master-numerator-symmetry-assistance",
+                       "--master-sector-symmetry-assistance", "--no-master-sector-symmetry-assistance",
+                       "--master-sector-symmetry-policy", "--master-sector-symmetry-saved-projection",
+                       "--no-master-sector-symmetry-saved-projection"):
             self.assertNotIn(option, command)
         with patch.object(WRAPPER.sys, "stdout", io.StringIO()) as output:
             self.assertIsNone(self.invoke("import-refinement", "--proof-recipe", str(recipe), "--dry-run"))
@@ -210,7 +218,11 @@ class SavedCampaignTests(unittest.TestCase):
         for options in (("--seed-depth", "3"), ("--containing-sector-depth", "1"),
                         ("--fresh-search",), ("--refinement-strategy", "exact"),
                         ("--saved-rule-assistance",), ("--circuit-symmetry-assistance",),
-                        ("--numerator-symmetry-assistance",)):
+                        ("--numerator-symmetry-assistance",), ("--sector-symmetry-assistance",),
+                        ("--no-sector-symmetry-assistance",),
+                        ("--sector-symmetry-policy", "generators"),
+                        ("--sector-symmetry-saved-projection",),
+                        ("--no-sector-symmetry-saved-projection",)):
             with self.subTest(options=options), \
                  patch.object(WRAPPER, "native_executable", side_effect=AssertionError("native preflight")), \
                  patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
@@ -282,12 +294,131 @@ class SavedCampaignTests(unittest.TestCase):
                 self.assertIn("--start", command)
                 self.assertNotIn("--master-saved-rule-assistance", command)
                 self.assertNotIn("--master-circuit-symmetry-assistance", command)
+                self.assertNotIn("--master-sector-symmetry-assistance", command)
+                self.assertNotIn("--no-master-sector-symmetry-assistance", command)
                 combined = self.invoke("refine", supplied, "--saved-rule-assistance",
                                        "--circuit-symmetry-assistance")
                 self.assertIn(forwarded, combined)
                 self.assertNotIn(opposite, combined)
                 self.assertIn("--master-saved-rule-assistance", combined)
                 self.assertIn("--master-circuit-symmetry-assistance", combined)
+
+    def test_sector_symmetry_assistance_forwards_both_choices_independently(self):
+        for supplied, forwarded, opposite in (
+                ("--sector-symmetry-assistance", "--master-sector-symmetry-assistance",
+                 "--no-master-sector-symmetry-assistance"),
+                ("--no-sector-symmetry-assistance", "--no-master-sector-symmetry-assistance",
+                 "--master-sector-symmetry-assistance")):
+            with self.subTest(supplied=supplied):
+                command = self.invoke("refine", supplied)
+                self.assertEqual(command.count(forwarded), 1)
+                self.assertNotIn(opposite, command)
+                self.assertNotIn(supplied, command)
+                self.assertIn("--refine-masters", command)
+                self.assertIn("--resume", command)
+                self.assertIn("--start", command)
+                for other in ("saved-rule", "circuit-symmetry", "numerator-symmetry"):
+                    self.assertNotIn(f"--master-{other}-assistance", command)
+                    self.assertNotIn(f"--no-master-{other}-assistance", command)
+                for numerator, numerator_forwarded, numerator_opposite in (
+                        ("--numerator-symmetry-assistance", "--master-numerator-symmetry-assistance",
+                         "--no-master-numerator-symmetry-assistance"),
+                        ("--no-numerator-symmetry-assistance", "--no-master-numerator-symmetry-assistance",
+                         "--master-numerator-symmetry-assistance")):
+                    with self.subTest(numerator=numerator):
+                        combined = self.invoke("refine", supplied, numerator)
+                        self.assertEqual(combined.count(forwarded), 1)
+                        self.assertNotIn(opposite, combined)
+                        self.assertEqual(combined.count(numerator_forwarded), 1)
+                        self.assertNotIn(numerator_opposite, combined)
+                        self.assertNotIn(supplied, combined)
+                        self.assertNotIn(numerator, combined)
+
+    def test_sector_symmetry_assistance_rejects_nonrefinement_actions_before_dispatch(self):
+        recipe = self.campaign / "proof-recipe.json"
+        for action in ("run", "extend", "inspect", "publish", "finalize-refinement", "import-refinement"):
+            options = (["--rank", "1"] if action == "extend" else
+                       ["--proof-recipe", str(recipe)] if action == "import-refinement" else [])
+            for flag in ("--sector-symmetry-assistance", "--no-sector-symmetry-assistance",
+                         "--master-sector-symmetry-assistance", "--no-master-sector-symmetry-assistance"):
+                with self.subTest(action=action, flag=flag), \
+                     patch.object(WRAPPER, "native_executable", side_effect=AssertionError("native preflight")), \
+                     patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    self.invoke(action, *options, flag)
+
+    def test_sector_symmetry_policy_forwards_only_explicit_valid_choices(self):
+        self.assertNotIn("--master-sector-symmetry-policy",
+                         self.invoke("refine", "--sector-symmetry-assistance"))
+        for policy in ("generators", "polynomial-orbits"):
+            with self.subTest(policy=policy):
+                command = self.invoke("refine", "--sector-symmetry-assistance",
+                                      "--sector-symmetry-policy", policy)
+                self.assertEqual(command.count("--master-sector-symmetry-policy"), 1)
+                self.assertEqual(command[command.index("--master-sector-symmetry-policy") + 1], policy)
+                self.assertNotIn("--sector-symmetry-policy", command)
+                self.assertIn("--master-sector-symmetry-assistance", command)
+                self.assertNotIn("--master-sector-symmetry-saved-projection", command)
+                self.assertNotIn("--no-master-sector-symmetry-saved-projection", command)
+                self.assertIn("--refine-masters", command)
+        with patch.object(WRAPPER, "native_executable", side_effect=AssertionError("native preflight")), \
+             patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+            self.invoke("refine", "--sector-symmetry-assistance", "--sector-symmetry-policy", "unknown")
+
+    def test_sector_symmetry_policy_rejects_nonrefinement_actions_before_dispatch(self):
+        recipe = self.campaign / "proof-recipe.json"
+        for action in ("run", "extend", "inspect", "publish", "finalize-refinement", "import-refinement"):
+            options = (["--rank", "1"] if action == "extend" else
+                       ["--proof-recipe", str(recipe)] if action == "import-refinement" else [])
+            for flag in ("--sector-symmetry-policy", "--master-sector-symmetry-policy"):
+                for policy in ("generators", "polynomial-orbits"):
+                    with self.subTest(action=action, flag=flag, policy=policy), \
+                         patch.object(WRAPPER, "native_executable", side_effect=AssertionError("native preflight")), \
+                         patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                        self.invoke(action, *options, flag, policy)
+
+    def test_sector_symmetry_saved_projection_forwards_both_choices_independently(self):
+        for supplied, forwarded, opposite in (
+                ("--sector-symmetry-saved-projection", "--master-sector-symmetry-saved-projection",
+                 "--no-master-sector-symmetry-saved-projection"),
+                ("--no-sector-symmetry-saved-projection", "--no-master-sector-symmetry-saved-projection",
+                 "--master-sector-symmetry-saved-projection")):
+            with self.subTest(supplied=supplied):
+                command = self.invoke("refine", supplied)
+                self.assertEqual(command.count(forwarded), 1)
+                self.assertNotIn(opposite, command)
+                self.assertNotIn(supplied, command)
+                self.assertNotIn("--master-sector-symmetry-policy", command)
+                self.assertIn("--refine-masters", command)
+                for other in ("saved-rule", "circuit-symmetry", "numerator-symmetry", "sector-symmetry"):
+                    self.assertNotIn(f"--master-{other}-assistance", command)
+                    self.assertNotIn(f"--no-master-{other}-assistance", command)
+                for policy in ("generators", "polynomial-orbits"):
+                    for numerator, numerator_forwarded in (
+                            ("--numerator-symmetry-assistance", "--master-numerator-symmetry-assistance"),
+                            ("--no-numerator-symmetry-assistance", "--no-master-numerator-symmetry-assistance")):
+                        with self.subTest(policy=policy, numerator=numerator):
+                            combined = self.invoke("refine", supplied, "--sector-symmetry-assistance",
+                                "--sector-symmetry-policy", policy, numerator,
+                                "--saved-rule-assistance", "--circuit-symmetry-assistance")
+                            self.assertEqual(combined.count(forwarded), 1)
+                            self.assertNotIn(opposite, combined)
+                            self.assertNotIn(supplied, combined)
+                            self.assertEqual(combined[combined.index("--master-sector-symmetry-policy") + 1], policy)
+                            for flag in (numerator_forwarded, "--master-sector-symmetry-assistance",
+                                         "--master-saved-rule-assistance", "--master-circuit-symmetry-assistance"):
+                                self.assertEqual(combined.count(flag), 1)
+
+    def test_sector_symmetry_saved_projection_rejects_nonrefinement_actions_before_dispatch(self):
+        recipe = self.campaign / "proof-recipe.json"
+        for action in ("run", "extend", "inspect", "publish", "finalize-refinement", "import-refinement"):
+            options = (["--rank", "1"] if action == "extend" else
+                       ["--proof-recipe", str(recipe)] if action == "import-refinement" else [])
+            for flag in ("--sector-symmetry-saved-projection", "--no-sector-symmetry-saved-projection",
+                         "--master-sector-symmetry-saved-projection", "--no-master-sector-symmetry-saved-projection"):
+                with self.subTest(action=action, flag=flag), \
+                     patch.object(WRAPPER, "native_executable", side_effect=AssertionError("native preflight")), \
+                     patch.object(WRAPPER.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    self.invoke(action, *options, flag)
 
     def test_numerator_symmetry_assistance_rejects_nonrefinement_actions_before_dispatch(self):
         for action in ("run", "extend", "inspect", "publish", "finalize-refinement"):

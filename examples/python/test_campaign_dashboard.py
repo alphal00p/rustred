@@ -157,6 +157,314 @@ class TelemetryTests(unittest.TestCase):
             self.assertIn("inherited finite proofs; provider off", shown)
             self.assertNotIn("9 equations", shown)
 
+    def test_sector_symmetry_preparation_reports_actual_finite_work_and_projection_boundaries(self):
+        status = sample_status()
+        status["master_reduction"] = {
+            "operation": "refine", "stage": "preparing_sector_symmetry_equations",
+            "sector_symmetry_assistance": True,
+            "sector_symmetry_preparation": {
+                "input_keys": 17, "analyzed_supports": 3, "proposed_generators": 8,
+                "verified_generators": 5, "equation_targets": 12, "equations": 23,
+                "output_terms": 61, "trivial_equations": 2, "complete": False,
+                "skipped": [{"reason": "unsupported transport", "count": 4}]},
+            "sector_symmetry_reduction": {
+                "processed_rows": 9, "source_rows": 23, "saved_reduced_rows": 7,
+                "saved_application_failures": 2, "projected_terms": 37,
+                "incomplete_boundaries": 2, "complete": False}}
+        frame = TELEMETRY.normalize_status(status)
+        plain = "\n".join(DASHBOARD.plain_summary(frame))
+        shown = "\n".join(DASHBOARD.render_master_table(frame, 160, 40, False))
+        self.assertIn("sector preparation", shown)
+        self.assertIn("Sector symmetry: 23 rows", plain)
+        self.assertIn("generator relation rows; finite original inventory; not global", plain)
+        self.assertIn("Sector maps: 5 verified · 8 proposed; 3 supports analyzed", plain)
+        self.assertIn("Source jobs: 17 · original source keys; not reported", plain)
+        self.assertIn("Transported keys: 12 · original source keys with symmetry rows", plain)
+        self.assertIn("Transported terms: 61 · terms in transported rows", plain)
+        self.assertIn("Projected terms: 37 · terms after saved-row projection", plain)
+        self.assertIn("Saved-row reduction: 9/23 · 7 saved-reduced rows; 2 failed saved applications", plain)
+        self.assertIn("Symmetry boundary: incomplete", plain)
+        self.assertIn("skipped unsupported transport 4", plain)
+        self.assertIn("Projection boundary: 2 incomplete · row pass incomplete; saved projection not reported", plain)
+        self.assertNotIn("global symmetry complete", plain)
+        for width in (20, 35, 40, 73, 74, 80, 160):
+            for height in (8, 12, 24, 40):
+                with self.subTest(width=width, height=height):
+                    rows = DASHBOARD.render_master_table(frame, width, height, True)
+                    self.assertLessEqual(len(rows), height)
+                    self.assertTrue(all(DASHBOARD.cell_width(ANSI.sub("", row)) == width for row in rows))
+        compact = "\n".join(DASHBOARD.render_master_table(frame, 160, 12, False))
+        self.assertIn("Checkpoint", compact)
+
+    def test_sector_preparation_does_not_reuse_a_previous_parallel_receipt(self):
+        for stage, label in (("preparing_sector_symmetry_equations", "sector preparation"),
+                             ("reducing_sector_symmetry_equations", "sector saved rows")):
+            status = sample_status()
+            status["workers"] = 128
+            status["resources"]["native_busy_cores"] = None
+            status["master_reduction"] = {
+                "operation": "refine", "stage": stage, "sector_symmetry_assistance": True,
+                "execution": {"strategy": "assisted-ordered-work-stealing-blocks-v1",
+                    "stage": "parallel elimination", "mode": "parallel", "workers": 128,
+                    "rows_prepared": 99_991, "rows_eliminated": 99_992,
+                    "rows_committed": 99_993, "provider_keys_filtered": 99_994}}
+            frame = TELEMETRY.normalize_status(status)
+            shown = "\n".join(DASHBOARD.render_master_table(frame, 160, 40, False)
+                              + DASHBOARD.plain_summary(frame))
+            with self.subTest(stage=stage):
+                self.assertIn(label, shown)
+                self.assertIn("configured worker limit 128 (not measured busy cores)", shown)
+                self.assertIn("unknown / 128", shown)
+                self.assertIn("Native execution: not reported", shown)
+                self.assertNotIn("Parallel batch", shown)
+                self.assertNotIn("Provider filtered", shown)
+                for retained in ("99,991", "99,992", "99,993", "99,994"):
+                    self.assertNotIn(retained, shown)
+
+    def test_sector_proofs_retained_with_provider_off_and_missing_work_stays_unknown(self):
+        status = sample_status()
+        status["master_reduction"] = {"operation": "refine", "stage": "relations",
+            "sector_symmetry_assistance": True}
+        frame = TELEMETRY.normalize_status(status)
+        plain = "\n".join(DASHBOARD.plain_summary(frame))
+        self.assertIn("Sector symmetry: unknown rows", plain)
+        self.assertIn("unknown supports analyzed", plain)
+        self.assertIn("Symmetry boundary: not reported", plain)
+        self.assertNotIn("Projected terms", plain)
+        for operation in ("refine", "publish", "finalize-refinement"):
+            status["master_reduction"].update(operation=operation, sector_symmetry_assistance=False,
+                inherited_equation_authority={"sector_symmetry_assistance": True},
+                sector_symmetry_preparation={"equations": 91_337, "complete": True})
+            frame = TELEMETRY.normalize_status(status)
+            shown = "\n".join(DASHBOARD.render_master_table(frame, 160, 40, False)
+                              + DASHBOARD.plain_summary(frame))
+            with self.subTest(operation=operation):
+                self.assertIn("Sector proofs", shown)
+                self.assertIn("inherited finite proofs; provider off", shown)
+                self.assertNotIn("91,337", shown)
+
+    def test_sector_boundary_headers_bound_reason_count_and_reason_width(self):
+        master = {"operation": "refine", "sector_symmetry_assistance": True,
+            "sector_symmetry_preparation": {"complete": False,
+                "skipped": [{"reason": "x" * 2000, "count": index} for index in range(1000)]}}
+        shown = "\n".join(label + ": " + value + " · " + detail
+                          for label, value, detail in DASHBOARD.sector_symmetry_metrics(master))
+        self.assertLess(len(shown), 1000)
+        self.assertNotIn("x" * 97, shown)
+        self.assertIn("additional reasons omitted", shown)
+
+    def test_sector_explicit_counters_show_finite_closure_and_omitted_reasons(self):
+        status = sample_status()
+        status["master_reduction"] = {"operation": "refine", "stage": "preparing_sector_symmetry_equations",
+            "sector_symmetry_assistance": True, "numerator_symmetry_assistance": True,
+            "sector_symmetry_preparation": {
+                "discovered_maps": 7, "support_closure_supports": 4, "closure_keys": 41,
+                "transported_keys": 29, "transported_rows": 53, "complete": False,
+                "skipped": [{"reason": "boundary " + str(index), "count": 1} for index in range(20)],
+                "skipped_reasons_omitted": 7}}
+        frame = TELEMETRY.normalize_status(status)
+        shown = "\n".join(DASHBOARD.render_master_table(frame, 160, 40, False)
+                          + DASHBOARD.plain_summary(frame))
+        self.assertIn("Sector symmetry: 53 rows", shown)
+        self.assertIn("Sector maps: 7 discovered · unknown proposed; 4 supports in finite closure", shown)
+        self.assertIn("Transported keys: 29", shown)
+        self.assertIn("Symmetry columns: 41 · nonzero polynomial columns; auxiliary endpoints; 4 supports", shown)
+        self.assertIn("24 additional reasons omitted", shown)
+        self.assertNotIn("boundary 3 ", shown)
+        self.assertNotIn("Numerator symmetry", shown)
+        self.assertNotIn("Numerator proofs", shown)
+        status["master_reduction"]["sector_symmetry_preparation"].update(
+            verified_generators=5, analyzed_supports=2, proposed_generators=8,
+            equation_targets=999_991, equations=999_992)
+        shown = "\n".join(DASHBOARD.plain_summary(TELEMETRY.normalize_status(status)))
+        self.assertIn("Sector maps: 5 verified · 7 discovered; 8 proposed; 2 supports analyzed", shown)
+        self.assertIn("Transported keys: 29", shown)
+        self.assertIn("Sector symmetry: 53 rows", shown)
+        self.assertNotIn("999,991", shown)
+        self.assertNotIn("999,992", shown)
+
+    def test_polynomial_orbit_source_jobs_stay_original_and_completion_scopes_are_separate(self):
+        status = sample_status()
+        status["master_reduction"] = {
+            "operation": "refine", "stage": "preparing_sector_symmetry_equations",
+            "sector_symmetry_assistance": True, "sector_symmetry_policy": "polynomial-orbits",
+            "sector_symmetry_preparation": {"stage": "whole_polynomial_orbits", "input_keys": 939,
+                "processed_keys": 12, "closure_keys": 8401, "orbit_images": 8, "orbit_terms": 300,
+                "complete": False, "source_jobs_complete": False,
+                "scope": "whole polynomial orbits of original finite sources; auxiliary endpoint columns"}}
+        frame = TELEMETRY.normalize_status(status)
+        shown = "\n".join(DASHBOARD.plain_summary(frame))
+        self.assertIn("Source jobs: 939 · 12 processed; original source keys; incomplete", shown)
+        self.assertIn("Orbit columns: 8,401 · nonzero polynomial columns; auxiliary endpoints", shown)
+        self.assertIn("Orbit images: 8 · whole polynomial images in the current source orbit", shown)
+        self.assertIn("Orbit terms: 300 · terms across images in the current source orbit", shown)
+        self.assertNotIn("8,401 jobs", shown)
+        self.assertNotIn("closure jobs", shown)
+        status["master_reduction"]["sector_symmetry_preparation"].update(
+            processed_keys=939, complete=True, source_jobs_complete=True)
+        status["master_reduction"]["sector_symmetry_reduction"] = {
+            "complete": True, "saved_projection_complete": True, "combined_closure_complete": False,
+            "processed_rows": 1100, "source_rows": 1100, "saved_reduced_rows": 1050,
+            "saved_application_failures": 0, "incomplete_boundaries": 0,
+            "saved_terminal_keys_outside_source_inventory": 16,
+            "saved_output_keys_outside_symmetry_inventory": 7,
+            "normalization_outputs_outside_source_inventory": 0,
+            "deferred_symmetry_sources": 16, "unresolved_output_keys": 2,
+            "combined_closure_scope": "original polynomial sources and saved projection; deferred leaves remain finite boundaries",
+            "active_row": {"task": 77, "phase": "Applying", "elapsed_seconds": 5,
+                "unique_nodes": 23, "active_nodes": 4, "pending_frames": 6, "cached_entries": 19}}
+        frame = TELEMETRY.normalize_status(status)
+        shown = "\n".join(DASHBOARD.plain_summary(frame))
+        self.assertIn("Source jobs: 939 · 939 processed; original source keys; complete", shown)
+        self.assertIn("Saved projection: complete", shown)
+        self.assertIn("Combined closure: incomplete · original polynomial sources and saved projection", shown)
+        self.assertIn("Outside original: 16", shown)
+        self.assertIn("Outside orbit: 7", shown)
+        self.assertIn("Normalization exits: 0", shown)
+        self.assertIn("Deferred sources: 16", shown)
+        self.assertIn("Unresolved outputs: 2", shown)
+        self.assertIn("Active projection: Applying · task 77; elapsed 00:00:05; nodes 23 unique / 4 active", shown)
+        self.assertNotIn("Combined closure: complete", shown)
+        for width in (20, 80, 160):
+            for height in (12, 24, 40):
+                rows = DASHBOARD.render_master_table(frame, width, height, True)
+                self.assertLessEqual(len(rows), height)
+                self.assertTrue(all(DASHBOARD.cell_width(ANSI.sub("", row)) == width for row in rows))
+        compact = "\n".join(DASHBOARD.render_master_table(frame, 160, 12, False))
+        self.assertIn("Checkpoint", compact)
+
+    def test_normalization_census_precedes_projection_and_does_not_set_remaining_basis(self):
+        status = sample_status()
+        status["master_reduction"] = {
+            "operation": "refine", "stage": "reducing_sector_symmetry_equations",
+            "sector_symmetry_assistance": True,
+            "sector_symmetry_preparation": {
+                "input_keys": 939, "source_jobs_complete": True, "complete": True,
+                "normalization_input_keys": 939, "normalization_canonical_keys": 728,
+                "normalization_unit_aliases": 197, "normalization_projected_numerators": 14,
+                "normalization_source_equations": 211, "normalization_output_terms": 514,
+                "normalization_safe_zero_certificates": 3, "legacy_source_equations": 109},
+            "sector_symmetry_reduction": {"saved_projection_complete": False, "complete": False}}
+        frame = TELEMETRY.normalize_status(status)
+        self.assertIsNone(frame["master_reduction"]["remaining_terminals"])
+        plain = "\n".join(DASHBOARD.plain_summary(frame))
+        self.assertIn("Source jobs: 939", plain)
+        self.assertIn("Normalization: 939→728 keys · canonical preparation outputs; retained basis after joined reduction", plain)
+        self.assertIn("Normalization maps: 197 aliases · 14 numerator projections; 211 exact source equations", plain)
+        self.assertIn("Normalization terms: 514 · 3 safe zero certificates; finite preparation rows", plain)
+        self.assertIn("Weaker source rows: 109 · finite weaker cohort before combined row deduplication", plain)
+        self.assertLess(plain.index("Normalization:"), plain.index("Saved projection:"))
+        self.assertIn("unknown remaining terminals", plain)
+        status["master_reduction"]["remaining_terminals"] = 693
+        frame = TELEMETRY.normalize_status(status)
+        shown = "\n".join(DASHBOARD.render_master_table(frame, 160, 48, False))
+        self.assertRegex(shown, r"Remaining basis\s+│ 693\s+│")
+        self.assertRegex(shown, r"Normalization\s+│ 939→728 keys\s+│")
+        self.assertNotRegex(shown, r"Remaining basis\s+│ 728\s+│")
+        self.assertLess(shown.index("Normalization"), shown.index("Saved projection"))
+
+    def test_sector_policy_defaults_to_generators_and_polynomial_orbits_are_explicit(self):
+        for policy in (None, "generators", "polynomial-orbits"):
+            status = sample_status()
+            master = {"operation": "refine", "stage": "preparing_sector_symmetry_equations",
+                "sector_symmetry_assistance": True,
+                "sector_symmetry_preparation": {"input_keys": 939, "closure_keys": 8401,
+                    "stage": "whole_polynomial_orbits" if policy == "polynomial-orbits" else "generator_relations",
+                    "equations": 123, "orbit_images": 8, "orbit_terms": 300}}
+            if policy is not None:
+                master["sector_symmetry_policy"] = policy
+            status["master_reduction"] = master
+            frame = TELEMETRY.normalize_status(status)
+            plain = "\n".join(DASHBOARD.plain_summary(frame))
+            with self.subTest(policy=policy):
+                self.assertIn("Source jobs: 939", plain)
+                if policy == "polynomial-orbits":
+                    self.assertIn("Symmetry policy: polynomial-orbits", plain)
+                    self.assertIn("whole polynomial orbit / Reynolds rows", plain)
+                    self.assertIn("Source preparation: whole polynomial orbits", plain)
+                    self.assertIn("Orbit columns: 8,401", plain)
+                    self.assertIn("Orbit images: 8", plain)
+                else:
+                    self.assertIn("Symmetry policy: generators · I - T_r and I - T_rg per verified generator", plain)
+                    self.assertIn("generator relation rows", plain)
+                    self.assertIn("Source preparation: generator relations", plain)
+                    self.assertIn("Symmetry columns: 8,401", plain)
+                    self.assertNotIn("Reynolds", plain)
+                    self.assertNotIn("whole polynomial orbit", plain)
+                    self.assertNotIn("Orbit images", plain)
+                    self.assertIn("Candidate images: 8 · generator candidates for the current original source", plain)
+                    self.assertIn("Candidate terms: 300", plain)
+                for width in (20, 80, 160):
+                    rows = DASHBOARD.render_master_table(frame, width, 24, True)
+                    self.assertTrue(all(DASHBOARD.cell_width(ANSI.sub("", row)) == width for row in rows))
+        shown = "\n".join(label + ": " + value + " · " + detail for label, value, detail in
+                          DASHBOARD.sector_symmetry_metrics({"operation": "refine",
+                              "sector_symmetry_assistance": True,
+                              "sector_symmetry_preparation": {"policy": "polynomial-orbits", "orbit_images": 9}}))
+        self.assertIn("Symmetry policy: polynomial-orbits", shown)
+        self.assertIn("Orbit images: 9", shown)
+        self.assertNotIn("Candidate images", shown)
+
+    def test_sector_saved_projection_request_is_independent_of_source_policy_and_failures(self):
+        for requested in (False, True):
+            for policy in ("generators", "polynomial-orbits"):
+                status = sample_status()
+                status["master_reduction"] = {"operation": "refine", "stage": "relations",
+                    "sector_symmetry_assistance": True, "sector_symmetry_policy": policy,
+                    "sector_symmetry_saved_projection": requested,
+                    "sector_symmetry_preparation": {"input_keys": 939, "source_jobs_complete": True, "complete": True},
+                    "sector_symmetry_reduction": {"complete": False, "saved_projection_requested": requested,
+                        "saved_projection_complete": False, "combined_closure_complete": False,
+                        "saved_application_failures": 2, "incomplete_boundaries": 2,
+                        "processed_rows": 7, "source_rows": 12, "projected_terms": 31,
+                        "exact_source_rows_ready": True, "source_terms": 45, "unresolved_output_keys": 6}}
+                frame = TELEMETRY.normalize_status(status)
+                shown = "\n".join(DASHBOARD.plain_summary(frame))
+                with self.subTest(requested=requested, policy=policy):
+                    self.assertIn("Symmetry policy: " + policy, shown)
+                    self.assertIn("Source jobs: 939 · original source keys; complete", shown)
+                    if requested:
+                        self.assertIn("Saved projection: incomplete", shown)
+                        self.assertIn("2 failed saved applications", shown)
+                        self.assertIn("Projected terms: 31", shown)
+                        self.assertNotIn("not requested", shown)
+                    else:
+                        self.assertIn("Saved projection: not requested · finite source-only symmetry cohort", shown)
+                        self.assertIn("Combined closure: incomplete · source-only finite cohort", shown)
+                        self.assertIn("Source cohort: ready · 7/12 exact source rows; finite cohort", shown)
+                        self.assertIn("Source terms: 45 · terms in the exact source cohort", shown)
+                        self.assertIn("Auxiliary tails: 6 · auxiliary columns at the source-only finite boundary", shown)
+                        self.assertNotIn("failed saved applications", shown)
+                        self.assertNotIn("Projected terms", shown)
+                        self.assertNotIn("unresolved saved-program projection tails", shown)
+                        self.assertNotIn("Combined closure: complete", shown)
+                    rows = DASHBOARD.render_master_table(frame, 160, 40, False)
+                    self.assertTrue(all(DASHBOARD.cell_width(row) == 160 for row in rows))
+        for requested in (False, True):
+            master = {"operation": "refine", "sector_symmetry_assistance": True,
+                "sector_symmetry_saved_projection": requested}
+            shown = "\n".join(label + ": " + value + " · " + detail
+                              for label, value, detail in DASHBOARD.sector_symmetry_metrics(master))
+            self.assertIn("Saved projection: " + ("requested" if requested else "not requested"), shown)
+            if not requested:
+                self.assertIn("Combined closure: not assessed", shown)
+                self.assertIn("Source cohort: not reported", shown)
+        master = {"operation": "refine", "sector_symmetry_assistance": True,
+            "sector_symmetry_reduction": {"saved_projection_requested": False}}
+        shown = "\n".join(label + ": " + value + " · " + detail
+                          for label, value, detail in DASHBOARD.sector_symmetry_metrics(master))
+        self.assertIn("Saved projection: not requested", shown)
+        master["sector_symmetry_reduction"].update(combined_closure_complete=True,
+            combined_closure_scope="exact original-source finite cohort with no auxiliary columns")
+        shown = "\n".join(label + ": " + value + " · " + detail
+                          for label, value, detail in DASHBOARD.sector_symmetry_metrics(master))
+        self.assertIn("Combined closure: complete · exact original-source finite cohort", shown)
+        self.assertNotIn("not assessed", shown)
+        master["sector_symmetry_reduction"]["exact_source_rows_ready"] = False
+        shown = "\n".join(label + ": " + value + " · " + detail
+                          for label, value, detail in DASHBOARD.sector_symmetry_metrics(master))
+        self.assertIn("Source cohort: incomplete", shown)
+
     def test_fresh_search_displays_active_shape_not_retained_history(self):
         for strategy in ("exact", "modular-circuits"):
             status = sample_status()

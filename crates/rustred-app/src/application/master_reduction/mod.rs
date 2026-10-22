@@ -17,6 +17,7 @@ mod partial;
 mod profile;
 mod refine;
 mod report_counts;
+mod sector_symmetry;
 mod source;
 mod storage;
 mod terminal_import;
@@ -47,6 +48,7 @@ pub use collection::{
 pub use partial::{master_publish_partial_refinement, master_recover_interrupted_refinement};
 pub use profile::MasterNormalizationProfile;
 pub use refine::master_refine_published_artifact;
+pub use rustred::reduction::terminal_normalization::TerminalSectorSymmetryPolicy as MasterSectorSymmetryPolicy;
 pub use terminal_import::master_import_proved_refinement;
 
 const SCHEMA: &str = "rustred.master-reduction.v2";
@@ -113,6 +115,15 @@ pub struct MasterReductionOptions {
     /// Add exact finite numerator identities from denominator-preserving
     /// integration-variable automorphisms. Independent of ordinary IBP search.
     pub numerator_symmetry_assistance: bool,
+    /// Close verified sector momentum maps and apply existing saved programs
+    /// to their complete finite identities. Includes the numerator provider.
+    pub sector_symmetry_assistance: bool,
+    /// New strong phases default to generator relations. Omission on resume
+    /// preserves the saved policy; changing it requires a new phase.
+    pub sector_symmetry_policy: Option<MasterSectorSymmetryPolicy>,
+    /// Apply authenticated saved programs to symmetry offspring. New strong
+    /// phases default to true; omission on resume preserves the saved mode.
+    pub sector_symmetry_saved_projection: Option<bool>,
     /// Re-eliminate retained family-qualified finite rows after full-U aliases.
     /// New refinements default to enabled; omitted on resume uses the snapshot.
     /// Publication only transports previously proved maps.
@@ -149,6 +160,9 @@ impl MasterReductionOptions {
             saved_rule_assistance: false,
             circuit_symmetry_assistance: false,
             numerator_symmetry_assistance: false,
+            sector_symmetry_assistance: false,
+            sector_symmetry_policy: None,
+            sector_symmetry_saved_projection: None,
             finite_feedback: None,
             normalization_profile: None,
             max_relation_columns: None,
@@ -282,6 +296,7 @@ fn load_session_with_policy(
     finite_provenance::validate_session(directory, &report, &session, policy)?;
     fresh::validate(directory, &report, &session)?;
     numerator_symmetry::validate(directory, &session, &report)?;
+    sector_symmetry::validate(directory, &session, &report)?;
     if modular::from_report(&report)? == MasterRefinementStrategy::ModularCircuits
         && (report["modular_state"].is_object() || report["status"] == "completed_nonminimal")
     {
@@ -367,6 +382,7 @@ fn master_reduce_source(
     if (options.saved_rule_assistance
         || options.circuit_symmetry_assistance
         || options.numerator_symmetry_assistance
+        || options.sector_symmetry_assistance
         || options.finite_feedback.is_some()
         || options.containing_sector_depth != 0
         || !options.collection_artifacts.is_empty())
@@ -387,6 +403,25 @@ fn master_reduce_source(
     } else {
         None
     };
+    let mut effective_options = options.clone();
+    if options.sector_symmetry_assistance {
+        effective_options.sector_symmetry_policy = Some(sector_symmetry::for_phase(
+            options,
+            resumed.as_ref().unwrap_or(&Value::Null),
+        )?);
+        effective_options.sector_symmetry_saved_projection =
+            Some(sector_symmetry::projection_for_phase(
+                options,
+                resumed.as_ref().unwrap_or(&Value::Null),
+            )?);
+    } else if options.sector_symmetry_policy.is_some()
+        || options.sector_symmetry_saved_projection.is_some()
+    {
+        return Err(AppError::input(
+            "sector-symmetry policy requires sector-symmetry assistance",
+        ));
+    }
+    let options = &effective_options;
     let normalization_profile = if let Some(report) = &resumed {
         profile::for_resume(options.normalization_profile, report)?
     } else if let Some(previous) = &options.previous_artifact {
@@ -427,6 +462,10 @@ fn master_reduce_source(
                 .as_bool()
                 .unwrap_or(false)
                 != options.numerator_symmetry_assistance
+            || report["sector_symmetry_assistance"]
+                .as_bool()
+                .unwrap_or(false)
+                != options.sector_symmetry_assistance
         {
             return Err(AppError::input(
                 "cannot change a saved phase operation in place; refine a published artifact into a new directory",
@@ -476,6 +515,14 @@ fn master_reduce_source(
     report["saved_rule_assistance"] = json!(options.saved_rule_assistance);
     report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);
     report["numerator_symmetry_assistance"] = json!(options.numerator_symmetry_assistance);
+    report["sector_symmetry_assistance"] = json!(options.sector_symmetry_assistance);
+    if options.sector_symmetry_assistance {
+        report["sector_symmetry_policy"] = json!(sector_symmetry::policy_name(
+            options.sector_symmetry_policy.unwrap_or_default()
+        ));
+        report["sector_symmetry_saved_projection"] =
+            json!(options.sector_symmetry_saved_projection.unwrap_or(true));
+    }
     collection::record_feedback(&mut report, finite_feedback);
     verification::record(&mut report, deep_verification);
     report["status"] = json!("running");
@@ -1072,7 +1119,25 @@ fn event(report: &Value, kind: &str, started: Instant) -> Value {
             .expect("report object")
             .iter()
             .filter(|(key, _)| !matches!(key.as_str(), "inventory" | "inputs"))
-            .map(|(key, value)| (key.clone(), value.clone()))
+            .map(|(key, value)| {
+                let value = if key == "sector_symmetry_reduction" {
+                    value.as_object().map_or_else(
+                        || value.clone(),
+                        |fields| {
+                            Value::Object(
+                                fields
+                                    .iter()
+                                    .filter(|(field, _)| field.as_str() != "failure_receipts")
+                                    .map(|(field, value)| (field.clone(), value.clone()))
+                                    .collect(),
+                            )
+                        },
+                    )
+                } else {
+                    value.clone()
+                };
+                (key.clone(), value)
+            })
             .collect(),
     );
     result["event"] = json!(kind);

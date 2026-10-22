@@ -64,7 +64,19 @@ impl<'a> SourceRequest<'a> {
                 Ok(hash.finalize().to_hex().to_string())
             }
         }?;
-        if options.numerator_symmetry_assistance {
+        if options.sector_symmetry_assistance {
+            let mut hash = blake3::Hasher::new();
+            hash.update(b"sector-symmetry-assistance-v1");
+            hash.update(
+                sector_symmetry::policy_name(options.sector_symmetry_policy.unwrap_or_default())
+                    .as_bytes(),
+            );
+            if options.sector_symmetry_saved_projection == Some(false) {
+                hash.update(b"sector-symmetry-source-rows-v1");
+            }
+            hash.update(binding.as_bytes());
+            Ok(hash.finalize().to_hex().to_string())
+        } else if options.numerator_symmetry_assistance {
             let mut hash = blake3::Hasher::new();
             hash.update(b"numerator-symmetry-assistance-v1");
             hash.update(binding.as_bytes());

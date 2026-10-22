@@ -39,6 +39,9 @@ pub(crate) struct MasterArgs {
     pub saved_rule_assistance: bool,
     pub circuit_symmetry_assistance: bool,
     pub numerator_symmetry_assistance: bool,
+    pub sector_symmetry_assistance: bool,
+    pub sector_symmetry_policy: Option<crate::MasterSectorSymmetryPolicy>,
+    pub sector_symmetry_saved_projection: Option<bool>,
     pub finite_feedback: Option<bool>,
     pub normalization_profile: Option<crate::MasterNormalizationProfile>,
     pub max_relation_columns: Option<usize>,
@@ -86,6 +89,9 @@ fn parse_source(
         saved_rule_assistance: false,
         circuit_symmetry_assistance: false,
         numerator_symmetry_assistance: false,
+        sector_symmetry_assistance: false,
+        sector_symmetry_policy: None,
+        sector_symmetry_saved_projection: None,
         finite_feedback: None,
         normalization_profile: None,
         max_relation_columns: None,
@@ -119,6 +125,10 @@ fn parse_source(
             "--saved-rule-assistance" => "--saved-rule-assistance",
             "--circuit-symmetry-assistance" => "--circuit-symmetry-assistance",
             "--numerator-symmetry-assistance" => "--numerator-symmetry-assistance",
+            "--sector-symmetry-assistance" => "--sector-symmetry-assistance",
+            "--sector-symmetry-policy" => "--sector-symmetry-policy",
+            "--sector-symmetry-saved-projection" => "--sector-symmetry-saved-projection",
+            "--no-sector-symmetry-saved-projection" => "--no-sector-symmetry-saved-projection",
             "--finite-feedback" => "--finite-feedback",
             "--no-finite-feedback" => "--no-finite-feedback",
             "--normalization-profile" => "--normalization-profile",
@@ -143,6 +153,30 @@ fn parse_source(
             "--saved-rule-assistance" => result.saved_rule_assistance = true,
             "--circuit-symmetry-assistance" => result.circuit_symmetry_assistance = true,
             "--numerator-symmetry-assistance" => result.numerator_symmetry_assistance = true,
+            "--sector-symmetry-assistance" => result.sector_symmetry_assistance = true,
+            "--sector-symmetry-policy" => {
+                let value = next_utf8_value(&mut args, option)?;
+                result.sector_symmetry_policy = Some(match value.as_str() {
+                    "generators" => crate::MasterSectorSymmetryPolicy::GeneratorRelations,
+                    "polynomial-orbits" => crate::MasterSectorSymmetryPolicy::PolynomialOrbits,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option,
+                            value,
+                            expected: "generators or polynomial-orbits",
+                        });
+                    }
+                });
+            }
+            "--sector-symmetry-saved-projection" | "--no-sector-symmetry-saved-projection" => {
+                if result.sector_symmetry_saved_projection.is_some() {
+                    return Err(ArgError::InvalidCombination(
+                        "sector symmetry saved projection flags are mutually exclusive",
+                    ));
+                }
+                result.sector_symmetry_saved_projection =
+                    Some(option == "--sector-symmetry-saved-projection");
+            }
             "--finite-feedback" | "--no-finite-feedback" => {
                 if result.finite_feedback.is_some() {
                     return Err(ArgError::InvalidCombination(
@@ -311,6 +345,16 @@ fn parse_source(
             "--modular-policy requires modular-circuits refinement",
         ));
     }
+    if result.sector_symmetry_policy.is_some() && !result.sector_symmetry_assistance {
+        return Err(ArgError::InvalidCombination(
+            "--sector-symmetry-policy requires --sector-symmetry-assistance",
+        ));
+    }
+    if result.sector_symmetry_saved_projection.is_some() && !result.sector_symmetry_assistance {
+        return Err(ArgError::InvalidCombination(
+            "sector symmetry saved projection flags require --sector-symmetry-assistance",
+        ));
+    }
     Ok(Command::WalkMasterReduce(result))
 }
 
@@ -326,6 +370,9 @@ pub(super) fn parse_publish(args: impl Iterator<Item = OsString>) -> Result<Comm
     if args.saved_rule_assistance
         || args.circuit_symmetry_assistance
         || args.numerator_symmetry_assistance
+        || args.sector_symmetry_assistance
+        || args.sector_symmetry_policy.is_some()
+        || args.sector_symmetry_saved_projection.is_some()
         || args.finite_feedback.is_some()
         || args.containing_sector_depth != 0
         || !args.collection_artifacts.is_empty()
@@ -654,6 +701,9 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     options.saved_rule_assistance = args.saved_rule_assistance;
     options.circuit_symmetry_assistance = args.circuit_symmetry_assistance;
     options.numerator_symmetry_assistance = args.numerator_symmetry_assistance;
+    options.sector_symmetry_assistance = args.sector_symmetry_assistance;
+    options.sector_symmetry_policy = args.sector_symmetry_policy;
+    options.sector_symmetry_saved_projection = args.sector_symmetry_saved_projection;
     options.finite_feedback = args.finite_feedback;
     options.normalization_profile = args.normalization_profile;
     options.max_relation_columns = args.max_relation_columns;
@@ -1332,6 +1382,229 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn sector_assistance_is_explicit_independent_and_refine_only() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        let Command::WalkMasterReduce(default) =
+            parse(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert!(!default.sector_symmetry_assistance);
+        assert_eq!(default.sector_symmetry_policy, None);
+        assert_eq!(default.sector_symmetry_saved_projection, None);
+        for saved in [false, true] {
+            for circuit in [false, true] {
+                for numerator in [false, true] {
+                    let mut argv: Vec<_> = base
+                        .into_iter()
+                        .chain(["--sector-symmetry-assistance"])
+                        .map(OsString::from)
+                        .collect();
+                    if saved {
+                        argv.push(OsString::from("--saved-rule-assistance"));
+                    }
+                    if circuit {
+                        argv.push(OsString::from("--circuit-symmetry-assistance"));
+                    }
+                    if numerator {
+                        argv.push(OsString::from("--numerator-symmetry-assistance"));
+                    }
+                    let Command::WalkMasterReduce(parsed) =
+                        parse(argv.clone().into_iter()).unwrap()
+                    else {
+                        panic!()
+                    };
+                    assert!(parsed.sector_symmetry_assistance);
+                    assert_eq!(parsed.sector_symmetry_policy, None);
+                    assert_eq!(parsed.sector_symmetry_saved_projection, None);
+                    assert_eq!(parsed.saved_rule_assistance, saved);
+                    assert_eq!(parsed.circuit_symmetry_assistance, circuit);
+                    assert_eq!(parsed.numerator_symmetry_assistance, numerator);
+                    argv.push(OsString::from("--sector-symmetry-assistance"));
+                    assert!(matches!(
+                        parse(argv.into_iter()),
+                        Err(ArgError::DuplicateOption("--sector-symmetry-assistance"))
+                    ));
+                }
+            }
+        }
+        assert!(
+            parse_publish(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--sector-symmetry-assistance",
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn sector_policy_is_optional_explicit_and_requires_strong_refinement() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        for (value, expected) in [
+            (
+                "generators",
+                crate::MasterSectorSymmetryPolicy::GeneratorRelations,
+            ),
+            (
+                "polynomial-orbits",
+                crate::MasterSectorSymmetryPolicy::PolynomialOrbits,
+            ),
+        ] {
+            let argv: Vec<_> = base
+                .into_iter()
+                .chain([
+                    "--sector-symmetry-assistance",
+                    "--sector-symmetry-policy",
+                    value,
+                ])
+                .map(OsString::from)
+                .collect();
+            let Command::WalkMasterReduce(parsed) = parse(argv.clone().into_iter()).unwrap() else {
+                panic!()
+            };
+            assert_eq!(parsed.sector_symmetry_policy, Some(expected));
+            assert!(parsed.sector_symmetry_assistance);
+            let mut duplicate = argv.clone();
+            duplicate.extend(["--sector-symmetry-policy", value].map(OsString::from));
+            assert!(matches!(
+                parse(duplicate.into_iter()),
+                Err(ArgError::DuplicateOption("--sector-symmetry-policy"))
+            ));
+            assert!(matches!(
+                parse(
+                    base.into_iter()
+                        .chain(["--sector-symmetry-policy", value])
+                        .map(OsString::from)
+                ),
+                Err(ArgError::InvalidCombination(
+                    "--sector-symmetry-policy requires --sector-symmetry-assistance"
+                ))
+            ));
+            assert!(
+                parse_publish(
+                    [
+                        "--command",
+                        "request",
+                        "--checkpoint",
+                        "cp",
+                        "--directory",
+                        "out",
+                        "--sector-symmetry-assistance",
+                        "--sector-symmetry-policy",
+                        value,
+                    ]
+                    .map(OsString::from)
+                    .into_iter()
+                )
+                .is_err()
+            );
+        }
+        assert!(matches!(
+            parse(
+                base.into_iter()
+                    .chain([
+                        "--sector-symmetry-assistance",
+                        "--sector-symmetry-policy",
+                        "unknown",
+                    ])
+                    .map(OsString::from)
+            ),
+            Err(ArgError::InvalidValue {
+                option: "--sector-symmetry-policy",
+                expected: "generators or polynomial-orbits",
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse(
+                base.into_iter()
+                    .chain(["--sector-symmetry-assistance", "--sector-symmetry-policy"])
+                    .map(OsString::from)
+            ),
+            Err(ArgError::MissingValue("--sector-symmetry-policy"))
+        ));
+    }
+
+    #[test]
+    fn sector_saved_projection_is_optional_boolean_and_requires_strong_refinement() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        for (flag, expected) in [
+            ("--sector-symmetry-saved-projection", true),
+            ("--no-sector-symmetry-saved-projection", false),
+        ] {
+            let argv: Vec<_> = base
+                .into_iter()
+                .chain(["--sector-symmetry-assistance", flag])
+                .map(OsString::from)
+                .collect();
+            let Command::WalkMasterReduce(parsed) = parse(argv.clone().into_iter()).unwrap() else {
+                panic!()
+            };
+            assert_eq!(parsed.sector_symmetry_saved_projection, Some(expected));
+            let mut duplicate = argv;
+            duplicate.push(OsString::from(flag));
+            assert!(matches!(
+                parse(duplicate.into_iter()),
+                Err(ArgError::DuplicateOption(found)) if found == flag
+            ));
+            assert!(matches!(
+                parse(base.into_iter().chain([flag]).map(OsString::from)),
+                Err(ArgError::InvalidCombination(
+                    "sector symmetry saved projection flags require --sector-symmetry-assistance"
+                ))
+            ));
+            assert!(
+                parse_publish(
+                    [
+                        "--command",
+                        "request",
+                        "--checkpoint",
+                        "cp",
+                        "--directory",
+                        "out",
+                        "--sector-symmetry-assistance",
+                        flag,
+                    ]
+                    .map(OsString::from)
+                    .into_iter()
+                )
+                .is_err()
+            );
+        }
+        for conflicting in [
+            [
+                "--sector-symmetry-saved-projection",
+                "--no-sector-symmetry-saved-projection",
+            ],
+            [
+                "--no-sector-symmetry-saved-projection",
+                "--sector-symmetry-saved-projection",
+            ],
+        ] {
+            assert!(matches!(
+                parse(
+                    base.into_iter()
+                        .chain(["--sector-symmetry-assistance"])
+                        .chain(conflicting)
+                        .map(OsString::from)
+                ),
+                Err(ArgError::InvalidCombination(
+                    "sector symmetry saved projection flags are mutually exclusive"
+                ))
+            ));
+        }
     }
 
     #[test]

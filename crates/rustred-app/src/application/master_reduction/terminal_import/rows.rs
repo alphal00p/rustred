@@ -54,7 +54,7 @@ fn validate_coefficient(
     Ok(())
 }
 
-pub(super) fn encode(
+pub(in crate::application::master_reduction) fn encode(
     family: &IntegralFamily,
     rows: &[TerminalEquation],
     binding: &str,
@@ -122,7 +122,7 @@ pub(super) fn encode(
 
 /// Not an untrusted-input parser or an independent source-identity proof. The
 /// caller authenticates the payload's provenance before this generated import.
-pub(super) fn decode(
+pub(in crate::application::master_reduction) fn decode(
     bytes: &[u8],
     family: &IntegralFamily,
     binding: &str,

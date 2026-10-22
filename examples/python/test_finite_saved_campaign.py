@@ -140,30 +140,88 @@ class FiniteCampaignTests(unittest.TestCase):
                 self.assertEqual(configure.call_args.kwargs["containing_sector_depth"], 0)
             self.assertEqual(FIXTURE.snapshot(self.campaign), before)
 
-    def test_public_finite_refine_parses_both_numerator_symmetry_choices(self):
+    def test_public_finite_refine_parses_independent_numerator_and_sector_symmetry_choices(self):
         self.plan()
         before = FIXTURE.snapshot(self.campaign)
-        for flag, expected in (("--numerator-symmetry-assistance", True),
-                               ("--no-numerator-symmetry-assistance", False)):
-            with self.subTest(flag=flag), patch.object(FIN, "public_main", return_value=0) as dispatch, \
+        for numerator in (None, False, True):
+            for sector in (None, False, True):
+                flags = []
+                for name, value in (("numerator", numerator), ("sector", sector)):
+                    if value is not None:
+                        flags.append(f"--{'' if value else 'no-'}{name}-symmetry-assistance")
+                with self.subTest(numerator=numerator, sector=sector), \
+                     patch.object(FIN, "public_main", return_value=0) as dispatch, \
+                     patch.object(PUBLIC, "native_executable", side_effect=AssertionError("legacy preflight")), \
+                     patch.object(PUBLIC.os, "execv", side_effect=AssertionError("legacy launch")):
+                    self.assertEqual(PUBLIC.main(["refine", "--campaign", str(self.campaign),
+                        "--executable", str(self.binary), *flags]), 0)
+                    supplied, extra = dispatch.call_args.args
+                    self.assertIs(supplied.numerator_symmetry_assistance, numerator)
+                    self.assertIs(supplied.sector_symmetry_assistance, sector)
+                    self.assertIsNone(supplied.sector_symmetry_policy)
+                    self.assertIsNone(supplied.sector_symmetry_saved_projection)
+                    self.assertEqual(extra, [])
+                self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
+    def test_finite_refinement_forwards_optional_numerator_and_sector_symmetry_preferences(self):
+        self.args.action = "refine"
+        before = FIXTURE.snapshot(self.campaign)
+        states = (("omitted", None), ("explicit-none", None), ("disabled", False), ("enabled", True))
+        for numerator_state, numerator in states:
+            for sector_state, sector in states:
+                for name, state, value in (("numerator", numerator_state, numerator),
+                                           ("sector", sector_state, sector)):
+                    attribute = f"{name}_symmetry_assistance"
+                    if state == "omitted":
+                        vars(self.args).pop(attribute, None)
+                    else:
+                        setattr(self.args, attribute, value)
+                with self.subTest(numerator=numerator_state, sector=sector_state), \
+                     patch.object(FIN.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure, \
+                     patch.object(FIN, "launch_plan", side_effect=AssertionError("launch planning")), \
+                     patch.object(FIN.PHASES, "run", side_effect=AssertionError("native work")):
+                    with self.assertRaisesRegex(ValueError, "configuration probe"):
+                        FIN.public_locked(self.args, self.campaign, self.binary, apply=False)
+                    self.assertTrue(configure.call_args.kwargs["enabled"])
+                    self.assertIs(configure.call_args.kwargs["numerator_symmetry_assistance"], numerator)
+                    self.assertIs(configure.call_args.kwargs["sector_symmetry_assistance"], sector)
+                    self.assertIsNone(configure.call_args.kwargs["sector_symmetry_policy"])
+                    self.assertIsNone(configure.call_args.kwargs["sector_symmetry_saved_projection"])
+                self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
+    def test_public_finite_refine_parses_both_sector_symmetry_policies(self):
+        self.plan()
+        before = FIXTURE.snapshot(self.campaign)
+        for policy in ("generators", "polynomial-orbits"):
+            with self.subTest(policy=policy), patch.object(FIN, "public_main", return_value=0) as dispatch, \
                  patch.object(PUBLIC, "native_executable", side_effect=AssertionError("legacy preflight")), \
                  patch.object(PUBLIC.os, "execv", side_effect=AssertionError("legacy launch")):
                 self.assertEqual(PUBLIC.main(["refine", "--campaign", str(self.campaign),
-                    "--executable", str(self.binary), flag]), 0)
+                    "--executable", str(self.binary), "--sector-symmetry-assistance",
+                    "--sector-symmetry-policy", policy]), 0)
                 supplied, extra = dispatch.call_args.args
-                self.assertIs(supplied.numerator_symmetry_assistance, expected)
+                self.assertTrue(supplied.sector_symmetry_assistance)
+                self.assertEqual(supplied.sector_symmetry_policy, policy)
+                self.assertIsNone(supplied.sector_symmetry_saved_projection)
                 self.assertEqual(extra, [])
             self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+        with patch.object(FIN, "public_main", side_effect=AssertionError("finite dispatch")), \
+             patch.object(PUBLIC, "native_executable", side_effect=AssertionError("legacy preflight")), \
+             patch.object(PUBLIC.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+            PUBLIC.main(["refine", "--campaign", str(self.campaign),
+                "--sector-symmetry-assistance", "--sector-symmetry-policy", "unknown"])
+        self.assertEqual(FIXTURE.snapshot(self.campaign), before)
 
-    def test_finite_refinement_forwards_optional_numerator_symmetry_preference(self):
+    def test_finite_refinement_forwards_optional_sector_symmetry_policy(self):
         self.args.action = "refine"
+        self.args.sector_symmetry_assistance = True
         before = FIXTURE.snapshot(self.campaign)
         for state, expected in (("omitted", None), ("explicit-none", None),
-                                ("disabled", False), ("enabled", True)):
+                                ("generators", "generators"), ("polynomial-orbits", "polynomial-orbits")):
             if state == "omitted":
-                vars(self.args).pop("numerator_symmetry_assistance", None)
+                vars(self.args).pop("sector_symmetry_policy", None)
             else:
-                self.args.numerator_symmetry_assistance = expected
+                self.args.sector_symmetry_policy = expected
             with self.subTest(state=state), \
                  patch.object(FIN.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure, \
                  patch.object(FIN, "launch_plan", side_effect=AssertionError("launch planning")), \
@@ -171,8 +229,60 @@ class FiniteCampaignTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "configuration probe"):
                     FIN.public_locked(self.args, self.campaign, self.binary, apply=False)
                 self.assertTrue(configure.call_args.kwargs["enabled"])
-                self.assertIs(configure.call_args.kwargs["numerator_symmetry_assistance"], expected)
+                self.assertTrue(configure.call_args.kwargs["sector_symmetry_assistance"])
+                self.assertEqual(configure.call_args.kwargs["sector_symmetry_policy"], expected)
+                self.assertIsNone(configure.call_args.kwargs["sector_symmetry_saved_projection"])
             self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
+    def test_public_finite_refine_parses_saved_projection_independently_of_policy_and_numerator(self):
+        self.plan()
+        before = FIXTURE.snapshot(self.campaign)
+        for projection in (False, True):
+            for policy in (None, "generators", "polynomial-orbits"):
+                flags = [f"--{'' if projection else 'no-'}sector-symmetry-saved-projection",
+                         "--sector-symmetry-assistance",
+                         f"--{'no-' if projection else ''}numerator-symmetry-assistance"]
+                if policy is not None:
+                    flags += ["--sector-symmetry-policy", policy]
+                with self.subTest(projection=projection, policy=policy), \
+                     patch.object(FIN, "public_main", return_value=0) as dispatch, \
+                     patch.object(PUBLIC, "native_executable", side_effect=AssertionError("legacy preflight")), \
+                     patch.object(PUBLIC.os, "execv", side_effect=AssertionError("legacy launch")):
+                    self.assertEqual(PUBLIC.main(["refine", "--campaign", str(self.campaign),
+                        "--executable", str(self.binary), *flags]), 0)
+                    supplied, extra = dispatch.call_args.args
+                    self.assertIs(supplied.sector_symmetry_saved_projection, projection)
+                    self.assertTrue(supplied.sector_symmetry_assistance)
+                    self.assertIs(supplied.numerator_symmetry_assistance, not projection)
+                    self.assertEqual(supplied.sector_symmetry_policy, policy)
+                    self.assertEqual(extra, [])
+                self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+
+    def test_finite_refinement_forwards_optional_sector_symmetry_saved_projection(self):
+        self.args.action = "refine"
+        self.args.sector_symmetry_assistance = True
+        self.args.numerator_symmetry_assistance = False
+        before = FIXTURE.snapshot(self.campaign)
+        for state, expected in (("omitted", None), ("explicit-none", None),
+                                ("disabled", False), ("enabled", True)):
+            if state == "omitted":
+                vars(self.args).pop("sector_symmetry_saved_projection", None)
+            else:
+                self.args.sector_symmetry_saved_projection = expected
+            for policy in (None, "generators", "polynomial-orbits"):
+                self.args.sector_symmetry_policy = policy
+                with self.subTest(state=state, policy=policy), \
+                     patch.object(FIN.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure, \
+                     patch.object(FIN, "launch_plan", side_effect=AssertionError("launch planning")), \
+                     patch.object(FIN.PHASES, "run", side_effect=AssertionError("native work")):
+                    with self.assertRaisesRegex(ValueError, "configuration probe"):
+                        FIN.public_locked(self.args, self.campaign, self.binary, apply=False)
+                    self.assertTrue(configure.call_args.kwargs["enabled"])
+                    self.assertTrue(configure.call_args.kwargs["sector_symmetry_assistance"])
+                    self.assertIs(configure.call_args.kwargs["sector_symmetry_saved_projection"], expected)
+                    self.assertEqual(configure.call_args.kwargs["sector_symmetry_policy"], policy)
+                    self.assertFalse(configure.call_args.kwargs["numerator_symmetry_assistance"])
+                self.assertEqual(FIXTURE.snapshot(self.campaign), before)
 
     def test_public_finite_postprocess_parses_recovery_and_import_without_legacy_dispatch(self):
         self.plan()

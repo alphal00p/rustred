@@ -7,6 +7,7 @@ heartbeat window, not from display polling or inferred progress.
 from __future__ import annotations
 
 import json
+from itertools import islice
 import math
 from pathlib import Path
 
@@ -415,7 +416,8 @@ def normalize_status(status, sequence=None):
             "published_rule_records_scope": "installed executable owner-program records; not uninstalled embedded sectors or newly generated rules",
             **_numbers(master, ("raw_terminals", "normalized_terminals", "remaining_terminals",
                                 "relation_rows", "eliminated_terminals", "completed_work", "total_work",
-                                "seed_depth", "containing_sector_depth", "independent_rows", "auxiliary_columns", "nonzeros")),
+                                "seed_depth", "containing_sector_depth", "independent_rows", "auxiliary_columns", "nonzeros",
+                                "completed_assistance_rows", "pending_assistance_rows", "completed_assistance_keys")),
             **{key: clean(master.get(key, ""), 4096 if key == "artifact" else 300)
                for key in ("stage", "status", "artifact", "scope_binding", "publication_verification_mode",
                            "publication_assurance")},
@@ -425,6 +427,12 @@ def normalize_status(status, sequence=None):
             "fresh_search_recipe": clean(master.get("fresh_search_recipe", ""), 100),
             "numerator_symmetry_assistance": master.get("numerator_symmetry_assistance") is True,
             "inherited_numerator_symmetry_authority": mapping(master.get("inherited_equation_authority")).get("numerator_symmetry_assistance") is True,
+            "sector_symmetry_assistance": master.get("sector_symmetry_assistance") is True,
+            "sector_symmetry_policy": (master.get("sector_symmetry_policy", "generators")
+                if master.get("sector_symmetry_policy", "generators") in ("generators", "polynomial-orbits") else "unknown"),
+            "sector_symmetry_saved_projection": (master.get("sector_symmetry_saved_projection")
+                if type(master.get("sector_symmetry_saved_projection")) is bool else None),
+            "inherited_sector_symmetry_authority": mapping(master.get("inherited_equation_authority")).get("sector_symmetry_assistance") is True,
             "finite_search_complete": master.get("finite_search_complete") is True,
             "modular_search_complete": master.get("modular_search_complete") is True,
             "master_minimality_claim": False,
@@ -470,6 +478,65 @@ def normalize_status(status, sequence=None):
         if certificate:
             frame["master_reduction"]["numerator_symmetry_certificate"] = {
                 key: clean(certificate.get(key, ""), 300) for key in ("recipe", "inventory_binding", "authority")}
+        for name, fields in (("sector_symmetry_preparation", (
+                    "input_keys", "processed_keys", "analyzed_supports", "support_closure_supports", "closure_keys",
+                    "orbit_images", "orbit_terms",
+                    "legacy_source_equations", "normalization_input_keys", "normalization_canonical_keys",
+                    "normalization_unit_aliases", "normalization_projected_numerators", "normalization_source_equations",
+                    "normalization_output_terms", "normalization_safe_zero_certificates",
+                    "proposed_generators", "verified_generators", "discovered_maps", "equation_targets",
+                    "transported_keys", "transported_rows", "equations", "output_terms", "trivial_equations")),
+                ("sector_symmetry_reduction", (
+                    "processed_rows", "source_rows", "saved_reduced_rows", "saved_application_failures",
+                    "reused_rows", "projected_terms", "source_terms", "incomplete_boundaries",
+                    "normalization_outputs_outside_source_inventory", "saved_output_keys_outside_symmetry_inventory",
+                    "saved_terminal_keys_outside_source_inventory", "deferred_symmetry_sources", "unresolved_output_keys"))):
+            source = mapping(master.get(name))
+            if not source:
+                continue
+            header = {key: source[key] if type(source.get(key)) is int and source[key] >= 0 else None
+                      for key in fields}
+            for key in ("complete", "source_jobs_complete", "saved_projection_complete", "all_offspring_reduced",
+                        "combined_closure_complete", "polynomial_orbit_closure_claim", "saved_projection_requested",
+                        "exact_source_rows_ready"):
+                header[key] = source.get(key) if type(source.get(key)) is bool else None
+            for key in ("scope", "combined_closure_scope", "stage", "policy"):
+                header[key] = clean(source.get(key, ""), 300)
+            skipped = source.get("skipped")
+            if isinstance(skipped, list):
+                header["skipped"] = [
+                    {"reason": clean(row["reason"], 160), "count": row["count"]}
+                    for row in skipped[:16] if isinstance(row, dict)
+                    and isinstance(row.get("reason"), str)
+                    and type(row.get("count")) is int and row["count"] >= 0]
+                omitted = source.get("skipped_reasons_omitted", 0)
+                header["skipped_reasons_omitted"] = max(0, len(skipped) - 16) + (
+                    omitted if type(omitted) is int and omitted >= 0 else 0)
+            failure_kinds = source.get("failure_kinds")
+            if isinstance(failure_kinds, dict):
+                header["failure_kinds"] = {clean(key, 160): count for key, count in islice(failure_kinds.items(), 16)
+                                           if isinstance(key, str) and type(count) is int and count >= 0}
+                omitted = source.get("failure_kinds_omitted", 0)
+                header["failure_kinds_omitted"] = max(0, len(failure_kinds) - 16) + (
+                    omitted if type(omitted) is int and omitted >= 0 else 0)
+            active = mapping(source.get("active_row"))
+            if active:
+                header["active_row"] = {key: active[key] if type(active.get(key)) is int and active[key] >= 0 else None
+                    for key in ("task", "unique_nodes", "active_nodes", "pending_frames", "cached_entries")}
+                elapsed = number(active.get("elapsed_seconds"))
+                header["active_row"]["elapsed_seconds"] = elapsed if elapsed is not None and elapsed >= 0 else None
+                header["active_row"]["phase"] = clean(active.get("phase", ""), 100)
+            frame["master_reduction"][name] = header
+        for name in ("sector_symmetry_certificate", "sector_symmetry_reduced_certificate",
+                     "sector_symmetry_normalization_certificate", "sector_symmetry_task_certificate",
+                     "sector_symmetry_projection_checkpoint"):
+            certificate = mapping(master.get(name))
+            if certificate:
+                frame["master_reduction"][name] = {
+                    key: clean(certificate.get(key, ""), 300)
+                    for key in ("recipe", "inventory_binding", "authority_binding", "authority", "normalization_profile", "policy")}
+                if type(certificate.get("saved_projection_requested")) is bool:
+                    frame["master_reduction"][name]["saved_projection_requested"] = certificate["saved_projection_requested"]
         proof_import = mapping(master.get("proof_import"))
         if proof_import:
             frame["master_reduction"]["proof_import"] = {

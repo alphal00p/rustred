@@ -3,6 +3,7 @@ use super::{RoutedCampaignRequest, input::Selection, prepare};
 use crate::AppError;
 use rustred::family::IntegralKey;
 use rustred::reduction::terminal_relations::{TerminalEquation, TerminalRelationError};
+use rustred::solver::CandidateRoutedApplicationSnapshot;
 use serde_json::Value;
 use std::sync::atomic::AtomicBool;
 
@@ -11,6 +12,13 @@ pub(in crate::application) type TerminalEquationProvider =
 
 pub(in crate::application) type TerminalEquationReducer =
     Box<dyn FnMut(&TerminalEquation) -> Result<TerminalEquation, TerminalEquationReductionFailure>>;
+pub(in crate::application) type TerminalEquationControlledReducer = Box<
+    dyn FnMut(
+        &TerminalEquation,
+        &AtomicBool,
+        &mut dyn FnMut(&CandidateRoutedApplicationSnapshot),
+    ) -> Result<TerminalEquation, TerminalEquationReductionFailure>,
+>;
 
 /// Failure to apply a supplied exact identity through an authenticated saved
 /// candidate program. Failure never promotes an unresolved integral to master.
@@ -35,6 +43,7 @@ impl TerminalEquationReductionFailure {
             Self::SavedApplication(CandidateRoutedError::ResourceLimit { .. }) => {
                 "caller-resource-limit"
             }
+            Self::SavedApplication(CandidateRoutedError::Cancelled) => "cancelled",
             Self::SavedApplication(_) => "saved-rule-application-unavailable",
         }
     }
@@ -66,6 +75,7 @@ impl std::error::Error for TerminalEquationReductionFailure {
 pub(in crate::application) struct PreparedTerminalEquations {
     pub provider: TerminalEquationProvider,
     pub reduce_equation: TerminalEquationReducer,
+    pub reduce_equation_controlled: TerminalEquationControlledReducer,
 }
 
 /// Generation-free exact application of saved candidate equations.
@@ -132,10 +142,28 @@ pub(in crate::application) fn prepare_terminal_equations(
     cancel: &AtomicBool,
     observer: &impl Fn(Value),
 ) -> Result<PreparedTerminalEquations, AppError> {
+    prepare_terminal_equations_with_cache_mode(
+        request,
+        family_fingerprint,
+        expected_digests,
+        cancel,
+        observer,
+        false,
+    )
+}
+
+pub(in crate::application) fn prepare_terminal_equations_with_cache_mode(
+    request: &RoutedCampaignRequest,
+    family_fingerprint: &str,
+    expected_digests: &[String],
+    cancel: &AtomicBool,
+    observer: &impl Fn(Value),
+    factorized: bool,
+) -> Result<PreparedTerminalEquations, AppError> {
     let (selection, n, limits) = Selection::parse(&request.selection_json)?;
     macro_rules! dispatch { ($($n:literal),*) => { match rustred::campaign_storage_arity(n) {
         $($n => prepare_provider::<$n>(request, &selection, limits,
-            family_fingerprint, expected_digests, cancel, observer),)*
+            family_fingerprint, expected_digests, cancel, observer, factorized),)*
         _ => Err(AppError::input("terminal equation arity is not compiled")),
     }} }
     crate::ensure_runtime_arity(n)?;
@@ -150,6 +178,7 @@ fn prepare_provider<const N: usize>(
     expected_digests: &[String],
     cancel: &AtomicBool,
     observer: &impl Fn(Value),
+    factorized: bool,
 ) -> Result<PreparedTerminalEquations, AppError> {
     let mut verify = |actual: Vec<String>| {
         if actual != expected_digests {
@@ -173,6 +202,11 @@ fn prepare_provider<const N: usize>(
         ));
     }
     let mut application = reducer.application();
+    if factorized {
+        application
+            .set_cache_representation(rustred::solver::CandidateCacheRepresentation::Factorized)
+            .map_err(|error| AppError::execution(error.to_string()))?;
+    }
     let provider = Box::new(move |key: &IntegralKey| {
         reducer
             .terminal_identity_equations(key)
@@ -186,61 +220,80 @@ fn prepare_provider<const N: usize>(
             })
             .map_err(|error| TerminalRelationError::Algebra(error.to_string()))
     });
-    let reduce_equation = Box::new(move |equation: &TerminalEquation| {
-        use rustred::solver::{CandidateEntryAdmission, FiniteRootAdmission, RootRegionInput};
-        if equation.terms.is_empty() {
-            return Ok(equation.clone());
-        }
-        // These finite roots are derived from an already exact source row, not
-        // an enlargement of the user's starting scope or terminal catalogue.
-        // The saved candidate rules must still satisfy all their own guards,
-        // routing and strict-descent checks. Descendants are never rank-clipped.
-        let inputs = equation.terms.keys().map(|key| {
-            let lower: Vec<_> = (0..N)
-                .map(|axis| {
-                    let power = key.powers().get(axis).copied().unwrap_or(0);
-                    if power > 0 {
-                        power as u64 - 1
-                    } else {
-                        power.unsigned_abs()
-                    }
-                })
-                .collect();
-            RootRegionInput {
-                support: std::array::from_fn(|axis| {
-                    key.powers().get(axis).copied().unwrap_or(0) > 0
-                }),
-                upper: lower.iter().copied().map(Some).collect(),
-                lower,
-                rank: None,
-                powers: Default::default(),
+    let reduce_equation_controlled: TerminalEquationControlledReducer = Box::new(
+        move |equation: &TerminalEquation,
+              cancel: &AtomicBool,
+              observer: &mut dyn FnMut(&CandidateRoutedApplicationSnapshot)| {
+            use rustred::solver::{CandidateEntryAdmission, FiniteRootAdmission, RootRegionInput};
+            if equation.terms.is_empty() {
+                return Ok(equation.clone());
             }
-        });
-        let admission = FiniteRootAdmission::try_new(inputs, equation.terms.len())
-            .map_err(TerminalEquationReductionFailure::FiniteAdmission)?;
-        let reduction = application
-            .reduce_linear_combination_with_entry_admission(
-                equation
-                    .terms
-                    .iter()
-                    .map(|(key, value)| (key.clone(), value.clone())),
-                CandidateEntryAdmission::ExplicitFinite(&admission),
-            )
-            .map_err(TerminalEquationReductionFailure::SavedApplication)?;
-        let mut conditions = equation.nonzero_conditions.clone();
-        for condition in reduction.nonzero_conditions() {
-            if !conditions.contains(condition) {
-                conditions.push(condition.clone());
+            // These finite roots are derived from an already exact source row, not
+            // an enlargement of the user's starting scope or terminal catalogue.
+            // The saved candidate rules must still satisfy all their own guards,
+            // routing and strict-descent checks. Descendants are never rank-clipped.
+            let inputs = equation.terms.keys().map(|key| {
+                let lower: Vec<_> = (0..N)
+                    .map(|axis| {
+                        let power = key.powers().get(axis).copied().unwrap_or(0);
+                        if power > 0 {
+                            power as u64 - 1
+                        } else {
+                            power.unsigned_abs()
+                        }
+                    })
+                    .collect();
+                RootRegionInput {
+                    support: std::array::from_fn(|axis| {
+                        key.powers().get(axis).copied().unwrap_or(0) > 0
+                    }),
+                    upper: lower.iter().copied().map(Some).collect(),
+                    lower,
+                    rank: None,
+                    powers: Default::default(),
+                }
+            });
+            let admission = FiniteRootAdmission::try_new(inputs, equation.terms.len())
+                .map_err(TerminalEquationReductionFailure::FiniteAdmission)?;
+            let reduction = application
+                .reduce_linear_combination_with_entry_admission_and_control(
+                    equation
+                        .terms
+                        .iter()
+                        .map(|(key, value)| (key.clone(), value.clone())),
+                    CandidateEntryAdmission::ExplicitFinite(&admission),
+                    cancel,
+                    std::time::Duration::from_millis(250),
+                    observer,
+                )
+                .map_err(TerminalEquationReductionFailure::SavedApplication)?;
+            let mut conditions = equation.nonzero_conditions.clone();
+            for condition in reduction.nonzero_conditions() {
+                if !conditions.contains(condition) {
+                    conditions.push(condition.clone());
+                }
             }
-        }
-        Ok(TerminalEquation {
-            terms: reduction.terms().clone(),
-            nonzero_conditions: conditions,
-        })
+            Ok(TerminalEquation {
+                terms: reduction.terms().clone(),
+                nonzero_conditions: conditions,
+            })
+        },
+    );
+    // Both public facades retain the very same selective application cache.
+    // Preparation and application run on the caller's thread.
+    let shared = std::rc::Rc::new(std::cell::RefCell::new(reduce_equation_controlled));
+    let ordinary = std::rc::Rc::clone(&shared);
+    let reduce_equation: TerminalEquationReducer = Box::new(move |equation| {
+        (ordinary.borrow_mut())(equation, &AtomicBool::new(false), &mut |_| {})
     });
+    let reduce_equation_controlled: TerminalEquationControlledReducer =
+        Box::new(move |equation, cancel, observer| {
+            (shared.borrow_mut())(equation, cancel, observer)
+        });
     Ok(PreparedTerminalEquations {
         provider,
         reduce_equation,
+        reduce_equation_controlled,
     })
 }
 

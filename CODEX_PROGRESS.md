@@ -1,5 +1,208 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 22 — combined sector-symmetry implementation (validated; delivery)
+
+Final feature implementation is validated: **827 native passes**, zero failures,
+five explicit ignores; **298 Python checks**. Independent math/code audits pass.
+Both exact source policies preserve P102/weak rows, symbolic masses/dimension,
+original identities, guards and binary replay; no custom CAS or new IBP campaign.
+Frozen optimized binary: `TMP/releases/20261022-combined-master-refinement/rustred`,
+SHA256 `0aba2d21431f05015b7077e1ad4d5ee1470bf6798134ed2cdba6cd3da9efeb7a`.
+
+Current five-loop 939-key/862-basis capsule: existing normalization ->693;
+generator relations ->667 (195 new dependencies total); full orbits ->660
+(202 total). Lower-loop generator+saved projection: K6 5->5; H22->18;
+FG16->15; BMW17->14; X19->15. Family-local four-loop sum74->62, while the
+separate qualified full-U census23->22; no false minimality/global-sum claim.
+
+Real source-only CLI checkpoint/resume/finalization and normal public application
+all pass: basis667, all939maps/1052outputterms, all136725inheritedguards retained.
+Worker change1->4 yields byte-identical native state; finalization leaves source
+checkpoint unchanged. Public cold application34.53s; finalization46.95s.
+Application's136790guards imply pure proof domain by exact native quotient/product
+witnesses (strict literal-comparison negative retained; no guard injection).
+Published source folder is local `TMP/sector-symmetry-acceptance-20261022/
+native-cli-final-source-only/finalized-application`; actual runtime-package export
+is a separate existing-API check, not silently equated with that folder.
+
+Delivery report: `docs/research/combined_sector_symmetry_refinement_2026-10-22.md`.
+Native evidence: `TMP/sector-symmetry-native-tests-20261022/final-collection-memo`.
+Acceptance evidence: `TMP/sector-symmetry-acceptance-20261022`.
+No production writes/signals, numerical evaluation, Vakint package replacement,
+new generation, schema migration project or reference/payload push. Main's unrelated
+FeynKit/notebook work remains untouched. Historical paused broader goal unchanged.
+
+Remaining limitations/deferred work: optional saved-program projection can be
+expensive (real15-minute control paused with24/2134tasks); selected finite symmetry
+cohort is not all pinch/IBP saturation, independence or unrestricted closure;
+3L/4L measured aliases are not yet substituted into Vakint's packaged artifacts.
+Next user action after delivery: graceful stop/finalize existing refinement, then
+source frozen workflow and `rrfresh 2 0`, whose fast path disables extra saved
+projection but keeps normal finite IBP seeds. Resume uses `rr --refine-masters`.
+
+FINALactual0abaCLI source-only pass reaches667 and checkpoints generation8 in
+225.57s/218.94CPU/2.34GB. All2134assistance rowsdrained, sourcecondition maps
+verified,3cornerordinaryrows beforepollingstop. Coldchangedworkers1->4resume
+savesgeneration9 withBYTEIDENTICALnative state32d477... , basis667,cursor3;
+newinvocationcurrent-worker eventverified beforestop. Original939maps+136725
+sourceguardsretained; application has136790guards vs pure136731 fromdifferent
+pivot derivations. Exact mapscomposebothways; strictpure-newguardliteralcheck
+negativepreserved (representationdifference, notoldguardloss), nativepolynomial
+implicationdiagnosticpending. No guardinjection/approximatezero/modelchange.
+LowerGEN+SAVED(withnoordinary/probes) nowallverified:5->5,H22->18,FG16->15,
+BMW17->14,X19->15;1193mapscoldpass. Family-local74->62 but existingqualified
+full-U representatives23->22, no skips: donotmistake12localdropsfor12global.
+Finalization/application-artifact/coldmapgatefollows; finalnativecore354green,
+appThinLTOtestfrontstilllinking. LTOofftestfrontendshortcutfailedonpluginLTO
+blake3objects, twofailedreceiptsretained; approvedfallbackonly, nonewexperiment.
+
+FullOrbitv2 test ALSO COMPLETESwithin1500sgrant: current862 ->norm693 ->660,
+202newdependencies; all939maps/136725guardsretained,136731final. Fullnative
+1368.163s/process1384.05s/28.026GB; sourcecold672.065s,basis67.388s,join78.644s.
+Independent667->660compositionchecksALL939maps/guards, soforTHIScohort7fewer
+remainingkeyswith8rawmapschanging. Noordinary/savedprojection in eitherpuretest.
+Realcb81CLIstartup178s is98%sampledCPU redundantcollectionguardinterning; narrow
+borrowed-slice-ID memo is nowimplemented/auditedwith7byteidentity/lifetime/grant
+tests. RealCLIthen loads/verifies8246savedroutes before applying2134sourcetasks;
+at~9minonly15tasks,6savedreduced,noerrors,still862durablebasisawaitingingestion.
+Therefore a separate explicit savedprojection=false mode is implemented, not a
+heuristic cutoff: samecompleteexactsourcecohortdirecttoexistingfiniteexecutor,
+skipload/application, ordinarycorner/seedworkunchanged, no falseclosed-tailclaim.
+DEFAULTTRUEpreservesexistingv3; falseboundintophase/provider/task/cert/member,
+coldsourceoutputequalsfrozentasks; Python298tests pass27.349s. Math/codeaudits
+passbothsource-onlymodeandguardmemo. Lastappmetadata passes1m17s; additionalcore
+testmetadata+finaloptimizedbuildqueued21:35UTC. No morefeaturedevelopment.
+
+Real v3 generator result is now independently VERIFIED: same original939jobs,
+normalization693 -> **667basis**,26newrank, hence195newrank vs current862.
+Preparation6.541s, sourcecold13.649s, exactjoin8.865s, fullcold43.446s/3.45GB.
+2585equations(961legacy),450180terms,2184independentsourcerows,327266columns,
+12,211,683-byte sourcecapsule. All939maps compose from BOTHbaselines; all136725
+sourceguards retained,136731final(with6exactpivotguards). Zeroordinaryrows and
+NOsaved-programprojection in this client. Notminimality, notwholeapp timing.
+V3normalization+gen195gain is not a renamedoldcase. Localnative+independent
+receipts v3-five-generators-after-normalization693 and v3-checks/... .
+Finalv3optimizedbuild6m11s, frozen cb81c0db9fad743c272f11a2b487dc53cea31e9ac5998c686c83c3d023b843aa
+at TMP/releases/20261022-sector-symmetry-generators/rustred; nativecore347green,
+appfunctionalfrontendpending. ActualnativeCLI apppilot nowactive owned113file
+copy, cornerordinaryworkallowedandreportedseparate; productionunchanged.
+
+V3 explicit-policy source is frozen and independent audit passes after fixing
+collection policy retention and rejecting manual no-legacy capsules in appstrong.
+Metadata app/lib/tests passes; optimized build started21:19UTC.289finalPython
+tests pass25.618s. Historical final-v2 native suite now809pass/0fail/5ignore;
+test-only fixes add sum::<usize> and account for4combinedP102rows while retaining
+exact average+all3weak row assertions. Fresh v3 captured-native tests are pending.
+Lower matched NORMALIZATION controls now also complete: K6/H/FG/BMW/X basis
+5/22/16/17/19 unchanged under both conservative and RAM recipes, zero newrank,
+all1193maps/guards/coldchecks pass, zero ordinarysources. Purev2SYM likewise0.
+This distinguishes the realfive-loop169gain from nonexistent lower-loop gains.
+
+At21:17UTC the final-v2 owned pilot is still preparing: early high-degree
+originals produce millions of FULL orbit terms despite removing recursive jobs.
+Four rank>=8sources occur at lexical indices0/65/66/67; the pilot has reached68
+and remains within its caller1500s/32GB grant. No new-SYM rank claim yet.
+Root approved an explicit v3 runtime policy: practical `generators` (route r and
+r*g for every discovered generator, exact complete numerator) and optional
+`polynomial-orbits` (existing full means). This removes a group-orbit multiplier
+without an arbitrary cutoff; no full coinvariant-span claim in generator mode.
+Original939jobs, legacy equations and normalization equations remain; no hidden
+source narrowing. Core/app/Python implementation lanes are active, one final
+build/gate cycle follows. The optimized v2 binary cbc53... is retained separately
+as an experimental comparison, not a recommended production replacement.
+
+Matched normalization census on the ACTUAL immutable current939/862 capsule
+now completes: conservative939->939,862->862 in1.615s preparation; caller/RAM-
+controlled existing normalization finds197unit aliases+14numerator projections,
+211exact equations,728normalizer outputs and **862->693remaining basis**.
+RAM preparation9.842s; exact retained-session join0.00160s; full cold process
+23.016s/810.6MB peak. All939inherited maps compose, all136,725current conditions
+remain in the same ordered guard domain, native normalizer/final-state replay
+passes, zero ordinary sources. This is169new independent dependencies from
+EXISTING normalization, not a claim about the new broader symmetry provider.
+Acceptance lane retains separate exact receipts and unchanged source hashes.
+
+Whole-polynomial v2 is implemented. Independent audit additionally caught that
+Reynolds averaging alone need not dominate individual old weak equations after
+a finite saved-IBP projection (the two projections need not commute). Default
+strong preparation therefore embeds/prepares the original P102/weak cohort once
+on ORIGINAL keys and merges/deduplicates it before exact basis/projection. Its
+existing source certificate is nested in v2, not a second campaign/descriptor.
+Manual explicit-map preparation remains independent. Final supplement/build,
+native gates and new-SYM measurements are still pending.
+
+Final source is now frozen: whole-polynomial v2 plus nested old weak certificate,
+RAM normalizer equations, guard-batch merging and routed cancellation. Independent
+mathematical/code audit finds no blocker; it specifically checks original-only
+jobs, exact finite-orbit replay, combined source inventory, flag-off isolation,
+mass/dot/Jacobian conditions and inherited guards. Final app/lib/tests metadata
+passes1m14s. Final optimized build started21:01UTC; exact final core archive is
+d41ed6025403ef4fcd57ded1dc7f281f4f25e563f20c4c66d0528e29cf45a316.
+Fresh native functional frontends and real v2 acceptance use that captured
+archive, not the earlier preliminary build. Final280Python tests pass24.435s.
+Dashboard now separates normalization728outputs/197aliases/14projections from
+the independently measured693remaining basis. Combined provider completion and
+deferred saved outputs remain separately reported.
+
+User approved the six-part full-integral proposal and clarified that it may
+combine with P102 into one refinement pass. Plan:
+SECTOR_SYMMETRY_REFINEMENT_PLAN.md. Production ca627... remains read-only.
+Source feature starts97f55c93; unrelated main work is preserved.
+
+Discovery/core/app/Python/independent-math/acceptance agents are active. The signed
+projector graph design has an initial mathematical audit and a cached native
+Symbolica graph/matrix probe. Broader discovery does not require the ambient
+Symanzik preparation that hit the20k gate. Every map still gets exact verification.
+General transport permits moved dotted powers while retaining the old weighted
+stabilizer contract. Cross-family endpoints remain qualified until verified
+back-routing to the common refinement family. Strong preparation will compose
+prior maps instead of silently changing their normalization authority.
+
+Early audit flagged that prepared offspring rows must actually be enqueued:
+binding a finite provider alone does not schedule all of its keys. App/core are
+addressing full-plan scheduling rather than relying on later ordinary seeds.
+No new dimensional-shift or numerical-master implementation is in this task.
+
+First optimized build passes(6m06s), frozen privately as
+TMP/releases/20261022-sector-symmetry/rustred SHA256
+fbc4796c74f1acf0254d2345ac992832b9e6678fa39d1d58ccbf1af9d1ff32f8.
+It is a preliminary candidate, not the final recommended build.798native
+functional controls pass(331core/467app), five explicit ignores; Python277pass.
+All1,193lower-loop raw maps compose exactly; pureSYM adds no independent rank:
+K6 5->5,H22->22,FG16->16,BMW17->17,X19->19. Preparation0.062/1.293/0.571/
+0.607/1.333s respectively, zero ordinary sources, cold replay passes. Source
+SHA trees remain unchanged. Evidence TMP/sector-symmetry-acceptance-20261022.
+
+The real five-loop939/862 PREPARATION (before projection/join) exposed monomial
+closure blowup:81.48s/80.61CPU,32.04GB peak,998,662 discovered keys vs4,637
+processed. The explicit32GB diagnostic grant censored only our own pilot; no
+completed plan, new rank, or production signal. All negative evidence retained.
+Root rejected simply increasing RAM. Core/app are replacing termwise recursive
+seeding with exact whole-polynomial orbits and Reynolds averages per original
+source/support group. Independent primary and secondary math audits prove the
+wanted-space relation identity, require same-root action and native orbit closure
+replay, and explicitly exclude blanket global pinch/IBP saturation claims.
+
+A second concrete generic bottleneck was found before large-guard ingestion:
+assistance.rs scanned existing conditions for each of108k
+incoming guards. Ordered borrowed-HashSet batch merging now avoids quadratic
+comparisons and clones only new guards; three regressions await final rebuild.
+No CAS primitive, serialization layout change or mathematical scope change.
+
+First native metadata check caught in-flight cancellation API linkage while
+the two lanes were editing; coordinated names fixed it. Second app/lib/tests
+capacity-profile metadata check passes (1m15s). Python277controls pass. Core
+has34new targeted tests written, not yet runtime-passed. Source audits validated
+signed graph faithfulness, compact representative quotient, exact pivot guards,
+and cancellation pin/cache cleanup. Full release/runtime gates remain open.
+
+Root found and removed a serious prospective guard-cost regression: composing
+each row must not clone108k inherited conditions or deduplicate them quadratically.
+One shared guard envelope plus HashSet union now covers the cohort. A cheap
+native exact independent-row basis precedes saved projection; only unresolved
+terms invoke the existing application cache. New source/task/projection sidecars
+freeze replay identity and preserve typed incomplete-boundary receipts.
+
 ## October 22 — five-loop master-count literature and implementation study
 
 Parallel delivery finished/pushed before this research began. Four lanes:

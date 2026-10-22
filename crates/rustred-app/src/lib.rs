@@ -22,8 +22,8 @@ pub use application::{
 };
 pub use application::{
     MasterNormalizationProfile, MasterReductionArtifact, MasterReductionOperation,
-    MasterReductionOptions, MasterRefinementStrategy, load_master_reduction,
-    load_master_reduction_with_policy, load_master_relation_session,
+    MasterReductionOptions, MasterRefinementStrategy, MasterSectorSymmetryPolicy,
+    load_master_reduction, load_master_reduction_with_policy, load_master_relation_session,
     load_master_relation_session_with_policy, master_import_proved_refinement,
     master_publish_partial_refinement, master_recover_interrupted_refinement,
     master_reduce_saved_campaign, master_reduction_inspect, master_reduction_inspect_with_policy,

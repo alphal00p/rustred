@@ -52,6 +52,9 @@ fn publish_partial(
         || options.saved_rule_assistance
         || options.circuit_symmetry_assistance
         || options.numerator_symmetry_assistance
+        || options.sector_symmetry_assistance
+        || options.sector_symmetry_policy.is_some()
+        || options.sector_symmetry_saved_projection.is_some()
         || options.containing_sector_depth != 0
         || options.seed_depth != 0
         || options.finite_feedback == Some(true)

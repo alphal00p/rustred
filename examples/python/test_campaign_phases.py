@@ -174,6 +174,108 @@ class PhaseTests(unittest.TestCase):
                     PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters", flag])
             self.assertEqual(configure.call_args.kwargs["numerator_symmetry_assistance"], expected)
 
+    def test_sector_symmetry_preference_is_explicit_exact_and_fresh_round_resets_it(self):
+        self.assertFalse(self.policy["sector_symmetry_assistance"])
+        enabled = PHASES.configuration(self.campaign, enabled=True, sector_symmetry_assistance=True,
+                                       numerator_symmetry_assistance=True)
+        self.write("master-reduction/policy.json", enabled)
+        resumed = PHASES.configuration(self.campaign, enabled=True)
+        self.assertTrue(resumed["sector_symmetry_assistance"])
+        self.assertTrue(resumed["numerator_symmetry_assistance"])
+        self.assertEqual(PHASES.configuration(self.campaign)["operation"], "publish")
+        fresh = PHASES.configuration(self.campaign, enabled=True, fresh_search=True)
+        self.assertFalse(fresh["sector_symmetry_assistance"])
+        self.assertFalse(fresh["numerator_symmetry_assistance"])
+        self.assertTrue(PHASES.configuration(self.campaign, enabled=True, fresh_search=True,
+                                            sector_symmetry_assistance=True)["sector_symmetry_assistance"])
+        with self.assertRaisesRegex(ValueError, "sector-symmetry assistance requires exact refinement"):
+            PHASES.configuration(self.campaign, enabled=True, refinement_strategy="modular-circuits",
+                                 numerator_symmetry_assistance=False)
+        disabled = PHASES.configuration(self.campaign, enabled=True, refinement_strategy="modular-circuits",
+                                        numerator_symmetry_assistance=False, sector_symmetry_assistance=False)
+        self.assertFalse(disabled["sector_symmetry_assistance"])
+        for value in (True, False):
+            with self.assertRaisesRegex(ValueError, "explicit"):
+                PHASES.configuration(self.campaign, sector_symmetry_assistance=value)
+        for value in (0, "yes"):
+            with self.assertRaisesRegex(ValueError, "boolean"):
+                PHASES.configuration(self.campaign, enabled=True, sector_symmetry_assistance=value)
+        self.write("master-reduction/policy.json", {**enabled, "sector_symmetry_assistance": 1})
+        with self.assertRaisesRegex(ValueError, "invalid persisted"):
+            PHASES.configuration(self.campaign, enabled=True)
+
+    def test_production_sector_symmetry_flag_reaches_configuration_with_legacy_choice(self):
+        for flag, expected in (("--master-sector-symmetry-assistance", True),
+                               ("--no-master-sector-symmetry-assistance", False)):
+            with patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure:
+                with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters", flag,
+                                     "--master-numerator-symmetry-assistance"])
+            self.assertIs(configure.call_args.kwargs["sector_symmetry_assistance"], expected)
+            self.assertIs(configure.call_args.kwargs["numerator_symmetry_assistance"], True)
+
+    def test_sector_symmetry_policy_defaults_inherits_and_fresh_search_resets(self):
+        self.assertEqual(self.policy["sector_symmetry_policy"], "generators")
+        explicit = PHASES.configuration(self.campaign, enabled=True, sector_symmetry_assistance=True,
+                                        sector_symmetry_policy="polynomial-orbits")
+        self.write("master-reduction/policy.json", explicit)
+        self.assertEqual(PHASES.configuration(self.campaign, enabled=True)["sector_symmetry_policy"], "polynomial-orbits")
+        fresh = PHASES.configuration(self.campaign, enabled=True, fresh_search=True, sector_symmetry_assistance=True)
+        self.assertEqual(fresh["sector_symmetry_policy"], "generators")
+        for choice in PHASES.SECTOR_SYMMETRY_POLICIES:
+            selected = PHASES.configuration(self.campaign, enabled=True, sector_symmetry_assistance=True,
+                                            sector_symmetry_policy=choice)
+            self.assertEqual(selected["sector_symmetry_policy"], choice)
+            with self.assertRaisesRegex(ValueError, "explicit"):
+                PHASES.configuration(self.campaign, sector_symmetry_policy=choice)
+        with self.assertRaisesRegex(ValueError, "requires sector-symmetry assistance"):
+            PHASES.configuration(self.campaign, enabled=True, sector_symmetry_assistance=False,
+                                 sector_symmetry_policy="generators")
+        for bad in (True, "unknown", 3):
+            with self.assertRaisesRegex(ValueError, "policy must be"):
+                PHASES.configuration(self.campaign, enabled=True, sector_symmetry_assistance=True,
+                                     sector_symmetry_policy=bad)
+        self.write("master-reduction/policy.json", {**explicit, "sector_symmetry_policy": "unknown"})
+        with self.assertRaisesRegex(ValueError, "invalid persisted"):
+            PHASES.configuration(self.campaign, enabled=True)
+
+    def test_production_sector_symmetry_policy_reaches_configuration(self):
+        for choice in PHASES.SECTOR_SYMMETRY_POLICIES:
+            with patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure:
+                with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters",
+                                     "--master-sector-symmetry-assistance", "--master-sector-symmetry-policy", choice])
+            self.assertEqual(configure.call_args.kwargs["sector_symmetry_policy"], choice)
+
+    def test_sector_saved_projection_is_optional_inherited_and_fresh_defaults_true(self):
+        self.assertTrue(self.policy["sector_symmetry_saved_projection"])
+        disabled = PHASES.configuration(self.campaign, enabled=True, sector_symmetry_assistance=True,
+                                        sector_symmetry_saved_projection=False)
+        self.write("master-reduction/policy.json", disabled)
+        self.assertFalse(PHASES.configuration(self.campaign, enabled=True)["sector_symmetry_saved_projection"])
+        self.assertTrue(PHASES.configuration(self.campaign, enabled=True, fresh_search=True,
+                                            sector_symmetry_assistance=True)["sector_symmetry_saved_projection"])
+        for choice in (True, False):
+            chosen = PHASES.configuration(self.campaign, enabled=True, sector_symmetry_saved_projection=choice)
+            self.assertIs(chosen["sector_symmetry_saved_projection"], choice)
+            with self.assertRaisesRegex(ValueError, "explicit"):
+                PHASES.configuration(self.campaign, sector_symmetry_saved_projection=choice)
+            with self.assertRaisesRegex(ValueError, "requires sector-symmetry assistance"):
+                PHASES.configuration(self.campaign, enabled=True, sector_symmetry_assistance=False,
+                                     sector_symmetry_saved_projection=choice)
+            with patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("configuration probe")) as configure:
+                flag = "--master-sector-symmetry-saved-projection" if choice else "--no-master-sector-symmetry-saved-projection"
+                with patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters",
+                                     "--master-sector-symmetry-assistance", flag])
+            self.assertIs(configure.call_args.kwargs["sector_symmetry_saved_projection"], choice)
+        for bad in (1, "yes"):
+            with self.assertRaisesRegex(ValueError, "must be boolean"):
+                PHASES.configuration(self.campaign, enabled=True, sector_symmetry_saved_projection=bad)
+        self.write("master-reduction/policy.json", {**disabled, "sector_symmetry_saved_projection": 1})
+        with self.assertRaisesRegex(ValueError, "invalid persisted"):
+            PHASES.configuration(self.campaign, enabled=True)
+
     def test_parallel_batch_policy_is_positive_operational_and_retained(self):
         policy=PHASES.configuration(self.campaign,enabled=True,relation_batch_rows=128,relation_block_rows=8)
         self.write("master-reduction/policy.json",policy)
@@ -674,6 +776,248 @@ class PhaseTests(unittest.TestCase):
         self.write("artifacts/latest.json", pointer_record)
         with self.assertRaisesRegex(ValueError, "provenance differs"):
             PHASES.completed_artifact(self.campaign)
+
+    def test_sector_symmetry_changes_only_enabled_identity_and_retains_resume_preference(self):
+        self.publish_fixture()
+        selected = {}
+        for value in (None, False, True):
+            policy = PHASES.configuration(self.campaign, enabled=True, sector_symmetry_assistance=value)
+            with patch.object(PHASES, "phase_two", return_value=4) as native:
+                PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+            directory = native.call_args.args[4]
+            steering = PHASES.read_json(directory / "steering-binding.json")
+            selected[value] = directory
+            self.assertEqual(steering.get("sector_symmetry_assistance", False), value is True)
+            if value is not True:
+                self.assertNotIn("sector_symmetry_assistance", steering)
+                self.assertNotIn("sector_symmetry_recipe", steering)
+                self.assertNotIn("sector_symmetry_policy", steering)
+            else:
+                self.assertEqual(steering["sector_symmetry_recipe"],
+                                 "verified-sector-symmetry-sources-v3")
+                self.assertEqual(steering["sector_symmetry_policy"], "generators")
+        self.assertEqual(selected[None], selected[False])
+        self.assertNotEqual(selected[False], selected[True])
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True,
+                       sector_symmetry_assistance=True), True, self.driver, postprocess_only=True)
+        self.assertEqual(native.call_args.args[4], selected[True])
+        self.write(str((selected[True] / "latest.json").relative_to(self.campaign)),
+                   {"status": "paused", "sector_symmetry_assistance": True})
+        self.write("master-reduction/active-phase.json", {"operation": "refine", "directory": str(selected[True])})
+        with patch.object(PHASES, "phase_two", return_value=4) as native:
+            PHASES.run(self.plan, PHASES.configuration(self.campaign, enabled=True), True,
+                       self.driver, postprocess_only=True)
+        self.assertEqual(native.call_args.args[4], selected[True])
+        self.assertTrue(native.call_args.args[1]["sector_symmetry_assistance"])
+
+    def test_sector_symmetry_policy_has_deterministic_distinct_enabled_phase_identity(self):
+        self.publish_fixture()
+        selected = {}
+        for choice in (None, "generators", "polynomial-orbits", "polynomial-orbits"):
+            policy = PHASES.configuration(self.campaign, enabled=True, sector_symmetry_assistance=True,
+                                          sector_symmetry_policy=choice)
+            with patch.object(PHASES, "phase_two", return_value=4) as native:
+                PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+            directory = native.call_args.args[4]
+            steering = PHASES.read_json(directory / "steering-binding.json")
+            self.assertEqual(steering["sector_symmetry_policy"], choice or "generators")
+            if choice in selected:
+                self.assertEqual(selected[choice], directory)
+            selected[choice] = directory
+        self.assertEqual(selected[None], selected["generators"])
+        self.assertNotEqual(selected["generators"], selected["polynomial-orbits"])
+
+    def test_sector_saved_projection_changes_only_explicit_false_phase_identity(self):
+        self.publish_fixture()
+        selected = {}
+        for choice in (None, True, False):
+            policy = PHASES.configuration(self.campaign, enabled=True, sector_symmetry_assistance=True,
+                                          sector_symmetry_saved_projection=choice)
+            with patch.object(PHASES, "phase_two", return_value=4) as native:
+                PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+            selected[choice] = native.call_args.args[4]
+            steering = PHASES.read_json(selected[choice] / "steering-binding.json")
+            if choice is False:
+                self.assertIs(steering["sector_symmetry_saved_projection"], False)
+            else:
+                self.assertNotIn("sector_symmetry_saved_projection", steering)
+        self.assertEqual(selected[None], selected[True])
+        self.assertNotEqual(selected[True], selected[False])
+
+    def test_partial_export_and_publication_preserve_sector_binary_certificates_and_authority(self):
+        _, phase = self.stopped_refinement_fixture("paused")
+        provenance = {"sector_symmetry_assistance": True, "sector_symmetry_policy": "polynomial-orbits",
+            "sector_symmetry_certificate": {"recipe": PHASES.SECTOR_SYMMETRY_RECIPE,
+                "policy": "polynomial-orbits",
+                "file": "sector-symmetry.bin", "bytes": 123, "blake3": "a" * 64,
+                "inventory_binding": "original-finite-inventory", "authority": "finite-equations"},
+            "sector_symmetry_reduced_certificate": {"recipe": PHASES.SECTOR_SYMMETRY_REDUCED_RECIPE,
+                "file": "sector-symmetry-reduced.bin", "bytes": 112, "blake3": "b" * 64,
+                "authority_binding": "saved-rule-binding", "rows": 4, "complete": True,
+                "authority": "saved-projection"},
+            "sector_symmetry_normalization_certificate": {"recipe": PHASES.SECTOR_SYMMETRY_NORMALIZATION_RECIPE,
+                "file": "sector-symmetry-normalization.bin", "bytes": 114, "blake3": "d" * 64,
+                "inventory_binding": "original-finite-inventory", "normalization_profile": "ram-controlled-v1"},
+            "sector_symmetry_task_certificate": {"recipe": PHASES.SECTOR_SYMMETRY_TASK_RECIPE,
+                "file": "sector-symmetry-tasks.bin", "bytes": 118, "blake3": "e" * 64,
+                "authority_binding": "composed-sources", "rows": 4},
+            "sector_symmetry_projection_checkpoint": {"recipe": PHASES.SECTOR_SYMMETRY_REDUCED_RECIPE,
+                "file": "sector-symmetry-projection.bin", "bytes": 117, "blake3": "f" * 64,
+                "authority_binding": "saved-rule-binding", "processed_rows": 2, "source_rows": 4,
+                "complete": False, "authority": "incomplete-saved-projection"},
+            "inherited_equation_authority": {"sector_symmetry_assistance": True,
+                                               "sector_symmetry_policy": "polynomial-orbits"}}
+        latest = {**PHASES.read_json(phase / "latest.json"), **provenance}
+        self.write(str((phase / "latest.json").relative_to(self.campaign)), latest)
+        original = (phase / "latest.json").read_bytes()
+        with patch.object(PHASES, "phase_two", return_value=0) as native:
+            PHASES.run(self.plan, {**self.policy, "operation": "finalize-refinement"}, True,
+                       self.driver, postprocess_only=True)
+        partial = native.call_args.args[1]["partial_refinement"]
+        for key, value in provenance.items():
+            self.assertEqual(partial[key], value)
+        export = native.call_args.args[4]
+        self.write(str((export / "artifact.json").relative_to(self.campaign)), {
+            **provenance, "inventory": {"complete": True}, "finite_search_complete": False,
+            "partial_refinement_source": {"checkpoint": 7}})
+        PHASES.publish_pointer(self.campaign, export, self.binding(), "refine", self.driver, partial)
+        for key, value in provenance.items():
+            self.assertEqual(PHASES.completed_artifact(self.campaign)[key], value)
+        self.assertFalse(PHASES.configuration(self.campaign, enabled=True, fresh_search=True)["sector_symmetry_assistance"])
+        self.assertEqual((phase / "latest.json").read_bytes(), original)
+        # Retained equations carry their original authority; they do not grant
+        # authority to discover new sector maps in an ordinary publication.
+        self.write(str((export / "artifact.json").relative_to(self.campaign)), {
+            **PHASES.read_json(export / "artifact.json"), "sector_symmetry_assistance": False})
+        PHASES.publish_pointer(self.campaign, export, self.binding(), "refine", self.driver, partial)
+        self.assertFalse(PHASES.completed_artifact(self.campaign)["sector_symmetry_assistance"])
+        pointer = PHASES.read_json(self.campaign / "artifacts/latest.json")
+        pointer["sector_symmetry_reduced_certificate"] = {
+            **provenance["sector_symmetry_reduced_certificate"], "blake3": "c" * 64}
+        self.write("artifacts/latest.json", pointer)
+        with self.assertRaisesRegex(ValueError, "provenance differs"):
+            PHASES.completed_artifact(self.campaign)
+
+    def test_symmetry_progress_keeps_only_bounded_native_headers(self):
+        progress = PHASES.symmetry_progress_metadata({"sector_symmetry_preparation": {
+            "discovered_maps": 7, "support_closure_supports": 3, "transported_keys": 9,
+            "transported_rows": 11, "complete": False, "maps": ["native-payload"], "input_keys": 939,
+            "processed_keys": 104, "closure_keys": 8401, "orbit_images": 12, "orbit_terms": 144,
+            "legacy_source_equations": 26, "normalization_input_keys": 939, "normalization_canonical_keys": 728,
+            "normalization_unit_aliases": 197, "normalization_projected_numerators": 14,
+            "normalization_source_equations": 211, "normalization_output_terms": 981,
+            "normalization_safe_zero_certificates": 0,
+            "source_jobs_complete": False, "stage": "whole_polynomial_orbits",
+            "policy": "polynomial-orbits", "polynomial_orbit_closure_claim": True,
+            "skipped": [{"reason": "unsupported", "count": 1}] * 18},
+            "sector_symmetry_reduction": {"projected_terms": 17, "incomplete_boundaries": 2,
+                                          "source_rows": 11, "processed_rows": 6,
+                                          "saved_projection_complete": False, "combined_closure_complete": False,
+                                          "all_offspring_reduced": False, "reused_rows": 2,
+                                          "normalization_outputs_outside_source_inventory": 0,
+                                          "saved_output_keys_outside_symmetry_inventory": 5,
+                                          "saved_terminal_keys_outside_source_inventory": 7,
+                                          "deferred_symmetry_sources": 7, "unresolved_output_keys": 3,
+                                          "combined_closure_scope": "finite original sources; new leaves deferred",
+                                          "failure_kinds": {"unsupported_rule": 2, "malformed": "2", "boolean": True},
+                                          "failure_receipts": ["native-payload"],
+                                          "active_row": {"task": 6, "phase": "Projecting", "elapsed_seconds": 1.5,
+                                              "unique_nodes": 55, "active_nodes": 3, "pending_frames": 4,
+                                              "cached_entries": 8, "equation": ["native-payload"]},
+                                          "rows": ["native-payload"], "complete": False}})
+        preparation = progress["sector_symmetry_preparation"]
+        self.assertEqual(preparation["discovered_maps"], 7)
+        self.assertEqual(preparation["support_closure_supports"], 3)
+        self.assertEqual(preparation["transported_keys"], 9)
+        self.assertEqual(preparation["transported_rows"], 11)
+        self.assertEqual((preparation["input_keys"], preparation["processed_keys"], preparation["closure_keys"]),
+                         (939, 104, 8401))
+        self.assertEqual((preparation["orbit_images"], preparation["orbit_terms"]), (12, 144))
+        self.assertEqual((preparation["normalization_input_keys"], preparation["normalization_canonical_keys"],
+                          preparation["normalization_unit_aliases"], preparation["normalization_projected_numerators"]),
+                         (939, 728, 197, 14))
+        self.assertEqual(preparation["normalization_source_equations"], 211)
+        self.assertEqual(preparation["legacy_source_equations"], 26)
+        self.assertFalse(preparation["source_jobs_complete"])
+        self.assertEqual(preparation["stage"], "whole_polynomial_orbits")
+        self.assertEqual(preparation["policy"], "polynomial-orbits")
+        self.assertTrue(preparation["polynomial_orbit_closure_claim"])
+        self.assertNotIn("maps", preparation)
+        self.assertEqual(len(preparation["skipped"]), 16)
+        self.assertEqual(preparation["skipped_reasons_omitted"], 2)
+        reduction = progress["sector_symmetry_reduction"]
+        self.assertEqual(reduction["failure_kinds"], {"unsupported_rule": 2})
+        self.assertEqual(reduction["active_row"], {"task": 6, "phase": "Projecting", "elapsed_seconds": 1.5,
+            "unique_nodes": 55, "active_nodes": 3, "pending_frames": 4, "cached_entries": 8})
+        self.assertNotIn("rows", reduction)
+        self.assertNotIn("failure_receipts", reduction)
+        self.assertFalse(reduction["combined_closure_complete"])
+        self.assertEqual(reduction["saved_output_keys_outside_symmetry_inventory"], 5)
+        self.assertEqual(reduction["unresolved_output_keys"], 3)
+        normalized = TELEMETRY.normalize_status({"master_reduction": {"operation": "refine", **progress}})["master_reduction"]
+        self.assertEqual(normalized["sector_symmetry_preparation"]["input_keys"], 939)
+        self.assertEqual(normalized["sector_symmetry_preparation"]["closure_keys"], 8401)
+        self.assertEqual(normalized["sector_symmetry_preparation"]["normalization_canonical_keys"], 728)
+        self.assertEqual(normalized["sector_symmetry_preparation"]["normalization_unit_aliases"], 197)
+        self.assertEqual(normalized["sector_symmetry_preparation"]["normalization_projected_numerators"], 14)
+        self.assertFalse(normalized["sector_symmetry_reduction"]["combined_closure_complete"])
+        self.assertEqual(normalized["sector_symmetry_reduction"]["failure_kinds"], {"unsupported_rule": 2})
+
+    def test_native_accepted_sector_rows_require_the_complete_reduced_descriptor(self):
+        source = {"recipe": "verified-sector-symmetry-sources-v3", "file": "sector.bin", "policy": "generators"}
+        report = {"sector_symmetry_assistance": True, "sector_symmetry_certificate": source,
+                  "sector_symmetry_policy": "generators",
+                  "sector_symmetry_preparation": {"source_jobs_complete": False}}
+        self.assertEqual(PHASES.sector_symmetry_metadata(report)["sector_symmetry_certificate"], source)
+        checkpoint = {"recipe": PHASES.SECTOR_SYMMETRY_REDUCED_RECIPE, "complete": False,
+                      "processed_rows": 1, "source_rows": 3, "file": "projection.bin"}
+        report["sector_symmetry_projection_checkpoint"] = checkpoint
+        for field in ("completed_assistance_rows", "pending_assistance_rows", "completed_assistance_keys"):
+            with self.subTest(native_counter=field), self.assertRaisesRegex(ValueError, "complete reduced certificate"):
+                PHASES.sector_symmetry_metadata({**report, field: 1})
+        complete = {**checkpoint, "complete": True, "rows": 3, "file": "reduced.bin"}
+        accepted = {**report, "completed_assistance_rows": 1, "sector_symmetry_reduced_certificate": complete}
+        self.assertEqual(PHASES.sector_symmetry_metadata(accepted)["sector_symmetry_reduced_certificate"], complete)
+        with self.assertRaisesRegex(ValueError, "complete reduced certificate"):
+            PHASES.sector_symmetry_metadata({**accepted, "sector_symmetry_reduced_certificate": checkpoint})
+        with self.assertRaisesRegex(ValueError, "complete reduced certificate"):
+            PHASES.sector_symmetry_metadata({**report, "status": "completed_nonminimal",
+                                           "sector_symmetry_reduction": {"complete": True}})
+        with self.assertRaisesRegex(ValueError, "invalid native sector-symmetry certificate"):
+            PHASES.sector_symmetry_metadata({**report, "sector_symmetry_certificate": {
+                **source, "recipe": "verified-sector-symmetry-linear-maps-v1"}})
+        with self.assertRaisesRegex(ValueError, "invalid native sector-symmetry policy"):
+            PHASES.sector_symmetry_metadata({**report, "sector_symmetry_policy": "unknown"})
+        with self.assertRaisesRegex(ValueError, "explicit source policy"):
+            PHASES.sector_symmetry_metadata({key: value for key, value in report.items()
+                                            if key != "sector_symmetry_policy"})
+        with self.assertRaisesRegex(ValueError, "certificate policy differs"):
+            PHASES.sector_symmetry_metadata({**report, "sector_symmetry_policy": "polynomial-orbits"})
+
+    def test_source_only_sector_receipt_is_distinct_and_preserves_the_same_descriptor_slot(self):
+        report = {"sector_symmetry_assistance": True, "sector_symmetry_policy": "generators",
+            "sector_symmetry_saved_projection": False, "completed_assistance_rows": 1,
+            "sector_symmetry_certificate": {"recipe": PHASES.SECTOR_SYMMETRY_RECIPE,
+                "file": "sector.bin", "policy": "generators", "saved_projection_requested": False},
+            "sector_symmetry_reduced_certificate": {"recipe": PHASES.SECTOR_SYMMETRY_SOURCE_ROWS_RECIPE,
+                "file": "sector-source-rows.bin", "complete": True, "saved_projection_requested": False},
+            "inherited_equation_authority": {"sector_symmetry_assistance": True,
+                "sector_symmetry_policy": "generators", "sector_symmetry_saved_projection": False}}
+        metadata = PHASES.sector_symmetry_metadata(report)
+        self.assertIs(metadata["sector_symmetry_saved_projection"], False)
+        self.assertEqual(metadata["sector_symmetry_reduced_certificate"]["recipe"], "sector-symmetry-source-rows-v1")
+        self.assertNotIn("sector_symmetry_projection_checkpoint", metadata)
+        for key in ("sector_symmetry_certificate", "sector_symmetry_reduced_certificate"):
+            broken = {**report, key: {**report[key], "saved_projection_requested": True}}
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "saved projection differs"):
+                PHASES.sector_symmetry_metadata(broken)
+        with self.assertRaisesRegex(ValueError, "differs from saved projection mode"):
+            PHASES.sector_symmetry_metadata({**report, "sector_symmetry_reduced_certificate": {
+                **report["sector_symmetry_reduced_certificate"], "recipe": PHASES.SECTOR_SYMMETRY_REDUCED_RECIPE}})
+        with self.assertRaisesRegex(ValueError, "cannot use a saved projection checkpoint"):
+            PHASES.sector_symmetry_metadata({**report, "sector_symmetry_projection_checkpoint": {
+                "recipe": PHASES.SECTOR_SYMMETRY_REDUCED_RECIPE, "complete": False}})
 
     def test_finalize_requires_stopped_current_scope_without_starting_a_solve(self):
         _, phase = self.stopped_refinement_fixture("running")
@@ -1454,12 +1798,28 @@ report = {'status':'published_unrefined', 'operation':'publish',
         self._scratch_native_pause_resume("refine", fresh_search=True, seed_depth=3,
                                          numerator_symmetry_assistance=True)
 
+    def test_sector_symmetry_refinement_forwards_mode_and_resumes_its_checkpoint(self):
+        self._scratch_native_pause_resume("refine", sector_symmetry_assistance=True)
+
+    def test_fresh_search_accepts_strong_and_legacy_symmetry_together(self):
+        self._scratch_native_pause_resume("refine", fresh_search=True, seed_depth=3,
+                                         sector_symmetry_assistance=True, numerator_symmetry_assistance=True)
+
+    def test_polynomial_orbit_policy_forwards_and_rejects_changed_resume(self):
+        self._scratch_native_pause_resume("refine", sector_symmetry_assistance=True,
+                                         sector_symmetry_policy="polynomial-orbits")
+
+    def test_source_only_sector_refinement_forwards_and_rejects_changed_resume(self):
+        self._scratch_native_pause_resume("refine", sector_symmetry_assistance=True,
+                                         sector_symmetry_saved_projection=False)
+
     def _scratch_native_pause_resume(self, operation, saved_rule_assistance=False,
                                     containing_sector_depth=0, inherited_containing_depth=0,
                                     circuit_symmetry_assistance=False, normalization_profile=None,
                                     deep_verification=False, preserve_refined=False, max_relation_columns=None,
                                     refinement_workers=None, refinement_cpus=None, fresh_search=False, seed_depth=0,
-                                    numerator_symmetry_assistance=False):
+                                    numerator_symmetry_assistance=False, sector_symmetry_assistance=False,
+                                    sector_symmetry_policy="generators", sector_symmetry_saved_projection=True):
         # Fake native protocol only; this proves process/checkpoint orchestration,
         # not mathematical correctness or a successful native Rust solve.
         binary = self.campaign / "fake-native"
@@ -1473,6 +1833,9 @@ report = {'status':'published_unrefined', 'operation':'publish',
                           f"expected_fresh = {fresh_search}\n"
                           f"expected_seed_depth = {seed_depth}\n"
                           f"expected_numerator = {numerator_symmetry_assistance and operation == 'refine'}\n"
+                          f"expected_sector = {sector_symmetry_assistance and operation == 'refine'}\n"
+                          f"expected_sector_policy = {sector_symmetry_policy!r}\n"
+                          f"expected_sector_projection = {sector_symmetry_saved_projection}\n"
                           f"expected_containing_depth = {containing_sector_depth if operation == 'refine' else 0}\n" + '''import json, pathlib, sys, time
 args = sys.argv
 assert int(args[args.index('--threads') + 1]) == expected_threads
@@ -1484,6 +1847,12 @@ if refine:
 assert ('--saved-rule-assistance' in args) == expected_assistance
 assert ('--circuit-symmetry-assistance' in args) == expected_circuit
 assert ('--numerator-symmetry-assistance' in args) == expected_numerator
+assert args.count('--sector-symmetry-assistance') == int(expected_sector)
+assert args.count('--sector-symmetry-policy') == int(expected_sector)
+if expected_sector:
+    assert args[args.index('--sector-symmetry-policy') + 1] == expected_sector_policy
+assert args.count('--sector-symmetry-saved-projection') == int(expected_sector and expected_sector_projection)
+assert args.count('--no-sector-symmetry-saved-projection') == int(expected_sector and not expected_sector_projection)
 assert ('--finite-feedback' in args) == refine
 assert ('--max-relation-columns' in args) == (refine and expected_column_budget is not None)
 if expected_column_budget is not None:
@@ -1500,6 +1869,27 @@ metadata.update(finite_feedback=refine, finite_feedback_recipe='finite-row-feedb
 if expected_numerator:
     metadata.update(numerator_symmetry_assistance=True,
         numerator_symmetry_preparation={'input_keys':4,'verified_generators':1,'proposed_generators':2,'equations':3})
+if expected_sector:
+    metadata.update(sector_symmetry_assistance=True, sector_symmetry_policy=expected_sector_policy,
+        sector_symmetry_saved_projection=expected_sector_projection,
+        sector_symmetry_preparation={'input_keys':4,'verified_generators':2,'proposed_generators':3,
+            'processed_keys':4,'closure_keys':9,'source_jobs_complete':True,
+            'analyzed_supports':2,'equation_targets':3,'equations':5,'output_terms':12,'complete':True},
+        sector_symmetry_reduction={'processed_rows':5,'source_rows':5,
+            'saved_reduced_rows':4 if expected_sector_projection else 0,
+            'projected_terms':9 if expected_sector_projection else None,
+            'source_terms':None if expected_sector_projection else 9,
+            'incomplete_boundaries':1 if expected_sector_projection else 0,'complete':True,
+            'saved_projection_complete':False if expected_sector_projection else None,'combined_closure_complete':False,
+            'saved_projection_requested':expected_sector_projection,'exact_source_rows_ready':True,
+            'deferred_symmetry_sources':1,'unresolved_output_keys':1},
+        completed_assistance_rows=5,
+        sector_symmetry_certificate={'recipe':'verified-sector-symmetry-sources-v3','file':'sector.bin',
+            'policy':expected_sector_policy,'saved_projection_requested':expected_sector_projection},
+        sector_symmetry_reduced_certificate={'recipe':('sector-symmetry-saved-projection-v1'
+            if expected_sector_projection else 'sector-symmetry-source-rows-v1'),
+            'file':'sector-reduced.bin','complete':True,'rows':5,
+            'saved_projection_requested':expected_sector_projection})
 if expected_fresh:
     metadata.update(fresh_search=True, fresh_search_recipe='relations-only-v1',
                     seed_depth=expected_seed_depth, containing_sector_depth=expected_containing_depth)
@@ -1540,6 +1930,9 @@ event('completed_nonminimal' if refine else 'published_unrefined')
         native_policy = {**self.policy, "operation": operation, "saved_rule_assistance": saved_rule_assistance,
                          "fresh_search": fresh_search, "seed_depth": seed_depth,
                          "numerator_symmetry_assistance": numerator_symmetry_assistance,
+                         "sector_symmetry_assistance": sector_symmetry_assistance,
+                         "sector_symmetry_policy": sector_symmetry_policy,
+                         "sector_symmetry_saved_projection": sector_symmetry_saved_projection,
                          "max_relation_columns": max_relation_columns,
                          "deep_verification": deep_verification,
                          "circuit_symmetry_assistance": circuit_symmetry_assistance,
@@ -1588,6 +1981,17 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                     with self.assertRaisesRegex(ValueError, "cannot change numerator-symmetry assistance on resume"):
                         PHASES.phase_two(plan, {**native_policy, "numerator_symmetry_assistance": False},
                                          self.campaign / "runs/first/request.json", binding, directory, driver)
+                if sector_symmetry_assistance:
+                    with self.assertRaisesRegex(ValueError, "cannot change sector-symmetry assistance on resume"):
+                        PHASES.phase_two(plan, {**native_policy, "sector_symmetry_assistance": False},
+                                         self.campaign / "runs/first/request.json", binding, directory, driver)
+                    with self.assertRaisesRegex(ValueError, "cannot change sector-symmetry policy on resume"):
+                        PHASES.phase_two(plan, {**native_policy, "sector_symmetry_policy": (
+                            "polynomial-orbits" if sector_symmetry_policy == "generators" else "generators")},
+                            self.campaign / "runs/first/request.json", binding, directory, driver)
+                    with self.assertRaisesRegex(ValueError, "cannot change sector-symmetry saved projection on resume"):
+                        PHASES.phase_two(plan, {**native_policy, "sector_symmetry_saved_projection": not sector_symmetry_saved_projection},
+                            self.campaign / "runs/first/request.json", binding, directory, driver)
                 if normalization_profile == "standard":
                     paused_pointer = (self.campaign / "artifacts/latest.json").read_bytes()
                     with self.assertRaisesRegex(ValueError, "cannot change normalization profile on resume"):
@@ -1630,6 +2034,16 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                              saved_rule_assistance)
             self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"].get("numerator_symmetry_assistance", False),
                              numerator_symmetry_assistance)
+            self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"].get("sector_symmetry_assistance", False),
+                             sector_symmetry_assistance)
+            if sector_symmetry_assistance:
+                self.assertIs(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["sector_symmetry_saved_projection"],
+                              sector_symmetry_saved_projection)
+                self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["sector_symmetry_policy"],
+                                 sector_symmetry_policy)
+                self.assertEqual(status["master_reduction"]["sector_symmetry_preparation"]["equations"], 5)
+                terms_field = "projected_terms" if sector_symmetry_saved_projection else "source_terms"
+                self.assertEqual(status["master_reduction"]["sector_symmetry_reduction"][terms_field], 9)
             self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["containing_sector_depth"],
                              containing_sector_depth if fresh_search else max(containing_sector_depth, inherited_containing_depth))
             if fresh_search:

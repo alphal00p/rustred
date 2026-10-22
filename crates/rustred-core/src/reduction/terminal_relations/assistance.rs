@@ -272,13 +272,12 @@ impl TerminalRelationSession {
         }
         if let Some(equation) = assistance.equations.get(assistance.equation_cursor) {
             let row = self.normalized_row(&equation.terms)?;
-            let conditions = equation.nonzero_conditions.clone();
             self.add_row(row)?;
-            for condition in conditions {
-                if !self.conditions.contains(&condition) {
-                    self.conditions.push(condition);
-                }
-            }
+            let assistance = self.assistance.as_ref().expect("enabled assistance");
+            Self::merge_nonzero_conditions(
+                &mut self.conditions,
+                &assistance.equations[assistance.equation_cursor].nonzero_conditions,
+            );
             let assistance = self.assistance.as_mut().expect("enabled assistance");
             assistance.equation_cursor += 1;
             assistance.completed_rows += 1;

@@ -547,7 +547,178 @@ def master_batch_execution(master):
             or master.get("stage") == "terminal_collection"
             or master.get("status") in ("completed_nonminimal", "published_unrefined")):
         return {}
-    return master.get("execution", {})
+    execution = master.get("execution", {})
+    if master.get("stage") in ("preparing_sector_symmetry_equations", "reducing_sector_symmetry_equations"):
+        # A previous elimination receipt is not activity in provider preparation.
+        # The configured pool remains useful, but supplies no busy-worker count.
+        return {key: value for key, value in execution.items()
+                if key in ("workers", "reserved_workers")} if execution else {}
+    return execution
+
+
+def sector_symmetry_metrics(master):
+    """Bounded finite-provider counters shared by terminal and plain consumers."""
+    enabled = master.get("sector_symmetry_assistance", False)
+    if not enabled or master.get("operation") != "refine":
+        return ([("Sector proofs", "retained", "inherited finite proofs; provider off")]
+                if enabled or master.get("inherited_sector_symmetry_authority", False) else [])
+    preparation = master.get("sector_symmetry_preparation", {})
+    reduction = master.get("sector_symmetry_reduction", {})
+    saved_projection_requested = master.get("sector_symmetry_saved_projection")
+    if saved_projection_requested is None:
+        saved_projection_requested = reduction.get("saved_projection_requested")
+    if saved_projection_requested is None:
+        saved_projection_requested = True
+    policy = master.get("sector_symmetry_policy") or preparation.get("policy") or "generators"
+    polynomial_orbits = policy == "polynomial-orbits"
+    policy_detail = ("whole polynomial orbit / Reynolds rows" if polynomial_orbits else
+                     "I - T_r and I - T_rg per verified generator" if policy == "generators" else
+                     "relation recipe not reported")
+    row_detail = ("whole polynomial orbit / Reynolds rows" if polynomial_orbits else
+                  "generator relation rows" if policy == "generators" else "finite source relation rows")
+    column_label = "Orbit columns" if polynomial_orbits else "Symmetry columns"
+
+    def completeness(report, field="complete"):
+        return ("complete" if report.get(field) is True else
+                "incomplete" if report.get(field) is False else "not reported")
+
+    transported_rows = preparation.get("transported_rows")
+    if transported_rows is None:
+        transported_rows = preparation.get("equations")
+    transported_keys = preparation.get("transported_keys")
+    if transported_keys is None:
+        transported_keys = preparation.get("equation_targets")
+    discovered_maps = preparation.get("discovered_maps")
+    verified_maps = preparation.get("verified_generators")
+    maps = (count(discovered_maps) + " discovered" if verified_maps is None and discovered_maps is not None
+            else count(verified_maps) + " verified")
+    supports = preparation.get("analyzed_supports")
+    support_detail = (count(supports) + " supports analyzed" if supports is not None else
+                      count(preparation.get("support_closure_supports")) + " supports in finite closure"
+                      if preparation.get("support_closure_supports") is not None else "unknown supports analyzed")
+    map_detail = count(preparation.get("proposed_generators")) + " proposed; " + support_detail
+    if verified_maps is not None and discovered_maps is not None:
+        map_detail = count(discovered_maps) + " discovered; " + map_detail
+    skipped = preparation.get("skipped", [])
+    # Reasons are scalar headers, never source equations or support inventories.
+    reasons = [clean(item.get("reason", "unknown"))[:96] + " " + count(item.get("count"))
+               for item in skipped[:3] if isinstance(item, dict)] if isinstance(skipped, list) else []
+    omitted = max(0, number(preparation.get("skipped_reasons_omitted")) or 0)
+    if isinstance(skipped, list):
+        omitted += max(0, len(skipped) - 3)
+    if omitted:
+        reasons.append(count(omitted) + " additional reasons omitted")
+    boundary = clean(preparation.get("scope") or "finite original sources; endpoint monomials are auxiliary columns")[:240]
+    if reasons:
+        boundary += "; skipped " + ", ".join(reasons)
+    result = [
+        ("Source jobs", count(preparation.get("input_keys")),
+         (count(preparation["processed_keys"]) + " processed; " if preparation.get("processed_keys") is not None else "")
+         + "original source keys; " + completeness(preparation, "source_jobs_complete")),
+        ("Sector symmetry", count(transported_rows) + " rows",
+         row_detail + "; finite original inventory; not global"),
+        ("Sector maps", maps, map_detail),
+        ("Transported keys", count(transported_keys),
+         "original source keys with symmetry rows"),
+        ("Transported terms", count(preparation.get("output_terms")), "terms in transported rows"),
+        ("Symmetry boundary", completeness(preparation), boundary),
+    ]
+    closure_keys = preparation.get("closure_keys")
+    if closure_keys is None:
+        closure_keys = preparation.get("discovered_keys")
+    closure_supports = preparation.get("support_closure_supports")
+    if closure_keys is not None or closure_supports is not None:
+        result.insert(1, (column_label, count(closure_keys),
+                         "nonzero polynomial columns; auxiliary endpoints"
+                         + ("; " + count(closure_supports) + " supports" if closure_supports is not None else "")))
+    if preparation.get("stage"):
+        result.insert(1, ("Source preparation", clean(preparation["stage"]).replace("_", " ")[:80],
+                         policy_detail + " per original key"))
+    if polynomial_orbits:
+        for label, field, detail in (("Orbit images", "orbit_images", "whole polynomial images in the current source orbit"),
+                                     ("Orbit terms", "orbit_terms", "terms across images in the current source orbit")):
+            if preparation.get(field) is not None:
+                result.append((label, count(preparation[field]), detail))
+    elif policy == "generators":
+        if preparation.get("orbit_images") is not None:
+            result.append(("Candidate images", count(preparation["orbit_images"]),
+                           "generator candidates for the current original source"))
+        if preparation.get("orbit_terms") is not None:
+            result.append(("Candidate terms", count(preparation["orbit_terms"]),
+                           "terms across generator candidates for the current source"))
+    if saved_projection_requested is False:
+        result[1:1] = [
+            ("Saved projection", "not requested", "finite source-only symmetry cohort"),
+            ("Combined closure", completeness(reduction, "combined_closure_complete")
+             if type(reduction.get("combined_closure_complete")) is bool else "not assessed",
+             clean(reduction.get("combined_closure_scope") or
+                   "source-only finite cohort; no saved-program projection or family-closure claim")[:240]),
+        ]
+        ready = reduction.get("exact_source_rows_ready")
+        result.append(("Source cohort", "ready" if ready is True else "incomplete" if ready is False else "not reported",
+                       count(reduction.get("processed_rows")) + "/" + count(reduction.get("source_rows"))
+                       + " exact source rows; finite cohort"))
+        if reduction.get("source_terms") is not None:
+            result.append(("Source terms", count(reduction["source_terms"]), "terms in the exact source cohort"))
+        if reduction.get("unresolved_output_keys") is not None:
+            result.append(("Auxiliary tails", count(reduction["unresolved_output_keys"]),
+                           "auxiliary columns at the source-only finite boundary"))
+    elif reduction:
+        result[1:1] = [
+            ("Saved projection", completeness(reduction, "saved_projection_complete"),
+             "saved-program projection of original-source symmetry rows"),
+            ("Combined closure", completeness(reduction, "combined_closure_complete"),
+             clean(reduction.get("combined_closure_scope") or
+                   "original sources and saved projection; unrestricted family closure not established")[:240]),
+        ]
+        result.extend([
+            ("Saved-row reduction", count(reduction.get("processed_rows")) + "/" + count(reduction.get("source_rows")),
+             count(reduction.get("saved_reduced_rows")) + " saved-reduced rows; "
+             + count(reduction.get("saved_application_failures")) + " failed saved applications"),
+            ("Projected terms", count(reduction.get("projected_terms")), "terms after saved-row projection"),
+            ("Projection boundary", count(reduction.get("incomplete_boundaries")) + " incomplete",
+             "row pass " + completeness(reduction) + "; saved projection "
+             + completeness(reduction, "saved_projection_complete")),
+        ])
+        for label, field, detail in (
+                ("Outside original", "saved_terminal_keys_outside_source_inventory", "saved terminal columns outside original sources"),
+                ("Outside orbit" if polynomial_orbits else "Outside symmetry", "saved_output_keys_outside_symmetry_inventory", "saved output columns outside the symmetry inventory"),
+                ("Normalization exits", "normalization_outputs_outside_source_inventory", "normalization outputs outside original sources"),
+                ("Deferred sources", "deferred_symmetry_sources", "returned program leaves deferred at the finite boundary"),
+                ("Unresolved outputs", "unresolved_output_keys", "unresolved saved-program projection tails")):
+            if reduction.get(field) is not None:
+                result.append((label, count(reduction[field]), detail))
+        active = reduction.get("active_row")
+        if isinstance(active, dict):
+            result.append(("Active projection", clean(active.get("phase", "not reported"))[:80],
+                           "task " + count(active.get("task")) + "; elapsed " + duration(active.get("elapsed_seconds"))
+                           + "; nodes " + count(active.get("unique_nodes")) + " unique / "
+                           + count(active.get("active_nodes")) + " active; pending frames "
+                           + count(active.get("pending_frames")) + "; cached " + count(active.get("cached_entries"))))
+    else:
+        result.insert(1, ("Saved projection", "requested", "awaiting saved-program projection receipt"))
+    normalization = []
+    if (preparation.get("normalization_input_keys") is not None
+            or preparation.get("normalization_canonical_keys") is not None):
+        normalization.append(("Normalization", count(preparation.get("normalization_input_keys")) + "→"
+                              + count(preparation.get("normalization_canonical_keys")) + " keys",
+                              "canonical preparation outputs; retained basis after joined reduction"))
+    if any(preparation.get(field) is not None for field in (
+            "normalization_unit_aliases", "normalization_projected_numerators", "normalization_source_equations")):
+        normalization.append(("Normalization maps", count(preparation.get("normalization_unit_aliases")) + " aliases",
+                              count(preparation.get("normalization_projected_numerators")) + " numerator projections; "
+                              + count(preparation.get("normalization_source_equations")) + " exact source equations"))
+    if (preparation.get("normalization_output_terms") is not None
+            or preparation.get("normalization_safe_zero_certificates") is not None):
+        normalization.append(("Normalization terms", count(preparation.get("normalization_output_terms")),
+                              count(preparation.get("normalization_safe_zero_certificates"))
+                              + " safe zero certificates; finite preparation rows"))
+    if preparation.get("legacy_source_equations") is not None:
+        normalization.append(("Weaker source rows", count(preparation["legacy_source_equations"]),
+                              "finite weaker cohort before combined row deduplication"))
+    result[1:1] = normalization
+    result.insert(0, ("Symmetry policy", clean(policy)[:80], policy_detail))
+    return result
 
 
 def render_master_table(frame, width=100, height=24, color=True):
@@ -596,8 +767,10 @@ def render_master_table(frame, width=100, height=24, color=True):
     cpu_ratio = cpu / workers if number(cpu) is not None and number(workers) is not None and workers > 0 else None
     progress = (bar(completed, total, frame["elapsed_seconds"], width=max(1, min(16, detail_width - 2)))
                 if total is not None else "total not yet known")
+    stage = {"preparing_sector_symmetry_equations": "sector preparation",
+             "reducing_sector_symmetry_equations": "sector saved rows"}.get(master["stage"], master["stage"])
     rows = [
-        (0, row("Stage", master["stage"] or "preparing", "replay symmetry, saved rows and exact union" if importing else "package retained exact maps" if partial else
+        (0, row("Stage", stage or "preparing", "replay symmetry, saved rows and exact union" if importing else "package retained exact maps" if partial else
                 "extract and package exact inventory" if publishing else
                 "modular discovery; exact accepted maps" if modular else "bounded exact relation search", "36")),
         (1, row("Retained keys", count(master["raw_terminals"]), "phase-one keys, including prior stages")),
@@ -695,7 +868,8 @@ def render_master_table(frame, width=100, height=24, color=True):
             + ") · retained proved maps", "36")))
     numerator = master.get("numerator_symmetry_preparation", {})
     numerator_reduction = master.get("numerator_symmetry_reduction", {})
-    if master.get("numerator_symmetry_assistance", False) and not publishing:
+    if (master.get("numerator_symmetry_assistance", False)
+            and not master.get("sector_symmetry_assistance", False) and not publishing):
         rows.insert(2, (0, row("Numerator symmetry", count(numerator.get("equations")) + " equations",
                               "finite certified inventory; not global", "36")))
         rows.insert(3, (1, row("Verified maps", count(numerator.get("verified_generators")),
@@ -703,8 +877,12 @@ def render_master_table(frame, width=100, height=24, color=True):
         if numerator_reduction:
             rows.insert(4, (1, row("Symmetry feedback", count(numerator_reduction.get("saved_reduced_rows")) + " reduced",
                 count(numerator_reduction.get("saved_application_failures")) + " saved-apply failures; native fallback on failure")))
-    elif master.get("numerator_symmetry_assistance", False) or master.get("inherited_numerator_symmetry_authority", False):
+    elif (not master.get("sector_symmetry_assistance", False)
+            and (master.get("numerator_symmetry_assistance", False)
+                 or master.get("inherited_numerator_symmetry_authority", False))):
         rows.insert(2, (1, row("Numerator proofs", "retained", "inherited finite proofs; provider off")))
+    for index, (label, value, detail) in enumerate(sector_symmetry_metrics(master)):
+        rows.insert(2 + index, (1, row(label, value, detail, "36" if index == 0 else None)))
     rows.insert(0, (0, row("Elapsed time", duration(frame["elapsed_seconds"]),
                           "wall time in this phase; current invocation", "36")))
     if master["artifact"]:
@@ -746,6 +924,12 @@ def plain_summary(frame):
         budget = execution.get("reserved_workers")
         if budget is None:
             budget = execution.get("workers")
+        numerator_lines = []
+        if not master.get("sector_symmetry_assistance", False):
+            if master.get("numerator_symmetry_assistance", False) and master.get("operation") == "refine":
+                numerator_lines = ["Numerator symmetry: finite certified inventory; denominator-preserving maps; not a global symmetry claim"]
+            elif master.get("numerator_symmetry_assistance", False) or master.get("inherited_numerator_symmetry_authority", False):
+                numerator_lines = ["Numerator symmetry: inherited finite proofs retained; current provider off"]
         return [f"RustRed · {frame['phase']} · {frame['state']} · elapsed {duration(frame['elapsed_seconds'])}",
                 f"Stage {master['stage']} · {count(master['remaining_terminals'])} remaining terminals (nonminimal)",
                 f"{'Published' if master.get('artifact') else 'Available'} executable rule records {count(master.get('published_rule_records'))} · observed cover rules {count(master.get('observed_cover_rules'))}",
@@ -769,10 +953,9 @@ def plain_summary(frame):
                 *(["Provider filtered: " + count(execution["provider_keys_filtered"])
                     + " pending keys outside finite inventory; current call"]
                   if execution.get("provider_keys_filtered") is not None else []),
-                *(["Numerator symmetry: finite certified inventory; denominator-preserving maps; not a global symmetry claim"]
-                  if master.get("numerator_symmetry_assistance", False) and master.get("operation") == "refine" else
-                  ["Numerator symmetry: inherited finite proofs retained; current provider off"]
-                  if master.get("numerator_symmetry_assistance", False) or master.get("inherited_numerator_symmetry_authority", False) else [])]
+                *numerator_lines,
+                *[label + ": " + value + " · " + detail
+                  for label, value, detail in sector_symmetry_metrics(master)]]
     rates, snapshot = frame["rates"], frame["closure_snapshot"]
     completed = rates["local_completion"]["per_second"]
     rate = "unknown" if completed is None else f"{completed * 3600:,.0f}"

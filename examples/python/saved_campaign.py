@@ -119,6 +119,12 @@ def main(argv=None):
                              help="include native circuit-reflection equations (default saved refinement preference or off)")
             sub.add_argument("--numerator-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
                              help="exact-only: add finitely certified denominator-preserving numerator-map equations; off by default, fresh search clears the saved preference")
+            sub.add_argument("--sector-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
+                             help="exact-only: add certified sector-generator relations for original source keys; endpoint monomials are auxiliary columns; off by default, fresh search clears the saved preference; includes the legacy numerator provider")
+            sub.add_argument("--sector-symmetry-policy", choices=("generators", "polynomial-orbits"),
+                             help="sector assistance row policy (default saved preference or generators); polynomial-orbits explicitly enumerates whole-polynomial orbits; fresh search resets to generators")
+            sub.add_argument("--sector-symmetry-saved-projection", action=argparse.BooleanOptionalAction, default=None,
+                             help="project sector rows through saved programs (default saved preference or on); disable explicitly for a finite source-only cohort; fresh search resets to on")
             sub.add_argument("--finite-feedback", action=argparse.BooleanOptionalAction, default=None,
                              help="combine retained finite rows after full-U aliases (default saved preference or on)")
         if action == "inspect":
@@ -136,6 +142,14 @@ def main(argv=None):
         if any(option.split("=", 1)[0] in ("--numerator-symmetry-assistance", "--no-numerator-symmetry-assistance",
                    "--master-numerator-symmetry-assistance", "--no-master-numerator-symmetry-assistance") for option in extra):
             parser.error("numerator-symmetry assistance requires the refine action")
+        if any(option.split("=", 1)[0] in ("--sector-symmetry-assistance", "--no-sector-symmetry-assistance",
+                   "--master-sector-symmetry-assistance", "--no-master-sector-symmetry-assistance") for option in extra):
+            parser.error("sector-symmetry assistance requires the refine action")
+        if any(option.split("=", 1)[0] in ("--sector-symmetry-policy", "--master-sector-symmetry-policy") for option in extra):
+            parser.error("sector-symmetry policy requires the refine action")
+        if any(option.split("=", 1)[0] in ("--sector-symmetry-saved-projection", "--no-sector-symmetry-saved-projection",
+                   "--master-sector-symmetry-saved-projection", "--no-master-sector-symmetry-saved-projection") for option in extra):
+            parser.error("sector-symmetry saved projection requires the refine action")
     campaign = args.campaign.resolve()
     try:
         # Engine dispatch precedes all legacy checkpoint access. This regular
@@ -200,6 +214,14 @@ def main(argv=None):
                 if args.numerator_symmetry_assistance is not None:
                     command.append("--master-numerator-symmetry-assistance" if args.numerator_symmetry_assistance
                                    else "--no-master-numerator-symmetry-assistance")
+                if args.sector_symmetry_assistance is not None:
+                    command.append("--master-sector-symmetry-assistance" if args.sector_symmetry_assistance
+                                   else "--no-master-sector-symmetry-assistance")
+                if args.sector_symmetry_policy is not None:
+                    command += ["--master-sector-symmetry-policy", args.sector_symmetry_policy]
+                if args.sector_symmetry_saved_projection is not None:
+                    command.append("--master-sector-symmetry-saved-projection" if args.sector_symmetry_saved_projection
+                                   else "--no-master-sector-symmetry-saved-projection")
                 if args.finite_feedback is not None:
                     command.append("--master-finite-feedback" if args.finite_feedback
                                    else "--no-master-finite-feedback")
