@@ -1,5 +1,36 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## Stage1 acceptance passed; Stage2 authorized (October22,23:51UTC)
+
+Stage1 code commit27ca6c7a. Optimized build6m09s, frozen executable
+TMP/releases/20261023-selective-feedback/rustred SHA256
+eaf0161e272b43020bcc3d4e5d498890b721e8dc3e14edbcad72d76c49d39df7.
+Final core365pass/0fail/1ignore; actual app feedback6pass and lifecycle4pass,
+including real extra relation, prepared/executing cold resume, changed workers,
+forged completion rejection, portable source-independent partial publication and
+real no-gain/new-support chains. An initial owned harness filter matched zero
+tests; it was rejected and corrected to selective_symmetry_tests (no test or
+engine edit), and both receipts are preserved. Broader app tests are running.
+All10 final lower controls pass, all1193maps/guards/cold checks intact; final
+native states byte-identical to the initial diagnostic graph. No extra physical
+rank gain from selected feedback on those lower controls. Exact final timings
+are in TMP/selective-symmetry-acceptance-20261023/final-stage1 evidence.
+
+Owned5L CLI pilot uses immutable prior source939/862,16workers224-239,batch256/
+block8,generators/no saved projection,128GB caller grant and30min including safe
+stop. At~229s initial ordinary work reaches659basis after23,475ordinary rows;
+feedback has not started, so this is NOT a selected-feedback gain. Original
+production and its frozen full-orbit executable remain untouched.
+
+Stage2 implementation starts ONLY NOW after the actual Stage1 gate. Agents:
+fp_core_design(core sealedplan/native source replay),fp_app(finite assistance/
+lifecycle),fp_python(frontends/dashboard),fp_math_audit(independent critique).
+Read-only contract TMP/local_dimrec_api_contract_20261023.md was read by root.
+Use native determinant/derivative plus regenerated weighted ordinary sources,
+include full signed/analytic powers and spectator directions, no arbitrary
+ceilings or shifted runtime masters. Resulting commands remain gated on Stage2
+native/source/application acceptance and final frozen executable.
+
 ## October 23 — selective feedback then local dimensional recurrence (started)
 
 User requests implementation in that order, with resulting run commands.
