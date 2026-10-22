@@ -1,5 +1,135 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 22 — genuinely parallel assisted refinement (active)
+
+User explicitly requested implementation after the read-only diagnosis. Plan:
+`PARALLEL_REFINEMENT_PLAN.md`. The old broad tool-managed goal is still paused;
+this explicit new task is active without changing that historical goal status.
+Production `(2,0)` remains untouched and running on its frozen binary.
+
+Starting defect: app-assisted execution always calls the serial provider method,
+bypassing existing source-row/block work stealing even after all 961 finite
+numerator equations drain. About 1.36 million mostly empty provider requests
+accompany 0.64 million actual IBP rows. Live observed CPU is ~0.98/128 cores.
+The displayed `preparing` is a missing-stage fallback. Read-only 10-second
+sampling found polynomial/GMP work, not stalled startup. The matrix has ~607k
+independent rows and 1.45 million auxiliary columns; terminal elimination count
+does not measure that work. Evidence:
+`TMP/refinement-serial-path-audit-20261022/DIAGNOSIS.md`.
+
+Assigned lanes:
+
+- `parallel_refine_core`: immutable finite provider, assisted parallel dispatch,
+  ordered query/merge barriers, checkpoint compatibility and compact column views.
+- `symmetry_five_loop_validation`: app provider composition/provenance and real
+  observed execution stages; finite only when every component is immutable.
+- `modular_refine_integration`: truthful Python dashboard, no false preparation
+  or implied CPU utilization, existing UI regressions.
+- `fresh_search_acceptance`: independent fixed-prefix release scaling and
+  exact/guard/cancellation/resume tests on lower-loop and hot five-loop inputs.
+- `modular_final_math_audit`: independent authority, span and merge audit.
+- Root: integration, resource/build coordination, profiler and final verifier.
+
+Core design reuses Symbolica sparse exact reduction. Workers prepare ordinary
+source rows and reduce blocks against immutable U; every independent residual,
+including auxiliaries, reaches ordered global commit. Generic mutable providers
+retain serial query barriers, while explicit complete finite maps can skip
+off-domain empty requests. Existing accepted rows/guards/cursors are never
+pruned. Old native schemas/bindings should resume if verified; no production
+checkpoint activation has been attempted. No new arbitrary solver ceiling.
+
+The acceptance plan at
+`TMP/parallel-assisted-refinement-20261022/ACCEPTANCE_BENCHMARK_PLAN.md` separates
+load/preparation from fixed ordinary-source work and compares 1/6/16/32 workers,
+including repeated pairs and actual guard/map equality. Test artifacts are
+untracked. No scaling claim is made before measured pilots.
+
+First implementation/source-audit pass completed. Metadata compilation of app
+library/tests passed in 1m52s. The core now has immutable finite-map execution,
+ordered dynamic-provider barriers, parallel assisted ordinary blocks and borrowed
+column views. A next-source dynamic preflight avoids speculating 4096 rows just
+to stop at the first provider request. Six new core and five new app tests cover
+scope, transcripts, errors, cancellation, old checkpoint activation and progress.
+Independent source/mathematical review found no remaining first-slice blocker.
+The optimized default-feature app/binaries build is running; actual native tests
+and release scaling remain open. No production binary or checkpoint was changed.
+
+Dashboard gates: 219 tests run, 218 passed and one existing affinity skip; final
+45-test dashboard suite passes. Missing native stage no longer means `preparing`,
+worker limits are not called active workers, and stale batch counters do not
+survive into collection/completion. Current CPU remains process-measured.
+
+Hot-input evidence: after the production round became externally paused, its
+immutable generation-8 state (358,972,306 bytes), retained capsule and numerator
+certificate were copied into `TMP/parallel-assisted-refinement-20261022/hot-gen8`.
+All content digests and independent inodes passed; source bytes were unchanged.
+We did not signal or pause that production process. CPU allocation for our
+tests/builds is 200-255, outside the production reservation 64-191; heavy benchmark
+jobs and build jobs are coordinated separately.
+
+First native gates passed: **216 core tests**, one explicitly ignored; no
+failures. These cover terminal relations/normalization, new finite/dynamic
+execution, P102, unequal masses/powers, errors, cancellation and native resume.
+App-native tests are still compiling against the current default (no explicit
+capacity-dispatch) graph; metadata and core artifact graph are coherent.
+
+First hot five-loop pair: fixed next 64 ordinary sources from the copied
+generation-8 checkpoint, legacy assisted serial **77.552s** solver vs finite
+six-worker **29.034s**, 2.67x. Whole-process 121.378s vs 72.732s, 1.67x;
+peak RSS 11.93 vs 14.77 GB, CPU 119.97 vs 129.08s. All 939 terminal maps and
+108,524 guards agree exactly, committed cursor 639701 and basis 864 identical.
+New finite single-worker control took 78.154s, showing the gain is parallelism,
+not merely query pruning. This is a first pair, not yet a replicated campaign
+scaling claim. Its eight elimination blocks limit the exposed concurrency.
+The six-worker phase split was ~24.52s elimination / 4.24s merge, with a long
+last block; testing additional workers and smaller blocks is pending.
+
+The parallel U differs by one stored nonzero. Independent review explained the
+expected forward-echelon nonuniqueness and proved full auxiliary+terminal span
+preservation by ordered induction; cold native decoding rejects explicit zeros.
+This is not dismissed using sampled zeros or terminal-count equality. Repeats,
+full current app-native gates, larger scaling probes and CLI resume acceptance
+remain required before delivery.
+
+The six-worker gain reproduced: second legacy serial 79.423s vs finite parallel
+29.734s, again **2.671x solver**, 1.631x whole-process. Repeated serial native
+outputs are byte-identical to each other, as are repeated finite-six outputs;
+cross-arm all-map/guard equality passes. Sixteen/32-worker eight-row-block runs
+use only eight jobs in this 64-row calibration and do not improve it (31.307s /
+32.643s). Smaller two-row blocks make 32 jobs and use many cores but currently
+cost more; this is negative evidence, not a speedup. The larger matched 256-row
+cohort will provide enough eight-row blocks for a genuine 32-worker comparison.
+
+Optimized candidate built successfully: default native/CLI/reconstruction
+features, `TMP/parallel-assisted-refinement-20261022/candidate-v1/rustred`, SHA256
+`3bba100d6b4037c24e7dd6ab2e4caa8afc5b67c5c3ca3df43a97920c4c2c3d49`.
+Matched benchmark/library graph: core `c7953504bb230c27`, app
+`fa10ae265964b402`, Symbolica `cda55c135abebab8`; no optional capacity-dispatch.
+This is standard default-feature release, not a dependency/API change. The
+successful verbose build took 12m56s, excluded from all timings. The earlier
+JSON release invocation exited 101 without a compiler error after library
+artifacts; its complete logs remain, and the clean verbose retry succeeded.
+A mistaken nested-target retry was stopped immediately, before engine
+compilation, touching only its new TMP build directory. No user process was
+signalled. Core/app native test frontends use the same current dependency graph;
+app unit linking is still underway. CLI old-checkpoint activation and changed
+worker-count resume tests are active on independent fixtures.
+
+Real CLI compatibility gates now pass: old frozen `4a8ffc2a...` wrote a genuine
+assisted pause after 8,509 ordinary sources plus one nonempty numerator equation;
+new candidate `3bba100d...` resumed the same checkpoint with eight workers and
+completed its 51,212 ordinary sources. Independent exact map/guard-containment
+checks pass across original source -> old prefix -> new result; the source tree
+is unchanged. Actual new native batch commits and finite-provider strategy were
+observed. Twelve fresh-search and six recovery CLI controls also pass. The
+five-second toy continuation is a functional gate, not a benchmark speedup.
+Evidence: `TMP/parallel-assisted-refinement-20261022/cli-assisted-activation-v3/`.
+Negative test harness results are retained: the first old toy completed its
+source search before interruption, and a strict equality check incorrectly
+rejected legitimately added guards. A larger caller-selected fixture and exact
+coefficient composition/inherited-guard containment fixed the *test*, not the
+engine. Full app-unit runtime gates and larger matched scaling remain pending.
+
 ## October 22 — recovery/import bridge delivery validation
 
 Frozen optimized candidate:

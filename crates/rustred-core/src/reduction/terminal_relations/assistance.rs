@@ -3,6 +3,33 @@
 //! binding identifies that fixed provider across checkpoints and extensions.
 use super::*;
 
+/// A complete, immutable equation-provider domain. Keys absent from this map
+/// have no equations under the caller's bound authority. Unlike a mutable
+/// callback, this permits omitting empty queries without remembering every
+/// auxiliary key encountered by ordinary IBPs.
+///
+/// The caller is responsible for authorizing these rows, just as for
+/// [`TerminalRelationSession::step_with_provider`]. The map is not a proof of
+/// the equations and is never inferred from an incomplete provider cache.
+#[derive(Clone)]
+pub struct TerminalRelationFiniteProvider {
+    rows: Arc<BTreeMap<IntegralKey, Vec<TerminalEquation>>>,
+}
+
+impl TerminalRelationFiniteProvider {
+    pub fn new(rows: Arc<BTreeMap<IntegralKey, Vec<TerminalEquation>>>) -> Self {
+        Self { rows }
+    }
+
+    pub fn rows(&self) -> &BTreeMap<IntegralKey, Vec<TerminalEquation>> {
+        &self.rows
+    }
+
+    pub fn shared_rows(&self) -> &Arc<BTreeMap<IntegralKey, Vec<TerminalEquation>>> {
+        &self.rows
+    }
+}
+
 pub(super) struct Assistance {
     pub binding: String,
     pub pending: BTreeSet<IntegralKey>,
@@ -10,6 +37,10 @@ pub(super) struct Assistance {
     pub equations: Vec<TerminalEquation>,
     pub equation_cursor: usize,
     pub completed_rows: u64,
+    /// Operational acceleration only. The authenticated equation binding,
+    /// queued rows and all cursors remain in the existing checkpoint format;
+    /// this complete map is supplied and revalidated after each cold load.
+    pub finite_provider: Option<TerminalRelationFiniteProvider>,
 }
 
 impl Assistance {
@@ -59,12 +90,44 @@ impl TerminalRelationSession {
             equations: Vec::new(),
             equation_cursor: 0,
             completed_rows: 0,
+            finite_provider: None,
         });
         Ok(())
     }
 
     pub fn assistance_binding(&self) -> Option<&str> {
         self.assistance.as_ref().map(|a| a.binding.as_str())
+    }
+
+    pub(super) fn bind_finite_provider(
+        &mut self,
+        provider: &TerminalRelationFiniteProvider,
+    ) -> Result<usize, TerminalRelationError> {
+        let assistance = self
+            .assistance
+            .as_ref()
+            .ok_or_else(|| invalid("equation assistance is not enabled"))?;
+        if let Some(bound) = &assistance.finite_provider {
+            return if Arc::ptr_eq(&bound.rows, &provider.rows) || bound.rows == provider.rows {
+                Ok(0)
+            } else {
+                Err(invalid("complete equation-provider map changed"))
+            };
+        }
+        for (key, equations) in provider.rows.iter() {
+            if key.powers().len() != self.family.denominator_count() {
+                return Err(invalid("equation-provider key arity differs from family"));
+            }
+            self.validate_equations(equations)?;
+        }
+        let assistance = self.assistance.as_mut().expect("enabled assistance");
+        let previous = assistance.pending.len();
+        assistance
+            .pending
+            .retain(|key| provider.rows.contains_key(key));
+        let filtered = previous - assistance.pending.len();
+        assistance.finite_provider = Some(provider.clone());
+        Ok(filtered)
     }
 
     pub(super) fn assistance_key_limit(&self) -> usize {
@@ -82,6 +145,12 @@ impl TerminalRelationSession {
             return Ok(BTreeSet::new());
         };
         let additions: BTreeSet<_> = keys
+            .filter(|key| {
+                assistance
+                    .finite_provider
+                    .as_ref()
+                    .is_none_or(|provider| provider.rows.contains_key(*key))
+            })
             .filter(|key| !assistance.queried.contains(*key) && !assistance.pending.contains(*key))
             .cloned()
             .collect();
@@ -151,6 +220,42 @@ impl TerminalRelationSession {
     /// exact equations for the bound authority. Their right-hand-side keys stay
     /// auxiliary unless also encountered independently in an ordinary source.
     pub fn step_with_provider<F>(
+        &mut self,
+        cancel: &AtomicBool,
+        provider: F,
+    ) -> Result<TerminalRelationStats, TerminalRelationError>
+    where
+        F: FnMut(&IntegralKey) -> Result<Vec<TerminalEquation>, TerminalRelationError>,
+    {
+        if self
+            .assistance
+            .as_ref()
+            .is_some_and(|assistance| assistance.finite_provider.is_some())
+        {
+            return Err(invalid(
+                "complete provider is bound; use step_with_finite_provider",
+            ));
+        }
+        self.step_with_bound_provider(cancel, provider)
+    }
+
+    /// Sequential counterpart of the executor's immutable-provider path.
+    /// Missing map keys are known empty and do not grow the query ledger.
+    pub fn step_with_finite_provider(
+        &mut self,
+        cancel: &AtomicBool,
+        provider: &TerminalRelationFiniteProvider,
+    ) -> Result<TerminalRelationStats, TerminalRelationError> {
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(self.statistics());
+        }
+        self.bind_finite_provider(provider)?;
+        self.step_with_bound_provider(cancel, |key| {
+            Ok(provider.rows.get(key).cloned().unwrap_or_default())
+        })
+    }
+
+    pub(super) fn step_with_bound_provider<F>(
         &mut self,
         cancel: &AtomicBool,
         mut provider: F,

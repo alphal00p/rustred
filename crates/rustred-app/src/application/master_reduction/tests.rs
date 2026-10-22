@@ -21,6 +21,8 @@ mod modular_tests;
 mod numerator_symmetry_tests;
 #[path = "tests/numerator_symmetry_measured.rs"]
 mod numerator_symmetry_measured;
+#[path = "tests/parallel_assistance.rs"]
+mod parallel_assistance_tests;
 #[path = "tests/recovery.rs"]
 mod recovery_tests;
 #[path = "tests/terminal_import.rs"]

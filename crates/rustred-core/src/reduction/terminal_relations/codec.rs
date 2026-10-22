@@ -628,6 +628,7 @@ pub(super) fn decode(
                     equations,
                     equation_cursor,
                     completed_rows: a.completed_rows,
+                    finite_provider: None,
                 })
             },
         )

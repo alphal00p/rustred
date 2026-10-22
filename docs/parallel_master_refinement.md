@@ -8,6 +8,35 @@ publication-only execution is unchanged.
 
 ## Algorithm and exact authority
 
+### Assisted execution and finite providers (22 October update)
+
+Earlier assisted refinement bypassed the parallel executor: the presence of an
+equation provider delegated every step, including ordinary IBPs, to the serial
+session. A configured 128-worker pool therefore did not imply that the assisted
+run actually used it. This integration fixes that dispatch, rather than claiming
+that changing a worker option alone fixed the old executable.
+
+`TerminalRelationFiniteProvider` owns a complete immutable map of authorized
+equations. The app constructs it from verified numerator/circuit plans only when
+all composed providers are finite; a saved-rule callback remains dynamic.
+Off-map keys are known empty under this explicit provider authority, not from
+sampling, an incomplete cache or a numerator-rank guess. Old pending off-map
+queries can be removed; accepted rows, queued equations, historical queried keys,
+source cursors, exact maps and conditions are retained. The runtime map is
+revalidated/rebound after a cold load without changing the native checkpoint
+schema or existing mathematical provider binding.
+
+Finite assisted ordinary IBPs use the work-stealing stages below. Mutable dynamic
+callbacks are never called concurrently: provider requests and equation insertion
+form ordered barriers. A cheap next-source preflight avoids preparing an entire
+speculative window if that source immediately opens a new provider request.
+Larger ordinary windows are truncated before crossing such a barrier.
+
+The column plan borrows the existing end-relative registry and owns only new
+window-local columns. It does not clone or rebuild the complete historical
+million-column dictionary for every small batch. Exact arithmetic still belongs
+to Symbolica; these changes are scheduling, provenance and index bookkeeping.
+
 1. Specialize and normalize an operational source window in the existing
    licensed SectorExecutor/Rayon pool, sharing immutable family/source data.
 2. Simulate the serial first-encounter column order without changing the session.
@@ -40,11 +69,33 @@ elimination and merge counters while computation runs. These scratch counters
 are not durable source counts or closure claims. CLI/Python telemetry renders
 them in a separate coloured dashboard row.
 
+The dashboard distinguishes configured worker budget from process-measured CPU
+use. Actual native row preparation/elimination are parallel phases; mutable
+provider calls are barriers, mapping and proved-row insertion are serial, and
+ordered merge is labelled separately. Missing native stage is reported as
+unknown, never guessed as `preparing`. Collection/completion hides the preceding
+batch's now-stale counters. `provider_keys_filtered` counts pending requests
+excluded by the finite map in that native call, not all avoided lookups.
+
+The overall relation-work counter includes ordinary sources, rebuilds, provider
+requests and provider rows. It is not a count of equally expensive independent
+jobs, and dynamic providers can add requests. The fixed ordinary-source cursor
+is the matched-work boundary used in performance measurements.
+
+Local block reduction may produce a different exact forward-echelon U, since
+Symbolica does not fully back-reduce every inserted row. This is not a changed
+row space: every residual differs from its source only by frozen U and earlier
+rows in that block, whose spans are already in the ordered global prefix when
+it commits. Preserve every auxiliary residual, guard and original support.
+Terminal-map/guard equality, source-prefix equality and exact span invariants
+are the correctness claims; arbitrary assisted native byte identity is not.
+
 ## Interfaces and resume
 
 The core exports `TerminalRelationExecutionOptions`, `TerminalRelationExecutor`
-and `TerminalRelationExecutionProgress`; the executor provides `step` and
-`step_observed`. Application options expose `threads`, `relation_batch_rows`
+and `TerminalRelationExecutionProgress`; the executor provides `step`,
+`step_observed`, observed dynamic-provider execution and
+`step_with_finite_provider_observed`. Application options expose `threads`, `relation_batch_rows`
 and `relation_block_rows`. Native `walk-master-reduce` accepts `--threads`,
 `--relation-batch-rows` and `--relation-block-rows`. The public wrapper transports
 the last two through both legacy and finite campaign refinement. Omitted sizes

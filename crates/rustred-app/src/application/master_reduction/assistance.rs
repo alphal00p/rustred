@@ -4,7 +4,30 @@ use crate::application::routed_campaign::{
     PreparedTerminalEquations, RoutedCampaignRequest, TerminalEquationProvider,
     prepare_terminal_equations,
 };
+use rustred::family::IntegralKey;
 use rustred::reduction::terminal_normalization::TerminalCircuitEquations;
+use rustred::reduction::terminal_relations::{TerminalEquation, TerminalRelationFiniteProvider};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+/// Runtime-only execution metadata. The old callable provider remains the
+/// contract for dynamic candidate equations and existing serial tests. The finite
+/// witness providers additionally guarantee *every* off-map lookup is empty.
+/// This is never inferred from past lookups, ranks, supports or sampled zeros.
+pub(super) struct PreparedAssistance {
+    pub provider: TerminalEquationProvider,
+    pub finite: Option<TerminalRelationFiniteProvider>,
+}
+
+impl PreparedAssistance {
+    pub fn kind(&self) -> &'static str {
+        if self.finite.is_some() {
+            "finite-immutable"
+        } else {
+            "dynamic"
+        }
+    }
+}
 
 pub(super) fn expected_binding(
     options: &MasterReductionOptions,
@@ -231,6 +254,7 @@ pub(super) fn validate(
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn prepare(
     options: &MasterReductionOptions,
     session: &TerminalRelationSession,
@@ -239,6 +263,20 @@ pub(super) fn prepare(
     observer: &impl Fn(Value),
     started: Instant,
 ) -> Result<Option<TerminalEquationProvider>, AppError> {
+    Ok(
+        prepare_for_execution(options, session, report, cancel, observer, started)?
+            .map(|prepared| prepared.provider),
+    )
+}
+
+pub(super) fn prepare_for_execution(
+    options: &MasterReductionOptions,
+    session: &TerminalRelationSession,
+    report: &mut Value,
+    cancel: &AtomicBool,
+    observer: &impl Fn(Value),
+    started: Instant,
+) -> Result<Option<PreparedAssistance>, AppError> {
     validate(options, session, report)?;
     if !options.saved_rule_assistance
         && !options.circuit_symmetry_assistance
@@ -319,18 +357,48 @@ pub(super) fn prepare(
     } else {
         None
     };
-    Ok(Some(Box::new(move |key| {
-        let mut rows = circuit
-            .as_ref()
-            .map_or_else(Vec::new, |plan| plan.equations(key).to_vec());
-        if let Some(numerator) = &numerator_rows {
-            rows.extend(numerator.get(key).into_iter().flatten().cloned());
+    if saved.is_none() {
+        // Both native witness services define a finite immutable map over the
+        // exact raw/canonical inventory and return [] at every other key.
+        let keys: std::collections::BTreeSet<_> = session
+            .raw_terminals()
+            .union(session.normalization().canonical_terminals())
+            .cloned()
+            .collect();
+        let mut rows_by_key = BTreeMap::<IntegralKey, Vec<TerminalEquation>>::new();
+        for key in keys {
+            let mut rows = circuit
+                .as_ref()
+                .map_or_else(Vec::new, |plan| plan.equations(&key).to_vec());
+            if let Some(numerator) = &numerator_rows {
+                rows.extend(numerator.get(&key).into_iter().flatten().cloned());
+            }
+            if !rows.is_empty() {
+                rows_by_key.insert(key, rows);
+            }
         }
-        if let Some(saved) = &mut saved {
-            rows.extend((saved.provider)(key)?);
-        }
-        Ok(rows)
-    })))
+        let shared = Arc::new(rows_by_key);
+        let serial = Arc::clone(&shared);
+        return Ok(Some(PreparedAssistance {
+            provider: Box::new(move |key| Ok(serial.get(key).cloned().unwrap_or_default())),
+            finite: Some(TerminalRelationFiniteProvider::new(shared)),
+        }));
+    }
+    Ok(Some(PreparedAssistance {
+        finite: None,
+        provider: Box::new(move |key| {
+            let mut rows = circuit
+                .as_ref()
+                .map_or_else(Vec::new, |plan| plan.equations(key).to_vec());
+            if let Some(numerator) = &numerator_rows {
+                rows.extend(numerator.get(key).into_iter().flatten().cloned());
+            }
+            if let Some(saved) = &mut saved {
+                rows.extend((saved.provider)(key)?);
+            }
+            Ok(rows)
+        }),
+    }))
 }
 
 fn prepare_saved(

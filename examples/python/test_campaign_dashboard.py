@@ -216,6 +216,117 @@ class TelemetryTests(unittest.TestCase):
         self.assertIn("eliminated 64",shown)
         self.assertIn("\x1b[",shown)
 
+    def test_configured_pool_without_native_stage_is_not_parallel_activity(self):
+        status = sample_status()
+        status["workers"] = 128
+        status["resources"]["native_busy_cores"] = None
+        status["master_reduction"] = {"stage": "assisted provider", "operation": "refine",
+            "execution": {"strategy": "ordered-work-stealing-blocks-v1", "workers": 128,
+                          "reserved_workers": 128}}
+        frame = TELEMETRY.normalize_status(status)
+        self.assertIsNone(frame["resources"]["native_busy_cores"])
+        execution = frame["master_reduction"]["execution"]
+        self.assertEqual(execution["stage"], "")
+        self.assertIsNone(execution["rows_prepared"])
+        self.assertIsNone(DASHBOARD.master_execution_phase(execution))
+        shown = "\n".join(DASHBOARD.render_master_table(frame, width=160, height=40, color=False)
+                          + DASHBOARD.plain_summary(frame))
+        self.assertIn("Worker limit", shown)
+        self.assertIn("configured worker limit 128", shown)
+        self.assertIn("native phase not reported", shown)
+        self.assertIn("Native execution: not reported", shown)
+        self.assertIn("unknown / 128", shown)
+        self.assertNotIn("Parallel batch", shown)
+        self.assertNotIn("preparing", shown)
+        self.assertNotIn("prepared 0", shown)
+        for unavailable in (None, "", "  ", 0, False):
+            status["master_reduction"]["execution"]["stage"] = unavailable
+            normalized = TELEMETRY.normalize_status(status)["master_reduction"]["execution"]
+            self.assertEqual(normalized["stage"], "")
+            self.assertIsNone(DASHBOARD.master_execution_phase(normalized))
+        for width in (20, 35, 39, 40, 60, 73, 74, 160):
+            for height in (8, 12, 24, 40):
+                for color in (False, True):
+                    rows = DASHBOARD.render_master_table(frame, width, height, color)
+                    self.assertLessEqual(len(rows), height)
+                    self.assertTrue(all(DASHBOARD.cell_width(ANSI.sub("", row)) == width for row in rows))
+        compact = "\n".join(DASHBOARD.render_master_table(frame, width=160, height=12, color=False))
+        self.assertIn("Checkpoint", compact)
+        self.assertNotIn("Worker limit", compact)  # Static budget must not evict safety rows.
+
+    def test_assisted_execution_transports_actual_phases_and_finite_filter_counts(self):
+        strategies = (("assisted-ordered-work-stealing-blocks-v1", "finite-immutable"),
+                      ("dynamic-assisted-ordered-work-stealing-barriers-v1", "dynamic"))
+        stages = (("waiting for native batch", "waiting", "Execution"),
+                  ("provider request", "barrier", "Provider barrier"),
+                  ("filtering provider requests", "serial", "Provider filter"),
+                  ("assistance equation", "serial", "Exact publication"),
+                  ("preparing rows", "parallel", "Parallel batch"),
+                  ("mapping columns", "serial", "Column mapping"),
+                  ("parallel elimination", "parallel", "Parallel batch"),
+                  ("ordered merge", "merge", "Ordered merge"))
+        for strategy, provider_kind in strategies:
+            for stage, mode, label in stages:
+                with self.subTest(provider_kind=provider_kind, stage=stage):
+                    status = sample_status()
+                    status["master_reduction"] = {"stage": "relations", "operation": "refine",
+                        "execution": {"strategy": strategy, "provider_kind": provider_kind,
+                            "mode": mode, "stage": stage, "workers": 128, "reserved_workers": 128,
+                            "rows_total": 80, "rows_prepared": 65, "rows_eliminated": 40,
+                            "rows_committed": 32, "blocks_completed": 5, "provider_keys_filtered": 17}}
+                    frame = TELEMETRY.normalize_status(status)
+                    execution = frame["master_reduction"]["execution"]
+                    self.assertEqual((execution["provider_kind"], execution["mode"], execution["stage"]),
+                                     (provider_kind, mode, stage))
+                    self.assertEqual(execution["provider_keys_filtered"], 17)
+                    self.assertEqual(DASHBOARD.master_execution_phase(execution), label)
+                    shown = "\n".join(DASHBOARD.render_master_table(frame, width=160, height=40, color=False)
+                                      + DASHBOARD.plain_summary(frame))
+                    self.assertIn(label, shown)
+                    self.assertIn("Native execution: " + stage, shown)
+                    self.assertIn("prepared 65/80", shown)
+                    self.assertIn("eliminated 40", shown)
+                    self.assertIn("merged 32", shown)
+                    self.assertIn("5 blocks", shown)
+                    self.assertIn("17 pending keys outside finite inventory; current call", shown)
+                    self.assertNotIn("known-empty queries", shown)
+                    if mode != "parallel":
+                        self.assertNotIn("Parallel batch", shown)
+                    for width in (20, 39, 40, 73, 74, 160):
+                        rows = DASHBOARD.render_master_table(frame, width, 24, True)
+                        self.assertTrue(all(DASHBOARD.cell_width(ANSI.sub("", row)) == width for row in rows))
+                    compact = "\n".join(DASHBOARD.render_master_table(frame, 160, 12, False))
+                    self.assertIn("Checkpoint", compact)
+
+    def test_collection_and_completion_do_not_display_a_retained_batch_as_current(self):
+        for stage, state in (("terminal_collection", "running"), ("completed", "completed_nonminimal")):
+            status = sample_status()
+            status["master_reduction"] = {"operation": "refine", "stage": stage, "status": state,
+                "execution": {"strategy": "assisted-ordered-work-stealing-blocks-v1",
+                    "stage": "parallel elimination", "mode": "parallel", "workers": 128,
+                    "rows_total": 80, "rows_prepared": 80, "rows_eliminated": 80,
+                    "rows_committed": 80, "blocks_completed": 10, "provider_keys_filtered": 17}}
+            frame = TELEMETRY.normalize_status(status)
+            self.assertEqual(frame["master_reduction"]["execution"]["rows_committed"], 80)
+            shown = "\n".join(DASHBOARD.render_master_table(frame, 160, 40, False)
+                              + DASHBOARD.plain_summary(frame))
+            self.assertIn(stage, shown)
+            self.assertNotIn("Parallel batch", shown)
+            self.assertNotIn("Native execution", shown)
+            self.assertNotIn("Provider filtered", shown)
+
+    def test_provider_filter_missing_counts_remain_unknown_not_zero(self):
+        for value in (None, True, -1, "17"):
+            status = sample_status()
+            status["master_reduction"] = {"operation": "refine", "stage": "relations",
+                "execution": {"workers": 8, "provider_kind": "finite-immutable",
+                              "provider_keys_filtered": value}}
+            frame = TELEMETRY.normalize_status(status)
+            self.assertIsNone(frame["master_reduction"]["execution"]["provider_keys_filtered"])
+            shown = "\n".join(DASHBOARD.render_master_table(frame, width=160, height=40, color=False)
+                              + DASHBOARD.plain_summary(frame))
+            self.assertNotIn("Provider filtered", shown)
+
     def test_dirty_closure_snapshot_must_have_a_scan_inside_window(self):
         status = sample_status()
         gap = status["derived"]["discovery_closure_net_1h"]

@@ -433,8 +433,12 @@ def normalize_status(status, sequence=None):
         execution = mapping(master.get("execution"))
         if execution:
             frame["master_reduction"]["execution"] = {
-                "stage": clean(execution.get("stage", ""), 100),
+                "stage": clean(execution["stage"], 100).strip() if isinstance(execution.get("stage"), str) else "",
                 "strategy": clean(execution.get("strategy", ""), 100),
+                "mode": clean(execution.get("mode", ""), 100),
+                "provider_kind": clean(execution.get("provider_kind", ""), 100),
+                "provider_keys_filtered": (execution["provider_keys_filtered"]
+                    if type(execution.get("provider_keys_filtered")) is int and execution["provider_keys_filtered"] >= 0 else None),
                 **_numbers(execution, ("workers", "reserved_workers", "discovery_workers", "batch_rows", "block_rows", "rows_total",
                                        "rows_prepared", "rows_eliminated", "rows_committed", "blocks_completed")),
             }

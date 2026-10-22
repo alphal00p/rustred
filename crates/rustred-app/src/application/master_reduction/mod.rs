@@ -740,7 +740,8 @@ fn execute_session(
         return modular::execute(options, session, report, cancel, observer, started);
     }
     budget::configure(options, session, report)?;
-    let mut provider = assistance::prepare(options, session, report, cancel, observer, started)?;
+    let mut provider =
+        assistance::prepare_for_execution(options, session, report, cancel, observer, started)?;
     // Changing an equation-provider policy can replace the native session.
     budget::configure(options, session, report)?;
     write_json(&options.directory.join("latest.json"), report)?;
@@ -760,9 +761,16 @@ fn execute_session(
     };
     if let Some(executor) = &executor {
         let configuration = executor.options();
-        report["execution"] = json!({"strategy":"ordered-work-stealing-blocks-v1",
-            "workers":configuration.workers,"batch_rows":configuration.batch_rows,
-            "block_rows":configuration.block_rows,"checkpoint":"committed source prefix; speculative blocks discarded"});
+        let kind = provider.as_ref().map_or("none", |provider| provider.kind());
+        let strategy = match kind {
+            "finite-immutable" => "assisted-ordered-work-stealing-blocks-v1",
+            "dynamic" => "dynamic-assisted-ordered-work-stealing-barriers-v1",
+            _ => "ordered-work-stealing-blocks-v1",
+        };
+        report["execution"] = json!({"strategy":strategy,"provider_kind":kind,
+            "stage":"waiting for native batch","mode":"waiting",
+            "workers":configuration.workers,"reserved_workers":configuration.workers,"batch_rows":configuration.batch_rows,
+            "block_rows":configuration.block_rows,"checkpoint":"committed native ordinary/provider prefix; speculative blocks discarded"});
         observer(event(report, "master_reduction_progress", started));
     }
     while !session.is_complete() && !cancel.load(Ordering::Relaxed) {
@@ -776,23 +784,31 @@ fn execute_session(
         if options.operation == MasterReductionOperation::Publish {
             session.step_rebuild_only(cancel).map_err(io)?;
         } else if let Some(provider) = &mut provider {
-            executor
-                .as_ref()
-                .unwrap()
-                .step_with_provider(session, cancel, provider)
-                .map_err(io)?;
+            let executor = executor.as_ref().unwrap();
+            if let Some(finite) = &provider.finite {
+                executor
+                    .step_with_finite_provider_observed(session, cancel, finite, |progress| {
+                        observed_execution(report, progress, observer, started);
+                    })
+                    .map_err(io)?;
+            } else {
+                executor
+                    .step_with_provider_observed(
+                        session,
+                        cancel,
+                        &mut provider.provider,
+                        |progress| {
+                            observed_execution(report, progress, observer, started);
+                        },
+                    )
+                    .map_err(io)?;
+            }
         } else {
             executor
                 .as_ref()
                 .unwrap()
                 .step_observed(session, cancel, |progress| {
-                    report["execution"]["stage"] = json!(progress.stage);
-                    report["execution"]["rows_total"] = json!(progress.rows_total);
-                    report["execution"]["rows_prepared"] = json!(progress.rows_prepared);
-                    report["execution"]["rows_eliminated"] = json!(progress.rows_eliminated);
-                    report["execution"]["rows_committed"] = json!(progress.rows_committed);
-                    report["execution"]["blocks_completed"] = json!(progress.blocks_completed);
-                    observer(event(report, "master_reduction_progress", started));
+                    observed_execution(report, progress, observer, started);
                 })
                 .map_err(io)?;
         }
@@ -807,14 +823,18 @@ fn execute_session(
         }
     }
     if cancel.load(Ordering::Relaxed) {
+        reset_execution_phase(report, "paused", "idle");
         save(options, &session, report, "paused", started, observer)?;
         return Ok(());
     }
+    reset_execution_phase(report, "terminal collection", "serial");
     collection::complete(options, session, report, cancel, observer, started)?;
     if cancel.load(Ordering::Relaxed) {
+        reset_execution_phase(report, "paused", "idle");
         save(options, session, report, "paused", started, observer)?;
         return Ok(());
     }
+    reset_execution_phase(report, "completed", "idle");
     save(
         options,
         &session,
@@ -830,6 +850,49 @@ fn execute_session(
     publish_final(options, report)?;
     observer(event(report, "master_reduction_finished", started));
     Ok(())
+}
+
+/// Native progress identifies the actual phase. A reserved pool is not a
+/// measurement of busy workers, and coordinator/serial-provider barriers must
+/// not be presented as parallel elimination merely because workers > 1.
+fn observed_execution(
+    report: &mut Value,
+    progress: rustred::reduction::terminal_relations::TerminalRelationExecutionProgress,
+    observer: &impl Fn(Value),
+    started: Instant,
+) {
+    report["execution"]["stage"] = json!(progress.stage);
+    report["execution"]["mode"] = json!(match progress.stage {
+        "preparing rows" | "parallel elimination" => "parallel",
+        "provider request" => "barrier",
+        "ordered merge" => "merge",
+        _ => "serial",
+    });
+    report["execution"]["rows_total"] = json!(progress.rows_total);
+    report["execution"]["rows_prepared"] = json!(progress.rows_prepared);
+    report["execution"]["rows_eliminated"] = json!(progress.rows_eliminated);
+    report["execution"]["rows_committed"] = json!(progress.rows_committed);
+    report["execution"]["blocks_completed"] = json!(progress.blocks_completed);
+    report["execution"]["provider_keys_filtered"] = json!(progress.provider_keys_filtered);
+    observer(event(report, "master_reduction_progress", started));
+}
+
+fn reset_execution_phase(report: &mut Value, stage: &str, mode: &str) {
+    let Some(execution) = report.get_mut("execution").and_then(Value::as_object_mut) else {
+        return;
+    };
+    execution.insert("stage".into(), json!(stage));
+    execution.insert("mode".into(), json!(mode));
+    for name in [
+        "rows_total",
+        "rows_prepared",
+        "rows_eliminated",
+        "rows_committed",
+        "blocks_completed",
+        "provider_keys_filtered",
+    ] {
+        execution.remove(name);
+    }
 }
 
 fn publish_final(options: &MasterReductionOptions, report: &mut Value) -> Result<(), AppError> {

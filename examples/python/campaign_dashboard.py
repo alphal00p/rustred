@@ -517,6 +517,38 @@ def render_table(frame, width=100, height=24, color=True):
     return fixed + [line for index, (_, line) in enumerate(rows) if index in keep] + footer
 
 
+def master_execution_phase(execution):
+    """Describe a reported native phase, never infer activity from pool size."""
+    stage = execution.get("stage", "")
+    if not stage:
+        return None
+    labels = {"provider request": "Provider barrier", "assistance equation": "Exact publication",
+              "filtering provider requests": "Provider filter", "mapping columns": "Column mapping",
+              "ordered merge": "Ordered merge", "waiting for native batch": "Execution"}
+    if stage in labels:
+        return labels[stage]
+    parallel_strategies = ("ordered-work-stealing-blocks-v1", "assisted-ordered-work-stealing-blocks-v1",
+                           "dynamic-assisted-ordered-work-stealing-barriers-v1")
+    if (execution.get("mode") == "parallel"
+            or (not execution.get("mode") and execution.get("strategy") in parallel_strategies
+                and stage in ("preparing rows", "parallel elimination"))):
+        return "Parallel batch"
+    if execution.get("mode") == "barrier":
+        return "Provider barrier"
+    if execution.get("mode") == "serial":
+        return "Serial phase"
+    return "Execution"
+
+
+def master_batch_execution(master):
+    """Do not present a retained batch receipt as a later phase's activity."""
+    if (master.get("operation") != "refine" or master.get("refinement_strategy") == "modular-circuits"
+            or master.get("stage") == "terminal_collection"
+            or master.get("status") in ("completed_nonminimal", "published_unrefined")):
+        return {}
+    return master.get("execution", {})
+
+
 def render_master_table(frame, width=100, height=24, color=True):
     """Phase-two view of the same event stream; no inferred algebra progress."""
     width, height = max(20, min(160, width)), max(8, height)
@@ -586,12 +618,23 @@ def render_master_table(frame, width=100, height=24, color=True):
         (2, full("Scope " + master["scope_binding"], "2")),
         (2, full("Receipts " + frame["run_directory"], "2")),
     ]
-    execution = master.get("execution", {})
-    if execution and (execution.get("workers") or 0) > 1 and not publishing and not modular:
-        rows.insert(6, (0, row("Parallel batch", execution.get("stage") or "preparing",
-            f"prepared {count(execution.get('rows_prepared'))}/{count(execution.get('rows_total'))} · "
-            f"eliminated {count(execution.get('rows_eliminated'))} · merged {count(execution.get('rows_committed'))} · "
-            f"{count(execution.get('blocks_completed'))} blocks", "36")))
+    execution = master.get("execution", {}) if modular else master_batch_execution(master)
+    if execution and not publishing and not modular:
+        budget = execution.get("reserved_workers")
+        if budget is None:
+            budget = execution.get("workers")
+        phase_label = master_execution_phase(execution)
+        if phase_label:
+            rows.insert(6, (1, row(phase_label, execution["stage"],
+                f"prepared {count(execution.get('rows_prepared'))}/{count(execution.get('rows_total'))} · "
+                f"eliminated {count(execution.get('rows_eliminated'))} · merged {count(execution.get('rows_committed'))} · "
+                f"{count(execution.get('blocks_completed'))} blocks", "36")))
+            rows.insert(7, (2, row("Worker limit", count(budget), "configured budget; not measured busy cores", preserve_value=True)))
+        else:
+            rows.insert(6, (2, row("Worker limit", count(budget), "configured; native phase not reported", preserve_value=True)))
+        if execution.get("provider_keys_filtered") is not None:
+            rows.insert(7, (1, row("Provider filtered", count(execution["provider_keys_filtered"]),
+                                  "pending keys outside finite inventory; current call", preserve_value=True)))
     if modular:
         rows[5] = (0, row("Discovery rows", discovery_work, "sampled scan; exact span incomplete", "35",
                           preserve_value=True))
@@ -698,6 +741,10 @@ def plain_summary(frame):
     """Readable append-only summary from the same public frame as every consumer."""
     if frame.get("master_reduction"):
         master = frame["master_reduction"]
+        execution = master_batch_execution(master)
+        budget = execution.get("reserved_workers")
+        if budget is None:
+            budget = execution.get("workers")
         return [f"RustRed · {frame['phase']} · {frame['state']} · elapsed {duration(frame['elapsed_seconds'])}",
                 f"Stage {master['stage']} · {count(master['remaining_terminals'])} remaining terminals (nonminimal)",
                 f"{'Published' if master.get('artifact') else 'Available'} executable rule records {count(master.get('published_rule_records'))} · observed cover rules {count(master.get('observed_cover_rules'))}",
@@ -710,6 +757,17 @@ def plain_summary(frame):
                 *(["Fresh relations-only round · shape (" + count(master.get("seed_depth")) + ","
                     + count(master.get("containing_sector_depth")) + ") · retained proved maps; new search cursor"]
                   if master.get("fresh_search", False) and master.get("operation") == "refine" else []),
+                *(["Native execution: " + (execution.get("stage") or "not reported")
+                    + " · configured worker limit " + count(budget)
+                    + " (not measured busy cores)"] if execution else []),
+                *(["Batch counters: prepared " + count(execution.get("rows_prepared")) + "/"
+                    + count(execution.get("rows_total")) + " · eliminated " + count(execution.get("rows_eliminated"))
+                    + " · merged " + count(execution.get("rows_committed")) + " · "
+                    + count(execution.get("blocks_completed")) + " blocks"]
+                  if execution.get("stage") else []),
+                *(["Provider filtered: " + count(execution["provider_keys_filtered"])
+                    + " pending keys outside finite inventory; current call"]
+                  if execution.get("provider_keys_filtered") is not None else []),
                 *(["Numerator symmetry: finite certified inventory; denominator-preserving maps; not a global symmetry claim"]
                   if master.get("numerator_symmetry_assistance", False) and master.get("operation") == "refine" else
                   ["Numerator symmetry: inherited finite proofs retained; current provider off"]

@@ -33,6 +33,7 @@ use crate::persistence::BinaryIoLimits;
 use crate::sector::OrderingPolicy;
 
 pub type TerminalRelationRow = BTreeMap<IntegralKey, Coefficient>;
+pub use assistance::TerminalRelationFiniteProvider;
 pub use execution::{
     TerminalRelationExecutionOptions, TerminalRelationExecutionProgress, TerminalRelationExecutor,
 };
