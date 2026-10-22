@@ -10,6 +10,10 @@ mod matching;
 pub(in crate::application) mod prepare;
 mod storage;
 mod terminal_equations;
+pub use terminal_equations::{
+    PreparedSavedIntegralEquations, TerminalEquationReductionFailure,
+    prepare_saved_integral_equations,
+};
 pub(in crate::application) use terminal_equations::{
     PreparedTerminalEquations, TerminalEquationProvider, prepare_terminal_equations,
 };

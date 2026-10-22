@@ -51,6 +51,10 @@ pub use routed_campaign::{
     OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
     owner_domain_walk_inventory,
 };
+pub use routed_campaign::{
+    PreparedSavedIntegralEquations, TerminalEquationReductionFailure,
+    prepare_saved_integral_equations,
+};
 pub use saved_application::{
     PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,
     SavedApplicationCacheBundleWriter, SavedApplicationCacheCopyStatistics,

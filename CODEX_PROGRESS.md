@@ -1,5 +1,70 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 22 — measured five-loop symmetry-only gain
+
+The user resumed the task. Main fresh-search and separate external R6 package
+remain delivered; the numerator feature is pushed as `19e7dc66` on
+`codex/numerator-symmetry-refinement`. Production campaigns remain untouched.
+
+- The complete raw-key numerator-symmetry assay completed: **904 -> 873**
+  remaining raw terminal keys, 31 additional dependencies. It processed all
+  961 witnessed equations over the pinned 939-key inventory, with zero ordinary
+  IBP sources and no saved-rule application. Whole process 16.07 s, core assay
+  15.38 s including 10.65 s compact input/proof loading, peak RSS 1.277 GiB.
+- It retained 154,694 unresolved auxiliary columns. Those are not output masters:
+  every output remains in the 873-key retained basis. Exhausting this finite
+  provider is not auxiliary, source-span, symmetry-group, or family closure.
+- Independent public-core checker passed in 3.447 s: every one of the 939 old
+  maps composes exactly through the new map; all 108,524 old guards remain;
+  input native bytes are unchanged. It independently confirmed 66 changed maps,
+  no auxiliary output leaves, and the 31-dependency count. Before BLAKE3
+  `83429a97...`, after `ffdf0eee...`. Evidence:
+  `TMP/numerator-symmetry-delivery-20261021/check_retained_maps.five-loop-raw.json`.
+- P102 itself is still an identity in the raw-only result: its verified
+  contraction/orbit relation also requires mapping/reducing the pinched terms.
+  Its analytic/native regression is valid; the full installation measurement
+  must not be conflated with the 31 other raw-only gains.
+- Two repeated frozen-driver runs and the documented generic-driver run agree
+  byte for byte (result SHA256
+  `d7018221688a7342e0d8f0a704df1c7d5f2f9af1ea8eac28ee755f16b1504992`).
+  Whole-process walls were 16.07 / 15.75 / 15.82 s. First result and all input hashes live at
+  `TMP/numerator-symmetry-five-loop-raw-evidence-20261021/conservative-v2-result/`.
+
+Negative evidence retained: the first full saved-rule projection experiment
+visited a 2,125-term rank-nine row first because of lexicographic key order. It
+was manually stopped by root after 28,874 s, before any completed equation was
+reported, at 19.01 GB peak RSS. Only our isolated test was signalled. This is a
+censored failure, not a completed full-set timing. The test frontend was opt-0
+with optimized dependencies, so it is not a release CLI benchmark. Profiled
+time in that first row was dominated by exact guard union/hashing. Preparation
+had separately used 352.136 s for old artifact validation and 360.438 s for
+saved-rule proof replay; symmetry discovery itself took 4.991 s.
+
+The direct raw-only helper's first cold import also failed before search because
+it supplied a different normalization-preparation profile. Native replay
+correctly rejected a changed regenerated proof. Using the actual source's
+`conservative-v1` recipe fixed this; operational search/I/O grants remain
+unlimited. No codec bypass or mathematical assertion was weakened.
+
+The next narrow integration exposes the existing saved identity application as
+`PreparedSavedIntegralEquations`, with unchanged family/payload/overlay checks
+and exact complete-row/guard behavior. This supports an optimized external
+driver that cost-orders the explicit 219-row degree-one cohort and checkpoints
+between rows, without another full engine rebuild per experiment. Independent
+API audit passed. The complete 961-row saved-projection path remains unmeasured.
+The optimized public-facade CLI build passed (5m24s); frozen executable SHA256
+`ed52628d52d56732fa16ff747f4ef676eb37ee3ff71dfa02c20e296038e45fa3`.
+All 12 fresh-search native subprocess checks passed again with source hashes
+unchanged. The facade delegates existing paths only; its separate cost-ordered
+optimized application assay is pending. No core search or CAS change accompanies
+this public API exposure.
+
+Do not advertise `--saved-rule-assistance` as cheap or necessary for the measured
+31-key gain. The raw `--numerator-symmetry-assistance` lane alone suffices for
+that result. The external Vakint package still pins the older 904-key basis;
+no in-flight test relation has been silently installed into that package or
+into the user's campaign.
+
 ## October 21 — numerator-polynomial symmetry refinement (isolated feature)
 
 Branch: `codex/numerator-symmetry-refinement`; worktree:

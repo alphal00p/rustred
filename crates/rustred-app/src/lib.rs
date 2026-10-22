@@ -46,6 +46,10 @@ pub use application::{
     saved_application_arity_with_policy, saved_application_boundary_witnesses,
     saved_application_domains, saved_application_domains_with_policy,
 };
+pub use application::{
+    PreparedSavedIntegralEquations, TerminalEquationReductionFailure,
+    prepare_saved_integral_equations,
+};
 /// Native family entry for embedded hosts; no source-text round trip.
 pub use rustred::family::IntegralFamily as NativeIntegralFamily;
 #[cfg(feature = "cli")]

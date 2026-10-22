@@ -12,9 +12,13 @@ pub(in crate::application) type TerminalEquationProvider =
 pub(in crate::application) type TerminalEquationReducer =
     Box<dyn FnMut(&TerminalEquation) -> Result<TerminalEquation, TerminalEquationReductionFailure>>;
 
+/// Failure to apply a supplied exact identity through an authenticated saved
+/// candidate program. Failure never promotes an unresolved integral to master.
 #[derive(Debug)]
-pub(in crate::application) enum TerminalEquationReductionFailure {
+pub enum TerminalEquationReductionFailure {
+    /// One of the finitely supplied source keys failed coordinate admission.
     FiniteAdmission(rustred::solver::RootAdmissionError),
+    /// Saved-rule, routing, arithmetic or operational application failure.
     SavedApplication(rustred::solver::CandidateRoutedError),
 }
 
@@ -24,11 +28,13 @@ impl TerminalEquationReductionFailure {
         match self {
             Self::FiniteAdmission(_) => "invalid-finite-source-admission",
             Self::SavedApplication(CandidateRoutedError::MissingOwner { .. }) => "missing-owner",
-            Self::SavedApplication(CandidateRoutedError::UnsupportedSupportTransition { .. }) => {
-                "unsupported-support-transition"
-            }
+            Self::SavedApplication(CandidateRoutedError::UnsupportedSupportTransition {
+                ..
+            }) => "unsupported-support-transition",
             Self::SavedApplication(CandidateRoutedError::Cycle { .. }) => "saved-application-cycle",
-            Self::SavedApplication(CandidateRoutedError::ResourceLimit { .. }) => "caller-resource-limit",
+            Self::SavedApplication(CandidateRoutedError::ResourceLimit { .. }) => {
+                "caller-resource-limit"
+            }
             Self::SavedApplication(_) => "saved-rule-application-unavailable",
         }
     }
@@ -39,8 +45,20 @@ impl std::fmt::Display for TerminalEquationReductionFailure {
         match self {
             Self::FiniteAdmission(error) => write!(out, "symmetry-row finite admission: {error}"),
             Self::SavedApplication(error) => {
-                write!(out, "saved-rule application of complete numerator-symmetry row: {error}")
+                write!(
+                    out,
+                    "saved-rule application of complete numerator-symmetry row: {error}"
+                )
             }
+        }
+    }
+}
+
+impl std::error::Error for TerminalEquationReductionFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::FiniteAdmission(error) => Some(error),
+            Self::SavedApplication(error) => Some(error),
         }
     }
 }
@@ -48,6 +66,63 @@ impl std::fmt::Display for TerminalEquationReductionFailure {
 pub(in crate::application) struct PreparedTerminalEquations {
     pub provider: TerminalEquationProvider,
     pub reduce_equation: TerminalEquationReducer,
+}
+
+/// Generation-free exact application of saved candidate equations.
+///
+/// Preparation authenticates the family, every payload digest, saved overlays,
+/// routes and contexts exactly as the native finite-refinement provider does.
+/// The immutable programs and the coefficient application cache are retained
+/// between calls. This object does not certify the source rules or claim
+/// closure, independence or coverage of a user-supplied starting domain.
+pub struct PreparedSavedIntegralEquations {
+    prepared: PreparedTerminalEquations,
+}
+
+impl PreparedSavedIntegralEquations {
+    /// Apply the complete homogeneous identity and coalesce its exact terminal
+    /// coefficients. Source guards are preserved and application guards added.
+    ///
+    /// Root admission consists of the finite exact keys in this identity, not
+    /// the saved campaign's requested starting scope. This is appropriate for
+    /// independently established symmetry/source identities; it must not be
+    /// advertised as admitting arbitrary physics inputs. Descendants retain
+    /// the existing rule, routing and descent checks and are never rank-clipped.
+    pub fn reduce_equation(
+        &mut self,
+        equation: &TerminalEquation,
+    ) -> Result<TerminalEquation, TerminalEquationReductionFailure> {
+        (self.prepared.reduce_equation)(equation)
+    }
+
+    /// Return directly applicable saved equations and finite verified routing
+    /// identities at one key. This does not recursively apply their RHS.
+    pub fn equations(
+        &mut self,
+        key: &IntegralKey,
+    ) -> Result<Vec<TerminalEquation>, TerminalRelationError> {
+        (self.prepared.provider)(key)
+    }
+}
+
+/// Prepare a caller-owned identity application object without generating rules
+/// or reading/modifying a campaign traversal ledger. Resource grants come from
+/// `request`; payload paths resolve against its `owner_base`.
+pub fn prepare_saved_integral_equations(
+    request: &RoutedCampaignRequest,
+    family_fingerprint: &str,
+    expected_digests: &[String],
+    cancel: &AtomicBool,
+    observer: &impl Fn(Value),
+) -> Result<PreparedSavedIntegralEquations, AppError> {
+    prepare_terminal_equations(
+        request,
+        family_fingerprint,
+        expected_digests,
+        cancel,
+        observer,
+    )
+    .map(|prepared| PreparedSavedIntegralEquations { prepared })
 }
 
 pub(in crate::application) fn prepare_terminal_equations(
@@ -167,4 +242,29 @@ fn prepare_provider<const N: usize>(
         provider,
         reduce_equation,
     })
+}
+
+#[cfg(test)]
+mod public_facade_tests {
+    use super::*;
+
+    #[test]
+    fn crate_root_facade_preserves_input_admission_before_any_native_preparation() {
+        let request = crate::RoutedCampaignRequest::new("{}".into(), String::new());
+        let cancel = AtomicBool::new(false);
+        let observed = std::sync::atomic::AtomicUsize::new(0);
+        let result: Result<crate::PreparedSavedIntegralEquations, AppError> =
+            crate::prepare_saved_integral_equations(
+                &request,
+                "missing-family",
+                &[],
+                &cancel,
+                &|_| {
+                    observed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                },
+            );
+        assert!(result.is_err());
+        assert!(!cancel.load(std::sync::atomic::Ordering::Relaxed));
+        assert_eq!(observed.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
 }

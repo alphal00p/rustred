@@ -145,7 +145,7 @@ python -B examples/python/saved_campaign.py refine \
   --campaign "$RUSTRED_CAMPAIGN" --executable "$RUSTRED_BIN" \
   --fresh-search --refinement-strategy exact \
   --seed-depth 2 --containing-sector-depth 0 \
-  --numerator-symmetry-assistance --saved-rule-assistance \
+  --numerator-symmetry-assistance --no-saved-rule-assistance \
   --workers 128 --cpus 64-191
 ```
 
@@ -161,6 +161,23 @@ additionally applies existing supplied programs to their complete rows before
 finite elimination. It does not generate new parametric IBPs. Both require the
 exact refinement backend at present. A modular request is rejected explicitly.
 The ordinary default does no numerator-symmetry discovery.
+
+The command above chooses the measured cheap direct-provider lane. It found
+31 extra finite dependencies on the pinned five-loop set (904 -> 873), without
+saved-rule application. Full saved-rule projection is an advanced opt-in:
+an initial lexicographic, high-rank-first assay was stopped after eight hours
+inside its first equation. Its test/frontend bodies were opt-0, so that failed
+run is not a production release benchmark. Do not promise that adding
+`--saved-rule-assistance` is inexpensive. The ordinary `(2,0)` source search
+also adds work not included in the direct-provider timing.
+
+For independent optimized experiments, `prepare_saved_integral_equations`
+returns a reusable `PreparedSavedIntegralEquations`. Its `reduce_equation`
+method uses exactly the existing complete coefficient reducer, contexts,
+payload/overlay authentication and guards; `equations` returns directly
+applicable saved identities. An exact source row supplies finite roots only
+for identity application, not a new guarantee for arbitrary physics inputs.
+The caller remains responsible for the validity of a proposed input identity.
 
 The imported previous maps and guards remain authoritative, while old auxiliary
 rows, source cursors, modular images/candidates and depth minima are discarded.
