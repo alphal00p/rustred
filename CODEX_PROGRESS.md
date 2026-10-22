@@ -1,5 +1,30 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 22 — master-count research delivered after parallel completion
+
+Four independent literature/code/methods/critical-review lanes completed the
+requested study. Original audited synthesis is pushed on the isolated feature
+as `97f55c93`: `docs/research/five_loop_master_count_gap_2026-10-22.md`, locally
+under `TMP/numerator-symmetry-refinement-20261021/`. Primary catalogues give
+131-132 including22products versus109-110 nonfactorized;862 is our finite output
+basis, not an independence count. Actual topology matching remains to be counted.
+
+Concrete leading checks: current conservative normalization20kterm allowance
+(historicaldifferent829fixture651afterstandardnormalization, not a current gain),
+incomplete symmetrygenerator discovery despite full exactnumeratortransport,
+weighted-stabilizer vs cross-dotted relations, and target-aware ordinaryIBP
+generation/auxiliary cancellation. TIDE documents higher-sector constraints and
+boundary halos; dimension shifts are not required by its2015implementation.
+Criticalpoints are diagnostic with generic-index/nonisolated/specialization
+caveats, not automatic certificates or relations. Correct notation:
+TIDEr=A−t,s=R,ourD=A−R=t+r−s. Final independent review passes.
+
+No new solve, numerical evaluation, implementation, production mutation or
+reference/payload push in this phase. Recommended first follow-up is a matched
+current939-key normalization census and exact convention-preserving map import,
+not a blind deeper refinement or silent live-profile change. Untracked detailed
+lane evidence: `TMP/research-five-loop-master-gap-20261022/`.
+
 ## October 22 — parallel assisted exact refinement delivered
 
 The isolated feature `codex/numerator-symmetry-refinement` is tested/pushed:
