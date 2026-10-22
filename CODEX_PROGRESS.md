@@ -2,6 +2,40 @@
 
 ## October 22 — measured five-loop symmetry-only gain
 
+Final combined result: **904 -> 871** finite retained basis keys (33 additional
+dependencies), after exact union and independent validation of the direct
+symmetry pass and selected saved-rule consequences. The original 939 keys
+remain defined. No numerical evaluations or new ordinary IBPs were used.
+
+The optimized P102 regression completed all three source witnesses. Its actual
+saved-artifact result is exactly `P162 + P86/2 + P106/2` at unit mass, with the
+mass-restored P106 coefficient `m^2/2`. All three native output tuples match the
+independently checked external-data graph representatives. Starting from 904,
+that selected test alone gives 901. Its three complete row applications took
+7.797 / 5.903 / 6.638 ms (20.34 ms total), but the **whole process took 137.630 s**,
+including 120.296 s saved-program load and 9.988 s compact baseline/witness
+replay, at 8.254 GB peak sampled RSS. The millisecond row timings are not
+end-to-end generation/refinement timings. All source hashes were unchanged.
+
+The earlier optimized 219-row rank-one cohort was manually stopped during its
+second row after approximately ten minutes. Its one completed group proved one
+additional relation (904 -> 903); later progress is censored, not completed.
+Sampling the second row showed real exact coefficient addition/GCD swell, not
+guard hashing. Its native checkpoint and exact row evidence remain retained.
+
+Independent exact re-elimination measured: raw-only 873 plus that completed
+group gives 872, then adding the three P102 consequences gives 871. Two of the
+three P102 consequences overlap what the raw pass already implied; counts are
+not simply added. Final native result:
+`TMP/numerator-symmetry-combined-evidence-20261022/with-p102/combined.rrbin`
+(BLAKE3 `d5cf6ce8dade27292d3a175af0f65038362696af2c44dd7d243747f28acb68c7`).
+It has zero auxiliary columns and 108,916 guards. Each of the original baseline,
+raw-only, completed R1 and P102 map sets composes exactly through it for every
+one of the 939 raw keys; all guard unions and cold maps match. This is a native
+research refinement snapshot, not a modified production publication or a
+minimality/whole-family-closure claim. The separate Vakint package still pins
+the original 904-key publication, explicitly identified below.
+
 The user resumed the task. Main fresh-search and separate external R6 package
 remain delivered; the numerator feature is pushed as `19e7dc66` on
 `codex/numerator-symmetry-refinement`. Production campaigns remain untouched.
