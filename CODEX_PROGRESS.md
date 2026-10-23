@@ -1,5 +1,33 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 23 — 640-master external-data task complete
+
+The final end-to-end consumer gate completed PASS with no failures,33m09s
+process/5.79GBpeak. PublicVakintall-packload1029.278s(DEBUG/defaultserial), native
+16workerload178.276s, all640nativeDOTs61.814s. AdmittedP79first54.555s/warm49.000s;
+admittedD9dottedP67banana561.590s/warm49.080s; exactfirst/warmcoefficients and
+declared-master-only outputs verified. Missing5Lnumericdata andunsupported
+topologydiagnostics passed. All1L/2L/3L and4LH/FG/BMW/X symboliccontrols passed
+(20/13/17ms;149/143/61/321ms respectively, DEBUG). No numericalmastervalues,
+persistent5Lcache, newIBPs or sourcecampaignchanges. Runtimecache47804hits,
+3753ruleapps,7629integrals/7807804coefficientbytes,zeroevictions/recomputes.
+Warmend-to-endoverheadremains; no optimizedconsumerperformanceclaim.
+
+Receipt TMP/five-loop-640-delivery-20261023/consumer-delivery.json SHA256
+25244caee07ef5930d4e85aca62631c12c3137800f2bfd6b1f4459dea8145e2e.
+All ownedvalidationprocessesexited. Publicdata cb52c789 andconsumer6cdaa993
+are nowfullyvalidated; bothcheckouts clean. No need repush/rewrite data payloads
+afterthis finalresult. External5L483585308bytes/737payloadfiles/640DOT-onlymasters;
+standaloneapplication475887550bytes/85files; maxbinary32MiB. All10270lowerfiles
+androotlowerentries remainupstream-identical. No release/data-latestupdate.
+
+RustRedmaintransport d1c8957b andreportcheckpoint73f0bce4 pushed, finalreport
+completion update follows. CompatibleRustRed consumer52c74636 onpublished
+codex/terminal-map-consumer-20261023. Canonicalartifactpath andloadcommand are
+documented in docs/research/five_loop_640_external_data_2026-10-23.md.
+Alltasklanes delivered; no remainingwork or new feature investigation.
+UnrelatedlocalFeynKit/notebook changes preserved. Historicalpausedgoalunchanged.
+
 ## October 23 — 640-master data pushed at explicit user checkpoint
 
 User asked for immediate data commit/push because other sessions were waiting.

@@ -103,7 +103,7 @@ also pass native FeynKit/Vakint ingress, exact denominator and complete numerato
 mapping, Jacobian and DOT round-trip checks. There are 441 dotted masters and
 204 with numerator slots. No release tag or `data-latest` update was made.
 
-## Published checkpoint and current consumer acceptance
+## Publication and completed consumer acceptance
 
 At the user's explicit request, the data checkpoint was committed and pushed
 before the last long symbolic canary completed:
@@ -134,15 +134,39 @@ The new rank-17 factor-preservation regression, all 12 ingress tests and five
 FeynKit checks pass; 67 compatible saved-application tests pass with one ignore.
 Independent source review found no change to masses, powers, guards or scope.
 
-The final debug consumer test has passed all 640 graph definitions and the
+The final debug consumer test completed successfully and passed all 640 graph definitions and the
 640-output/939-map native inventory comparison. Its native load with 16 workers
 took 178.276 seconds. Vakint's actual public cumulative loader then completed in
 1,029.277 seconds using its current default serial preparation. These are debug
 validation measurements, not optimized end-user performance benchmarks.
-The missing-five-loop-numerical-data diagnostic and an admitted scalar P79
-reduction with exact warm agreement pass. The admitted dotted P67 banana with
-R=0 and D=9 is still running at this checkpoint; its completed output and the
-subsequent lower-loop reduction controls must not be claimed yet.
+The missing-five-loop-numerical-data diagnostic, unsupported-topology error,
+admitted scalar P79 reduction and admitted dotted P67 banana reduction all pass.
+Both first/warm outputs agree exactly and contain only masters declared in the
+loaded catalogue. The banana input has R=0 and D=9 and reduces to the declared
+unit-power banana and its dotted basis partner. All 1L, 2L, 3L and four-loop
+H/FG/BMW/X symbolic regression controls also pass.
+
+| Debug consumer check | First / warm seconds |
+|---|---:|
+| Admitted scalar P79 | 54.555 / 49.000 |
+| Admitted dotted P67 banana, R=0, D=9 | 561.590 / 49.080 |
+| 1L / 2L / 3L controls | 0.020 / 0.013 / 0.017 |
+| Four-loop H / FG / BMW / X controls | 0.149 / 0.143 / 0.061 / 0.321 |
+
+The complete process took 33m09s with 5.79 GB peak RSS. Cache statistics record
+47,804 hits, 3,753 rule applications, 7,629 retained integrals and 7,807,804
+retained coefficient bytes; there were no evictions or recomputed nodes. The
+roughly 49-second warm times show that substantial overhead remains in this
+debug end-to-end path even with cache reuse. No optimized consumer performance
+or speedup claim is made. No persistent five-loop cache was written.
+
+The complete acceptance receipt is
+`TMP/five-loop-640-delivery-20261023/consumer-delivery.json`, SHA256
+`25244caee07ef5930d4e85aca62631c12c3137800f2bfd6b1f4459dea8145e2e`.
+All owned validation processes have exited. The public data and compatible
+consumer commits above are now fully validated. The provenance-only metadata
+stamp changed no native or graph payload; its final hashes and all lower-loop
+bytes were independently rechecked. The data repository remains clean.
 
 The bare unit-power P67 has D=6 and is a valid output master but is outside this
 publication's starting-domain union. The test therefore uses a dotted version
