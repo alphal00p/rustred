@@ -196,3 +196,39 @@ update is available by Git pull; the released download alias remains unchanged.
 All build, measurement and immutable source hash receipts are under
 `TMP/five-loop-640-delivery-20261023`; no generated package or reference material
 is committed to RustRed itself.
+
+## Consolidation into the Vakint integration branch
+
+The original acceptance branch is merged and pushed into the newer
+`alphal00p/gammaloop:vakint_rustred` with normal two-parent merge
+`1b71dffb6f374296610b41fc8d3f09c9a8cf5929`. Its parents are the latest integration
+revision `8ab99b3e` and the tested loader contribution `6cdaa993`. The newer
+precision, master-inspection, native DOT propagator-power and lower-loop-data
+changes are retained, as is the target's enabled CI configuration. The
+compatible dependency graph combines Symbolica `9a3abbea` with RustRed
+`52c74636`; the serialized data package is unchanged.
+
+The merge passed an independent source audit, a fresh locked build, all 640
+exact DOT/ingress checks (including the new native default propagator powers),
+13 Vakint ingress tests, 26 precision tests and four FeynKit saved-DOT tests.
+The native cold load checked all 939 source keys, the exact 640 output
+definitions and strict admission against the new dependency graph. Existing
+four-loop benchmark JSON values are byte-equivalent after removing the
+appended five-loop section; both pages of the regenerated PDF were visually
+checked. Merge evidence is in `TMP/five-loop-640-merge-validation-20261023`.
+
+The focused public-application canary passed before the merge push. Its explicit
+five-loop load took 181.208 seconds; P79 first and warm applications took
+57.662 and 52.537 seconds. Both outputs have identical exact coefficients and
+140,191 guards, and contain only declared master symbols. The public lower-loop
+load also passed. These are debug validation measurements, not optimized
+performance comparisons. Its first temporary probe retained the default FORM-backed evaluation order
+while deliberately supplying an invalid FORM path and therefore failed at
+settings validation. The corrected probe explicitly selects RustRed with
+retained masters and the FeynKit tensor prepass, matching the already tested
+shipped acceptance example. No production change was needed for that harness
+correction; the original failure log is retained.
+
+Consumers can now use the regular `vakint_rustred` branch rather than switching
+to `five-loop-640-loader-acceptance`. No data files, manifests, releases or
+download aliases were changed by this code consolidation.
