@@ -1,5 +1,123 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 23 — 640-master data pushed at explicit user checkpoint
+
+User asked for immediate data commit/push because other sessions were waiting.
+Fresh upstream fetch stillfb6e5258; lower1L–4L trees/rootentries unchanged.
+Externaldata main pushed/remoteverified cb52c789af88e96de009d8fbf11bd792f3391d63.
+Final5LmanifestSHA2562f3e021786c36c4611927c813285a3bfb8c880918aa1762709b4c766ed1531d7.
+Compatibleconsumer committed/pushed6cdaa993ee9b413189ae077a8f783de6223cc42e on
+alphal00p/gammaloop five-loop-640-loader-acceptance, RustRed52c74636 supportedpin.
+AllcommitsValentinHirschi. Externalcheckoutclean. No tags/releases/data-latest.
+
+Nativefull640DOTexecution PASS (441dotted/204numerator), exactmapping/fullN/LMB/
+Jacobian+Vakintingress+roundtrips. Neededgenericfactorpreservingingressfix+
+FeynKitexactstructuralequalityfastpath: independentlyaudited,12ingresstests+
+5FeynKitchecks PASS. Consumer67savedapplicationtests PASS/1ignore. Mainnative
+transport500app PASS/4ignores; all52externaldata tests+validator PASS. Oldcohort
+metadata-oracle and ownTMPparenttestsetupfailures are preserved, corrected
+withoutchangingmathorweakeningchecks. The binarychunk Gitattribute was added
+because one compressedpiece's non-NULprefix looked textual toGit; no byteschanged.
+
+ActualfinalconsumerRUNNING528304 (agentvakint_640_acceptance owns): native
+16workerload178.276s and640/939inventories PASS; publicVakintcumulative1–5Lload
+PASS1029.277s(debug/defaultserial), missing5Lnumerics diagnostic PASS, admitted
+scalarP79first/warmexact+declaredroster PASS. DottedP67bananaR0D9 isstillin
+symbolicapplication; doNOTclaimitscompletionorsubsequentlowercontrols yet.
+Preflightstrictnativeadmission passed forboth; bareP67D6wascorrectlyexcluded.
+Datacheckpointcommitbodyandusernotification explicitlystate remaininggate.
+Evidence TMP/five-loop-640-delivery-20261023/consumer-delivery*.json/log.
+
+Standalone runtime475887550bytes/85files, full5L~483.6MB/737payloads; maxbinary
+32MiB. All939maps retained,640graph-onlynewPnmasters,no5Lcache/evaluations.
+Complete sourcehidden nativeexport/cold/canary receipts alreadypass; source
+campaign untouched. Detailedreport docs/research/five_loop_640_external_data_2026-10-23.md.
+Rootcontinuestheoneactiveconsumerverificationafterthispushedcheckpoint.
+
+## October 23 — 640-master data staged; final consumer gate active
+
+Standalone runtime TMP/five-loop-640-delivery-20261023/application-compressed
+is complete:85files/475887550bytes, maximumfile33554432bytes. ManifestSHA256
+976d574c4ad8b4021ac7a1914c624095a77f5975b98e243c7a20a9396a86ff03.
+Sourceexportauthenticatesall939exactmaps/guards, declares640outputs and812
+queries(758nonempty/54empty),9982rules,67owners+2overlays. Sourcehashesunchanged.
+Finalindependentcold hidescampaignANDrawruntime:62.445sload,0.379scanary5IBPs,
+0.298swarm0IBPs/1hit, all140190guards+coefficientsidentical, typedoutside-domain
+rejection. Repack54.86s preservesdecoded581031505byte terminalmapshash;
+9gzipchunks275328659bytes. No numericalvalues/cache/searchledger.
+
+RequiredgenericGittransportfix a39dfbc6 reuses existinggzipchunksforterminalmaps
+withrawbackwardread, authenticateschunks+wholepayload/CRC/trailer/decodedquota.
+Test-onlyeager→deferredmetadataoracleclarification d1c8957b; mainpushedthroughd1.
+IndependentreviewPASS; final500nativeappPASS/0fail/4ignores, includingall68saved
+applicationtests. InitialtestoracleandmissingownedTMPparentfixturefailures are
+preservedandexplained; no productionalgorithmfix was needed. Consumerrequires
+existingUnresolvedPolicy APIs on a666e705 absentmain; compatiblecompression+
+testfixbackport52c74636pushedcodex/terminal-map-consumer-20261023. No broadmerge.
+
+Fresh externalclone TMP/vakint-external-data-640-20261023 nowcontainsnew5L:
+483585308bytes,737payloadfiles,640nativeDOT-onlymasterfolders,P1..P640 byexact
+familyfingerprint/signedtuple. Currentcandidate5LmanifestSHA
+54dc5eb106e65308061000358109f145902a7c7360ccceabb59493640b03448b.
+All52Pythondata tests+fullvalidatorPASS. Independent audit hashed all10270lower
+filesagainstbaselineGitblobsfb6e5258 and verifiedrootlowerentries/sharedlower
+provenanceunchanged. Old5L+obsolete5Larchives movedrecoverablyoutsidecheckout
+to delivery/previous-five-loop-pack; immutablehistoricalsharedoriginal-root stays.
+Scopedreplacementtool andlegacygeneratorguards preventold905resurrection.
+Finalprovenance/READMEconsumerrevisionstamp stillawaitstestedconsumercommit.
+Latestexternalmainfetchat13:58UTCstillfb6e5258; fetchagainbeforepushmandatory.
+
+Consumerclone TMP/five-loop-640-loader-20261023 basedactualexternal-loader
+68f2263bf, RustRed52c74636, compatibleSymbolicab6cca. Latestfeynkit/community
+branches lackedtheloader; no dirtymasterssourcesmodified. MeasuredP1R9case
+exposedunnecessaryouterpolynomialexpansion. Genericone-lineVakintingressfix
+preservesfactors; FeynKitvalidationfastpathsstructuralequalitybeforeunchanged
+exactexpandedfallback. IndependentreviewPASS; ingress12tests(inclrank17new)
+andFeynKit5testsPASS; compatibleRustRed67savedtestsPASS/1ignore.
+All640actualnativeDOTchecks PASS (~40s), preservingallmass/N/powers/LMB/det±1.
+Theinitialfullconsumerprobeusedserialnativepreparation andwasdiagnostically
+stoppedwhileactive(~18min), nottreatedasfailure/completion. Rootauthorizesone
+finalownedrerun withnativeworkers16 andtwoexplicit5Lcanaries: scalarproduct
+andstructurallyverifiedbananaP67. PublicVakintall-packloader remainsactual
+defaultpath. No testclaimthatunpreparedproductlookupNoneprovesconnectedness.
+All outputs mustbelongtodeclared1–5Lcatalogue, exactwarmrepeat, missing5Lvalues
+andunknown-topologyerrors, lower1–3+H/FG/BMW/Xcontrols. Agentvakint_640_acceptance
+ownsfinalrun+benchmarkappendix+consumercommitproposal. No furtherfeatures.
+
+Remaining: finishconsumer gate, commit/pushminimalconsumerbranch, restampdata
+provenance, finalremote/lowerhashaudit anddata-mainpush, thenrootreportcommit.
+Repository/localdeliveryonly: no release/data-latest update. Productioncampaign
+is untouched andbroaderpausedgoalunchanged. Source/researchreport draft:
+docs/research/five_loop_640_external_data_2026-10-23.md.
+
+## October 23 — finalized 640-master external-data replacement started
+
+User approved export of immutable scope2e505e915b2e8f44ea9c12b4911dacfaab3c1c641a49fec39fc49b0d437d72ed
+from five-loop-minimal-r0-d10-incremental. Expected source: completed_nonminimal,
+939 original maps,640 remaining basis keys,9982 installed rules,6863 encountered
+rules,812 recorded requests with actual R6/D10 domain union. No further solve,
+refinement, master evaluation or cache generation is authorized in this task.
+
+Delivery replaces only5L in vakint-external-data, new deterministic P1..P640,
+full native DOT definitions, empty evaluation/cache availability. Preserve1L–4L
+files and root-manifest entries byte-for-byte. Repository/local delivery only;
+no release/data-latest update. Existing masters-session data checkout is dirty
+and remains untouched. Fresh workspace clone
+TMP/vakint-external-data-640-20261023 was cloned and pulled from latestmain
+fb6e525806d7c17c99ad3e4aa8827f19b4db499b. RootRustRedmain2d8dd388 confirmed
+current; cleancommunitycheckout fast-forwarded to2bb1af74. Consumer dependency
+lane will resolve current compatible Vakint/FeynKit/Symbolica revisions separately.
+
+Delegation: runtime_export_plan owns nativeexport/all939maps+guards/coldcheck;
+external_data_plan owns scoped5Lreplacement/640DOTs/lowerhashprotection;
+vakint_640_acceptance owns currentconsumerdependencies/nativeDOT+loaderchecks;
+data_640_audit independently audits identities, routing, manifests and scope.
+Root coordinates resources/integration, documentation and all commits/pushes.
+Evidence/runtime destination TMP/five-loop-640-delivery-20261023. No production
+campaign modifications or changes to unrelated FeynKit/notebook working files.
+Final upstream fetch/reconciliation and lower-data identity check are mandatory
+immediately before a normal push by ValentinHirschi; never force-push.
+
 ## October 23 — refinement tools consolidated into main; merge gates pass
 
 User requested merging the delivered refinement work into main and checking
