@@ -6,10 +6,14 @@
 //! of minimality, unrestricted closure, or absence of further relations.
 
 mod assistance;
+mod authorized_basis;
 mod codec;
 pub mod collection;
+mod condition_merge;
 mod elimination;
 mod execution;
+mod feedback;
+mod local_dimension;
 #[cfg(feature = "reconstruction")]
 mod modular;
 mod proved;
@@ -33,8 +37,15 @@ use crate::persistence::BinaryIoLimits;
 use crate::sector::OrderingPolicy;
 
 pub type TerminalRelationRow = BTreeMap<IntegralKey, Coefficient>;
+pub use assistance::TerminalRelationFiniteProvider;
+pub use authorized_basis::TerminalRelationEquationBasis;
 pub use execution::{
     TerminalRelationExecutionOptions, TerminalRelationExecutionProgress, TerminalRelationExecutor,
+};
+pub use local_dimension::{
+    LocalDimensionRecurrenceControl, LocalDimensionRecurrenceError,
+    LocalDimensionRecurrenceOptions, LocalDimensionRecurrencePlan,
+    LocalDimensionRecurrenceProgress, LocalDimensionRecurrenceStatistics,
 };
 #[cfg(feature = "reconstruction")]
 pub use modular::{
@@ -401,11 +412,7 @@ impl TerminalRelationSession {
             if let Some(assistance) = &mut self.assistance {
                 assistance.pending.extend(support);
             }
-            for guard in conditions {
-                if !self.conditions.contains(&guard) {
-                    self.conditions.push(guard);
-                }
-            }
+            Self::merge_nonzero_conditions(&mut self.conditions, &conditions);
             self.source_cursor += 1;
             if self.source_cursor == self.sources.len() {
                 self.source_cursor = 0;

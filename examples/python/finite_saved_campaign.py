@@ -656,6 +656,12 @@ def _public_locked(args, campaign, binary, *, apply, startup_progress):
         seed_depth=getattr(args, "seed_depth", None), saved_rule_assistance=getattr(args, "saved_rule_assistance", None),
         containing_sector_depth=getattr(args, "containing_sector_depth", None),
         circuit_symmetry_assistance=getattr(args, "circuit_symmetry_assistance", None),
+        numerator_symmetry_assistance=getattr(args, "numerator_symmetry_assistance", None),
+        sector_symmetry_assistance=getattr(args, "sector_symmetry_assistance", None),
+        sector_symmetry_policy=getattr(args, "sector_symmetry_policy", None),
+        sector_symmetry_saved_projection=getattr(args, "sector_symmetry_saved_projection", None),
+        selective_symmetry_feedback=getattr(args, "selective_symmetry_feedback", None),
+        local_dimensional_recurrence_assistance=getattr(args, "local_dimensional_recurrence_assistance", None),
         normalization_profile=getattr(args, "normalization_profile", None),
         collection_artifacts=getattr(args, "collection_artifact", None),
         finite_feedback=getattr(args, "finite_feedback", None),
@@ -668,8 +674,10 @@ def _public_locked(args, campaign, binary, *, apply, startup_progress):
         relation_block_rows=getattr(args, "relation_block_rows", None),
         refinement_workers=getattr(args, "refinement_workers", None),
         refinement_cpus=getattr(args, "refinement_cpus", None))
-    if args.action == "finalize-refinement":
-        policy["operation"] = "finalize-refinement"
+    if args.action in ("finalize-refinement", "import-refinement"):
+        policy = PHASES.postprocess_configuration(policy, args.action,
+            proof_recipe=getattr(args, "proof_recipe", None),
+            recover_interrupted=getattr(args, "recover_interrupted", False))
     startup_progress.phase("acquiring finite control lock")
     with control_lock(campaign / "finite-demand"):
         if (campaign / "finite-demand").exists() and not args.repair_preparation:
@@ -686,7 +694,7 @@ def _public_locked(args, campaign, binary, *, apply, startup_progress):
         print("No native work launched. Native source command: " + shlex.join(plan["native_command"]))
         return 0
     return PHASES.run(plan, policy, Path(plan["checkpoint_directory"]).exists(), sys.modules[__name__],
-                      postprocess_only=args.action in ("publish", "refine", "finalize-refinement"),
+                      postprocess_only=args.action in ("publish", "refine", "finalize-refinement", "import-refinement"),
                       dispatcher_held=True, startup_progress=startup_progress)
 
 

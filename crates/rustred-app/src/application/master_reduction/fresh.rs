@@ -23,7 +23,7 @@ fn digest(value: &Value) -> bool {
         .is_some_and(|value| value.len() == 64 && value.bytes().all(|c| c.is_ascii_hexdigit()))
 }
 
-fn authority(source: &Value) -> Result<String, AppError> {
+pub(super) fn authority(source: &Value) -> Result<String, AppError> {
     for field in [
         "manifest_blake3",
         "native_state_blake3",
@@ -64,7 +64,7 @@ fn state_bytes(directory: &Path, state: &Value) -> Result<Vec<u8>, AppError> {
     Ok(bytes)
 }
 
-fn write_state(directory: &Path, bytes: &[u8]) -> Result<Value, AppError> {
+pub(super) fn write_state(directory: &Path, bytes: &[u8]) -> Result<Value, AppError> {
     let hash = blake3::hash(bytes).to_hex().to_string();
     let name = format!("retained-relations-{hash}.rrbin");
     write_file_atomically(&directory.join(&name), bytes, true).map_err(io)?;
@@ -165,6 +165,23 @@ pub(super) fn begin(
         "requested_containing_sector_depth",
         "source_selection",
         "circuit_equation_preparation",
+        "numerator_symmetry_preparation",
+        "numerator_symmetry_reduction",
+        "numerator_symmetry_certificate",
+        "sector_symmetry_preparation",
+        "sector_symmetry_policy",
+        "sector_symmetry_saved_projection",
+        "sector_symmetry_reduction",
+        "sector_symmetry_certificate",
+        "sector_symmetry_normalization_certificate",
+        "sector_symmetry_task_certificate",
+        "sector_symmetry_reduced_certificate",
+        "sector_symmetry_projection_checkpoint",
+        "selective_symmetry_feedback_enabled",
+        "selective_symmetry_feedback",
+        "local_dimensional_recurrence_preparation",
+        "local_dimensional_recurrence_certificate",
+        "local_dimensional_recurrence_assistance",
         "previous_stage_source",
         "reused_previous_stage",
     ] {
@@ -180,6 +197,7 @@ pub(super) fn validate(
     report: &Value,
     session: &TerminalRelationSession,
 ) -> Result<(), AppError> {
+    super::terminal_import::validate_archive(directory, report)?;
     let native_binding = session.retained_relations_binding();
     let record = &report["retained_relations"];
     if record.is_null() && native_binding.is_none() {
@@ -253,6 +271,7 @@ pub(super) fn inherit(
     source_report: &Value,
     report: &mut Value,
 ) -> Result<(), AppError> {
+    super::terminal_import::inherit_archive(source, output, source_report)?;
     if source_report["retained_relations"].is_null() {
         report.as_object_mut().unwrap().remove("retained_relations");
         return Ok(());

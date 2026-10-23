@@ -30,7 +30,7 @@ impl<'a> SourceRequest<'a> {
         deep: bool,
         normalization: MasterNormalizationProfile,
     ) -> Result<String, AppError> {
-        match self {
+        let binding = match self {
             Self::Walk(request) => storage::scope_binding(
                 request,
                 &options.checkpoint,
@@ -63,6 +63,38 @@ impl<'a> SourceRequest<'a> {
                 }
                 Ok(hash.finalize().to_hex().to_string())
             }
+        }?;
+        let binding = if options.sector_symmetry_assistance {
+            let mut hash = blake3::Hasher::new();
+            hash.update(b"sector-symmetry-assistance-v1");
+            hash.update(
+                sector_symmetry::policy_name(options.sector_symmetry_policy.unwrap_or_default())
+                    .as_bytes(),
+            );
+            if options.sector_symmetry_saved_projection == Some(false) {
+                hash.update(b"sector-symmetry-source-rows-v1");
+            }
+            hash.update(binding.as_bytes());
+            if options.selective_symmetry_feedback {
+                hash.update(super::selective_symmetry::RECIPE.as_bytes());
+            }
+            hash.finalize().to_hex().to_string()
+        } else if options.numerator_symmetry_assistance {
+            let mut hash = blake3::Hasher::new();
+            hash.update(b"numerator-symmetry-assistance-v1");
+            hash.update(binding.as_bytes());
+            hash.finalize().to_hex().to_string()
+        } else {
+            // Preserve historical flag-off source identities exactly.
+            binding
+        };
+        if options.local_dimensional_recurrence_assistance {
+            let mut hash = blake3::Hasher::new();
+            hash.update(super::local_dimension::RECIPE.as_bytes());
+            hash.update(binding.as_bytes());
+            Ok(hash.finalize().to_hex().to_string())
+        } else {
+            Ok(binding)
         }
     }
     /// Must finish before exposing any v3 latest/state marker.

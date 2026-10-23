@@ -1,5 +1,51 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 23 — refinement tools consolidated into main; merge gates pass
+
+User requested merging the delivered refinement work into main and checking
+tests. Integration uses a normal two-parent merge of main1f915169 and feature
+7a2eb292, prepared in TMP/merge-refinement-main-20261023 so the active main
+checkout's unrelated FeynKit edits and untracked work remain untouched.
+
+Independent provenance audit proves main's only implementation commit beyond
+the common ancestor is patch-equivalent to feature ancestor951ba310:
+`git diff main 951ba310 -- . ':!CODEX_PROGRESS.md'` was empty before merging.
+Thus code conflicts resolve to the tested newer feature without dropping any
+independent main semantics. All main-only progress receipts are retained below,
+including the corrected12-subprocess count. No references, campaigns, artifacts,
+licenses, vendor or dependency changes are added to the merge.
+
+Every Rust source/test/build file and Python source/test file in the merged
+tree exactly matches frozen feature7a2eb292. Fresh native reruns against that
+matching compiled implementation pass **890 tests, zero failures, five explicit
+ignores** (core394/app496), including all selective/local-dimensional lifecycle,
+worker determinism, cold replay, error, cancellation, application and CLI gates.
+No rebuild is claimed: existing exact-matching compiled test executables were
+hash-checked and rerun from the integration worktree; the original fixture
+worktree remains available. Provenance and fresh receipts:
+TMP/selective-symmetry-native-tests-20261023/merge-main-20261023/.
+
+Root reran all six Python regression modules from the merged tree using actual
+Nix Python3.11: **314 tests, one explicit skip, no failures**,30.329s.
+Command: python -B -m unittest test_campaign_phases test_saved_campaign
+test_finite_saved_campaign test_campaign_dashboard test_campaign_monitor
+test_campaign_observation_details (examples/python; workspace-local TMPDIR).
+Independent postmerge audit passes: all conflicts resolved, feature code
+unchanged, main receipts preserved, no tracked conflict markers or whitespace
+errors. The central saved-campaign guide now links the new refinement tools.
+
+No user campaign was started, stopped, resumed, finalized or modified. Frozen
+release/workflow remains usable without rebuilding because engine source is
+unchanged. Root will advance the existing main checkout with this tested merge,
+verify both unrelated dirty-file hashes, and push main as ValentinHirschi.
+The broader historical paused goal remains unchanged; no new feature work here.
+
+## Main-line receipts preserved by the refinement merge
+
+The following October 21–22 main-only delivery pointers are historical receipts.
+Statements that main contains documentation only describe the pre-merge state.
+The implementation is now consolidated; complete earlier feature history follows.
+
 ## October 22 — combined full-integral symmetry refinement delivered
 
 Final feature handoff is pushed as `1487abe8` (code `d3549795`). Runtime bundle
@@ -224,6 +270,1083 @@ log and research READMEs distinguish these outputs and give the exact fresh
 `(2,0)` command; release-local `TMP/releases/20261021-numerator-symmetry/README.md`
 also contains that command with the correct feature Python adapter.
 
+### Main-line final fresh-search acceptance receipt
+
+Final focused native gates pass: terminal relations 94 passed/one ignored;
+guard-index collision/order controls five passed; app master reduction 78
+passed/one ignored; CLI master commands 16 passed; saved application 64
+passed/two ignored. The first terminal suite caught an invalid one-coordinate
+test asking to promote two coordinates; its fixture was corrected, then all
+94 controls passed. The genuine two-loop `(2,2)` acceptance remains unchanged.
+Release CLI/example builds completed; no solver source was changed by that
+test-only correction. Logs: `TMP/fresh-search-20261021/*tests*.stdout`.
+
+## Both requested stages delivered (October 23, 01:12 UTC)
+
+Final implementation commit6083f79f on codex/selective-symmetry-dimrec; serial
+stage2 fallback0c881ccb and old user build remain intact. Root full Python314
+tests/one skip passes; native890passes/five ignores passes; independent source,
+math, lifecycle and final command audits pass. Final doc wording distinguishes
+new finite ordinary-IBP combinations from new parametric-rule generation.
+
+Full five-loop parallel16 witness measurement COMPLETE/exit0/uncensored:
+908.901s wall,2382.297CPU,9.879GBpeak, source339.186s,cold344.730s,
+join19.801s,ordinary172.532s. All939maps and136790inheritedguards pass.
+Sourcecapsule/pure/final native bytes IDENTICAL to serial; finalBLAKE3
+9e5be823167103b5c3bca471a4483d381c3ceb7670ad5cdcde8d3a98df310b20.
+Basis652->652; no new local-dimensional rank gain. Oldserial1254.158s versus
+newparallel908.901s is27.5%lesswall but CROSS-REVISION, not matched same-binary
+five-loop performance evidence. CPU rises; observedwholemean2.62cores, not16.
+Geometry nomination~283s stays serial. No further tuning follows this delivery.
+Evidence: TMP/local-dimension-acceptance-20261023/parallel-v1/
+five-loop-stage1-652-16w/{process.receipt.json,native/receipt.json}.
+
+Matched same-binary H pairs reproduce1.62x whole-client benefit, same exactbytes.
+Selective stage1's actual new five-loop dependencies remain659->652 in one
+complete selected round; the30min pilot did not exhaust the selected worklist.
+Neither method proves minimality or unrestricted family closure. Local pairs
+remain experimental/no-gain here. All owned pilots, wrappers, deadline guards
+and tests finished; no production files/processes/signals touched.
+
+Release/commands: TMP/releases/20261023-local-dimension-parallel/{rustred,
+workflow.sh,README.md}; binarySHA256
+ca0f3fb1205f9d479551e4444f865b00cd08ffb605785de66ad0c512b5c55fdd.
+Source workflow -> retain stopped unfinished maps if needed -> rrfeedback ->
+after completion rrdimension. Ctrl+C/wait then rr --refine-masters resumes the
+same phase; rr --finalize-refinement retains accepted partial maps for a switch;
+rrinspect shows latest publication. A normally completed phase needs no finalize.
+Frozen code/commands are ready for USER deployment; no live campaign was changed.
+Plan states delivered; further optimizations/research deferred. Historical broad
+tool goal remains paused, unchanged. Final documentation commit/push follows.
+
+## Final source freeze and validated workflow (October 23, 01:04 UTC)
+
+Both requested stages are implemented in order on isolated branch
+`codex/selective-symmetry-dimrec`. Final parallel source audit PASS; functional
+acceptance **890 native passes, zero failures, five explicit ignores** (394 core,
+496 app). Root reran all six Python modules using actual Nix Python 3.11:
+**314 tests, one explicit skip, zero failures**, 30.337 s. The final source
+correction required no test-oracle or production repair. Native receipts:
+TMP/selective-symmetry-native-tests-20261023/final-parallel/. All acceptance
+build/test processes have exited. No user production action was taken.
+
+Frozen final executable: TMP/releases/20261023-local-dimension-parallel/rustred,
+SHA256 ca0f3fb1205f9d479551e4444f865b00cd08ffb605785de66ad0c512b5c55fdd.
+Its workflow.sh passes bash-n and an independent Python/lifecycle command audit.
+It exposes rrfeedback then rrdimension, exact phase resume and latest-publication
+inspection. Finalize only an unfinished stopped phase; skip it after normal
+completion. Fresh searches retain proved maps, not the old search matrix.
+Serial fallback0c881ccb/frozenf7 remains intact.
+
+Stage1 final independent facts: raw939, initial generators667, ordinary659;
+selected round0 adds7 verified dependencies to652. Complete map/guard/native
+checks pass; 30min owned pilot pauses cleanly in round1, not at fixed point.
+Actual cold app recovery takes433.347s, preserves all native bytes/cursors.
+Stage2 SERIAL full939 finishes1254.158s/1243.275CPU/10.033GB,652->652 both pure
+and after ordinary work. No local-pair extra rank on any lower cohort either.
+All maps/guards/cold proofs pass. Do not recommend local pairs as default.
+
+One bounded existing-pool parallel correction is now validated. Two matched
+same-binary H pairs reproduce22.436/22.437s(1worker) vs13.833/13.833s(16workers),
+1.62x whole-client benefit, higherCPU, byte-identical source and native outputs.
+No16core saturation claim. Full939 five-loop parallel16 owned run is ACTIVE
+under its existing1700s/128GB caller grant on224-239. Preparation339.186s vs old
+serial485.127s; source counts agree. Complete cold replay and tail remain before
+any whole-run performance claim. This cross-revision comparison is not a matched
+same-binary pair. Responsible local_dimrec_acceptance; no further implementation
+or tuning is planned. Root report:
+docs/research/selective_feedback_local_dimensions_2026-10-23.md.
+
+Backlog: Stage1 delivered; Stage2 delivered experimentally/no added rank;
+parallel correction delivered/tested, full5L measurement active; production
+deployment pending USER choice; denser dimension shifts/global saturation and
+further optimization deferred (require new evidence/request). Broad historical
+goal remains paused, unchanged. Final push follows the owned measurement.
+
+## Bounded source-parallel correction (October23,00:45UTC)
+
+Both requested serial features were committed/pushed0c881ccb after886native and
+314Python gates. Source-selection, mathematics, capsule format and frozenf7
+remain intact as fallback. Measured full939local source preparation485.127s,
+cold regeneration484.004s,4,126,070weighted source rows,2658equations,
+2,820,878terms. Exact pure join24.799s:652->652(no pure incremental gain), all939
+maps/136790guards/coldnativechecks pass. Ordinary tail still running within the
+original30min pair grant. Lower fullcohorts all pass with no additional rank.
+
+Root authorizes ONE reuse-based performance correction, not a new strategy:
+independent local witnesses on existing licensed SectorExecutor, deterministic
+ordinal merge, immutable shared Sources/geometry, caller-thread nonSync observer,
+atomic progress/cancel. Core+202productionlines, operational workers default1;
+app existing threads apply only during active prepare/controlled replay. Generic
+inspection remains serial. Worker count excluded from proof/phase identity;
+new1vs4 exact capsule/cold and cancellation/error tests. Independent audit PASS.
+Tiny Python UI adds witness completion/reserved-worker scalars;119phase and56
+dashboard tests pass. Combined metadata PASSES1m14s. Optimized final-parallel
+build session57462 and native capture/frontends are running. No production or
+original user run changes; no other optimizations planned before delivery.
+
+## Stage2 execution gate and owned recovery check (October23,00:17UTC)
+
+Combined metadata passes1m13s; optimized build6m05s. Frozen candidate:
+TMP/releases/20261023-local-dimension-refinement/rustred SHA256
+f7a08ef37109897545de89902f3015ced0e36f1323c0722abb5f3e810297e370;
+monitor SHA7624f223d7c39bb9756eea0f09a2f53281c59ac5c96ce2f346d38d013e94f360.
+Workflow drafted beside it (bash-n passes), NOT yet delivered as validated.
+First focused core execution23pass/2fail: independently confirmed BOTH are
+incorrect test oracles, not production formula errors. Reflection preserves
+the exact3row multiset but not direction-sort order; four original residuals
+are q_i=k_i/2, so the exact coefficient is(4-d)/256. Only cfg(test) expectations
+were corrected with exact bijection/known analytic factor; original failures
+retained. Core frontend rerun final-stage2-oracle-corrected is active; production
+archive aeb5452b... and frozen executable unchanged. Physical cohorts remain
+blocked until all25 pass. App frontend/gates run independently unchanged.
+
+Stage1 owned diagnostic stops cleanly at1764.41s,CPU1799.11s,peak5.005GB,
+code4/paused/gen25; all113input files unchanged. Round0 verified7dependencies
+retained; round1 planning/tasks and995committed source rows retained,5724pending.
+Actual worker16->4 cold replay with an existing stop-file is expensive: no new
+search/events after300s. Root enlarges THAT SAME owned read-only diagnostic to
+at most30minTOTAL including shutdown, with an external owned-PID-only deadline.
+Original300s censor mark remains; no successful full cold-recovery claim yet.
+Immutable gen25 snapshot remains available. This is a source-replay cost finding,
+not native CP data loss, a new engine runtime cap, or a production intervention.
+
+## Stage2 source complete; compile integration (October23,00:02UTC)
+
+Mechanical integration corrections completed. Core lib+all25new test metadata
+PASS59.19s; one test-only native Coefficient operator mismatch also corrected
+through existing exact context methods. Logs: featureworktree
+TMP/local-dimrec-core-check/{core-check.log,core-check-final.log}. Combined app/
+core metadata session71814 running, source otherwise frozen. Root's full actual
+Nix3.11 Python regression314tests/30.379s, one explicit skip, zero failures.
+fp_acceptance owns native final-stage2 captures/tests and old Stage1 pilot;
+local_dimrec_acceptance owns separate full-cohort lower/5L source benchmarks.
+No local-dimensional gain claimed before native execution/cold verification.
+
+Core sealed local plan, native rational geometry, cached Gram/vector/source
+generation and binary complete-cohort replay are implemented;25focused tests.
+App one finite source certificate/queue lane and Python interfaces are source
+frozen. Independent math/code audit PASSES; exact signed+analytic powers,
+operator order, embedded spectator invariants, mass signs and d-4 preserved.
+Unsupported-nomination codec case was corrected and regression added. App uses
+controlled replay where prepare already owns cancellation; generic inspection
+still has no cancellation context and native operations are not preemptible.
+Python270focused checks pass; final actual native execution remains pending.
+
+Initial combined metadata exit101 with mechanical core integration diagnostics:
+SelfRing trait import path, Rational borrowed arithmetic and ambiguous test
+integer conversions (19cfgtest errors). fp_core_design owns correction and a
+single core metadata rerun; root will then check app/test metadata and build.
+No optimized Stage2 executable or measured local-dimensional gain claimed yet.
+
+Meanwhile frozen Stage1 owned5L first complete selected round is INDEPENDENTLY
+VERIFIED:659->652basis; all939prior maps compose, all136790baseline guards retained,
+remaining-only endpoints and cold native byte replay pass. Original862->659
+initial boundary also independently checked (all136725source guards). Proofs:
+TMP/selective-symmetry-acceptance-20261023/native-cli-five-loop-selected-final/
+round-0-complete/exact-map-check.json (12.09s validation). Pilot continues under
+its existing caller grant; not a claim of advantage over the user's distinct
+full-orbit-plus-ordinary run, and not a minimal-basis proof.
+
+## Stage1 acceptance passed; Stage2 authorized (October22,23:51UTC)
+
+Final broad native total849passes/0failures/5explicit ignores (core365+app484).
+Stage1 implementation27ca6c7a and gate log84527173 are pushed on
+codex/selective-symmetry-dimrec. The actual5L initial search now drains at659
+basis,23,475ordinaryrows; its exact durable native parent was independently
+captured before selected feedback:63,591,786bytes, SHA256
+e2115d3ad4afeb6c91ed9e51883484986fed04a4c978621afc883f2416d0d0b9.
+Owned receipt: TMP/selective-symmetry-acceptance-20261023/
+native-cli-five-loop-selected-final/initial-search-boundary/receipt.json.
+Selected wave0 has1177actualsupports from392852terminal-linked auxiliary keys;
+source preparation reached1153/1177by505s. No selected gain claimed yet.
+
+Stage1 code commit27ca6c7a. Optimized build6m09s, frozen executable
+TMP/releases/20261023-selective-feedback/rustred SHA256
+eaf0161e272b43020bcc3d4e5d498890b721e8dc3e14edbcad72d76c49d39df7.
+Final core365pass/0fail/1ignore; actual app feedback6pass and lifecycle4pass,
+including real extra relation, prepared/executing cold resume, changed workers,
+forged completion rejection, portable source-independent partial publication and
+real no-gain/new-support chains. An initial owned harness filter matched zero
+tests; it was rejected and corrected to selective_symmetry_tests (no test or
+engine edit), and both receipts are preserved. Broader app tests are running.
+All10 final lower controls pass, all1193maps/guards/cold checks intact; final
+native states byte-identical to the initial diagnostic graph. No extra physical
+rank gain from selected feedback on those lower controls. Exact final timings
+are in TMP/selective-symmetry-acceptance-20261023/final-stage1 evidence.
+
+Owned5L CLI pilot uses immutable prior source939/862,16workers224-239,batch256/
+block8,generators/no saved projection,128GB caller grant and30min including safe
+stop. At~229s initial ordinary work reaches659basis after23,475ordinary rows;
+feedback has not started, so this is NOT a selected-feedback gain. Original
+production and its frozen full-orbit executable remain untouched.
+
+Stage2 implementation starts ONLY NOW after the actual Stage1 gate. Agents:
+fp_core_design(core sealedplan/native source replay),fp_app(finite assistance/
+lifecycle),fp_python(frontends/dashboard),fp_math_audit(independent critique).
+Read-only contract TMP/local_dimrec_api_contract_20261023.md was read by root.
+Use native determinant/derivative plus regenerated weighted ordinary sources,
+include full signed/analytic powers and spectator directions, no arbitrary
+ceilings or shifted runtime masters. Resulting commands remain gated on Stage2
+native/source/application acceptance and final frozen executable.
+
+## October 23 — selective feedback then local dimensional recurrence (started)
+
+User requests implementation in that order, with resulting run commands.
+Plan: SELECTIVE_SYMMETRY_DIMREC_PLAN.md. New isolated worktree/branch starts at
+1487abe8; the user's existing full-orbit0,0 run and delivered Python files/binary
+remain untouched. Main's unrelated changes and broad paused goal are preserved.
+Stage1 native/app/Python/audit lanes start with an interface/design audit; stage2
+may be researched read-only but cannot be implemented before stage1 passes.
+No new generation, numerical values, physics scope, arbitrary limits or CAS.
+
+Stage1 selection decision: one cheapest actual terminal-linked key per support
+and protected-terminal-rank epoch. New supports can chain through no-gain
+intermediates; an old support reopens only on a strict retained-rank decrease.
+Frozen exact U/maps/guards bind tasks. This is a finite selected-worklist policy,
+not all-monomial saturation or a minimality claim. Core/native queue and app
+durable-round implementation are active; Python opt-in/lifecycle/dashboard tests
+have 206 focused passes, with finite-adapter coverage being added. Independent
+math/code audit is separate. Stage2 read-only audit confirms local dimension-pair
+identity 2 U(A) P(B) - (d-E) G(B), with noncommuting order and full signed-index
+terms; existing tangent polynomial-vector/source replay is the intended reuse.
+Its source implementation remains gated on Stage1 acceptance. Evidence note:
+TMP/local_dimrec_readonly_audit_20261023.md. No production writes or signals.
+
+Stage1 core release library builds (1m37s), and core lib/test metadata checks
+pass after fixing a test-only immutable/mutable borrow conflict. Central target
+rank6-delivery-target-Ck2QLU, native capture core archive SHA256
+c291d9bfd4b7e015e4c4e9b445e34b8351105cec97fa6dd91859b5142b2ea303.
+Root's actual Nix3.11 Python regression:305 tests/27.823s, one explicit skip,
+no failures. Core native frontend and independent lower-control harness are
+compiling in owned TMP; app durable-round source/queue validation is still being
+strengthened following independent audit (no false completion from metadata).
+No Stage2 source implementation yet. No new terminal-rank gain claimed.
+
+Independent release-linked lower matrix passes all10 baseline/selected controls:
+K6 5->5 (0.402/0.602s), H22->19 (14.02/18.63s), FG16->15 (6.01/8.01s),
+BMW17->15 (7.61/8.82s), X19->16 (15.83/18.43s); selected feedback adds NO
+extra rank on these controls. All1193 maps/guards and cold checks pass. Actual
+no-gain new-support chains terminate in4/6/5/5/5rounds. This is positive
+mechanical/finite-policy evidence and negative master-gain evidence, not a
+performance win. First core native frontend passes17 focused checks, including
+new8 feedback, old6source-seed and3codec checks. Later narrow audit accessors and
+batched containment tests await final rebuild. App lifecycle validation binds
+source/seed/queue prefixes and parent maps; existing native U remains trusted
+generated authority, not a newly claimed independent full W*A certificate.
+Owned evidence: TMP/selective-symmetry-{acceptance,native-tests}-20261023.
+
+First full relevant native matrix:362 passes/0failures/1explicit ignore
+(normalization160, terminal-relations125, sector-symmetry30, routed-application47).
+These precede the last narrow batch/pending-rebuild additions and do not replace
+the final native rerun. App Stage1 source is frozen with6new focused tests plus
+4lifecycle tests and1CLI case; independent source audit finds no app blocker.
+The final core adjustment makes semantic containment include pending normalized
+rebuild rows, avoiding false cold rejection of a legitimate paused rebuild.
+Central app/core metadata and optimized delivery build follow that freeze.
+All heavy lower probes are finished; only the read-only compiler watcher waits.
+
+Stage1 final source audit PASSES, including pending rebuild span and lifecycle
+authority. Combined core/app lib+test metadata PASSES1m14s (only existing
+warnings). Central optimized build is running; final exact graph captures and
+functional frontends use TMP/selective-symmetry-native-tests-20261023/final-stage1.
+Final core archive SHA723cc6f8a70409e87983d132afe9406a5fd24584412402d1a2d4255639e8d071;
+app archive SHA8b447602530e85ded3aaf9f5bbdc70fbd75bc2ae007b440abe114e5d839eda57.
+App six focused +four lifecycle tests execute first when frontend links. New
+Stage2 source remains gated. Lower matrix is being relinked/rerun against this
+final unified graph, preserving initial measurements rather than overwriting.
+
+## October 22 — combined sector-symmetry implementation (validated; delivery)
+
+Delivery code is pushed as `d3549795`; main progress pointer `8514273d` does not
+merge implementation into main. Final runtime export/load/admission gate now
+PASSES: supported directory `TMP/sector-symmetry-acceptance-20261022/runtime-application`,
+all939maps/667outputs/812authenticatedqueries+geometry+roles, typed admitted and
+rejected controls, no physical integral solve. Cold69.016s/process73.021s/3.134GB.
+Portable archive `runtime-application.tar.zst` beside that directory:196636047bytes,
+SHA256 ab0424bba5a31b00fe3d32b1bc583658612f228b30b0c86d732d0d9fc9767cb2.
+All77archivefileshashchecked; normalizedmtime/owner, no links/absolute/../members.
+Both lateharnessnegatives preserved/corrected (116basevs812amendedunion;
+physical15vsruntimecapacity16witness). No engine code/format changed for export.
+Python298also passes actualNix3.11.15/27.764s (in addition3.13). Exactobserved
+firstnativeevent improves177.974s->12.095s on frozen source, sharedhostnotpaired.
+Final combined receipts `TMP/sector-symmetry-acceptance-20261022/combined-summary.json`.
+All owned agents' child processes exited; production remains untouched.
+
+Final feature implementation is validated: **827 native passes**, zero failures,
+five explicit ignores; **298 Python checks**. Independent math/code audits pass.
+Both exact source policies preserve P102/weak rows, symbolic masses/dimension,
+original identities, guards and binary replay; no custom CAS or new IBP campaign.
+Frozen optimized binary: `TMP/releases/20261022-combined-master-refinement/rustred`,
+SHA256 `0aba2d21431f05015b7077e1ad4d5ee1470bf6798134ed2cdba6cd3da9efeb7a`.
+
+Current five-loop 939-key/862-basis capsule: existing normalization ->693;
+generator relations ->667 (195 new dependencies total); full orbits ->660
+(202 total). Lower-loop generator+saved projection: K6 5->5; H22->18;
+FG16->15; BMW17->14; X19->15. Family-local four-loop sum74->62, while the
+separate qualified full-U census23->22; no false minimality/global-sum claim.
+
+Real source-only CLI checkpoint/resume/finalization and normal public application
+all pass: basis667, all939maps/1052outputterms, all136725inheritedguards retained.
+Worker change1->4 yields byte-identical native state; finalization leaves source
+checkpoint unchanged. Public cold application34.53s; finalization46.95s.
+Application's136790guards imply pure proof domain by exact native quotient/product
+witnesses (strict literal-comparison negative retained; no guard injection).
+Published source folder is local `TMP/sector-symmetry-acceptance-20261022/
+native-cli-final-source-only/finalized-application`; actual runtime-package export
+is a separate existing-API check, not silently equated with that folder.
+
+Delivery report: `docs/research/combined_sector_symmetry_refinement_2026-10-22.md`.
+Native evidence: `TMP/sector-symmetry-native-tests-20261022/final-collection-memo`.
+Acceptance evidence: `TMP/sector-symmetry-acceptance-20261022`.
+No production writes/signals, numerical evaluation, Vakint package replacement,
+new generation, schema migration project or reference/payload push. Main's unrelated
+FeynKit/notebook work remains untouched. Historical paused broader goal unchanged.
+
+Remaining limitations/deferred work: optional saved-program projection can be
+expensive (real15-minute control paused with24/2134tasks); selected finite symmetry
+cohort is not all pinch/IBP saturation, independence or unrestricted closure;
+3L/4L measured aliases are not yet substituted into Vakint's packaged artifacts.
+Next user action after delivery: graceful stop/finalize existing refinement, then
+source frozen workflow and `rrfresh 2 0`, whose fast path disables extra saved
+projection but keeps normal finite IBP seeds. Resume uses `rr --refine-masters`.
+
+FINALactual0abaCLI source-only pass reaches667 and checkpoints generation8 in
+225.57s/218.94CPU/2.34GB. All2134assistance rowsdrained, sourcecondition maps
+verified,3cornerordinaryrows beforepollingstop. Coldchangedworkers1->4resume
+savesgeneration9 withBYTEIDENTICALnative state32d477... , basis667,cursor3;
+newinvocationcurrent-worker eventverified beforestop. Original939maps+136725
+sourceguardsretained; application has136790guards vs pure136731 fromdifferent
+pivot derivations. Exact mapscomposebothways; strictpure-newguardliteralcheck
+negativepreserved (representationdifference, notoldguardloss), nativepolynomial
+implicationdiagnosticpending. No guardinjection/approximatezero/modelchange.
+LowerGEN+SAVED(withnoordinary/probes) nowallverified:5->5,H22->18,FG16->15,
+BMW17->14,X19->15;1193mapscoldpass. Family-local74->62 but existingqualified
+full-U representatives23->22, no skips: donotmistake12localdropsfor12global.
+Finalization/application-artifact/coldmapgatefollows; finalnativecore354green,
+appThinLTOtestfrontstilllinking. LTOofftestfrontendshortcutfailedonpluginLTO
+blake3objects, twofailedreceiptsretained; approvedfallbackonly, nonewexperiment.
+
+FullOrbitv2 test ALSO COMPLETESwithin1500sgrant: current862 ->norm693 ->660,
+202newdependencies; all939maps/136725guardsretained,136731final. Fullnative
+1368.163s/process1384.05s/28.026GB; sourcecold672.065s,basis67.388s,join78.644s.
+Independent667->660compositionchecksALL939maps/guards, soforTHIScohort7fewer
+remainingkeyswith8rawmapschanging. Noordinary/savedprojection in eitherpuretest.
+Realcb81CLIstartup178s is98%sampledCPU redundantcollectionguardinterning; narrow
+borrowed-slice-ID memo is nowimplemented/auditedwith7byteidentity/lifetime/grant
+tests. RealCLIthen loads/verifies8246savedroutes before applying2134sourcetasks;
+at~9minonly15tasks,6savedreduced,noerrors,still862durablebasisawaitingingestion.
+Therefore a separate explicit savedprojection=false mode is implemented, not a
+heuristic cutoff: samecompleteexactsourcecohortdirecttoexistingfiniteexecutor,
+skipload/application, ordinarycorner/seedworkunchanged, no falseclosed-tailclaim.
+DEFAULTTRUEpreservesexistingv3; falseboundintophase/provider/task/cert/member,
+coldsourceoutputequalsfrozentasks; Python298tests pass27.349s. Math/codeaudits
+passbothsource-onlymodeandguardmemo. Lastappmetadata passes1m17s; additionalcore
+testmetadata+finaloptimizedbuildqueued21:35UTC. No morefeaturedevelopment.
+
+Real v3 generator result is now independently VERIFIED: same original939jobs,
+normalization693 -> **667basis**,26newrank, hence195newrank vs current862.
+Preparation6.541s, sourcecold13.649s, exactjoin8.865s, fullcold43.446s/3.45GB.
+2585equations(961legacy),450180terms,2184independentsourcerows,327266columns,
+12,211,683-byte sourcecapsule. All939maps compose from BOTHbaselines; all136725
+sourceguards retained,136731final(with6exactpivotguards). Zeroordinaryrows and
+NOsaved-programprojection in this client. Notminimality, notwholeapp timing.
+V3normalization+gen195gain is not a renamedoldcase. Localnative+independent
+receipts v3-five-generators-after-normalization693 and v3-checks/... .
+Finalv3optimizedbuild6m11s, frozen cb81c0db9fad743c272f11a2b487dc53cea31e9ac5998c686c83c3d023b843aa
+at TMP/releases/20261022-sector-symmetry-generators/rustred; nativecore347green,
+appfunctionalfrontendpending. ActualnativeCLI apppilot nowactive owned113file
+copy, cornerordinaryworkallowedandreportedseparate; productionunchanged.
+
+V3 explicit-policy source is frozen and independent audit passes after fixing
+collection policy retention and rejecting manual no-legacy capsules in appstrong.
+Metadata app/lib/tests passes; optimized build started21:19UTC.289finalPython
+tests pass25.618s. Historical final-v2 native suite now809pass/0fail/5ignore;
+test-only fixes add sum::<usize> and account for4combinedP102rows while retaining
+exact average+all3weak row assertions. Fresh v3 captured-native tests are pending.
+Lower matched NORMALIZATION controls now also complete: K6/H/FG/BMW/X basis
+5/22/16/17/19 unchanged under both conservative and RAM recipes, zero newrank,
+all1193maps/guards/coldchecks pass, zero ordinarysources. Purev2SYM likewise0.
+This distinguishes the realfive-loop169gain from nonexistent lower-loop gains.
+
+At21:17UTC the final-v2 owned pilot is still preparing: early high-degree
+originals produce millions of FULL orbit terms despite removing recursive jobs.
+Four rank>=8sources occur at lexical indices0/65/66/67; the pilot has reached68
+and remains within its caller1500s/32GB grant. No new-SYM rank claim yet.
+Root approved an explicit v3 runtime policy: practical `generators` (route r and
+r*g for every discovered generator, exact complete numerator) and optional
+`polynomial-orbits` (existing full means). This removes a group-orbit multiplier
+without an arbitrary cutoff; no full coinvariant-span claim in generator mode.
+Original939jobs, legacy equations and normalization equations remain; no hidden
+source narrowing. Core/app/Python implementation lanes are active, one final
+build/gate cycle follows. The optimized v2 binary cbc53... is retained separately
+as an experimental comparison, not a recommended production replacement.
+
+Matched normalization census on the ACTUAL immutable current939/862 capsule
+now completes: conservative939->939,862->862 in1.615s preparation; caller/RAM-
+controlled existing normalization finds197unit aliases+14numerator projections,
+211exact equations,728normalizer outputs and **862->693remaining basis**.
+RAM preparation9.842s; exact retained-session join0.00160s; full cold process
+23.016s/810.6MB peak. All939inherited maps compose, all136,725current conditions
+remain in the same ordered guard domain, native normalizer/final-state replay
+passes, zero ordinary sources. This is169new independent dependencies from
+EXISTING normalization, not a claim about the new broader symmetry provider.
+Acceptance lane retains separate exact receipts and unchanged source hashes.
+
+Whole-polynomial v2 is implemented. Independent audit additionally caught that
+Reynolds averaging alone need not dominate individual old weak equations after
+a finite saved-IBP projection (the two projections need not commute). Default
+strong preparation therefore embeds/prepares the original P102/weak cohort once
+on ORIGINAL keys and merges/deduplicates it before exact basis/projection. Its
+existing source certificate is nested in v2, not a second campaign/descriptor.
+Manual explicit-map preparation remains independent. Final supplement/build,
+native gates and new-SYM measurements are still pending.
+
+Final source is now frozen: whole-polynomial v2 plus nested old weak certificate,
+RAM normalizer equations, guard-batch merging and routed cancellation. Independent
+mathematical/code audit finds no blocker; it specifically checks original-only
+jobs, exact finite-orbit replay, combined source inventory, flag-off isolation,
+mass/dot/Jacobian conditions and inherited guards. Final app/lib/tests metadata
+passes1m14s. Final optimized build started21:01UTC; exact final core archive is
+d41ed6025403ef4fcd57ded1dc7f281f4f25e563f20c4c66d0528e29cf45a316.
+Fresh native functional frontends and real v2 acceptance use that captured
+archive, not the earlier preliminary build. Final280Python tests pass24.435s.
+Dashboard now separates normalization728outputs/197aliases/14projections from
+the independently measured693remaining basis. Combined provider completion and
+deferred saved outputs remain separately reported.
+
+User approved the six-part full-integral proposal and clarified that it may
+combine with P102 into one refinement pass. Plan:
+SECTOR_SYMMETRY_REFINEMENT_PLAN.md. Production ca627... remains read-only.
+Source feature starts97f55c93; unrelated main work is preserved.
+
+Discovery/core/app/Python/independent-math/acceptance agents are active. The signed
+projector graph design has an initial mathematical audit and a cached native
+Symbolica graph/matrix probe. Broader discovery does not require the ambient
+Symanzik preparation that hit the20k gate. Every map still gets exact verification.
+General transport permits moved dotted powers while retaining the old weighted
+stabilizer contract. Cross-family endpoints remain qualified until verified
+back-routing to the common refinement family. Strong preparation will compose
+prior maps instead of silently changing their normalization authority.
+
+Early audit flagged that prepared offspring rows must actually be enqueued:
+binding a finite provider alone does not schedule all of its keys. App/core are
+addressing full-plan scheduling rather than relying on later ordinary seeds.
+No new dimensional-shift or numerical-master implementation is in this task.
+
+First optimized build passes(6m06s), frozen privately as
+TMP/releases/20261022-sector-symmetry/rustred SHA256
+fbc4796c74f1acf0254d2345ac992832b9e6678fa39d1d58ccbf1af9d1ff32f8.
+It is a preliminary candidate, not the final recommended build.798native
+functional controls pass(331core/467app), five explicit ignores; Python277pass.
+All1,193lower-loop raw maps compose exactly; pureSYM adds no independent rank:
+K6 5->5,H22->22,FG16->16,BMW17->17,X19->19. Preparation0.062/1.293/0.571/
+0.607/1.333s respectively, zero ordinary sources, cold replay passes. Source
+SHA trees remain unchanged. Evidence TMP/sector-symmetry-acceptance-20261022.
+
+The real five-loop939/862 PREPARATION (before projection/join) exposed monomial
+closure blowup:81.48s/80.61CPU,32.04GB peak,998,662 discovered keys vs4,637
+processed. The explicit32GB diagnostic grant censored only our own pilot; no
+completed plan, new rank, or production signal. All negative evidence retained.
+Root rejected simply increasing RAM. Core/app are replacing termwise recursive
+seeding with exact whole-polynomial orbits and Reynolds averages per original
+source/support group. Independent primary and secondary math audits prove the
+wanted-space relation identity, require same-root action and native orbit closure
+replay, and explicitly exclude blanket global pinch/IBP saturation claims.
+
+A second concrete generic bottleneck was found before large-guard ingestion:
+assistance.rs scanned existing conditions for each of108k
+incoming guards. Ordered borrowed-HashSet batch merging now avoids quadratic
+comparisons and clones only new guards; three regressions await final rebuild.
+No CAS primitive, serialization layout change or mathematical scope change.
+
+First native metadata check caught in-flight cancellation API linkage while
+the two lanes were editing; coordinated names fixed it. Second app/lib/tests
+capacity-profile metadata check passes (1m15s). Python277controls pass. Core
+has34new targeted tests written, not yet runtime-passed. Source audits validated
+signed graph faithfulness, compact representative quotient, exact pivot guards,
+and cancellation pin/cache cleanup. Full release/runtime gates remain open.
+
+Root found and removed a serious prospective guard-cost regression: composing
+each row must not clone108k inherited conditions or deduplicate them quadratically.
+One shared guard envelope plus HashSet union now covers the cohort. A cheap
+native exact independent-row basis precedes saved projection; only unresolved
+terms invoke the existing application cache. New source/task/projection sidecars
+freeze replay identity and preserve typed incomplete-boundary receipts.
+
+## October 22 — five-loop master-count literature and implementation study
+
+Parallel delivery finished/pushed before this research began. Four lanes:
+`five_loop_master_literature` (TIDE/primary counts),
+`master_gap_implementation_audit` (code/current metadata/historical evidence),
+`master_relations_methods` (primary methods/critical geometry), and independent
+`master_gap_critical_review` (mathematics/counting/source audit). Final original
+synthesis: `docs/research/five_loop_master_count_gap_2026-10-22.md`.
+
+Verified: TIDE2015 lists131=109nonfactorized+22products, 2016classification132=
+110+22 across the same67topologyclasses.103/110short-paper/QCDcounts have
+incompletely specified conventions. Our862are retained outputs, not independent
+masters; product bookkeeping alone cannot explain the gap. Conditional on actual
+support matching,~131-132 is a useful comparable reduction benchmark, not a new
+minimum proof. Möller2012§3.4Eq3.32 documents a false extra dotted master30858,
+recovered by a small ordinaryIBP solve; f(d)=1−d/4 warns against d=4sampling.
+
+Actual current normalization profile is conservative-v1 with20kSymanzik terms;
+raw=normalized939. Historical different829fixture standard normalization found
+164scalaraliases+14weightedprojections,829->651beforeIBP, then608withcircuits.
+No matchedcurrent939census was run: compatibleexistingbinary unavailable without
+a new client/build. Do not transfer608to862, silently change a liveprofile, or
+assume freshstandard can preserve inherited-coordinate checks automatically.
+
+Numerator transport is exact/full but discovery heuristic, not complete group
+enumeration. Weightedstabilizerwitness excludes unequal dotted permutations;
+validcross-integral maps need simultaneouspow/numeratortransport. Moreordinary
+rows do not imply moreterminalrank: existing607,556row/1.45Mcolumn hotmatrix
+mostly eliminatesauxiliaries. Containing-sector constraints can be retained when
+generated; no globaldiscardbug is asserted. VendoredSpiReD also has bounded
+residual-master policy, not a hidden exhaustive minimization stage.
+
+Next sequence: matchednormalization/skipcensus; compose usefulaliasmaps without
+renamingpublickeys; currenttopology/product/dot/numeratorcensus; usefulbroader
+symmetrymaps; target-awareIBPhalos/modularscouting with exactproof; optional
+critical-locus guidance. TIDE2015 says dimension shifts unnecessary; generic-index
+criticalcounts cannot be blindly applied to integer-indexQ(d)terminals. Correct
+notation isTIDEr=A−t,s=R,ourD=t+r−s. Independentreviewcaught/correctedinitial
+r/Dandtransport/enumeration confusions and passes the final synthesis.
+
+All reading/probes are research-only: no newIBPsearch, master evaluation, source
+code changes, production writes/signals, CAS installation or payload push.
+Detailed untracked lane reports and references are under
+`TMP/research-five-loop-master-gap-20261022/`. Only original synthesis/log pushed.
+
+## October 22 — parallel-assisted refinement delivered
+
+The final production-compatible capacity graph is frozen: optimized executable
+`TMP/releases/20261022-parallel-refinement/rustred`, SHA256
+`70dd9ee7d41ee32a10b0b23470b73a5552f0be5f7e645cad8d08fd57105c21a1`.
+Engine implementation is pushed as `191c0965` after R1 `19c035d0`.
+Build took 6m18s, outside every solver timer. Core `eff2385c1e81a410`, app
+`8e8ae9cdecba33ff`, Symbolica `cda55c135abebab8`.
+
+Independent final gates: **677 native passes, zero failures, five explicit
+manual ignores** (104 terminal relations, 116 normalization, 102 master app,
+290 CLI, 64 saved application, one complete-row adapter). Python: **218 pass,
+one existing affinity skip**; final 45 dashboard checks pass. Existing storage
+fixtures all pass under the intended capacity profile without assertion edits.
+Twelve fresh and six recovery CLI controls pass. Actual old -> new and new -> old
+SIGINT/checkpoint continuation and changed worker counts pass, including exact
+maps and inherited guard containment. Source campaigns were never written or
+signalled; disposable TMP copies only. Mathematical/code bulk-join audit passes.
+
+Final fixed hot 256-source prefix: serial108.610s, finite serial108.975s,
+W6=76.946s, W16=52.815s, clean W32=57.061s solver. W16 whole process99.824s
+vs serial153.122s; process CPU216.430 vs151.098s, peak19.383 vs11.942GB.
+All 939 exact maps/108,524 guards and source639893 agree; basis864 unchanged.
+Final W32 uses more CPU/RAM and is slower than16; profiled63.394s arm is kept
+separate from clean timing. R1->R2 observed6-7% timing deltas are descriptive,
+not isolated bulk-join gains: the capacity feature profile also changes.
+The separate four64-row-window experiment helps W6 but hurts W32: no universal
+small-window claim. Larger block32 costs68.320s vs52.815s at16, saving CPU/RAM
+but worsening time; negative result retained.
+
+Profiles explain remaining work: sampled local stage ~49% malloc self and16%
+integer-vector clone; join exact Symbolica division/GCD, add_cols~2% self.
+Not evidence for Arc-contention or whole-campaign fractions. A first available
+jemalloc library exports `_rjem_` and cannot interpose Rust malloc; rejected by
+actual loader binding before benchmarking. A second already-local unprefixed
+jemalloc really interposes malloc/free. Two completed same-allocator matched
+pairs reproduce **105.464 ->47.092s (2.239x)** and **105.815 ->47.301s (2.237x)**
+solver gains; whole-process gains1.589x/1.640x. Selected16worker/batch256/block8
+uses15.65-15.85GB peak vs10.75GB serial. W32jemalloc47.572s essentially ties
+but costs21.80GB. All native parallel states are byte-identical, including both
+allocators. No host-wide setting, new kernel or engine rebuild. The native-only
+wrapper hashes raw/library, rejects unexpected preloads, and passed real Python
+dispatcher/RAM-guard SIGINT and changed-worker resume. /proc confirmed native
+alone mapped the library. Direct70dd remains the no-preload fallback.
+
+Final genuine K6/H/FG/BMW/X128-source controls pass exact map, nonempty guard,
+cursor and unchanged source checks. Raw/basis/guards are38/5/17,386/21/420,
+145/15/731,179/16/825,445/18/1449 respectively. Their4-13ms solver cohorts are
+correctness gates, not claimed lower-loop speedups. The full hot check compares
+all939maps/108,524guards. Evidence/report:
+`TMP/parallel-assisted-refinement-20261022/R2_HOT_WINDOW_RESULTS.md`,
+`r2-lower-controls.receipts.json`, `JEMALLOC_WRAPPER_SAFETY_RESULT.md`.
+
+User independently finalized the old `(2,0)` and completed the finite proof
+import. Read-only metadata confirms latest scope528866..., published, basis
+**864 -> 862**, import/collection complete and all maps/guards retained. No
+ordinary source generated. Active operation is now import: the correct next
+action is explicit **fresh `(2,0)`**, not pretending to resume old7748... matrix.
+Sourceable release helper selects the tested native-only wrapper and16workers
+onCPUs64-79, batch256/block8. Same-round continuation omits fresh. Independent
+argparse/lifecycle audit confirms flags and source selection; no launches.
+
+Next task (start only after this tested delivery is pushed): deep primary-literature
+and local TIDE/reference study of five-loop single-scale vacuum master counts,
+published~100 vs our retained~800, with convention matching and missing-relation
+hypotheses. User explicitly requests finishing this implementation first.
+
+## October 22 — genuinely parallel assisted refinement (chronological build log)
+
+User explicitly requested implementation after the read-only diagnosis. Plan:
+`PARALLEL_REFINEMENT_PLAN.md`. The old broad tool-managed goal is still paused;
+this explicit new task is active without changing that historical goal status.
+At this starting diagnosis, production `(2,0)` was running on its frozen binary.
+It remained untouched by us; the user's later finalization/import is recorded
+above. Build/test statuses below are the chronological intermediate results,
+not remaining blockers after the final validation entry.
+
+Starting defect: app-assisted execution always calls the serial provider method,
+bypassing existing source-row/block work stealing even after all 961 finite
+numerator equations drain. About 1.36 million mostly empty provider requests
+accompany 0.64 million actual IBP rows. Live observed CPU is ~0.98/128 cores.
+The displayed `preparing` is a missing-stage fallback. Read-only 10-second
+sampling found polynomial/GMP work, not stalled startup. The matrix has ~607k
+independent rows and 1.45 million auxiliary columns; terminal elimination count
+does not measure that work. Evidence:
+`TMP/refinement-serial-path-audit-20261022/DIAGNOSIS.md`.
+
+Assigned lanes:
+
+- `parallel_refine_core`: immutable finite provider, assisted parallel dispatch,
+  ordered query/merge barriers, checkpoint compatibility and compact column views.
+- `symmetry_five_loop_validation`: app provider composition/provenance and real
+  observed execution stages; finite only when every component is immutable.
+- `modular_refine_integration`: truthful Python dashboard, no false preparation
+  or implied CPU utilization, existing UI regressions.
+- `fresh_search_acceptance`: independent fixed-prefix release scaling and
+  exact/guard/cancellation/resume tests on lower-loop and hot five-loop inputs.
+- `modular_final_math_audit`: independent authority, span and merge audit.
+- Root: integration, resource/build coordination, profiler and final verifier.
+
+Core design reuses Symbolica sparse exact reduction. Workers prepare ordinary
+source rows and reduce blocks against immutable U; every independent residual,
+including auxiliaries, reaches ordered global commit. Generic mutable providers
+retain serial query barriers, while explicit complete finite maps can skip
+off-domain empty requests. Existing accepted rows/guards/cursors are never
+pruned. Old native schemas/bindings should resume if verified; no production
+checkpoint activation has been attempted. No new arbitrary solver ceiling.
+
+The acceptance plan at
+`TMP/parallel-assisted-refinement-20261022/ACCEPTANCE_BENCHMARK_PLAN.md` separates
+load/preparation from fixed ordinary-source work and compares 1/6/16/32 workers,
+including repeated pairs and actual guard/map equality. Test artifacts are
+untracked. No scaling claim is made before measured pilots.
+
+First implementation/source-audit pass completed. Metadata compilation of app
+library/tests passed in 1m52s. The core now has immutable finite-map execution,
+ordered dynamic-provider barriers, parallel assisted ordinary blocks and borrowed
+column views. A next-source dynamic preflight avoids speculating 4096 rows just
+to stop at the first provider request. Six new core and five new app tests cover
+scope, transcripts, errors, cancellation, old checkpoint activation and progress.
+Independent source/mathematical review found no remaining first-slice blocker.
+The optimized default-feature app/binaries build is running; actual native tests
+and release scaling remain open. No production binary or checkpoint was changed.
+
+Dashboard gates: 219 tests run, 218 passed and one existing affinity skip; final
+45-test dashboard suite passes. Missing native stage no longer means `preparing`,
+worker limits are not called active workers, and stale batch counters do not
+survive into collection/completion. Current CPU remains process-measured.
+
+Hot-input evidence: after the production round became externally paused, its
+immutable generation-8 state (358,972,306 bytes), retained capsule and numerator
+certificate were copied into `TMP/parallel-assisted-refinement-20261022/hot-gen8`.
+All content digests and independent inodes passed; source bytes were unchanged.
+We did not signal or pause that production process. CPU allocation for our
+tests/builds is 200-255, outside the production reservation 64-191; heavy benchmark
+jobs and build jobs are coordinated separately.
+
+First native gates passed: **216 core tests**, one explicitly ignored; no
+failures. These cover terminal relations/normalization, new finite/dynamic
+execution, P102, unequal masses/powers, errors, cancellation and native resume.
+App-native tests are still compiling against the current default (no explicit
+capacity-dispatch) graph; metadata and core artifact graph are coherent.
+
+First hot five-loop pair: fixed next 64 ordinary sources from the copied
+generation-8 checkpoint, legacy assisted serial **77.552s** solver vs finite
+six-worker **29.034s**, 2.67x. Whole-process 121.378s vs 72.732s, 1.67x;
+peak RSS 11.93 vs 14.77 GB, CPU 119.97 vs 129.08s. All 939 terminal maps and
+108,524 guards agree exactly, committed cursor 639701 and basis 864 identical.
+New finite single-worker control took 78.154s, showing the gain is parallelism,
+not merely query pruning. This is a first pair, not yet a replicated campaign
+scaling claim. Its eight elimination blocks limit the exposed concurrency.
+The six-worker phase split was ~24.52s elimination / 4.24s merge, with a long
+last block; testing additional workers and smaller blocks is pending.
+
+The parallel U differs by one stored nonzero. Independent review explained the
+expected forward-echelon nonuniqueness and proved full auxiliary+terminal span
+preservation by ordered induction; cold native decoding rejects explicit zeros.
+This is not dismissed using sampled zeros or terminal-count equality. Repeats,
+full current app-native gates, larger scaling probes and CLI resume acceptance
+remain required before delivery.
+
+The six-worker gain reproduced: second legacy serial 79.423s vs finite parallel
+29.734s, again **2.671x solver**, 1.631x whole-process. Repeated serial native
+outputs are byte-identical to each other, as are repeated finite-six outputs;
+cross-arm all-map/guard equality passes. Sixteen/32-worker eight-row-block runs
+use only eight jobs in this 64-row calibration and do not improve it (31.307s /
+32.643s). Smaller two-row blocks make 32 jobs and use many cores but currently
+cost more; this is negative evidence, not a speedup. The larger matched 256-row
+cohort will provide enough eight-row blocks for a genuine 32-worker comparison.
+
+Optimized candidate built successfully: default native/CLI/reconstruction
+features, `TMP/parallel-assisted-refinement-20261022/candidate-v1/rustred`, SHA256
+`3bba100d6b4037c24e7dd6ab2e4caa8afc5b67c5c3ca3df43a97920c4c2c3d49`.
+Matched benchmark/library graph: core `c7953504bb230c27`, app
+`fa10ae265964b402`, Symbolica `cda55c135abebab8`; no optional capacity-dispatch.
+This is standard default-feature release, not a dependency/API change. The
+successful verbose build took 12m56s, excluded from all timings. The earlier
+JSON release invocation exited 101 without a compiler error after library
+artifacts; its complete logs remain, and the clean verbose retry succeeded.
+A mistaken nested-target retry was stopped immediately, before engine
+compilation, touching only its new TMP build directory. No user process was
+signalled. Core/app native test frontends use the same current dependency graph;
+app unit linking is still underway. CLI old-checkpoint activation and changed
+worker-count resume tests are active on independent fixtures.
+
+Real CLI compatibility gates now pass: old frozen `4a8ffc2a...` wrote a genuine
+assisted pause after 8,509 ordinary sources plus one nonempty numerator equation;
+new candidate `3bba100d...` resumed the same checkpoint with eight workers and
+completed its 51,212 ordinary sources. Independent exact map/guard-containment
+checks pass across original source -> old prefix -> new result; the source tree
+is unchanged. Actual new native batch commits and finite-provider strategy were
+observed. Twelve fresh-search and six recovery CLI controls also pass. The
+five-second toy continuation is a functional gate, not a benchmark speedup.
+Evidence: `TMP/parallel-assisted-refinement-20261022/cli-assisted-activation-v3/`.
+Negative test harness results are retained: the first old toy completed its
+source search before interruption, and a strict equality check incorrectly
+rejected legitimately added guards. A larger caller-selected fixture and exact
+coefficient composition/inherited-guard containment fixed the *test*, not the
+engine. Full app-unit runtime gates and larger matched scaling remain pending.
+
+Implementation milestone `19c035d0` is pushed with a frozen R1 fallback. Its
+independent default-profile suite completed: 666 native passes, six existing
+`finite_source.rs` fixture failures, five ignores. All new parallel tests pass.
+Those six fixtures hard-code storage 4 for a physical-one-slot family, while
+this prototype omitted the old executable's `capacity-dispatch` build feature.
+No engine or assertions were changed to hide them. Final delivery will use the
+same capacity feature as old production and re-run the matching gates, avoiding
+an unrelated storage-convention change. CLI inner-pool launch variables were
+made explicit; all 290 broad CLI controls pass, as do 63 saved-application and
+one complete-row adapter controls. Native default-profile build time is separate
+(core ~304s; app ~1531s); this is not solver runtime.
+
+Larger R1 fixed-prefix result (256 ordinary rows, 32 eight-row jobs): legacy
+109.180s; W6 81.995s; W16 56.689s; W32 61.585s. All 939 maps/108,524 guards,
+source cursor 639893 and basis 864 agree exactly; W6/W32 native states are
+byte-identical. More cores are genuinely active (W32 ~30.83 observed peak) but
+do not automatically win: merge is ~27.7s and local frozen-U work/CPU rises.
+The 32-worker two-row-block probe used ~30.88 cores yet took 35.054s versus
+29.034s for six workers/eight-row blocks, CPU 407.30 vs 129.08s and peak
+26.73 vs 14.77 GB. This negative tuning result is preserved, not advertised.
+
+The measured 34–49% serial merge share justified one additional focused pass:
+preflight and register new columns once per committing block, stage owned CSR,
+then use existing Symbolica `add_matrix`. Whole blocks become cancellation
+boundaries only when adding columns; reuse-only blocks retain row boundaries.
+Conservative resource misses fall back, not error. Independent source audit
+passes; four focused bulk/cancellation/fallback/provider-barrier tests were added.
+Runtime APIs and native schemas remain unchanged. The final CAP optimized build
+is active (`build-r2-cap.*`), along with lower-cost final native-unit compilation
+and a final-graph matched pilot. No production files/processes were changed.
+
+## October 22 — recovery/import bridge delivery validation
+
+Frozen optimized candidate:
+`TMP/releases/20261022-refinement-bridge/rustred`, SHA256
+`4a8ffc2a5c0cac878895f36a58866e7776fd09a17fffd38a256a45d0e8f52f0d`.
+Focused acceptance passes: **181 native app/CLI tests**, four manual ignores;
+**214 Python tests**, one pre-existing affinity skip; 12 independent native
+fresh-search checks and six independent CLI recovery checks. Actual accepted
+modular-relation recovery, proof/codec mutations, direct/symlink pre-write
+protection, interrupted import, source relocation and stronger-current-map
+preservation are included. Independent code/mathematics review found no remaining
+blocker. Receipt: `TMP/recovery-import-20261022/ACCEPTANCE_RESULT.md`.
+
+The read-only-source filesystem clone of the real interrupted generation-3 phase
+recovered successfully into `TMP/recovery-import-20261022/real-recovered`:
+**10m26.67s**, 20.11 GiB peak RSS, unchanged 904-key basis and exact native
+checkpoint bytes. Full original/clone comparison reports no differences.
+No ordinary/modular source cursor advanced.
+That real recovery used the immediately preceding optimized preview
+`0de9bbb7...7a9145` while the final import-only output-path protection was
+compiling. Its recovery implementation is identical; the six independent
+recovery CLI gates ran against the final `4a8ffc2a...2f0d` executable.
+
+The frozen release then imported the finite proof recipe into the separate
+`TMP/recovery-import-20261022/real-imported`: **16m09.71s**, 20.11 GiB peak RSS,
+exit 0 including final normal-artifact cold validation. Result: **904 -> 871**
+basis keys, all 939 original keys retained as exact maps, zero auxiliary output
+columns and zero new ordinary IBP rows. It replayed 961 witnessed raw symmetry
+equations and four selected complete saved-rule consequences. The expected
+research output was checked only as a coefficient-map assertion, never used as
+proof authority. The source campaign was not modified. Independent core checks
+passed for every one of the 939 recovered/full-collection maps, retaining all
+108,524 full source guards. Independent normal-application checking also passed:
+all 939 public application maps equal the final native and expected research
+coefficient maps exactly; all 108,916 final guards, 587 selected-row guards and
+362 new equation guards are present. P102's exact three terms have coefficients
+`1/2,1/2,1`; no foreign/unresolved output occurs. Public cold load was 141.108s,
+whole verification 143.36s, peak 1.744 GiB. Receipt:
+`TMP/recovery-import-20261022/independent-normal-app.json`.
+
+The new external application export also completed in 237.62s process / 237.075s
+native API, with every one of the 939 source substitutions checked, source
+unchanged, 871 outputs and the original 812 recorded query domains. It is under
+`TMP/deliveries/five-loop-r6-d10-871-20261022/application`. Fresh native load and
+exact canary passed: load 45.6465s, first application 0.22024s with five IBPs,
+warm 0.15964s with zero new IBPs and one cache hit; output and guards identical,
+all output leaves in the 871-key basis. The actual existing Vakint loader also
+passed without rebuild: 77.9403s load/preparation, catalogue absent beforehand,
+67 topologies prepared in 0.15749s, all owner formula programs still deferred.
+Its product preparation recognizes 37 factored outputs plus 834 other outputs;
+this is not a new claim of a smaller independent master basis. No numerical
+five-loop evaluation or full acceptance inventory was run. The old 904-key
+package is unchanged. No full `(2,0)` search is being launched by us.
+
+Real fresh `(2,0)` initialization/pause also passed: **156.61s**, 1.75 GiB peak,
+939 maps and basis 871 retained, zero ordinary work, zero auxiliary columns and
+no old modular history. The generation-2 checkpoint is 42.85 MB. A separate
+public-core check verified all 939 maps and all 108,916 final guards exactly in
+3.62s; the entire source publication's byte tree is unchanged. Its new finite
+inventory has 305,867 seeds / 7,646,675 ordinary source-work items, untouched by
+this test. This is initialization/checkpoint acceptance, not a completed `(2,0)`
+timing. Receipt: `TMP/recovery-import-20261022/REAL_FRESH20_RESULT.md`.
+
+Implementation milestone `12ee99bb` is pushed to the isolated feature branch.
+Final user commands use that branch's production Python adapter and the frozen
+binary together; the older main adapter does not have these recovery/import
+options. Argparse-only independent audit passed for recovery, import, fresh
+`(2,0)`, ordinary resume/finalize, fresh `(3,0)` and monotone `(3,0)` extension.
+
+User explicitly approved `RECOVERY_IMPORT_PLAN.md`. Work remains isolated on
+`codex/numerator-symmetry-refinement`; production campaign files are read-only.
+The currently durable modular `(2,2)` generation-3 manifest says `running` but
+has no live native process, explaining why ordinary finalization refuses it.
+
+Lanes:
+
+- `symmetry_refinement_integration`: explicit native recovery/finalize operation,
+  immutable source, existing exclusive writer lock, normal cold validation, no
+  new source/discovery/reconstruction work. App/lib/test metadata passes (43.74s).
+  Runtime acceptance and independent audit passed, including a genuine accepted
+  modular relation and the isolated real stale-running checkpoint.
+- `symmetry_five_loop_validation`: generic recipe-driven import, replaying the
+  native symmetry certificate and four selected complete saved equations before
+  exact map union/publication. Research output hashes are expectations, not
+  authority. Current additional proved maps must survive; no older basis overwrite.
+- `modular_refine_integration`: Python recovery/import actions, bound phase
+  identity and resume, precise finalization and fresh-round pointer semantics.
+- `fresh_search_acceptance`: independent acceptance protocol registered at
+  `TMP/recovery-import-20261022/ACCEPTANCE_PLAN.md`; no production writes.
+- `modular_final_math_audit`: independent authority/scope/guards design audit.
+  Existing inherited generic-parameter authority is not upgraded to uniform
+  exceptional-dimension validity or independent ordinary-source certification.
+- Root: integration, CLI/export wiring, optimized builds and final verification.
+
+All new operations write distinct outputs. Imported native state cold-loads as
+a normal application-aware publication with unchanged original admission; fresh
+`(2,0)` resets only search state. The safe recovery, proof/certificate mutation,
+all-map/guard composition, interruption/resume and `(3,0)` transition gates have
+passed. The feature's `docs/refinement_recovery_import.md` gives the exact
+recovery -> import -> fresh `(2,0)` -> pause/resume/change-shape commands.
+
+## October 22 — measured five-loop symmetry-only gain
+
+Final combined result: **904 -> 871** finite retained basis keys (33 additional
+dependencies), after exact union and independent validation of the direct
+symmetry pass and selected saved-rule consequences. The original 939 keys
+remain defined. No numerical evaluations or new ordinary IBPs were used.
+
+A final TMP-only preconditioning prototype also passed independent audit:
+forbidden-numerator-first Symbolica sparse elimination combines P102's three
+witness rows with exact weights `(1/4,1/4,1/4)` into one seven-term scalar/pinch
+consequence. Symbolica checks `W*A` exactly and confirms physical rank 3 remains
+3. Whole runtime 10.289 s includes cold loading/replay. It is not deployed and
+must not replace all three source equations: one consequence can lose other
+dependencies. Evidence and source remain under
+`TMP/numerator-symmetry-five-loop-p102-projection-evidence-20261022/`.
+
+The optimized P102 regression completed all three source witnesses. Its actual
+saved-artifact result is exactly `P162 + P86/2 + P106/2` at unit mass, with the
+mass-restored P106 coefficient `m^2/2`. All three native output tuples match the
+independently checked external-data graph representatives. Starting from 904,
+that selected test alone gives 901. Its three complete row applications took
+7.797 / 5.903 / 6.638 ms (20.34 ms total), but the **whole process took 137.630 s**,
+including 120.296 s saved-program load and 9.988 s compact baseline/witness
+replay, at 8.254 GB peak sampled RSS. The millisecond row timings are not
+end-to-end generation/refinement timings. All source hashes were unchanged.
+
+The earlier optimized 219-row rank-one cohort was manually stopped during its
+second row after approximately ten minutes. Its one completed group proved one
+additional relation (904 -> 903); later progress is censored, not completed.
+Sampling the second row showed real exact coefficient addition/GCD swell, not
+guard hashing. Its native checkpoint and exact row evidence remain retained.
+
+Independent exact re-elimination measured: raw-only 873 plus that completed
+group gives 872, then adding the three P102 consequences gives 871. Two of the
+three P102 consequences overlap what the raw pass already implied; counts are
+not simply added. Final native result:
+`TMP/numerator-symmetry-combined-evidence-20261022/with-p102/combined.rrbin`
+(BLAKE3 `d5cf6ce8dade27292d3a175af0f65038362696af2c44dd7d243747f28acb68c7`).
+It has zero auxiliary columns and 108,916 guards. Each of the original baseline,
+raw-only, completed R1 and P102 map sets composes exactly through it for every
+one of the 939 raw keys; all guard unions and cold maps match. This is a native
+research refinement snapshot, not a modified production publication or a
+minimality/whole-family-closure claim. The separate Vakint package still pins
+the original 904-key publication, explicitly identified below.
+
+The user resumed the task. Main fresh-search and separate external R6 package
+remain delivered; the numerator feature is pushed as `19e7dc66` on
+`codex/numerator-symmetry-refinement`. Production campaigns remain untouched.
+
+- The complete raw-key numerator-symmetry assay completed: **904 -> 873**
+  remaining raw terminal keys, 31 additional dependencies. It processed all
+  961 witnessed equations over the pinned 939-key inventory, with zero ordinary
+  IBP sources and no saved-rule application. Whole process 16.07 s, core assay
+  15.38 s including 10.65 s compact input/proof loading, peak RSS 1.277 GiB.
+- It retained 154,694 unresolved auxiliary columns. Those are not output masters:
+  every output remains in the 873-key retained basis. Exhausting this finite
+  provider is not auxiliary, source-span, symmetry-group, or family closure.
+- Independent public-core checker passed in 3.447 s: every one of the 939 old
+  maps composes exactly through the new map; all 108,524 old guards remain;
+  input native bytes are unchanged. It independently confirmed 66 changed maps,
+  no auxiliary output leaves, and the 31-dependency count. Before BLAKE3
+  `83429a97...`, after `ffdf0eee...`. Evidence:
+  `TMP/numerator-symmetry-delivery-20261021/check_retained_maps.five-loop-raw.json`.
+- P102 itself is still an identity in the raw-only result: its verified
+  contraction/orbit relation also requires mapping/reducing the pinched terms.
+  Its analytic/native regression is valid; the full installation measurement
+  must not be conflated with the 31 other raw-only gains.
+- Two repeated frozen-driver runs and the documented generic-driver run agree
+  byte for byte (result SHA256
+  `d7018221688a7342e0d8f0a704df1c7d5f2f9af1ea8eac28ee755f16b1504992`).
+  Whole-process walls were 16.07 / 15.75 / 15.82 s. First result and all input hashes live at
+  `TMP/numerator-symmetry-five-loop-raw-evidence-20261021/conservative-v2-result/`.
+
+Negative evidence retained: the first full saved-rule projection experiment
+visited a 2,125-term rank-nine row first because of lexicographic key order. It
+was manually stopped by root after 28,874 s, before any completed equation was
+reported, at 19.01 GB peak RSS. Only our isolated test was signalled. This is a
+censored failure, not a completed full-set timing. The test frontend was opt-0
+with optimized dependencies, so it is not a release CLI benchmark. Profiled
+time in that first row was dominated by exact guard union/hashing. Preparation
+had separately used 352.136 s for old artifact validation and 360.438 s for
+saved-rule proof replay; symmetry discovery itself took 4.991 s.
+
+The direct raw-only helper's first cold import also failed before search because
+it supplied a different normalization-preparation profile. Native replay
+correctly rejected a changed regenerated proof. Using the actual source's
+`conservative-v1` recipe fixed this; operational search/I/O grants remain
+unlimited. No codec bypass or mathematical assertion was weakened.
+
+The next narrow integration exposes the existing saved identity application as
+`PreparedSavedIntegralEquations`, with unchanged family/payload/overlay checks
+and exact complete-row/guard behavior. This supports an optimized external
+driver that cost-orders the explicit 219-row degree-one cohort and checkpoints
+between rows, without another full engine rebuild per experiment. Independent
+API audit passed. The complete 961-row saved-projection path remains unmeasured.
+The optimized public-facade CLI build passed (5m24s); frozen executable SHA256
+`ed52628d52d56732fa16ff747f4ef676eb37ee3ff71dfa02c20e296038e45fa3`.
+All 12 fresh-search native subprocess checks passed again with source hashes
+unchanged. The facade delegates existing paths only; its separate cost-ordered
+optimized application assay is pending. No core search or CAS change accompanies
+this public API exposure.
+
+Do not advertise `--saved-rule-assistance` as cheap or necessary for the measured
+31-key gain. The raw `--numerator-symmetry-assistance` lane alone suffices for
+that result. The external Vakint package still pins the older 904-key basis;
+no in-flight test relation has been silently installed into that package or
+into the user's campaign.
+
+## October 21 — numerator-polynomial symmetry refinement (isolated feature)
+
+Branch: `codex/numerator-symmetry-refinement`; worktree:
+`TMP/numerator-symmetry-refinement-20261021`. The separate fresh-search milestone
+is already pushed to `main` as `b54cbef1`, with its final validation report at
+`9f10e6b6`. This branch includes the fresh-search implementation as `951ba310`.
+No production campaign was signalled, resumed, finalized, or modified by us.
+
+Delivered implementation slices, with the full five-loop count assay active:
+
+- `numerator_symmetry_engine`: finite signed line-transposition/reflection
+  discovery, exact weighted-denominator/Jacobian verification, and complete
+  numerator transport through the existing Symbolica-backed native services.
+- `fresh_search_native`: content-addressed binary symmetry witnesses with cold
+  exact replay, guarded source identities, and malformed-certificate controls.
+- `symmetry_refinement_integration`: opt-in exact refinement provider; optional
+  full saved-rule reduction of each complete equation; inherited proof and
+  checkpoint preservation. Missing rule applications retain the exact source
+  equation with unresolved auxiliary columns and an explicit diagnostic.
+- `modular_refine_integration`: matching short/production Python options,
+  one-shot fresh-state behavior and dashboard/report fields. Four affected
+  Python suites pass 198 tests with one pre-existing affinity-dependent skip.
+- `p102_witness_audit`: independently verified all 24 equal-power line
+  permutations and both pinches in the published actual loop basis. The exact
+  identity is `P102 = P162 + P86/2 + m^2 P106/2`; external labels are regression
+  data only, never solver dispatch. The further pinned native-family mapping
+  gate passed: exact fingerprint `44b030da...`, all 15 coordinates, original
+  physical slots and complete numerator. P102 is present among the raw keys
+  and still maps to itself. Source manifest unchanged; 368.801 s, 7.01 GiB peak,
+  dominated by cold collection decoding/validation, not symmetry discovery.
+- `symmetry_lower_loop_validation`: two full packaged 3L/4L studies, all input
+  hashes and 55 exact evidence files reproducible. K6 stays 5 -> 5. Four-loop
+  explicit rank-one numerator probes give 74 -> 70 family-local outputs, but
+  these are four presentations of ONE physical dependency: the common exact-U
+  convention changes 23 -> 22. Rank two adds nothing. Direct raw-key-only
+  discovery gives zero extra dependencies; the production flag currently uses
+  raw plus normalized keys, not these extra probes. This is not an improvement
+  over the separate historical 20-output ordinary/diagonal-refined basis.
+- `modular_final_math_audit`: independent source and lower-loop evidence audit
+  passed; no must-fix finding. Additional symmetry-group completeness or master
+  independence is not claimed.
+- `symmetry_five_loop_validation`: isolated raw-939 / basis-904 assay running;
+  it drains only symmetry-derived assistance, with zero new ordinary IBP rows,
+  and checks every old map/guard and immutable source hash. Measurement pending
+  final cold checks; no five-loop count improvement claimed yet. Inputs remain
+  immutable and the assay has its own 128 GB process guard on CPUs 240-247.
+
+Final integrated validation: optimized CLI compiled; all 116 native terminal-
+normalization tests pass, including actual P102 row-span and pinch fixtures,
+and terminal relations pass 94 tests with one ignored manual control. App tests
+pass 84 master-refinement, 64 saved-application, 17 CLI and one complete-row
+adapter checks (166 passes, four explicit manual ignores). Python passes 198
+tests with one pre-existing affinity-dependent skip. The final release CLI is
+`TMP/releases/20261021-numerator-symmetry/rustred`, SHA256
+`aa6044356f2f59b06f3d08c42371d374a115b52124cf9872cda67b26ed55a1d1`.
+Its independent fresh-search acceptance passes all 12 subprocess gates with
+source hashes unchanged; receipt `TMP/fresh-search-20261021/acceptance-numerator-final-v2/receipts.json`.
+A custom
+app-test build initially reused a stale Symbolica dependency command and failed
+with duplicate-crate type identities; this is a test-tool linkage issue, not a
+production algebra defect. Capturing the contemporary Cargo command resolved
+it without changing solver code. Two subsequent test-only fixture corrections
+were completed before the final successful link. App test/frontend bodies use
+opt-level 0 with optimized core/Symbolica dependencies; their wall times are
+functional-test receipts, not release CLI performance benchmarks.
+
+Final independent resource audit passed: only the new opt-in numerator path
+removes inherited preset application/cache/work quotas in favor of the caller's
+RAM guard. Existing saved-only and flag-off settings remain unchanged, with all
+structural/overflow and exact-authority checks intact. No new CAS primitive or
+hard-coded topology/loop-count dispatch was introduced.
+
+The separate Vakint-ready package is complete and deliberately untracked:
+`TMP/deliveries/five-loop-r6-d10-gen119-20261021/application`, with hosting
+archive `rustred-five-loop-r6-d10-gen119-20261021.tar.zst` beside it (184,908,926
+bytes; SHA256 `eca1d93a0c9d14131e442ad5a4e1c051e293cc485dd80bb26f90316c16f6551e`).
+It pins the original R<=6/D<=10 recorded query union, 67 owners, 9,982 installed
+rules and 939 -> 904 terminal maps. Native cold load/canary and the actual Vakint
+loader both pass. It does not include later in-flight modular relations, nor
+does it imply coverage of every point beneath the reported rank/D maxima.
+
+Next executable steps: finish the immutable five-loop assay;
+record exact before/after counts and limitations; independent result review;
+commit/push the isolated feature and freeze its optimized executable. Deliver
+the user's exact fresh `(2,0)` launch command and package path. Keep reference
+data, artifacts, license values, and unrelated dirty main-worktree files out of
+all commits.
+
 ## October 21 — relations-only fresh search and isolated R6 package (active)
 
 User authorized a fresh master-refinement option and a separate Vakint-ready
@@ -290,14 +1413,6 @@ relations and seven auxiliary columns. Fresh exact `(2,0)`/`(3,1)` and modular
 columns, cold resume at changed worker counts, and leave source hashes intact.
 Evidence: `TMP/fresh-search-20261021/ACCEPTANCE_RESULT.md`.
 
-Final focused native gates pass: terminal relations 94 passed/one ignored;
-guard-index collision/order controls five passed; app master reduction 78
-passed/one ignored; CLI master commands 16 passed; saved application 64
-passed/two ignored. The first terminal suite caught an invalid one-coordinate
-test asking to promote two coordinates; its fixture was corrected, then all
-94 controls passed. The genuine two-loop `(2,2)` acceptance remains unchanged.
-Release CLI/example builds completed; no solver source was changed by that
-test-only correction. Logs: `TMP/fresh-search-20261021/*tests*.stdout`.
 
 The optimized isolated R6 export completed in 6m04.76s at 7.05 GiB peak RSS.
 Native cold-load/canary passed: 54.540s load, 0.2354s first application with five

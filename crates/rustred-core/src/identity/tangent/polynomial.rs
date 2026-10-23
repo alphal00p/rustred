@@ -13,10 +13,10 @@ use super::{TangentSourceError as Error, TangentSourceLimits};
 use crate::algebra::is_exact_plain_symbol;
 use crate::family::{DenominatorExpansion, IntegralFamily};
 
-pub(super) type RawPolynomial =
+pub(crate) type RawPolynomial =
     MultivariatePolynomial<RationalPolynomialField<IntegerRing, u16>, u16>;
 
-pub(super) struct PolynomialWork<'a> {
+pub(crate) struct PolynomialWork<'a> {
     pub family: &'a IntegralFamily,
     pub template: RawPolynomial,
     pub limits: TangentSourceLimits,
@@ -124,24 +124,27 @@ impl<'a> PolynomialWork<'a> {
         Ok(())
     }
     pub fn affine(&mut self, expansion: &DenominatorExpansion) -> Result<RawPolynomial, Error> {
+        self.affine_parts(expansion.constant(), expansion.denominator_coefficients())
+    }
+    pub(crate) fn affine_parts(
+        &mut self,
+        constant: &crate::algebra::Coefficient,
+        coefficients: &[crate::algebra::Coefficient],
+    ) -> Result<RawPolynomial, Error> {
         let n = self.family.denominator_count();
-        if expansion.denominator_coefficients().len() != n {
+        if coefficients.len() != n {
             return Err(Error::ScopeMismatch);
         }
         let count = add(
             "affine terms",
-            usize::from(!expansion.constant().is_zero()),
-            expansion
-                .denominator_coefficients()
-                .iter()
-                .filter(|c| !c.is_zero())
-                .count(),
+            usize::from(!constant.is_zero()),
+            coefficients.iter().filter(|c| !c.is_zero()).count(),
         )?;
         self.admit(count, 1, count)?;
         self.family
             .coefficient_context()
-            .validate_with_limits(expansion.constant(), self.limits.exact_algebra)?;
-        for c in expansion.denominator_coefficients() {
+            .validate_with_limits(constant, self.limits.exact_algebra)?;
+        for c in coefficients {
             self.family
                 .coefficient_context()
                 .validate_with_limits(c, self.limits.exact_algebra)?;
@@ -150,8 +153,8 @@ impl<'a> PolynomialWork<'a> {
         reserve(&mut exponents, n, "affine exponent buffer")?;
         exponents.resize(n, 0);
         let p = native(|| {
-            let mut p = self.template.constant(expansion.constant().clone());
-            for (axis, c) in expansion.denominator_coefficients().iter().enumerate() {
+            let mut p = self.template.constant(constant.clone());
+            for (axis, c) in coefficients.iter().enumerate() {
                 if c.is_zero() {
                     continue;
                 }

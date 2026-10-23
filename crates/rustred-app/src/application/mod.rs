@@ -30,9 +30,10 @@ mod master_reduction;
 pub(crate) mod memory;
 pub use master_reduction::{
     MasterNormalizationProfile, MasterReductionArtifact, MasterReductionOperation,
-    MasterReductionOptions, MasterRefinementStrategy, load_master_reduction,
-    load_master_reduction_with_policy, load_master_relation_session,
-    load_master_relation_session_with_policy, master_publish_partial_refinement,
+    MasterReductionOptions, MasterRefinementStrategy, MasterSectorSymmetryPolicy,
+    load_master_reduction, load_master_reduction_with_policy, load_master_relation_session,
+    load_master_relation_session_with_policy, master_import_proved_refinement,
+    master_publish_partial_refinement, master_recover_interrupted_refinement,
     master_reduce_saved_campaign, master_reduction_inspect, master_reduction_inspect_with_policy,
     master_refine_published_artifact,
 };
@@ -50,6 +51,10 @@ mod saved_application;
 pub use routed_campaign::{
     OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
     owner_domain_walk_inventory,
+};
+pub use routed_campaign::{
+    PreparedSavedIntegralEquations, TerminalEquationReductionFailure,
+    prepare_saved_integral_equations,
 };
 pub use saved_application::{
     PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,

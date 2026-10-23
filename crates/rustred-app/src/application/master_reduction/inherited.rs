@@ -8,8 +8,22 @@ struct InheritedEquationAuthority {
     provider_binding: String,
     saved_rule_assistance: bool,
     circuit_symmetry_assistance: bool,
+    #[serde(default)]
+    numerator_symmetry_assistance: bool,
+    #[serde(default)]
+    sector_symmetry_assistance: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    local_dimensional_recurrence_assistance: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sector_symmetry_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sector_symmetry_saved_projection: Option<bool>,
     normalization_profile: String,
     source_manifest_blake3: String,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn record(report: &Value) -> Result<InheritedEquationAuthority, AppError> {
@@ -38,6 +52,21 @@ pub(super) fn capture(
         original.circuit_symmetry_assistance = source["circuit_symmetry_assistance"]
             .as_bool()
             .unwrap_or(false);
+        original.numerator_symmetry_assistance = source["numerator_symmetry_assistance"]
+            .as_bool()
+            .unwrap_or(false);
+        original.sector_symmetry_assistance = source["sector_symmetry_assistance"]
+            .as_bool()
+            .unwrap_or(false);
+        original.local_dimensional_recurrence_assistance =
+            source["local_dimensional_recurrence_assistance"]
+                .as_bool()
+                .unwrap_or(false);
+        if original.sector_symmetry_assistance {
+            original.sector_symmetry_policy = Some(sector_symmetry::from_report(source)?);
+            original.sector_symmetry_saved_projection =
+                Some(sector_symmetry::projection_from_report(source)?);
+        }
         let binding = assistance::expected_binding(&original, session, source)?;
         if session.assistance_binding() != binding.as_deref() {
             return Err(AppError::input(
@@ -51,6 +80,15 @@ pub(super) fn capture(
             provider_binding,
             saved_rule_assistance: original.saved_rule_assistance,
             circuit_symmetry_assistance: original.circuit_symmetry_assistance,
+            numerator_symmetry_assistance: original.numerator_symmetry_assistance,
+            sector_symmetry_assistance: original.sector_symmetry_assistance,
+            local_dimensional_recurrence_assistance: original
+                .local_dimensional_recurrence_assistance,
+            sector_symmetry_policy: original
+                .sector_symmetry_policy
+                .map(sector_symmetry::policy_name)
+                .map(str::to_owned),
+            sector_symmetry_saved_projection: original.sector_symmetry_saved_projection,
             normalization_profile: source_profile.name().to_owned(),
             source_manifest_blake3: blake3::hash(&serde_json::to_vec(source).map_err(io)?)
                 .to_hex()
@@ -69,7 +107,11 @@ pub(super) fn validate(session: &TerminalRelationSession, report: &Value) -> Res
     if session.assistance_binding() != Some(inherited.provider_binding.as_str())
         || inherited.normalization_profile != profile::from_report(report)?.name()
         || !digest(&inherited.source_manifest_blake3)
-        || (!inherited.saved_rule_assistance && !inherited.circuit_symmetry_assistance)
+        || (!inherited.saved_rule_assistance
+            && !inherited.circuit_symmetry_assistance
+            && !inherited.numerator_symmetry_assistance
+            && !inherited.sector_symmetry_assistance
+            && !inherited.local_dimensional_recurrence_assistance)
     {
         return Err(AppError::input(
             "inherited equation authority differs from native state or normalization profile",
@@ -98,6 +140,93 @@ pub(super) fn validate(session: &TerminalRelationSession, report: &Value) -> Res
             ));
         }
     }
+    if inherited.sector_symmetry_assistance {
+        if inherited.sector_symmetry_saved_projection.unwrap_or(true)
+            != sector_symmetry::projection_from_report(report)?
+        {
+            return Err(AppError::input(
+                "inherited sector-symmetry saved-projection mode differs from its frozen authority",
+            ));
+        }
+        if inherited.sector_symmetry_policy.as_deref()
+            != Some(sector_symmetry::policy_name(sector_symmetry::from_report(
+                report,
+            )?))
+        {
+            return Err(AppError::input(
+                "inherited sector-symmetry source policy differs from its frozen authority",
+            ));
+        }
+        if !parts
+            .next()
+            .and_then(|part| part.strip_prefix("sector-symmetry-assistance-v1:"))
+            .is_some_and(digest)
+        {
+            return Err(AppError::input(
+                "invalid inherited sector-symmetry inventory binding",
+            ));
+        }
+        if sector_symmetry::receipt_required(session, report)
+            && [
+                "sector_symmetry_certificate",
+                "sector_symmetry_normalization_certificate",
+                "sector_symmetry_task_certificate",
+                "sector_symmetry_reduced_certificate",
+            ]
+            .iter()
+            .any(|field| !report[*field]["blake3"].as_str().is_some_and(digest))
+        {
+            return Err(AppError::input(
+                "inherited sector-symmetry authority has no exact source, normalization, task and reduction certificates",
+            ));
+        }
+    } else if inherited.numerator_symmetry_assistance {
+        if !parts
+            .next()
+            .and_then(|part| part.strip_prefix("numerator-symmetry-assistance-v1:"))
+            .is_some_and(digest)
+        {
+            return Err(AppError::input(
+                "invalid inherited numerator-symmetry inventory binding",
+            ));
+        }
+        if !report["numerator_symmetry_certificate"]["blake3"]
+            .as_str()
+            .is_some_and(digest)
+            && (session.statistics().completed_assistance_rows != 0
+                || session.statistics().completed_assistance_keys != 0
+                || session.statistics().pending_assistance_rows != 0
+                || report["operation"] == "publish"
+                || matches!(
+                    report["status"].as_str(),
+                    Some("published_unrefined" | "completed_nonminimal")
+                ))
+        {
+            return Err(AppError::input(
+                "inherited numerator-symmetry authority has no exact certificate",
+            ));
+        }
+    }
+    if inherited.local_dimensional_recurrence_assistance {
+        if !parts
+            .next()
+            .and_then(|part| part.strip_prefix("local-dimensional-recurrence-assistance-v1:"))
+            .is_some_and(digest)
+        {
+            return Err(AppError::input(
+                "invalid inherited local-dimensional-recurrence inventory binding",
+            ));
+        }
+        if local_dimension::receipt_required(session, report)
+            && !report["local_dimensional_recurrence_certificate"]["blake3"]
+                .as_str()
+                .is_some_and(digest)
+        {
+            return Err(AppError::input(
+                "inherited local-dimensional-recurrence authority has no exact certificate",
+            ));
+        }
+    }
     if parts.next().is_some() {
         return Err(AppError::input("unsupported inherited equation authority"));
     }
@@ -109,5 +238,9 @@ pub(super) fn authority(report: &Value) -> Result<&'static str, AppError> {
     Ok(assistance::authority(
         inherited.saved_rule_assistance,
         inherited.circuit_symmetry_assistance,
+        inherited.numerator_symmetry_assistance,
+        inherited.sector_symmetry_assistance,
+        inherited.sector_symmetry_saved_projection.unwrap_or(true),
+        inherited.local_dimensional_recurrence_assistance,
     ))
 }

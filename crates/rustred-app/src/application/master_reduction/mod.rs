@@ -7,17 +7,22 @@ mod collection;
 mod finite_provenance;
 mod fresh;
 mod inherited;
+mod local_dimension;
 #[cfg(feature = "reconstruction")]
 mod modular;
 #[cfg(not(feature = "reconstruction"))]
 #[path = "modular_unavailable.rs"]
 mod modular;
+mod numerator_symmetry;
 mod partial;
 mod profile;
 mod refine;
 mod report_counts;
+mod sector_symmetry;
+mod selective_symmetry;
 mod source;
 mod storage;
+mod terminal_import;
 #[cfg(test)]
 mod tests;
 mod verification;
@@ -42,9 +47,11 @@ use storage::{io, write_json};
 pub use collection::{
     MasterReductionArtifact, load_master_reduction, load_master_reduction_with_policy,
 };
-pub use partial::master_publish_partial_refinement;
+pub use partial::{master_publish_partial_refinement, master_recover_interrupted_refinement};
 pub use profile::MasterNormalizationProfile;
 pub use refine::master_refine_published_artifact;
+pub use rustred::reduction::terminal_normalization::TerminalSectorSymmetryPolicy as MasterSectorSymmetryPolicy;
+pub use terminal_import::master_import_proved_refinement;
 
 const SCHEMA: &str = "rustred.master-reduction.v2";
 const FINITE_SCHEMA: &str = "rustred.master-reduction.v3";
@@ -107,6 +114,26 @@ pub struct MasterReductionOptions {
     /// Add verified circuit-symmetry equations for raw and normalized terminals.
     /// Does not load or certify saved candidate rules.
     pub circuit_symmetry_assistance: bool,
+    /// Add exact finite numerator identities from denominator-preserving
+    /// integration-variable automorphisms. Independent of ordinary IBP search.
+    pub numerator_symmetry_assistance: bool,
+    /// Close verified sector momentum maps and apply existing saved programs
+    /// to their complete finite identities. Includes the numerator provider.
+    pub sector_symmetry_assistance: bool,
+    /// New strong phases default to generator relations. Omission on resume
+    /// preserves the saved policy; changing it requires a new phase.
+    pub sector_symmetry_policy: Option<MasterSectorSymmetryPolicy>,
+    /// Apply authenticated saved programs to symmetry offspring. New strong
+    /// phases default to true; omission on resume preserves the saved mode.
+    pub sector_symmetry_saved_projection: Option<bool>,
+    /// Iteratively inspect selected terminal-relevant auxiliary integrals.
+    /// New equations remain auxiliary and never enlarge the raw master roster.
+    /// This opt-in exact strategy is immutable across a resumed phase.
+    pub selective_symmetry_feedback: bool,
+    /// Add fixed-d equations from replayed localized dimensional-pair witnesses.
+    /// The finite original-key cohort is prepared once; no shifted-dimensional
+    /// integral is admitted into the runtime master roster.
+    pub local_dimensional_recurrence_assistance: bool,
     /// Re-eliminate retained family-qualified finite rows after full-U aliases.
     /// New refinements default to enabled; omitted on resume uses the snapshot.
     /// Publication only transports previously proved maps.
@@ -142,6 +169,12 @@ impl MasterReductionOptions {
             containing_sector_depth: 0,
             saved_rule_assistance: false,
             circuit_symmetry_assistance: false,
+            numerator_symmetry_assistance: false,
+            sector_symmetry_assistance: false,
+            sector_symmetry_policy: None,
+            sector_symmetry_saved_projection: None,
+            selective_symmetry_feedback: false,
+            local_dimensional_recurrence_assistance: false,
             finite_feedback: None,
             normalization_profile: None,
             max_relation_columns: None,
@@ -274,6 +307,10 @@ fn load_session_with_policy(
     .map_err(io)?;
     finite_provenance::validate_session(directory, &report, &session, policy)?;
     fresh::validate(directory, &report, &session)?;
+    numerator_symmetry::validate(directory, &session, &report)?;
+    sector_symmetry::validate(directory, &session, &report)?;
+    local_dimension::validate(directory, &session, &report)?;
+    selective_symmetry::validate(directory, &session, &report)?;
     if modular::from_report(&report)? == MasterRefinementStrategy::ModularCircuits
         && (report["modular_state"].is_object() || report["status"] == "completed_nonminimal")
     {
@@ -358,6 +395,10 @@ fn master_reduce_source(
     }
     if (options.saved_rule_assistance
         || options.circuit_symmetry_assistance
+        || options.numerator_symmetry_assistance
+        || options.sector_symmetry_assistance
+        || options.local_dimensional_recurrence_assistance
+        || options.selective_symmetry_feedback
         || options.finite_feedback.is_some()
         || options.containing_sector_depth != 0
         || !options.collection_artifacts.is_empty())
@@ -378,6 +419,35 @@ fn master_reduce_source(
     } else {
         None
     };
+    let mut effective_options = options.clone();
+    if options.sector_symmetry_assistance {
+        effective_options.sector_symmetry_policy = Some(sector_symmetry::for_phase(
+            options,
+            resumed.as_ref().unwrap_or(&Value::Null),
+        )?);
+        effective_options.sector_symmetry_saved_projection =
+            Some(sector_symmetry::projection_for_phase(
+                options,
+                resumed.as_ref().unwrap_or(&Value::Null),
+            )?);
+    } else if options.sector_symmetry_policy.is_some()
+        || options.sector_symmetry_saved_projection.is_some()
+    {
+        return Err(AppError::input(
+            "sector-symmetry policy requires sector-symmetry assistance",
+        ));
+    }
+    let options = &effective_options;
+    selective_symmetry::validate_options(
+        options,
+        resumed.as_ref(),
+        modular::for_phase(options, resumed.as_ref())?,
+    )?;
+    local_dimension::validate_options(
+        options,
+        resumed.as_ref(),
+        modular::for_phase(options, resumed.as_ref())?,
+    )?;
     let normalization_profile = if let Some(report) = &resumed {
         profile::for_resume(options.normalization_profile, report)?
     } else if let Some(previous) = &options.previous_artifact {
@@ -414,6 +484,14 @@ fn master_reduce_source(
                 .as_bool()
                 .unwrap_or(false)
                 != options.circuit_symmetry_assistance
+            || report["numerator_symmetry_assistance"]
+                .as_bool()
+                .unwrap_or(false)
+                != options.numerator_symmetry_assistance
+            || report["sector_symmetry_assistance"]
+                .as_bool()
+                .unwrap_or(false)
+                != options.sector_symmetry_assistance
         {
             return Err(AppError::input(
                 "cannot change a saved phase operation in place; refine a published artifact into a new directory",
@@ -439,6 +517,7 @@ fn master_reduce_source(
     };
     if (report["status"] == "completed_nonminimal"
         && report["collection"]["status"] == "completed"
+        && selective_symmetry::complete(&report)
         && !(refinement_strategy == MasterRefinementStrategy::ModularCircuits
             && options.modular_policy.is_some()))
         || (options.operation == MasterReductionOperation::Publish
@@ -462,6 +541,21 @@ fn master_reduce_source(
     report["operation"] = json!(operation_name(options.operation));
     report["saved_rule_assistance"] = json!(options.saved_rule_assistance);
     report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);
+    report["numerator_symmetry_assistance"] = json!(options.numerator_symmetry_assistance);
+    report["sector_symmetry_assistance"] = json!(options.sector_symmetry_assistance);
+    if options.local_dimensional_recurrence_assistance {
+        report["local_dimensional_recurrence_assistance"] = json!(true);
+    }
+    if !options.resume {
+        selective_symmetry::record(options, &mut report);
+    }
+    if options.sector_symmetry_assistance {
+        report["sector_symmetry_policy"] = json!(sector_symmetry::policy_name(
+            options.sector_symmetry_policy.unwrap_or_default()
+        ));
+        report["sector_symmetry_saved_projection"] =
+            json!(options.sector_symmetry_saved_projection.unwrap_or(true));
+    }
     collection::record_feedback(&mut report, finite_feedback);
     verification::record(&mut report, deep_verification);
     report["status"] = json!("running");
@@ -726,7 +820,8 @@ fn execute_session(
         return modular::execute(options, session, report, cancel, observer, started);
     }
     budget::configure(options, session, report)?;
-    let mut provider = assistance::prepare(options, session, report, cancel, observer, started)?;
+    let mut provider =
+        assistance::prepare_for_execution(options, session, report, cancel, observer, started)?;
     // Changing an equation-provider policy can replace the native session.
     budget::configure(options, session, report)?;
     write_json(&options.directory.join("latest.json"), report)?;
@@ -746,9 +841,16 @@ fn execute_session(
     };
     if let Some(executor) = &executor {
         let configuration = executor.options();
-        report["execution"] = json!({"strategy":"ordered-work-stealing-blocks-v1",
-            "workers":configuration.workers,"batch_rows":configuration.batch_rows,
-            "block_rows":configuration.block_rows,"checkpoint":"committed source prefix; speculative blocks discarded"});
+        let kind = provider.as_ref().map_or("none", |provider| provider.kind());
+        let strategy = match kind {
+            "finite-immutable" => "assisted-ordered-work-stealing-blocks-v1",
+            "dynamic" => "dynamic-assisted-ordered-work-stealing-barriers-v1",
+            _ => "ordered-work-stealing-blocks-v1",
+        };
+        report["execution"] = json!({"strategy":strategy,"provider_kind":kind,
+            "stage":"waiting for native batch","mode":"waiting",
+            "workers":configuration.workers,"reserved_workers":configuration.workers,"batch_rows":configuration.batch_rows,
+            "block_rows":configuration.block_rows,"checkpoint":"committed native ordinary/provider prefix; speculative blocks discarded"});
         observer(event(report, "master_reduction_progress", started));
     }
     while !session.is_complete() && !cancel.load(Ordering::Relaxed) {
@@ -762,23 +864,31 @@ fn execute_session(
         if options.operation == MasterReductionOperation::Publish {
             session.step_rebuild_only(cancel).map_err(io)?;
         } else if let Some(provider) = &mut provider {
-            executor
-                .as_ref()
-                .unwrap()
-                .step_with_provider(session, cancel, provider)
-                .map_err(io)?;
+            let executor = executor.as_ref().unwrap();
+            if let Some(finite) = &provider.finite {
+                executor
+                    .step_with_finite_provider_observed(session, cancel, finite, |progress| {
+                        observed_execution(report, progress, observer, started);
+                    })
+                    .map_err(io)?;
+            } else {
+                executor
+                    .step_with_provider_observed(
+                        session,
+                        cancel,
+                        &mut provider.provider,
+                        |progress| {
+                            observed_execution(report, progress, observer, started);
+                        },
+                    )
+                    .map_err(io)?;
+            }
         } else {
             executor
                 .as_ref()
                 .unwrap()
                 .step_observed(session, cancel, |progress| {
-                    report["execution"]["stage"] = json!(progress.stage);
-                    report["execution"]["rows_total"] = json!(progress.rows_total);
-                    report["execution"]["rows_prepared"] = json!(progress.rows_prepared);
-                    report["execution"]["rows_eliminated"] = json!(progress.rows_eliminated);
-                    report["execution"]["rows_committed"] = json!(progress.rows_committed);
-                    report["execution"]["blocks_completed"] = json!(progress.blocks_completed);
-                    observer(event(report, "master_reduction_progress", started));
+                    observed_execution(report, progress, observer, started);
                 })
                 .map_err(io)?;
         }
@@ -793,19 +903,41 @@ fn execute_session(
         }
     }
     if cancel.load(Ordering::Relaxed) {
+        reset_execution_phase(report, "paused", "idle");
         save(options, &session, report, "paused", started, observer)?;
         return Ok(());
     }
+    if options.operation == MasterReductionOperation::Refine && options.selective_symmetry_feedback
+    {
+        selective_symmetry::execute(
+            options,
+            session,
+            report,
+            cancel,
+            observer,
+            started,
+            executor.as_ref().expect("refinement executor"),
+            provider.as_mut(),
+        )?;
+        if cancel.load(Ordering::Relaxed) {
+            reset_execution_phase(report, "paused", "idle");
+            save(options, session, report, "paused", started, observer)?;
+            return Ok(());
+        }
+    }
+    reset_execution_phase(report, "terminal collection", "serial");
     collection::complete(options, session, report, cancel, observer, started)?;
     if cancel.load(Ordering::Relaxed) {
+        reset_execution_phase(report, "paused", "idle");
         save(options, session, report, "paused", started, observer)?;
         return Ok(());
     }
+    reset_execution_phase(report, "completed", "idle");
     save(
         options,
         &session,
         report,
-        if session.is_complete() {
+        if session.is_complete() && selective_symmetry::complete(report) {
             "completed_nonminimal"
         } else {
             "published_unrefined"
@@ -816,6 +948,49 @@ fn execute_session(
     publish_final(options, report)?;
     observer(event(report, "master_reduction_finished", started));
     Ok(())
+}
+
+/// Native progress identifies the actual phase. A reserved pool is not a
+/// measurement of busy workers, and coordinator/serial-provider barriers must
+/// not be presented as parallel elimination merely because workers > 1.
+fn observed_execution(
+    report: &mut Value,
+    progress: rustred::reduction::terminal_relations::TerminalRelationExecutionProgress,
+    observer: &impl Fn(Value),
+    started: Instant,
+) {
+    report["execution"]["stage"] = json!(progress.stage);
+    report["execution"]["mode"] = json!(match progress.stage {
+        "preparing rows" | "parallel elimination" => "parallel",
+        "provider request" => "barrier",
+        "ordered merge" | "atomic block merge" => "merge",
+        _ => "serial",
+    });
+    report["execution"]["rows_total"] = json!(progress.rows_total);
+    report["execution"]["rows_prepared"] = json!(progress.rows_prepared);
+    report["execution"]["rows_eliminated"] = json!(progress.rows_eliminated);
+    report["execution"]["rows_committed"] = json!(progress.rows_committed);
+    report["execution"]["blocks_completed"] = json!(progress.blocks_completed);
+    report["execution"]["provider_keys_filtered"] = json!(progress.provider_keys_filtered);
+    observer(event(report, "master_reduction_progress", started));
+}
+
+fn reset_execution_phase(report: &mut Value, stage: &str, mode: &str) {
+    let Some(execution) = report.get_mut("execution").and_then(Value::as_object_mut) else {
+        return;
+    };
+    execution.insert("stage".into(), json!(stage));
+    execution.insert("mode".into(), json!(mode));
+    for name in [
+        "rows_total",
+        "rows_prepared",
+        "rows_eliminated",
+        "rows_committed",
+        "blocks_completed",
+        "provider_keys_filtered",
+    ] {
+        execution.remove(name);
+    }
 }
 
 fn publish_final(options: &MasterReductionOptions, report: &mut Value) -> Result<(), AppError> {
@@ -912,7 +1087,8 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     report["pending_assistance_keys"] = json!(stats.pending_assistance_keys);
     report["completed_assistance_rows"] = json!(stats.completed_assistance_rows);
     report["pending_assistance_rows"] = json!(stats.pending_assistance_rows);
-    report["finite_search_complete"] = json!(stats.complete);
+    report["finite_search_complete"] =
+        json!(stats.complete && selective_symmetry::complete(report));
     let modular = report["refinement_strategy"] == "modular-circuits";
     let partial_export =
         report["operation"] == "publish" && report["partial_refinement_source"].is_object();
@@ -921,7 +1097,7 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
             && (if modular {
                 report["modular_search_complete"] == true
             } else {
-                stats.complete
+                stats.complete && selective_symmetry::complete(report)
             })
             && report["collection"]["status"] == "completed"
     );
@@ -995,7 +1171,25 @@ fn event(report: &Value, kind: &str, started: Instant) -> Value {
             .expect("report object")
             .iter()
             .filter(|(key, _)| !matches!(key.as_str(), "inventory" | "inputs"))
-            .map(|(key, value)| (key.clone(), value.clone()))
+            .map(|(key, value)| {
+                let value = if key == "sector_symmetry_reduction" {
+                    value.as_object().map_or_else(
+                        || value.clone(),
+                        |fields| {
+                            Value::Object(
+                                fields
+                                    .iter()
+                                    .filter(|(field, _)| field.as_str() != "failure_receipts")
+                                    .map(|(field, value)| (field.clone(), value.clone()))
+                                    .collect(),
+                            )
+                        },
+                    )
+                } else {
+                    value.clone()
+                };
+                (key.clone(), value)
+            })
             .collect(),
     );
     result["event"] = json!(kind);

@@ -131,6 +131,8 @@ impl<const N: usize> CandidateRoutedTraceReport<N> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CandidateRoutedError {
+    /// A caller requested cancellation at a safe application boundary.
+    Cancelled,
     Candidate(CandidateReductionError),
     EntryAdmission(super::RootAdmissionError),
     Transport(integral_transport::Error),
@@ -174,6 +176,7 @@ impl From<crate::reduction::ReductionError> for CandidateRoutedError {
 impl fmt::Display for CandidateRoutedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Cancelled => write!(f, "routed candidate application cancelled"),
             Self::Candidate(e) => e.fmt(f),
             Self::EntryAdmission(e) => e.fmt(f),
             Self::Transport(e) => e.fmt(f),

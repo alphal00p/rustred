@@ -116,6 +116,41 @@ fn match_request(fixture: &Fixture) -> OwnerDomainMatchRequest {
 }
 
 #[test]
+fn saved_equation_adapter_reduces_complete_rows_and_preserves_source_guards() {
+    use rustred::algebra::CoefficientContext;
+    use rustred::family::IntegralKey;
+    let fixture = Fixture::new();
+    let selection: Value = serde_json::from_str(&fixture.request.selection_json).unwrap();
+    let bytes = std::fs::read(fixture.directory.join("owner.rrbin")).unwrap();
+    let mut prepared = prepare_terminal_equations(
+        &fixture.request,
+        selection["family_fingerprint"].as_str().unwrap(),
+        &[blake3::hash(&bytes).to_hex().to_string()],
+        &AtomicBool::new(false),
+        &|_| {},
+    )
+    .unwrap();
+    let key = IntegralKey::try_new([2]).unwrap();
+    let rows = (prepared.provider)(&key).unwrap();
+    assert!(!rows.is_empty());
+    let guard = CoefficientContext::try_new(["d"]).unwrap().integer(2);
+    for mut row in rows {
+        row.nonzero_conditions.push(guard.clone());
+        let reduced = (prepared.reduce_equation)(&row).unwrap();
+        assert!(reduced.terms.is_empty());
+        assert!(reduced.nonzero_conditions.contains(&guard));
+    }
+    let malformed = rustred::reduction::terminal_relations::TerminalEquation {
+        terms: std::collections::BTreeMap::from([(
+            IntegralKey::try_new([1, 1]).unwrap(),
+            CoefficientContext::try_new(["d"]).unwrap().one(),
+        )]),
+        nonzero_conditions: Vec::new(),
+    };
+    assert!((prepared.reduce_equation)(&malformed).is_err());
+}
+
+#[test]
 fn owner_domain_walk_reuses_pending_unbounded_ray_without_closure_claim() {
     let fixture = Fixture::new();
     let before = std::fs::read(fixture.directory.join("owner.rrbin")).unwrap();

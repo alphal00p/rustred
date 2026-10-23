@@ -12,6 +12,15 @@ refinement interface is shared, but its checkpoint, progress and publication
 assurance differ; the CP6 deep-verification instructions below apply only to
 the original symbolic-walk engine.
 
+For the opt-in **selective symmetry–IBP feedback**, followed by **local
+dimension-pair sources**, see the
+[implementation, measurements and staged commands](research/selective_feedback_local_dimensions_2026-10-23.md).
+Both are now available on `main`. Selective feedback uses
+`--selective-symmetry-feedback` with sector-symmetry assistance; local sources use
+`--local-dimensional-recurrence-assistance`. They preserve proved terminal maps
+and have independent fresh/resume lifecycles. The local sources remain
+experimental: they added no dependencies on the tested physical cohorts.
+
 The common commands perform actual work unless `--dry-run` is supplied:
 
 ```bash
@@ -53,6 +62,10 @@ master independence nor a globally minimal basis. No numerical values are
 computed.
 
 ## Relations-only fresh search
+
+For a killed stale-running round and a finite import of newly proved numerator
+relations, see [recovery and proved-relation import](refinement_recovery_import.md).
+That workflow preserves existing maps before starting a clean search shape.
 
 Ordinary refinement resumes or extends its saved finite source search. An
 explicit `--fresh-search` instead starts a separate round from the latest

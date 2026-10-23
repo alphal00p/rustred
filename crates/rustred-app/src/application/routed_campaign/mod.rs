@@ -10,8 +10,13 @@ mod matching;
 pub(in crate::application) mod prepare;
 mod storage;
 mod terminal_equations;
+pub use terminal_equations::{
+    PreparedSavedIntegralEquations, TerminalEquationReductionFailure,
+    prepare_saved_integral_equations,
+};
 pub(in crate::application) use terminal_equations::{
-    TerminalEquationProvider, prepare_terminal_equations,
+    PreparedTerminalEquations, TerminalEquationProvider, prepare_terminal_equations,
+    prepare_terminal_equations_with_cache_mode,
 };
 mod walking;
 pub use domains::{OwnerDomainScanRequest, OwnerDomainScanResult, owner_domain_scan_with_progress};

@@ -12,6 +12,9 @@ pub enum MasterNormalizationProfile {
     #[default]
     ConservativeV1,
     StandardV1,
+    /// Trusted local preparation delegates operational counts to its live RAM
+    /// guard. Native exponent and matrix representation bounds still apply.
+    RamControlledV1,
 }
 
 impl MasterNormalizationProfile {
@@ -19,12 +22,13 @@ impl MasterNormalizationProfile {
         match self {
             Self::ConservativeV1 => "conservative-v1",
             Self::StandardV1 => "standard-v1",
+            Self::RamControlledV1 => "ram-controlled-v1",
         }
     }
 
     pub(super) fn normalization_limits(self) -> TerminalNormalizationLimits {
         let standard = self == Self::StandardV1;
-        TerminalNormalizationLimits {
+        let mut limits = TerminalNormalizationLimits {
             parametric: VacuumParametricLimits {
                 symanzik: FeynmanPolynomialLimits {
                     exact_algebra: ExactAlgebraLimits {
@@ -50,7 +54,28 @@ impl MasterNormalizationProfile {
             max_supports: 100_000,
             max_matrix_cells: 1_000_000,
             max_output_terms: 4_000_000,
+        };
+        if self == Self::RamControlledV1 {
+            limits.max_terminals = usize::MAX;
+            limits.max_supports = usize::MAX;
+            limits.max_matrix_cells = usize::MAX;
+            limits.max_output_terms = usize::MAX;
+            let p = &mut limits.parametric;
+            p.max_supports = usize::MAX;
+            p.max_canonicalizations = usize::MAX;
+            p.max_graph_vertices = usize::MAX;
+            p.max_graph_edges = usize::MAX;
+            let s = &mut p.symanzik;
+            s.exact_algebra = ExactAlgebraLimits::unbounded_resources();
+            s.max_parameters = usize::MAX;
+            s.max_polynomial_terms = usize::MAX;
+            s.max_exponent_entries = usize::MAX;
+            s.max_term_operations = usize::MAX;
+            s.max_determinant_matrix_entries = usize::MAX;
+            s.max_determinant_ring_operations = usize::MAX;
+            s.max_adjugate_minors = usize::MAX;
         }
+        limits
     }
 
     pub(super) fn relation_limits(self) -> TerminalRelationLimits {
@@ -128,6 +153,7 @@ pub(super) fn from_report(report: &Value) -> Result<MasterNormalizationProfile, 
     let profile = match name.as_str() {
         Some("conservative-v1") => MasterNormalizationProfile::ConservativeV1,
         Some("standard-v1") => MasterNormalizationProfile::StandardV1,
+        Some("ram-controlled-v1") => MasterNormalizationProfile::RamControlledV1,
         _ => return Err(AppError::input("unknown normalization profile")),
     };
     if report["normalization_limits"] != profile.snapshot() {

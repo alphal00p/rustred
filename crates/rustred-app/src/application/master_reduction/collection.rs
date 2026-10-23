@@ -331,12 +331,17 @@ fn write_state(directory: &Path, bytes: &[u8], prefix: &str) -> Result<Value, Ap
 }
 
 fn load_member(directory: &Path, member: &Value) -> Result<TerminalRelationSession, AppError> {
-    TerminalRelationSession::from_native_bytes(
+    let session = TerminalRelationSession::from_native_bytes(
         &read_state(directory, &member["native_state"])?,
         profile::from_report(member)?.relation_limits(),
         profile::native_io_limits(None),
     )
-    .map_err(io)
+    .map_err(io)?;
+    super::numerator_symmetry::validate(directory, &session, member)?;
+    super::sector_symmetry::validate(directory, &session, member)?;
+    super::selective_symmetry::validate(directory, &session, member)?;
+    super::local_dimension::validate(directory, &session, member)?;
+    Ok(session)
 }
 
 fn load_members(
@@ -352,6 +357,10 @@ fn load_members(
 }
 
 fn copy_member(source: &Path, output: &Path, member: &Value) -> Result<Value, AppError> {
+    super::numerator_symmetry::inherit(source, output, member)?;
+    super::sector_symmetry::inherit(source, output, member)?;
+    super::selective_symmetry::inherit(source, output, member)?;
+    super::local_dimension::inherit(source, output, member)?;
     let mut member = member.clone();
     member["native_state"] = write_state(
         output,
@@ -367,11 +376,35 @@ fn primary_member(report: &Value) -> Result<Value, AppError> {
         "relation_authority",
         "saved_rule_assistance",
         "circuit_symmetry_assistance",
+        "numerator_symmetry_assistance",
+        "numerator_symmetry_certificate",
+        "sector_symmetry_assistance",
+        "sector_symmetry_policy",
+        "sector_symmetry_saved_projection",
+        "sector_symmetry_preparation",
+        "sector_symmetry_reduction",
+        "sector_symmetry_certificate",
+        "sector_symmetry_normalization_certificate",
+        "sector_symmetry_task_certificate",
+        "sector_symmetry_reduced_certificate",
+        "sector_symmetry_projection_checkpoint",
+        "selective_symmetry_feedback_enabled",
+        "selective_symmetry_feedback",
+        "local_dimensional_recurrence_assistance",
+        "local_dimensional_recurrence_preparation",
+        "local_dimensional_recurrence_certificate",
         "inherited_equation_authority",
     ] {
         if let Some(value) = report.get(field) {
             result[field] = value.clone();
         }
+    }
+    if report["sector_symmetry_assistance"] == true
+        || report["inherited_equation_authority"]["sector_symmetry_assistance"] == true
+        || report["sector_symmetry_certificate"].is_object()
+        || super::selective_symmetry::enabled(report)
+    {
+        result["inputs"] = json!({"program_binding":report["inputs"]["program_binding"]});
     }
     result["source_manifest_blake3"] = json!(
         blake3::hash(&serde_json::to_vec(report).map_err(io)?)

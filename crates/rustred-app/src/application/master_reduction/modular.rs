@@ -32,10 +32,16 @@ pub(super) fn for_phase(
         ));
     }
     if strategy == MasterRefinementStrategy::ModularCircuits
-        && (options.saved_rule_assistance || options.circuit_symmetry_assistance)
+        && (options.saved_rule_assistance
+            || options.circuit_symmetry_assistance
+            || options.numerator_symmetry_assistance
+            || options.sector_symmetry_assistance
+            || options.local_dimensional_recurrence_assistance
+            || options.sector_symmetry_policy.is_some()
+            || options.sector_symmetry_saved_projection.is_some())
     {
         return Err(AppError::input(
-            "modular-circuits currently requires ordinary sources without saved-rule or circuit-symmetry assistance",
+            "modular-circuits currently requires ordinary sources without saved-rule, circuit-symmetry, numerator-symmetry or sector-symmetry assistance",
         ));
     }
     if strategy == MasterRefinementStrategy::ModularCircuits

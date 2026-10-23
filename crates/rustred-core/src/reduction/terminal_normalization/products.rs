@@ -230,6 +230,19 @@ pub(super) fn momentum(
     if integer(denominator.constant(), context)? != Some(Integer::from(-1)) {
         return Ok(Err(Skip::NonUnitMass));
     }
+    momentum_quadratic(family, slot, variables)
+}
+
+/// Propose a momentum square independently of its mass constant. Exact family
+/// map verification must retain and compare the original complete denominator.
+/// The existing unit-mass routing lane still applies its unchanged gate above.
+pub(super) fn momentum_quadratic(
+    family: &IntegralFamily,
+    slot: usize,
+    variables: &Arc<Vec<PolyVariable>>,
+) -> Result<Result<Vec<Coefficient>, Skip>, Error> {
+    let context = family.coefficient_context();
+    let denominator = &family.denominators()[slot];
     let mut quadratic = Quadratic::new(&Z, None, variables.clone());
     for (coordinate, value) in family.coordinates().iter().zip(denominator.coefficients()) {
         let Some(value) = integer(value, context)? else {

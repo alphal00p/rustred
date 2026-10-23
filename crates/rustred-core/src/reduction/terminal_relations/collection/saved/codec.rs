@@ -8,6 +8,10 @@ use crate::persistence::{
     DecodedCoefficientTable, NativeFamilyRecord, SectionTag, encode_program, inspect_program,
 };
 
+#[cfg(test)]
+mod condition_memo_tests;
+use std::collections::HashMap;
+
 // Generated native sidecars share their Symbolica sections' trust boundary.
 // The envelope enforces caller-owned encoded-byte grants, and exact replay
 // below validates semantic counts, provenance, guards and maps. Bincode's
@@ -243,14 +247,33 @@ fn decode_structure<T: bincode::Decode<()>>(
     })
 }
 
-struct Intern {
-    native: CoefficientTableBuilder,
+struct ConditionIds<'a> {
+    // The borrow keeps every keyed immutable slice alive until this encoding
+    // pass ends, so its allocation identity cannot be reused by another slice.
+    values: &'a [Coefficient],
+    ids: Vec<u32>,
 }
-impl Intern {
+
+struct Intern<'a> {
+    native: CoefficientTableBuilder,
+    condition_ids: HashMap<(*const Coefficient, usize), ConditionIds<'a>>,
+    #[cfg(test)]
+    conditions_memo_enabled: bool,
+}
+impl<'a> Intern<'a> {
     fn new(io: BinaryIoLimits) -> Self {
         Self {
             native: CoefficientTableBuilder::new(io),
+            condition_ids: HashMap::new(),
+            #[cfg(test)]
+            conditions_memo_enabled: true,
         }
+    }
+    #[cfg(test)]
+    fn new_uncached(io: BinaryIoLimits) -> Self {
+        let mut table = Self::new(io);
+        table.conditions_memo_enabled = false;
+        table
     }
     fn value(&mut self, value: &Coefficient) -> Result<u32> {
         let id = self.native.intern(value).map_err(binary)?;
@@ -263,8 +286,31 @@ impl Intern {
             .map(|(key, value)| Ok((key.powers().to_vec(), self.value(value)?)))
             .collect()
     }
-    fn conditions(&mut self, values: &[Coefficient]) -> Result<Vec<u32>> {
-        values.iter().map(|v| self.value(v)).collect()
+    fn conditions(&mut self, values: &'a [Coefficient]) -> Result<Vec<u32>> {
+        if values.is_empty() {
+            return Ok(Vec::new());
+        }
+        #[cfg(test)]
+        if !self.conditions_memo_enabled {
+            return values.iter().map(|value| self.value(value)).collect();
+        }
+        let identity = (values.as_ptr(), values.len());
+        if let Some(cached) = self.condition_ids.get(&identity) {
+            debug_assert!(std::ptr::eq(cached.values, values));
+            return Ok(cached.ids.clone());
+        }
+        let ids = values
+            .iter()
+            .map(|value| self.value(value))
+            .collect::<Result<Vec<_>>>()?;
+        self.condition_ids.insert(
+            identity,
+            ConditionIds {
+                values,
+                ids: ids.clone(),
+            },
+        );
+        Ok(ids)
     }
     fn row(&mut self, row: &Row, families: &BTreeMap<&str, u32>) -> Result<NativeRow> {
         row.iter()
@@ -281,13 +327,31 @@ impl Intern {
     }
 }
 
-fn record(plan: &TerminalCollectionPlan, io: BinaryIoLimits) -> Result<(Record, Intern)> {
+fn record<'a>(
+    plan: &'a TerminalCollectionPlan,
+    io: BinaryIoLimits,
+) -> Result<(Record, Intern<'a>)> {
+    record_with_intern(plan, io, Intern::new(io))
+}
+
+#[cfg(test)]
+fn record_uncached<'a>(
+    plan: &'a TerminalCollectionPlan,
+    io: BinaryIoLimits,
+) -> Result<(Record, Intern<'a>)> {
+    record_with_intern(plan, io, Intern::new_uncached(io))
+}
+
+fn record_with_intern<'a>(
+    plan: &'a TerminalCollectionPlan,
+    io: BinaryIoLimits,
+    mut table: Intern<'a>,
+) -> Result<(Record, Intern<'a>)> {
     check(
         "collection records",
         plan.raw.len(),
         io.max_collection_entries,
     )?;
-    let mut table = Intern::new(io);
     let ids: BTreeMap<_, _> = plan
         .families
         .keys()
@@ -487,6 +551,10 @@ fn record(plan: &TerminalCollectionPlan, io: BinaryIoLimits) -> Result<(Record, 
 
 pub(super) fn encode(plan: &TerminalCollectionPlan, io: BinaryIoLimits) -> Result<Vec<u8>> {
     let (record, table) = record(plan, io)?;
+    encode_record(record, table, io)
+}
+
+fn encode_record(record: Record, table: Intern<'_>, io: BinaryIoLimits) -> Result<Vec<u8>> {
     let records = bincode::encode_to_vec(record, bincode::config::standard()).map_err(binary)?;
     check(
         "collection structural bytes",
