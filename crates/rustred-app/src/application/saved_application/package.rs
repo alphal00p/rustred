@@ -383,7 +383,7 @@ pub(super) fn export<const N: usize>(
         "queries.json",
         prepared.inputs.queries.as_bytes(),
     )?;
-    let terminal_maps = write_descriptor(destination, "terminal-maps.rrbin", &compact)?;
+    let terminal_maps = transport::export_bytes(&compact, destination, "terminal-maps.rrbin")?;
     let report = json!({
         "schema":SAVED_APPLICATION_SCHEMA,
         "metadata":prepared.metadata,
@@ -646,14 +646,16 @@ fn read_descriptor(
     descriptor: &Value,
     maximum: usize,
 ) -> Result<Vec<u8>, AppError> {
-    let bytes = read_bounded(
-        &safe_child(directory, required_string(descriptor, "path")?)?,
-        maximum,
-    )?;
-    if descriptor["bytes"].as_u64() != Some(bytes.len() as u64) {
-        return Err(AppError::input("saved application file size mismatch"));
+    let payload: Payload = serde_json::from_value(descriptor.clone()).map_err(failure)?;
+    // Reject the declared decoded size before any chunk read or decompression.
+    // A compressed transport must not bypass the caller's native byte grant.
+    if payload.bytes > maximum as u64 {
+        return Err(AppError::limit(
+            "saved application decoded payload exceeds input allowance",
+        ));
     }
-    authenticate(&bytes, required_string(descriptor, "blake3")?)?;
+    let bytes = transport::decode(directory, &payload)?;
+    authenticate(&bytes, &payload.blake3)?;
     Ok(bytes)
 }
 fn read_text_descriptor(
@@ -666,4 +668,49 @@ fn read_text_descriptor(
 fn write_descriptor(directory: &Path, path: &str, bytes: &[u8]) -> Result<Value, AppError> {
     write_file_atomically(&safe_child(directory, path)?, bytes, false).map_err(failure)?;
     Ok(json!({"path":path,"bytes":bytes.len(),"blake3":blake3::hash(bytes).to_hex().to_string()}))
+}
+
+#[cfg(test)]
+mod descriptor_tests {
+    use super::*;
+
+    #[test]
+    fn raw_and_compressed_descriptors_preserve_native_bytes_and_check_whole_digest() {
+        let scratch = super::super::tests::Scratch::new();
+        fs::create_dir(scratch.0.join("objects")).unwrap();
+        let bytes = b"native payload";
+        let raw = write_descriptor(&scratch.0, "legacy.rrbin", bytes).unwrap();
+        let packed = serde_json::to_value(
+            transport::export_bytes(bytes, &scratch.0, "terminal-maps.rrbin").unwrap(),
+        )
+        .unwrap();
+        for descriptor in [raw, packed] {
+            assert_eq!(
+                read_descriptor(&scratch.0, &descriptor, bytes.len()).unwrap(),
+                bytes
+            );
+            let mut wrong_digest = descriptor.clone();
+            wrong_digest["blake3"] = json!("0".repeat(64));
+            assert!(read_descriptor(&scratch.0, &wrong_digest, bytes.len()).is_err());
+        }
+    }
+
+    #[test]
+    fn decoded_allowance_is_checked_before_accessing_raw_or_compressed_files() {
+        let scratch = super::super::tests::Scratch::new();
+        let raw = json!({"path":"missing.rrbin","bytes":101,"blake3":"0".repeat(64)});
+        let mut packed = raw.clone();
+        packed["encoding"] = json!("gzip-chunks-v1");
+        packed["chunks"] = json!([{
+            "path":"also-missing.gz.part", "bytes":1, "blake3":"0".repeat(64)
+        }]);
+        for descriptor in [raw, packed] {
+            let error = read_descriptor(&scratch.0, &descriptor, 100).unwrap_err();
+            assert!(
+                error
+                    .message()
+                    .contains("decoded payload exceeds input allowance")
+            );
+        }
+    }
 }
