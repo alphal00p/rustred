@@ -1,5 +1,39 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 23 — consolidate the 640-master consumer into `vakint_rustred`
+
+At the user's request, merge the tested `five-loop-640-loader-acceptance`
+commit `6cdaa993` into current upstream `alphal00p/gammaloop:vakint_rustred`
+(`8ab99b3e`). Work is isolated in
+`TMP/merge-five-loop-640-vakint-rustred-20261023`; other sessions' checkouts,
+production campaigns and the published external-data package remain untouched.
+
+The newer target's precision, master inspection, native DOT propagator powers,
+lower-loop data and enabled CI are preserved. Both independent ingress tests
+are retained. The merged dependency graph uses target Symbolica `9a3abbea`
+and compatible compressed-runtime RustRed `52c74636`. Existing four-loop
+benchmark JSON is unchanged after removing the appended five-loop section;
+the combined two-page PDF was regenerated and visually checked.
+
+Independent post-merge source audit passed. A fresh locked build passed in
+5m52s, followed by all 640 native DOT checks (70.4s), 13 ingress tests,
+26 precision tests and four FeynKit saved-DOT tests. Cold native loading
+validated all 939 source maps, 640 exact output definitions and admission.
+The public Vakint symbolic canary also passed: explicit five-loop load 181.208s,
+P79 first application 57.662s and warm repeat 52.537s, with identical exact
+coefficients/guards and declared-master-only outputs. These are debug validation
+measurements, not performance claims. An initial temporary probe incorrectly
+retained the default FORM-backed evaluation order with an invalid FORM path;
+the failure is preserved and the corrected probe explicitly selects RustRed
+Retain and FeynKit. No production fix was required for that harness error.
+
+Normal two-parent merge `1b71dffb6f374296610b41fc8d3f09c9a8cf5929` was committed
+as ValentinHirschi and pushed/remote-verified to `alphal00p/gammaloop:vakint_rustred`
+after a fresh upstream fetch. The latest precision work is preserved; the
+640-master data remains at `cb52c789` with unchanged payloads and manifests.
+Evidence: `TMP/five-loop-640-merge-validation-20261023`. No new API, numerical
+master values, cache generation, campaign changes or lower-loop data changes.
+
 ## October 23 — 640-master external-data task complete
 
 The final end-to-end consumer gate completed PASS with no failures,33m09s
