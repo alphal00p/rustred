@@ -880,3 +880,21 @@ both deduplication metadata and aggregate output coefficients. This supports
 compaction into the single distributed file without repeated per-key chunk
 imports. A complete final workload and a successfully finalized file are separate
 acceptance conditions; an interrupted preparation is never a complete cache.
+
+Starting coverage and complete-result policy can be selected independently.
+`SavedApplicationOptions::entry_coverage_policy` defaults to
+`FollowUnresolvedPolicy`, preserving strict admission for Reject and advisory
+coverage for Preserve. Explicit `Advisory` with `UnresolvedPolicy::Reject` is
+useful for a finite cache workload whose exact unit-mass keys lie outside the
+recorded campaign union: native rules are attempted, but any unresolved leaf
+still fails and cannot become a completed cache record. It changes no saved
+coverage predicate or certificate. `entry_is_admitted` and
+`routed_entry_is_admitted` report the recorded coverage independently;
+`validate_entry_for_reduction` applies native structural/source validation plus
+the selected operational entry policy before cache resume. Receipts must report
+recorded membership separately from actual complete reduction.
+
+The route-only `route_entry_to_owner` helper retains its historical coverage
+check with the default policy, even in Preserve sessions; only explicit
+`Advisory` relaxes that helper. This keeps existing routing probes compatible
+while offering the separate opt-in for verified out-of-union cache roots.

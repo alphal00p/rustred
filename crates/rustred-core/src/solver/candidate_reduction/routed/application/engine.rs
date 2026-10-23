@@ -401,7 +401,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         Ok(result)
     }
 
-    fn admit_entry(
+    pub(super) fn admit_entry(
         &self,
         admission: CandidateEntryAdmission<'_, N>,
         target: &IntegralKey,

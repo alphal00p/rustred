@@ -548,3 +548,85 @@ fn persistent_merge_preserve_certified_zero_keeps_source_validation_and_limits()
         .is_err()
     );
 }
+
+#[test]
+fn advisory_entry_cache_still_requires_complete_native_reductions() {
+    use crate::solver::{DomainPowerBounds, FiniteRootAdmission, RootRegionInput};
+    let source = fixture();
+    let c = source.programs.context.family().coefficient_context();
+    let admitted = FiniteRootAdmission::try_new(
+        [RootRegionInput {
+            support: [true],
+            lower: vec![0],
+            upper: vec![Some(0)],
+            rank: None,
+            powers: DomainPowerBounds::default(),
+        }],
+        1,
+    )
+    .unwrap();
+    let mut app = source.application();
+    let binding = app.persistent_cache_binding([19; 32]);
+    let mut store = Store {
+        binding: binding.clone(),
+        records: Default::default(),
+    };
+    assert!(
+        app.reduce_linear_combination_with_cache(
+            [(key([3]), c.one())],
+            CandidateEntryAdmission::ExplicitFinite(&admitted),
+            &binding,
+            None,
+            Some(&mut store)
+        )
+        .is_err()
+    );
+    assert!(store.records.is_empty());
+    app.validate_entry_for_reduction(&key([3]), CandidateEntryAdmission::Advisory)
+        .unwrap();
+    assert!(
+        app.validate_entry_for_reduction(&key([3, 0]), CandidateEntryAdmission::Advisory)
+            .is_err()
+    );
+    let cold = app
+        .reduce_linear_combination_with_cache(
+            [(key([3]), c.one())],
+            CandidateEntryAdmission::Advisory,
+            &binding,
+            None,
+            Some(&mut store),
+        )
+        .unwrap();
+    assert!(cold.unresolved().is_empty());
+    let warm = source
+        .application()
+        .reduce_linear_combination_with_cache(
+            [(key([3]), c.one())],
+            CandidateEntryAdmission::Advisory,
+            &binding,
+            Some(&mut store),
+            None,
+        )
+        .unwrap();
+    assert_eq!(cold.terms(), warm.terms());
+    assert_eq!(cold.nonzero_conditions(), warm.nonzero_conditions());
+    assert_eq!(warm.statistics().persistent_cache.requested_root_hits, 1);
+    let mut failed_store = Store {
+        binding: binding.clone(),
+        records: Default::default(),
+    };
+    let failed = source.application().reduce_linear_combination_with_cache(
+        [(key([6]), c.one())],
+        CandidateEntryAdmission::Advisory,
+        &binding,
+        None,
+        Some(&mut failed_store),
+    );
+    assert!(matches!(
+        failed,
+        Err(CandidateRoutedError::Candidate(
+            CandidateReductionError::Uncovered { .. }
+        ))
+    ));
+    assert!(failed_store.records.is_empty());
+}

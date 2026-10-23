@@ -6,6 +6,42 @@ use rustred::persistence::application_cache::{
 use rustred::reduction::{GuardedCacheBacking, GuardedIntermediateCapture};
 
 impl<const N: usize> PreparedSavedApplication<N> {
+    pub(super) fn enforces_recorded_entry_coverage(&self) -> bool {
+        self.options.entry_coverage_policy
+            == SavedApplicationEntryCoveragePolicy::FollowUnresolvedPolicy
+            && self.options.unresolved_policy == UnresolvedPolicy::Reject
+    }
+
+    pub(super) fn entry_admission(
+        domain: &RequestedEntryDomain<N>,
+        policy: SavedApplicationEntryCoveragePolicy,
+    ) -> rustred::solver::CandidateEntryAdmission<'_, N> {
+        match policy {
+            SavedApplicationEntryCoveragePolicy::FollowUnresolvedPolicy => {
+                entry::admission(Some(domain))
+            }
+            SavedApplicationEntryCoveragePolicy::Advisory => {
+                rustred::solver::CandidateEntryAdmission::Advisory
+            }
+        }
+    }
+
+    /// Exact saved coverage, independently of operational application policy.
+    pub fn entry_is_admitted(&self, key: &IntegralKey) -> Result<bool, AppError> {
+        self.entry_domain.is_admitted(key)
+    }
+
+    /// Native structural/source validation and the current entry policy. Cache
+    /// preparation uses this before resume lookups, not a coverage certificate.
+    pub fn validate_entry_for_reduction(&self, key: &IntegralKey) -> Result<(), AppError> {
+        self.application
+            .validate_entry_for_reduction(
+                key,
+                Self::entry_admission(&self.entry_domain, self.options.entry_coverage_policy),
+            )
+            .map_err(failure)
+    }
+
     /// `artifact_digest` is the consumer's authenticated semantic digest of the
     /// complete application and catalogue bindings, independent of cache files
     /// and release labels. Terminal substitutions must be included.
@@ -36,7 +72,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
             .application
             .reduce_linear_combination_with_cache(
                 terms,
-                entry::admission(Some(&self.entry_domain)),
+                Self::entry_admission(&self.entry_domain, self.options.entry_coverage_policy),
                 binding,
                 backing,
                 capture,
@@ -58,7 +94,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
             .application
             .reduce_routed_linear_combination_with_cache(
                 terms,
-                entry::admission(Some(&self.entry_domain)),
+                Self::entry_admission(&self.entry_domain, self.options.entry_coverage_policy),
                 binding,
                 backing,
                 capture,

@@ -1149,3 +1149,44 @@ fn saved_application_persistent_file_preserves_terminal_substitutions_and_scope(
             .is_err()
     );
 }
+
+#[test]
+fn advisory_saved_coverage_is_independent_of_strict_complete_application() {
+    let scratch = Scratch::new();
+    let mut prepared = prepared_fixture(&scratch.0.join("source"));
+    let context = prepared.family().coefficient_context().clone();
+    let outside = IntegralKey::try_new([3]).unwrap();
+    assert!(!prepared.entry_is_admitted(&outside).unwrap());
+    assert!(prepared.validate_entry(&outside).is_err());
+    assert!(prepared.validate_entry_for_reduction(&outside).is_err());
+    assert!(prepared.route_entry_to_owner(&outside).is_err());
+    assert!(
+        prepared
+            .reduce_linear_combination([(outside.clone(), context.one())])
+            .is_err()
+    );
+    prepared.options.entry_coverage_policy = SavedApplicationEntryCoveragePolicy::Advisory;
+    prepared.validate_entry_for_reduction(&outside).unwrap();
+    assert!(!prepared.entry_is_admitted(&outside).unwrap());
+    assert!(prepared.validate_entry(&outside).is_err());
+    assert!(prepared.route_entry_to_owner(&outside).is_ok());
+    let result = prepared
+        .reduce_linear_combination([(outside.clone(), context.one())])
+        .unwrap();
+    assert!(result.unresolved().is_empty());
+    assert_eq!(prepared.options.unresolved_policy, UnresolvedPolicy::Reject);
+    prepared.clear_cache().unwrap();
+    prepared.options.entry_coverage_policy =
+        SavedApplicationEntryCoveragePolicy::FollowUnresolvedPolicy;
+    prepared.options.unresolved_policy = UnresolvedPolicy::Preserve;
+    prepared
+        .application
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    assert!(prepared.route_entry_to_owner(&outside).is_err());
+    let legacy = prepared
+        .reduce_linear_combination([(outside, context.one())])
+        .unwrap();
+    assert_eq!(legacy.terms(), result.terms());
+    assert_eq!(legacy.nonzero_conditions(), result.nonzero_conditions());
+}

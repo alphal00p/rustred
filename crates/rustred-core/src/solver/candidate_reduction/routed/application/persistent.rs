@@ -160,6 +160,17 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         .is_zero(key)
     }
 
+    /// Validate one starting key using native structural/source checks and the
+    /// explicitly selected coverage policy. This performs no reduction.
+    pub fn validate_entry_for_reduction(
+        &self,
+        target: &IntegralKey,
+        admission: CandidateEntryAdmission<'_, N>,
+    ) -> Result<(), CandidateRoutedError> {
+        self.target_conditions(target)?;
+        self.admit_entry(admission, target)
+    }
+
     fn target_conditions(
         &self,
         key: &IntegralKey,
