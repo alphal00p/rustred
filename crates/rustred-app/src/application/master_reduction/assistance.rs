@@ -78,6 +78,9 @@ pub(super) fn expected_binding(
             profile::from_report(report)?,
         )?);
     }
+    if options.local_dimensional_recurrence_assistance {
+        parts.push(super::local_dimension::binding(session, report)?);
+    }
     Ok((!parts.is_empty()).then(|| parts.join(";")))
 }
 
@@ -105,6 +108,10 @@ pub(super) fn configure(
             report["circuit_symmetry_assistance"] = json!(false);
             report["numerator_symmetry_assistance"] = json!(false);
             report["sector_symmetry_assistance"] = json!(false);
+            report
+                .as_object_mut()
+                .unwrap()
+                .remove("local_dimensional_recurrence_assistance");
             report["relation_authority"] = json!(inherited::authority(report)?);
             fresh::record_authority(report);
             return Ok(());
@@ -153,6 +160,10 @@ pub(super) fn configure(
         .as_object_mut()
         .expect("report object")
         .remove("sector_symmetry_preparation");
+    report
+        .as_object_mut()
+        .unwrap()
+        .remove("local_dimensional_recurrence_preparation");
     if changes_policy {
         report
             .as_object_mut()
@@ -165,6 +176,7 @@ pub(super) fn configure(
             "sector_symmetry_reduced_certificate",
             "sector_symmetry_projection_checkpoint",
             "sector_symmetry_reduction",
+            "local_dimensional_recurrence_certificate",
         ] {
             report.as_object_mut().expect("report object").remove(field);
         }
@@ -215,12 +227,21 @@ pub(super) fn configure(
     report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);
     report["numerator_symmetry_assistance"] = json!(options.numerator_symmetry_assistance);
     report["sector_symmetry_assistance"] = json!(options.sector_symmetry_assistance);
+    if options.local_dimensional_recurrence_assistance {
+        report["local_dimensional_recurrence_assistance"] = json!(true);
+    } else {
+        report
+            .as_object_mut()
+            .unwrap()
+            .remove("local_dimensional_recurrence_assistance");
+    }
     report["relation_authority"] = json!(authority(
         options.saved_rule_assistance,
         options.circuit_symmetry_assistance,
         options.numerator_symmetry_assistance,
         options.sector_symmetry_assistance,
-        sector_symmetry::projection_from_report(report)?
+        sector_symmetry::projection_from_report(report)?,
+        options.local_dimensional_recurrence_assistance,
     ));
     fresh::record_authority(report);
     Ok(())
@@ -232,7 +253,15 @@ pub(super) fn authority(
     numerator: bool,
     sector: bool,
     projection: bool,
+    local_dimension: bool,
 ) -> &'static str {
+    if local_dimension {
+        return if saved || (sector && projection) {
+            "exact ordinary-IBP consequences including independently replayed localized dimensional-pair sources and optional verified symmetries, plus authenticated supplied candidate formulas whose original source provenance is not replay-certified"
+        } else {
+            "finite ordinary IBPs, independently replayed localized dimensional-pair ordinary-source certificates and optional verified same-d symmetries; no shifted-dimension runtime masters or numerical values"
+        };
+    }
     if sector {
         if !projection && !saved {
             return "finite ordinary IBPs and independently replayed sector momentum-change and exact normalization identities composed with retained exact maps; no new candidate-program application";
@@ -276,6 +305,7 @@ pub(super) fn validate(
             || options.circuit_symmetry_assistance
             || options.numerator_symmetry_assistance
             || options.sector_symmetry_assistance
+            || options.local_dimensional_recurrence_assistance
             || report["saved_rule_assistance"].as_bool().unwrap_or(false)
             || report["circuit_symmetry_assistance"]
                 .as_bool()
@@ -284,6 +314,9 @@ pub(super) fn validate(
                 .as_bool()
                 .unwrap_or(false)
             || report["sector_symmetry_assistance"]
+                .as_bool()
+                .unwrap_or(false)
+            || report["local_dimensional_recurrence_assistance"]
                 .as_bool()
                 .unwrap_or(false)
         {
@@ -307,6 +340,10 @@ pub(super) fn validate(
             .as_bool()
             .unwrap_or(false)
             != options.sector_symmetry_assistance
+        || report["local_dimensional_recurrence_assistance"]
+            .as_bool()
+            .unwrap_or(false)
+            != options.local_dimensional_recurrence_assistance
         || session.assistance_binding() != binding.as_deref()
         || (options.operation == MasterReductionOperation::Refine
             && report["requested_containing_sector_depth"]
@@ -349,6 +386,7 @@ pub(super) fn prepare_for_execution(
         && !options.circuit_symmetry_assistance
         && !options.numerator_symmetry_assistance
         && !options.sector_symmetry_assistance
+        && !options.local_dimensional_recurrence_assistance
     {
         return Ok(None);
     }
@@ -414,6 +452,13 @@ pub(super) fn prepare_for_execution(
     } else {
         None
     };
+    let local_dimension = if options.local_dimensional_recurrence_assistance {
+        Some(super::local_dimension::prepare(
+            options, session, report, cancel, observer, started,
+        )?)
+    } else {
+        None
+    };
     let mut saved = if options.saved_rule_assistance
         || (options.sector_symmetry_assistance
             && sector_symmetry::projection_for_phase(options, report)?)
@@ -472,6 +517,9 @@ pub(super) fn prepare_for_execution(
             if let Some(sector) = &sector_rows {
                 rows.extend(sector.get(&key).into_iter().flatten().cloned());
             }
+            if let Some(local) = &local_dimension {
+                rows.extend(local.equations_for(&key).iter().cloned());
+            }
             if !rows.is_empty() {
                 rows_by_key.insert(key, rows);
             }
@@ -494,6 +542,9 @@ pub(super) fn prepare_for_execution(
             }
             if let Some(sector) = &sector_rows {
                 rows.extend(sector.get(key).into_iter().flatten().cloned());
+            }
+            if let Some(local) = &local_dimension {
+                rows.extend(local.equations_for(key).iter().cloned());
             }
             if let Some(saved) = &mut saved {
                 rows.extend((saved.provider)(key)?);

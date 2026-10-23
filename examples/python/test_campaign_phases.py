@@ -342,6 +342,88 @@ class PhaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid native selective"):
             PHASES.sector_symmetry_metadata({"selective_symmetry_feedback_enabled": 1})
 
+    def test_local_dimensional_recurrence_is_independent_exact_and_fresh_resets_it(self):
+        self.assertFalse(self.policy["local_dimensional_recurrence_assistance"])
+        with self.assertRaisesRegex(ValueError, "explicit"):
+            PHASES.configuration(self.campaign, local_dimensional_recurrence_assistance=True)
+        for bad in (1, "true", [], {}):
+            with self.assertRaisesRegex(ValueError, "must be boolean"):
+                PHASES.configuration(self.campaign, enabled=True, local_dimensional_recurrence_assistance=bad)
+        local = PHASES.configuration(self.campaign, enabled=True, local_dimensional_recurrence_assistance=True)
+        self.assertFalse(local["sector_symmetry_assistance"])
+        self.write("master-reduction/policy.json", local)
+        self.assertTrue(PHASES.configuration(self.campaign, enabled=True)["local_dimensional_recurrence_assistance"])
+        self.assertFalse(PHASES.configuration(self.campaign, enabled=True, fresh_search=True)["local_dimensional_recurrence_assistance"])
+        with self.assertRaisesRegex(ValueError, "requires exact refinement"):
+            PHASES.configuration(self.campaign, enabled=True, refinement_strategy="modular-circuits")
+        for flag, value in (("--master-local-dimensional-recurrence-assistance", True),
+                             ("--no-master-local-dimensional-recurrence-assistance", False)):
+            with patch.object(PRODUCTION.PHASES, "configuration", side_effect=ValueError("probe")) as configure, \
+                 patch.object(PRODUCTION.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                PRODUCTION.main(["--campaign-directory", str(self.campaign), "--refine-masters", flag])
+            self.assertIs(configure.call_args.kwargs["local_dimensional_recurrence_assistance"], value)
+        self.write("master-reduction/policy.json", {**local, "local_dimensional_recurrence_assistance": 1})
+        with self.assertRaisesRegex(ValueError, "invalid persisted"):
+            PHASES.configuration(self.campaign, enabled=True)
+
+    def test_local_dimension_identity_distinguishes_only_enabled_recipe(self):
+        self.publish_fixture()
+        selected = {}
+        for value in (None, False, True):
+            policy = PHASES.configuration(self.campaign, enabled=True, local_dimensional_recurrence_assistance=value)
+            with patch.object(PHASES, "phase_two", return_value=4) as native:
+                PHASES.run(self.plan, policy, True, self.driver, postprocess_only=True)
+            selected[value] = native.call_args.args[4]
+            steering = PHASES.read_json(selected[value] / "steering-binding.json")
+            if value is True:
+                self.assertEqual(steering["local_dimensional_recurrence_recipe"], PHASES.LOCAL_DIMENSIONAL_RECURRENCE_RECIPE)
+            else:
+                self.assertNotIn("local_dimensional_recurrence_assistance", steering)
+                self.assertNotIn("local_dimensional_recurrence_recipe", steering)
+        self.assertEqual(selected[None], selected[False])
+        self.assertNotEqual(selected[False], selected[True])
+
+    def test_local_dimension_receipt_retains_native_descriptor_not_payload_in_telemetry(self):
+        descriptor = {"recipe": PHASES.LOCAL_DIMENSIONAL_RECURRENCE_RECIPE,
+                      "file": "local-native.rrbin", "bytes": 50, "blake3": "a" * 64}
+        report = {"local_dimensional_recurrence_assistance": True, "local_dimensional_recurrence_certificate": descriptor,
+            "local_dimensional_recurrence_preparation": {"input_keys": 19, "processed_keys": 17,
+                "nominated_directions": 25, "supported_geometries": 3, "weighted_source_rows": 12,
+                "equations": 7, "output_terms": 31, "complete": False, "native_witnesses": [1] * 1000}}
+        self.assertEqual(PHASES.symmetry_metadata(report)["local_dimensional_recurrence_certificate"], descriptor)
+        progress = PHASES.symmetry_progress_metadata(report)["local_dimensional_recurrence_preparation"]
+        self.assertEqual(progress["weighted_source_rows"], 12)
+        self.assertNotIn("native_witnesses", progress)
+        with self.assertRaisesRegex(ValueError, "invalid native local"):
+            PHASES.symmetry_metadata({**report, "local_dimensional_recurrence_assistance": 1})
+        with self.assertRaisesRegex(ValueError, "invalid native local"):
+            PHASES.symmetry_metadata({**report, "local_dimensional_recurrence_certificate": {**descriptor, "recipe": "bad"}})
+
+    def test_local_dimension_partial_finalization_and_pointer_keep_native_provenance(self):
+        _, phase = self.stopped_refinement_fixture("paused")
+        provenance = {"local_dimensional_recurrence_assistance": True,
+            "local_dimensional_recurrence_certificate": {"recipe": PHASES.LOCAL_DIMENSIONAL_RECURRENCE_RECIPE,
+                "file": "local-capsule.rrbin", "bytes": 41, "blake3": "c" * 64},
+            "inherited_equation_authority": {"local_dimensional_recurrence_assistance": True}}
+        self.write(str((phase / "latest.json").relative_to(self.campaign)),
+            {**PHASES.read_json(phase / "latest.json"), **provenance})
+        original = (phase / "latest.json").read_bytes()
+        with patch.object(PHASES, "phase_two", return_value=0) as native:
+            PHASES.run(self.plan, {**self.policy, "operation": "finalize-refinement"}, True,
+                       self.driver, postprocess_only=True)
+        partial = native.call_args.args[1]["partial_refinement"]
+        for field, value in provenance.items():
+            self.assertEqual(partial[field], value)
+        output = native.call_args.args[4]
+        self.write(str((output / "artifact.json").relative_to(self.campaign)), {
+            **provenance, "inventory": {"complete": True}, "finite_search_complete": False,
+            "partial_refinement_source": {"checkpoint": 7}})
+        PHASES.publish_pointer(self.campaign, output, self.binding(), "refine", self.driver, partial)
+        artifact = PHASES.completed_artifact(self.campaign)
+        for field, value in provenance.items():
+            self.assertEqual(artifact[field], value)
+        self.assertEqual((phase / "latest.json").read_bytes(), original)
+
     def test_parallel_batch_policy_is_positive_operational_and_retained(self):
         policy=PHASES.configuration(self.campaign,enabled=True,relation_batch_rows=128,relation_block_rows=8)
         self.write("master-reduction/policy.json",policy)
@@ -1883,6 +1965,13 @@ report = {'status':'published_unrefined', 'operation':'publish',
         self._scratch_native_pause_resume("refine", sector_symmetry_assistance=True,
                                          selective_symmetry_feedback=True)
 
+    def test_local_dimension_native_cohort_pauses_resumes_and_exports_standalone(self):
+        self._scratch_native_pause_resume("refine", local_dimensional_recurrence_assistance=True)
+
+    def test_local_dimension_native_cohort_coexists_with_selective_symmetry(self):
+        self._scratch_native_pause_resume("refine", sector_symmetry_assistance=True,
+            selective_symmetry_feedback=True, local_dimensional_recurrence_assistance=True)
+
     def _scratch_native_pause_resume(self, operation, saved_rule_assistance=False,
                                     containing_sector_depth=0, inherited_containing_depth=0,
                                     circuit_symmetry_assistance=False, normalization_profile=None,
@@ -1890,7 +1979,7 @@ report = {'status':'published_unrefined', 'operation':'publish',
                                     refinement_workers=None, refinement_cpus=None, fresh_search=False, seed_depth=0,
                                     numerator_symmetry_assistance=False, sector_symmetry_assistance=False,
                                     sector_symmetry_policy="generators", sector_symmetry_saved_projection=True,
-                                    selective_symmetry_feedback=False):
+                                    selective_symmetry_feedback=False, local_dimensional_recurrence_assistance=False):
         # Fake native protocol only; this proves process/checkpoint orchestration,
         # not mathematical correctness or a successful native Rust solve.
         binary = self.campaign / "fake-native"
@@ -1908,6 +1997,7 @@ report = {'status':'published_unrefined', 'operation':'publish',
                           f"expected_sector_policy = {sector_symmetry_policy!r}\n"
                           f"expected_sector_projection = {sector_symmetry_saved_projection}\n"
                           f"expected_selective = {selective_symmetry_feedback and operation == 'refine'}\n"
+                          f"expected_local_dim = {local_dimensional_recurrence_assistance and operation == 'refine'}\n"
                           f"expected_containing_depth = {containing_sector_depth if operation == 'refine' else 0}\n" + '''import json, pathlib, sys, time
 args = sys.argv
 assert int(args[args.index('--threads') + 1]) == expected_threads
@@ -1926,6 +2016,7 @@ if expected_sector:
 assert args.count('--sector-symmetry-saved-projection') == int(expected_sector and expected_sector_projection)
 assert args.count('--no-sector-symmetry-saved-projection') == int(expected_sector and not expected_sector_projection)
 assert args.count('--selective-symmetry-feedback') == int(expected_selective)
+assert args.count('--local-dimensional-recurrence-assistance') == int(expected_local_dim)
 assert ('--finite-feedback' in args) == refine
 assert ('--max-relation-columns' in args) == (refine and expected_column_budget is not None)
 if expected_column_budget is not None:
@@ -1939,6 +2030,13 @@ if expected_profile is not None:
 profile = (expected_profile or 'conservative') + '-v1'
 metadata = {'normalization_profile': profile, 'normalization_limits': {'fixture': True}}
 metadata.update(finite_feedback=refine, finite_feedback_recipe='finite-row-feedback-v1')
+if expected_local_dim:
+    metadata.update(local_dimensional_recurrence_assistance=True,
+        local_dimensional_recurrence_certificate={'recipe':'verified-local-dimensional-recurrence-v1',
+            'file':'local-dimensional.rrbin','bytes':22,'blake3':'e'*64},
+        local_dimensional_recurrence_preparation={'input_keys':4,'processed_keys':4,
+            'nominated_directions':6,'supported_geometries':2,'weighted_source_rows':7,
+            'equations':3,'output_terms':10,'complete':True,'native_witnesses':[100]*1000})
 if expected_selective:
     metadata.update(selective_symmetry_feedback_enabled=True, selective_symmetry_feedback={
         'recipe':'selective-symmetry-ibp-feedback-v1','stage':'executing','completed_rounds':1,
@@ -2015,6 +2113,7 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                          "sector_symmetry_policy": sector_symmetry_policy,
                          "sector_symmetry_saved_projection": sector_symmetry_saved_projection,
                          "selective_symmetry_feedback": selective_symmetry_feedback,
+                         "local_dimensional_recurrence_assistance": local_dimensional_recurrence_assistance,
                          "max_relation_columns": max_relation_columns,
                          "deep_verification": deep_verification,
                          "circuit_symmetry_assistance": circuit_symmetry_assistance,
@@ -2078,6 +2177,10 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                     with self.assertRaisesRegex(ValueError, "cannot change selective-symmetry feedback on resume"):
                         PHASES.phase_two(plan, {**native_policy, "selective_symmetry_feedback": False},
                             self.campaign / "runs/first/request.json", binding, directory, driver)
+                if local_dimensional_recurrence_assistance:
+                    with self.assertRaisesRegex(ValueError, "cannot change local dimensional-recurrence assistance on resume"):
+                        PHASES.phase_two(plan, {**native_policy, "local_dimensional_recurrence_assistance": False},
+                            self.campaign / "runs/first/request.json", binding, directory, driver)
                 if normalization_profile == "standard":
                     paused_pointer = (self.campaign / "artifacts/latest.json").read_bytes()
                     with self.assertRaisesRegex(ValueError, "cannot change normalization profile on resume"):
@@ -2138,6 +2241,13 @@ event('completed_nonminimal' if refine else 'published_unrefined')
                 feedback = status["master_reduction"]["selective_symmetry_feedback"]
                 self.assertEqual(feedback["pending_targets"], 2)
                 self.assertNotIn("rounds", feedback)
+            if local_dimensional_recurrence_assistance:
+                published = PHASES.completed_artifact(self.campaign)
+                self.assertTrue(published["local_dimensional_recurrence_assistance"])
+                self.assertEqual(published["local_dimensional_recurrence_certificate"]["file"], "local-dimensional.rrbin")
+                preparation = status["master_reduction"]["local_dimensional_recurrence_preparation"]
+                self.assertEqual(preparation["weighted_source_rows"], 7)
+                self.assertNotIn("native_witnesses", preparation)
             self.assertEqual(PHASES.read_json(self.campaign / "artifacts/latest.json")["refinement"]["containing_sector_depth"],
                              containing_sector_depth if fresh_search else max(containing_sector_depth, inherited_containing_depth))
             if fresh_search:

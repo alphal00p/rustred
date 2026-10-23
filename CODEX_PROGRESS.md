@@ -1,6 +1,80 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## Stage2 execution gate and owned recovery check (October23,00:17UTC)
+
+Combined metadata passes1m13s; optimized build6m05s. Frozen candidate:
+TMP/releases/20261023-local-dimension-refinement/rustred SHA256
+f7a08ef37109897545de89902f3015ced0e36f1323c0722abb5f3e810297e370;
+monitor SHA7624f223d7c39bb9756eea0f09a2f53281c59ac5c96ce2f346d38d013e94f360.
+Workflow drafted beside it (bash-n passes), NOT yet delivered as validated.
+First focused core execution23pass/2fail: independently confirmed BOTH are
+incorrect test oracles, not production formula errors. Reflection preserves
+the exact3row multiset but not direction-sort order; four original residuals
+are q_i=k_i/2, so the exact coefficient is(4-d)/256. Only cfg(test) expectations
+were corrected with exact bijection/known analytic factor; original failures
+retained. Core frontend rerun final-stage2-oracle-corrected is active; production
+archive aeb5452b... and frozen executable unchanged. Physical cohorts remain
+blocked until all25 pass. App frontend/gates run independently unchanged.
+
+Stage1 owned diagnostic stops cleanly at1764.41s,CPU1799.11s,peak5.005GB,
+code4/paused/gen25; all113input files unchanged. Round0 verified7dependencies
+retained; round1 planning/tasks and995committed source rows retained,5724pending.
+Actual worker16->4 cold replay with an existing stop-file is expensive: no new
+search/events after300s. Root enlarges THAT SAME owned read-only diagnostic to
+at most30minTOTAL including shutdown, with an external owned-PID-only deadline.
+Original300s censor mark remains; no successful full cold-recovery claim yet.
+Immutable gen25 snapshot remains available. This is a source-replay cost finding,
+not native CP data loss, a new engine runtime cap, or a production intervention.
+
+## Stage2 source complete; compile integration (October23,00:02UTC)
+
+Mechanical integration corrections completed. Core lib+all25new test metadata
+PASS59.19s; one test-only native Coefficient operator mismatch also corrected
+through existing exact context methods. Logs: featureworktree
+TMP/local-dimrec-core-check/{core-check.log,core-check-final.log}. Combined app/
+core metadata session71814 running, source otherwise frozen. Root's full actual
+Nix3.11 Python regression314tests/30.379s, one explicit skip, zero failures.
+fp_acceptance owns native final-stage2 captures/tests and old Stage1 pilot;
+local_dimrec_acceptance owns separate full-cohort lower/5L source benchmarks.
+No local-dimensional gain claimed before native execution/cold verification.
+
+Core sealed local plan, native rational geometry, cached Gram/vector/source
+generation and binary complete-cohort replay are implemented;25focused tests.
+App one finite source certificate/queue lane and Python interfaces are source
+frozen. Independent math/code audit PASSES; exact signed+analytic powers,
+operator order, embedded spectator invariants, mass signs and d-4 preserved.
+Unsupported-nomination codec case was corrected and regression added. App uses
+controlled replay where prepare already owns cancellation; generic inspection
+still has no cancellation context and native operations are not preemptible.
+Python270focused checks pass; final actual native execution remains pending.
+
+Initial combined metadata exit101 with mechanical core integration diagnostics:
+SelfRing trait import path, Rational borrowed arithmetic and ambiguous test
+integer conversions (19cfgtest errors). fp_core_design owns correction and a
+single core metadata rerun; root will then check app/test metadata and build.
+No optimized Stage2 executable or measured local-dimensional gain claimed yet.
+
+Meanwhile frozen Stage1 owned5L first complete selected round is INDEPENDENTLY
+VERIFIED:659->652basis; all939prior maps compose, all136790baseline guards retained,
+remaining-only endpoints and cold native byte replay pass. Original862->659
+initial boundary also independently checked (all136725source guards). Proofs:
+TMP/selective-symmetry-acceptance-20261023/native-cli-five-loop-selected-final/
+round-0-complete/exact-map-check.json (12.09s validation). Pilot continues under
+its existing caller grant; not a claim of advantage over the user's distinct
+full-orbit-plus-ordinary run, and not a minimal-basis proof.
+
 ## Stage1 acceptance passed; Stage2 authorized (October22,23:51UTC)
+
+Final broad native total849passes/0failures/5explicit ignores (core365+app484).
+Stage1 implementation27ca6c7a and gate log84527173 are pushed on
+codex/selective-symmetry-dimrec. The actual5L initial search now drains at659
+basis,23,475ordinaryrows; its exact durable native parent was independently
+captured before selected feedback:63,591,786bytes, SHA256
+e2115d3ad4afeb6c91ed9e51883484986fed04a4c978621afc883f2416d0d0b9.
+Owned receipt: TMP/selective-symmetry-acceptance-20261023/
+native-cli-five-loop-selected-final/initial-search-boundary/receipt.json.
+Selected wave0 has1177actualsupports from392852terminal-linked auxiliary keys;
+source preparation reached1153/1177by505s. No selected gain claimed yet.
 
 Stage1 code commit27ca6c7a. Optimized build6m09s, frozen executable
 TMP/releases/20261023-selective-feedback/rustred SHA256

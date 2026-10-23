@@ -8,7 +8,7 @@ mod construction;
 mod error;
 mod materialize;
 mod model;
-mod polynomial;
+pub(crate) mod polynomial;
 
 pub use error::TangentSourceError;
 pub use model::{

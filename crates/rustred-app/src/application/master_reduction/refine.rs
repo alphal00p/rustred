@@ -108,6 +108,7 @@ pub fn master_refine_published_artifact(
     let finite_feedback = collection::feedback_for_phase(options, resumed.as_ref())?;
     let refinement_strategy = modular::for_phase(options, resumed.as_ref())?;
     selective_symmetry::validate_options(options, resumed.as_ref(), refinement_strategy)?;
+    local_dimension::validate_options(options, resumed.as_ref(), refinement_strategy)?;
     let mut hash = blake3::Hasher::new();
     hash.update(b"rustred-published-refinement-v1");
     if options.fresh_search {
@@ -140,6 +141,9 @@ pub fn master_refine_published_artifact(
     }
     if options.selective_symmetry_feedback {
         hash.update(selective_symmetry::RECIPE.as_bytes());
+    }
+    if options.local_dimensional_recurrence_assistance {
+        hash.update(local_dimension::RECIPE.as_bytes());
     }
     normalization_profile.hash(&mut hash);
     let collection_identity = collection::input_identity(options, resumed.as_ref())?;

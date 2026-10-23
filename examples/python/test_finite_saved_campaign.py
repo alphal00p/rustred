@@ -310,6 +310,29 @@ class FiniteCampaignTests(unittest.TestCase):
                 self.assertIs(supplied.selective_symmetry_feedback, value)
                 self.assertEqual(extra, [])
 
+    def test_finite_refinement_forwards_local_dimension_option_independently(self):
+        self.args.action = "refine"
+        before = FIXTURE.snapshot(self.campaign)
+        for state, value in (("omitted", None), ("none", None), ("off", False), ("on", True)):
+            if state == "omitted":
+                vars(self.args).pop("local_dimensional_recurrence_assistance", None)
+            else:
+                self.args.local_dimensional_recurrence_assistance = value
+            with patch.object(FIN.PHASES, "configuration", side_effect=ValueError("probe")) as configure:
+                with self.assertRaisesRegex(ValueError, "probe"):
+                    FIN.public_locked(self.args, self.campaign, self.binary, apply=False)
+                self.assertIs(configure.call_args.kwargs["local_dimensional_recurrence_assistance"], value)
+            self.assertEqual(FIXTURE.snapshot(self.campaign), before)
+        self.plan()
+        for flag, value in (("--local-dimensional-recurrence-assistance", True),
+                             ("--no-local-dimensional-recurrence-assistance", False)):
+            with patch.object(FIN, "public_main", return_value=0) as dispatch:
+                self.assertEqual(PUBLIC.main(["refine", "--campaign", str(self.campaign),
+                    "--executable", str(self.binary), flag]), 0)
+                supplied, extra = dispatch.call_args.args
+                self.assertIs(supplied.local_dimensional_recurrence_assistance, value)
+                self.assertEqual(extra, [])
+
     def test_public_finite_postprocess_parses_recovery_and_import_without_legacy_dispatch(self):
         self.plan()
         recipe = self.root / "proof-recipe.json"

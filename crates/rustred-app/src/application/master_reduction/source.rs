@@ -64,7 +64,7 @@ impl<'a> SourceRequest<'a> {
                 Ok(hash.finalize().to_hex().to_string())
             }
         }?;
-        if options.sector_symmetry_assistance {
+        let binding = if options.sector_symmetry_assistance {
             let mut hash = blake3::Hasher::new();
             hash.update(b"sector-symmetry-assistance-v1");
             hash.update(
@@ -78,14 +78,22 @@ impl<'a> SourceRequest<'a> {
             if options.selective_symmetry_feedback {
                 hash.update(super::selective_symmetry::RECIPE.as_bytes());
             }
-            Ok(hash.finalize().to_hex().to_string())
+            hash.finalize().to_hex().to_string()
         } else if options.numerator_symmetry_assistance {
             let mut hash = blake3::Hasher::new();
             hash.update(b"numerator-symmetry-assistance-v1");
             hash.update(binding.as_bytes());
-            Ok(hash.finalize().to_hex().to_string())
+            hash.finalize().to_hex().to_string()
         } else {
             // Preserve historical flag-off source identities exactly.
+            binding
+        };
+        if options.local_dimensional_recurrence_assistance {
+            let mut hash = blake3::Hasher::new();
+            hash.update(super::local_dimension::RECIPE.as_bytes());
+            hash.update(binding.as_bytes());
+            Ok(hash.finalize().to_hex().to_string())
+        } else {
             Ok(binding)
         }
     }

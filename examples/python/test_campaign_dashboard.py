@@ -176,6 +176,22 @@ class TelemetryTests(unittest.TestCase):
         master["selective_symmetry_feedback_enabled"] = False
         self.assertEqual(DASHBOARD.selective_symmetry_feedback_metrics(master), [])
 
+    def test_local_dimensions_report_finite_exact_source_cohort_not_minimal_basis_gain(self):
+        master = {"operation": "refine", "local_dimensional_recurrence_assistance": True,
+            "local_dimensional_recurrence_preparation": {"input_keys": 19, "processed_keys": 17,
+                "nominated_directions": 25, "supported_geometries": 3, "weighted_source_rows": 12,
+                "equations": 7, "output_terms": 31, "complete": True,
+                "skipped": [{"reason": "unsupported numerator", "count": 2}]}}
+        text = "\n".join(" | ".join(row) for row in DASHBOARD.local_dimensional_recurrence_metrics(master))
+        self.assertIn("17/19", text)
+        self.assertIn("12 weighted terms", text)
+        self.assertIn("shifted integrals eliminated", text)
+        self.assertIn("unsupported numerator 2", text)
+        self.assertIn("not repeated in selected rounds", text)
+        self.assertNotIn("7 masters eliminated", text)
+        master["operation"] = "publish"
+        self.assertEqual(DASHBOARD.local_dimensional_recurrence_metrics(master), [])
+
     def test_sector_symmetry_preparation_reports_actual_finite_work_and_projection_boundaries(self):
         status = sample_status()
         status["master_reduction"] = {

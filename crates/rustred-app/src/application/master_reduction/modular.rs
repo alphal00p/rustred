@@ -36,6 +36,7 @@ pub(super) fn for_phase(
             || options.circuit_symmetry_assistance
             || options.numerator_symmetry_assistance
             || options.sector_symmetry_assistance
+            || options.local_dimensional_recurrence_assistance
             || options.sector_symmetry_policy.is_some()
             || options.sector_symmetry_saved_projection.is_some())
     {

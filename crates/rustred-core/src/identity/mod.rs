@@ -4,7 +4,7 @@ mod condition;
 mod generator;
 mod relation;
 mod row;
-mod tangent;
+pub(crate) mod tangent;
 
 pub use condition::{
     IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,

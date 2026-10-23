@@ -550,6 +550,7 @@ def master_batch_execution(master):
     execution = master.get("execution", {})
     if (master.get("stage") in ("preparing_sector_symmetry_equations", "reducing_sector_symmetry_equations")
             or str(master.get("stage", "")).startswith("selective_symmetry_")
+            or str(master.get("stage", "")).startswith("preparing_local_dimensional_recurrence")
             or master.get("selective_symmetry_feedback", {}).get("stage") in
                ("selecting_sources", "preparing_selected_sources", "prepared")):
         # A previous elimination receipt is not activity in provider preparation.
@@ -760,6 +761,43 @@ def selective_symmetry_feedback_metrics(master):
     return result
 
 
+def local_dimensional_recurrence_metrics(master):
+    """Fixed-d consequences have native dimensional/source proof, not new masters."""
+    if not master.get("local_dimensional_recurrence_assistance", False) or master.get("operation") != "refine":
+        return []
+    preparation = master.get("local_dimensional_recurrence_preparation", {})
+    complete = preparation.get("complete")
+    boundary = ("exact source cohort ready" if complete is True else "source cohort incomplete"
+                if complete is False else "awaiting native source receipt")
+    weighted = preparation.get("weighted_source_rows")
+    regenerated = preparation.get("regenerated_source_rows")
+    proof_work = (count(weighted) + " weighted terms" if weighted is not None else
+                  count(regenerated) + " regenerated" if regenerated is not None else
+                  count(preparation.get("replayed_source_rows")) + " replayed")
+    rows = [
+        ("Local dimensions", count(preparation.get("equations")) + " source rows",
+         "local dimensional-pair consequences; shifted integrals eliminated; fixed-d output"),
+        ("Local source jobs", count(preparation.get("processed_keys")) + "/" + count(preparation.get("input_keys")),
+         count(preparation.get("nominated_directions")) + " nominated; "
+         + count(preparation.get("supported_geometries")) + " supported geometries"),
+        ("Local source proof", proof_work,
+         count(preparation.get("output_terms")) + " output terms; " + boundary),
+    ]
+    if preparation.get("skipped_geometries") is not None or preparation.get("degenerate_grams") is not None:
+        rows.append(("Local geometry", count(preparation.get("skipped_geometries")) + " skipped",
+                     count(preparation.get("degenerate_grams")) + " degenerate Gram proposals; unsupported geometry is not a new master"))
+    skipped = preparation.get("skipped", [])
+    if isinstance(skipped, list) and skipped:
+        reasons = [clean(item.get("reason", "unknown"))[:96] + " " + count(item.get("count"))
+                   for item in skipped[:3] if isinstance(item, dict)]
+        omitted = max(0, number(preparation.get("skipped_reasons_omitted")) or 0) + max(0, len(skipped) - 3)
+        if omitted:
+            reasons.append(count(omitted) + " additional reasons omitted")
+        rows.append(("Local unsupported", "retained", "; ".join(reasons)))
+    rows.append(("Local scope", "finite initial cohort", "not repeated in selected rounds; no per-provider basis gain or minimality claim"))
+    return rows
+
+
 def render_master_table(frame, width=100, height=24, color=True):
     """Phase-two view of the same event stream; no inferred algebra progress."""
     width, height = max(20, min(160, width)), max(8, height)
@@ -920,7 +958,7 @@ def render_master_table(frame, width=100, height=24, color=True):
             and (master.get("numerator_symmetry_assistance", False)
                  or master.get("inherited_numerator_symmetry_authority", False))):
         rows.insert(2, (1, row("Numerator proofs", "retained", "inherited finite proofs; provider off")))
-    for index, (label, value, detail) in enumerate(sector_symmetry_metrics(master)):
+    for index, (label, value, detail) in enumerate(local_dimensional_recurrence_metrics(master) + sector_symmetry_metrics(master)):
         rows.insert(2 + index, (1, row(label, value, detail, "36" if index == 0 else None)))
     rows.insert(0, (0, row("Elapsed time", duration(frame["elapsed_seconds"]),
                           "wall time in this phase; current invocation", "36")))
@@ -994,7 +1032,7 @@ def plain_summary(frame):
                   if execution.get("provider_keys_filtered") is not None else []),
                 *numerator_lines,
                 *[label + ": " + value + " · " + detail
-                  for label, value, detail in sector_symmetry_metrics(master)]]
+                  for label, value, detail in local_dimensional_recurrence_metrics(master) + sector_symmetry_metrics(master)]]
     rates, snapshot = frame["rates"], frame["closure_snapshot"]
     completed = rates["local_completion"]["per_second"]
     rate = "unknown" if completed is None else f"{completed * 3600:,.0f}"

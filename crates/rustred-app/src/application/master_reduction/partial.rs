@@ -56,6 +56,7 @@ fn publish_partial(
         || options.sector_symmetry_policy.is_some()
         || options.sector_symmetry_saved_projection.is_some()
         || options.selective_symmetry_feedback
+        || options.local_dimensional_recurrence_assistance
         || options.containing_sector_depth != 0
         || options.seed_depth != 0
         || options.finite_feedback == Some(true)

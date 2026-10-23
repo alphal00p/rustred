@@ -14,6 +14,10 @@ mod finite_source_tests;
 mod fresh_tests;
 #[path = "tests/inherited.rs"]
 mod inherited_tests;
+#[path = "tests/local_dimension_lifecycle.rs"]
+mod local_dimension_lifecycle;
+#[path = "tests/local_dimension.rs"]
+mod local_dimension_tests;
 #[path = "tests/modular.rs"]
 #[cfg(feature = "reconstruction")]
 mod modular_tests;

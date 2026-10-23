@@ -428,6 +428,23 @@ class SavedCampaignTests(unittest.TestCase):
                      self.assertRaises(SystemExit):
                     self.invoke(action, *options, flag)
 
+    def test_local_dimensional_recurrence_flags_are_explicit_refinement_only(self):
+        self.assertNotIn("--master-local-dimensional-recurrence-assistance", self.invoke("refine"))
+        for supplied, forwarded in (("--local-dimensional-recurrence-assistance", "--master-local-dimensional-recurrence-assistance"),
+                                     ("--no-local-dimensional-recurrence-assistance", "--no-master-local-dimensional-recurrence-assistance")):
+            command = self.invoke("refine", supplied)
+            self.assertEqual(command.count(forwarded), 1)
+            self.assertNotIn(supplied, command)
+            self.assertNotIn("--master-sector-symmetry-assistance", command)
+        for action in ("run", "extend", "inspect", "publish", "finalize-refinement"):
+            options = ["--rank", "1"] if action == "extend" else []
+            for flag in ("--local-dimensional-recurrence-assistance", "--no-local-dimensional-recurrence-assistance",
+                         "--master-local-dimensional-recurrence-assistance", "--no-master-local-dimensional-recurrence-assistance"):
+                with self.subTest(action=action, flag=flag), patch.object(WRAPPER.sys, "stderr", io.StringIO()), \
+                     patch.object(WRAPPER, "native_executable", side_effect=AssertionError("native preflight")), \
+                     self.assertRaises(SystemExit):
+                    self.invoke(action, *options, flag)
+
     def test_sector_symmetry_saved_projection_rejects_nonrefinement_actions_before_dispatch(self):
         recipe = self.campaign / "proof-recipe.json"
         for action in ("run", "extend", "inspect", "publish", "finalize-refinement", "import-refinement"):

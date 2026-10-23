@@ -127,6 +127,8 @@ def main(argv=None):
                              help="project sector rows through saved programs (default saved preference or on); disable explicitly for a finite source-only cohort; fresh search resets to on")
             sub.add_argument("--selective-symmetry-feedback", action=argparse.BooleanOptionalAction, default=None,
                              help="exact sector-assisted refinement: revisit selected terminal-relevant symmetry/IBP consequences; off by default, fresh search clears it; heuristic queue exhaustion is not family closure")
+            sub.add_argument("--local-dimensional-recurrence-assistance", action=argparse.BooleanOptionalAction, default=None,
+                             help="exact refinement: add replayable localized dimensional-pair consequences in the original dimension; off by default, fresh search clears it; unsupported subgraphs are reported")
             sub.add_argument("--finite-feedback", action=argparse.BooleanOptionalAction, default=None,
                              help="combine retained finite rows after full-U aliases (default saved preference or on)")
         if action == "inspect":
@@ -155,6 +157,9 @@ def main(argv=None):
         if any(option.split("=", 1)[0] in ("--selective-symmetry-feedback", "--no-selective-symmetry-feedback",
                    "--master-selective-symmetry-feedback", "--no-master-selective-symmetry-feedback") for option in extra):
             parser.error("selective-symmetry feedback requires the refine action")
+        if any(option.split("=", 1)[0] in ("--local-dimensional-recurrence-assistance", "--no-local-dimensional-recurrence-assistance",
+                   "--master-local-dimensional-recurrence-assistance", "--no-master-local-dimensional-recurrence-assistance") for option in extra):
+            parser.error("local dimensional-recurrence assistance requires the refine action")
     campaign = args.campaign.resolve()
     try:
         # Engine dispatch precedes all legacy checkpoint access. This regular
@@ -230,6 +235,9 @@ def main(argv=None):
                 if args.selective_symmetry_feedback is not None:
                     command.append("--master-selective-symmetry-feedback" if args.selective_symmetry_feedback
                                    else "--no-master-selective-symmetry-feedback")
+                if args.local_dimensional_recurrence_assistance is not None:
+                    command.append("--master-local-dimensional-recurrence-assistance" if args.local_dimensional_recurrence_assistance
+                                   else "--no-master-local-dimensional-recurrence-assistance")
                 if args.finite_feedback is not None:
                     command.append("--master-finite-feedback" if args.finite_feedback
                                    else "--no-master-finite-feedback")

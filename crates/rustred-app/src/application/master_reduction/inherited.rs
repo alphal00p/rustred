@@ -12,12 +12,18 @@ struct InheritedEquationAuthority {
     numerator_symmetry_assistance: bool,
     #[serde(default)]
     sector_symmetry_assistance: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    local_dimensional_recurrence_assistance: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sector_symmetry_policy: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sector_symmetry_saved_projection: Option<bool>,
     normalization_profile: String,
     source_manifest_blake3: String,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn record(report: &Value) -> Result<InheritedEquationAuthority, AppError> {
@@ -52,6 +58,10 @@ pub(super) fn capture(
         original.sector_symmetry_assistance = source["sector_symmetry_assistance"]
             .as_bool()
             .unwrap_or(false);
+        original.local_dimensional_recurrence_assistance =
+            source["local_dimensional_recurrence_assistance"]
+                .as_bool()
+                .unwrap_or(false);
         if original.sector_symmetry_assistance {
             original.sector_symmetry_policy = Some(sector_symmetry::from_report(source)?);
             original.sector_symmetry_saved_projection =
@@ -72,6 +82,8 @@ pub(super) fn capture(
             circuit_symmetry_assistance: original.circuit_symmetry_assistance,
             numerator_symmetry_assistance: original.numerator_symmetry_assistance,
             sector_symmetry_assistance: original.sector_symmetry_assistance,
+            local_dimensional_recurrence_assistance: original
+                .local_dimensional_recurrence_assistance,
             sector_symmetry_policy: original
                 .sector_symmetry_policy
                 .map(sector_symmetry::policy_name)
@@ -98,7 +110,8 @@ pub(super) fn validate(session: &TerminalRelationSession, report: &Value) -> Res
         || (!inherited.saved_rule_assistance
             && !inherited.circuit_symmetry_assistance
             && !inherited.numerator_symmetry_assistance
-            && !inherited.sector_symmetry_assistance)
+            && !inherited.sector_symmetry_assistance
+            && !inherited.local_dimensional_recurrence_assistance)
     {
         return Err(AppError::input(
             "inherited equation authority differs from native state or normalization profile",
@@ -194,6 +207,26 @@ pub(super) fn validate(session: &TerminalRelationSession, report: &Value) -> Res
             ));
         }
     }
+    if inherited.local_dimensional_recurrence_assistance {
+        if !parts
+            .next()
+            .and_then(|part| part.strip_prefix("local-dimensional-recurrence-assistance-v1:"))
+            .is_some_and(digest)
+        {
+            return Err(AppError::input(
+                "invalid inherited local-dimensional-recurrence inventory binding",
+            ));
+        }
+        if local_dimension::receipt_required(session, report)
+            && !report["local_dimensional_recurrence_certificate"]["blake3"]
+                .as_str()
+                .is_some_and(digest)
+        {
+            return Err(AppError::input(
+                "inherited local-dimensional-recurrence authority has no exact certificate",
+            ));
+        }
+    }
     if parts.next().is_some() {
         return Err(AppError::input("unsupported inherited equation authority"));
     }
@@ -208,5 +241,6 @@ pub(super) fn authority(report: &Value) -> Result<&'static str, AppError> {
         inherited.numerator_symmetry_assistance,
         inherited.sector_symmetry_assistance,
         inherited.sector_symmetry_saved_projection.unwrap_or(true),
+        inherited.local_dimensional_recurrence_assistance,
     ))
 }

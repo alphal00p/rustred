@@ -433,6 +433,7 @@ def normalize_status(status, sequence=None):
             "sector_symmetry_saved_projection": (master.get("sector_symmetry_saved_projection")
                 if type(master.get("sector_symmetry_saved_projection")) is bool else None),
             "selective_symmetry_feedback_enabled": master.get("selective_symmetry_feedback_enabled") is True,
+            "local_dimensional_recurrence_assistance": master.get("local_dimensional_recurrence_assistance") is True,
             "inherited_sector_symmetry_authority": mapping(master.get("inherited_equation_authority")).get("sector_symmetry_assistance") is True,
             "finite_search_complete": master.get("finite_search_complete") is True,
             "modular_search_complete": master.get("modular_search_complete") is True,
@@ -491,7 +492,11 @@ def normalize_status(status, sequence=None):
                     "processed_rows", "source_rows", "saved_reduced_rows", "saved_application_failures",
                     "reused_rows", "projected_terms", "source_terms", "incomplete_boundaries",
                     "normalization_outputs_outside_source_inventory", "saved_output_keys_outside_symmetry_inventory",
-                    "saved_terminal_keys_outside_source_inventory", "deferred_symmetry_sources", "unresolved_output_keys"))):
+                    "saved_terminal_keys_outside_source_inventory", "deferred_symmetry_sources", "unresolved_output_keys")),
+                ("local_dimensional_recurrence_preparation", (
+                    "input_keys", "processed_keys", "nominated_directions", "supported_geometries",
+                    "replayed_source_rows", "regenerated_source_rows", "weighted_source_rows", "degenerate_grams",
+                    "skipped_geometries", "inventory_keys", "equations", "output_terms"))):
             source = mapping(master.get(name))
             if not source:
                 continue
@@ -501,7 +506,7 @@ def normalize_status(status, sequence=None):
                         "combined_closure_complete", "polynomial_orbit_closure_claim", "saved_projection_requested",
                         "exact_source_rows_ready"):
                 header[key] = source.get(key) if type(source.get(key)) is bool else None
-            for key in ("scope", "combined_closure_scope", "stage", "policy"):
+            for key in ("scope", "combined_closure_scope", "stage", "policy", "source_assurance", "cohort_scope"):
                 header[key] = clean(source.get(key, ""), 300)
             skipped = source.get("skipped")
             if isinstance(skipped, list):
@@ -545,7 +550,7 @@ def normalize_status(status, sequence=None):
             }
         for name in ("sector_symmetry_certificate", "sector_symmetry_reduced_certificate",
                      "sector_symmetry_normalization_certificate", "sector_symmetry_task_certificate",
-                     "sector_symmetry_projection_checkpoint"):
+                     "sector_symmetry_projection_checkpoint", "local_dimensional_recurrence_certificate"):
             certificate = mapping(master.get(name))
             if certificate:
                 frame["master_reduction"][name] = {

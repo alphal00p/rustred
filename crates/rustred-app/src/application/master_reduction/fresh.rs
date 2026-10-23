@@ -179,6 +179,9 @@ pub(super) fn begin(
         "sector_symmetry_projection_checkpoint",
         "selective_symmetry_feedback_enabled",
         "selective_symmetry_feedback",
+        "local_dimensional_recurrence_preparation",
+        "local_dimensional_recurrence_certificate",
+        "local_dimensional_recurrence_assistance",
         "previous_stage_source",
         "reused_previous_stage",
     ] {

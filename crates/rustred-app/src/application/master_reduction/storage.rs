@@ -275,6 +275,7 @@ pub(super) fn clone_inputs_with_policy(
     super::numerator_symmetry::inherit(source, output, report)?;
     super::sector_symmetry::inherit(source, output, report)?;
     super::selective_symmetry::inherit(source, output, report)?;
+    super::local_dimension::inherit(source, output, report)?;
     let inputs = &report["inputs"];
     let payloads = inputs["payloads"]
         .as_array()

@@ -38,6 +38,7 @@ SECTOR_SYMMETRY_SOURCE_ROWS_RECIPE = "sector-symmetry-source-rows-v1"
 SECTOR_SYMMETRY_NORMALIZATION_RECIPE = "sector-symmetry-normalization-v1"
 SECTOR_SYMMETRY_TASK_RECIPE = "sector-symmetry-composed-source-rows-v1"
 SELECTIVE_SYMMETRY_FEEDBACK_RECIPE = "selective-symmetry-ibp-feedback-v1"
+LOCAL_DIMENSIONAL_RECURRENCE_RECIPE = "verified-local-dimensional-recurrence-v1"
 
 
 def read_json(path, max_bytes=None):
@@ -68,7 +69,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                   refinement_workers=None, refinement_cpus=None, refinement_strategy=None,
                   modular_policy=None, fresh_search=False, numerator_symmetry_assistance=None,
                   sector_symmetry_assistance=None, sector_symmetry_policy=None,
-                  sector_symmetry_saved_projection=None, selective_symmetry_feedback=None):
+                  sector_symmetry_saved_projection=None, selective_symmetry_feedback=None,
+                  local_dimensional_recurrence_assistance=None):
     """Read-only configuration. Only this invocation can request refinement.
 
     Historical ``enabled`` policies retain executable/search preferences, never
@@ -119,6 +121,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master sector-symmetry saved projection must be boolean")
     if selective_symmetry_feedback is not None and type(selective_symmetry_feedback) is not bool:
         raise ValueError("master selective-symmetry feedback must be boolean")
+    if local_dimensional_recurrence_assistance is not None and type(local_dimensional_recurrence_assistance) is not bool:
+        raise ValueError("master local dimensional-recurrence assistance must be boolean")
     if finite_feedback is not None and type(finite_feedback) is not bool:
         raise ValueError("master finite feedback must be boolean")
     if deep_verification is not None and type(deep_verification) is not bool:
@@ -137,6 +141,7 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                 or existing.get("sector_symmetry_policy", "generators") not in SECTOR_SYMMETRY_POLICIES
                 or type(existing.get("sector_symmetry_saved_projection", True)) is not bool
                 or type(existing.get("selective_symmetry_feedback", False)) is not bool
+                or type(existing.get("local_dimensional_recurrence_assistance", False)) is not bool
                 or type(existing.get("finite_feedback", True)) is not bool
                 or type(existing.get("deep_verification", False)) is not bool
                 or existing.get("normalization_profile") not in (None, *NORMALIZATION_PROFILES)
@@ -167,6 +172,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master sector-symmetry saved projection requires explicit --refine-masters")
     if selective_symmetry_feedback is not None and not enabled:
         raise ValueError("master selective-symmetry feedback requires explicit --refine-masters")
+    if local_dimensional_recurrence_assistance is not None and not enabled:
+        raise ValueError("master local dimensional-recurrence assistance requires explicit --refine-masters")
     if finite_feedback is not None and not enabled:
         raise ValueError("master finite feedback requires explicit --refine-masters")
     if containing_sector_depth is not None and not enabled:
@@ -199,6 +206,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                 if sector_symmetry_saved_projection is None else sector_symmetry_saved_projection),
             "selective_symmetry_feedback": (preferences.get("selective_symmetry_feedback", False)
                 if selective_symmetry_feedback is None else selective_symmetry_feedback),
+            "local_dimensional_recurrence_assistance": (preferences.get("local_dimensional_recurrence_assistance", False)
+                if local_dimensional_recurrence_assistance is None else local_dimensional_recurrence_assistance),
             "finite_feedback": (preferences.get("finite_feedback", True)
                                 if finite_feedback is None else finite_feedback),
             "deep_verification": (preferences.get("deep_verification", False)
@@ -226,6 +235,8 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("numerator-symmetry assistance requires exact refinement; disable it or choose --refinement-strategy exact")
     if enabled and strategy == "modular-circuits" and policy["sector_symmetry_assistance"]:
         raise ValueError("sector-symmetry assistance requires exact refinement; disable it or choose --refinement-strategy exact")
+    if enabled and strategy == "modular-circuits" and policy["local_dimensional_recurrence_assistance"]:
+        raise ValueError("local dimensional-recurrence assistance requires exact refinement; disable it or choose --refinement-strategy exact")
     if enabled and strategy == "modular-circuits" and (policy["saved_rule_assistance"]
                                                       or policy["circuit_symmetry_assistance"]):
         raise ValueError("modular-circuits currently requires ordinary sources without saved-rule or circuit-symmetry assistance")
@@ -439,6 +450,8 @@ def finalize_refinement(plan, policy, binding, request, driver):
            if steering.get("sector_symmetry_assistance", False) else {}),
         **({"selective_symmetry_feedback_enabled": True}
            if steering.get("selective_symmetry_feedback", False) else {}),
+        **({"local_dimensional_recurrence_assistance": True}
+           if steering.get("local_dimensional_recurrence_assistance", False) else {}),
         **symmetry_metadata(native)}
     if policy.get("recover_interrupted", False):
         refinement["recovered_interrupted"] = True
@@ -696,6 +709,18 @@ def symmetry_metadata(report):
         # algebra. Native cold replay authenticates those files. Preserve ALL
         # round descriptors in exported provenance; only telemetry is bounded.
         result["selective_symmetry_feedback"] = feedback
+    if "local_dimensional_recurrence_assistance" in report:
+        if type(report["local_dimensional_recurrence_assistance"]) is not bool:
+            raise ValueError("invalid native local dimensional-recurrence mode")
+        result["local_dimensional_recurrence_assistance"] = report["local_dimensional_recurrence_assistance"]
+    authority = report.get("inherited_equation_authority")
+    if isinstance(authority, dict) and type(authority.get("local_dimensional_recurrence_assistance", False)) is not bool:
+        raise ValueError("invalid inherited local dimensional-recurrence mode")
+    certificate = report.get("local_dimensional_recurrence_certificate")
+    if certificate is not None:
+        if not isinstance(certificate, dict) or certificate.get("recipe") != LOCAL_DIMENSIONAL_RECURRENCE_RECIPE:
+            raise ValueError("invalid native local dimensional-recurrence certificate")
+        result["local_dimensional_recurrence_certificate"] = certificate
     return result
 
 
@@ -712,9 +737,11 @@ def symmetry_progress_metadata(report):
                     "trivial_equations", "processed_rows", "source_rows", "saved_reduced_rows",
                     "saved_application_failures", "incomplete_boundaries", "reused_rows",
                     "normalization_outputs_outside_source_inventory", "saved_output_keys_outside_symmetry_inventory",
-                    "saved_terminal_keys_outside_source_inventory", "deferred_symmetry_sources", "unresolved_output_keys")
+                    "saved_terminal_keys_outside_source_inventory", "deferred_symmetry_sources", "unresolved_output_keys",
+                    "nominated_directions", "supported_geometries", "replayed_source_rows", "regenerated_source_rows",
+                    "weighted_source_rows", "degenerate_grams", "skipped_geometries", "inventory_keys")
     for name in ("numerator_symmetry_preparation", "numerator_symmetry_reduction",
-                 "sector_symmetry_preparation", "sector_symmetry_reduction"):
+                 "sector_symmetry_preparation", "sector_symmetry_reduction", "local_dimensional_recurrence_preparation"):
         value = report.get(name)
         if not isinstance(value, dict):
             continue
@@ -725,7 +752,7 @@ def symmetry_progress_metadata(report):
                     "exact_source_rows_ready"):
             if type(value.get(key)) is bool:
                 header[key] = value[key]
-        for key in ("scope", "combined_closure_scope", "stage", "policy"):
+        for key in ("scope", "combined_closure_scope", "stage", "policy", "source_assurance", "cohort_scope"):
             if isinstance(value.get(key), str):
                 header[key] = value[key][:300]
         skipped = value.get("skipped")
@@ -979,6 +1006,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                            else "--no-sector-symmetry-saved-projection")
         if policy.get("selective_symmetry_feedback", False):
             command.append("--selective-symmetry-feedback")
+        if policy.get("local_dimensional_recurrence_assistance", False):
+            command.append("--local-dimensional-recurrence-assistance")
         profile = policy.get("effective_normalization_profile", "conservative-v1")
         if profile != "conservative-v1" or policy.get("normalization_profile") is not None:
             command += ["--normalization-profile", profile.removesuffix("-v1")]
@@ -1004,6 +1033,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 raise ValueError("cannot change sector-symmetry saved projection on resume; start a new phase directory")
             if snapshot.get("selective_symmetry_feedback_enabled", False) != policy.get("selective_symmetry_feedback", False):
                 raise ValueError("cannot change selective-symmetry feedback on resume; start a new phase directory")
+            if snapshot.get("local_dimensional_recurrence_assistance", False) != policy.get("local_dimensional_recurrence_assistance", False):
+                raise ValueError("cannot change local dimensional-recurrence assistance on resume; start a new phase directory")
             if (snapshot.get("fresh_search", False) != policy.get("fresh_search", False)
                     or (policy.get("fresh_search", False)
                         and snapshot.get("fresh_search_recipe") != FRESH_SEARCH_RECIPE)):
@@ -1072,6 +1103,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
         latest["sector_symmetry_saved_projection"] = policy.get("sector_symmetry_saved_projection", True)
     if not publishing and policy.get("selective_symmetry_feedback", False):
         latest["selective_symmetry_feedback_enabled"] = True
+    if not publishing and policy.get("local_dimensional_recurrence_assistance", False):
+        latest["local_dimensional_recurrence_assistance"] = True
     latest["finite_feedback"] = not publishing and policy.get("finite_feedback", True)
     if not publishing:
         latest["normalization_profile"] = profile
@@ -1095,7 +1128,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
             latest.update({key: value for key, value in payload.items() if value is not None
                            and key not in ("numerator_symmetry_preparation", "numerator_symmetry_reduction",
                                            "sector_symmetry_preparation", "sector_symmetry_reduction",
-                                           "selective_symmetry_feedback")})
+                                           "selective_symmetry_feedback", "local_dimensional_recurrence_preparation")})
             latest.update(symmetry_progress_metadata(payload))
             latest.update(phase=phase, operation=operation)
             if isinstance(payload.get("checkpoint"), dict):
@@ -1212,6 +1245,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 raise ValueError("native artifact sector-symmetry saved projection differs from requested refinement")
             if not publishing and native_artifact.get("selective_symmetry_feedback_enabled", False) != policy.get("selective_symmetry_feedback", False):
                 raise ValueError("native artifact selective-symmetry feedback differs from requested refinement")
+            if not publishing and native_artifact.get("local_dimensional_recurrence_assistance", False) != policy.get("local_dimensional_recurrence_assistance", False):
+                raise ValueError("native artifact local dimensional-recurrence mode differs from requested refinement")
             if not publishing and (native_artifact.get("fresh_search", False) != policy.get("fresh_search", False)
                     or (policy.get("fresh_search", False)
                         and native_artifact.get("fresh_search_recipe") != FRESH_SEARCH_RECIPE)):
@@ -1325,6 +1360,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                                    if policy.get("sector_symmetry_assistance", False) else "")
                                 + ("--master-selective-symmetry-feedback "
                                    if policy.get("selective_symmetry_feedback", False) else "")
+                                + ("--master-local-dimensional-recurrence-assistance "
+                                   if policy.get("local_dimensional_recurrence_assistance", False) else "")
                                 + ("--master-finite-feedback " if policy.get("finite_feedback", True)
                                    else "--no-master-finite-feedback ")
                                 + ("--master-refinement-strategy modular-circuits "
@@ -1517,6 +1554,7 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                     and (not policy.get("sector_symmetry_assistance", False)
                          or refinement.get("sector_symmetry_saved_projection", True) == policy.get("sector_symmetry_saved_projection", True))
                     and refinement.get("selective_symmetry_feedback_enabled", False) == policy.get("selective_symmetry_feedback", False)
+                    and refinement.get("local_dimensional_recurrence_assistance", False) == policy.get("local_dimensional_recurrence_assistance", False)
                     and previous["normalization_profile"] == effective_profile
                     and refinement.get("saved_rule_assistance", False) == policy.get("saved_rule_assistance", False)):
                 if startup_progress is not None:
@@ -1621,6 +1659,9 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
         if operation == "refine" and policy.get("selective_symmetry_feedback", False):
             identity["selective_symmetry_feedback"] = True
             identity["selective_symmetry_feedback_recipe"] = SELECTIVE_SYMMETRY_FEEDBACK_RECIPE
+        if operation == "refine" and policy.get("local_dimensional_recurrence_assistance", False):
+            identity["local_dimensional_recurrence_assistance"] = True
+            identity["local_dimensional_recurrence_recipe"] = LOCAL_DIMENSIONAL_RECURRENCE_RECIPE
         if operation == "refine" and policy["effective_normalization_profile"] != "conservative-v1":
             # Legacy conservative phases keep their original checkpoint path.
             identity["normalization_profile"] = policy["effective_normalization_profile"]

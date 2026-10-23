@@ -43,6 +43,7 @@ pub(crate) struct MasterArgs {
     pub sector_symmetry_policy: Option<crate::MasterSectorSymmetryPolicy>,
     pub sector_symmetry_saved_projection: Option<bool>,
     pub selective_symmetry_feedback: bool,
+    pub local_dimensional_recurrence_assistance: bool,
     pub finite_feedback: Option<bool>,
     pub normalization_profile: Option<crate::MasterNormalizationProfile>,
     pub max_relation_columns: Option<usize>,
@@ -94,6 +95,7 @@ fn parse_source(
         sector_symmetry_policy: None,
         sector_symmetry_saved_projection: None,
         selective_symmetry_feedback: false,
+        local_dimensional_recurrence_assistance: false,
         finite_feedback: None,
         normalization_profile: None,
         max_relation_columns: None,
@@ -132,6 +134,9 @@ fn parse_source(
             "--sector-symmetry-saved-projection" => "--sector-symmetry-saved-projection",
             "--no-sector-symmetry-saved-projection" => "--no-sector-symmetry-saved-projection",
             "--selective-symmetry-feedback" => "--selective-symmetry-feedback",
+            "--local-dimensional-recurrence-assistance" => {
+                "--local-dimensional-recurrence-assistance"
+            }
             "--finite-feedback" => "--finite-feedback",
             "--no-finite-feedback" => "--no-finite-feedback",
             "--normalization-profile" => "--normalization-profile",
@@ -158,6 +163,9 @@ fn parse_source(
             "--numerator-symmetry-assistance" => result.numerator_symmetry_assistance = true,
             "--sector-symmetry-assistance" => result.sector_symmetry_assistance = true,
             "--selective-symmetry-feedback" => result.selective_symmetry_feedback = true,
+            "--local-dimensional-recurrence-assistance" => {
+                result.local_dimensional_recurrence_assistance = true
+            }
             "--sector-symmetry-policy" => {
                 let value = next_utf8_value(&mut args, option)?;
                 result.sector_symmetry_policy = Some(match value.as_str() {
@@ -369,6 +377,13 @@ fn parse_source(
             "--selective-symmetry-feedback requires exact sector refinement without dynamic saved-rule or separate circuit providers",
         ));
     }
+    if result.local_dimensional_recurrence_assistance
+        && result.refinement_strategy == Some(crate::MasterRefinementStrategy::ModularCircuits)
+    {
+        return Err(ArgError::InvalidCombination(
+            "--local-dimensional-recurrence-assistance requires exact refinement",
+        ));
+    }
     Ok(Command::WalkMasterReduce(result))
 }
 
@@ -388,6 +403,7 @@ pub(super) fn parse_publish(args: impl Iterator<Item = OsString>) -> Result<Comm
         || args.sector_symmetry_policy.is_some()
         || args.sector_symmetry_saved_projection.is_some()
         || args.selective_symmetry_feedback
+        || args.local_dimensional_recurrence_assistance
         || args.finite_feedback.is_some()
         || args.containing_sector_depth != 0
         || !args.collection_artifacts.is_empty()
@@ -720,6 +736,7 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     options.sector_symmetry_policy = args.sector_symmetry_policy;
     options.sector_symmetry_saved_projection = args.sector_symmetry_saved_projection;
     options.selective_symmetry_feedback = args.selective_symmetry_feedback;
+    options.local_dimensional_recurrence_assistance = args.local_dimensional_recurrence_assistance;
     options.finite_feedback = args.finite_feedback;
     options.normalization_profile = args.normalization_profile;
     options.max_relation_columns = args.max_relation_columns;
@@ -1512,6 +1529,55 @@ mod tests {
                 .is_err()
             );
         }
+    }
+
+    #[test]
+    fn local_dimensional_assistance_is_standalone_exact_and_refine_only() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        let Command::WalkMasterReduce(default) =
+            parse(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert!(!default.local_dimensional_recurrence_assistance);
+        let Command::WalkMasterReduce(local) = parse(
+            base.into_iter()
+                .chain(["--local-dimensional-recurrence-assistance"])
+                .map(OsString::from),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert!(local.local_dimensional_recurrence_assistance);
+        assert!(!local.sector_symmetry_assistance);
+        assert!(
+            parse(
+                base.into_iter()
+                    .chain([
+                        "--local-dimensional-recurrence-assistance",
+                        "--refinement-strategy",
+                        "modular-circuits"
+                    ])
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+        assert!(
+            parse_publish(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--local-dimensional-recurrence-assistance"
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
     }
 
     #[test]

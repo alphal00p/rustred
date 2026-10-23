@@ -7,6 +7,7 @@ mod collection;
 mod finite_provenance;
 mod fresh;
 mod inherited;
+mod local_dimension;
 #[cfg(feature = "reconstruction")]
 mod modular;
 #[cfg(not(feature = "reconstruction"))]
@@ -129,6 +130,10 @@ pub struct MasterReductionOptions {
     /// New equations remain auxiliary and never enlarge the raw master roster.
     /// This opt-in exact strategy is immutable across a resumed phase.
     pub selective_symmetry_feedback: bool,
+    /// Add fixed-d equations from replayed localized dimensional-pair witnesses.
+    /// The finite original-key cohort is prepared once; no shifted-dimensional
+    /// integral is admitted into the runtime master roster.
+    pub local_dimensional_recurrence_assistance: bool,
     /// Re-eliminate retained family-qualified finite rows after full-U aliases.
     /// New refinements default to enabled; omitted on resume uses the snapshot.
     /// Publication only transports previously proved maps.
@@ -169,6 +174,7 @@ impl MasterReductionOptions {
             sector_symmetry_policy: None,
             sector_symmetry_saved_projection: None,
             selective_symmetry_feedback: false,
+            local_dimensional_recurrence_assistance: false,
             finite_feedback: None,
             normalization_profile: None,
             max_relation_columns: None,
@@ -303,6 +309,7 @@ fn load_session_with_policy(
     fresh::validate(directory, &report, &session)?;
     numerator_symmetry::validate(directory, &session, &report)?;
     sector_symmetry::validate(directory, &session, &report)?;
+    local_dimension::validate(directory, &session, &report)?;
     selective_symmetry::validate(directory, &session, &report)?;
     if modular::from_report(&report)? == MasterRefinementStrategy::ModularCircuits
         && (report["modular_state"].is_object() || report["status"] == "completed_nonminimal")
@@ -390,6 +397,8 @@ fn master_reduce_source(
         || options.circuit_symmetry_assistance
         || options.numerator_symmetry_assistance
         || options.sector_symmetry_assistance
+        || options.local_dimensional_recurrence_assistance
+        || options.selective_symmetry_feedback
         || options.finite_feedback.is_some()
         || options.containing_sector_depth != 0
         || !options.collection_artifacts.is_empty())
@@ -430,6 +439,11 @@ fn master_reduce_source(
     }
     let options = &effective_options;
     selective_symmetry::validate_options(
+        options,
+        resumed.as_ref(),
+        modular::for_phase(options, resumed.as_ref())?,
+    )?;
+    local_dimension::validate_options(
         options,
         resumed.as_ref(),
         modular::for_phase(options, resumed.as_ref())?,
@@ -529,6 +543,9 @@ fn master_reduce_source(
     report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);
     report["numerator_symmetry_assistance"] = json!(options.numerator_symmetry_assistance);
     report["sector_symmetry_assistance"] = json!(options.sector_symmetry_assistance);
+    if options.local_dimensional_recurrence_assistance {
+        report["local_dimensional_recurrence_assistance"] = json!(true);
+    }
     if !options.resume {
         selective_symmetry::record(options, &mut report);
     }

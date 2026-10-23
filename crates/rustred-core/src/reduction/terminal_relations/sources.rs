@@ -9,7 +9,14 @@ pub(super) struct Sources {
 }
 impl Sources {
     pub fn new(family: &IntegralFamily) -> Result<Self, TerminalRelationError> {
-        let generator = ParametricIbpGenerator::try_new(family).map_err(algebra)?;
+        Self::new_with_config(family, crate::identity::ParametricIbpConfig::default())
+    }
+    pub(super) fn new_with_config(
+        family: &IntegralFamily,
+        config: crate::identity::ParametricIbpConfig,
+    ) -> Result<Self, TerminalRelationError> {
+        let generator =
+            ParametricIbpGenerator::try_new_with_config(family, config).map_err(algebra)?;
         let context = generator.context().clone();
         let batch = generator.prepare_ordinary_ibp().map_err(algebra)?;
         let generated = (0..batch.len()).map(|i| batch.generate(i)).collect();

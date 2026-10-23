@@ -340,6 +340,7 @@ fn load_member(directory: &Path, member: &Value) -> Result<TerminalRelationSessi
     super::numerator_symmetry::validate(directory, &session, member)?;
     super::sector_symmetry::validate(directory, &session, member)?;
     super::selective_symmetry::validate(directory, &session, member)?;
+    super::local_dimension::validate(directory, &session, member)?;
     Ok(session)
 }
 
@@ -359,6 +360,7 @@ fn copy_member(source: &Path, output: &Path, member: &Value) -> Result<Value, Ap
     super::numerator_symmetry::inherit(source, output, member)?;
     super::sector_symmetry::inherit(source, output, member)?;
     super::selective_symmetry::inherit(source, output, member)?;
+    super::local_dimension::inherit(source, output, member)?;
     let mut member = member.clone();
     member["native_state"] = write_state(
         output,
@@ -388,6 +390,9 @@ fn primary_member(report: &Value) -> Result<Value, AppError> {
         "sector_symmetry_projection_checkpoint",
         "selective_symmetry_feedback_enabled",
         "selective_symmetry_feedback",
+        "local_dimensional_recurrence_assistance",
+        "local_dimensional_recurrence_preparation",
+        "local_dimensional_recurrence_certificate",
         "inherited_equation_authority",
     ] {
         if let Some(value) = report.get(field) {

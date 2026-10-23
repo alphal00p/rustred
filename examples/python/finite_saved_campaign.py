@@ -661,6 +661,7 @@ def _public_locked(args, campaign, binary, *, apply, startup_progress):
         sector_symmetry_policy=getattr(args, "sector_symmetry_policy", None),
         sector_symmetry_saved_projection=getattr(args, "sector_symmetry_saved_projection", None),
         selective_symmetry_feedback=getattr(args, "selective_symmetry_feedback", None),
+        local_dimensional_recurrence_assistance=getattr(args, "local_dimensional_recurrence_assistance", None),
         normalization_profile=getattr(args, "normalization_profile", None),
         collection_artifacts=getattr(args, "collection_artifact", None),
         finite_feedback=getattr(args, "finite_feedback", None),

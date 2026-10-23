@@ -13,6 +13,7 @@ mod condition_merge;
 mod elimination;
 mod execution;
 mod feedback;
+mod local_dimension;
 #[cfg(feature = "reconstruction")]
 mod modular;
 mod proved;
@@ -40,6 +41,11 @@ pub use assistance::TerminalRelationFiniteProvider;
 pub use authorized_basis::TerminalRelationEquationBasis;
 pub use execution::{
     TerminalRelationExecutionOptions, TerminalRelationExecutionProgress, TerminalRelationExecutor,
+};
+pub use local_dimension::{
+    LocalDimensionRecurrenceControl, LocalDimensionRecurrenceError,
+    LocalDimensionRecurrenceOptions, LocalDimensionRecurrencePlan,
+    LocalDimensionRecurrenceProgress, LocalDimensionRecurrenceStatistics,
 };
 #[cfg(feature = "reconstruction")]
 pub use modular::{
