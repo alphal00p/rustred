@@ -577,10 +577,17 @@ fn compressed_terminal_export_and_legacy_raw_load_have_identical_maps_and_metada
     )
     .unwrap();
     let raw = load_saved_application::<1>(&runtime, Default::default()).unwrap();
+    // Runtime loading prepares owners lazily for both transports, unlike the
+    // eager source fixture. All other mathematical and operational metadata
+    // must remain identical.
+    assert_eq!(original.metadata["owner_preparation"], "eager");
+    let mut runtime_metadata = original.metadata.clone();
+    runtime_metadata["owner_preparation"] = json!("on_first_use");
+    assert_eq!(compressed.metadata, raw.metadata);
     for restored in [&compressed, &raw] {
         assert_eq!(restored.terminals.rows, original.terminals.rows);
         assert_eq!(restored.terminals.remaining, original.terminals.remaining);
-        assert_eq!(restored.metadata, original.metadata);
+        assert_eq!(restored.metadata, runtime_metadata);
         assert_eq!(restored.inputs.selection, original.inputs.selection);
         assert_eq!(restored.inputs.queries, original.inputs.queries);
     }
