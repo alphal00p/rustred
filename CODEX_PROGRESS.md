@@ -1,5 +1,43 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## Both requested stages delivered (October 23, 01:12 UTC)
+
+Final implementation commit6083f79f on codex/selective-symmetry-dimrec; serial
+stage2 fallback0c881ccb and old user build remain intact. Root full Python314
+tests/one skip passes; native890passes/five ignores passes; independent source,
+math, lifecycle and final command audits pass. Final doc wording distinguishes
+new finite ordinary-IBP combinations from new parametric-rule generation.
+
+Full five-loop parallel16 witness measurement COMPLETE/exit0/uncensored:
+908.901s wall,2382.297CPU,9.879GBpeak, source339.186s,cold344.730s,
+join19.801s,ordinary172.532s. All939maps and136790inheritedguards pass.
+Sourcecapsule/pure/final native bytes IDENTICAL to serial; finalBLAKE3
+9e5be823167103b5c3bca471a4483d381c3ceb7670ad5cdcde8d3a98df310b20.
+Basis652->652; no new local-dimensional rank gain. Oldserial1254.158s versus
+newparallel908.901s is27.5%lesswall but CROSS-REVISION, not matched same-binary
+five-loop performance evidence. CPU rises; observedwholemean2.62cores, not16.
+Geometry nomination~283s stays serial. No further tuning follows this delivery.
+Evidence: TMP/local-dimension-acceptance-20261023/parallel-v1/
+five-loop-stage1-652-16w/{process.receipt.json,native/receipt.json}.
+
+Matched same-binary H pairs reproduce1.62x whole-client benefit, same exactbytes.
+Selective stage1's actual new five-loop dependencies remain659->652 in one
+complete selected round; the30min pilot did not exhaust the selected worklist.
+Neither method proves minimality or unrestricted family closure. Local pairs
+remain experimental/no-gain here. All owned pilots, wrappers, deadline guards
+and tests finished; no production files/processes/signals touched.
+
+Release/commands: TMP/releases/20261023-local-dimension-parallel/{rustred,
+workflow.sh,README.md}; binarySHA256
+ca0f3fb1205f9d479551e4444f865b00cd08ffb605785de66ad0c512b5c55fdd.
+Source workflow -> retain stopped unfinished maps if needed -> rrfeedback ->
+after completion rrdimension. Ctrl+C/wait then rr --refine-masters resumes the
+same phase; rr --finalize-refinement retains accepted partial maps for a switch;
+rrinspect shows latest publication. A normally completed phase needs no finalize.
+Frozen code/commands are ready for USER deployment; no live campaign was changed.
+Plan states delivered; further optimizations/research deferred. Historical broad
+tool goal remains paused, unchanged. Final documentation commit/push follows.
+
 ## Final source freeze and validated workflow (October 23, 01:04 UTC)
 
 Both requested stages are implemented in order on isolated branch

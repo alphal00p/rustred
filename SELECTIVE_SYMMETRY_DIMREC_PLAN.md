@@ -122,3 +122,17 @@ Record results, failures, agents, exact commands, hashes, paths and next steps
 in CODEX_PROGRESS.md. No reference PDFs, licenses, caches, large artifacts or
 campaign outputs are committed. Commands are delivered only for validated paths;
 unsupported/censored/no-gain experiments are reported honestly.
+
+## Delivery outcome
+
+Both stages implemented and tested in order, followed by the single bounded
+source-parallel correction. Final 890 native passes and 314 Python tests pass;
+independent source/math/lifecycle audits pass. Selective feedback adds seven
+verified dependencies on the owned five-loop input (659 to 652); its bounded
+pilot does not finish the whole selected fixed point. Local pairs add no rank
+on the complete lower/five-loop cohorts. Matched H pairs reproduce a 1.62x
+whole-client parallel benefit; the completed full five-loop comparison is
+cross-revision (1254.158s serial to 908.901s parallel) and explicitly not a
+matched same-binary performance claim. Exact source/pure/final bytes agree.
+All owned processes exited; production untouched. Frozen optimized build,
+serial rollback, staged commands and full report are prepared for user choice.

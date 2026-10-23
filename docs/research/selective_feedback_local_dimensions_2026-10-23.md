@@ -212,10 +212,34 @@ worker/cancellation context stays serial; active preparation and controlled
 replay use the existing refinement worker budget.
 
 Evidence: `TMP/local-dimension-acceptance-20261023/parallel-v1/h-pairs.summary.json`.
-A separate full five-loop 16-worker measurement is being completed; its
-comparison against the serial result above is cross-revision, not a matched
-same-binary pair. No further source selection or optimization is included in
-this delivery.
+A separate full five-loop 16-worker measurement **completed**, uncensored:
+
+| Component | Serial fallback seconds | Parallel correction, 16 workers, seconds |
+|---|---:|---:|
+| Whole client | 1,254.158 | 908.901 |
+| Source preparation | 485.127 | 339.186 |
+| Complete cold source replay | 484.004 | 344.730 |
+| Pure-source join | 24.799 | 19.801 |
+| Ordinary tail | 214.995 | 172.532 |
+| CPU seconds | 1,243.275 | 2,382.297 |
+| Peak RSS, decimal GB | 10.033 | 9.879 |
+
+The whole-client decrease is 27.5%, but this is a **cross-revision comparison**,
+not two matched same-binary pairs or a statistically established five-loop
+speedup. CPU cost increases, and average observed utilization is only about
+2.62 cores of the 16-worker budget. Serial geometry nomination takes about
+283 seconds before independent witness jobs start, limiting the gain. No new
+performance tuning or source-selection strategy follows in this delivery.
+
+The complete source capsule, pure-source native state and final ordinary native
+state are all **byte-identical** to the serial results. All 939 maps compose,
+all 136,790 inherited guard records survive, and full source/native cold checks
+pass. The basis remains **652 → 652**, both pure and after ordinary work.
+The final native-state BLAKE3 is
+`9e5be823167103b5c3bca471a4483d381c3ceb7670ad5cdcde8d3a98df310b20`.
+Evidence: `parallel-v1/five-loop-stage1-652-16w/process.receipt.json` and
+`native/receipt.json`. All owned pilots, shutdown guards and test processes
+have exited; production remains untouched.
 
 ## Interfaces, exact authority and lifecycle
 
