@@ -409,10 +409,10 @@ impl PyIbpFamily {
     /// ``residuals`` are the unresolved basis at this depth, not certified masters.
     /// ``preferred_masters`` are searched like targets and become residuals by
     /// an exact basis change: each one the search reduces replaces a residual
-    /// of its own sector, and dividing by a pivot adds its numerator to the
+    /// of any sector, and dividing by a pivot adds its numerator to the
     /// nonzero conditions of the rules that use it. A preferred master outside
-    /// the cut, in a zero sector, reducing to zero or to lower sectors, or
-    /// dependent on other preferred masters of its sector raises ``ValueError``.
+    /// the cut, in a zero sector, reducing to zero, or
+    /// dependent on other preferred masters raises ``ValueError``.
     /// ``until_stable`` searches depths ``0..=max_depth`` and stops once two
     /// deeper searches reproduce the residuals; see ``stable_depth``.
     #[pyo3(signature = (targets, *, max_depth=2, include_lorentz=false, max_targets=1024, preferred_masters=None, until_stable=false))]
