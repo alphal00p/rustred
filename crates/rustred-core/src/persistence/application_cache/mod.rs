@@ -152,15 +152,18 @@ impl ApplicationCacheRecord {
     }
 }
 
-/// Per-chunk/per-record bounds, not a process-wide RSS guarantee. The decoder
-/// retains at most one chunk and one requested record; native Symbolica scratch
-/// and its process-global symbol registry retain their existing contracts.
+/// Per-chunk/per-record bounds, not a process-wide RSS guarantee. The borrowed
+/// decoder retains one requested record temporarily. The owned decoder also
+/// applies the decoded-coefficient census to its shared unique table. Native
+/// Symbolica scratch and its process-global registry keep their existing contracts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ApplicationCacheIoLimits {
     pub binary: BinaryIoLimits,
     pub max_arity: usize,
     pub max_identity_bytes: usize,
     pub max_records: usize,
+    /// Retained row/key and coefficient-frame index storage, excluding payloads.
+    pub max_index_owned_bytes: usize,
     pub max_terms_per_record: usize,
     pub max_guards_per_record: usize,
     pub max_decoded_coefficient_terms: usize,
@@ -177,6 +180,7 @@ impl Default for ApplicationCacheIoLimits {
             max_arity: 64,
             max_identity_bytes: 1_000_000,
             max_records: 4096,
+            max_index_owned_bytes: 64 * 1024 * 1024,
             max_terms_per_record: 1_000_000,
             max_guards_per_record: 1_000_000,
             max_decoded_coefficient_terms: 16_000_000,
@@ -185,7 +189,9 @@ impl Default for ApplicationCacheIoLimits {
     }
 }
 
-pub use codec::{ApplicationCacheChunk, encode_application_cache_chunk};
+pub use codec::{
+    ApplicationCacheChunk, OwnedApplicationCacheChunk, encode_application_cache_chunk,
+};
 
 fn validate_coefficient(
     value: &Coefficient,

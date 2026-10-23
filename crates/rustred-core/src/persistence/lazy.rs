@@ -108,6 +108,17 @@ impl LazyDecodedCoefficientTable {
             .len())
     }
     pub fn coefficient(&self, id: CoefficientId) -> Result<Arc<Coefficient>, BinaryIoError> {
+        self.coefficient_with_admission(id, |_| Ok(()))
+    }
+
+    /// Check a newly decoded coefficient before retaining it. The callback runs
+    /// under the table lock exactly once per successful first admission. Existing
+    /// entries bypass it; callers must keep one fixed policy for a shared table.
+    pub(crate) fn coefficient_with_admission(
+        &self,
+        id: CoefficientId,
+        admit: impl FnOnce(&Coefficient) -> Result<(), BinaryIoError>,
+    ) -> Result<Arc<Coefficient>, BinaryIoError> {
         let frame = self
             .frames
             .get(id.index())
@@ -141,6 +152,7 @@ impl LazyDecodedCoefficientTable {
             self.limits,
             false,
         )?);
+        admit(&value)?;
         imported.coefficients.insert(id.index(), value.clone());
         Ok(value)
     }

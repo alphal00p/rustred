@@ -1063,3 +1063,89 @@ powers=[0,1,1]
         1
     );
 }
+
+#[test]
+fn saved_application_persistent_file_preserves_terminal_substitutions_and_scope() {
+    use rustred::persistence::application_cache::{ApplicationCacheKey, ApplicationCacheRecord};
+    use rustred::reduction::{GuardedCacheBackingError, GuardedIntermediateCapture};
+    struct Capture(BTreeMap<ApplicationCacheKey, ApplicationCacheRecord>);
+    impl GuardedIntermediateCapture for Capture {
+        fn wants(
+            &mut self,
+            _: &ApplicationCacheKey,
+            _: &CoefficientContext,
+        ) -> Result<bool, GuardedCacheBackingError> {
+            Ok(true)
+        }
+        fn store_completed(
+            &mut self,
+            record: &ApplicationCacheRecord,
+            _: &CoefficientContext,
+        ) -> Result<(), GuardedCacheBackingError> {
+            self.0.insert(record.key.clone(), record.clone());
+            Ok(())
+        }
+    }
+    let scratch = Scratch::new();
+    let mut prepared = prepared_fixture(&scratch.0.join("source"));
+    let context = prepared.family().coefficient_context().clone();
+    let binding = prepared.cache_binding([3; 32]);
+    let mut capture = Capture(Default::default());
+    let key = IntegralKey::try_new([4]).unwrap();
+    let cold = prepared
+        .reduce_linear_combination_with_cache(
+            [(key.clone(), context.one())],
+            &binding,
+            None,
+            Some(&mut capture),
+        )
+        .unwrap();
+    let root = prepared
+        .completed_cache_record(&binding, &ApplicationCacheKey::route(&key))
+        .unwrap()
+        .unwrap();
+    assert_eq!(root, capture.0[&root.key]);
+    for record in capture.0.values() {
+        prepared
+            .validate_completed_cache_record(&binding, record)
+            .unwrap();
+    }
+    let records = capture.0.into_values().collect::<Vec<_>>();
+    let (bytes, identity) = SavedApplicationCacheFile::encode_generated(
+        &binding,
+        &records,
+        &context,
+        Default::default(),
+    )
+    .unwrap();
+    let mut file = SavedApplicationCacheFile::decode_generated(
+        &bytes,
+        &binding,
+        &identity,
+        Default::default(),
+    )
+    .unwrap();
+    prepared.clear_cache().unwrap();
+    let warm = prepared
+        .reduce_routed_linear_combination_with_cache(
+            [(key, context.one())],
+            &binding,
+            Some(&mut file),
+            None,
+        )
+        .unwrap();
+    assert_eq!(cold.terms(), warm.terms());
+    assert_eq!(cold.nonzero_conditions(), warm.nonzero_conditions());
+    assert_eq!(warm.statistics().persistent_cache.requested_root_hits, 1);
+    assert_eq!(warm.statistics().work.rule_applications(), 0);
+    assert!(
+        prepared
+            .reduce_linear_combination_with_cache(
+                [(IntegralKey::try_new([3]).unwrap(), context.one())],
+                &binding,
+                Some(&mut file),
+                None
+            )
+            .is_err()
+    );
+}

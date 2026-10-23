@@ -12,7 +12,8 @@ mod trace;
 pub use application::{
     CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
     CandidateRoutedApplicationStatistics, CandidateRoutedApplicationStatus,
-    CandidateRoutedCacheCensus, CandidateRoutedCachePolicy, CandidateRoutedCacheStatistics,
+    CandidateRoutedCacheCensus, CandidateRoutedCacheExportStatistics, CandidateRoutedCachePolicy,
+    CandidateRoutedCacheStatistics, CandidateRoutedPersistentCacheStatistics,
     CandidateRoutedReduction, RoutedCandidateApplication,
 };
 

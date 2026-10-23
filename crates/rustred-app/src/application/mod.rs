@@ -59,7 +59,9 @@ pub use routed_campaign::{
 pub use saved_application::{
     PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,
     SavedApplicationCacheBundleWriter, SavedApplicationCacheCopyStatistics,
-    SavedApplicationCacheLookupOutcome, SavedApplicationCachePack, SavedApplicationCachePackLimits,
+    SavedApplicationCacheFile, SavedApplicationCacheFileIdentity, SavedApplicationCacheFileLimits,
+    SavedApplicationCacheFileStatistics, SavedApplicationCacheLookupOutcome,
+    SavedApplicationCachePack, SavedApplicationCachePackLimits,
     SavedApplicationCachePackStatistics, SavedApplicationCacheWriter, SavedApplicationDomain,
     SavedApplicationIntegral, SavedApplicationOptions, SavedApplicationPreparationStatistics,
     SavedApplicationProduct, SavedApplicationProductChartStatistics,

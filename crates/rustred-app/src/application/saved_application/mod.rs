@@ -6,7 +6,13 @@
 //! they are application data, not new source or closure certificates.
 #[cfg(test)]
 mod admission_diagnostic;
+mod cache_file;
 mod cache_pack;
+mod persistent;
+pub use cache_file::{
+    SavedApplicationCacheFile, SavedApplicationCacheFileIdentity, SavedApplicationCacheFileLimits,
+    SavedApplicationCacheFileStatistics,
+};
 mod charts;
 mod codec;
 mod options;

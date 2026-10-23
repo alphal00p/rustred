@@ -26,6 +26,11 @@ use crate::{
 /// this runner owns no algebra, terminal inference or eviction algorithm.
 pub trait CachePreparationBackend {
     fn bindings(&self) -> &[ApplicationCacheBinding];
+    /// Native operational root stage. Single-solver programs use GuardedRoot;
+    /// saved routed applications override this with Route.
+    fn root_key(&self, target: &CachePreparationTarget) -> ApplicationCacheKey {
+        ApplicationCacheKey::guarded_root(target.integral())
+    }
     fn context(&self, namespace: usize) -> Result<&CoefficientContext, AppError>;
     /// Apply the explicit preparation RAM/policy without enlarging unrelated
     /// native arithmetic or work allowances.
@@ -468,7 +473,7 @@ pub(super) fn prepare_application_cache_with_progress_clock(
         let mut capture_storage_failure = false;
         let result = (|| {
             backend.validate_entry(target)?;
-            let key = ApplicationCacheKey::guarded_root(target.integral());
+            let key = backend.root_key(target);
             if let Some(record) = pending.get(target.namespace(), &key) {
                 backend.validate_completed_record(target.namespace(), record)?;
                 pending.mark_selected_root(target.namespace(), &key)?;

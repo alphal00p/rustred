@@ -820,3 +820,63 @@ Export to a new local directory outside tracked source. Keep that entire
 directory together when hosting it. The current measurements and incomplete
 acceptance items are recorded separately in [CODEX_PROGRESS.md](../CODEX_PROGRESS.md);
 successful sampled reductions do not establish unrestricted family closure.
+
+## Compact saved-application cache files
+
+`PreparedSavedApplication::cache_binding` constructs the native Route/Apply
+namespace from a consumer-authenticated semantic digest. That digest must cover
+all immutable programs, entry scope, verified routes, zero authority, terminal
+substitution tables and catalogue/normalization conventions. A release label or
+producer revision is provenance, not a replacement for this binding. Cache file
+inventories must not be included in the digest, so adding a cache cannot change
+its own identity.
+
+`reduce_linear_combination_with_cache` and
+`reduce_routed_linear_combination_with_cache` accept the existing
+`GuardedCacheBacking` and `GuardedIntermediateCapture` interfaces. Entry admission,
+source guards, operational cycles, valid owner/route structure and native memory
+budgets still apply. A hit is an exact previously completed native reduction
+under the same immutable binding, with its entire nonzero-condition vector.
+Statistics distinguish requested-root hits from intermediate hits and Route
+from Apply hits. Terminal inventory checks use authenticated deferred-owner
+descriptors without eagerly preparing unrelated formulas.
+
+Capture runs only under `UnresolvedPolicy::Reject`, after the existing native
+combine has completed and assembled that node's own subtree guards. No diagnostic
+trace is used as a reduction. Captured descendants can survive a later failed
+parent; no active parent is exported. `export_completed_with_statistics` also
+supports ordinary Preserve sessions: it omits every node whose final expression
+contains an undeclared terminal and reports the skipped count. A parent in which
+unknown terms cancel exactly is a complete result and can be exported with all
+its original conditions. Neither capture nor export establishes broader entry
+coverage. `completed_cache_record` retrieves one validated resident record,
+and `validate_completed_cache_record` supplies the same native authority for
+preparation resume. The generic preparation backend's `root_key` hook selects
+Route keys for this layer while retaining GuardedRoot as its default.
+
+`SavedApplicationCacheFile` is one deterministic gzip member containing one
+bounded native state-aware cache chunk and its decoded digest/length. All records
+share one Symbolica coefficient table. The default and hard transport maxima
+are 95 MiB compressed and 1 GiB decoded; callers may impose tighter limits. Exact
+key/index storage and the cumulative memoized coefficient census have independent
+bounds. The native Symbolica state imports once per opened file; forked readers
+share that table, and repeated lookups neither copy nor re-import it. The file
+contains no multipart directory or tar archive.
+
+`encode_generated` returns bytes and a `SavedApplicationCacheFileIdentity` with
+compressed/decoded byte counts and BLAKE3 digests. `open_generated` verifies that
+externally authenticated identity. `open` supports an explicit trusted local
+path using the self-described decoded identity; its computed compressed identity
+can be recorded by the caller. Both reject incorrect bindings, corrupt framing,
+CRC/digest/length mismatches, trailing bytes, extra gzip members and configured
+allocation/decoding limits. These remain trusted generated native codecs,
+not hostile algebra parsers. Publication and atomic engine replacement remain
+consumer responsibilities.
+
+Checkpoint preparation can retain the existing immutable chunk directories.
+`SavedApplicationCachePack::visit_completed_records` validates and decodes each
+captured chunk once, emits only the newest record for each exact key, and bounds
+both deduplication metadata and aggregate output coefficients. This supports
+compaction into the single distributed file without repeated per-key chunk
+imports. A complete final workload and a successfully finalized file are separate
+acceptance conditions; an interrupted preparation is never a complete cache.

@@ -102,18 +102,25 @@ mod tests {
 }
 
 #[derive(Default)]
-struct Request<'a, const N: usize> {
+pub(super) struct Request<'a, const N: usize> {
     algebra: ReductionRequest,
-    stats: CandidateRoutedApplicationStatistics,
+    pub(super) stats: CandidateRoutedApplicationStatistics,
     seen: BTreeSet<Node<N>>,
     active: BTreeSet<Node<N>>,
     stack: Vec<Frame<N>>,
-    pins: DependencyPins<N>,
+    pub(super) pins: DependencyPins<N>,
     progress: Option<Progress<'a>>,
     cancel: Option<&'a AtomicBool>,
+    pub(super) persistent: super::persistent::PersistentRequest<'a>,
 }
 
-impl<const N: usize> Request<'_, N> {
+impl<'a, const N: usize> Request<'a, N> {
+    pub(super) fn with_persistent(persistent: super::persistent::PersistentRequest<'a>) -> Self {
+        Self {
+            persistent,
+            ..Default::default()
+        }
+    }
     fn check_cancel(&self) -> Result<(), CandidateRoutedError> {
         if self
             .cancel
@@ -212,7 +219,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         admission: CandidateEntryAdmission<'_, N>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        self.reduce_observed_request(terms, admission, None, None)
+        self.reduce_observed_request(terms, admission, None, None, Default::default())
     }
 
     /// Cooperatively cancel an exact request between complete operational
@@ -226,7 +233,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         admission: CandidateEntryAdmission<'_, N>,
         cancel: &AtomicBool,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        self.reduce_observed_request(terms, admission, None, Some(cancel))
+        self.reduce_observed_request(terms, admission, None, Some(cancel), Default::default())
     }
 
     /// Observe one exact request on its calling thread. No observation runs
@@ -247,6 +254,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             admission,
             Some(Progress::new(interval, &mut observer)),
             None,
+            Default::default(),
         )
     }
 
@@ -270,20 +278,25 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             admission,
             Some(Progress::new(interval, &mut observer)),
             Some(cancel),
+            Default::default(),
         )
     }
 
-    fn reduce_observed_request<'a>(
+    pub(super) fn reduce_observed_request<'a>(
         &mut self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         admission: CandidateEntryAdmission<'_, N>,
         progress: Option<Progress<'a>>,
         cancel: Option<&'a AtomicBool>,
+        persistent: super::persistent::PersistentRequest<'a>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
         let observed = progress.is_some();
+        let has_callbacks =
+            observed || persistent.backing.is_some() || persistent.capture.is_some();
         let mut request = Request {
             progress,
             cancel,
+            persistent,
             ..Default::default()
         };
         if observed && self.cache_policy.evicts() {
@@ -311,7 +324,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         };
         // The ordinary path has no clock, snapshot construction or unwind
         // boundary. Observed callbacks must not strand the eviction index.
-        let result = if observed {
+        let result = if has_callbacks {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
         } else {
             Ok(run())
@@ -321,6 +334,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         // measured work, never active or partially combined nodes.
         self.work.merge_work(request.stats.work);
         self.cache_work.merge(request.stats.cache);
+        if result.is_ok() {
+            request.persistent.report(request.stats.persistent_cache);
+        }
         match result {
             Ok(result) => result,
             Err(panic) => std::panic::resume_unwind(panic),
@@ -343,7 +359,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         result
     }
 
-    fn reduce_routed_request(
+    pub(super) fn reduce_routed_request(
         &mut self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         admission: CandidateEntryAdmission<'_, N>,
@@ -470,6 +486,13 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         }
         request.check_cancel()?;
         request.stats.requested_targets = entries.len();
+        if request.persistent.backing.is_some() {
+            request.persistent.requested_roots.extend(
+                entries
+                    .keys()
+                    .map(crate::persistence::application_cache::ApplicationCacheKey::route),
+            );
+        }
         let mut output = BTreeMap::new();
         for (target, factor) in entries {
             request.check_cancel()?;
@@ -524,11 +547,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         )?;
         let mut unresolved = BTreeSet::new();
         for key in output.keys() {
-            if !self
-                .owners
-                .owner(&support::<N>(key))?
-                .is_some_and(|owner| owner.batches[0].terminals.contains(key))
-            {
+            if !self.terminal_is_declared(key)? {
                 unresolved.insert(key.clone());
             }
         }
@@ -611,11 +630,16 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                         .into());
                     }
                     self.cache_insert(
-                        node,
+                        node.clone(),
                         output,
                         conditions,
                         &mut request.pins,
                         &mut request.stats.cache,
+                    )?;
+                    self.capture_persistent_node(
+                        &node,
+                        &mut request.persistent,
+                        &mut request.stats.persistent_cache,
                     )?;
                     continue;
                 }
@@ -659,6 +683,21 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             }
             if base.is_zero(key) {
                 self.cache_insert_sparse(node, BTreeMap::new(), conditions, request)?;
+                continue;
+            }
+            if self.lookup_persistent_node(
+                &node,
+                &mut conditions,
+                &mut request.persistent,
+                &mut request.stats.persistent_cache,
+            )? {
+                let record = request
+                    .persistent
+                    .loaded
+                    .take()
+                    .expect("lookup sets completed record");
+                self.cache_insert_sparse(node.clone(), record.terms, conditions, request)?;
+                request.stats.work.record_cache_hit();
                 continue;
             }
             request.active.insert(node.clone());
@@ -864,11 +903,16 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             context.limits,
         )?;
         self.cache_insert(
-            node,
+            node.clone(),
             terms,
             conditions,
             &mut request.pins,
             &mut request.stats.cache,
+        )?;
+        self.capture_persistent_node(
+            &node,
+            &mut request.persistent,
+            &mut request.stats.persistent_cache,
         )
     }
 }
