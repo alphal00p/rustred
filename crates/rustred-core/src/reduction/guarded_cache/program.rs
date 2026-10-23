@@ -17,11 +17,45 @@ use std::sync::Arc;
 
 const LAYER: &str = "closed-guarded-root-raw-unit-mass-v1";
 
-/// Immutable borrowed program plus exact persisted-byte identity. Construct
-/// once from the artifact decoded by the loader; no deep artifact clone.
+#[derive(Clone)]
+enum ArtifactStorage<'a> {
+    Borrowed(&'a ClosedArtifact),
+    Shared(Arc<ClosedArtifact>),
+}
+
+impl std::ops::Deref for ArtifactStorage<'_> {
+    type Target = ClosedArtifact;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Borrowed(artifact) => artifact,
+            Self::Shared(artifact) => artifact,
+        }
+    }
+}
+
+/// Immutable program plus exact persisted-byte identity. Runtime loaders can
+/// share ownership without leaking artifacts or copying their polynomials.
+#[derive(Clone)]
 pub struct ClosedUnitMassProgram<'a> {
-    artifact: &'a ClosedArtifact,
+    artifact: ArtifactStorage<'a>,
     binding: ApplicationCacheBinding,
+}
+
+impl ClosedUnitMassProgram<'static> {
+    /// Own the decoded artifact and its authenticated source identity together.
+    /// Clones share the same immutable artifact and native cache identity.
+    pub fn from_shared(artifact: Arc<ClosedArtifact>, artifact_digest: [u8; 32]) -> Self {
+        let binding = ApplicationCacheBinding {
+            artifact_digest,
+            family_fingerprint: artifact.family_fingerprint().into(),
+            physical_arity: artifact.arity(),
+            layer: LAYER.into(),
+        };
+        Self {
+            artifact: ArtifactStorage::Shared(artifact),
+            binding,
+        }
+    }
 }
 
 impl<'a> ClosedUnitMassProgram<'a> {
@@ -31,7 +65,7 @@ impl<'a> ClosedUnitMassProgram<'a> {
     /// path later. A digest is an identity, not new mathematical authority.
     pub fn new(artifact: &'a ClosedArtifact, artifact_digest: [u8; 32]) -> Self {
         Self {
-            artifact,
+            artifact: ArtifactStorage::Borrowed(artifact),
             binding: ApplicationCacheBinding {
                 artifact_digest,
                 family_fingerprint: artifact.family_fingerprint().into(),
@@ -40,8 +74,8 @@ impl<'a> ClosedUnitMassProgram<'a> {
             },
         }
     }
-    pub fn artifact(&self) -> &'a ClosedArtifact {
-        self.artifact
+    pub fn artifact(&self) -> &ClosedArtifact {
+        &self.artifact
     }
     pub fn binding(&self) -> &ApplicationCacheBinding {
         &self.binding
@@ -50,7 +84,7 @@ impl<'a> ClosedUnitMassProgram<'a> {
         self.artifact.coefficient_context()
     }
     pub(super) fn artifact_identity(&self) -> usize {
-        self.artifact as *const ClosedArtifact as usize
+        self.artifact() as *const ClosedArtifact as usize
     }
     pub fn validate_entry(&self, target: &IntegralKey) -> Result<(), ReductionError> {
         self.artifact
@@ -210,7 +244,7 @@ impl<'a> ClosedUnitMassProgram<'a> {
                     Ok(())
                 };
                 let result = Reducer::reduce_artifact_unit_mass_guarded_capturing(
-                    self.artifact,
+                    &self.artifact,
                     target,
                     limits,
                     shared,
@@ -223,7 +257,7 @@ impl<'a> ClosedUnitMassProgram<'a> {
                 result?
             } else {
                 Reducer::reduce_artifact_unit_mass_guarded_with_lookup(
-                    self.artifact,
+                    &self.artifact,
                     target,
                     limits,
                     shared,

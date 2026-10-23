@@ -270,6 +270,45 @@ rule/coalescing work budget. The scoped native cache is cleared at entry and
 on success or error, while the outer product reducer can still cache the
 completed factor result. No new rules or terminal identities are discovered.
 
+## Preserving unresolved integrals
+
+Strict reduction remains the default. Set
+`SavedApplicationOptions.unresolved_policy = UnresolvedPolicy::Preserve` to
+apply the available rules while retaining uncovered integrals with their exact
+coefficients. `SavedApplicationReduction::unresolved()` lists the family-qualified
+output keys outside the declared terminal inventory after exact cancellation.
+These keys are unresolved integrals, not newly declared masters. Published
+terminal substitutions and every inherited nonzero condition remain in effect.
+
+In this mode the saved starting-domain union is advisory. `validate_entry`,
+`routed_entry_is_admitted`, `entry_regions`, and `route_entry_to_owner` keep their
+strict meanings, so an embedding application can warn about uncovered inputs.
+Rule applicability, source conditions, verified transports, descent, cycle checks,
+and arithmetic/resource limits remain mandatory. Invalid data or exhausted work
+allowances still fail; preserving a residual is not an error fallback.
+
+`CandidateReducer` and `RoutedCandidateApplication` expose the same policy through
+`set_unresolved_policy`, and their results expose `unresolved()`. A policy change
+requires an empty cache. Distributed guarded-cache programs always create strict
+sessions, even when constructed from a partial application's immutable program;
+their existing record validators still reject undeclared terminal terms. Partial
+results cannot be exported as complete prepared-cache records.
+
+Strict application-cache calls distinguish `AppErrorKind::UnresolvedReduction`
+(no applicable candidate rule) and `OutsideReductionScope` (the saved starting
+numerator-rank gate). An adapter can retry those two outcomes in a separate
+partial session. It must propagate other error kinds: source guards, structural
+root/arity errors, unsafe algebra, corrupt cache records, and work limits are
+not missing reduction coverage. Already completed descendant records remain valid.
+
+Strict factor-product composition similarly reports
+`VacuumProductReductionError::UnresolvedFactor { family, target }` when native
+candidate application lacks a complete terminal expansion. It does not cache a
+partial product. An embedding `VacuumFactorProvider` can preserve this distinction
+through its typed error using `error_is_missing_coverage`; the default is false.
+Adapters may retain the original higher-loop integral on that exact outcome.
+Unsafe algebra, source guards, invalid inputs, and resource failures remain errors.
+
 ## Operational budgets and reuse
 
 `SavedApplicationOptions` keeps mathematical scope separate from operational
@@ -358,6 +397,12 @@ let program = ClosedUnitMassProgram::new(&artifact, authenticated_source_digest)
 let mut cache = GuardedRootCache::new(&program, limits);
 let result = program.reduce_guarded_root(&target, &mut cache, limits, None)?;
 ```
+
+Runtime loaders can instead use
+`ClosedUnitMassProgram::from_shared(Arc::new(artifact), authenticated_source_digest)`.
+The program and its clones own the immutable artifact, allowing cache sessions
+to outlive loader-local variables without leaking memory or copying rule data.
+Borrowed and shared programs retain the same persisted cache binding and codec.
 
 The loader must supply the digest of the exact bytes that produced the artifact;
 do not derive identity from its path or loop count. Every call checks input

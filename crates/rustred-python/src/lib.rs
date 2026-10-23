@@ -858,7 +858,10 @@ fn python_exception_kind(kind: AppErrorKind) -> PythonExceptionKind {
         AppErrorKind::Limit => PythonExceptionKind::Limit,
         AppErrorKind::Lowering => PythonExceptionKind::Lowering,
         AppErrorKind::Derivation => PythonExceptionKind::Derivation,
-        AppErrorKind::Execution | AppErrorKind::Cancelled => PythonExceptionKind::Execution,
+        AppErrorKind::Execution
+        | AppErrorKind::UnresolvedReduction
+        | AppErrorKind::OutsideReductionScope
+        | AppErrorKind::Cancelled => PythonExceptionKind::Execution,
         AppErrorKind::License => PythonExceptionKind::License,
         AppErrorKind::Serialization => PythonExceptionKind::Serialization,
         AppErrorKind::OutputLimit => PythonExceptionKind::OutputLimit,
@@ -1072,6 +1075,14 @@ mod tests {
             (AppErrorKind::Lowering, PythonExceptionKind::Lowering),
             (AppErrorKind::Derivation, PythonExceptionKind::Derivation),
             (AppErrorKind::Execution, PythonExceptionKind::Execution),
+            (
+                AppErrorKind::UnresolvedReduction,
+                PythonExceptionKind::Execution,
+            ),
+            (
+                AppErrorKind::OutsideReductionScope,
+                PythonExceptionKind::Execution,
+            ),
             (AppErrorKind::License, PythonExceptionKind::License),
             (
                 AppErrorKind::Serialization,

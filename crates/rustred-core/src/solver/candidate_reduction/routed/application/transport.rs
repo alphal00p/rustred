@@ -5,6 +5,7 @@ use super::{
 use crate::algebra::Coefficient;
 use crate::family::IntegralKey;
 use crate::sector::symmetry::integral_transport::ExpansionError;
+use crate::solver::UnresolvedPolicy;
 use crate::solver::candidate_reduction::evaluator::CandidateEvaluator;
 use crate::solver::candidate_reduction::routed::CandidateRoutedError;
 use crate::solver::candidate_reduction::routed::trace::{charge, successor, support};
@@ -21,13 +22,18 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         &self,
         target: &IntegralKey,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        self.route_entry_in_request(target, &mut CandidateRoutedApplicationStatistics::default())
+        self.route_entry_in_request(
+            target,
+            &mut CandidateRoutedApplicationStatistics::default(),
+            UnresolvedPolicy::Reject,
+        )
     }
 
     pub(super) fn route_entry_in_request(
         &self,
         target: &IntegralKey,
         statistics: &mut CandidateRoutedApplicationStatistics,
+        unresolved_policy: UnresolvedPolicy,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
         let context = &self.context;
         let shared = &context.shared;
@@ -66,11 +72,12 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         statistics.requested_targets = 1;
         let support = support::<N>(target);
         let terms = if evaluator.is_zero(target) {
-            // The same installed certificate used by native traversal also
-            // applies before owner routing. A proved zero needs no owner or
-            // transport, but validation and input charges must still precede it.
+            // Installed zero authority precedes routing under either policy.
             BTreeMap::new()
-        } else if self.owners.contains(&support) {
+        } else if self.owners.contains(&support)
+            || (unresolved_policy == UnresolvedPolicy::Preserve
+                && !self.routes.contains_key(&support))
+        {
             BTreeMap::from([(target.clone(), shared.context.base().one())])
         } else {
             let route =
@@ -156,6 +163,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         Ok(CandidateRoutedReduction {
             family_fingerprint: context.family.fingerprint_owner(),
             terms,
+            unresolved: Default::default(),
             nonzero_conditions: conditions,
             statistics: *statistics,
         })

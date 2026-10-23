@@ -72,7 +72,28 @@ fn reduce_candidate_terms<const N: usize>(
     reduce_with_cache_census(family, terms, conditions, limits, |key, remaining| {
         // Existing guarded application validates entries and the complete warm
         // cache against its inclusive remaining grant BEFORE any cache hit.
-        let (decomposition, conditions, work) = reducer.reduce_unit_mass_guarded(key, remaining)?;
+        let (decomposition, conditions, work) = reducer
+            .reduce_unit_mass_guarded(key, remaining)
+            .map_err(|error| match error {
+                crate::solver::CandidateReductionError::Uncovered { target }
+                | crate::solver::CandidateReductionError::OutsideNumeratorRank { target, .. } => {
+                    Error::UnresolvedFactor {
+                        family: family_for_rows.fingerprint().to_owned(),
+                        target,
+                    }
+                }
+                error => Error::Provider {
+                    family: family_for_rows.fingerprint().to_owned(),
+                    target: key.clone(),
+                    message: error.to_string(),
+                },
+            })?;
+        if let Some(target) = decomposition.unresolved().first() {
+            return Err(Error::UnresolvedFactor {
+                family: family_for_rows.fingerprint().to_owned(),
+                target: target.clone(),
+            });
+        }
         let statistics = reducer.statistics();
         let result = VacuumFactorReduction {
             terms: decomposition
@@ -91,7 +112,7 @@ fn reduce_candidate_terms<const N: usize>(
                 cache_hits: work.cache_hits(),
             },
         };
-        Ok::<_, crate::solver::CandidateReductionError>((
+        Ok((
             result,
             CacheCensus {
                 integrals: statistics.cached_integrals(),

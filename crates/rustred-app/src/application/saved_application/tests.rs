@@ -86,6 +86,112 @@ fn maps_fixture() -> TerminalMaps {
 }
 
 #[test]
+fn partial_saved_application_loads_policy_without_changing_recorded_coverage() {
+    let scratch = Scratch::new();
+    let original = prepared_fixture(&scratch.0.join("source"));
+    let runtime = scratch.0.join("runtime");
+    original.export_runtime(&runtime).unwrap();
+    let mut strict = load_saved_application::<1>(&runtime, Default::default()).unwrap();
+    let mut partial = load_saved_application::<1>(
+        &runtime,
+        SavedApplicationOptions {
+            unresolved_policy: UnresolvedPolicy::Preserve,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let key = IntegralKey::try_new([3]).unwrap();
+    let one = partial.family().coefficient_context().one();
+    assert!(!partial.routed_entry_is_admitted(&key).unwrap());
+    assert!(
+        strict
+            .reduce_routed_linear_combination([(key.clone(), one.clone())])
+            .is_err()
+    );
+    let actual = partial
+        .reduce_routed_linear_combination([(key.clone(), one.clone())])
+        .unwrap();
+    assert!(actual.unresolved().is_empty());
+    assert_eq!(actual.terms().len(), 1);
+    assert!(!partial.routed_entry_is_admitted(&key).unwrap());
+    let warm = partial.reduce_linear_combination([(key, one)]).unwrap();
+    assert_eq!(actual.terms(), warm.terms());
+    assert_eq!(actual.nonzero_conditions(), warm.nonzero_conditions());
+}
+
+#[test]
+fn partial_saved_substitution_preserves_unpublished_leaves_and_cancellation() {
+    use rustred::sector::OrderingPolicy;
+    use rustred::solver::{
+        CandidateOwnerContext, CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerScope,
+        Integral, IntegralOrder, RoutedCandidateReducer, SectorSolution,
+    };
+    let scratch = Scratch::new();
+    let mut application = prepared_fixture(&scratch.0.join("source"));
+    let family = application
+        .output_family_shared(application.family().fingerprint())
+        .unwrap();
+    // A deliberately incomplete owner: only I1 is declared, and no rule
+    // applies to I2. This fixture tests composition, not IBP provenance.
+    let context = Arc::new(
+        CandidateOwnerContext::try_new(
+            family.clone(),
+            CandidateOwnerScope {
+                max_numerator_rank: None,
+                finite_case_policy: Default::default(),
+            },
+            vec![],
+            Default::default(),
+        )
+        .unwrap(),
+    );
+    let owner = CandidateOwnerInput {
+        sector: [true],
+        saved_root: [true],
+        ordering: OrderingPolicy::SpiredUncutV1,
+        solution: SectorSolution {
+            order: IntegralOrder::new([true], [false]),
+            max_numerator_rank: None,
+            finite_case_policy: Default::default(),
+            rules: vec![],
+            finite_residuals: vec![Integral::numeric([1]).unwrap()],
+            stats: Default::default(),
+        },
+    };
+    let programs = Arc::new(CandidateOwnerPrograms::try_new(context, [owner]).unwrap());
+    application.application = RoutedCandidateReducer::try_new(programs, [], Default::default())
+        .unwrap()
+        .application();
+    application
+        .application
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    application.options.unresolved_policy = UnresolvedPolicy::Preserve;
+    let key = IntegralKey::try_new([2]).unwrap();
+    let c = family.coefficient_context();
+    let result = application
+        .reduce_linear_combination([(key.clone(), c.integer(7))])
+        .unwrap();
+    assert_eq!(
+        result.terms(),
+        &BTreeMap::from([(qualified(&family, 2), c.integer(7))])
+    );
+    assert_eq!(
+        result.unresolved(),
+        &BTreeSet::from([qualified(&family, 2)])
+    );
+    assert_eq!(
+        application.remaining_terminals(),
+        &BTreeSet::from([qualified(&family, 1)])
+    );
+    let zero = application
+        .reduce_linear_combination([(key.clone(), c.one()), (key, c.integer(-1))])
+        .unwrap();
+    assert!(zero.terms().is_empty());
+    assert!(zero.unresolved().is_empty());
+}
+
+#[test]
 fn native_compact_maps_preserve_every_coefficient_context_and_guard() {
     let maps = maps_fixture();
     let options = SavedApplicationOptions::default();

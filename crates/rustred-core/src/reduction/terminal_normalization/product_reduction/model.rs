@@ -48,6 +48,15 @@ pub struct VacuumFactorReduction {
 /// Changing program identity requires a new `VacuumProductReducer` session.
 pub trait VacuumFactorProvider {
     type Error: fmt::Display;
+    /// Classify only a typed lack of available reduction coverage. Invalid
+    /// algebra, guards, inputs, corruption, and resource failures must return
+    /// false. The default preserves the existing fail-closed provider contract.
+    fn error_is_missing_coverage(_error: &Self::Error) -> bool
+    where
+        Self: Sized,
+    {
+        false
+    }
     fn reduce(
         &mut self,
         family: Arc<IntegralFamily>,
@@ -167,6 +176,12 @@ pub struct VacuumProductReducer<P> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VacuumProductReductionError {
     InvalidInput(String),
+    /// No complete declared-terminal expansion is available for this factor.
+    /// No incomplete product has been cached or returned as a terminal value.
+    UnresolvedFactor {
+        family: String,
+        target: IntegralKey,
+    },
     Provider {
         family: String,
         target: IntegralKey,
@@ -205,6 +220,11 @@ impl fmt::Display for VacuumProductReductionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidInput(message) => write!(f, "invalid product reduction: {message}"),
+            Self::UnresolvedFactor { family, target } => write!(
+                f,
+                "factor {:?} in family {family} has no complete declared-terminal reduction",
+                target.powers()
+            ),
             Self::Provider {
                 target, message, ..
             } => write!(

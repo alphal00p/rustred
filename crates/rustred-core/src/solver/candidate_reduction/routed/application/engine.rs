@@ -16,12 +16,12 @@ use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::family::IntegralKey;
 use crate::reduction::{ReductionError, ReductionRequest, accumulate_master_in_request};
 use crate::sector::symmetry::integral_transport::ExpansionError;
-use crate::solver::candidate_reduction::CandidateReductionError;
 use crate::solver::candidate_reduction::cache::{self, CachedTerms};
 use crate::solver::candidate_reduction::evaluator::CandidateEvaluator;
 use crate::solver::candidate_reduction::owners::OwnerStep;
 use crate::solver::candidate_reduction::routed::trace::{Node, charge, successor, support};
 use crate::solver::candidate_reduction::routed::{CandidateEntryAdmission, CandidateRoutedError};
+use crate::solver::candidate_reduction::{CandidateReductionError, UnresolvedPolicy};
 
 enum Frame<const N: usize> {
     Enter(Node<N>),
@@ -359,11 +359,12 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 .validate_with_limits(&factor, limits.exact_algebra)
                 .map_err(CandidateReductionError::from)?;
             retain_polynomial(&mut conditions, &factor.denominator);
-            let routed = self.route_entry_in_request(&target, &mut request.stats)?;
+            let routed =
+                self.route_entry_in_request(&target, &mut request.stats, self.unresolved_policy)?;
             retain_conditions(&mut conditions, routed.nonzero_conditions);
             for (endpoint, weight) in routed.terms {
                 // Even zero caller factors cannot bypass endpoint admission.
-                admission.validate_entry(&endpoint, context.scope.max_numerator_rank)?;
+                self.admit_entry(admission, &endpoint)?;
                 let contribution = coefficients
                     .try_mul(&factor, &weight, limits.exact_algebra)
                     .map_err(CandidateReductionError::from)?;
@@ -382,6 +383,24 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         retain_conditions(&mut conditions, result.nonzero_conditions);
         result.nonzero_conditions = conditions;
         Ok(result)
+    }
+
+    fn admit_entry(
+        &self,
+        admission: CandidateEntryAdmission<'_, N>,
+        target: &IntegralKey,
+    ) -> Result<(), CandidateRoutedError> {
+        use crate::solver::RootAdmissionError;
+        match admission.validate_entry(target, self.context.scope.max_numerator_rank) {
+            Err(CandidateRoutedError::EntryAdmission(
+                RootAdmissionError::OutsideSelectedSupport { .. }
+                | RootAdmissionError::OutsideStartingDomain { .. },
+            ))
+            | Err(CandidateRoutedError::Candidate(
+                CandidateReductionError::OutsideNumeratorRank { .. },
+            )) if self.unresolved_policy == UnresolvedPolicy::Preserve => Ok(()),
+            result => result,
+        }
     }
 
     fn reduce_request(
@@ -419,7 +438,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             base.validate_target_with_conditions(&target, &mut |condition| {
                 retain_polynomial(&mut conditions, condition)
             })?;
-            admission.validate_entry(&target, context.scope.max_numerator_rank)?;
+            self.admit_entry(admission, &target)?;
             coefficients
                 .validate_with_limits(&coefficient, limits.exact_algebra)
                 .map_err(CandidateReductionError::from)?;
@@ -503,9 +522,20 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             self.limits.max_unique_nodes,
             "operational nodes",
         )?;
+        let mut unresolved = BTreeSet::new();
+        for key in output.keys() {
+            if !self
+                .owners
+                .owner(&support::<N>(key))?
+                .is_some_and(|owner| owner.batches[0].terminals.contains(key))
+            {
+                unresolved.insert(key.clone());
+            }
+        }
         Ok(CandidateRoutedReduction {
             family_fingerprint: context.family.fingerprint_owner(),
             terms: output,
+            unresolved,
             nonzero_conditions: conditions,
             statistics: request.stats,
         })
@@ -706,6 +736,15 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                             terms.insert(child_node, endpoint.coefficient().clone());
                         }
                         terms
+                    } else if self.unresolved_policy == UnresolvedPolicy::Preserve {
+                        request.active.remove(&node);
+                        self.cache_insert_sparse(
+                            node.clone(),
+                            BTreeMap::from([(key.clone(), coefficients.one())]),
+                            conditions,
+                            request,
+                        )?;
+                        continue;
                     } else {
                         return Err(CandidateRoutedError::MissingOwner {
                             target: key.clone(),
@@ -752,6 +791,18 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     };
                     match result {
                         OwnerStep::Terminal => {
+                            request.active.remove(&node);
+                            self.cache_insert_sparse(
+                                node.clone(),
+                                BTreeMap::from([(key.clone(), coefficients.one())]),
+                                conditions,
+                                request,
+                            )?;
+                            continue;
+                        }
+                        OwnerStep::Uncovered
+                            if self.unresolved_policy == UnresolvedPolicy::Preserve =>
+                        {
                             request.active.remove(&node);
                             self.cache_insert_sparse(
                                 node.clone(),

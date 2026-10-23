@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -8,6 +8,15 @@ use crate::algebra::{
 use crate::family::IntegralKey;
 use crate::reduction::{ReductionError, ReductionStatistics};
 use crate::solver::FiniteCasePolicy;
+
+/// Whether uncovered points abort application or survive as exact unresolved
+/// integrals. Preserving a point never declares it a master or certifies scope.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UnresolvedPolicy {
+    #[default]
+    Reject,
+    Preserve,
+}
 
 /// In-memory coefficient storage for the same candidate application engine.
 /// Artifacts and returned decompositions always use ordinary coefficients.
@@ -27,6 +36,7 @@ pub struct CandidateDecomposition {
     pub(super) family_fingerprint: Arc<String>,
     pub(super) target: IntegralKey,
     pub(super) terms: BTreeMap<IntegralKey, Coefficient>,
+    pub(super) unresolved: BTreeSet<IntegralKey>,
 }
 
 impl CandidateDecomposition {
@@ -38,6 +48,11 @@ impl CandidateDecomposition {
     }
     pub fn terms(&self) -> &BTreeMap<IntegralKey, Coefficient> {
         &self.terms
+    }
+    /// Nonzero output keys outside the installed canonical terminal inventory.
+    /// Exact cancellations have already been removed.
+    pub fn unresolved(&self) -> &BTreeSet<IntegralKey> {
+        &self.unresolved
     }
     /// Transfer a native result into a core-owned semantic composition without
     /// retaining a second sparse coefficient copy.

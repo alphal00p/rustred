@@ -15,7 +15,7 @@ use super::cache::{self, CacheEntry, CachedTerms};
 use super::capture::CaptureObserver;
 use super::model::{
     CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
-    CandidateReductionError, CandidateStatistics, PreparedRule,
+    CandidateReductionError, CandidateStatistics, PreparedRule, UnresolvedPolicy,
 };
 
 /// A request-scoped lookup of complete, already validated guarded records.
@@ -42,8 +42,8 @@ pub(super) struct CandidateProgram<const N: usize> {
 }
 
 /// Deterministic, iterative application of explicitly experimental sector
-/// formulas. This type cannot be converted to a closed artifact. It never
-/// invents a terminal to hide a gap or invokes a source-generation campaign.
+/// formulas. This type cannot be converted to a closed artifact. Explicit
+/// partial application preserves gaps as unresolved integrals, not terminals.
 #[derive(Debug)]
 pub struct CandidateReducer<const N: usize> {
     pub(super) program: Arc<CandidateProgram<N>>,
@@ -52,6 +52,7 @@ pub struct CandidateReducer<const N: usize> {
     pub(super) limits: ReductionLimits,
     pub(super) cache: BTreeMap<IntegralKey, CacheEntry>,
     pub(super) cache_representation: CandidateCacheRepresentation,
+    pub(super) unresolved_policy: UnresolvedPolicy,
     pub(super) cache_weight: CacheWeight,
     pub(super) cache_budget: Arc<SharedCacheBudget>,
     pub(super) statistics: ReductionStatistics,
@@ -105,6 +106,7 @@ impl<const N: usize> CandidateReducer<N> {
             limits,
             cache: BTreeMap::new(),
             cache_representation: self.cache_representation,
+            unresolved_policy: self.unresolved_policy,
             cache_weight: CacheWeight::default(),
             cache_budget,
             statistics: ReductionStatistics::default(),
@@ -157,6 +159,25 @@ impl<const N: usize> CandidateReducer<N> {
         self.cache_representation = representation;
         Ok(())
     }
+    pub fn unresolved_policy(&self) -> UnresolvedPolicy {
+        self.unresolved_policy
+    }
+
+    /// Policy changes require an empty cache so partial identities cannot
+    /// satisfy a later strict request. Formula/source checks remain mandatory.
+    pub fn set_unresolved_policy(
+        &mut self,
+        policy: UnresolvedPolicy,
+    ) -> Result<(), CandidateReductionError> {
+        if !self.cache.is_empty() {
+            return Err(CandidateReductionError::InvalidInput(
+                "unresolved policy requires an empty reduction cache".into(),
+            ));
+        }
+        self.unresolved_policy = policy;
+        Ok(())
+    }
+
     pub fn statistics(&self) -> CandidateStatistics {
         let census = self.cache_budget.snapshot();
         CandidateStatistics {
@@ -167,9 +188,9 @@ impl<const N: usize> CandidateReducer<N> {
         }
     }
 
-    /// Apply checked formulas at one concrete integer point, returning only
-    /// declared finite terminals. The symbolic base parameters (including d)
-    /// remain exact and generic; numerical specialization is an adapter task.
+    /// Apply checked formulas at one concrete integer point. Strict mode returns
+    /// declared finite terminals; explicit partial mode also reports unresolved
+    /// keys. Parameters remain exact and generic; specialization is caller-owned.
     pub fn reduce_unit_mass(
         &mut self,
         target: &IntegralKey,
@@ -346,6 +367,14 @@ impl<const N: usize> CandidateReducer<N> {
         mut lookup: Option<&mut CandidateGuardedLookup<'_, E>>,
         mut capture: Option<&mut dyn CaptureObserver<N, E>>,
     ) -> Result<CandidateDecomposition, E> {
+        if self.unresolved_policy == UnresolvedPolicy::Preserve
+            && (lookup.is_some() || capture.is_some())
+        {
+            return Err(CandidateReductionError::InvalidInput(
+                "partial reduction cannot import or capture complete guarded records".into(),
+            )
+            .into());
+        }
         if (root_guards.is_some() && (!guarded || !self.cache.is_empty()))
             || (lookup.is_some() && root_guards.is_none() && capture.is_none())
             || (capture.is_some() && (!guarded || !self.cache.is_empty() || root_guards.is_some()))
@@ -449,8 +478,36 @@ impl<const N: usize> CandidateReducer<N> {
                     // replace a subtree. Reuse this selection on a miss, and
                     // never repeat the already attempted starting-root lookup.
                     // Native zero and terminal rows above require no IO.
-                    let selected = if lookup.is_some() && key != *target {
-                        Some(program.evaluator(&key, self.limits)?.selected_rule(&key)?)
+                    let selected = if (lookup.is_some() && key != *target)
+                        || self.unresolved_policy == UnresolvedPolicy::Preserve
+                    {
+                        match program
+                            .evaluator(&key, self.limits)
+                            .and_then(|evaluator| evaluator.selected_rule(&key))
+                        {
+                            Ok(selected) => Some(selected),
+                            Err(CandidateReductionError::Uncovered { .. })
+                                if self.unresolved_policy == UnresolvedPolicy::Preserve =>
+                            {
+                                // An identity leaf records ignorance, not a new terminal.
+                                // Source guards were checked above and remain attached.
+                                let terms = CachedTerms::from_sparse(
+                                    BTreeMap::from([(key.clone(), program.context.base().one())]),
+                                    self.cache_representation,
+                                    program.context.base(),
+                                    self.limits,
+                                )?;
+                                let conditions = retain_request_guards(
+                                    &key,
+                                    &mut root_guards,
+                                    &mut capture,
+                                    conditions,
+                                )?;
+                                self.cache_insert(key, terms, conditions)?;
+                                continue;
+                            }
+                            Err(error) => return Err(error.into()),
+                        }
                     } else {
                         None
                     };
@@ -669,6 +726,11 @@ impl<const N: usize> CandidateReducer<N> {
         &mut self,
         targets: impl IntoIterator<Item = IntegralKey>,
     ) -> Result<CandidateReachabilityReport, CandidateReductionError> {
+        if self.unresolved_policy != UnresolvedPolicy::Reject {
+            return Err(CandidateReductionError::InvalidInput(
+                "reachability checking requires strict unresolved policy".into(),
+            ));
+        }
         let mut requested = BTreeSet::new();
         for target in targets {
             self.validate_entry_target(&target)?;
@@ -786,12 +848,19 @@ impl<const N: usize> CandidateReducer<N> {
             .ok_or(ReductionError::ReducerInvariant {
                 detail: "candidate target is absent after work stack completed",
             })?;
+        let terms = entry
+            .terms
+            .materialize(self.program.context.base(), self.limits)?;
+        let unresolved = terms
+            .keys()
+            .filter(|key| !self.canonical_terminals().contains(*key))
+            .cloned()
+            .collect();
         Ok(CandidateDecomposition {
             family_fingerprint: self.program.family_fingerprint.clone(),
             target: target.clone(),
-            terms: entry
-                .terms
-                .materialize(self.program.context.base(), self.limits)?,
+            terms,
+            unresolved,
         })
     }
 
