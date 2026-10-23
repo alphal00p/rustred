@@ -2,6 +2,7 @@ use super::*;
 use crate::algebra::CoefficientContext;
 use crate::family::AffineDenominator;
 
+mod guard_merge;
 mod source_seeds;
 
 fn tadpole() -> Arc<IntegralFamily> {

@@ -185,6 +185,12 @@ impl GuardedVacuumReduction {
     pub fn nonzero_conditions(&self) -> &[Coefficient] {
         &self.conditions
     }
+    /// Share the immutable authenticated guard owner across relations-only
+    /// imports without cloning a potentially large condition inventory once per
+    /// terminal map.
+    pub fn shared_nonzero_conditions(&self) -> Arc<Vec<Coefficient>> {
+        Arc::clone(&self.conditions)
+    }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct VacuumCollectionStatistics {

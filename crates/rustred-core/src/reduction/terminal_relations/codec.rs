@@ -8,10 +8,14 @@ use crate::persistence::{
 };
 use symbolica::tensors::sparse::SparseMatrix;
 
-// This bounds structural decoder allocations, not native algebra. Native atom
-// sections retain their independent caller-owned limits. The matching writer
-// refuses the same metadata envelope so it never emits an unreadable snapshot.
-const MAX_STRUCTURAL_BYTES: usize = 1 << 30;
+// Checkpoints are generated native records, the same trust boundary as their
+// Symbolica atom sections. The outer envelope enforces caller-owned ENCODED
+// byte limits; the semantic checks below enforce retained dimensions/counts.
+// Bincode's with_limit instead charges decoded primitive widths and container
+// allocation claims, which can greatly exceed compact varint wire bytes. Such
+// a fixed claim limit could reject a checkpoint our matching writer admitted.
+// This loader is not a hostile-input allocation sandbox. A separate decoded
+// allocation grant would need an explicit caller policy, not a hidden ceiling.
 
 #[derive(bincode::Encode, bincode::Decode)]
 struct Record {
@@ -41,8 +45,13 @@ struct Record {
 }
 
 // Schema 1 is deliberately unchanged, including unassisted output bytes.
-// Schema 2 appends this state after that same record; both readers share the
-// original structural and Symbolica coefficient validation.
+// Schema 2 appends assistance after that same record. Schema 3 appends only a
+// retained-relations authority binding, and schema 4 appends assistance followed
+// by that binding. All readers share the original structural and Symbolica
+// coefficient validation; imported terminal equations themselves live in U.
+// Schemas 5/6 retain the exact schema-2/4 structure but explicitly identify an
+// externally authorized pending queue, which need not have a queried-key owner.
+// Once that queue drains, flag-off output returns to the original schemas.
 #[derive(bincode::Encode, bincode::Decode)]
 struct AssistanceRecord {
     binding: String,
@@ -52,8 +61,26 @@ struct AssistanceRecord {
     equation_cursor: u64,
     completed_rows: u64,
 }
+
+#[derive(bincode::Encode, bincode::Decode)]
+struct RetainedRelationsRecord {
+    binding: String,
+    protected_outputs: Vec<Vec<i64>>,
+}
 fn binary(error: impl fmt::Display) -> TerminalRelationError {
     TerminalRelationError::Binary(error.to_string())
+}
+
+fn decode_structure<T: bincode::Decode<()>>(
+    bytes: &[u8],
+    record: &'static str,
+) -> Result<(T, usize), TerminalRelationError> {
+    bincode::decode_from_slice(bytes, bincode::config::standard()).map_err(|error| {
+        binary(format!(
+            "{record} structural record ({} encoded bytes): {error}",
+            bytes.len()
+        ))
+    })
 }
 
 pub(super) fn encode(
@@ -129,8 +156,51 @@ pub(super) fn encode(
             })
         })
         .transpose()?;
+    let retained_relations = session
+        .retained_relations
+        .as_ref()
+        .map(
+            |authority| -> Result<RetainedRelationsRecord, TerminalRelationError> {
+                if authority.binding.is_empty() {
+                    return Err(binary("empty retained-relations authority binding"));
+                }
+                check(
+                    "retained-relations binding bytes",
+                    authority.binding.len(),
+                    limits.max_collection_entries,
+                )?;
+                check(
+                    "retained-relations protected outputs",
+                    authority.protected_outputs.len(),
+                    limits.max_collection_entries,
+                )?;
+                Ok(RetainedRelationsRecord {
+                    binding: authority.binding.clone(),
+                    protected_outputs: authority
+                        .protected_outputs
+                        .iter()
+                        .map(|key| key.powers().to_vec())
+                        .collect(),
+                })
+            },
+        )
+        .transpose()?;
     let record = Record {
-        schema: if assistance.is_some() { 2 } else { 1 },
+        schema: match (
+            assistance.is_some(),
+            retained_relations.is_some(),
+            session
+                .assistance
+                .as_ref()
+                .is_some_and(|a| a.externally_queued),
+        ) {
+            (false, false, _) => 1,
+            (true, false, false) => 2,
+            (false, true, _) => 3,
+            (true, true, false) => 4,
+            (true, false, true) => 5,
+            (true, true, true) => 6,
+        },
         family,
         fingerprint: session.family.fingerprint().to_owned(),
         raw: session.raw.iter().map(|k| k.powers().to_vec()).collect(),
@@ -170,10 +240,16 @@ pub(super) fn encode(
             bincode::encode_to_vec(assistance, bincode::config::standard()).map_err(binary)?,
         );
     }
+    if let Some(retained_relations) = retained_relations {
+        records.extend(
+            bincode::encode_to_vec(retained_relations, bincode::config::standard())
+                .map_err(binary)?,
+        );
+    }
     check(
         "checkpoint structural bytes",
         records.len(),
-        limits.max_program_bytes.min(MAX_STRUCTURAL_BYTES),
+        limits.max_program_bytes,
     )?;
     let table = table.finish().map_err(binary)?;
     encode_program(
@@ -215,25 +291,22 @@ pub(super) fn decode(
     let data = envelope
         .section(SectionTag::PROGRAM)
         .expect("checked section");
-    let (record, used): (Record, usize) = bincode::decode_from_slice(
-        data,
-        bincode::config::standard().with_limit::<MAX_STRUCTURAL_BYTES>(),
-    )
-    .map_err(binary)?;
-    let assistance = match record.schema {
-        1 if used == data.len() => None,
-        2 => {
-            let (record, extra): (AssistanceRecord, usize) = bincode::decode_from_slice(
-                &data[used..],
-                bincode::config::standard().with_limit::<MAX_STRUCTURAL_BYTES>(),
-            )
-            .map_err(binary)?;
-            if used + extra != data.len() {
+    let (record, used): (Record, usize) = decode_structure(data, "checkpoint")?;
+    let schema = record.schema;
+    let (assistance, used) = match schema {
+        1 if used == data.len() => (None, used),
+        2 | 4 | 5 | 6 => {
+            let (assistance_record, extra): (AssistanceRecord, usize) =
+                decode_structure(&data[used..], "checkpoint assistance")?;
+            if matches!(schema, 2 | 5) && used + extra != data.len() {
                 return Err(binary("trailing terminal-relations assistance records"));
             }
             check(
                 "assistance keys",
-                record.pending.len().saturating_add(record.queried.len()),
+                assistance_record
+                    .pending
+                    .len()
+                    .saturating_add(assistance_record.queried.len()),
                 io.max_collection_entries.min(
                     limits
                         .max_columns
@@ -243,30 +316,58 @@ pub(super) fn decode(
             )?;
             check(
                 "equation-provider binding bytes",
-                record.binding.len(),
+                assistance_record.binding.len(),
                 io.max_collection_entries,
             )?;
             check(
                 "pending assistance rows",
-                record.equations.len(),
+                assistance_record.equations.len(),
                 limits.max_rows,
             )?;
-            let nonzeros = record
+            let nonzeros = assistance_record
                 .equations
                 .iter()
                 .fold(0usize, |n, (terms, _)| n.saturating_add(terms.len()));
-            let conditions = record.equations.iter().fold(0usize, |n, (_, conditions)| {
-                n.saturating_add(conditions.len())
-            });
+            let conditions = assistance_record
+                .equations
+                .iter()
+                .fold(0usize, |n, (_, conditions)| {
+                    n.saturating_add(conditions.len())
+                });
             check("pending assistance nonzeros", nonzeros, limits.max_nonzeros)?;
             check(
                 "pending assistance conditions",
                 conditions,
                 limits.max_nonzeros,
             )?;
+            (Some(assistance_record), used + extra)
+        }
+        3 => (None, used),
+        _ => return Err(binary("unsupported or trailing terminal-relations records")),
+    };
+    let retained_relations = match schema {
+        3 | 4 | 6 => {
+            let (record, extra): (RetainedRelationsRecord, usize) =
+                decode_structure(&data[used..], "checkpoint retained relations")?;
+            if used + extra != data.len() || record.binding.is_empty() {
+                return Err(binary(
+                    "invalid or trailing retained-relations authority record",
+                ));
+            }
+            check(
+                "retained-relations binding bytes",
+                record.binding.len(),
+                io.max_collection_entries,
+            )?;
+            check(
+                "retained-relations protected outputs",
+                record.protected_outputs.len(),
+                io.max_collection_entries
+                    .min(limits.normalization.max_terminals),
+            )?;
             Some(record)
         }
-        _ => return Err(binary("unsupported or trailing terminal-relations records")),
+        _ => None,
     };
     check("seeds", record.seeds.len(), limits.max_seeds)?;
     check("columns", record.columns.len(), limits.max_columns)?;
@@ -460,6 +561,25 @@ pub(super) fn decode(
         return Err(binary("rebuild cursor exceeds row inventory"));
     }
     let terminals = normalization.canonical_terminals().clone();
+    let retained_relations = retained_relations
+        .map(|record| -> Result<RetainedRelationsAuthority, TerminalRelationError> {
+            let count = record.protected_outputs.len();
+            let protected_outputs = record
+                .protected_outputs
+                .into_iter()
+                .map(&key)
+                .collect::<Result<BTreeSet<_>, _>>()?;
+            if protected_outputs.len() != count || !protected_outputs.is_subset(&terminals) {
+                return Err(binary(
+                    "retained-relations protected outputs are duplicated or outside the terminal inventory",
+                ));
+            }
+            Ok(RetainedRelationsAuthority {
+                binding: record.binding,
+                protected_outputs,
+            })
+        })
+        .transpose()?;
     let assistance = assistance
         .map(
             |a| -> Result<assistance::Assistance, TerminalRelationError> {
@@ -506,9 +626,12 @@ pub(super) fn decode(
                     })
                     .collect::<Result<Vec<_>, TerminalRelationError>>()?;
                 let equation_cursor = usize::try_from(a.equation_cursor).map_err(binary)?;
+                let externally_queued = matches!(schema, 5 | 6);
                 if (equations.is_empty() && equation_cursor != 0)
+                    || (externally_queued && equations.is_empty())
                     || (!equations.is_empty()
-                        && (equation_cursor >= equations.len() || queried.is_empty()))
+                        && (equation_cursor >= equations.len()
+                            || (!externally_queued && queried.is_empty())))
                     || equation_cursor as u64 > a.completed_rows
                 {
                     return Err(binary("invalid assistance equation cursor"));
@@ -520,6 +643,8 @@ pub(super) fn decode(
                     equations,
                     equation_cursor,
                     completed_rows: a.completed_rows,
+                    externally_queued,
+                    finite_provider: None,
                 })
             },
         )
@@ -546,6 +671,7 @@ pub(super) fn decode(
         rebuild_cursor,
         completed_rebuild_rows: record.completed_rebuild_rows,
         assistance,
+        retained_relations,
         limits,
     };
     if let Some(assistance) = &session.assistance {
@@ -555,6 +681,26 @@ pub(super) fn decode(
         let (aliases, terminals) = session.make_aliases(&session.alias_keys)?;
         session.aliases = aliases;
         session.terminals = terminals;
+    }
+    if let Some(authority) = &session.retained_relations {
+        if !authority.protected_outputs.is_subset(&session.terminals) {
+            return Err(binary(
+                "retained-relations outputs are absent after alias reconstruction",
+            ));
+        }
+        let mut expected = session.terminals.iter().cloned().collect::<Vec<_>>();
+        session.sort_terminal_columns(&mut expected);
+        let actual = session
+            .columns
+            .iter()
+            .filter(|key| session.terminals.contains(*key))
+            .cloned()
+            .collect::<Vec<_>>();
+        if actual != expected {
+            return Err(binary(
+                "retained-relations terminal column order differs from its protected output basis",
+            ));
+        }
     }
     let column_set: BTreeSet<_> = session.columns.iter().cloned().collect();
     if !session.terminals.is_subset(&column_set) {
@@ -570,4 +716,52 @@ pub(super) fn decode(
     }
     session.terminal_relations = session.terminal_relation_count();
     Ok(session)
+}
+
+#[cfg(test)]
+mod structural_limit_tests {
+    use super::*;
+
+    #[test]
+    fn compact_varints_are_not_rejected_by_a_decoded_width_ceiling() {
+        // Twelve u64 values encode in far fewer than 128 bytes, but their
+        // nested-container/primitive decode claims exceed that allowance.
+        let expected = vec![vec![1_u64; 12], vec![2_u64; 12]];
+        let bytes = bincode::encode_to_vec(&expected, bincode::config::standard()).unwrap();
+        assert!(bytes.len() < 128);
+        let old = bincode::decode_from_slice::<Vec<Vec<u64>>, _>(
+            &bytes,
+            bincode::config::standard().with_limit::<128>(),
+        );
+        assert!(matches!(
+            old,
+            Err(bincode::error::DecodeError::LimitExceeded)
+        ));
+        let (actual, used): (Vec<Vec<u64>>, usize) =
+            decode_structure(&bytes, "checkpoint").unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(used, bytes.len());
+    }
+
+    #[test]
+    fn malformed_structure_reports_its_record_and_encoded_size() {
+        let bytes = [251_u8]; // Truncated variable-width u64.
+        let error = decode_structure::<u64>(&bytes, "checkpoint assistance").unwrap_err();
+        assert!(matches!(error, TerminalRelationError::Binary(_)));
+        let message = error.to_string();
+        assert!(message.contains("checkpoint assistance structural record"));
+        assert!(message.contains("1 encoded bytes"));
+    }
+
+    #[test]
+    fn caller_encoded_program_limit_remains_enforced_before_structural_decode() {
+        let io = BinaryIoLimits {
+            max_program_bytes: 3,
+            ..Default::default()
+        };
+        let error = decode(&[0_u8; 4], Default::default(), io).err().unwrap();
+        let message = error.to_string();
+        assert!(message.contains("program bytes"), "{message}");
+        assert!(!message.contains("structural record"), "{message}");
+    }
 }

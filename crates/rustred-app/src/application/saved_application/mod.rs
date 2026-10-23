@@ -187,7 +187,7 @@ impl TerminalMaps {
                         .iter()
                         .map(|(k, c)| (key(k), c.clone()))
                         .collect(),
-                    conditions: Arc::new(row.nonzero_conditions().to_vec()),
+                    conditions: row.shared_nonzero_conditions(),
                 },
             );
         }

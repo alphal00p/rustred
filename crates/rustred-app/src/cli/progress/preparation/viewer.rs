@@ -83,7 +83,9 @@ fn read(path: &Path) -> Result<Status, CliError> {
                 path.display()
             ))
         })?;
-    Status::parse(&bytes).map_err(CliError::Input)
+    let mut status = Status::parse(&bytes).map_err(CliError::Input)?;
+    super::final_counts::recover(path, &mut status);
+    Ok(status)
 }
 
 fn now() -> f64 {

@@ -34,8 +34,10 @@ pub struct ProjectedSourceWeightLimits {
     /// scalars and all reconstructed weight slots (including zero slots).
     pub max_coefficient_terms: usize,
     pub max_degree: u16,
-    /// Native per-scalar, per-prime allowance, NOT total probe work. The shared
-    /// bounded cache may reuse images, but an outer CPU/RSS limit is essential.
+    /// Native per-pass, per-scalar, per-prime allowance, NOT total probe work.
+    /// Unbounded dimensions use growing finite native pass windows so an
+    /// unusable first prime cannot starve later primes. The shared cache spans
+    /// passes; an outer CPU/RSS policy remains the caller's responsibility.
     pub max_probes: usize,
     pub max_attempts: usize,
     pub max_primes: usize,
@@ -57,6 +59,15 @@ pub enum ProjectedSourceWeightEvent {
         column: usize,
         probes: usize,
         primes: usize,
+    },
+    /// Work after multiple native passes. Oracle callbacks are counted across
+    /// all passes; prime totals are unavailable because failed native passes
+    /// return no statistics. None also denotes a diagnostic counter overflow.
+    CoefficientPasses {
+        column: usize,
+        oracle_probes: Option<usize>,
+        native_passes: usize,
+        primes: Option<usize>,
     },
     WeightsStarted {
         rows: usize,
@@ -91,8 +102,9 @@ pub enum ProjectedSourceWeightError {
     Invalid(&'static str),
     Budget(&'static str),
     Algebra(IndexedAlgebraError),
-    /// Includes sampled admission miss, native reconstruction failure and
-    /// exact full-product mismatch. None means absence of a valid rule.
+    /// Includes sampled admission miss, selected-frame/prefix-only full-rank
+    /// ineligibility, native reconstruction failure and exact product mismatch.
+    /// None of these establishes absence in a larger source space or family.
     Native(MaterializationError),
 }
 
@@ -226,12 +238,7 @@ pub fn reconstruct_projected_source_weights(
             charge_terms(&mut terms, value.raw(), limits)?;
             if !universe.contains(key) {
                 if key != target && !forbidden.contains(key) {
-                    charge(
-                        &mut column_count,
-                        1,
-                        column_limit,
-                        "full physical columns",
-                    )?;
+                    charge(&mut column_count, 1, column_limit, "full physical columns")?;
                 }
                 universe.insert(key.clone());
             }
@@ -313,10 +320,19 @@ pub fn reconstruct_projected_source_weights(
                     column,
                     probes,
                     primes,
-                } => ProjectedSourceWeightEvent::Coefficient {
-                    column,
-                    probes,
-                    primes,
+                    passes,
+                } => match (probes, primes) {
+                    (Some(probes), Some(primes)) => ProjectedSourceWeightEvent::Coefficient {
+                        column,
+                        probes,
+                        primes,
+                    },
+                    _ => ProjectedSourceWeightEvent::CoefficientPasses {
+                        column,
+                        oracle_probes: probes,
+                        native_passes: passes,
+                        primes,
+                    },
                 },
                 Event::WeightsStarted {
                     rows,

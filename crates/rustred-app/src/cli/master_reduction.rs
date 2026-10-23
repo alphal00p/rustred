@@ -17,6 +17,8 @@ pub(crate) struct MasterArgs {
     pub finite_policy: Option<PathBuf>,
     pub artifact: Option<PathBuf>,
     pub partial_refinement: Option<PathBuf>,
+    pub recover_interrupted: bool,
+    pub proof_recipe: Option<PathBuf>,
     pub operation: crate::MasterReductionOperation,
     pub checkpoint: PathBuf,
     pub directory: PathBuf,
@@ -25,12 +27,23 @@ pub(crate) struct MasterArgs {
     pub events: Option<PathBuf>,
     pub stop_file: Option<PathBuf>,
     pub resume: bool,
+    pub fresh_search: bool,
     pub threads: usize,
+    pub relation_batch_rows: Option<usize>,
+    pub relation_block_rows: Option<usize>,
+    pub refinement_strategy: Option<crate::MasterRefinementStrategy>,
+    pub modular_policy: Option<PathBuf>,
     pub deep_verification: Option<bool>,
     pub seed_depth: u32,
     pub containing_sector_depth: u32,
     pub saved_rule_assistance: bool,
     pub circuit_symmetry_assistance: bool,
+    pub numerator_symmetry_assistance: bool,
+    pub sector_symmetry_assistance: bool,
+    pub sector_symmetry_policy: Option<crate::MasterSectorSymmetryPolicy>,
+    pub sector_symmetry_saved_projection: Option<bool>,
+    pub selective_symmetry_feedback: bool,
+    pub local_dimensional_recurrence_assistance: bool,
     pub finite_feedback: Option<bool>,
     pub normalization_profile: Option<crate::MasterNormalizationProfile>,
     pub max_relation_columns: Option<usize>,
@@ -56,6 +69,8 @@ fn parse_source(
         finite_policy: None,
         artifact: None,
         partial_refinement: None,
+        recover_interrupted: false,
+        proof_recipe: None,
         operation: crate::MasterReductionOperation::Refine,
         checkpoint: PathBuf::new(),
         directory: PathBuf::new(),
@@ -64,12 +79,23 @@ fn parse_source(
         events: None,
         stop_file: None,
         resume: false,
+        fresh_search: false,
         threads: 1,
+        relation_batch_rows: None,
+        relation_block_rows: None,
+        refinement_strategy: None,
+        modular_policy: None,
         deep_verification: None,
         seed_depth: 0,
         containing_sector_depth: 0,
         saved_rule_assistance: false,
         circuit_symmetry_assistance: false,
+        numerator_symmetry_assistance: false,
+        sector_symmetry_assistance: false,
+        sector_symmetry_policy: None,
+        sector_symmetry_saved_projection: None,
+        selective_symmetry_feedback: false,
+        local_dimensional_recurrence_assistance: false,
         finite_feedback: None,
         normalization_profile: None,
         max_relation_columns: None,
@@ -90,13 +116,27 @@ fn parse_source(
             "--events" => "--events",
             "--stop-file" => "--stop-file",
             "--resume" => "--resume",
+            "--fresh-search" => "--fresh-search",
             "--threads" => "--threads",
+            "--relation-batch-rows" => "--relation-batch-rows",
+            "--relation-block-rows" => "--relation-block-rows",
+            "--refinement-strategy" => "--refinement-strategy",
+            "--modular-policy" => "--modular-policy",
             "--deep-verification" => "--deep-verification",
             "--no-deep-verification" => "--no-deep-verification",
             "--seed-depth" => "--seed-depth",
             "--containing-sector-depth" => "--containing-sector-depth",
             "--saved-rule-assistance" => "--saved-rule-assistance",
             "--circuit-symmetry-assistance" => "--circuit-symmetry-assistance",
+            "--numerator-symmetry-assistance" => "--numerator-symmetry-assistance",
+            "--sector-symmetry-assistance" => "--sector-symmetry-assistance",
+            "--sector-symmetry-policy" => "--sector-symmetry-policy",
+            "--sector-symmetry-saved-projection" => "--sector-symmetry-saved-projection",
+            "--no-sector-symmetry-saved-projection" => "--no-sector-symmetry-saved-projection",
+            "--selective-symmetry-feedback" => "--selective-symmetry-feedback",
+            "--local-dimensional-recurrence-assistance" => {
+                "--local-dimensional-recurrence-assistance"
+            }
             "--finite-feedback" => "--finite-feedback",
             "--no-finite-feedback" => "--no-finite-feedback",
             "--normalization-profile" => "--normalization-profile",
@@ -109,6 +149,7 @@ fn parse_source(
         }
         match option {
             "--resume" => result.resume = true,
+            "--fresh-search" => result.fresh_search = true,
             "--deep-verification" | "--no-deep-verification" => {
                 if result.deep_verification.is_some() {
                     return Err(ArgError::InvalidCombination(
@@ -119,6 +160,35 @@ fn parse_source(
             }
             "--saved-rule-assistance" => result.saved_rule_assistance = true,
             "--circuit-symmetry-assistance" => result.circuit_symmetry_assistance = true,
+            "--numerator-symmetry-assistance" => result.numerator_symmetry_assistance = true,
+            "--sector-symmetry-assistance" => result.sector_symmetry_assistance = true,
+            "--selective-symmetry-feedback" => result.selective_symmetry_feedback = true,
+            "--local-dimensional-recurrence-assistance" => {
+                result.local_dimensional_recurrence_assistance = true
+            }
+            "--sector-symmetry-policy" => {
+                let value = next_utf8_value(&mut args, option)?;
+                result.sector_symmetry_policy = Some(match value.as_str() {
+                    "generators" => crate::MasterSectorSymmetryPolicy::GeneratorRelations,
+                    "polynomial-orbits" => crate::MasterSectorSymmetryPolicy::PolynomialOrbits,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option,
+                            value,
+                            expected: "generators or polynomial-orbits",
+                        });
+                    }
+                });
+            }
+            "--sector-symmetry-saved-projection" | "--no-sector-symmetry-saved-projection" => {
+                if result.sector_symmetry_saved_projection.is_some() {
+                    return Err(ArgError::InvalidCombination(
+                        "sector symmetry saved projection flags are mutually exclusive",
+                    ));
+                }
+                result.sector_symmetry_saved_projection =
+                    Some(option == "--sector-symmetry-saved-projection");
+            }
             "--finite-feedback" | "--no-finite-feedback" => {
                 if result.finite_feedback.is_some() {
                     return Err(ArgError::InvalidCombination(
@@ -141,9 +211,34 @@ fn parse_source(
                     }
                 });
             }
+            "--refinement-strategy" => {
+                let value = next_utf8_value(&mut args, option)?;
+                result.refinement_strategy = Some(match value.as_str() {
+                    "exact" => crate::MasterRefinementStrategy::Exact,
+                    "modular-circuits" => crate::MasterRefinementStrategy::ModularCircuits,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option,
+                            value,
+                            expected: "exact or modular-circuits",
+                        });
+                    }
+                });
+            }
             "--threads" => {
                 result.threads =
                     parse_positive_integer(option, next_utf8_value(&mut args, option)?)?
+            }
+            "--relation-batch-rows" | "--relation-block-rows" => {
+                let value = Some(parse_positive_integer(
+                    option,
+                    next_utf8_value(&mut args, option)?,
+                )?);
+                if option == "--relation-batch-rows" {
+                    result.relation_batch_rows = value;
+                } else {
+                    result.relation_block_rows = value;
+                }
             }
             "--max-relation-columns" => {
                 let value = next_utf8_value(&mut args, option)?;
@@ -193,6 +288,7 @@ fn parse_source(
                     "--command" => result.command = path,
                     "--finite-directory" => result.finite_directory = Some(path),
                     "--finite-policy" => result.finite_policy = Some(path),
+                    "--modular-policy" => result.modular_policy = Some(path),
                     "--artifact" => result.artifact = Some(path),
                     "--checkpoint" => result.checkpoint = path,
                     "--directory" => result.directory = path,
@@ -234,6 +330,11 @@ fn parse_source(
             "--artifact already supplies the previous state",
         ));
     }
+    if result.fresh_search && result.artifact.is_none() {
+        return Err(ArgError::InvalidCombination(
+            "--fresh-search requires refinement from a published --artifact source",
+        ));
+    }
     if !result.collection_artifacts.is_empty() && result.artifact.is_none() {
         return Err(ArgError::InvalidCombination(
             "--collection-artifact requires a published --artifact source",
@@ -247,6 +348,40 @@ fn parse_source(
     if result.resume && result.previous_artifact.is_some() {
         return Err(ArgError::InvalidCombination(
             "--resume and --previous-artifact cannot be combined",
+        ));
+    }
+    if result.modular_policy.is_some()
+        && result.refinement_strategy == Some(crate::MasterRefinementStrategy::Exact)
+    {
+        return Err(ArgError::InvalidCombination(
+            "--modular-policy requires modular-circuits refinement",
+        ));
+    }
+    if result.sector_symmetry_policy.is_some() && !result.sector_symmetry_assistance {
+        return Err(ArgError::InvalidCombination(
+            "--sector-symmetry-policy requires --sector-symmetry-assistance",
+        ));
+    }
+    if result.sector_symmetry_saved_projection.is_some() && !result.sector_symmetry_assistance {
+        return Err(ArgError::InvalidCombination(
+            "sector symmetry saved projection flags require --sector-symmetry-assistance",
+        ));
+    }
+    if result.selective_symmetry_feedback
+        && (!result.sector_symmetry_assistance
+            || result.refinement_strategy == Some(crate::MasterRefinementStrategy::ModularCircuits)
+            || result.saved_rule_assistance
+            || result.circuit_symmetry_assistance)
+    {
+        return Err(ArgError::InvalidCombination(
+            "--selective-symmetry-feedback requires exact sector refinement without dynamic saved-rule or separate circuit providers",
+        ));
+    }
+    if result.local_dimensional_recurrence_assistance
+        && result.refinement_strategy == Some(crate::MasterRefinementStrategy::ModularCircuits)
+    {
+        return Err(ArgError::InvalidCombination(
+            "--local-dimensional-recurrence-assistance requires exact refinement",
         ));
     }
     Ok(Command::WalkMasterReduce(result))
@@ -263,15 +398,76 @@ pub(super) fn parse_publish(args: impl Iterator<Item = OsString>) -> Result<Comm
     }
     if args.saved_rule_assistance
         || args.circuit_symmetry_assistance
+        || args.numerator_symmetry_assistance
+        || args.sector_symmetry_assistance
+        || args.sector_symmetry_policy.is_some()
+        || args.sector_symmetry_saved_projection.is_some()
+        || args.selective_symmetry_feedback
+        || args.local_dimensional_recurrence_assistance
         || args.finite_feedback.is_some()
         || args.containing_sector_depth != 0
         || !args.collection_artifacts.is_empty()
         || args.max_relation_columns.is_some()
+        || args.refinement_strategy.is_some()
+        || args.modular_policy.is_some()
     {
         return Err(ArgError::InvalidCombination(
             "additional terminal-search strategies require refinement and cannot be used with walk-publish",
         ));
     }
+    args.operation = crate::MasterReductionOperation::Publish;
+    Ok(Command::WalkMasterReduce(args))
+}
+
+/// Import is deliberately separate from ordinary source searching. Its finite
+/// proof recipe, not a search flag or an output hash, determines the work.
+pub(super) fn parse_import(mut args: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
+    let mut forwarded = Vec::new();
+    let mut recipe = None;
+    while let Some(option) = args.next() {
+        let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
+        match option.as_str() {
+            "--proof-recipe" => {
+                if recipe.is_some() {
+                    return Err(ArgError::DuplicateOption("--proof-recipe"));
+                }
+                recipe = Some(PathBuf::from(next_value(&mut args, "--proof-recipe")?));
+            }
+            "--resume" => forwarded.push(OsString::from(option)),
+            "--artifact"
+            | "--directory"
+            | "--finite-policy"
+            | "--threads"
+            | "--events"
+            | "--stop-file"
+            | "--checkpoint-interval-seconds" => {
+                let name = match option.as_str() {
+                    "--artifact" => "--artifact",
+                    "--directory" => "--directory",
+                    "--finite-policy" => "--finite-policy",
+                    "--threads" => "--threads",
+                    "--events" => "--events",
+                    "--stop-file" => "--stop-file",
+                    _ => "--checkpoint-interval-seconds",
+                };
+                let value = next_value(&mut args, name)?;
+                forwarded.push(OsString::from(option));
+                forwarded.push(value);
+            }
+            _ => return Err(ArgError::UnknownOption(option)),
+        }
+    }
+    let recipe = recipe.ok_or(ArgError::MissingRequiredOption("--proof-recipe"))?;
+    if recipe.as_os_str().is_empty() {
+        return Err(ArgError::EmptyPath);
+    }
+    let Command::WalkMasterReduce(mut args) = parse(forwarded.into_iter())? else {
+        unreachable!()
+    };
+    if args.artifact.is_none() {
+        return Err(ArgError::MissingRequiredOption("--artifact"));
+    }
+    args.proof_recipe = Some(recipe);
     args.operation = crate::MasterReductionOperation::Publish;
     Ok(Command::WalkMasterReduce(args))
 }
@@ -282,9 +478,16 @@ pub(super) fn parse_finalize(
     // Keep export controls separate from the search recipe: this command may
     // materialize proved maps, but must never start another finite search.
     let mut forwarded = Vec::new();
+    let mut recover_interrupted = false;
     while let Some(option) = args.next() {
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
         match option.as_str() {
+            "--recover-interrupted" => {
+                if recover_interrupted {
+                    return Err(ArgError::DuplicateOption("--recover-interrupted"));
+                }
+                recover_interrupted = true;
+            }
             "--resume" => forwarded.push(OsString::from(option)),
             "--refinement"
             | "--finite-policy"
@@ -319,6 +522,7 @@ pub(super) fn parse_finalize(
         unreachable!()
     };
     args.partial_refinement = args.artifact.take();
+    args.recover_interrupted = recover_interrupted;
     args.operation = crate::MasterReductionOperation::Publish;
     Ok(Command::WalkMasterReduce(args))
 }
@@ -432,6 +636,9 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     if let Some(policy_path) = &args.finite_policy {
         protected.push(policy_path.clone());
     }
+    if let Some(recipe) = &args.proof_recipe {
+        protected.push(recipe.clone());
+    }
     if source.is_none() {
         protected.push(args.command.clone());
         if let Some(finite) = &args.finite_directory {
@@ -482,7 +689,10 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     }
     // The phase directory must never be an original input/checkpoint or its
     // ancestor. Explicit paths avoid accidental writes to production state.
-    let directory = if args.partial_refinement.is_some() || args.finite_directory.is_some() {
+    let directory = if args.partial_refinement.is_some()
+        || args.finite_directory.is_some()
+        || args.proof_recipe.is_some()
+    {
         // Native export acquires the source lock before creating its output.
         prospective_path(&args.directory)?
     } else {
@@ -500,14 +710,33 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
     options.finite_policy = finite_policy.clone();
     options.operation = args.operation;
     options.resume = args.resume;
+    options.fresh_search = args.fresh_search;
     options.previous_artifact = args.previous_artifact;
     options.collection_artifacts = args.collection_artifacts;
     options.threads = args.threads;
+    options.relation_batch_rows = args.relation_batch_rows;
+    options.relation_block_rows = args.relation_block_rows;
+    options.refinement_strategy = args.refinement_strategy;
+    options.modular_policy = args
+        .modular_policy
+        .as_ref()
+        .map(|path| {
+            let bytes = std::fs::read(path).map_err(|e| CliError::InputIo(e.to_string()))?;
+            serde_json::from_slice(&bytes)
+                .map_err(|e| CliError::Input(format!("{}: {e}", path.display())))
+        })
+        .transpose()?;
     options.deep_verification = args.deep_verification;
     options.seed_depth = args.seed_depth;
     options.containing_sector_depth = args.containing_sector_depth;
     options.saved_rule_assistance = args.saved_rule_assistance;
     options.circuit_symmetry_assistance = args.circuit_symmetry_assistance;
+    options.numerator_symmetry_assistance = args.numerator_symmetry_assistance;
+    options.sector_symmetry_assistance = args.sector_symmetry_assistance;
+    options.sector_symmetry_policy = args.sector_symmetry_policy;
+    options.sector_symmetry_saved_projection = args.sector_symmetry_saved_projection;
+    options.selective_symmetry_feedback = args.selective_symmetry_feedback;
+    options.local_dimensional_recurrence_assistance = args.local_dimensional_recurrence_assistance;
     options.finite_feedback = args.finite_feedback;
     options.normalization_profile = args.normalization_profile;
     options.max_relation_columns = args.max_relation_columns;
@@ -560,7 +789,19 @@ pub(super) fn run(args: MasterArgs) -> Result<(), CliError> {
             }
         };
         let result = if let Some(source) = &args.partial_refinement {
-            crate::master_publish_partial_refinement(source, &options, &cancel, observe)
+            if args.recover_interrupted {
+                crate::master_recover_interrupted_refinement(source, &options, &cancel, observe)
+            } else {
+                crate::master_publish_partial_refinement(source, &options, &cancel, observe)
+            }
+        } else if let Some(recipe) = &args.proof_recipe {
+            crate::master_import_proved_refinement(
+                args.artifact.as_ref().expect("import artifact parsed"),
+                recipe,
+                &options,
+                &cancel,
+                observe,
+            )
         } else if let Some(source) = &args.artifact {
             crate::master_refine_published_artifact(source, &options, &cancel, observe)
         } else if let Some(finite) = &args.finite_directory {
@@ -635,6 +876,139 @@ fn prospective_path(path: &Path) -> Result<PathBuf, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proof_import_has_an_explicit_recipe_and_cannot_request_source_search() {
+        let command = [
+            "--artifact",
+            "source",
+            "--directory",
+            "out",
+            "--proof-recipe",
+            "proof.json",
+        ];
+        let Command::WalkMasterReduce(parsed) =
+            parse_import(command.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(parsed.operation, crate::MasterReductionOperation::Publish);
+        assert_eq!(parsed.proof_recipe, Some(PathBuf::from("proof.json")));
+        assert_eq!(parsed.artifact, Some(PathBuf::from("source")));
+        assert!(!parsed.fresh_search);
+        assert!(!parsed.recover_interrupted);
+        for option in [
+            "--seed-depth",
+            "--saved-rule-assistance",
+            "--fresh-search",
+            "--recover-interrupted",
+        ] {
+            assert!(parse_import(command.into_iter().chain([option]).map(OsString::from)).is_err());
+        }
+        assert!(
+            parse_import(
+                command
+                    .into_iter()
+                    .chain(["--proof-recipe", "duplicate.json"])
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+        assert!(
+            parse_import(
+                ["--artifact", "source", "--directory", "out"]
+                    .map(OsString::from)
+                    .into_iter()
+            )
+            .is_err()
+        );
+        assert!(
+            parse(
+                [
+                    "--artifact",
+                    "source",
+                    "--directory",
+                    "out",
+                    "--proof-recipe",
+                    "proof.json"
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn modular_strategy_is_explicit_and_has_a_caller_policy() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        let Command::WalkMasterReduce(default) =
+            parse(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert!(default.refinement_strategy.is_none());
+        let Command::WalkMasterReduce(modular) = parse(
+            base.into_iter()
+                .chain([
+                    "--refinement-strategy",
+                    "modular-circuits",
+                    "--modular-policy",
+                    "grants.json",
+                ])
+                .map(OsString::from),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(
+            modular.refinement_strategy,
+            Some(crate::MasterRefinementStrategy::ModularCircuits)
+        );
+        assert_eq!(modular.modular_policy, Some(PathBuf::from("grants.json")));
+        for value in ["sampled", "EXACT", ""] {
+            assert!(
+                parse(
+                    base.into_iter()
+                        .chain(["--refinement-strategy", value])
+                        .map(OsString::from)
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            parse_publish(
+                [
+                    "--command",
+                    "walk.json",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--refinement-strategy",
+                    "modular-circuits"
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+        assert!(
+            parse_finalize(
+                [
+                    "--refinement",
+                    "paused",
+                    "--directory",
+                    "out",
+                    "--modular-policy",
+                    "grants.json"
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn finite_policy_is_shared_by_artifact_cold_read_and_refinement_commands() {
@@ -718,6 +1092,67 @@ mod tests {
                 .is_err()
             );
         }
+    }
+
+    #[test]
+    fn interrupted_recovery_is_explicit_finalize_only_and_never_a_search_control() {
+        let base = ["--refinement", "abandoned", "--directory", "recovered"];
+        let Command::WalkMasterReduce(ordinary) =
+            parse_finalize(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert!(!ordinary.recover_interrupted);
+        let Command::WalkMasterReduce(recovery) = parse_finalize(
+            base.into_iter()
+                .chain(["--recover-interrupted"])
+                .map(OsString::from),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert!(recovery.recover_interrupted);
+        assert_eq!(recovery.operation, crate::MasterReductionOperation::Publish);
+        assert!(!recovery.fresh_search);
+        assert!(recovery.refinement_strategy.is_none());
+        assert!(matches!(
+            parse_finalize(
+                base.into_iter()
+                    .chain(["--recover-interrupted", "--recover-interrupted"])
+                    .map(OsString::from),
+            ),
+            Err(ArgError::DuplicateOption("--recover-interrupted"))
+        ));
+        assert!(
+            parse(
+                [
+                    "--artifact",
+                    "source",
+                    "--directory",
+                    "out",
+                    "--recover-interrupted"
+                ]
+                .map(OsString::from)
+                .into_iter(),
+            )
+            .is_err()
+        );
+        assert!(
+            parse_publish(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--recover-interrupted"
+                ]
+                .map(OsString::from)
+                .into_iter(),
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -931,6 +1366,378 @@ mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn numerator_assistance_is_explicit_independent_and_refine_only() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        let Command::WalkMasterReduce(default) =
+            parse(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert!(!default.numerator_symmetry_assistance);
+        for (saved, circuit) in [(false, false), (true, false), (false, true), (true, true)] {
+            let mut argv: Vec<_> = base
+                .into_iter()
+                .chain(["--numerator-symmetry-assistance"])
+                .map(OsString::from)
+                .collect();
+            if saved {
+                argv.push(OsString::from("--saved-rule-assistance"));
+            }
+            if circuit {
+                argv.push(OsString::from("--circuit-symmetry-assistance"));
+            }
+            let Command::WalkMasterReduce(parsed) = parse(argv.clone().into_iter()).unwrap() else {
+                panic!()
+            };
+            assert!(parsed.numerator_symmetry_assistance);
+            assert_eq!(parsed.saved_rule_assistance, saved);
+            assert_eq!(parsed.circuit_symmetry_assistance, circuit);
+            argv.push(OsString::from("--numerator-symmetry-assistance"));
+            assert!(matches!(
+                parse(argv.into_iter()),
+                Err(ArgError::DuplicateOption("--numerator-symmetry-assistance"))
+            ));
+        }
+        assert!(
+            parse_publish(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--numerator-symmetry-assistance",
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn sector_assistance_is_explicit_independent_and_refine_only() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        let Command::WalkMasterReduce(default) =
+            parse(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert!(!default.sector_symmetry_assistance);
+        assert_eq!(default.sector_symmetry_policy, None);
+        assert_eq!(default.sector_symmetry_saved_projection, None);
+        for saved in [false, true] {
+            for circuit in [false, true] {
+                for numerator in [false, true] {
+                    let mut argv: Vec<_> = base
+                        .into_iter()
+                        .chain(["--sector-symmetry-assistance"])
+                        .map(OsString::from)
+                        .collect();
+                    if saved {
+                        argv.push(OsString::from("--saved-rule-assistance"));
+                    }
+                    if circuit {
+                        argv.push(OsString::from("--circuit-symmetry-assistance"));
+                    }
+                    if numerator {
+                        argv.push(OsString::from("--numerator-symmetry-assistance"));
+                    }
+                    let Command::WalkMasterReduce(parsed) =
+                        parse(argv.clone().into_iter()).unwrap()
+                    else {
+                        panic!()
+                    };
+                    assert!(parsed.sector_symmetry_assistance);
+                    assert_eq!(parsed.sector_symmetry_policy, None);
+                    assert_eq!(parsed.sector_symmetry_saved_projection, None);
+                    assert_eq!(parsed.saved_rule_assistance, saved);
+                    assert_eq!(parsed.circuit_symmetry_assistance, circuit);
+                    assert_eq!(parsed.numerator_symmetry_assistance, numerator);
+                    argv.push(OsString::from("--sector-symmetry-assistance"));
+                    assert!(matches!(
+                        parse(argv.into_iter()),
+                        Err(ArgError::DuplicateOption("--sector-symmetry-assistance"))
+                    ));
+                }
+            }
+        }
+        assert!(
+            parse_publish(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--sector-symmetry-assistance",
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn selective_feedback_is_explicit_exact_and_sector_only() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        let Command::WalkMasterReduce(default) =
+            parse(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert!(!default.selective_symmetry_feedback);
+        let Command::WalkMasterReduce(selected) = parse(
+            base.into_iter()
+                .chain([
+                    "--sector-symmetry-assistance",
+                    "--selective-symmetry-feedback",
+                ])
+                .map(OsString::from),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert!(selected.selective_symmetry_feedback);
+        assert!(
+            parse(
+                base.into_iter()
+                    .chain(["--selective-symmetry-feedback"])
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+        for extra in [
+            vec!["--refinement-strategy", "modular-circuits"],
+            vec!["--saved-rule-assistance"],
+            vec!["--circuit-symmetry-assistance"],
+        ] {
+            assert!(
+                parse(
+                    base.into_iter()
+                        .chain([
+                            "--sector-symmetry-assistance",
+                            "--selective-symmetry-feedback"
+                        ])
+                        .chain(extra)
+                        .map(OsString::from)
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn local_dimensional_assistance_is_standalone_exact_and_refine_only() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        let Command::WalkMasterReduce(default) =
+            parse(base.map(OsString::from).into_iter()).unwrap()
+        else {
+            panic!()
+        };
+        assert!(!default.local_dimensional_recurrence_assistance);
+        let Command::WalkMasterReduce(local) = parse(
+            base.into_iter()
+                .chain(["--local-dimensional-recurrence-assistance"])
+                .map(OsString::from),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert!(local.local_dimensional_recurrence_assistance);
+        assert!(!local.sector_symmetry_assistance);
+        assert!(
+            parse(
+                base.into_iter()
+                    .chain([
+                        "--local-dimensional-recurrence-assistance",
+                        "--refinement-strategy",
+                        "modular-circuits"
+                    ])
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+        assert!(
+            parse_publish(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--local-dimensional-recurrence-assistance"
+                ]
+                .map(OsString::from)
+                .into_iter()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn sector_policy_is_optional_explicit_and_requires_strong_refinement() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        for (value, expected) in [
+            (
+                "generators",
+                crate::MasterSectorSymmetryPolicy::GeneratorRelations,
+            ),
+            (
+                "polynomial-orbits",
+                crate::MasterSectorSymmetryPolicy::PolynomialOrbits,
+            ),
+        ] {
+            let argv: Vec<_> = base
+                .into_iter()
+                .chain([
+                    "--sector-symmetry-assistance",
+                    "--sector-symmetry-policy",
+                    value,
+                ])
+                .map(OsString::from)
+                .collect();
+            let Command::WalkMasterReduce(parsed) = parse(argv.clone().into_iter()).unwrap() else {
+                panic!()
+            };
+            assert_eq!(parsed.sector_symmetry_policy, Some(expected));
+            assert!(parsed.sector_symmetry_assistance);
+            let mut duplicate = argv.clone();
+            duplicate.extend(["--sector-symmetry-policy", value].map(OsString::from));
+            assert!(matches!(
+                parse(duplicate.into_iter()),
+                Err(ArgError::DuplicateOption("--sector-symmetry-policy"))
+            ));
+            assert!(matches!(
+                parse(
+                    base.into_iter()
+                        .chain(["--sector-symmetry-policy", value])
+                        .map(OsString::from)
+                ),
+                Err(ArgError::InvalidCombination(
+                    "--sector-symmetry-policy requires --sector-symmetry-assistance"
+                ))
+            ));
+            assert!(
+                parse_publish(
+                    [
+                        "--command",
+                        "request",
+                        "--checkpoint",
+                        "cp",
+                        "--directory",
+                        "out",
+                        "--sector-symmetry-assistance",
+                        "--sector-symmetry-policy",
+                        value,
+                    ]
+                    .map(OsString::from)
+                    .into_iter()
+                )
+                .is_err()
+            );
+        }
+        assert!(matches!(
+            parse(
+                base.into_iter()
+                    .chain([
+                        "--sector-symmetry-assistance",
+                        "--sector-symmetry-policy",
+                        "unknown",
+                    ])
+                    .map(OsString::from)
+            ),
+            Err(ArgError::InvalidValue {
+                option: "--sector-symmetry-policy",
+                expected: "generators or polynomial-orbits",
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse(
+                base.into_iter()
+                    .chain(["--sector-symmetry-assistance", "--sector-symmetry-policy"])
+                    .map(OsString::from)
+            ),
+            Err(ArgError::MissingValue("--sector-symmetry-policy"))
+        ));
+    }
+
+    #[test]
+    fn sector_saved_projection_is_optional_boolean_and_requires_strong_refinement() {
+        let base = ["--artifact", "source", "--directory", "out"];
+        for (flag, expected) in [
+            ("--sector-symmetry-saved-projection", true),
+            ("--no-sector-symmetry-saved-projection", false),
+        ] {
+            let argv: Vec<_> = base
+                .into_iter()
+                .chain(["--sector-symmetry-assistance", flag])
+                .map(OsString::from)
+                .collect();
+            let Command::WalkMasterReduce(parsed) = parse(argv.clone().into_iter()).unwrap() else {
+                panic!()
+            };
+            assert_eq!(parsed.sector_symmetry_saved_projection, Some(expected));
+            let mut duplicate = argv;
+            duplicate.push(OsString::from(flag));
+            assert!(matches!(
+                parse(duplicate.into_iter()),
+                Err(ArgError::DuplicateOption(found)) if found == flag
+            ));
+            assert!(matches!(
+                parse(base.into_iter().chain([flag]).map(OsString::from)),
+                Err(ArgError::InvalidCombination(
+                    "sector symmetry saved projection flags require --sector-symmetry-assistance"
+                ))
+            ));
+            assert!(
+                parse_publish(
+                    [
+                        "--command",
+                        "request",
+                        "--checkpoint",
+                        "cp",
+                        "--directory",
+                        "out",
+                        "--sector-symmetry-assistance",
+                        flag,
+                    ]
+                    .map(OsString::from)
+                    .into_iter()
+                )
+                .is_err()
+            );
+        }
+        for conflicting in [
+            [
+                "--sector-symmetry-saved-projection",
+                "--no-sector-symmetry-saved-projection",
+            ],
+            [
+                "--no-sector-symmetry-saved-projection",
+                "--sector-symmetry-saved-projection",
+            ],
+        ] {
+            assert!(matches!(
+                parse(
+                    base.into_iter()
+                        .chain(["--sector-symmetry-assistance"])
+                        .chain(conflicting)
+                        .map(OsString::from)
+                ),
+                Err(ArgError::InvalidCombination(
+                    "sector symmetry saved projection flags are mutually exclusive"
+                ))
+            ));
+        }
+    }
+
     #[test]
     fn containing_sector_search_is_explicit_and_nonnegative() {
         let argv = [
@@ -1166,6 +1973,64 @@ mod tests {
                 ]
                 .map(OsString::from)
                 .into_iter()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn fresh_search_is_a_bound_artifact_mode_and_can_resume_without_resetting() {
+        let Command::WalkMasterReduce(args) = parse(
+            [
+                "--artifact",
+                "source",
+                "--directory",
+                "out",
+                "--fresh-search",
+                "--resume",
+                "--seed-depth",
+                "3",
+                "--containing-sector-depth",
+                "0",
+            ]
+            .map(OsString::from)
+            .into_iter(),
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert!(args.fresh_search);
+        assert!(args.resume);
+        assert_eq!(args.seed_depth, 3);
+        assert_eq!(args.containing_sector_depth, 0);
+        assert!(
+            parse(
+                [
+                    "--command",
+                    "request",
+                    "--checkpoint",
+                    "cp",
+                    "--directory",
+                    "out",
+                    "--fresh-search"
+                ]
+                .map(OsString::from)
+                .into_iter(),
+            )
+            .is_err()
+        );
+        assert!(
+            parse(
+                [
+                    "--artifact",
+                    "source",
+                    "--directory",
+                    "out",
+                    "--fresh-search",
+                    "--fresh-search"
+                ]
+                .map(OsString::from)
+                .into_iter(),
             )
             .is_err()
         );

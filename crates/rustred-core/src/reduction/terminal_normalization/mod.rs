@@ -16,9 +16,11 @@
 mod circuit_equations;
 mod corank_one;
 mod model;
+mod numerator_symmetry;
 mod parametric;
 mod product_reduction;
 mod products;
+mod sector_symmetry;
 mod vacuum_products;
 mod weighted;
 
@@ -28,6 +30,11 @@ pub use circuit_equations::{
 pub use model::{
     ProductSkipReason, TerminalAliasError, TerminalAliasPlan, TerminalAliasStatistics,
     TerminalAliasWitness, VerifiedTerminalAlias,
+};
+pub use numerator_symmetry::{
+    TerminalNumeratorSymmetryEquations, TerminalNumeratorSymmetryLimits,
+    TerminalNumeratorSymmetrySkipReason, TerminalNumeratorSymmetryStatistics,
+    TerminalNumeratorSymmetryWitness,
 };
 pub use parametric::{
     VacuumFamilyAliasError, VacuumFamilyAliasLimits, VacuumFamilyAliasPlan, VacuumIntegralKey,
@@ -39,6 +46,13 @@ pub use product_reduction::{
     VacuumProductReductionError, VacuumProductReductionLimits, VacuumProductReductionStatistics,
     reduce_transported_candidate_factor, reduce_transported_vacuum_factor,
     reduce_vacuum_factor_combination,
+};
+pub use sector_symmetry::{
+    TerminalSectorSymmetryControl, TerminalSectorSymmetryEquations, TerminalSectorSymmetryLimits,
+    TerminalSectorSymmetryOrbitWitness, TerminalSectorSymmetryPolicy,
+    TerminalSectorSymmetryProgress, TerminalSectorSymmetryRoundTrip, TerminalSectorSymmetryRoute,
+    TerminalSectorSymmetrySkipReason, TerminalSectorSymmetryStatistics,
+    TerminalSectorSymmetryWitness,
 };
 pub use vacuum_products::{
     VacuumProductChartLimits, VacuumProductChartPlan, VacuumProductComponent, VacuumProductError,

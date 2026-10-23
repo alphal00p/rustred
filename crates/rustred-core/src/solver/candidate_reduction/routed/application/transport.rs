@@ -72,9 +72,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         statistics.requested_targets = 1;
         let support = support::<N>(target);
         let terms = if evaluator.is_zero(target) {
-            // The same installed certificate used by native traversal also
-            // applies before owner routing. A proved zero needs no owner or
-            // transport, but validation and input charges must still precede it.
+            // Installed zero authority precedes routing under either policy.
             BTreeMap::new()
         } else if self.owners.contains(&support)
             || (unresolved_policy == UnresolvedPolicy::Preserve

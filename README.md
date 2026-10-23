@@ -313,7 +313,16 @@ Saved campaigns automatically publish a portable symbolic package after
 successful scoped coverage collection. Master refinement is **manual**, never
 an implicit consequence of running or extending the campaign. The
 [saved-campaign interface](docs/campaign_master_reduction.md) takes the campaign
-directory, so no hash-named artifact path needs to be copied:
+directory, so no hash-named artifact path needs to be copied.
+
+Fresh certification campaigns default to the symbolic-domain `legacy` engine,
+including Epoch/CP6. This remains the default R6 campaign path. The concrete
+finite-demand engine requires explicit `run --engine finite-demand` for a fresh
+campaign. Existing campaigns retain their saved engine when `--engine` is
+omitted; this does not migrate or restart their checkpoints. Manual master
+refinement continues to default to exact reduction;
+[modular circuits](docs/modular_master_refinement.md) are opt-in.
+An explicitly selected refinement strategy is retained when resuming its phase.
 
 ```bash
 python -B examples/python/saved_campaign.py run --campaign "$CAMPAIGN"
@@ -326,6 +335,13 @@ python -B examples/python/saved_campaign.py finalize-refinement --campaign "$CAM
 # Optional independent graph/geometry reinspection (potentially expensive):
 python -B examples/python/saved_campaign.py publish --campaign "$CAMPAIGN" --deep-verification
 ```
+
+To request the alternative modular discovery backend explicitly, use
+`saved_campaign.py refine --campaign "$CAMPAIGN" --refinement-strategy modular-circuits`
+with a reconstruction-enabled executable. It uses a separate search checkpoint
+and publishes only exactly verified terminal identities. See the
+[invocation, resume semantics and measurements](docs/modular_master_refinement.md)
+before selecting it; a full real-workload refinement speedup is not established.
 
 Deep verification is **off by default**. Normal publication authenticates the
 saved checkpoint and scope, checks recorded dependency completion, and collects
@@ -408,13 +424,15 @@ python -B examples/python/saved_campaign.py run --campaign "$CAMPAIGN" --resume 
 ```
 
 Inspection uses an aligned coloured table on a terminal, or JSON in a pipeline;
-it distinguishes published bounds from newly requested bounds. Refinement is
-a finite exact Laporta-style search with its own interruption/resume checkpoint.
+it distinguishes published bounds from newly requested bounds. The default
+refinement is a finite exact Laporta-style search with its own interruption/resume
+checkpoint. Opt-in modular discovery keeps a separate cursor and exactly verifies
+every accepted source-circuit identity.
 The last published package remains inspectable while an extension or refinement
 is unfinished. Remaining masters are a nonminimal candidate basis, not numerical
-values. These packages preserve native programs, routing and terminal relations
-for later Vakint integration; the saved-campaign engine does not yet provide
-general coefficient back-substitution through its dependency traces.
+values. These packages preserve native programs, routing and terminal relations.
+The separate [saved application API](docs/saved_application.md) supplies exact
+coefficient back-substitution and a portable generation-free Vakint runtime.
 
 `finalize-refinement` publishes a separate artifact from a stopped refinement's
 durable exact rows and previously proved collection maps. It finishes any
@@ -425,9 +443,27 @@ unfinished current-scope refinement has not yet been retained, so later
 publication carries its proved substitutions forward without new Laporta work.
 Only checkpointed progress is retained; unsaved live progress is not exported.
 
+To change the master-search shape without inheriting an old auxiliary matrix,
+use [`refine --fresh-search`](docs/campaign_master_reduction.md#relations-only-fresh-search).
+It retains the published exact terminal maps and conditions, but starts new
+seed/source cursors with precisely the requested depths. For example, after
+finalizing a stopped `(2,2)` refinement:
+
+```bash
+python -B examples/python/saved_campaign.py refine --campaign "$CAMPAIGN" \
+  --fresh-search --seed-depth 2 --containing-sector-depth 0 \
+  --refinement-strategy exact
+```
+
+Omit `--fresh-search` when subsequently resuming that round; repeating it is a
+request for another round, not a resume. This changes only optional master
+refinement, never the completed starting-input scope or installed parametric IBPs.
+
 The application relation search has no preset aggregate seed, source-row,
-column or nonzero count ceiling by default; campaign RAM guards remain active,
-alongside normalization, exact-operation and binary-input bounds. Use
+column or nonzero count ceiling by default; campaign RAM guards remain active.
+Generated master native transport and relation arithmetic have no implicit
+resource quota. Native representation checks and the recorded constraints of
+saved normalization/collection recipes remain in force. Use
 `refine --max-relation-columns N` for an optional column budget, or `0` to remove
 it. Omission retains the saved budget or the unlimited default. To resume the
 same finite cursor using the current executable after a column-budget stop:

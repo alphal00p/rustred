@@ -8,6 +8,8 @@
 #[cfg(test)]
 mod audit_tests;
 mod codec;
+#[cfg(test)]
+mod condition_tests;
 mod feedback;
 #[cfg(test)]
 mod tests;
@@ -15,6 +17,74 @@ mod tests;
 use super::*;
 use crate::persistence::BinaryIoLimits;
 use crate::reduction::terminal_relations::{TerminalRelationRow, TerminalRelationSession};
+use crate::reduction::{ReductionError, guard_union::GuardUnion};
+use std::collections::HashSet;
+
+/// Collection policy over the existing exact, insertion-ordered guard index.
+/// The index retains only hashes/indices, not another coefficient payload. In
+/// particular a repeated matrix denominator neither scans nor clones all the
+/// conditions collected before it. Symbolica's structural Eq still decides
+/// membership; this does not normalize or otherwise alter any guard.
+struct CollectionConditions<'a> {
+    union: GuardUnion<'a>,
+    retained: usize,
+    limit: usize,
+}
+
+impl<'a> CollectionConditions<'a> {
+    fn new(output: &'a mut Vec<Coefficient>, limit: usize) -> Result<Self> {
+        let retained = output.len();
+        Ok(Self {
+            union: GuardUnion::try_new(output).map_err(algebra)?,
+            retained,
+            limit,
+        })
+    }
+
+    fn retain(&mut self, value: &Coefficient) -> Result<()> {
+        if value.is_zero() {
+            return Err(VacuumCollectionError::VanishingCondition);
+        }
+        if value.is_constant() {
+            return Ok(());
+        }
+        self.union
+            .extend_with(std::slice::from_ref(value), |_| {
+                let requested = self.retained.saturating_add(1);
+                if requested > self.limit {
+                    return Err(ReductionError::CacheLimit {
+                        requested,
+                        limit: self.limit,
+                    });
+                }
+                self.retained = requested;
+                Ok(())
+            })
+            .map_err(|error| match error {
+                ReductionError::CacheLimit { requested, limit } => VacuumCollectionError::Limit {
+                    resource: "nonzero conditions",
+                    requested,
+                    limit,
+                },
+                other => algebra(other),
+            })
+    }
+}
+
+/// Most terminal maps inherit exactly the same source conditions. Share that
+/// immutable owner; copy it only when this particular map gains a new guard.
+fn with_additional_conditions(
+    base: &Arc<Vec<Coefficient>>,
+    additional: Vec<Coefficient>,
+) -> Arc<Vec<Coefficient>> {
+    if additional.is_empty() {
+        Arc::clone(base)
+    } else {
+        let mut output = base.as_ref().clone();
+        output.extend(additional);
+        Arc::new(output)
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct TerminalCollectionLimits {
@@ -387,19 +457,13 @@ impl TerminalCollectionPlan {
             let local_remaining = session.remaining_terminals();
             let local = session.apply_all_terminals()?;
             let mut conditions = Vec::new();
+            let mut condition_union =
+                CollectionConditions::new(&mut conditions, limits.diagonal.max_conditions)?;
             for condition in session.nonzero_conditions() {
-                retain(
-                    &mut conditions,
-                    condition.clone(),
-                    limits.diagonal.max_conditions,
-                )?;
+                condition_union.retain(condition)?;
             }
             for condition in family.domain().conditions() {
-                retain(
-                    &mut conditions,
-                    condition.polynomial().clone().into(),
-                    limits.diagonal.max_conditions,
-                )?;
+                condition_union.retain(&condition.polynomial().clone().into())?;
             }
             // Authentication of retained feedback can use a newer local basis.
             // Its entire compatible source-domain remains part of application
@@ -410,7 +474,7 @@ impl TerminalCollectionPlan {
                     .filter(|other| feedback::compatible(family, other.family_owner()))
                 {
                     for condition in feedback::session_conditions(other, limits)? {
-                        retain(&mut conditions, condition, limits.diagonal.max_conditions)?;
+                        condition_union.retain(&condition)?;
                     }
                 }
             }
@@ -424,12 +488,9 @@ impl TerminalCollectionPlan {
                 .iter()
                 .chain(local.values().flat_map(|row| row.values()))
             {
-                retain(
-                    &mut conditions,
-                    value.denominator.clone().into(),
-                    limits.diagonal.max_conditions,
-                )?;
+                condition_union.retain(&value.denominator.clone().into())?;
             }
+            drop(condition_union);
             let predecessor = Predecessor {
                 maps: local,
                 conditions: conditions.clone(),
@@ -448,6 +509,12 @@ impl TerminalCollectionPlan {
                     })
                 })
                 .count();
+            let conditions = Arc::new(conditions);
+            // Only inherited layers can add row-specific guards. The one
+            // borrowed membership index avoids cloning/reindexing the large
+            // common payload for each terminal; Eq still resolves collisions.
+            let base_conditions =
+                (!inherited.is_empty()).then(|| conditions.iter().collect::<HashSet<_>>());
             let mut rows = BTreeMap::new();
             for (target, local_row) in &predecessor.maps {
                 let mut terms: Row = local_row
@@ -459,17 +526,25 @@ impl TerminalCollectionPlan {
                         )
                     })
                     .collect();
-                let mut row_conditions = conditions.clone();
+                let mut additional_conditions = Vec::new();
+                let mut row_condition_union = CollectionConditions::new(
+                    &mut additional_conditions,
+                    limits.diagonal.max_conditions,
+                )?;
+                // The resource bound applies to base plus genuinely new
+                // guards, even though only the additions are retained here.
+                row_condition_union.retained = conditions.len();
                 for layer in &inherited {
                     let mut next_terms = Row::new();
                     for (tagged, coefficient) in &terms {
                         if let Some(next) = layer.get(tagged) {
                             for condition in next.nonzero_conditions() {
-                                retain(
-                                    &mut row_conditions,
-                                    condition.clone(),
-                                    limits.diagonal.max_conditions,
-                                )?;
+                                if !base_conditions
+                                    .as_ref()
+                                    .is_some_and(|base| base.contains(condition))
+                                {
+                                    row_condition_union.retain(condition)?;
+                                }
                             }
                             for (output, factor) in next.terms() {
                                 let value = context
@@ -504,6 +579,8 @@ impl TerminalCollectionPlan {
                     )?;
                     terms = next_terms;
                 }
+                drop(row_condition_union);
+                let row_conditions = with_additional_conditions(&conditions, additional_conditions);
                 total_terms = total_terms.saturating_add(terms.len());
                 check("composed map terms", total_terms, limits.max_composed_terms)?;
                 remaining.extend(terms.keys().cloned());
@@ -512,7 +589,7 @@ impl TerminalCollectionPlan {
                     target.clone(),
                     GuardedVacuumReduction {
                         terms,
-                        conditions: Arc::new(row_conditions),
+                        conditions: row_conditions,
                     },
                 );
             }

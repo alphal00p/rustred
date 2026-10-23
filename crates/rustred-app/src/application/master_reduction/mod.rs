@@ -5,13 +5,24 @@ mod budget;
 mod census_cache;
 mod collection;
 mod finite_provenance;
+mod fresh;
 mod inherited;
+mod local_dimension;
+#[cfg(feature = "reconstruction")]
+mod modular;
+#[cfg(not(feature = "reconstruction"))]
+#[path = "modular_unavailable.rs"]
+mod modular;
+mod numerator_symmetry;
 mod partial;
 mod profile;
 mod refine;
 mod report_counts;
+mod sector_symmetry;
+mod selective_symmetry;
 mod source;
 mod storage;
+mod terminal_import;
 #[cfg(test)]
 mod tests;
 mod verification;
@@ -21,7 +32,10 @@ use crate::{
     AppError, OwnerDomainWalkInventoryOptions, OwnerDomainWalkRequest, owner_domain_walk_inventory,
 };
 use rustred::persistence::BinaryIoLimits;
-use rustred::reduction::terminal_relations::{TerminalRelationLimits, TerminalRelationSession};
+use rustred::reduction::terminal_relations::{
+    TerminalRelationExecutionOptions, TerminalRelationExecutor, TerminalRelationLimits,
+    TerminalRelationSession,
+};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,9 +47,11 @@ use storage::{io, write_json};
 pub use collection::{
     MasterReductionArtifact, load_master_reduction, load_master_reduction_with_policy,
 };
-pub use partial::master_publish_partial_refinement;
+pub use partial::{master_publish_partial_refinement, master_recover_interrupted_refinement};
 pub use profile::MasterNormalizationProfile;
 pub use refine::master_refine_published_artifact;
+pub use rustred::reduction::terminal_normalization::TerminalSectorSymmetryPolicy as MasterSectorSymmetryPolicy;
+pub use terminal_import::master_import_proved_refinement;
 
 const SCHEMA: &str = "rustred.master-reduction.v2";
 const FINITE_SCHEMA: &str = "rustred.master-reduction.v3";
@@ -48,6 +64,14 @@ pub enum MasterReductionOperation {
     Publish,
     #[default]
     Refine,
+}
+
+/// Discovery policy. Both strategies publish only exact terminal identities.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MasterRefinementStrategy {
+    #[default]
+    Exact,
+    ModularCircuits,
 }
 
 #[derive(Clone, Debug)]
@@ -63,7 +87,19 @@ pub struct MasterReductionOptions {
     /// collected with the primary family during explicit refinement.
     pub collection_artifacts: Vec<PathBuf>,
     pub resume: bool,
+    /// Start a new relations-only round from a completed publication. Retained
+    /// exact maps survive, but old source/search cursors and auxiliary rows do
+    /// not. This is an immutable phase mode; resume does not reset it again.
+    pub fresh_search: bool,
     pub threads: usize,
+    /// Optional operational work-stealing window/block sizes, mutable on resume.
+    pub relation_batch_rows: Option<usize>,
+    pub relation_block_rows: Option<usize>,
+    /// Omitted new phases use exact refinement; resume inherits its strategy.
+    pub refinement_strategy: Option<MasterRefinementStrategy>,
+    /// Strict JSON modular discovery/reconstruction grants. Omitted on resume
+    /// inherits the checkpoint; coefficients and accepted maps remain native.
+    pub modular_policy: Option<Value>,
     /// Independently replay the saved dependency graph while extracting the
     /// publication inventory. New phases default off; resume inherits its mode.
     /// Refining an existing artifact preserves its assurance without replay.
@@ -78,6 +114,26 @@ pub struct MasterReductionOptions {
     /// Add verified circuit-symmetry equations for raw and normalized terminals.
     /// Does not load or certify saved candidate rules.
     pub circuit_symmetry_assistance: bool,
+    /// Add exact finite numerator identities from denominator-preserving
+    /// integration-variable automorphisms. Independent of ordinary IBP search.
+    pub numerator_symmetry_assistance: bool,
+    /// Close verified sector momentum maps and apply existing saved programs
+    /// to their complete finite identities. Includes the numerator provider.
+    pub sector_symmetry_assistance: bool,
+    /// New strong phases default to generator relations. Omission on resume
+    /// preserves the saved policy; changing it requires a new phase.
+    pub sector_symmetry_policy: Option<MasterSectorSymmetryPolicy>,
+    /// Apply authenticated saved programs to symmetry offspring. New strong
+    /// phases default to true; omission on resume preserves the saved mode.
+    pub sector_symmetry_saved_projection: Option<bool>,
+    /// Iteratively inspect selected terminal-relevant auxiliary integrals.
+    /// New equations remain auxiliary and never enlarge the raw master roster.
+    /// This opt-in exact strategy is immutable across a resumed phase.
+    pub selective_symmetry_feedback: bool,
+    /// Add fixed-d equations from replayed localized dimensional-pair witnesses.
+    /// The finite original-key cohort is prepared once; no shifted-dimensional
+    /// integral is admitted into the runtime master roster.
+    pub local_dimensional_recurrence_assistance: bool,
     /// Re-eliminate retained family-qualified finite rows after full-U aliases.
     /// New refinements default to enabled; omitted on resume uses the snapshot.
     /// Publication only transports previously proved maps.
@@ -102,12 +158,23 @@ impl MasterReductionOptions {
             previous_artifact: None,
             collection_artifacts: Vec::new(),
             resume: false,
+            fresh_search: false,
             threads: 1,
+            relation_batch_rows: None,
+            relation_block_rows: None,
+            refinement_strategy: None,
+            modular_policy: None,
             deep_verification: None,
             seed_depth: 0,
             containing_sector_depth: 0,
             saved_rule_assistance: false,
             circuit_symmetry_assistance: false,
+            numerator_symmetry_assistance: false,
+            sector_symmetry_assistance: false,
+            sector_symmetry_policy: None,
+            sector_symmetry_saved_projection: None,
+            selective_symmetry_feedback: false,
+            local_dimensional_recurrence_assistance: false,
             finite_feedback: None,
             normalization_profile: None,
             max_relation_columns: None,
@@ -194,6 +261,7 @@ fn inspect_with_policy(
         }
     }
     report_counts::update(&mut report);
+    modular::validate_metadata(parent, &report)?;
     Ok(report)
 }
 
@@ -226,7 +294,7 @@ fn load_session_with_policy(
         .as_str()
         .ok_or_else(|| AppError::input("master reduction has not yet prepared native state"))?;
     let state = storage::safe_child(directory, name)?;
-    let limits = BinaryIoLimits::default();
+    let limits = profile::native_io_limits(None);
     let bytes = storage::read_bounded(&state, limits.max_program_bytes)?;
     if Some(blake3::hash(&bytes).to_hex().as_str()) != report["native_state"]["blake3"].as_str() {
         return Err(AppError::input("native master state digest mismatch"));
@@ -238,6 +306,21 @@ fn load_session_with_policy(
     )
     .map_err(io)?;
     finite_provenance::validate_session(directory, &report, &session, policy)?;
+    fresh::validate(directory, &report, &session)?;
+    numerator_symmetry::validate(directory, &session, &report)?;
+    sector_symmetry::validate(directory, &session, &report)?;
+    local_dimension::validate(directory, &session, &report)?;
+    selective_symmetry::validate(directory, &session, &report)?;
+    if modular::from_report(&report)? == MasterRefinementStrategy::ModularCircuits
+        && (report["modular_state"].is_object() || report["status"] == "completed_nonminimal")
+    {
+        let complete = modular::complete(directory, &report)?;
+        if report["status"] == "completed_nonminimal" && !complete {
+            return Err(AppError::input(
+                "completed modular artifact has an unfinished native discovery state",
+            ));
+        }
+    }
     Ok(session)
 }
 
@@ -295,6 +378,11 @@ fn master_reduce_source(
     observer: impl Fn(Value),
 ) -> Result<Value, AppError> {
     let request = source.request();
+    if options.fresh_search {
+        return Err(AppError::input(
+            "relations-only fresh search requires refinement from a completed --artifact source",
+        ));
+    }
     if !options.collection_artifacts.is_empty() {
         return Err(AppError::input(
             "additional collection artifacts require refinement from a published artifact",
@@ -307,6 +395,10 @@ fn master_reduce_source(
     }
     if (options.saved_rule_assistance
         || options.circuit_symmetry_assistance
+        || options.numerator_symmetry_assistance
+        || options.sector_symmetry_assistance
+        || options.local_dimensional_recurrence_assistance
+        || options.selective_symmetry_feedback
         || options.finite_feedback.is_some()
         || options.containing_sector_depth != 0
         || !options.collection_artifacts.is_empty())
@@ -327,6 +419,35 @@ fn master_reduce_source(
     } else {
         None
     };
+    let mut effective_options = options.clone();
+    if options.sector_symmetry_assistance {
+        effective_options.sector_symmetry_policy = Some(sector_symmetry::for_phase(
+            options,
+            resumed.as_ref().unwrap_or(&Value::Null),
+        )?);
+        effective_options.sector_symmetry_saved_projection =
+            Some(sector_symmetry::projection_for_phase(
+                options,
+                resumed.as_ref().unwrap_or(&Value::Null),
+            )?);
+    } else if options.sector_symmetry_policy.is_some()
+        || options.sector_symmetry_saved_projection.is_some()
+    {
+        return Err(AppError::input(
+            "sector-symmetry policy requires sector-symmetry assistance",
+        ));
+    }
+    let options = &effective_options;
+    selective_symmetry::validate_options(
+        options,
+        resumed.as_ref(),
+        modular::for_phase(options, resumed.as_ref())?,
+    )?;
+    local_dimension::validate_options(
+        options,
+        resumed.as_ref(),
+        modular::for_phase(options, resumed.as_ref())?,
+    )?;
     let normalization_profile = if let Some(report) = &resumed {
         profile::for_resume(options.normalization_profile, report)?
     } else if let Some(previous) = &options.previous_artifact {
@@ -339,13 +460,17 @@ fn master_reduce_source(
         options.normalization_profile.unwrap_or_default()
     };
     let finite_feedback = collection::feedback_for_phase(options, resumed.as_ref())?;
+    let refinement_strategy = modular::for_phase(options, resumed.as_ref())?;
     let deep_verification = verification::for_phase(options, resumed.as_ref())?;
-    let binding = source.binding(
-        options,
-        finite_feedback,
-        deep_verification,
-        normalization_profile,
-    )?;
+    let binding = strategy_scope_binding(
+        source.binding(
+            options,
+            finite_feedback,
+            deep_verification,
+            normalization_profile,
+        )?,
+        refinement_strategy,
+    );
     let mut report = if let Some(report) = resumed {
         if report["schema"] != source.schema() || report["scope_binding"] != binding {
             return Err(AppError::input(
@@ -359,6 +484,14 @@ fn master_reduce_source(
                 .as_bool()
                 .unwrap_or(false)
                 != options.circuit_symmetry_assistance
+            || report["numerator_symmetry_assistance"]
+                .as_bool()
+                .unwrap_or(false)
+                != options.numerator_symmetry_assistance
+            || report["sector_symmetry_assistance"]
+                .as_bool()
+                .unwrap_or(false)
+                != options.sector_symmetry_assistance
         {
             return Err(AppError::input(
                 "cannot change a saved phase operation in place; refine a published artifact into a new directory",
@@ -379,9 +512,14 @@ fn master_reduce_source(
             "application":"exact terminal substitutions; routed saved-owner coefficient back-substitution is a separate interface",
             "numerical_master_values_included":false});
         profile::record(&mut report, normalization_profile);
+        modular::record(&mut report, refinement_strategy, options)?;
         report
     };
-    if (report["status"] == "completed_nonminimal" && report["collection"]["status"] == "completed")
+    if (report["status"] == "completed_nonminimal"
+        && report["collection"]["status"] == "completed"
+        && selective_symmetry::complete(&report)
+        && !(refinement_strategy == MasterRefinementStrategy::ModularCircuits
+            && options.modular_policy.is_some()))
         || (options.operation == MasterReductionOperation::Publish
             && report["status"] == "published_unrefined"
             && report["collection"]["status"] == "completed")
@@ -389,7 +527,9 @@ fn master_reduce_source(
         let session = load_session_with_policy(&options.directory, options.finite_policy.as_ref())?;
         let _ = collection::load_with_policy(&options.directory, options.finite_policy.as_ref())?;
         assistance::validate(options, &session, &report)?;
-        if report["status"] == "completed_nonminimal" && !session.is_complete() {
+        if report["status"] == "completed_nonminimal"
+            && !modular::phase_complete(&options.directory, &report, &session)?
+        {
             return Err(AppError::input(
                 "completed manifest has unfinished native session",
             ));
@@ -401,6 +541,21 @@ fn master_reduce_source(
     report["operation"] = json!(operation_name(options.operation));
     report["saved_rule_assistance"] = json!(options.saved_rule_assistance);
     report["circuit_symmetry_assistance"] = json!(options.circuit_symmetry_assistance);
+    report["numerator_symmetry_assistance"] = json!(options.numerator_symmetry_assistance);
+    report["sector_symmetry_assistance"] = json!(options.sector_symmetry_assistance);
+    if options.local_dimensional_recurrence_assistance {
+        report["local_dimensional_recurrence_assistance"] = json!(true);
+    }
+    if !options.resume {
+        selective_symmetry::record(options, &mut report);
+    }
+    if options.sector_symmetry_assistance {
+        report["sector_symmetry_policy"] = json!(sector_symmetry::policy_name(
+            options.sector_symmetry_policy.unwrap_or_default()
+        ));
+        report["sector_symmetry_saved_projection"] =
+            json!(options.sector_symmetry_saved_projection.unwrap_or(true));
+    }
     collection::record_feedback(&mut report, finite_feedback);
     verification::record(&mut report, deep_verification);
     report["status"] = json!("running");
@@ -531,12 +686,15 @@ fn run(
             report["inputs"] = storage::package_inputs(request, &options.directory, &digests)?;
         }
         let normalization_profile = profile::from_report(report)?;
-        if source.binding(
-            options,
-            collection::feedback_for_phase(options, Some(report))?,
-            deep_verification,
-            normalization_profile,
-        )? != report["scope_binding"]
+        if strategy_scope_binding(
+            source.binding(
+                options,
+                collection::feedback_for_phase(options, Some(report))?,
+                deep_verification,
+                normalization_profile,
+            )?,
+            modular::from_report(report)?,
+        ) != report["scope_binding"]
         {
             return Err(AppError::input(
                 "saved scope changed while preparing master reduction",
@@ -584,6 +742,11 @@ fn run(
                 .seed_depth
                 .max(previous_session.statistics().seed_depth);
             let changes_profile = normalization_profile != profile::from_report(&previous_report)?;
+            if changes_profile && previous_session.retained_relations_binding().is_some() {
+                return Err(AppError::input(
+                    "changing normalization on retained relations requires a relations-only fresh refinement first",
+                ));
+            }
             if !changes_profile && options.operation == MasterReductionOperation::Publish {
                 inherited::capture(&previous_session, &previous_report, report)?;
             }
@@ -651,13 +814,45 @@ fn execute_session(
     observer: &impl Fn(Value),
     started: Instant,
 ) -> Result<(), AppError> {
+    if options.operation == MasterReductionOperation::Refine
+        && modular::from_report(report)? == MasterRefinementStrategy::ModularCircuits
+    {
+        return modular::execute(options, session, report, cancel, observer, started);
+    }
     budget::configure(options, session, report)?;
-    let mut provider = assistance::prepare(options, session, report, cancel, observer, started)?;
+    let mut provider =
+        assistance::prepare_for_execution(options, session, report, cancel, observer, started)?;
     // Changing an equation-provider policy can replace the native session.
     budget::configure(options, session, report)?;
     write_json(&options.directory.join("latest.json"), report)?;
     let mut last_checkpoint = Instant::now();
     let mut last_event = Instant::now();
+    let executor = if options.operation == MasterReductionOperation::Refine {
+        let mut execution = TerminalRelationExecutionOptions::new(options.threads);
+        if let Some(rows) = options.relation_batch_rows {
+            execution.batch_rows = rows;
+        }
+        if let Some(rows) = options.relation_block_rows {
+            execution.block_rows = rows;
+        }
+        Some(TerminalRelationExecutor::new(execution).map_err(io)?)
+    } else {
+        None
+    };
+    if let Some(executor) = &executor {
+        let configuration = executor.options();
+        let kind = provider.as_ref().map_or("none", |provider| provider.kind());
+        let strategy = match kind {
+            "finite-immutable" => "assisted-ordered-work-stealing-blocks-v1",
+            "dynamic" => "dynamic-assisted-ordered-work-stealing-barriers-v1",
+            _ => "ordered-work-stealing-blocks-v1",
+        };
+        report["execution"] = json!({"strategy":strategy,"provider_kind":kind,
+            "stage":"waiting for native batch","mode":"waiting",
+            "workers":configuration.workers,"reserved_workers":configuration.workers,"batch_rows":configuration.batch_rows,
+            "block_rows":configuration.block_rows,"checkpoint":"committed native ordinary/provider prefix; speculative blocks discarded"});
+        observer(event(report, "master_reduction_progress", started));
+    }
     while !session.is_complete() && !cancel.load(Ordering::Relaxed) {
         // Scope extension may need to reindex old exact rows. This preserves
         // previous refinements, but publication never processes a new source.
@@ -669,9 +864,33 @@ fn execute_session(
         if options.operation == MasterReductionOperation::Publish {
             session.step_rebuild_only(cancel).map_err(io)?;
         } else if let Some(provider) = &mut provider {
-            session.step_with_provider(cancel, provider).map_err(io)?;
+            let executor = executor.as_ref().unwrap();
+            if let Some(finite) = &provider.finite {
+                executor
+                    .step_with_finite_provider_observed(session, cancel, finite, |progress| {
+                        observed_execution(report, progress, observer, started);
+                    })
+                    .map_err(io)?;
+            } else {
+                executor
+                    .step_with_provider_observed(
+                        session,
+                        cancel,
+                        &mut provider.provider,
+                        |progress| {
+                            observed_execution(report, progress, observer, started);
+                        },
+                    )
+                    .map_err(io)?;
+            }
         } else {
-            session.step(cancel).map_err(io)?;
+            executor
+                .as_ref()
+                .unwrap()
+                .step_observed(session, cancel, |progress| {
+                    observed_execution(report, progress, observer, started);
+                })
+                .map_err(io)?;
         }
         if last_event.elapsed() >= Duration::from_millis(250) {
             update_stats(report, &session);
@@ -684,19 +903,41 @@ fn execute_session(
         }
     }
     if cancel.load(Ordering::Relaxed) {
+        reset_execution_phase(report, "paused", "idle");
         save(options, &session, report, "paused", started, observer)?;
         return Ok(());
     }
+    if options.operation == MasterReductionOperation::Refine && options.selective_symmetry_feedback
+    {
+        selective_symmetry::execute(
+            options,
+            session,
+            report,
+            cancel,
+            observer,
+            started,
+            executor.as_ref().expect("refinement executor"),
+            provider.as_mut(),
+        )?;
+        if cancel.load(Ordering::Relaxed) {
+            reset_execution_phase(report, "paused", "idle");
+            save(options, session, report, "paused", started, observer)?;
+            return Ok(());
+        }
+    }
+    reset_execution_phase(report, "terminal collection", "serial");
     collection::complete(options, session, report, cancel, observer, started)?;
     if cancel.load(Ordering::Relaxed) {
+        reset_execution_phase(report, "paused", "idle");
         save(options, session, report, "paused", started, observer)?;
         return Ok(());
     }
+    reset_execution_phase(report, "completed", "idle");
     save(
         options,
         &session,
         report,
-        if session.is_complete() {
+        if session.is_complete() && selective_symmetry::complete(report) {
             "completed_nonminimal"
         } else {
             "published_unrefined"
@@ -707,6 +948,49 @@ fn execute_session(
     publish_final(options, report)?;
     observer(event(report, "master_reduction_finished", started));
     Ok(())
+}
+
+/// Native progress identifies the actual phase. A reserved pool is not a
+/// measurement of busy workers, and coordinator/serial-provider barriers must
+/// not be presented as parallel elimination merely because workers > 1.
+fn observed_execution(
+    report: &mut Value,
+    progress: rustred::reduction::terminal_relations::TerminalRelationExecutionProgress,
+    observer: &impl Fn(Value),
+    started: Instant,
+) {
+    report["execution"]["stage"] = json!(progress.stage);
+    report["execution"]["mode"] = json!(match progress.stage {
+        "preparing rows" | "parallel elimination" => "parallel",
+        "provider request" => "barrier",
+        "ordered merge" | "atomic block merge" => "merge",
+        _ => "serial",
+    });
+    report["execution"]["rows_total"] = json!(progress.rows_total);
+    report["execution"]["rows_prepared"] = json!(progress.rows_prepared);
+    report["execution"]["rows_eliminated"] = json!(progress.rows_eliminated);
+    report["execution"]["rows_committed"] = json!(progress.rows_committed);
+    report["execution"]["blocks_completed"] = json!(progress.blocks_completed);
+    report["execution"]["provider_keys_filtered"] = json!(progress.provider_keys_filtered);
+    observer(event(report, "master_reduction_progress", started));
+}
+
+fn reset_execution_phase(report: &mut Value, stage: &str, mode: &str) {
+    let Some(execution) = report.get_mut("execution").and_then(Value::as_object_mut) else {
+        return;
+    };
+    execution.insert("stage".into(), json!(stage));
+    execution.insert("mode".into(), json!(mode));
+    for name in [
+        "rows_total",
+        "rows_prepared",
+        "rows_eliminated",
+        "rows_committed",
+        "blocks_completed",
+        "provider_keys_filtered",
+    ] {
+        execution.remove(name);
+    }
 }
 
 fn publish_final(options: &MasterReductionOptions, report: &mut Value) -> Result<(), AppError> {
@@ -726,6 +1010,16 @@ fn operation_name(operation: MasterReductionOperation) -> &'static str {
         MasterReductionOperation::Publish => "publish",
         MasterReductionOperation::Refine => "refine",
     }
+}
+
+fn strategy_scope_binding(binding: String, strategy: MasterRefinementStrategy) -> String {
+    if strategy == MasterRefinementStrategy::Exact {
+        return binding;
+    }
+    let mut hash = blake3::Hasher::new();
+    hash.update(binding.as_bytes());
+    modular::hash(strategy, &mut hash);
+    hash.finalize().to_hex().to_string()
 }
 
 fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
@@ -793,9 +1087,28 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
     report["pending_assistance_keys"] = json!(stats.pending_assistance_keys);
     report["completed_assistance_rows"] = json!(stats.completed_assistance_rows);
     report["pending_assistance_rows"] = json!(stats.pending_assistance_rows);
-    report["finite_search_complete"] = json!(stats.complete);
-    report["refinement_complete"] =
-        json!(stats.complete && report["collection"]["status"] == "completed");
+    report["finite_search_complete"] =
+        json!(stats.complete && selective_symmetry::complete(report));
+    let modular = report["refinement_strategy"] == "modular-circuits";
+    let partial_export =
+        report["operation"] == "publish" && report["partial_refinement_source"].is_object();
+    report["refinement_complete"] = json!(
+        !partial_export
+            && (if modular {
+                report["modular_search_complete"] == true
+            } else {
+                stats.complete && selective_symmetry::complete(report)
+            })
+            && report["collection"]["status"] == "completed"
+    );
+    if modular {
+        report["exact_source_search_complete"] = json!(stats.complete);
+        if report["collection"]["status"] != "preparing" {
+            report["stage"] = report["modular_refinement"]["stage"]
+                .as_str()
+                .map_or_else(|| json!("modular_discovery"), |stage| json!(stage));
+        }
+    }
     report["capabilities"] = json!({
         "saved_scope_inventory_complete": report["inventory"]["complete"] == true,
         "saved_scope_coverage_verified": verification::independently_verified(report),
@@ -806,6 +1119,12 @@ fn update_stats(report: &mut Value, session: &TerminalRelationSession) {
         "numerical_master_values": false,
         "minimality_proved": false
     });
+    if modular {
+        report["capabilities"]["modular_discovery_complete"] =
+            report["modular_search_complete"].clone();
+        report["capabilities"]["exact_source_span_exhausted"] = json!(stats.complete);
+        report["capabilities"]["accepted_modular_relations_exactly_verified"] = json!(true);
+    }
 }
 
 fn save(
@@ -817,6 +1136,7 @@ fn save(
     observer: &impl Fn(Value),
 ) -> Result<(), AppError> {
     let save_start = Instant::now();
+    fresh::validate(&options.directory, report, session)?;
     report["schema"] = json!(current_schema(report)?);
     let generation = report["checkpoint"]["generation"]
         .as_u64()
@@ -824,7 +1144,7 @@ fn save(
         .checked_add(1)
         .ok_or_else(|| AppError::limit("checkpoint generation overflow"))?;
     let bytes = session
-        .to_native_bytes(BinaryIoLimits::default())
+        .to_native_bytes(profile::native_io_limits(None))
         .map_err(io)?;
     let file = format!("state-{generation:016}.rrbin");
     write_file_atomically(&options.directory.join(&file), &bytes, true).map_err(io)?;
@@ -851,7 +1171,25 @@ fn event(report: &Value, kind: &str, started: Instant) -> Value {
             .expect("report object")
             .iter()
             .filter(|(key, _)| !matches!(key.as_str(), "inventory" | "inputs"))
-            .map(|(key, value)| (key.clone(), value.clone()))
+            .map(|(key, value)| {
+                let value = if key == "sector_symmetry_reduction" {
+                    value.as_object().map_or_else(
+                        || value.clone(),
+                        |fields| {
+                            Value::Object(
+                                fields
+                                    .iter()
+                                    .filter(|(field, _)| field.as_str() != "failure_receipts")
+                                    .map(|(field, value)| (field.clone(), value.clone()))
+                                    .collect(),
+                            )
+                        },
+                    )
+                } else {
+                    value.clone()
+                };
+                (key.clone(), value)
+            })
             .collect(),
     );
     result["event"] = json!(kind);

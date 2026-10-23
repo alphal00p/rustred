@@ -517,19 +517,325 @@ def render_table(frame, width=100, height=24, color=True):
     return fixed + [line for index, (_, line) in enumerate(rows) if index in keep] + footer
 
 
+def master_execution_phase(execution):
+    """Describe a reported native phase, never infer activity from pool size."""
+    stage = execution.get("stage", "")
+    if not stage:
+        return None
+    labels = {"provider request": "Provider barrier", "assistance equation": "Exact publication",
+              "filtering provider requests": "Provider filter", "mapping columns": "Column mapping",
+              "ordered merge": "Ordered merge", "atomic block merge": "Atomic block merge",
+              "waiting for native batch": "Execution"}
+    if stage in labels:
+        return labels[stage]
+    parallel_strategies = ("ordered-work-stealing-blocks-v1", "assisted-ordered-work-stealing-blocks-v1",
+                           "dynamic-assisted-ordered-work-stealing-barriers-v1")
+    if (execution.get("mode") == "parallel"
+            or (not execution.get("mode") and execution.get("strategy") in parallel_strategies
+                and stage in ("preparing rows", "parallel elimination"))):
+        return "Parallel batch"
+    if execution.get("mode") == "barrier":
+        return "Provider barrier"
+    if execution.get("mode") == "serial":
+        return "Serial phase"
+    return "Execution"
+
+
+def master_batch_execution(master):
+    """Do not present a retained batch receipt as a later phase's activity."""
+    if (master.get("operation") != "refine" or master.get("refinement_strategy") == "modular-circuits"
+            or master.get("stage") == "terminal_collection"
+            or master.get("status") in ("completed_nonminimal", "published_unrefined")):
+        return {}
+    execution = master.get("execution", {})
+    if (master.get("stage") in ("preparing_sector_symmetry_equations", "reducing_sector_symmetry_equations")
+            or str(master.get("stage", "")).startswith("selective_symmetry_")
+            or str(master.get("stage", "")).startswith("preparing_local_dimensional_recurrence")
+            or master.get("selective_symmetry_feedback", {}).get("stage") in
+               ("selecting_sources", "preparing_selected_sources", "prepared")):
+        # A previous elimination receipt is not activity in provider preparation.
+        # The configured pool remains useful, but supplies no busy-worker count.
+        return {key: value for key, value in execution.items()
+                if key in ("workers", "reserved_workers")} if execution else {}
+    return execution
+
+
+def sector_symmetry_metrics(master):
+    """Bounded finite-provider counters shared by terminal and plain consumers."""
+    enabled = master.get("sector_symmetry_assistance", False)
+    if not enabled or master.get("operation") != "refine":
+        return ([("Sector proofs", "retained", "inherited finite proofs; provider off")]
+                if enabled or master.get("inherited_sector_symmetry_authority", False) else [])
+    preparation = master.get("sector_symmetry_preparation", {})
+    reduction = master.get("sector_symmetry_reduction", {})
+    saved_projection_requested = master.get("sector_symmetry_saved_projection")
+    if saved_projection_requested is None:
+        saved_projection_requested = reduction.get("saved_projection_requested")
+    if saved_projection_requested is None:
+        saved_projection_requested = True
+    policy = master.get("sector_symmetry_policy") or preparation.get("policy") or "generators"
+    polynomial_orbits = policy == "polynomial-orbits"
+    policy_detail = ("whole polynomial orbit / Reynolds rows" if polynomial_orbits else
+                     "I - T_r and I - T_rg per verified generator" if policy == "generators" else
+                     "relation recipe not reported")
+    row_detail = ("whole polynomial orbit / Reynolds rows" if polynomial_orbits else
+                  "generator relation rows" if policy == "generators" else "finite source relation rows")
+    column_label = "Orbit columns" if polynomial_orbits else "Symmetry columns"
+
+    def completeness(report, field="complete"):
+        return ("complete" if report.get(field) is True else
+                "incomplete" if report.get(field) is False else "not reported")
+
+    transported_rows = preparation.get("transported_rows")
+    if transported_rows is None:
+        transported_rows = preparation.get("equations")
+    transported_keys = preparation.get("transported_keys")
+    if transported_keys is None:
+        transported_keys = preparation.get("equation_targets")
+    discovered_maps = preparation.get("discovered_maps")
+    verified_maps = preparation.get("verified_generators")
+    maps = (count(discovered_maps) + " discovered" if verified_maps is None and discovered_maps is not None
+            else count(verified_maps) + " verified")
+    supports = preparation.get("analyzed_supports")
+    support_detail = (count(supports) + " supports analyzed" if supports is not None else
+                      count(preparation.get("support_closure_supports")) + " supports in finite closure"
+                      if preparation.get("support_closure_supports") is not None else "unknown supports analyzed")
+    map_detail = count(preparation.get("proposed_generators")) + " proposed; " + support_detail
+    if verified_maps is not None and discovered_maps is not None:
+        map_detail = count(discovered_maps) + " discovered; " + map_detail
+    skipped = preparation.get("skipped", [])
+    # Reasons are scalar headers, never source equations or support inventories.
+    reasons = [clean(item.get("reason", "unknown"))[:96] + " " + count(item.get("count"))
+               for item in skipped[:3] if isinstance(item, dict)] if isinstance(skipped, list) else []
+    omitted = max(0, number(preparation.get("skipped_reasons_omitted")) or 0)
+    if isinstance(skipped, list):
+        omitted += max(0, len(skipped) - 3)
+    if omitted:
+        reasons.append(count(omitted) + " additional reasons omitted")
+    boundary = clean(preparation.get("scope") or "finite original sources; endpoint monomials are auxiliary columns")[:240]
+    if reasons:
+        boundary += "; skipped " + ", ".join(reasons)
+    result = [
+        ("Source jobs", count(preparation.get("input_keys")),
+         (count(preparation["processed_keys"]) + " processed; " if preparation.get("processed_keys") is not None else "")
+         + "original source keys; " + completeness(preparation, "source_jobs_complete")),
+        ("Sector symmetry", count(transported_rows) + " rows",
+         row_detail + "; finite original inventory; not global"),
+        ("Sector maps", maps, map_detail),
+        ("Transported keys", count(transported_keys),
+         "original source keys with symmetry rows"),
+        ("Transported terms", count(preparation.get("output_terms")), "terms in transported rows"),
+        ("Symmetry boundary", completeness(preparation), boundary),
+    ]
+    closure_keys = preparation.get("closure_keys")
+    if closure_keys is None:
+        closure_keys = preparation.get("discovered_keys")
+    closure_supports = preparation.get("support_closure_supports")
+    if closure_keys is not None or closure_supports is not None:
+        result.insert(1, (column_label, count(closure_keys),
+                         "nonzero polynomial columns; auxiliary endpoints"
+                         + ("; " + count(closure_supports) + " supports" if closure_supports is not None else "")))
+    if preparation.get("stage"):
+        result.insert(1, ("Source preparation", clean(preparation["stage"]).replace("_", " ")[:80],
+                         policy_detail + " per original key"))
+    if polynomial_orbits:
+        for label, field, detail in (("Orbit images", "orbit_images", "whole polynomial images in the current source orbit"),
+                                     ("Orbit terms", "orbit_terms", "terms across images in the current source orbit")):
+            if preparation.get(field) is not None:
+                result.append((label, count(preparation[field]), detail))
+    elif policy == "generators":
+        if preparation.get("orbit_images") is not None:
+            result.append(("Candidate images", count(preparation["orbit_images"]),
+                           "generator candidates for the current original source"))
+        if preparation.get("orbit_terms") is not None:
+            result.append(("Candidate terms", count(preparation["orbit_terms"]),
+                           "terms across generator candidates for the current source"))
+    if saved_projection_requested is False:
+        result[1:1] = [
+            ("Saved projection", "not requested", "finite source-only symmetry cohort"),
+            ("Combined closure", completeness(reduction, "combined_closure_complete")
+             if type(reduction.get("combined_closure_complete")) is bool else "not assessed",
+             clean(reduction.get("combined_closure_scope") or
+                   "source-only finite cohort; no saved-program projection or family-closure claim")[:240]),
+        ]
+        ready = reduction.get("exact_source_rows_ready")
+        result.append(("Source cohort", "ready" if ready is True else "incomplete" if ready is False else "not reported",
+                       count(reduction.get("processed_rows")) + "/" + count(reduction.get("source_rows"))
+                       + " exact source rows; finite cohort"))
+        if reduction.get("source_terms") is not None:
+            result.append(("Source terms", count(reduction["source_terms"]), "terms in the exact source cohort"))
+        if reduction.get("unresolved_output_keys") is not None:
+            result.append(("Auxiliary tails", count(reduction["unresolved_output_keys"]),
+                           "auxiliary columns at the source-only finite boundary"))
+    elif reduction:
+        result[1:1] = [
+            ("Saved projection", completeness(reduction, "saved_projection_complete"),
+             "saved-program projection of original-source symmetry rows"),
+            ("Combined closure", completeness(reduction, "combined_closure_complete"),
+             clean(reduction.get("combined_closure_scope") or
+                   "original sources and saved projection; unrestricted family closure not established")[:240]),
+        ]
+        result.extend([
+            ("Saved-row reduction", count(reduction.get("processed_rows")) + "/" + count(reduction.get("source_rows")),
+             count(reduction.get("saved_reduced_rows")) + " saved-reduced rows; "
+             + count(reduction.get("saved_application_failures")) + " failed saved applications"),
+            ("Projected terms", count(reduction.get("projected_terms")), "terms after saved-row projection"),
+            ("Projection boundary", count(reduction.get("incomplete_boundaries")) + " incomplete",
+             "row pass " + completeness(reduction) + "; saved projection "
+             + completeness(reduction, "saved_projection_complete")),
+        ])
+        for label, field, detail in (
+                ("Outside original", "saved_terminal_keys_outside_source_inventory", "saved terminal columns outside original sources"),
+                ("Outside orbit" if polynomial_orbits else "Outside symmetry", "saved_output_keys_outside_symmetry_inventory", "saved output columns outside the symmetry inventory"),
+                ("Normalization exits", "normalization_outputs_outside_source_inventory", "normalization outputs outside original sources"),
+                ("Deferred sources", "deferred_symmetry_sources", "returned program leaves deferred at the finite boundary"),
+                ("Unresolved outputs", "unresolved_output_keys", "unresolved saved-program projection tails")):
+            if reduction.get(field) is not None:
+                result.append((label, count(reduction[field]), detail))
+        active = reduction.get("active_row")
+        if isinstance(active, dict):
+            result.append(("Active projection", clean(active.get("phase", "not reported"))[:80],
+                           "task " + count(active.get("task")) + "; elapsed " + duration(active.get("elapsed_seconds"))
+                           + "; nodes " + count(active.get("unique_nodes")) + " unique / "
+                           + count(active.get("active_nodes")) + " active; pending frames "
+                           + count(active.get("pending_frames")) + "; cached " + count(active.get("cached_entries"))))
+    else:
+        result.insert(1, ("Saved projection", "requested", "awaiting saved-program projection receipt"))
+    normalization = []
+    if (preparation.get("normalization_input_keys") is not None
+            or preparation.get("normalization_canonical_keys") is not None):
+        normalization.append(("Normalization", count(preparation.get("normalization_input_keys")) + "→"
+                              + count(preparation.get("normalization_canonical_keys")) + " keys",
+                              "canonical preparation outputs; retained basis after joined reduction"))
+    if any(preparation.get(field) is not None for field in (
+            "normalization_unit_aliases", "normalization_projected_numerators", "normalization_source_equations")):
+        normalization.append(("Normalization maps", count(preparation.get("normalization_unit_aliases")) + " aliases",
+                              count(preparation.get("normalization_projected_numerators")) + " numerator projections; "
+                              + count(preparation.get("normalization_source_equations")) + " exact source equations"))
+    if (preparation.get("normalization_output_terms") is not None
+            or preparation.get("normalization_safe_zero_certificates") is not None):
+        normalization.append(("Normalization terms", count(preparation.get("normalization_output_terms")),
+                              count(preparation.get("normalization_safe_zero_certificates"))
+                              + " safe zero certificates; finite preparation rows"))
+    if preparation.get("legacy_source_equations") is not None:
+        normalization.append(("Weaker source rows", count(preparation["legacy_source_equations"]),
+                              "finite weaker cohort before combined row deduplication"))
+    result[1:1] = normalization
+    result.insert(0, ("Symmetry policy", clean(policy)[:80], policy_detail))
+    result[0:0] = selective_symmetry_feedback_metrics(master)
+    return result
+
+
+def selective_symmetry_feedback_metrics(master):
+    """Selected finite work is not an algebraic family-completeness theorem."""
+    if not master.get("selective_symmetry_feedback_enabled", False) or master.get("operation") != "refine":
+        return []
+    feedback = master.get("selective_symmetry_feedback", {})
+
+    def state(key):
+        return "complete" if feedback.get(key) is True else "incomplete" if feedback.get(key) is False else "not reported"
+
+    queue = feedback.get("selected_queue_exhausted")
+    result = [
+        ("Selective feedback", "round " + count(feedback.get("round")),
+         clean(feedback.get("stage") or "awaiting native selected-work receipt")[:160]),
+        ("Selected targets", count(feedback.get("completed_targets")) + "/" + count(feedback.get("selected_targets")),
+         count(feedback.get("pending_targets")) + " pending; "
+         + count(feedback.get("new_target_proposals")) + " new proposals"),
+        ("Feedback gains", count(feedback.get("new_relations")) + " rows",
+         count(feedback.get("eliminated_targets")) + " eliminated; "
+         + count(feedback.get("completed_rounds")) + " committed rounds; "
+         + count(feedback.get("stagnant_rounds")) + " no-gain rounds"),
+        ("Selected queue", "exhausted" if queue is True else "open" if queue is False else "not reported",
+         count(feedback.get("frontier_keys")) + " frontier keys; selected-worklist boundary only; not family closure or minimality"),
+        ("Support epoch", count(feedback.get("terminal_rank_epoch")) + " basis keys",
+         count(feedback.get("visited_supports")) + " supports visited at this rank; reopen after strict rank decrease"),
+        ("Source / IBP work", state("source_jobs_complete") + " / " + state("ordinary_work_complete"),
+         count(feedback.get("source_rows")) + " symmetry rows; "
+         + count(feedback.get("ordinary_source_rows")) + " ordinary source rows; "
+         + count(feedback.get("unresolved_leaves")) + " unresolved leaves"),
+    ]
+    if feedback.get("budget_exhausted") is True or feedback.get("reason"):
+        result.append(("Feedback boundary", "caller budget" if feedback.get("budget_exhausted") is True else "reported",
+                       clean(feedback.get("reason") or "selected work incomplete; accepted proofs retained")[:240]))
+    return result
+
+
+def local_dimensional_recurrence_metrics(master):
+    """Fixed-d consequences have native dimensional/source proof, not new masters."""
+    if not master.get("local_dimensional_recurrence_assistance", False) or master.get("operation") != "refine":
+        return []
+    preparation = master.get("local_dimensional_recurrence_preparation", {})
+    complete = preparation.get("complete")
+    boundary = ("exact source cohort ready" if complete is True else "source cohort incomplete"
+                if complete is False else "awaiting native source receipt")
+    weighted = preparation.get("weighted_source_rows")
+    regenerated = preparation.get("regenerated_source_rows")
+    proof_work = (count(weighted) + " weighted terms" if weighted is not None else
+                  count(regenerated) + " regenerated" if regenerated is not None else
+                  count(preparation.get("replayed_source_rows")) + " replayed")
+    rows = [
+        ("Local dimensions", count(preparation.get("equations")) + " source rows",
+         "local dimensional-pair consequences; shifted integrals eliminated; fixed-d output"),
+        ("Local source jobs", count(preparation.get("processed_keys")) + "/" + count(preparation.get("input_keys")),
+         count(preparation.get("nominated_directions")) + " nominated; "
+         + count(preparation.get("supported_geometries")) + " supported geometries"),
+        ("Local source proof", proof_work,
+         count(preparation.get("output_terms")) + " output terms; " + boundary),
+    ]
+    if preparation.get("total_witnesses") is not None:
+        rows.insert(1, ("Local witnesses", count(preparation.get("completed_witnesses")) + "/"
+                       + count(preparation.get("total_witnesses")),
+                       count(preparation.get("reserved_workers")) + " source workers reserved; not measured busy cores"))
+    if preparation.get("skipped_geometries") is not None or preparation.get("degenerate_grams") is not None:
+        rows.append(("Local geometry", count(preparation.get("skipped_geometries")) + " skipped",
+                     count(preparation.get("degenerate_grams")) + " degenerate Gram proposals; unsupported geometry is not a new master"))
+    skipped = preparation.get("skipped", [])
+    if isinstance(skipped, list) and skipped:
+        reasons = [clean(item.get("reason", "unknown"))[:96] + " " + count(item.get("count"))
+                   for item in skipped[:3] if isinstance(item, dict)]
+        omitted = max(0, number(preparation.get("skipped_reasons_omitted")) or 0) + max(0, len(skipped) - 3)
+        if omitted:
+            reasons.append(count(omitted) + " additional reasons omitted")
+        rows.append(("Local unsupported", "retained", "; ".join(reasons)))
+    rows.append(("Local scope", "finite initial cohort", "not repeated in selected rounds; no per-provider basis gain or minimality claim"))
+    return rows
+
+
 def render_master_table(frame, width=100, height=24, color=True):
     """Phase-two view of the same event stream; no inferred algebra progress."""
     width, height = max(20, min(160, width)), max(8, height)
     inner = width - 4
     master, resource, checkpoint = frame["master_reduction"], frame["resources"], frame["checkpoint"]
     partial = master.get("partial_refinement", False)
-    publishing = master.get("operation") in ("publish", "finalize-refinement")
+    importing = master.get("proof_importing", False)
+    publishing = master.get("operation") in ("publish", "finalize-refinement", "import-refinement")
+    modular = master.get("refinement_strategy") == "modular-circuits" and not publishing
+    fresh = master.get("fresh_search", False) and not publishing
+    total, completed = master.get("total_work"), master.get("completed_work")
+    work = f"{count(completed)} / {count(total)}" if total is not None else count(completed)
+    discovery = master.get("modular_refinement", {}) if modular else {}
+    discovery_work = count(discovery.get("source_rows_scanned")) + " / " + count(discovery.get("total_source_rows"))
     label_width, value_width = (19, 18) if width >= 74 else (10, 8)
+    if not publishing:
+        # Counters take space from optional detail, not from their digits.
+        # Keep one shared value width so the rest of the table stays aligned.
+        available = max(value_width, inner - label_width - 6 - 12)
+        value_width = max(value_width, min(cell_width(discovery_work if modular else work), available))
     detail_width = inner - label_width - value_width - 6
     border = lambda left, right: _paint(left + "─" * (width - 2) + right, "2;36", color)
     full = lambda text, tint=None: "│ " + _paint(fit(text, inner), tint, color) + " │"
 
-    def row(label, value, detail="", tint=None):
+    def row(label, value, detail="", tint=None, preserve_value=False):
+        if preserve_value and (cell_width(value) > value_width or cell_width(label) > label_width):
+            # On narrower terminals span the row before abbreviating a counter.
+            # If needed, omit label spacing/the label rather than its value.
+            prefix = f"{label}: "
+            if cell_width(prefix + value) > inner:
+                prefix = f"{label}:"
+            if cell_width(prefix + value) > inner:
+                prefix = ""
+            return full(prefix + value, tint)
         if detail_width < 12:
             return full(f"{label}: {value}" + (f" · {detail}" if detail else ""), tint)
         return ("│ " + fit(label, label_width) + " │ " + _paint(fit(value, value_width), tint, color)
@@ -540,18 +846,21 @@ def render_master_table(frame, width=100, height=24, color=True):
 
     cpu, workers = resource.get("native_busy_cores"), resource.get("workers")
     cpu_ratio = cpu / workers if number(cpu) is not None and number(workers) is not None and workers > 0 else None
-    total, completed = master.get("total_work"), master.get("completed_work")
-    work = f"{count(completed)} / {count(total)}" if total is not None else count(completed)
-    progress = bar(completed, total, frame["elapsed_seconds"]) if total is not None else "total not yet known"
+    progress = (bar(completed, total, frame["elapsed_seconds"], width=max(1, min(16, detail_width - 2)))
+                if total is not None else "total not yet known")
+    stage = {"preparing_sector_symmetry_equations": "sector preparation",
+             "reducing_sector_symmetry_equations": "sector saved rows"}.get(master["stage"], master["stage"])
     rows = [
-        (0, row("Stage", master["stage"] or "preparing", "package retained exact maps" if partial else
-                "extract and package exact inventory" if publishing else "bounded exact relation search", "36")),
+        (0, row("Stage", stage or "preparing", "replay symmetry, saved rows and exact union" if importing else "package retained exact maps" if partial else
+                "extract and package exact inventory" if publishing else
+                "modular discovery; exact accepted maps" if modular else "bounded exact relation search", "36")),
         (1, row("Retained keys", count(master["raw_terminals"]), "phase-one keys, including prior stages")),
         (1, row("Normalized", count(master["normalized_terminals"]), "exact symmetry aliases; not minimal")),
         (0, row("Remaining basis", count(master["remaining_terminals"]), "finite, potentially nonminimal", "32")),
         (1, row("Eliminated", count(master["eliminated_terminals"]), "exact relations between terminal keys", "32")),
-        (0, row("Relation work", work, progress, "35")),
-        (1, row("Rows generated", count(master["relation_rows"]), "seed depth " + count(master["seed_depth"]))),
+        (0, row("Relation work", work, progress, "35", preserve_value=True)),
+        (1, row("Exact source rows" if modular else "Rows generated", count(master["relation_rows"]),
+                "retained exact proof cursor" if modular else "seed depth " + count(master["seed_depth"]))),
         (1, row("Sparse system", count(master.get("independent_rows")) + " rows", count(master.get("nonzeros")) + " nonzeros")),
         (0, row("Active CPU cores", f"{'unknown' if cpu is None else f'{cpu:.1f}'} / {count(workers)}",
                 "observed / reserved", indicator_color(cpu_ratio, "cpu"))),
@@ -564,15 +873,45 @@ def render_master_table(frame, width=100, height=24, color=True):
         (2, full("Scope " + master["scope_binding"], "2")),
         (2, full("Receipts " + frame["run_directory"], "2")),
     ]
+    execution = master.get("execution", {}) if modular else master_batch_execution(master)
+    if execution and not publishing and not modular:
+        budget = execution.get("reserved_workers")
+        if budget is None:
+            budget = execution.get("workers")
+        phase_label = master_execution_phase(execution)
+        if phase_label:
+            rows.insert(6, (1, row(phase_label, execution["stage"],
+                f"prepared {count(execution.get('rows_prepared'))}/{count(execution.get('rows_total'))} · "
+                f"eliminated {count(execution.get('rows_eliminated'))} · merged {count(execution.get('rows_committed'))} · "
+                f"{count(execution.get('blocks_completed'))} blocks", "36")))
+            rows.insert(7, (2, row("Worker limit", count(budget), "configured budget; not measured busy cores", preserve_value=True)))
+        else:
+            rows.insert(6, (2, row("Worker limit", count(budget), "configured; native phase not reported", preserve_value=True)))
+        if execution.get("provider_keys_filtered") is not None:
+            rows.insert(7, (1, row("Provider filtered", count(execution["provider_keys_filtered"]),
+                                  "pending keys outside finite inventory; current call", preserve_value=True)))
+    if modular:
+        rows[5] = (0, row("Discovery rows", discovery_work, "sampled scan; exact span incomplete", "35",
+                          preserve_value=True))
+        rows.insert(1, (0, row("Relation assurance", "exact W*A identity", "every physical column verified", "32")))
+        rows.insert(2, (0, row("Modular candidates", count(discovery.get("candidates_found")),
+                              count(discovery.get("accepted_relations")) + " accepted; "
+                              + count(discovery.get("reconstruction_misses")) + " lifting misses", "36")))
+        if execution:
+            rows.insert(3, (1, row("Candidate workers", count(execution.get("workers")),
+                                  "discovery uses " + count(execution.get("discovery_workers")) + " worker")))
     if publishing:
         rows = [entry for index, entry in enumerate(rows) if index not in (4, 5, 6, 7)]
         verified = master.get("independently_verified", False)
         mode = master.get("publication_verification_mode", "")
-        rows.insert(1, (0, row("Assurance", "deep replay passed" if verified else
+        rows.insert(1, (0, row("Assurance", "exact replay" if importing else "deep replay passed" if verified else
                               "trusted saved scope" if master.get("publication_assurance") == "trusted_saved_scope" else "pending",
-                              "inherited saved assurance" if partial else "independent graph replay" if mode == "independent_replay" else "exact inventory; deep replay not requested", "32")))
-        rows.insert(2, (0, row("Refinement", "partial retained" if partial else "not requested",
-                              "finite search unfinished" if partial else "explicit refine command only", "36")))
+                              "native proof replay; authenticated exact rows" if importing else "inherited saved assurance" if partial else "independent graph replay" if mode == "independent_replay" else "exact inventory; deep replay not requested", "32")))
+        rows.insert(2, (0, row("Proof import" if importing else "Refinement",
+                              "completed" if importing and master.get("import_complete") else
+                              master.get("proof_import", {}).get("stage") or "preparing" if importing else
+                              "partial retained" if partial else "not requested",
+                              "no new ordinary source search" if importing else "finite search unfinished" if partial else "explicit refine command only", "36")))
         verification_progress = master.get("verification_progress", {})
         if verification_progress:
             deep = mode == "independent_replay"
@@ -604,6 +943,27 @@ def render_master_table(frame, width=100, height=24, color=True):
                               + count(collection.get("finite_feedback_aliases")) + " full-U aliases")))
         rows.insert(4, (1, row("Feedback nonzeros", count(collection.get("finite_feedback_nonzeros")),
                               count(collection.get("finite_feedback_replay_operations")) + " replay operations")))
+    if fresh:
+        rows.insert(1, (0, full("Fresh relations-only round · shape ("
+            + count(master.get("seed_depth")) + "," + count(master.get("containing_sector_depth"))
+            + ") · retained proved maps", "36")))
+    numerator = master.get("numerator_symmetry_preparation", {})
+    numerator_reduction = master.get("numerator_symmetry_reduction", {})
+    if (master.get("numerator_symmetry_assistance", False)
+            and not master.get("sector_symmetry_assistance", False) and not publishing):
+        rows.insert(2, (0, row("Numerator symmetry", count(numerator.get("equations")) + " equations",
+                              "finite certified inventory; not global", "36")))
+        rows.insert(3, (1, row("Verified maps", count(numerator.get("verified_generators")),
+                              count(numerator.get("proposed_generators")) + " proposed; denominator-preserving")))
+        if numerator_reduction:
+            rows.insert(4, (1, row("Symmetry feedback", count(numerator_reduction.get("saved_reduced_rows")) + " reduced",
+                count(numerator_reduction.get("saved_application_failures")) + " saved-apply failures; native fallback on failure")))
+    elif (not master.get("sector_symmetry_assistance", False)
+            and (master.get("numerator_symmetry_assistance", False)
+                 or master.get("inherited_numerator_symmetry_authority", False))):
+        rows.insert(2, (1, row("Numerator proofs", "retained", "inherited finite proofs; provider off")))
+    for index, (label, value, detail) in enumerate(local_dimensional_recurrence_metrics(master) + sector_symmetry_metrics(master)):
+        rows.insert(2 + index, (1, row(label, value, detail, "36" if index == 0 else None)))
     rows.insert(0, (0, row("Elapsed time", duration(frame["elapsed_seconds"]),
                           "wall time in this phase; current invocation", "36")))
     if master["artifact"]:
@@ -613,11 +973,12 @@ def render_master_table(frame, width=100, height=24, color=True):
     if frame["heartbeat_stale"]:
         rows.insert(0, (-2, full("STALE HEARTBEAT — current activity unverified", "1;31")))
     fixed = [border("╭", "╮"),
-             full(f"RustRed / {'ARTIFACT PUBLICATION' if publishing else 'MASTER REFINEMENT'} / {clean(frame['state']).upper()} / {duration(frame['elapsed_seconds'])}", "1;36"),
+             full(f"RustRed / {'PROVED RELATION IMPORT' if importing else 'ARTIFACT PUBLICATION' if publishing else 'MASTER REFINEMENT'} / {clean(frame['state']).upper()} / {duration(frame['elapsed_seconds'])}", "1;36"),
              border("├", "┤")]
     if detail_width >= 12 and height >= 20:
         fixed += [row("METRIC", "VALUE", "DETAIL", "1"), border("├", "┤")]
-    footer = [border("├", "┤"), full("Retained exact maps · finite search unfinished · no minimality claim" if partial else
+    footer = [border("├", "┤"), full("Native proved-relation replay · no new ordinary search · no minimality claim" if importing else
+              "Retained exact maps · finite search unfinished · no minimality claim" if partial else
               "Portable scoped artifact · unrefined terminals · no numerical values" if publishing else
               "Exact bounded search · nonminimal basis allowed · no numerical values", "2"), border("╰", "╯")]
     if height < 14:
@@ -640,13 +1001,42 @@ def plain_summary(frame):
     """Readable append-only summary from the same public frame as every consumer."""
     if frame.get("master_reduction"):
         master = frame["master_reduction"]
+        execution = master_batch_execution(master)
+        budget = execution.get("reserved_workers")
+        if budget is None:
+            budget = execution.get("workers")
+        numerator_lines = []
+        if not master.get("sector_symmetry_assistance", False):
+            if master.get("numerator_symmetry_assistance", False) and master.get("operation") == "refine":
+                numerator_lines = ["Numerator symmetry: finite certified inventory; denominator-preserving maps; not a global symmetry claim"]
+            elif master.get("numerator_symmetry_assistance", False) or master.get("inherited_numerator_symmetry_authority", False):
+                numerator_lines = ["Numerator symmetry: inherited finite proofs retained; current provider off"]
         return [f"RustRed · {frame['phase']} · {frame['state']} · elapsed {duration(frame['elapsed_seconds'])}",
                 f"Stage {master['stage']} · {count(master['remaining_terminals'])} remaining terminals (nonminimal)",
                 f"{'Published' if master.get('artifact') else 'Available'} executable rule records {count(master.get('published_rule_records'))} · observed cover rules {count(master.get('observed_cover_rules'))}",
                 f"Relations {count(master['relation_rows'])} · {count(master['eliminated_terminals'])} eliminated",
                 f"Checkpoint {frame['checkpoint']['state']} · {frame['checkpoint']['directory']}",
+                "Native proved-relation replay; no new ordinary source search; no minimality claim" if master.get("proof_importing") else
                 "Retained exact maps; finite search unfinished; no minimality claim" if master.get("partial_refinement") else
-                "Exact bounded search; no numerical master values or minimality claim"]
+                "Modular discovery; exact accepted identities; exact search incomplete" if master.get("refinement_strategy") == "modular-circuits" else
+                "Exact bounded search; no numerical master values or minimality claim",
+                *(["Fresh relations-only round · shape (" + count(master.get("seed_depth")) + ","
+                    + count(master.get("containing_sector_depth")) + ") · retained proved maps; new search cursor"]
+                  if master.get("fresh_search", False) and master.get("operation") == "refine" else []),
+                *(["Native execution: " + (execution.get("stage") or "not reported")
+                    + " · configured worker limit " + count(budget)
+                    + " (not measured busy cores)"] if execution else []),
+                *(["Batch counters: prepared " + count(execution.get("rows_prepared")) + "/"
+                    + count(execution.get("rows_total")) + " · eliminated " + count(execution.get("rows_eliminated"))
+                    + " · merged " + count(execution.get("rows_committed")) + " · "
+                    + count(execution.get("blocks_completed")) + " blocks"]
+                  if execution.get("stage") else []),
+                *(["Provider filtered: " + count(execution["provider_keys_filtered"])
+                    + " pending keys outside finite inventory; current call"]
+                  if execution.get("provider_keys_filtered") is not None else []),
+                *numerator_lines,
+                *[label + ": " + value + " · " + detail
+                  for label, value, detail in local_dimensional_recurrence_metrics(master) + sector_symmetry_metrics(master)]]
     rates, snapshot = frame["rates"], frame["closure_snapshot"]
     completed = rates["local_completion"]["per_second"]
     rate = "unknown" if completed is None else f"{completed * 3600:,.0f}"

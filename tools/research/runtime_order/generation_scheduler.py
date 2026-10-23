@@ -41,6 +41,13 @@ class Job:
     native_failure_status: Path | None = None
 
 
+def native_progress_path(job):
+    if job.native_progress is None:
+        return None
+    path = Path(job.native_progress)
+    return str((path if path.is_absolute() else ROOT / path).resolve())
+
+
 def native_parent_failure(child):
     """Explicit fatal status from this owned batch, independent of UI projection.
 
@@ -116,11 +123,14 @@ def run(jobs, directory, resources, completed, *, retained=(), observer=None, po
         memory=SUPERVISOR.memory_admission_record(resources["max_memory_bytes"], host, floor, hard, soft,
             resources.get("memory_policy", "host-aware")),
         ram_guard=guard.policy(),
-        jobs=[dict(id=job.id, command=list(job.command), metadata=job.metadata) for job in jobs],
+        jobs=[dict(id=job.id, command=list(job.command), metadata=job.metadata,
+                   native_progress_path=native_progress_path(job)) for job in jobs],
         checkpoint="completed native sectors only; active sectors restart")
     (directory / "request.json").write_text(json.dumps(request, indent=2) + "\n")
     descriptors = [dict(id=job.id, state="pending", metadata=job.metadata, slot=None, cpus=[],
-                       pid=None, pid_start=None, native_progress=None, checkpoint_files_observed=None)
+                       pid=None, pid_start=None, started_unix=None,
+                       native_progress_path=native_progress_path(job), native_progress=None,
+                       checkpoint_files_observed=None)
                    for job in jobs] + list(retained)
     by_id = {row["id"]: row for row in descriptors}
     pending, active = deque(jobs), {}
@@ -184,7 +194,7 @@ def run(jobs, directory, resources, completed, *, retained=(), observer=None, po
                 row.update(elapsed_seconds=now-child.started,
                     sampled_rss_bytes=sum(value["rss_bytes"] for value in members.values()),
                     observed_cores=None if elapsed is None else sum(rates.get(pid) or 0 for pid in members),
-                    native_progress=native_observation(child.job.native_progress, child.started_unix,
+                    native_progress=native_observation(row["native_progress_path"], child.started_unix,
                         pid=child.process.pid, pid_start=child.start_identity),
                     diagnostic_stderr_tail=diagnostic_tail(child.directory / "stderr"))
                 if child.job.checkpoint is not None:
@@ -239,13 +249,14 @@ def run(jobs, directory, resources, completed, *, retained=(), observer=None, po
                     try:
                         stdout = streams.enter_context((child_directory / "stdout").open("xb"))
                         stderr = streams.enter_context((child_directory / "stderr").open("xb"))
+                        child_started, child_started_unix = time.monotonic(), time.time()
                         process = subprocess.Popen(job.command, cwd=ROOT, env=native_environment(),
                             stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, start_new_session=True,
                             preexec_fn=lambda cpus=tuple(cpus): os.sched_setaffinity(0, cpus))
                     except BaseException:
                         streams.close()
                         raise
-                    child = Child(job, process, slot, child_directory, streams, time.monotonic(), time.time())
+                    child = Child(job, process, slot, child_directory, streams, child_started, child_started_unix)
                     active[slot] = child
                     all_children.append(child)
                     # The leader is not reaped, so even a short-lived process
@@ -301,6 +312,9 @@ def run(jobs, directory, resources, completed, *, retained=(), observer=None, po
         try:
             completed(job)
             by_id[job.id]["state"] = "completed"
+            row = by_id[job.id]
+            row["native_progress"] = native_observation(row["native_progress_path"], row["started_unix"],
+                pid=row["pid"], pid_start=row["pid_start"], completed=True)
             if progress is not None:
                 progress.emit("output_validated", state="finalizing" if reason is None else "draining")
         except BaseException as error:

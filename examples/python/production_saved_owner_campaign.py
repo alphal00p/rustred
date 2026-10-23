@@ -1133,8 +1133,24 @@ def main(argv=None):
                             help="publish an already completed current checkpoint; never start a solve")
     postprocess.add_argument("--finalize-refinement", action="store_true",
                             help="publish proved maps from the stopped current refinement without finishing its finite search")
+    postprocess.add_argument("--import-refinement", action="store_true",
+                            help="replay an explicit native proof recipe against the current publication without starting a solve")
+    parser.add_argument("--recover-interrupted-refinement", action="store_true",
+                        help="only with --finalize-refinement: explicitly recover a durable running checkpoint under the native writer lock")
+    parser.add_argument("--master-proof-recipe", type=Path,
+                        help="only with --import-refinement: native relation replay recipe; immutable and archived for resume")
+    parser.add_argument("--master-fresh-search", action="store_true",
+                        help="only with --refine-masters: new relations-only round; finalize stopped work first; specify both depths (defaults 0/0 and exact), no old search cursor/shape reuse")
     parser.add_argument("--master-max-relation-columns", type=int,
                         help="only with --refine-masters: operational column budget; 0 removes it; may change on resume")
+    parser.add_argument("--master-refinement-strategy", choices=("exact", "modular-circuits"),
+                        help="explicit refinement backend (default saved preference or exact)")
+    parser.add_argument("--master-modular-policy", type=Path,
+                        help="modular discovery/reconstruction JSON resource allowances; explicit modular refinement only")
+    parser.add_argument("--master-relation-batch-rows", type=int, help="exact refiner's parallel window; positive, mutable on resume")
+    parser.add_argument("--master-relation-block-rows", type=int, help="exact refiner's elimination block rows; positive, mutable on resume")
+    parser.add_argument("--master-refinement-workers", type=int, help="refiner-only compute budget; mutable on resume")
+    parser.add_argument("--master-refinement-cpus", help="refiner-only CPU affinity; must match its worker count")
     parser.add_argument("--master-seed-depth", type=int,
                         help="phase-two ordinary-IBP seed depth (default 0); may increase with exact previous-row reuse")
     parser.add_argument("--master-containing-sector-depth", type=int,
@@ -1151,6 +1167,18 @@ def main(argv=None):
                         help="only with --refine-masters: add saved-rule/routing equations; omitted resumes the saved preference")
     parser.add_argument("--master-circuit-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
                         help="only with --refine-masters: add native circuit-reflection equations; omitted resumes the saved preference")
+    parser.add_argument("--master-numerator-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
+                        help="only with exact --refine-masters: finitely certified denominator-preserving numerator-map equations; default off, omitted resumes the saved preference, --master-fresh-search clears it")
+    parser.add_argument("--master-sector-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
+                        help="only with exact --refine-masters: certified sector-generator relations for original source keys; endpoint monomials are auxiliary columns; includes legacy numerator assistance; default off, omitted resumes the saved preference, --master-fresh-search clears it")
+    parser.add_argument("--master-sector-symmetry-policy", choices=("generators", "polynomial-orbits"),
+                        help="sector assistance row policy (default saved preference or generators); polynomial-orbits explicitly enumerates whole-polynomial orbits; --master-fresh-search resets it")
+    parser.add_argument("--master-sector-symmetry-saved-projection", action=argparse.BooleanOptionalAction, default=None,
+                        help="project sector rows through saved programs (default saved preference or on); disable explicitly for a finite source-only cohort; --master-fresh-search resets it to on")
+    parser.add_argument("--master-selective-symmetry-feedback", action=argparse.BooleanOptionalAction, default=None,
+                        help="exact refinement with sector assistance: selectively revisit terminal-relevant symmetry/IBP consequences; off by default, omitted resumes the saved preference, fresh search clears it; selected queue exhaustion is not family closure")
+    parser.add_argument("--master-local-dimensional-recurrence-assistance", action=argparse.BooleanOptionalAction, default=None,
+                        help="exact refinement: add independently replayed localized dimensional-pair consequences in the original dimension; off by default, omitted resumes the saved preference, fresh search clears it; unsupported subgraphs remain explicit")
     parser.add_argument("--master-reduction-executable", type=Path,
                         help="freeze a separate publisher/refiner binary; leaves the original campaign binary and CP6 untouched")
     parser.add_argument("--upgrade-executable", type=Path, metavar="NEW",
@@ -1284,15 +1312,34 @@ def main(argv=None):
                                             saved_rule_assistance=args.master_saved_rule_assistance,
                                             containing_sector_depth=args.master_containing_sector_depth,
                                             circuit_symmetry_assistance=args.master_circuit_symmetry_assistance,
+                                            numerator_symmetry_assistance=args.master_numerator_symmetry_assistance,
+                                            sector_symmetry_assistance=args.master_sector_symmetry_assistance,
+                                            sector_symmetry_policy=args.master_sector_symmetry_policy,
+                                            sector_symmetry_saved_projection=args.master_sector_symmetry_saved_projection,
+                                            selective_symmetry_feedback=args.master_selective_symmetry_feedback,
+                                            local_dimensional_recurrence_assistance=args.master_local_dimensional_recurrence_assistance,
                                             normalization_profile=args.master_normalization_profile,
                                             collection_artifacts=args.master_collection_artifact,
                                             finite_feedback=args.master_finite_feedback,
                                             deep_verification=args.deep_verification,
-                                            max_relation_columns=args.master_max_relation_columns)
-        if args.finalize_refinement:
+                                            max_relation_columns=args.master_max_relation_columns,
+                                            refinement_strategy=args.master_refinement_strategy,
+                                            modular_policy=args.master_modular_policy,
+                                            fresh_search=args.master_fresh_search,
+                                            relation_batch_rows=args.master_relation_batch_rows,
+                                            relation_block_rows=args.master_relation_block_rows,
+                                            refinement_workers=args.master_refinement_workers,
+                                            refinement_cpus=args.master_refinement_cpus)
+        if args.recover_interrupted_refinement and not args.finalize_refinement:
+            raise ValueError("interrupted recovery requires --finalize-refinement")
+        if args.master_proof_recipe is not None and not args.import_refinement:
+            raise ValueError("proof recipe requires --import-refinement")
+        if args.finalize_refinement or args.import_refinement:
             if args.deep_verification is not None:
                 raise ValueError("deep verification applies to publication, not finalize-refinement")
-            phase_policy["operation"] = "finalize-refinement"
+            phase_policy = phases.postprocess_configuration(phase_policy,
+                "finalize-refinement" if args.finalize_refinement else "import-refinement",
+                proof_recipe=args.master_proof_recipe, recover_interrupted=args.recover_interrupted_refinement)
     except (OSError, ValueError, TypeError) as error:
         parser.error(str(error))
     if (args.epoch_inspector_lookup is not None or args.epoch_rolling or args.epoch_dispatch is not None
@@ -1482,7 +1529,7 @@ def main(argv=None):
             from types import SimpleNamespace
             driver = SimpleNamespace(**globals())
             return phases.run(plan, phase_policy, args.resume, driver,
-                              postprocess_only=args.publish_only or args.refine_masters or args.finalize_refinement)
+                              postprocess_only=args.publish_only or args.refine_masters or args.finalize_refinement or args.import_refinement)
         except (OSError, ValueError, TypeError) as error:
             parser.error(str(error))
     write_json(campaign / "active-run.json", plan)

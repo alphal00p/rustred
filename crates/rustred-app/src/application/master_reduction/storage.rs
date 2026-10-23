@@ -16,7 +16,9 @@ pub(super) fn read_json_with_policy(
     path: &Path,
     policy: Option<&crate::FiniteDemandPolicy>,
 ) -> Result<Value, AppError> {
-    let max = policy.map_or(Ok(64 * 1024 * 1024), |p| {
+    // An explicit finite policy still owns control-document admission. With
+    // no caller grant, generated campaign metadata follows the process guard.
+    let max = policy.map_or(Ok(usize::MAX), |p| {
         usize::try_from(p.control.max_bytes)
             .map_err(|_| AppError::limit("finite metadata allowance exceeds platform size"))
     })?;
@@ -270,6 +272,10 @@ pub(super) fn clone_inputs_with_policy(
     report: &Value,
     policy: Option<&crate::FiniteDemandPolicy>,
 ) -> Result<(), AppError> {
+    super::numerator_symmetry::inherit(source, output, report)?;
+    super::sector_symmetry::inherit(source, output, report)?;
+    super::selective_symmetry::inherit(source, output, report)?;
+    super::local_dimension::inherit(source, output, report)?;
     let inputs = &report["inputs"];
     let payloads = inputs["payloads"]
         .as_array()

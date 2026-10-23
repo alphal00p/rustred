@@ -134,6 +134,23 @@ fn publish(source: &CompletedFiniteSource, path: &Path, previous: Option<PathBuf
     master_reduce_finite_demand(source, &options, &AtomicBool::new(false), |_| {}).unwrap()
 }
 
+#[cfg(feature = "reconstruction")]
+#[test]
+fn direct_modular_refinement_rechecks_the_same_strategy_bound_source_identity() {
+    let scratch = Scratch::new();
+    let request = source(&scratch);
+    let native = capture(&request, &scratch.0.join("finite"));
+    let output = scratch.0.join("modular");
+    let mut options = MasterReductionOptions::new("unused-cp6", &output);
+    options.refinement_strategy = Some(MasterRefinementStrategy::ModularCircuits);
+    let report =
+        master_reduce_finite_demand(&native, &options, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!(report["status"], "completed_nonminimal");
+    assert_eq!(report["refinement_strategy"], "modular-circuits");
+    assert_eq!(report["modular_search_complete"], true);
+    assert!(load_master_reduction(&output).is_ok());
+}
+
 fn publication_policy(runs: usize) -> crate::FiniteDemandPolicy {
     let mut value: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

@@ -218,6 +218,75 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(state.native_observation(path, stamp-1, now=stamp+100)["status"], "stale")
         self.assertEqual(state.native_observation(path, stamp-1, now=stamp, pid=124)["status"], "wrong_invocation")
 
+    def test_completed_native_output_retains_original_age_and_counters(self):
+        path = self.path / "native-final.json"
+        value = dict(schema=state.NATIVE_SCHEMA, pid=123, process_start_ticks=456,
+            state="output_written", family_closure_claim=False,
+            counts=dict(generated=1, reused=17, rules_generated=1781, finite_residuals_generated=31))
+        path.write_text(json.dumps(value))
+        stamp = path.stat().st_mtime
+        active = state.native_observation(path, stamp-1, now=stamp+1000, pid=123, pid_start=456)
+        self.assertEqual(active["status"], "stale")
+        self.assertIsNone(active["snapshot"])
+        final = state.native_observation(path, stamp-1, now=stamp+1000,
+            pid=123, pid_start=456, completed=True)
+        self.assertEqual(final["status"], "final")
+        self.assertEqual(final["age_seconds"], 1000)
+        self.assertEqual(final["native_observed_at"], stamp)
+        self.assertEqual(final["snapshot"], value)
+
+    def test_final_native_requires_terminal_state_and_frozen_invocation(self):
+        path = self.path / "native-final.json"
+        base = dict(schema=state.NATIVE_SCHEMA, pid=123, process_start_ticks=456,
+                    state="output_written", family_closure_claim=False)
+        for native_state in ("running", "failed", "stopped"):
+            path.write_text(json.dumps(dict(base, state=native_state)))
+            stamp = path.stat().st_mtime
+            for age in (0, 1000):
+                with self.subTest(native_state=native_state, age=age):
+                    result = state.native_observation(path, stamp-1, now=stamp+age,
+                        pid=123, pid_start=456, completed=True)
+                    self.assertIsNone(result["snapshot"])
+                    self.assertNotEqual(result["status"], "final")
+        for mutation, kwargs, expected in (({}, {"pid":124,"pid_start":456}, "wrong_invocation"),
+                ({}, {"pid":123,"pid_start":457}, "wrong_invocation"),
+                ({}, {"pid":123}, "wrong_invocation"),
+                ({"family_closure_claim":True}, {"pid":123,"pid_start":456}, "invalid"),
+                ({"schema":"other"}, {"pid":123,"pid_start":456}, "unsupported")):
+            path.write_text(json.dumps(dict(base, **mutation)))
+            stamp = path.stat().st_mtime
+            result = state.native_observation(path, stamp-1, now=stamp+1000, completed=True, **kwargs)
+            self.assertEqual(result["status"], expected)
+            self.assertIsNone(result["snapshot"])
+        path.write_text(json.dumps(base))
+        stamp = path.stat().st_mtime
+        old = state.native_observation(path, stamp+1, now=stamp+2, pid=123, pid_start=456, completed=True)
+        self.assertEqual(old["status"], "stale")
+        self.assertIsNone(old["snapshot"])
+        path.write_text("{invalid json")
+        malformed = state.native_observation(path, stamp-1, pid=123, pid_start=456, completed=True)
+        self.assertEqual(malformed["status"], "invalid")
+        self.assertIsNone(malformed["snapshot"])
+
+    def test_independent_completion_publishes_bound_final_observation(self):
+        path = self.path / "native-final.json"
+        invocation = {}
+        def observe(event):
+            if event["event"] == "job_started":
+                invocation.update(event["snapshot"]["jobs"][0])
+        def complete(job):
+            path.write_text(json.dumps(dict(schema=state.NATIVE_SCHEMA, pid=invocation["pid"],
+                process_start_ticks=invocation["pid_start"], state="output_written", family_closure_claim=False,
+                counts=dict(generated=1, reused=17, rules_generated=1781))))
+        scheduler.run([scheduler.Job("A", ("A", "1"), {}, native_progress=path)],
+            self.path / "final", self.resources, complete, observer=observe, poll_seconds=0)
+        final = json.loads((self.path / "final/snapshot.json").read_text())["jobs"][0]
+        self.assertEqual(final["state"], "completed")
+        self.assertEqual(final["native_progress"]["status"], "final")
+        self.assertEqual(final["native_progress_path"], str(path.resolve()))
+        self.assertEqual(final["started_unix"], invocation["started_unix"])
+        self.assertEqual(final["native_progress"]["snapshot"]["counts"]["rules_generated"], 1781)
+
     def test_malformed_or_unbounded_telemetry_is_unknown_not_a_scheduler_failure(self):
         path = self.path / "native.json"
         for raw in ('{"value":NaN}', '{"value":Infinity}', '{"value":1e9999}', '{bad json',

@@ -71,6 +71,93 @@ class SharedSchedulerTests(unittest.TestCase):
         self.assertEqual(result['aggregate']['pool']['running'],3)
         self.assertEqual(original['jobs'][0]['id'],'shared-worker-pool')
 
+    def final_fixture(self, second="running"):
+        now = time.time()
+        status = self.path / "native.json"
+        status.write_text(json.dumps(dict(schema="rustred.shared-generation-progress.v1", pid=123,
+            timestamp_unix_seconds=now, parents=[dict(id="A",state="completed"), dict(id="B",state=second)])))
+        for job in self.jobs():
+            job.native_progress.write_text(json.dumps(dict(schema="rustred.family-generation-progress.v1",
+                pid=123, process_start_ticks=50, state="output_written", family_closure_claim=False,
+                counts=dict(generated=1,reused=17,rules_generated=1781,finite_residuals_generated=31))))
+            os.utime(job.native_progress, (now-300, now-300))
+        snapshot = dict(jobs=[dict(id="shared-worker-pool", pid=123, pid_start=50,
+            started_unix=now-1000,state="running",cpus=[0,1,2,3])],
+            aggregate=dict(observed_cores=3.5,sampled_rss_bytes=900),resources={})
+        return shared.Projection(self.jobs(), [], self.resources, status), snapshot, status
+
+    def test_old_terminal_snapshot_is_final_only_for_completed_parent(self):
+        for second in ("running", "pending", "failed"):
+            with self.subTest(second=second):
+                project, snapshot, _ = self.final_fixture(second)
+                result = project(copy.deepcopy(snapshot))
+                completed, other = result["jobs"]
+                self.assertEqual(completed["state"], "completed")
+                self.assertEqual(completed["native_progress"]["status"], "final")
+                self.assertGreaterEqual(completed["native_progress"]["age_seconds"], 300)
+                self.assertEqual(completed["native_progress"]["snapshot"]["counts"]["rules_generated"], 1781)
+                self.assertEqual(completed["native_progress_path"], str(self.jobs()[0].native_progress.resolve()))
+                self.assertEqual(completed["started_unix"], snapshot["jobs"][0]["started_unix"])
+                self.assertEqual(other["native_progress"]["status"], "stale")
+                self.assertIsNone(other["native_progress"]["snapshot"])
+                self.assertFalse(result.get("family_closure_claim", False))
+
+    def test_completed_outcome_cache_is_invocation_bound_and_does_not_override_failure(self):
+        project, snapshot, status = self.final_fixture()
+        self.assertEqual(project(copy.deepcopy(snapshot))["jobs"][0]["native_progress"]["status"], "final")
+        status.unlink()
+        cached = project(copy.deepcopy(snapshot))
+        self.assertEqual(cached["jobs"][0]["state"], "completed")
+        self.assertEqual(cached["jobs"][0]["native_progress"]["status"], "final")
+        status.write_text(json.dumps(dict(schema="rustred.shared-generation-progress.v1",pid=123,
+            timestamp_unix_seconds=time.time(),parents=[dict(id="A",state="failed")])))
+        failed = project(copy.deepcopy(snapshot))
+        self.assertEqual(failed["jobs"][0]["state"], "failed")
+        self.assertIsNone(failed["jobs"][0]["native_progress"]["snapshot"])
+        status.unlink()
+        self.assertNotEqual(project(copy.deepcopy(snapshot))["jobs"][0]["state"], "completed")
+        for identity in (dict(pid=124,pid_start=51), dict(started_unix=time.time())):
+            project, snapshot, status = self.final_fixture()
+            self.assertEqual(project(copy.deepcopy(snapshot))["jobs"][0]["native_progress"]["status"], "final")
+            status.unlink()
+            changed = copy.deepcopy(snapshot)
+            changed["jobs"][0].update(identity)
+            reset = project(changed)
+            self.assertNotEqual(reset["jobs"][0]["state"], "completed")
+            self.assertIsNone(reset["jobs"][0]["native_progress"]["snapshot"])
+
+    def test_drained_partial_observations_stay_historical_and_final_stays_final(self):
+        project, snapshot, _ = self.final_fixture()
+        snapshot["jobs"][0]["state"] = "failed"
+        path = self.jobs()[1].native_progress
+        value = json.loads(path.read_text())
+        value["state"] = "running"
+        path.write_text(json.dumps(value))
+        completed, interrupted = project(snapshot)["jobs"]
+        self.assertEqual(completed["native_progress"]["status"], "final")
+        self.assertEqual(interrupted["state"], "interrupted")
+        self.assertEqual(interrupted["native_progress"]["status"], "historical")
+        self.assertEqual(interrupted["native_progress"]["snapshot"]["state"], "running")
+
+    def test_completed_parent_rejects_old_attempt_or_wrong_native_identity(self):
+        for mutation in ({"pid":124}, {"process_start_ticks":51}, {"state":"running"},
+                         {"family_closure_claim":True}, {"schema":"other"}):
+            project, snapshot, _ = self.final_fixture()
+            path = self.jobs()[0].native_progress
+            value = json.loads(path.read_text())
+            value.update(mutation)
+            path.write_text(json.dumps(value))
+            result = project(snapshot)["jobs"][0]["native_progress"]
+            self.assertNotEqual(result["status"], "final")
+            self.assertIsNone(result["snapshot"])
+        project, snapshot, _ = self.final_fixture()
+        path = self.jobs()[0].native_progress
+        old = snapshot["jobs"][0]["started_unix"]-1
+        os.utime(path, (old, old))
+        result = project(snapshot)["jobs"][0]["native_progress"]
+        self.assertEqual(result["status"], "stale")
+        self.assertIsNone(result["snapshot"])
+
     def test_projection_cannot_modify_supervisor_owned_jobs_or_publication_state(self):
         progress=Progress(self.path, [dict(id='native',state='running')], {},
             projection=lambda value: dict(value,jobs=[dict(id='A',state='pending')]))

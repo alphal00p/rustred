@@ -16,6 +16,7 @@ use super::{
     probe::{WeightImage, probe_prefix},
 };
 
+#[derive(Clone, Copy)]
 pub(super) enum Slot {
     Target(u32),
     Weight(usize),
@@ -197,6 +198,11 @@ impl<'a> ImageCache<'a> {
 
     pub(super) fn check_failure(&mut self) -> Result<(), MaterializationError> {
         self.failure.take().map_or(Ok(()), Err)
+    }
+
+    #[cfg(panic = "unwind")]
+    pub(super) fn has_failure(&self) -> bool {
+        self.failure.is_some()
     }
 }
 

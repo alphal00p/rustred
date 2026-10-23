@@ -10,6 +10,7 @@ from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 import fcntl
 import hashlib
+from itertools import islice
 import json
 import os
 from pathlib import Path
@@ -26,6 +27,18 @@ NORMALIZATION_PROFILES = {"conservative": "conservative-v1", "standard": "standa
 COLLECTION_STRATEGY = "full-u-diagonal-v1"
 FINITE_FEEDBACK_RECIPE = "finite-row-feedback-v1"
 PUBLICATION_VERIFICATION_RECIPE = "publication-verification-v1"
+REFINEMENT_STRATEGIES = ("exact", "modular-circuits")
+MODULAR_SEARCH_RECIPE = "terminal-modular-circuits-v1"
+FRESH_SEARCH_RECIPE = "relations-only-v1"
+NUMERATOR_SYMMETRY_RECIPE = "verified-denominator-preserving-numerator-maps-v1"
+SECTOR_SYMMETRY_RECIPE = "verified-sector-symmetry-sources-v3"
+SECTOR_SYMMETRY_POLICIES = ("generators", "polynomial-orbits")
+SECTOR_SYMMETRY_REDUCED_RECIPE = "sector-symmetry-saved-projection-v1"
+SECTOR_SYMMETRY_SOURCE_ROWS_RECIPE = "sector-symmetry-source-rows-v1"
+SECTOR_SYMMETRY_NORMALIZATION_RECIPE = "sector-symmetry-normalization-v1"
+SECTOR_SYMMETRY_TASK_RECIPE = "sector-symmetry-composed-source-rows-v1"
+SELECTIVE_SYMMETRY_FEEDBACK_RECIPE = "selective-symmetry-ibp-feedback-v1"
+LOCAL_DIMENSIONAL_RECURRENCE_RECIPE = "verified-local-dimensional-recurrence-v1"
 
 
 def read_json(path, max_bytes=None):
@@ -52,7 +65,12 @@ def digest(path):
 def configuration(campaign, enabled=False, seed_depth=None, executable=None, saved_rule_assistance=None,
                   containing_sector_depth=None, circuit_symmetry_assistance=None, normalization_profile=None,
                   collection_artifacts=None, finite_feedback=None, deep_verification=None,
-                  max_relation_columns=None):
+                  max_relation_columns=None, relation_batch_rows=None, relation_block_rows=None,
+                  refinement_workers=None, refinement_cpus=None, refinement_strategy=None,
+                  modular_policy=None, fresh_search=False, numerator_symmetry_assistance=None,
+                  sector_symmetry_assistance=None, sector_symmetry_policy=None,
+                  sector_symmetry_saved_projection=None, selective_symmetry_feedback=None,
+                  local_dimensional_recurrence_assistance=None):
     """Read-only configuration. Only this invocation can request refinement.
 
     Historical ``enabled`` policies retain executable/search preferences, never
@@ -60,6 +78,26 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
     """
     path = Path(campaign) / "master-reduction" / "policy.json"
     existing = read_json(path) if path.is_file() else None
+    if type(fresh_search) is not bool or (fresh_search and not enabled):
+        raise ValueError("fresh search requires explicit refinement and a boolean request")
+    # A new round retains operational grants, not the preceding search recipe.
+    # This request is deliberately never saved as authority to reset again.
+    preferences = ({key: value for key, value in (existing or {}).items() if key in (
+        "executable", "max_relation_columns", "refinement_workers", "refinement_cpus",
+        "relation_batch_rows", "relation_block_rows", "deep_verification")}
+        if fresh_search else (existing or {}))
+    if refinement_strategy is not None and (refinement_strategy not in REFINEMENT_STRATEGIES
+                                             or not enabled):
+        raise ValueError("master refinement strategy requires explicit refinement and exact or modular-circuits")
+    strategy = refinement_strategy or preferences.get("refinement_strategy", "exact")
+    if strategy not in REFINEMENT_STRATEGIES:
+        raise ValueError("invalid persisted master refinement strategy")
+    if modular_policy is not None and (not enabled or strategy != "modular-circuits"):
+        raise ValueError("modular policy requires explicit modular-circuits refinement")
+    modular = (read_json(modular_policy) if modular_policy is not None
+               else preferences.get("modular_policy"))
+    if modular is not None and not isinstance(modular, dict):
+        raise ValueError("invalid persisted modular refinement policy")
     if max_relation_columns is not None and (type(max_relation_columns) is not int or max_relation_columns < 0):
         raise ValueError("master max relation columns must be nonnegative (0 means unlimited)")
     if max_relation_columns is not None and not enabled:
@@ -73,6 +111,18 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master saved-rule assistance must be boolean")
     if circuit_symmetry_assistance is not None and type(circuit_symmetry_assistance) is not bool:
         raise ValueError("master circuit-symmetry assistance must be boolean")
+    if numerator_symmetry_assistance is not None and type(numerator_symmetry_assistance) is not bool:
+        raise ValueError("master numerator-symmetry assistance must be boolean")
+    if sector_symmetry_assistance is not None and type(sector_symmetry_assistance) is not bool:
+        raise ValueError("master sector-symmetry assistance must be boolean")
+    if sector_symmetry_policy is not None and sector_symmetry_policy not in SECTOR_SYMMETRY_POLICIES:
+        raise ValueError("master sector-symmetry policy must be generators or polynomial-orbits")
+    if sector_symmetry_saved_projection is not None and type(sector_symmetry_saved_projection) is not bool:
+        raise ValueError("master sector-symmetry saved projection must be boolean")
+    if selective_symmetry_feedback is not None and type(selective_symmetry_feedback) is not bool:
+        raise ValueError("master selective-symmetry feedback must be boolean")
+    if local_dimensional_recurrence_assistance is not None and type(local_dimensional_recurrence_assistance) is not bool:
+        raise ValueError("master local dimensional-recurrence assistance must be boolean")
     if finite_feedback is not None and type(finite_feedback) is not bool:
         raise ValueError("master finite feedback must be boolean")
     if deep_verification is not None and type(deep_verification) is not bool:
@@ -86,6 +136,12 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
                 or type(existing.get("seed_depth")) is not int or existing["seed_depth"] < 0
                 or type(existing.get("saved_rule_assistance", False)) is not bool
                 or type(existing.get("circuit_symmetry_assistance", False)) is not bool
+                or type(existing.get("numerator_symmetry_assistance", False)) is not bool
+                or type(existing.get("sector_symmetry_assistance", False)) is not bool
+                or existing.get("sector_symmetry_policy", "generators") not in SECTOR_SYMMETRY_POLICIES
+                or type(existing.get("sector_symmetry_saved_projection", True)) is not bool
+                or type(existing.get("selective_symmetry_feedback", False)) is not bool
+                or type(existing.get("local_dimensional_recurrence_assistance", False)) is not bool
                 or type(existing.get("finite_feedback", True)) is not bool
                 or type(existing.get("deep_verification", False)) is not bool
                 or existing.get("normalization_profile") not in (None, *NORMALIZATION_PROFILES)
@@ -95,9 +151,9 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         cap = existing.get("max_relation_columns")
         if cap is not None and (type(cap) is not int or cap < 0):
             raise ValueError("invalid persisted master relation column budget")
-        if enabled and seed_depth is not None and seed_depth < existing["seed_depth"]:
+        if enabled and not fresh_search and seed_depth is not None and seed_depth < existing["seed_depth"]:
             raise ValueError("cannot lower the previous master seed depth")
-        if (enabled and containing_sector_depth is not None
+        if (enabled and not fresh_search and containing_sector_depth is not None
                 and containing_sector_depth < existing.get("containing_sector_depth", 0)):
             raise ValueError("cannot lower the previous master containing-sector depth")
     if seed_depth is not None and not enabled:
@@ -106,6 +162,18 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master saved-rule assistance requires explicit --refine-masters")
     if circuit_symmetry_assistance is not None and not enabled:
         raise ValueError("master circuit-symmetry assistance requires explicit --refine-masters")
+    if numerator_symmetry_assistance is not None and not enabled:
+        raise ValueError("master numerator-symmetry assistance requires explicit --refine-masters")
+    if sector_symmetry_assistance is not None and not enabled:
+        raise ValueError("master sector-symmetry assistance requires explicit --refine-masters")
+    if sector_symmetry_policy is not None and not enabled:
+        raise ValueError("master sector-symmetry policy requires explicit --refine-masters")
+    if sector_symmetry_saved_projection is not None and not enabled:
+        raise ValueError("master sector-symmetry saved projection requires explicit --refine-masters")
+    if selective_symmetry_feedback is not None and not enabled:
+        raise ValueError("master selective-symmetry feedback requires explicit --refine-masters")
+    if local_dimensional_recurrence_assistance is not None and not enabled:
+        raise ValueError("master local dimensional-recurrence assistance requires explicit --refine-masters")
     if finite_feedback is not None and not enabled:
         raise ValueError("master finite feedback requires explicit --refine-masters")
     if containing_sector_depth is not None and not enabled:
@@ -114,28 +182,84 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         raise ValueError("master normalization profile requires explicit --refine-masters")
     if collection_artifacts is not None and not enabled:
         raise ValueError("master collection artifacts require explicit --refine-masters")
-    members = ((existing or {}).get("collection_artifacts", []) if collection_artifacts is None
+    members = (preferences.get("collection_artifacts", []) if collection_artifacts is None
                else [str(Path(path).resolve()) for path in collection_artifacts])
     if not isinstance(members, list) or any(not isinstance(path, str) for path in members):
         raise ValueError("invalid persisted master collection artifacts")
-    policy = {**(existing or {}), "schema": SCHEMA, "enabled": True,
+    policy = {**preferences, "schema": SCHEMA, "enabled": True,
             "operation": "refine" if enabled else "publish",
-            "max_relation_columns": ((existing or {}).get("max_relation_columns")
+            "fresh_search": fresh_search,
+            "max_relation_columns": (preferences.get("max_relation_columns")
                                      if max_relation_columns is None else max_relation_columns),
-            "seed_depth": (existing or {}).get("seed_depth", 0) if seed_depth is None else seed_depth,
-            "saved_rule_assistance": ((existing or {}).get("saved_rule_assistance", False)
+            "seed_depth": preferences.get("seed_depth", 0) if seed_depth is None else seed_depth,
+            "saved_rule_assistance": (preferences.get("saved_rule_assistance", False)
                                       if saved_rule_assistance is None else saved_rule_assistance),
-            "circuit_symmetry_assistance": ((existing or {}).get("circuit_symmetry_assistance", False)
+            "circuit_symmetry_assistance": (preferences.get("circuit_symmetry_assistance", False)
                                             if circuit_symmetry_assistance is None else circuit_symmetry_assistance),
-            "finite_feedback": ((existing or {}).get("finite_feedback", True)
+            "numerator_symmetry_assistance": (preferences.get("numerator_symmetry_assistance", False)
+                                              if numerator_symmetry_assistance is None else numerator_symmetry_assistance),
+            "sector_symmetry_assistance": (preferences.get("sector_symmetry_assistance", False)
+                                           if sector_symmetry_assistance is None else sector_symmetry_assistance),
+            "sector_symmetry_policy": (preferences.get("sector_symmetry_policy", "generators")
+                                       if sector_symmetry_policy is None else sector_symmetry_policy),
+            "sector_symmetry_saved_projection": (preferences.get("sector_symmetry_saved_projection", True)
+                if sector_symmetry_saved_projection is None else sector_symmetry_saved_projection),
+            "selective_symmetry_feedback": (preferences.get("selective_symmetry_feedback", False)
+                if selective_symmetry_feedback is None else selective_symmetry_feedback),
+            "local_dimensional_recurrence_assistance": (preferences.get("local_dimensional_recurrence_assistance", False)
+                if local_dimensional_recurrence_assistance is None else local_dimensional_recurrence_assistance),
+            "finite_feedback": (preferences.get("finite_feedback", True)
                                 if finite_feedback is None else finite_feedback),
-            "deep_verification": ((existing or {}).get("deep_verification", False)
+            "deep_verification": (preferences.get("deep_verification", False)
                                   if deep_verification is None else deep_verification),
-            "containing_sector_depth": ((existing or {}).get("containing_sector_depth", 0)
+            "containing_sector_depth": (preferences.get("containing_sector_depth", 0)
                                         if containing_sector_depth is None else containing_sector_depth),
             "terminal_policy": "bounded exact search; finite nonminimal basis permitted",
             "master_minimality_claim": False}
     policy["collection_strategy"] = COLLECTION_STRATEGY
+    policy["refinement_strategy"] = strategy
+    policy["retry_modular_proposals"] = modular_policy is not None
+    if sector_symmetry_policy is not None and not policy["sector_symmetry_assistance"]:
+        raise ValueError("master sector-symmetry policy requires sector-symmetry assistance")
+    if sector_symmetry_saved_projection is not None and not policy["sector_symmetry_assistance"]:
+        raise ValueError("master sector-symmetry saved projection requires sector-symmetry assistance")
+    if policy["selective_symmetry_feedback"] and not policy["sector_symmetry_assistance"]:
+        raise ValueError("selective-symmetry feedback requires sector-symmetry assistance")
+    if policy["selective_symmetry_feedback"] and (policy["saved_rule_assistance"] or policy["circuit_symmetry_assistance"]):
+        raise ValueError("selective-symmetry feedback requires no dynamic saved-rule or separate circuit providers")
+    if strategy == "modular-circuits":
+        policy["terminal_policy"] = "heuristic modular source discovery; exact accepted terminal identities; no minimality claim"
+    if modular is not None:
+        policy["modular_policy"] = modular
+    if enabled and strategy == "modular-circuits" and policy["numerator_symmetry_assistance"]:
+        raise ValueError("numerator-symmetry assistance requires exact refinement; disable it or choose --refinement-strategy exact")
+    if enabled and strategy == "modular-circuits" and policy["sector_symmetry_assistance"]:
+        raise ValueError("sector-symmetry assistance requires exact refinement; disable it or choose --refinement-strategy exact")
+    if enabled and strategy == "modular-circuits" and policy["local_dimensional_recurrence_assistance"]:
+        raise ValueError("local dimensional-recurrence assistance requires exact refinement; disable it or choose --refinement-strategy exact")
+    if enabled and strategy == "modular-circuits" and (policy["saved_rule_assistance"]
+                                                      or policy["circuit_symmetry_assistance"]):
+        raise ValueError("modular-circuits currently requires ordinary sources without saved-rule or circuit-symmetry assistance")
+    if strategy == "modular-circuits" and (relation_batch_rows is not None or relation_block_rows is not None):
+        raise ValueError("relation batch/block rows configure exact refinement; use --modular-policy batch_rows/max_candidates for modular-circuits")
+    if refinement_workers is not None and (not enabled or type(refinement_workers) is not int or refinement_workers <= 0):
+        raise ValueError("refinement workers require explicit refinement and a positive count")
+    if refinement_cpus is not None and (not enabled or not isinstance(refinement_cpus,str) or not refinement_cpus):
+        raise ValueError("refinement CPU affinity requires explicit refinement and a nonempty CPU set")
+    for name,value in (("refinement_workers",refinement_workers),("refinement_cpus",refinement_cpus)):
+        value=value if value is not None else preferences.get(name)
+        if value is not None:
+            if ((name=="refinement_workers" and (type(value) is not int or value<=0)) or
+                    (name=="refinement_cpus" and (not isinstance(value,str) or not value))):
+                raise ValueError("invalid saved refinement worker/CPU resource choice")
+            policy[name]=value
+    for name, value in (("relation_batch_rows",relation_batch_rows),("relation_block_rows",relation_block_rows)):
+        if value is not None and (type(value) is not int or value <= 0 or not enabled):
+            raise ValueError("relation batch/block rows require explicit refinement and positive sizes")
+        value = value if value is not None else preferences.get(name)
+        if value is not None:
+            if type(value) is not int or value <= 0: raise ValueError("invalid saved relation batch/block rows")
+            policy[name] = value
     policy["finite_feedback_recipe"] = FINITE_FEEDBACK_RECIPE
     policy["publication_verification_recipe"] = PUBLICATION_VERIFICATION_RECIPE
     policy["collection_artifacts"] = members
@@ -149,6 +273,21 @@ def configuration(campaign, enabled=False, seed_depth=None, executable=None, sav
         policy["executable"] = {"sha256": sha, "path": "bin/rustred-" + sha,
                                 "source": str(executable)}
     return policy
+
+
+def postprocess_configuration(policy, operation, *, proof_recipe=None, recover_interrupted=False):
+    """One-invocation authority; never persist import/recovery as a default."""
+    if (operation not in ("finalize-refinement", "import-refinement")
+            or type(recover_interrupted) is not bool
+            or (recover_interrupted and operation != "finalize-refinement")
+            or (proof_recipe is not None and operation != "import-refinement")):
+        raise ValueError("invalid explicit recovery/import operation")
+    if operation == "import-refinement" and proof_recipe is None:
+        raise ValueError("import-refinement requires --proof-recipe")
+    result = {**policy, "operation": operation, "recover_interrupted": recover_interrupted}
+    if proof_recipe is not None:
+        result["proof_recipe"] = str(Path(proof_recipe).resolve())
+    return result
 
 
 def freeze_master_executable(directory, policy, driver):
@@ -220,7 +359,7 @@ def same_input_scope(left, right):
     return all(left.get("components", {}).get(key) == right.get("components", {}).get(key) for key in fields)
 
 
-def unfinished_refinement(campaign, binding):
+def unfinished_refinement(campaign, binding, include_uncheckpointed_fresh=False):
     """Locate the current scope's retained finite cursor without altering it."""
     campaign = Path(campaign).resolve()
     path = campaign / "master-reduction/active-phase.json"
@@ -233,6 +372,15 @@ def unfinished_refinement(campaign, binding):
     if not source.is_relative_to(campaign / "master-reduction/scopes"):
         raise ValueError("refinement checkpoint must remain inside the campaign scopes directory")
     if not (source / "latest.json").is_file():
+        if include_uncheckpointed_fresh:
+            steering = read_json(source / "steering-binding.json")
+            if (steering.get("fresh_search") is True
+                    and steering.get("fresh_search_recipe") == FRESH_SEARCH_RECIPE
+                    and same_input_scope(steering.get("scope_binding", {}), binding)):
+                # A selected round may stop during native initialization, before
+                # its first checkpoint. Retain the mode, never invent proofs.
+                return {"directory": source, "native": {}, "steering": steering,
+                        "active": active, "manifest_sha256": None}
         return None
     native = read_json(source / "latest.json")
     if native.get("status") in ("completed_nonminimal", "published_unrefined"):
@@ -244,7 +392,7 @@ def unfinished_refinement(campaign, binding):
             "manifest_sha256": digest(source / "latest.json")}
 
 
-def require_retained_refinement(campaign, binding=None):
+def require_retained_refinement(campaign, binding=None, action="extending"):
     """Called while extension holds both the checkpoint and dispatcher locks."""
     campaign = Path(campaign)
     if binding is None:
@@ -263,7 +411,7 @@ def require_retained_refinement(campaign, binding=None):
             if (Path(completed.get("directory", "")).resolve() == previous["resolved_directory"]
                     and same_input_scope(completed.get("scope_binding", {}), binding)):
                 return
-    raise ValueError("current scope has unfinished refinement; retain its proved maps before extending: "
+    raise ValueError(f"current scope has unfinished refinement; retain its proved maps before {action}: "
                      f"saved_campaign.py finalize-refinement --campaign {campaign}")
 
 
@@ -273,12 +421,17 @@ def finalize_refinement(plan, policy, binding, request, driver):
     if pending is None:
         raise ValueError("no unfinished refinement checkpoint for the current scope")
     if pending["native"].get("status") not in ("paused", "failed"):
-        raise ValueError("finalize-refinement requires a stopped paused or failed native refinement checkpoint")
+        if not (policy.get("recover_interrupted", False) and pending["native"].get("status") == "running"):
+            raise ValueError("finalize-refinement requires a stopped paused or failed native refinement checkpoint; "
+                             "explicit --recover-interrupted is required for durable running metadata")
     source, steering, native = pending["directory"], pending["steering"], pending["native"]
     refinement = {
         "source_directory": str(source.relative_to(campaign)),
         "source_manifest_sha256": pending["manifest_sha256"],
         "source_artifact": steering["source"],
+        "refinement_strategy": steering.get("refinement_strategy", "exact"),
+        **({"fresh_search": True, "fresh_search_recipe": FRESH_SEARCH_RECIPE}
+           if steering.get("fresh_search", False) else {}),
         "collection_strategy": COLLECTION_STRATEGY,
         "collection_inputs": steering.get("collection_inputs", []),
         "finite_feedback": native.get("finite_feedback", steering.get("finite_feedback", False)),
@@ -286,9 +439,27 @@ def finalize_refinement(plan, policy, binding, request, driver):
         "seed_depth": native.get("seed_depth", steering.get("seed_depth", 0)),
         "containing_sector_depth": native.get("containing_sector_depth", steering.get("containing_sector_depth", 0)),
         "saved_rule_assistance": steering.get("saved_rule_assistance", False),
-        "circuit_symmetry_assistance": steering.get("circuit_symmetry_assistance", False)}
-    key = hashlib.sha256(json.dumps({"partial_refinement": str(source),
-                                    "source_manifest_sha256": pending["manifest_sha256"]},
+        "circuit_symmetry_assistance": steering.get("circuit_symmetry_assistance", False),
+        **({"numerator_symmetry_assistance": True}
+           if steering.get("numerator_symmetry_assistance", False) else {}),
+        **({"sector_symmetry_assistance": True}
+           if steering.get("sector_symmetry_assistance", False) else {}),
+        **({"sector_symmetry_policy": steering.get("sector_symmetry_policy", "generators")}
+           if steering.get("sector_symmetry_assistance", False) else {}),
+        **({"sector_symmetry_saved_projection": steering.get("sector_symmetry_saved_projection", True)}
+           if steering.get("sector_symmetry_assistance", False) else {}),
+        **({"selective_symmetry_feedback_enabled": True}
+           if steering.get("selective_symmetry_feedback", False) else {}),
+        **({"local_dimensional_recurrence_assistance": True}
+           if steering.get("local_dimensional_recurrence_assistance", False) else {}),
+        **symmetry_metadata(native)}
+    if policy.get("recover_interrupted", False):
+        refinement["recovered_interrupted"] = True
+        refinement["original_source_status"] = native.get("status")
+    identity = {"partial_refinement": str(source), "source_manifest_sha256": pending["manifest_sha256"]}
+    if policy.get("recover_interrupted", False):
+        identity["recover_interrupted"] = True
+    key = hashlib.sha256(json.dumps(identity,
                                    sort_keys=True).encode()).hexdigest()
     target = campaign / "master-reduction/scopes" / key
     previous = completed_artifact(campaign)
@@ -304,6 +475,68 @@ def finalize_refinement(plan, policy, binding, request, driver):
         print("Proved refinement maps already published; finite search remains incomplete.", flush=True)
         return 0
     return phase_two(plan, {**policy, "partial_source": str(source), "partial_refinement": refinement},
+                     request, binding, target, driver)
+
+
+def import_refinement(plan, policy, binding, request, driver):
+    """Bind an explicit native proof replay, not an unchecked session import."""
+    campaign = Path(plan["campaign_directory"]).resolve()
+    previous = completed_artifact(campaign)
+    if not previous or not same_input_scope(previous.get("scope_binding", {}), binding):
+        raise ValueError("import-refinement requires a completed publication for the current input scope")
+    require_retained_refinement(campaign, binding, "importing proved relations")
+    recipe = Path(policy["proof_recipe"]).resolve()
+    recipe_sha = digest(recipe) if recipe.is_file() else None
+    active_path = campaign / "master-reduction/active-phase.json"
+    active = read_json(active_path) if active_path.is_file() else {}
+    selected = None
+    if active.get("operation") == "import-refinement":
+        candidate = Path(active["directory"]).resolve()
+        if not candidate.is_relative_to(campaign / "master-reduction/scopes"):
+            raise ValueError("proof import phase must remain inside the campaign scopes directory")
+        steering = read_json(candidate / "steering-binding.json")
+        if same_input_scope(steering.get("scope_binding", {}), binding):
+            recorded = steering.get("proof_recipe", {})
+            same_recipe = (recorded.get("sha256") == recipe_sha if recipe_sha is not None else
+                           recorded.get("original_path") == str(recipe))
+            if same_recipe:
+                selected = (candidate, steering)
+            elif not (candidate / "artifact.json").is_file():
+                raise ValueError("cannot change proof recipe during a paused import; resume its original --proof-recipe")
+    if selected:
+        target, identity = selected
+        descriptor = identity["proof_recipe"]
+        archived = target / "proof-import/recipe.json"
+        if archived.is_file():
+            if digest(archived) != descriptor["sha256"]:
+                raise ValueError("archived proof recipe differs from the immutable import identity")
+            recipe = archived
+        elif recipe_sha != descriptor["sha256"]:
+            raise ValueError("proof import has not archived its recipe yet; restore the original --proof-recipe")
+        source = campaign / identity["source"]
+        if digest(source / "artifact.json") != identity["source_manifest_sha256"]:
+            raise ValueError("proof import source publication changed; cannot resume this import")
+        if ((target / "artifact.json").is_file() and previous["resolved_directory"] == target
+                and previous.get("import_complete") is True):
+            print("Proved relation import already completed: " + str(target), flush=True)
+            return 0
+    else:
+        if recipe_sha is None:
+            raise ValueError("proof recipe is missing and has no matching archived import")
+        source = previous["resolved_directory"]
+        identity = {"scope": binding["key"], "operation": "import-refinement",
+                    "source": str(source.relative_to(campaign)),
+                    "source_manifest_sha256": digest(source / "artifact.json"),
+                    "proof_recipe": {"original_path": str(recipe), "sha256": recipe_sha},
+                    "recipe": "native-proved-relation-import-v1"}
+        phase_key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        target = campaign / "master-reduction/scopes" / phase_key
+        finite_output_path(plan, target / "steering-binding.json")
+        target.mkdir(parents=True, exist_ok=True)
+        driver.write_json(target / "steering-binding.json", {"scope_binding": binding, **identity})
+    return phase_two(plan, {**policy, "source_artifact": str(source), "proof_recipe": str(recipe),
+                            "import_recipe_sha256": identity["proof_recipe"]["sha256"],
+                            "import_source_manifest_sha256": identity["source_manifest_sha256"]},
                      request, binding, target, driver)
 
 
@@ -331,7 +564,15 @@ def completed_artifact(campaign):
     if ("independently_verified" in record
             and record["independently_verified"] != assurance["independently_verified"]):
         raise ValueError("saved artifact pointer verification assurance differs from native artifact")
-    return {**record, **profile, **assurance, "resolved_directory": directory}
+    symmetry = symmetry_metadata(native)
+    for key, value in symmetry.items():
+        if key in record and record[key] != value:
+            raise ValueError("saved artifact pointer symmetry provenance differs from native artifact")
+    if "proof_import" in record and record["proof_import"] != native.get("proof_import"):
+        raise ValueError("saved artifact pointer proof-import provenance differs from native artifact")
+    return {**record, **profile, **assurance, **symmetry,
+            **({"proof_import": native["proof_import"], "import_complete": native.get("import_complete") is True}
+               if isinstance(native.get("proof_import"), dict) else {}), "resolved_directory": directory}
 
 
 def verification_metadata(report):
@@ -362,6 +603,207 @@ def normalization_metadata(report):
             **({"normalization_limits": report["normalization_limits"]} if "normalization_limits" in report else {})}
 
 
+def numerator_symmetry_metadata(report):
+    """Transport native proof provenance; never infer new provider authority."""
+    result = {}
+    if "numerator_symmetry_assistance" in report:
+        if type(report["numerator_symmetry_assistance"]) is not bool:
+            raise ValueError("invalid native numerator-symmetry assistance mode")
+        result["numerator_symmetry_assistance"] = report["numerator_symmetry_assistance"]
+    certificate = report.get("numerator_symmetry_certificate")
+    if certificate is not None:
+        if not isinstance(certificate, dict) or certificate.get("recipe") != NUMERATOR_SYMMETRY_RECIPE:
+            raise ValueError("invalid native numerator-symmetry certificate descriptor")
+        result["numerator_symmetry_certificate"] = certificate
+    authority = report.get("inherited_equation_authority")
+    if authority is not None:
+        if not isinstance(authority, dict) or type(authority.get("numerator_symmetry_assistance", False)) is not bool:
+            raise ValueError("invalid inherited numerator-symmetry authority")
+        result["inherited_equation_authority"] = authority
+    return result
+
+
+def sector_symmetry_metadata(report):
+    """Carry native binary certificate descriptors, never equation payloads."""
+    result = {}
+    if "sector_symmetry_assistance" in report:
+        if type(report["sector_symmetry_assistance"]) is not bool:
+            raise ValueError("invalid native sector-symmetry assistance mode")
+        result["sector_symmetry_assistance"] = report["sector_symmetry_assistance"]
+    if "sector_symmetry_policy" in report:
+        if report["sector_symmetry_policy"] not in SECTOR_SYMMETRY_POLICIES:
+            raise ValueError("invalid native sector-symmetry policy")
+        result["sector_symmetry_policy"] = report["sector_symmetry_policy"]
+    if "sector_symmetry_saved_projection" in report:
+        if type(report["sector_symmetry_saved_projection"]) is not bool:
+            raise ValueError("invalid native sector-symmetry saved projection")
+        result["sector_symmetry_saved_projection"] = report["sector_symmetry_saved_projection"]
+    if "selective_symmetry_feedback_enabled" in report:
+        if type(report["selective_symmetry_feedback_enabled"]) is not bool:
+            raise ValueError("invalid native selective-symmetry feedback mode")
+        result["selective_symmetry_feedback_enabled"] = report["selective_symmetry_feedback_enabled"]
+    for key, recipe in (("sector_symmetry_certificate", SECTOR_SYMMETRY_RECIPE),
+                        ("sector_symmetry_reduced_certificate", SECTOR_SYMMETRY_REDUCED_RECIPE),
+                        ("sector_symmetry_normalization_certificate", SECTOR_SYMMETRY_NORMALIZATION_RECIPE),
+                        ("sector_symmetry_task_certificate", SECTOR_SYMMETRY_TASK_RECIPE),
+                        ("sector_symmetry_projection_checkpoint", SECTOR_SYMMETRY_REDUCED_RECIPE)):
+        certificate = report.get(key)
+        if certificate is not None:
+            allowed = ((SECTOR_SYMMETRY_REDUCED_RECIPE, SECTOR_SYMMETRY_SOURCE_ROWS_RECIPE)
+                       if key == "sector_symmetry_reduced_certificate" else (recipe,))
+            if not isinstance(certificate, dict) or certificate.get("recipe") not in allowed:
+                raise ValueError("invalid native sector-symmetry certificate descriptor")
+            result[key] = certificate
+    authority = report.get("inherited_equation_authority")
+    if authority is not None:
+        if not isinstance(authority, dict) or type(authority.get("sector_symmetry_assistance", False)) is not bool:
+            raise ValueError("invalid inherited sector-symmetry authority")
+        if (authority.get("sector_symmetry_assistance") is True
+                and authority.get("sector_symmetry_policy") not in SECTOR_SYMMETRY_POLICIES):
+            raise ValueError("invalid inherited sector-symmetry policy")
+        if ("sector_symmetry_saved_projection" in authority
+                and type(authority["sector_symmetry_saved_projection"]) is not bool):
+            raise ValueError("invalid inherited sector-symmetry saved projection")
+        result["inherited_equation_authority"] = authority
+    has_sector_authority = (report.get("sector_symmetry_assistance") is True
+                            or "sector_symmetry_certificate" in result
+                            or (authority or {}).get("sector_symmetry_assistance") is True)
+    if has_sector_authority and "sector_symmetry_policy" not in result:
+        raise ValueError("native sector-symmetry authority requires an explicit source policy")
+    source = result.get("sector_symmetry_certificate")
+    if source is not None and source.get("policy") != result.get("sector_symmetry_policy"):
+        raise ValueError("native sector-symmetry certificate policy differs from the report")
+    projected = result.get("sector_symmetry_saved_projection", True)
+    if source is not None and source.get("saved_projection_requested", True) is not projected:
+        raise ValueError("native sector-symmetry source saved projection differs from the report")
+    reduced = result.get("sector_symmetry_reduced_certificate")
+    if reduced is not None:
+        if reduced.get("recipe") != (SECTOR_SYMMETRY_REDUCED_RECIPE if projected else SECTOR_SYMMETRY_SOURCE_ROWS_RECIPE):
+            raise ValueError("native sector-symmetry row receipt differs from saved projection mode")
+        if reduced.get("saved_projection_requested", True) is not projected:
+            raise ValueError("native sector-symmetry receipt saved projection differs from the report")
+    if not projected and "sector_symmetry_projection_checkpoint" in result:
+        raise ValueError("native source-only sector-symmetry mode cannot use a saved projection checkpoint")
+    native_rows_accepted = any(type(report.get(key)) is int and report[key] > 0 for key in
+                              ("completed_assistance_rows", "pending_assistance_rows", "completed_assistance_keys"))
+    completed_projection = (report.get("status") in ("published_unrefined", "completed_nonminimal")
+                            and isinstance(report.get("sector_symmetry_reduction"), dict)
+                            and report["sector_symmetry_reduction"].get("complete") is True)
+    if has_sector_authority and (native_rows_accepted or completed_projection):
+        reduced = result.get("sector_symmetry_reduced_certificate")
+        if reduced is None or reduced.get("complete") is not True:
+            raise ValueError("native accepted sector-symmetry rows require a complete reduced certificate descriptor")
+    return result
+
+
+def symmetry_metadata(report):
+    result = {**numerator_symmetry_metadata(report), **sector_symmetry_metadata(report)}
+    feedback = report.get("selective_symmetry_feedback")
+    if feedback is not None:
+        if not isinstance(feedback, dict) or feedback.get("recipe") != SELECTIVE_SYMMETRY_FEEDBACK_RECIPE:
+            raise ValueError("invalid native selective-symmetry feedback receipt")
+        rounds = feedback.get("rounds", [])
+        if not isinstance(rounds, list) or any(not isinstance(row, dict) for row in rounds):
+            raise ValueError("invalid native selective-symmetry round receipt")
+        # This metadata contains exact binary descriptors, not reconstructed
+        # algebra. Native cold replay authenticates those files. Preserve ALL
+        # round descriptors in exported provenance; only telemetry is bounded.
+        result["selective_symmetry_feedback"] = feedback
+    if "local_dimensional_recurrence_assistance" in report:
+        if type(report["local_dimensional_recurrence_assistance"]) is not bool:
+            raise ValueError("invalid native local dimensional-recurrence mode")
+        result["local_dimensional_recurrence_assistance"] = report["local_dimensional_recurrence_assistance"]
+    authority = report.get("inherited_equation_authority")
+    if isinstance(authority, dict) and type(authority.get("local_dimensional_recurrence_assistance", False)) is not bool:
+        raise ValueError("invalid inherited local dimensional-recurrence mode")
+    certificate = report.get("local_dimensional_recurrence_certificate")
+    if certificate is not None:
+        if not isinstance(certificate, dict) or certificate.get("recipe") != LOCAL_DIMENSIONAL_RECURRENCE_RECIPE:
+            raise ValueError("invalid native local dimensional-recurrence certificate")
+        result["local_dimensional_recurrence_certificate"] = certificate
+    return result
+
+
+def symmetry_progress_metadata(report):
+    """Keep status metadata bounded even if native reports gain payload fields."""
+    result = {}
+    count_fields = ("input_keys", "analyzed_supports", "analyzed_denominators", "rejected_power_permutations",
+                    "support_closure_supports", "closure_keys", "processed_keys", "orbit_images", "orbit_terms",
+                    "legacy_source_equations", "normalization_input_keys", "normalization_canonical_keys",
+                    "normalization_unit_aliases", "normalization_projected_numerators", "normalization_source_equations",
+                    "normalization_output_terms", "normalization_safe_zero_certificates",
+                    "proposed_generators", "verified_generators", "discovered_maps", "equation_targets",
+                    "transported_keys", "transported_rows", "equations", "output_terms", "projected_terms", "source_terms",
+                    "trivial_equations", "processed_rows", "source_rows", "saved_reduced_rows",
+                    "saved_application_failures", "incomplete_boundaries", "reused_rows",
+                    "normalization_outputs_outside_source_inventory", "saved_output_keys_outside_symmetry_inventory",
+                    "saved_terminal_keys_outside_source_inventory", "deferred_symmetry_sources", "unresolved_output_keys",
+                    "nominated_directions", "supported_geometries", "replayed_source_rows", "regenerated_source_rows",
+                    "weighted_source_rows", "degenerate_grams", "skipped_geometries", "inventory_keys",
+                    "completed_witnesses", "total_witnesses", "reserved_workers")
+    for name in ("numerator_symmetry_preparation", "numerator_symmetry_reduction",
+                 "sector_symmetry_preparation", "sector_symmetry_reduction", "local_dimensional_recurrence_preparation"):
+        value = report.get(name)
+        if not isinstance(value, dict):
+            continue
+        header = {key: value[key] for key in count_fields
+                  if type(value.get(key)) is int and value[key] >= 0}
+        for key in ("complete", "source_jobs_complete", "saved_projection_complete", "all_offspring_reduced",
+                    "combined_closure_complete", "polynomial_orbit_closure_claim", "saved_projection_requested",
+                    "exact_source_rows_ready"):
+            if type(value.get(key)) is bool:
+                header[key] = value[key]
+        for key in ("scope", "combined_closure_scope", "stage", "policy", "source_assurance", "cohort_scope"):
+            if isinstance(value.get(key), str):
+                header[key] = value[key][:300]
+        skipped = value.get("skipped")
+        if isinstance(skipped, list):
+            header["skipped"] = [
+                {"reason": row["reason"][:160], "count": row["count"]}
+                for row in skipped[:16] if isinstance(row, dict)
+                and isinstance(row.get("reason"), str)
+                and type(row.get("count")) is int and row["count"] >= 0]
+            omitted = value.get("skipped_reasons_omitted", 0)
+            omitted = omitted if type(omitted) is int and omitted >= 0 else 0
+            if len(skipped) > 16 or omitted:
+                header["skipped_reasons_omitted"] = max(0, len(skipped) - 16) + omitted
+        failure_kinds = value.get("failure_kinds")
+        if isinstance(failure_kinds, dict):
+            header["failure_kinds"] = {key[:160]: count for key, count in islice(failure_kinds.items(), 16)
+                                       if isinstance(key, str) and type(count) is int and count >= 0}
+            if len(failure_kinds) > 16:
+                header["failure_kinds_omitted"] = len(failure_kinds) - 16
+        active = value.get("active_row")
+        if isinstance(active, dict):
+            header["active_row"] = {key: active[key] for key in
+                ("task", "unique_nodes", "active_nodes", "pending_frames", "cached_entries")
+                if type(active.get(key)) is int and active[key] >= 0}
+            if type(active.get("elapsed_seconds")) in (int, float) and 0 <= active["elapsed_seconds"] < float("inf"):
+                header["active_row"]["elapsed_seconds"] = active["elapsed_seconds"]
+            if isinstance(active.get("phase"), str):
+                header["active_row"]["phase"] = active["phase"][:100]
+        result[name] = header
+    value = report.get("selective_symmetry_feedback")
+    if isinstance(value, dict):
+        # Round rows/witnesses live in native capsules. Dashboard consumers get
+        # only scalar headers, never a possibly huge selected-target inventory.
+        header = {key: value[key] for key in (
+            "round", "completed_rounds", "selected_targets", "completed_targets", "pending_targets",
+            "new_target_proposals", "new_relations", "eliminated_targets", "stagnant_rounds",
+            "source_rows", "ordinary_source_rows", "unresolved_leaves", "frontier_keys", "deferred_targets",
+            "unattempted_targets", "terminal_rank_epoch", "visited_supports", "unsearched_auxiliary_keys")
+            if type(value.get(key)) is int and value[key] >= 0}
+        for key in ("enabled", "selected_queue_exhausted", "source_jobs_complete", "ordinary_work_complete",
+                    "complete", "budget_exhausted"):
+            if type(value.get(key)) is bool:
+                header[key] = value[key]
+        for key in ("stage", "status", "reason", "exact_parent_maps_blake3", "scope"):
+            if isinstance(value.get(key), str):
+                header[key] = value[key][:300]
+        result["selective_symmetry_feedback"] = header
+    return result
+
+
 def publish_pointer(campaign, directory, binding, operation, driver, refinement=None):
     # Called under the dispatcher lock, only after native success. An interrupted
     # refinement leaves the last valid publication visible and untouched.
@@ -377,6 +819,14 @@ def publish_pointer(campaign, directory, binding, operation, driver, refinement=
                   "published_unrefined" if operation == "publish" else "completed_nonminimal",
         "completed_unix_time": time.time(), "master_minimality_claim": False,
         **normalization_metadata(native), **verification_metadata(native),
+        **symmetry_metadata(native),
+        **({"proof_import": native["proof_import"], "import_complete": native.get("import_complete") is True}
+           if isinstance(native.get("proof_import"), dict) else {}),
+        **({"refinement_strategy": "modular-circuits",
+            "finite_search_complete": native.get("finite_search_complete") is True,
+            "modular_search_complete": native.get("modular_search_complete") is True,
+            "refinement_complete": native.get("refinement_complete") is True}
+           if native.get("refinement_strategy") == "modular-circuits" else {}),
         **({"finite_search_complete": False, "refinement_complete": False,
             "partial_refinement_source": native.get("partial_refinement_source")} if partial else {}),
         **({"refinement": refinement} if refinement is not None else {})})
@@ -478,8 +928,15 @@ def phase_two(plan, policy, request, binding, directory, driver):
     """Native publication or explicit refinement, never Python algebra."""
     operation = policy.get("operation", "publish")
     finalizing = operation == "finalize-refinement"
+    importing = operation == "import-refinement"
     publishing = operation != "refine"
-    phase = "Partial refinement publication" if finalizing else "Artifact publication" if publishing else "Master refinement"
+    phase = ("Proved relation import" if importing else "Partial refinement publication" if finalizing else
+             "Artifact publication" if publishing else "Master refinement")
+    if not publishing or importing:
+        # Refinement resources are independent of the saved closure engine.
+        # Never rewrite its frozen worker/affinity policy just to refine masters.
+        plan = {**plan,"requested_workers":policy.get("refinement_workers",plan["requested_workers"]),
+                "cpus":policy.get("refinement_cpus",plan["cpus"])}
     supervisor = driver.SUPERVISOR
     telemetry, dashboard = supervisor.MONITOR.TELEMETRY, supervisor.MONITOR.DASHBOARD
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
@@ -490,10 +947,14 @@ def phase_two(plan, policy, request, binding, directory, driver):
     executable = driver.steering_executable(plan["steering_policy"])[1]
     if policy.get("executable"):
         executable = Path(plan["campaign_directory"]) / "master-reduction" / policy["executable"]["path"]
-    command = [str(executable), "walk-finalize-refinement" if finalizing else
+    command = [str(executable), "walk-import-refinement" if importing else "walk-finalize-refinement" if finalizing else
                "walk-publish" if publishing else "walk-master-reduce"]
     if finalizing:
         command += ["--refinement", str(policy["partial_source"])]
+        if policy.get("recover_interrupted", False):
+            command.append("--recover-interrupted")
+    elif importing:
+        command += ["--artifact", policy["source_artifact"], "--proof-recipe", policy["proof_recipe"]]
     elif publishing:
         command += ["--command", str(request)]
         if plan.get("engine") == "rustred.finite-demand.v1":
@@ -504,7 +965,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
         command.append("--deep-verification" if policy.get("deep_verification", False) else "--no-deep-verification")
     else:
         command += ["--artifact", str(policy["source_artifact"])]
-    if plan.get("engine") == "rustred.finite-demand.v1" and (finalizing or not publishing):
+    if plan.get("engine") == "rustred.finite-demand.v1" and (finalizing or importing or not publishing):
         # The same caller-selected IO policy governs publication, refinement,
         # and cold reads; artifact metadata cannot silently enlarge it.
         command += ["--finite-policy", plan["finite_policy"]]
@@ -514,28 +975,71 @@ def phase_two(plan, policy, request, binding, directory, driver):
                "--threads", str(plan["requested_workers"])]
     if not publishing:
         command += ["--seed-depth", str(policy["seed_depth"])]
+        if policy.get("fresh_search", False):
+            command.append("--fresh-search")
+        strategy = policy.get("refinement_strategy", "exact")
+        if strategy != "exact":
+            command += ["--refinement-strategy", strategy]
+            if policy.get("modular_policy") is not None:
+                modular_path = attempt / "modular-policy.json"
+                driver.write_json(modular_path, policy["modular_policy"])
+                command += ["--modular-policy", str(modular_path)]
+        for name in ("relation_batch_rows", "relation_block_rows"):
+            if strategy == "exact" and policy.get(name) is not None:
+                command += ["--" + name.replace("_", "-"), str(policy[name])]
         if policy.get("max_relation_columns") is not None:
             command += ["--max-relation-columns", str(policy["max_relation_columns"])]
         command.append("--finite-feedback" if policy.get("finite_feedback", True) else "--no-finite-feedback")
         for member in policy.get("collection_artifacts", []):
             command += ["--collection-artifact", member]
-        if policy.get("containing_sector_depth", 0):
+        if policy.get("containing_sector_depth", 0) or policy.get("fresh_search", False):
             command += ["--containing-sector-depth", str(policy["containing_sector_depth"])]
         if policy.get("saved_rule_assistance", False):
             command.append("--saved-rule-assistance")
         if policy.get("circuit_symmetry_assistance", False):
             command.append("--circuit-symmetry-assistance")
+        if policy.get("numerator_symmetry_assistance", False):
+            command.append("--numerator-symmetry-assistance")
+        if policy.get("sector_symmetry_assistance", False):
+            command.append("--sector-symmetry-assistance")
+            command += ["--sector-symmetry-policy", policy.get("sector_symmetry_policy", "generators")]
+            command.append("--sector-symmetry-saved-projection" if policy.get("sector_symmetry_saved_projection", True)
+                           else "--no-sector-symmetry-saved-projection")
+        if policy.get("selective_symmetry_feedback", False):
+            command.append("--selective-symmetry-feedback")
+        if policy.get("local_dimensional_recurrence_assistance", False):
+            command.append("--local-dimensional-recurrence-assistance")
         profile = policy.get("effective_normalization_profile", "conservative-v1")
         if profile != "conservative-v1" or policy.get("normalization_profile") is not None:
             command += ["--normalization-profile", profile.removesuffix("-v1")]
-    if (directory / "latest.json").is_file():
-        snapshot = read_json(directory / "latest.json")
-        if finalizing:
+    if (directory / "latest.json").is_file() or (importing and (directory / "import-state.json").is_file()):
+        snapshot = read_json(directory / ("latest.json" if (directory / "latest.json").is_file() else "import-state.json"))
+        if finalizing or importing:
             pass  # Native authenticates the retained source generation.
         elif publishing:
             if snapshot.get("deep_verification", True) != policy.get("deep_verification", False):
                 raise ValueError("cannot change deep verification on resume; start a new publication phase")
         else:
+            if snapshot.get("refinement_strategy", "exact") != strategy:
+                raise ValueError("cannot change refinement strategy on resume; start a new phase directory")
+            if snapshot.get("numerator_symmetry_assistance", False) != policy.get("numerator_symmetry_assistance", False):
+                raise ValueError("cannot change numerator-symmetry assistance on resume; start a new phase directory")
+            if snapshot.get("sector_symmetry_assistance", False) != policy.get("sector_symmetry_assistance", False):
+                raise ValueError("cannot change sector-symmetry assistance on resume; start a new phase directory")
+            if (policy.get("sector_symmetry_assistance", False)
+                    and snapshot.get("sector_symmetry_policy", "generators") != policy.get("sector_symmetry_policy", "generators")):
+                raise ValueError("cannot change sector-symmetry policy on resume; start a new phase directory")
+            if (policy.get("sector_symmetry_assistance", False)
+                    and snapshot.get("sector_symmetry_saved_projection", True) != policy.get("sector_symmetry_saved_projection", True)):
+                raise ValueError("cannot change sector-symmetry saved projection on resume; start a new phase directory")
+            if snapshot.get("selective_symmetry_feedback_enabled", False) != policy.get("selective_symmetry_feedback", False):
+                raise ValueError("cannot change selective-symmetry feedback on resume; start a new phase directory")
+            if snapshot.get("local_dimensional_recurrence_assistance", False) != policy.get("local_dimensional_recurrence_assistance", False):
+                raise ValueError("cannot change local dimensional-recurrence assistance on resume; start a new phase directory")
+            if (snapshot.get("fresh_search", False) != policy.get("fresh_search", False)
+                    or (policy.get("fresh_search", False)
+                        and snapshot.get("fresh_search_recipe") != FRESH_SEARCH_RECIPE)):
+                raise ValueError("cannot change fresh-search mode on resume; start a new phase directory")
             pinned = normalization_metadata(snapshot)["normalization_profile"]
             if pinned != profile:
                 raise ValueError("cannot change normalization profile on resume; start a new phase directory")
@@ -544,7 +1048,7 @@ def phase_two(plan, policy, request, binding, directory, driver):
                         and snapshot.get("finite_feedback_recipe") != FINITE_FEEDBACK_RECIPE)):
                 raise ValueError("cannot change finite feedback on resume; start a new phase directory")
         command.append("--resume")
-    elif publishing and not finalizing:
+    elif publishing and not finalizing and not importing:
         previous_path = directory.parent.parent / "completed-phase.json"
         if policy.get("previous_artifact"):
             command += ["--previous-artifact", policy["previous_artifact"]]
@@ -585,20 +1089,35 @@ def phase_two(plan, policy, request, binding, directory, driver):
     stream = telemetry.TelemetryStream(attempt / "telemetry.jsonl")
     tail = supervisor.MONITOR.EventTail(events)
     latest = {"phase": phase, "operation": operation,
-              "stage": "rebinding retained refinement" if finalizing else
+              "stage": "replaying proved relation recipe" if importing else "rebinding retained refinement" if finalizing else
                        ("independent_graph_replay" if policy.get("deep_verification", False) else "inventory_census")
                        if publishing else "loading published artifact", "status": "running",
-              "seed_depth": policy.get("effective_seed_depth", policy["seed_depth"]), "scope_binding": binding["key"],
+              "seed_depth": 0 if importing else policy.get("effective_seed_depth", policy["seed_depth"]), "scope_binding": binding["key"],
               "containing_sector_depth": (policy.get("effective_containing_sector_depth",
                                                     policy.get("containing_sector_depth", 0)) if not publishing else 0),
               "saved_rule_assistance": not publishing and policy.get("saved_rule_assistance", False),
-              "circuit_symmetry_assistance": not publishing and policy.get("circuit_symmetry_assistance", False)}
+              "circuit_symmetry_assistance": not publishing and policy.get("circuit_symmetry_assistance", False),
+              "numerator_symmetry_assistance": not publishing and policy.get("numerator_symmetry_assistance", False),
+              "sector_symmetry_assistance": not publishing and policy.get("sector_symmetry_assistance", False)}
+    if not publishing and policy.get("sector_symmetry_assistance", False):
+        latest["sector_symmetry_policy"] = policy.get("sector_symmetry_policy", "generators")
+        latest["sector_symmetry_saved_projection"] = policy.get("sector_symmetry_saved_projection", True)
+    if not publishing and policy.get("selective_symmetry_feedback", False):
+        latest["selective_symmetry_feedback_enabled"] = True
+    if not publishing and policy.get("local_dimensional_recurrence_assistance", False):
+        latest["local_dimensional_recurrence_assistance"] = True
     latest["finite_feedback"] = not publishing and policy.get("finite_feedback", True)
     if not publishing:
         latest["normalization_profile"] = profile
-    elif not finalizing:
+        latest["refinement_strategy"] = strategy
+        if policy.get("fresh_search", False):
+            latest.update(fresh_search=True, fresh_search_recipe=FRESH_SEARCH_RECIPE,
+                          stage="loading retained proved maps for a fresh search")
+    elif not finalizing and not importing:
         latest["deep_verification"] = policy.get("deep_verification", False)
         latest["publication_verification_mode"] = "independent_replay" if latest["deep_verification"] else "inventory"
+    if importing:
+        latest["proof_import"] = {"stage": "preparing", "recipe_sha256": policy["import_recipe_sha256"]}
     checkpoint = {}
 
     def observe(event):
@@ -606,8 +1125,12 @@ def phase_two(plan, policy, request, binding, directory, driver):
         payload = event.get("progress", event)
         if not isinstance(payload, dict):
             return
-        if payload.get("event", "").startswith(("master_reduction", "artifact_")) or payload.get("phase") in ("Master reduction", phase):
-            latest.update({key: value for key, value in payload.items() if value is not None})
+        if payload.get("event", "").startswith(("master_reduction", "artifact_", "proof_import")) or payload.get("phase") in ("Master reduction", phase):
+            latest.update({key: value for key, value in payload.items() if value is not None
+                           and key not in ("numerator_symmetry_preparation", "numerator_symmetry_reduction",
+                                           "sector_symmetry_preparation", "sector_symmetry_reduction",
+                                           "selective_symmetry_feedback", "local_dimensional_recurrence_preparation")})
+            latest.update(symmetry_progress_metadata(payload))
             latest.update(phase=phase, operation=operation)
             if isinstance(payload.get("checkpoint"), dict):
                 checkpoint = dict(payload["checkpoint"])
@@ -704,11 +1227,31 @@ def phase_two(plan, policy, request, binding, directory, driver):
             native_artifact = read_json(directory / "artifact.json")
             native_profile = normalization_metadata(native_artifact)
             native_assurance = verification_metadata(native_artifact)
-            if publishing and not finalizing and (native_assurance["deep_verification"] != policy.get("deep_verification", False)
+            if publishing and not finalizing and not importing and (native_assurance["deep_verification"] != policy.get("deep_verification", False)
                                or (policy.get("deep_verification", False) and not native_assurance["independently_verified"])):
                 raise ValueError("native artifact verification assurance differs from requested publication")
             if not publishing and native_profile["normalization_profile"] != profile:
                 raise ValueError("native artifact normalization profile differs from requested refinement")
+            if not publishing and native_artifact.get("refinement_strategy", "exact") != strategy:
+                raise ValueError("native artifact strategy differs from requested refinement")
+            if not publishing and native_artifact.get("numerator_symmetry_assistance", False) != policy.get("numerator_symmetry_assistance", False):
+                raise ValueError("native artifact numerator-symmetry mode differs from requested refinement")
+            if not publishing and native_artifact.get("sector_symmetry_assistance", False) != policy.get("sector_symmetry_assistance", False):
+                raise ValueError("native artifact sector-symmetry mode differs from requested refinement")
+            if (not publishing and policy.get("sector_symmetry_assistance", False)
+                    and native_artifact.get("sector_symmetry_policy", "generators") != policy.get("sector_symmetry_policy", "generators")):
+                raise ValueError("native artifact sector-symmetry policy differs from requested refinement")
+            if (not publishing and policy.get("sector_symmetry_assistance", False)
+                    and native_artifact.get("sector_symmetry_saved_projection", True) != policy.get("sector_symmetry_saved_projection", True)):
+                raise ValueError("native artifact sector-symmetry saved projection differs from requested refinement")
+            if not publishing and native_artifact.get("selective_symmetry_feedback_enabled", False) != policy.get("selective_symmetry_feedback", False):
+                raise ValueError("native artifact selective-symmetry feedback differs from requested refinement")
+            if not publishing and native_artifact.get("local_dimensional_recurrence_assistance", False) != policy.get("local_dimensional_recurrence_assistance", False):
+                raise ValueError("native artifact local dimensional-recurrence mode differs from requested refinement")
+            if not publishing and (native_artifact.get("fresh_search", False) != policy.get("fresh_search", False)
+                    or (policy.get("fresh_search", False)
+                        and native_artifact.get("fresh_search_recipe") != FRESH_SEARCH_RECIPE)):
+                raise ValueError("native artifact fresh-search mode differs from requested refinement")
             if not publishing and (native_artifact.get("finite_feedback") != policy.get("finite_feedback", True)
                                    or native_artifact.get("finite_feedback_recipe") != FINITE_FEEDBACK_RECIPE):
                 raise ValueError("native artifact finite feedback recipe differs from requested refinement")
@@ -718,15 +1261,29 @@ def phase_two(plan, policy, request, binding, directory, driver):
                 raise ValueError("native partial export must attest incomplete refinement and its source")
             if finalizing and digest(Path(policy["partial_source"]) / "latest.json") != policy["partial_refinement"]["source_manifest_sha256"]:
                 raise ValueError("refinement source changed during partial export; artifact retained but pointer not updated")
+            if importing and (native_artifact.get("import_complete") is not True
+                              or not isinstance(native_artifact.get("proof_import"), dict)):
+                raise ValueError("native proof import success must attest completed proof replay")
+            if importing:
+                archive = directory / "proof-import/recipe.json"
+                if not archive.is_file() or digest(archive) != policy["import_recipe_sha256"]:
+                    raise ValueError("native archived proof recipe differs from the immutable import identity; pointer not updated")
+                if digest(Path(policy["source_artifact"]) / "artifact.json") != policy["import_source_manifest_sha256"]:
+                    raise ValueError("proof import source changed during replay; artifact retained but pointer not updated")
             current = phase_scope_binding(plan, driver)
             if not same_input_scope(current, binding):
                 raise ValueError("campaign scope changed during postprocessing; artifact retained but latest pointer not updated")
             previous = completed_artifact(plan["campaign_directory"])
-            keep_refined = publishing and not finalizing and previous and same_input_scope(previous.get("scope_binding", {}), binding) \
+            keep_refined = publishing and not finalizing and not importing and previous and same_input_scope(previous.get("scope_binding", {}), binding) \
                 and previous.get("operation") == "refine" and not policy.get("previous_artifact")
             if not keep_refined:
                 refinement = None if publishing else {
                         **native_profile,
+                        **symmetry_metadata(native_artifact),
+                        "refinement_strategy": policy.get("refinement_strategy", "exact"),
+                        **({"fresh_search": True, "fresh_search_recipe": FRESH_SEARCH_RECIPE}
+                           if policy.get("fresh_search", False) else {}),
+                        "modular_search_complete": native_artifact.get("modular_search_complete", False),
                         "collection_strategy": COLLECTION_STRATEGY,
                         "finite_feedback": policy.get("finite_feedback", True),
                         "finite_feedback_recipe": FINITE_FEEDBACK_RECIPE,
@@ -737,6 +1294,8 @@ def phase_two(plan, policy, request, binding, directory, driver):
                         "saved_rule_assistance": policy.get("saved_rule_assistance", False), "source_artifact": str(
                             Path(policy["source_artifact"]).relative_to(Path(plan["campaign_directory"])))}
                 pointer_operation = operation
+                if importing:
+                    pointer_operation = "publish"
                 if finalizing:
                     refinement = {**policy["partial_refinement"], **native_profile,
                                   "finite_search_complete": False, "refinement_complete": False}
@@ -763,9 +1322,16 @@ def phase_two(plan, policy, request, binding, directory, driver):
             # from that already loaded metadata; never replay owner payloads.
             counts = telemetry.publication_rule_counts(native_artifact)
             latest.update(counts)
+            latest.update(symmetry_metadata(native_artifact))
+            if importing:
+                latest.update(proof_import=native_artifact["proof_import"], import_complete=True)
+            latest.update(symmetry_progress_metadata(native_artifact))
             publish(finished_state, force=True)
-            print("Proved refinement maps published; finite search remains incomplete and its cursor is retained." if finalizing else
+            print("Proved relation import published; no new ordinary source search was performed." if importing else
+                  "Proved refinement maps published; finite search remains incomplete and its cursor is retained." if finalizing else
                   "Scoped artifact published; master refinement was not requested." if publishing else
+                  "Modular discovery pass completed; accepted maps are exactly verified; exhaustive exact search remains incomplete."
+                  if policy.get("refinement_strategy", "exact") == "modular-circuits" else
                   "Explicit master refinement completed (bounded search, not a minimality proof).", flush=True)
             for label, key in (("Published executable rule records", "published_rule_records"),
                                ("Encountered cover rule records", "observed_cover_rules")):
@@ -781,12 +1347,34 @@ def phase_two(plan, policy, request, binding, directory, driver):
                                 + ("--master-circuit-symmetry-assistance "
                                    if policy.get("circuit_symmetry_assistance", False)
                                    else "--no-master-circuit-symmetry-assistance ")
+                                + ("--master-numerator-symmetry-assistance "
+                                   if policy.get("numerator_symmetry_assistance", False)
+                                   else "--no-master-numerator-symmetry-assistance ")
+                                + ("--master-sector-symmetry-assistance "
+                                   if policy.get("sector_symmetry_assistance", False)
+                                   else "--no-master-sector-symmetry-assistance ")
+                                + ("--master-sector-symmetry-policy " + policy.get("sector_symmetry_policy", "generators") + " "
+                                   if policy.get("sector_symmetry_assistance", False) else "")
+                                + (("--master-sector-symmetry-saved-projection "
+                                    if policy.get("sector_symmetry_saved_projection", True)
+                                    else "--no-master-sector-symmetry-saved-projection ")
+                                   if policy.get("sector_symmetry_assistance", False) else "")
+                                + ("--master-selective-symmetry-feedback "
+                                   if policy.get("selective_symmetry_feedback", False) else "")
+                                + ("--master-local-dimensional-recurrence-assistance "
+                                   if policy.get("local_dimensional_recurrence_assistance", False) else "")
                                 + ("--master-finite-feedback " if policy.get("finite_feedback", True)
                                    else "--no-master-finite-feedback ")
+                                + ("--master-refinement-strategy modular-circuits "
+                                   if policy.get("refinement_strategy", "exact") == "modular-circuits" else "")
                                 + "--master-normalization-profile " + profile.removesuffix("-v1") + " ") if not publishing else (
                                     "--deep-verification " if policy.get("deep_verification", False) else "--no-deep-verification ")
             if finalizing:
-                print(f"Resume export with: saved_campaign.py finalize-refinement --campaign {plan['campaign_directory']}", flush=True)
+                recovery_flag = " --recover-interrupted" if policy.get("recover_interrupted", False) else ""
+                print(f"Resume export with: saved_campaign.py finalize-refinement --campaign {plan['campaign_directory']}{recovery_flag}", flush=True)
+            elif importing:
+                print(f"Resume import with: saved_campaign.py import-refinement --campaign {plan['campaign_directory']} "
+                      f"--proof-recipe {policy['proof_recipe']}", flush=True)
             elif plan.get("engine") == "rustred.finite-demand.v1":
                 print(f"Resume with: saved_campaign.py {'publish' if publishing else 'refine'} "
                       f"--campaign {plan['campaign_directory']}", flush=True)
@@ -858,6 +1446,7 @@ def phase_source_lock(plan, directory, driver, held, dispatcher_held=False):
 def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=False, startup_progress=None):
     campaign, checkpoint = Path(plan["campaign_directory"]), Path(plan["checkpoint_directory"])
     directory = campaign / "master-reduction"
+    fresh_requested = policy.get("fresh_search", False)
     with ExitStack() as held:
         if startup_progress is not None:
             held.callback(startup_progress.stop)
@@ -870,13 +1459,28 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
             evidence = driver.campaign_run_liveness(campaign)
             if evidence:
                 raise ValueError("campaign is still running: " + "; ".join(evidence))
+            if fresh_requested:
+                if policy.get("operation") != "refine":
+                    raise ValueError("fresh search requires explicit refinement")
+                fresh_binding = phase_scope_binding(plan, driver)
+                if fresh_binding is None:
+                    raise ValueError("fresh search requires the completed current input scope")
+                fresh_pending = unfinished_refinement(campaign, fresh_binding)
+                require_retained_refinement(campaign, fresh_binding, "starting a fresh search")
+                if fresh_pending and fresh_pending["native"].get("status") not in ("paused", "failed"):
+                    retained = (completed_artifact(campaign) or {}).get("refinement", {})
+                    if not (fresh_pending["native"].get("status") == "running"
+                            and retained.get("recovered_interrupted") is True):
+                        raise ValueError("fresh search requires a stopped or explicitly recovered refinement")
             if plan.get("engine") == "rustred.finite-demand.v1" and policy.get("executable"):
                 finite_output_path(plan, directory / policy["executable"]["path"])
             if startup_progress is not None:
                 startup_progress.phase("freezing publication executable")
             freeze_master_executable(directory, policy, driver)
             driver.write_json(directory / "policy.json", {key: value for key, value in policy.items()
-                              if key not in ("operation", "source_artifact", "previous_artifact", "preserved_refinement")})
+                              if key not in ("operation", "source_artifact", "previous_artifact", "preserved_refinement",
+                                             "fresh_search", "fresh_search_recipe", "recover_interrupted", "proof_recipe",
+                                             "import_recipe_sha256", "import_source_manifest_sha256")})
             if startup_progress is not None:
                 startup_progress.phase("validating current input scope")
             binding = (None if plan.get("engine") == "rustred.finite-demand.v1" and plan.get("repair_preparation")
@@ -889,6 +1493,12 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
             if startup_progress is not None:
                 startup_progress.stop()
             return finalize_refinement(plan, policy, binding, request, driver)
+        if operation == "import-refinement":
+            if not binding or request is None:
+                raise ValueError("import-refinement requires the completed current input scope")
+            if startup_progress is not None:
+                startup_progress.stop()
+            return import_refinement(plan, policy, binding, request, driver)
         if startup_progress is not None:
             startup_progress.phase("checking existing publication")
         if operation == "refine":
@@ -896,6 +1506,7 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
             if not previous or not binding or not same_input_scope(previous.get("scope_binding", {}), binding):
                 raise ValueError("refine requires a completed artifact for the current scope; run or publish it first")
             refinement = previous.get("refinement", {})
+            pending = unfinished_refinement(campaign, binding, include_uncheckpointed_fresh=True)
             effective_profile = (NORMALIZATION_PROFILES[policy["normalization_profile"]]
                                  if policy.get("normalization_profile") is not None
                                  else previous["normalization_profile"])
@@ -920,8 +1531,15 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                 collection_inputs = read_json(phase_directory / "steering-binding.json")["collection_inputs"]
             collection_inputs.sort(key=lambda value: value["manifest_sha256"])
             policy = {**policy, "collection_inputs": collection_inputs}
+            strategy = policy.get("refinement_strategy", "exact")
+            searched = (refinement.get("modular_search_complete", False) if strategy == "modular-circuits"
+                        else previous.get("finite_search_complete", True))
             if (previous.get("operation") == "refine"
-                    and previous.get("finite_search_complete", True)
+                    and not fresh_requested
+                    and not (pending and pending["steering"].get("fresh_search", False))
+                    and searched
+                    and not policy.get("retry_modular_proposals", False)
+                    and refinement.get("refinement_strategy", "exact") == strategy
                     and refinement.get("collection_strategy") == COLLECTION_STRATEGY
                     and refinement.get("finite_feedback", False) == policy.get("finite_feedback", True)
                     and (not policy.get("finite_feedback", True)
@@ -930,6 +1548,14 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                     and refinement.get("seed_depth", -1) >= policy["seed_depth"]
                     and refinement.get("containing_sector_depth", 0) >= policy.get("containing_sector_depth", 0)
                     and refinement.get("circuit_symmetry_assistance", False) == policy.get("circuit_symmetry_assistance", False)
+                    and refinement.get("numerator_symmetry_assistance", False) == policy.get("numerator_symmetry_assistance", False)
+                    and refinement.get("sector_symmetry_assistance", False) == policy.get("sector_symmetry_assistance", False)
+                    and (not policy.get("sector_symmetry_assistance", False)
+                         or refinement.get("sector_symmetry_policy", "generators") == policy.get("sector_symmetry_policy", "generators"))
+                    and (not policy.get("sector_symmetry_assistance", False)
+                         or refinement.get("sector_symmetry_saved_projection", True) == policy.get("sector_symmetry_saved_projection", True))
+                    and refinement.get("selective_symmetry_feedback_enabled", False) == policy.get("selective_symmetry_feedback", False)
+                    and refinement.get("local_dimensional_recurrence_assistance", False) == policy.get("local_dimensional_recurrence_assistance", False)
                     and previous["normalization_profile"] == effective_profile
                     and refinement.get("saved_rule_assistance", False) == policy.get("saved_rule_assistance", False)):
                 if startup_progress is not None:
@@ -938,9 +1564,11 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                 return 0
             policy = {**policy, "source_artifact": str(previous["resolved_directory"]),
                       "effective_normalization_profile": effective_profile,
-                      "effective_seed_depth": max(policy["seed_depth"], refinement.get("seed_depth", 0)),
-                      "effective_containing_sector_depth": max(policy.get("containing_sector_depth", 0),
-                                                               refinement.get("containing_sector_depth", 0))}
+                      "effective_seed_depth": (policy["seed_depth"] if fresh_requested else
+                                               max(policy["seed_depth"], refinement.get("seed_depth", 0))),
+                      "effective_containing_sector_depth": (policy.get("containing_sector_depth", 0)
+                          if fresh_requested else max(policy.get("containing_sector_depth", 0),
+                                                      refinement.get("containing_sector_depth", 0)))}
         elif binding:
             previous = completed_artifact(campaign)
             same_scope = previous and same_input_scope(previous.get("scope_binding", {}), binding)
@@ -1007,6 +1635,11 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                                              if policy.get("previous_artifact") else None)
         if operation == "refine":
             identity["collection_strategy"] = COLLECTION_STRATEGY
+            if fresh_requested:
+                identity.update(fresh_search=True, fresh_search_recipe=FRESH_SEARCH_RECIPE)
+            if policy.get("refinement_strategy", "exact") != "exact":
+                identity["refinement_strategy"] = policy["refinement_strategy"]
+                identity["modular_search_recipe"] = MODULAR_SEARCH_RECIPE
             identity["collection_inputs"] = policy.get("collection_inputs", [])
             identity["finite_feedback"] = policy.get("finite_feedback", True)
             identity["finite_feedback_recipe"] = FINITE_FEEDBACK_RECIPE
@@ -1016,6 +1649,20 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
             identity["saved_rule_assistance"] = True
         if operation == "refine" and policy.get("circuit_symmetry_assistance", False):
             identity["circuit_symmetry_assistance"] = True
+        if operation == "refine" and policy.get("numerator_symmetry_assistance", False):
+            identity["numerator_symmetry_assistance"] = True
+        if operation == "refine" and policy.get("sector_symmetry_assistance", False):
+            identity["sector_symmetry_assistance"] = True
+            identity["sector_symmetry_recipe"] = SECTOR_SYMMETRY_RECIPE
+            identity["sector_symmetry_policy"] = policy.get("sector_symmetry_policy", "generators")
+            if not policy.get("sector_symmetry_saved_projection", True):
+                identity["sector_symmetry_saved_projection"] = False
+        if operation == "refine" and policy.get("selective_symmetry_feedback", False):
+            identity["selective_symmetry_feedback"] = True
+            identity["selective_symmetry_feedback_recipe"] = SELECTIVE_SYMMETRY_FEEDBACK_RECIPE
+        if operation == "refine" and policy.get("local_dimensional_recurrence_assistance", False):
+            identity["local_dimensional_recurrence_assistance"] = True
+            identity["local_dimensional_recurrence_recipe"] = LOCAL_DIMENSIONAL_RECURRENCE_RECIPE
         if operation == "refine" and policy["effective_normalization_profile"] != "conservative-v1":
             # Legacy conservative phases keep their original checkpoint path.
             identity["normalization_profile"] = policy["effective_normalization_profile"]
@@ -1026,11 +1673,12 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
         phase_key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         target = directory / "scopes" / phase_key
         if operation == "refine":
-            pending = unfinished_refinement(campaign, binding)
-            if pending:
+            if pending and not fresh_requested:
                 saved_identity = {key: value for key, value in pending["steering"].items()
                                   if key not in ("scope_binding", "executable")}
                 candidate_identity = dict(identity)
+                if pending["steering"].get("fresh_search", False):
+                    candidate_identity.update(fresh_search=True, fresh_search_recipe=FRESH_SEARCH_RECIPE)
                 if refinement.get("source_directory") == str(pending["directory"].relative_to(campaign)):
                     candidate_identity["source"] = pending["steering"]["source"]
                 requested_identity = {key: value for key, value in candidate_identity.items() if key != "executable"}
@@ -1040,6 +1688,9 @@ def run(plan, policy, resume, driver, postprocess_only=False, dispatcher_held=Fa
                     target = pending["directory"]
                     identity = candidate_identity
                     policy = {**policy, "source_artifact": str(campaign / identity["source"])}
+                    if identity.get("fresh_search", False):
+                        policy.update(fresh_search=True, effective_seed_depth=policy["seed_depth"],
+                                      effective_containing_sector_depth=policy.get("containing_sector_depth", 0))
                 # A changed search recipe starts from the latest partial artifact
                 # so its already proved maps survive the new finite search.
         finite_output_path(plan, target / "steering-binding.json")

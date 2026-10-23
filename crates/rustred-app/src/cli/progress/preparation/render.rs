@@ -124,6 +124,14 @@ fn resources(status: &Status) -> String {
 }
 
 fn phase(job: &Job) -> String {
+    if job
+        .native_progress
+        .as_ref()
+        .is_some_and(|observation| observation.status == "final")
+        && job.native().is_some()
+    {
+        return "completed · final counters".into();
+    }
     if matches!(job.state.as_str(), "interrupted" | "failed" | "not_started") {
         let last = job.native().and_then(|n| {
             n.active_jobs.iter().max_by(|a, b| {

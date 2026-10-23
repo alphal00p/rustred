@@ -41,6 +41,17 @@ def fixture():
         stop_reason=None, family_closure_claim=False)
 
 
+def completed_native_fixture():
+    return dict(schema="rustred.family-generation-progress.v1", pid=9, process_start_ticks=17,
+        invocation_id="pty-final", revision=1, state="output_written", elapsed_seconds=20,
+        last_event_elapsed_seconds=20, counts=dict(sectors_total=18, generated=1, reused=17,
+            checkpointed_new=1, rules_generated=1781, finite_residuals_generated=31,
+            observed_rule_hits=1781, failures=0, overflow=False), active_jobs=[],
+        details_truncated=False, last_failure=None,
+        checkpoint=dict(resume_granularity="completed-sector", in_sector_resume=False),
+        family_closure_claim=False)
+
+
 @unittest.skipUnless(BINARY and os.name == "posix", "set RUSTRED_PREPARATION_VIEWER to run native PTY tests")
 class PreparationTuiTests(unittest.TestCase):
     def setUp(self):
@@ -120,6 +131,48 @@ class PreparationTuiTests(unittest.TestCase):
         self.assertIn(b"RSS", text)
         self.assertNotIn(b"\x1b[6n", text)
         self.assertIsNone(child.poll())
+
+    def test_completed_parent_recovers_final_counts_with_an_old_running_producer(self):
+        self.data["run_id"] = str(self.path.parent.parent)
+        self.data["attempt_id"] = self.path.parent.name
+        self.data["resources"]["shared_pool"] = True
+        job = self.data["jobs"][0]
+        job.update(state="completed", preparation_state="completed", shared_process=True,
+            pid=9, pid_start=17,
+            native_progress=dict(status="stale", age_seconds=20000, snapshot=None))
+        job["metadata"]["selected_sectors"] = [f"{sector:018b}" for sector in range(1, 19)]
+        native = self.path.parent / "native-final.json"
+        native.write_text(json.dumps(completed_native_fixture()))
+        batch = self.path.parent / "batch.json"
+        batch.write_text(json.dumps(dict(schema="rustred.family-candidates-batch.v1",
+            jobs=[dict(id=job["id"],arguments=["--progress-json",str(native)])])))
+        (self.path.parent / "request.json").write_text(json.dumps(dict(started_unix=1,
+            jobs=[dict(id="shared-worker-pool",command=["rustred","family-candidates-batch",
+                                                       "--config",str(batch)])])))
+        self.publish()
+        original = self.path.read_bytes()
+        child, master = self.launch()
+        text = self.read_until(master, b"Read-only;")
+        self.assertIn(b"final counters", text)
+        self.assertIn(b"18/18", text)
+        self.assertNotIn(b"completed; native stale", text)
+        self.assertEqual(self.path.read_bytes(), original)
+        self.assertIsNone(child.poll())
+
+    def test_completed_parent_never_displays_nonfinal_native_counts(self):
+        for observation in ("fresh", "historical", "final"):
+            for state in ("running", "failed", "stopped"):
+                with self.subTest(observation=observation, state=state):
+                    native = completed_native_fixture()
+                    native["state"] = state
+                    self.data["jobs"][0].update(state="completed", pid=9, pid_start=17,
+                        native_progress=dict(status=observation, age_seconds=0, snapshot=native))
+                    self.publish()
+                    result = subprocess.run([BINARY, "preparation-monitor", "--snapshot",
+                        str(self.path), "--once"], capture_output=True, text=True, check=True)
+                    self.assertNotIn("final counters", result.stdout)
+                    self.assertNotIn("sectors 18/18", result.stdout)
+                    self.assertNotIn("new rules 1781", result.stdout)
 
     def test_terminal_snapshot_restores_screen_and_prints_final_summary(self):
         child, master = self.launch()

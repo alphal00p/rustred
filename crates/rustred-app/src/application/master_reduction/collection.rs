@@ -119,13 +119,7 @@ fn limit_snapshot(limits: TerminalCollectionLimits) -> Value {
 }
 
 fn collection_io_limits() -> BinaryIoLimits {
-    let mut limits = BinaryIoLimits::default();
-    // Collection maps carry a u32 atom ID for every retained guard occurrence.
-    // A valid finite matrix can have >8M such references while staying well
-    // inside the existing 1GiB payload budget. Tie their allowance to that
-    // structural storage budget; keep byte, atom and algebra checks intact.
-    limits.max_collection_entries = limits.max_program_bytes / std::mem::size_of::<u32>();
-    limits
+    profile::native_io_limits(None)
 }
 
 fn budget_snapshot(d: VacuumDiagonalCollectionLimits) -> Value {
@@ -217,14 +211,8 @@ mod resource_recipe_tests {
         report["collection_limits"]["recipe"] = json!("terminal-collection-limits-v2");
         assert!(limits(&report).is_err());
         let wire = collection_io_limits();
-        assert_eq!(
-            wire.max_program_bytes,
-            BinaryIoLimits::default().max_program_bytes
-        );
-        assert_eq!(
-            wire.max_collection_entries * std::mem::size_of::<u32>(),
-            wire.max_program_bytes
-        );
+        assert_eq!(wire.max_program_bytes, usize::MAX);
+        assert_eq!(wire.max_collection_entries, usize::MAX);
     }
 }
 
@@ -323,7 +311,7 @@ fn read_state(directory: &Path, state: &Value) -> Result<Vec<u8>, AppError> {
         .ok_or_else(|| AppError::input("native collection member missing"))?;
     let bytes = storage::read_bounded(
         &storage::safe_child(directory, name)?,
-        BinaryIoLimits::default().max_program_bytes,
+        profile::native_io_limits(None).max_program_bytes,
     )?;
     if state["bytes"].as_u64() != Some(bytes.len() as u64)
         || state["blake3"].as_str() != Some(blake3::hash(&bytes).to_hex().as_str())
@@ -343,12 +331,17 @@ fn write_state(directory: &Path, bytes: &[u8], prefix: &str) -> Result<Value, Ap
 }
 
 fn load_member(directory: &Path, member: &Value) -> Result<TerminalRelationSession, AppError> {
-    TerminalRelationSession::from_native_bytes(
+    let session = TerminalRelationSession::from_native_bytes(
         &read_state(directory, &member["native_state"])?,
         profile::from_report(member)?.relation_limits(),
-        BinaryIoLimits::default(),
+        profile::native_io_limits(None),
     )
-    .map_err(io)
+    .map_err(io)?;
+    super::numerator_symmetry::validate(directory, &session, member)?;
+    super::sector_symmetry::validate(directory, &session, member)?;
+    super::selective_symmetry::validate(directory, &session, member)?;
+    super::local_dimension::validate(directory, &session, member)?;
+    Ok(session)
 }
 
 fn load_members(
@@ -364,6 +357,10 @@ fn load_members(
 }
 
 fn copy_member(source: &Path, output: &Path, member: &Value) -> Result<Value, AppError> {
+    super::numerator_symmetry::inherit(source, output, member)?;
+    super::sector_symmetry::inherit(source, output, member)?;
+    super::selective_symmetry::inherit(source, output, member)?;
+    super::local_dimension::inherit(source, output, member)?;
     let mut member = member.clone();
     member["native_state"] = write_state(
         output,
@@ -379,11 +376,35 @@ fn primary_member(report: &Value) -> Result<Value, AppError> {
         "relation_authority",
         "saved_rule_assistance",
         "circuit_symmetry_assistance",
+        "numerator_symmetry_assistance",
+        "numerator_symmetry_certificate",
+        "sector_symmetry_assistance",
+        "sector_symmetry_policy",
+        "sector_symmetry_saved_projection",
+        "sector_symmetry_preparation",
+        "sector_symmetry_reduction",
+        "sector_symmetry_certificate",
+        "sector_symmetry_normalization_certificate",
+        "sector_symmetry_task_certificate",
+        "sector_symmetry_reduced_certificate",
+        "sector_symmetry_projection_checkpoint",
+        "selective_symmetry_feedback_enabled",
+        "selective_symmetry_feedback",
+        "local_dimensional_recurrence_assistance",
+        "local_dimensional_recurrence_preparation",
+        "local_dimensional_recurrence_certificate",
         "inherited_equation_authority",
     ] {
         if let Some(value) = report.get(field) {
             result[field] = value.clone();
         }
+    }
+    if report["sector_symmetry_assistance"] == true
+        || report["inherited_equation_authority"]["sector_symmetry_assistance"] == true
+        || report["sector_symmetry_certificate"].is_object()
+        || super::selective_symmetry::enabled(report)
+    {
+        result["inputs"] = json!({"program_binding":report["inputs"]["program_binding"]});
     }
     result["source_manifest_blake3"] = json!(
         blake3::hash(&serde_json::to_vec(report).map_err(io)?)
@@ -410,6 +431,7 @@ pub(super) fn inherit_with_policy(
 ) -> Result<(), AppError> {
     let source_report = inspect_with_policy(source, policy)?;
     let source = directory(source);
+    fresh::inherit(source, output, &source_report, report)?;
     let members = source_report["collection_members"]
         .as_array()
         .into_iter()
@@ -471,6 +493,11 @@ pub(super) fn add_members(
     primary: &TerminalRelationSession,
     report: &mut Value,
 ) -> Result<(), AppError> {
+    if !options.collection_artifacts.is_empty() && primary.retained_relations_binding().is_some() {
+        return Err(AppError::input(
+            "cross-family peer collection of retained-relation rounds is not yet supported; retained compact authority cannot be discarded",
+        ));
+    }
     if options.collection_artifacts.is_empty()
         && report["collection_members"]
             .as_array()
@@ -480,7 +507,7 @@ pub(super) fn add_members(
         return Ok(());
     }
     let primary_bytes = primary
-        .to_native_bytes(BinaryIoLimits::default())
+        .to_native_bytes(profile::native_io_limits(None))
         .map_err(io)?;
     let mut known = BTreeMap::from([(
         primary.family_owner().fingerprint().to_owned(),
@@ -509,6 +536,11 @@ pub(super) fn add_members(
             &options.directory,
         )?;
         let source_report = inspect_with_policy(artifact, options.finite_policy.as_ref())?;
+        if source_report["retained_relations"].is_object() {
+            return Err(AppError::input(
+                "retained-relation publications cannot yet be added as external collection peers",
+            ));
+        }
         if !matches!(
             source_report["status"].as_str(),
             Some("published_unrefined" | "completed_nonminimal")
@@ -528,6 +560,11 @@ pub(super) fn add_members(
         );
         for member in candidates {
             let loaded = load_member(source_directory, &member)?;
+            if loaded.retained_relations_binding().is_some() {
+                return Err(AppError::input(
+                    "external collection member requires unsupported retained-relation authority transport",
+                ));
+            }
             let fingerprint = loaded.family_owner().fingerprint().to_owned();
             let digest = member["native_state"]["blake3"]
                 .as_str()

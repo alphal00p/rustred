@@ -38,6 +38,9 @@ def native_executable(campaign, supplied=None):
         resumable_phase = (active.get("operation") in ("publish", "refine") and latest.is_file()
                            and phases.read_json(latest).get("status") not in
                            ("completed_nonminimal", "published_unrefined"))
+        if active.get("operation") == "import-refinement":
+            resumable_phase = ((active_directory / "import-state.json").is_file()
+                               and not (active_directory / "artifact.json").is_file())
         if frozen and (resumable_phase or not path.is_file()):
             # A later cargo build must not silently fork a paused native row
             # cursor. An explicit --executable remains an intentional upgrade.
@@ -50,10 +53,12 @@ def native_executable(campaign, supplied=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     commands = parser.add_subparsers(dest="action", required=True)
-    for action in ("run", "extend", "inspect", "refine", "finalize-refinement", "publish"):
+    for action in ("run", "extend", "inspect", "refine", "finalize-refinement", "import-refinement", "publish"):
         sub = commands.add_parser(action, allow_abbrev=False)
         if action != "inspect":
-            sub.epilog = ("Finite engine: first run --engine finite-demand --finite-policy POLICY.json "
+            sub.epilog = ("Fresh campaigns default to the legacy symbolic-domain engine (Epoch/CP6); "
+                          "existing campaigns retain their saved engine. Finite-demand is opt-in: "
+                          "first run --engine finite-demand --finite-policy POLICY.json "
                           "--cpus CPUSET --max-memory-bytes BYTES --host-memory-reserve-bytes BYTES. "
                           "Subsequent finite commands retain these settings; --workers N with --cpus CPUSET "
                           "changes the reserved worker budget. Explicit policy/RAM overrides "
@@ -75,14 +80,30 @@ def main(argv=None):
                              help="independently replay the saved dependency graph before publication (default saved preference or off)")
         if action == "run":
             sub.add_argument("--engine", choices=("legacy", "finite-demand"),
-                             help="checkpoint engine for a fresh campaign (saved engine retained on resume)")
+                             help="fresh default: legacy symbolic-domain (Epoch/CP6); finite-demand is opt-in; saved engine retained on resume")
             sub.add_argument("--resume", action="store_true", help="resume; also selected automatically if a checkpoint exists")
         if action == "extend":
             sub.add_argument("--rank", type=int, required=True, help="new cumulative input numerator-rank ceiling")
             bounds = sub.add_mutually_exclusive_group()
             bounds.add_argument("--max-power-difference", type=int, help="new D=A-R ceiling; omitted preserves current ceiling")
             bounds.add_argument("--unbounded-power-difference", action="store_true", help="remove only the additional stage ceiling")
+        if action == "finalize-refinement":
+            sub.add_argument("--recover-interrupted", action="store_true",
+                             help="explicitly export a durable interrupted running checkpoint after native exclusive-writer checks; source remains unchanged")
+        if action == "import-refinement":
+            sub.add_argument("--proof-recipe", type=Path, required=True,
+                             help="native replay recipe for proved relations; repeated invocation resumes the same archived recipe")
         if action == "refine":
+            sub.add_argument("--fresh-search", action="store_true",
+                             help="start a new relations-only round after finalizing stopped work; old search cursors/shape are not inherited (specify both depths; defaults 0/0 and exact)")
+            sub.add_argument("--refinement-strategy", choices=("exact", "modular-circuits"),
+                             help="refinement backend (default saved preference or exact); modular discovery accepts only exactly verified maps")
+            sub.add_argument("--modular-policy", type=Path,
+                             help="JSON modular discovery/reconstruction resource allowances; explicit modular refinement only")
+            sub.add_argument("--workers", dest="refinement_workers", type=int, help="refiner-only worker budget; may change on resume")
+            sub.add_argument("--cpus", dest="refinement_cpus", help="refiner-only CPU affinity; must match --workers")
+            sub.add_argument("--relation-batch-rows", type=int, help="exact refiner's positive parallel window; may change on resume")
+            sub.add_argument("--relation-block-rows", type=int, help="exact refiner's positive elimination block size; may change on resume")
             sub.add_argument("--max-relation-columns", type=int,
                              help="operational column budget; 0 removes the limit (default saved preference or unlimited); may change on resume")
             sub.add_argument("--collection-artifact", type=Path, action="append", default=[],
@@ -96,11 +117,49 @@ def main(argv=None):
                              help="include applicable saved-rule and routing equations (default saved refinement preference or off)")
             sub.add_argument("--circuit-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
                              help="include native circuit-reflection equations (default saved refinement preference or off)")
+            sub.add_argument("--numerator-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
+                             help="exact-only: add finitely certified denominator-preserving numerator-map equations; off by default, fresh search clears the saved preference")
+            sub.add_argument("--sector-symmetry-assistance", action=argparse.BooleanOptionalAction, default=None,
+                             help="exact-only: add certified sector-generator relations for original source keys; endpoint monomials are auxiliary columns; off by default, fresh search clears the saved preference; includes the legacy numerator provider")
+            sub.add_argument("--sector-symmetry-policy", choices=("generators", "polynomial-orbits"),
+                             help="sector assistance row policy (default saved preference or generators); polynomial-orbits explicitly enumerates whole-polynomial orbits; fresh search resets to generators")
+            sub.add_argument("--sector-symmetry-saved-projection", action=argparse.BooleanOptionalAction, default=None,
+                             help="project sector rows through saved programs (default saved preference or on); disable explicitly for a finite source-only cohort; fresh search resets to on")
+            sub.add_argument("--selective-symmetry-feedback", action=argparse.BooleanOptionalAction, default=None,
+                             help="exact sector-assisted refinement: revisit selected terminal-relevant symmetry/IBP consequences; off by default, fresh search clears it; heuristic queue exhaustion is not family closure")
+            sub.add_argument("--local-dimensional-recurrence-assistance", action=argparse.BooleanOptionalAction, default=None,
+                             help="exact refinement: add replayable localized dimensional-pair consequences in the original dimension; off by default, fresh search clears it; unsupported subgraphs are reported")
             sub.add_argument("--finite-feedback", action=argparse.BooleanOptionalAction, default=None,
                              help="combine retained finite rows after full-U aliases (default saved preference or on)")
         if action == "inspect":
             sub.add_argument("--format", choices=("auto", "table", "json"), default="auto")
     args, extra = parser.parse_known_args(argv)
+    if args.action != "finalize-refinement" and any(option.split("=", 1)[0] in
+            ("--recover-interrupted", "--recover-interrupted-refinement") for option in extra):
+        parser.error("interrupted recovery requires the finalize-refinement action")
+    if args.action != "import-refinement" and any(option.split("=", 1)[0] in
+            ("--proof-recipe", "--master-proof-recipe", "--import-refinement") for option in extra):
+        parser.error("proof recipe requires the import-refinement action")
+    if args.action != "refine":
+        if any(option.split("=", 1)[0] in ("--fresh-search", "--master-fresh-search") for option in extra):
+            parser.error("fresh search requires the refine action")
+        if any(option.split("=", 1)[0] in ("--numerator-symmetry-assistance", "--no-numerator-symmetry-assistance",
+                   "--master-numerator-symmetry-assistance", "--no-master-numerator-symmetry-assistance") for option in extra):
+            parser.error("numerator-symmetry assistance requires the refine action")
+        if any(option.split("=", 1)[0] in ("--sector-symmetry-assistance", "--no-sector-symmetry-assistance",
+                   "--master-sector-symmetry-assistance", "--no-master-sector-symmetry-assistance") for option in extra):
+            parser.error("sector-symmetry assistance requires the refine action")
+        if any(option.split("=", 1)[0] in ("--sector-symmetry-policy", "--master-sector-symmetry-policy") for option in extra):
+            parser.error("sector-symmetry policy requires the refine action")
+        if any(option.split("=", 1)[0] in ("--sector-symmetry-saved-projection", "--no-sector-symmetry-saved-projection",
+                   "--master-sector-symmetry-saved-projection", "--no-master-sector-symmetry-saved-projection") for option in extra):
+            parser.error("sector-symmetry saved projection requires the refine action")
+        if any(option.split("=", 1)[0] in ("--selective-symmetry-feedback", "--no-selective-symmetry-feedback",
+                   "--master-selective-symmetry-feedback", "--no-master-selective-symmetry-feedback") for option in extra):
+            parser.error("selective-symmetry feedback requires the refine action")
+        if any(option.split("=", 1)[0] in ("--local-dimensional-recurrence-assistance", "--no-local-dimensional-recurrence-assistance",
+                   "--master-local-dimensional-recurrence-assistance", "--no-master-local-dimensional-recurrence-assistance") for option in extra):
+            parser.error("local dimensional-recurrence assistance requires the refine action")
     campaign = args.campaign.resolve()
     try:
         # Engine dispatch precedes all legacy checkpoint access. This regular
@@ -132,6 +191,22 @@ def main(argv=None):
                 command += ["--executable", str(executable)]
             if args.action == "refine":
                 command.append("--refine-masters")
+                if args.fresh_search:
+                    command.append("--master-fresh-search")
+                if args.refinement_strategy is not None:
+                    command += ["--master-refinement-strategy", args.refinement_strategy]
+                if args.modular_policy is not None:
+                    command += ["--master-modular-policy", str(args.modular_policy.resolve())]
+                if args.refinement_workers is not None:
+                    if args.refinement_workers <= 0: raise ValueError("refinement workers must be positive")
+                    command += ["--master-refinement-workers",str(args.refinement_workers)]
+                if args.refinement_cpus is not None:
+                    command += ["--master-refinement-cpus",args.refinement_cpus]
+                for name in ("relation_batch_rows", "relation_block_rows"):
+                    value = getattr(args, name)
+                    if value is not None:
+                        if value <= 0: raise ValueError("relation batch/block rows must be positive")
+                        command += ["--master-" + name.replace("_", "-"), str(value)]
                 if args.max_relation_columns is not None:
                     if args.max_relation_columns < 0:
                         raise ValueError("max relation columns must be nonnegative (0 means unlimited)")
@@ -146,6 +221,23 @@ def main(argv=None):
                 if args.circuit_symmetry_assistance is not None:
                     command.append("--master-circuit-symmetry-assistance" if args.circuit_symmetry_assistance
                                    else "--no-master-circuit-symmetry-assistance")
+                if args.numerator_symmetry_assistance is not None:
+                    command.append("--master-numerator-symmetry-assistance" if args.numerator_symmetry_assistance
+                                   else "--no-master-numerator-symmetry-assistance")
+                if args.sector_symmetry_assistance is not None:
+                    command.append("--master-sector-symmetry-assistance" if args.sector_symmetry_assistance
+                                   else "--no-master-sector-symmetry-assistance")
+                if args.sector_symmetry_policy is not None:
+                    command += ["--master-sector-symmetry-policy", args.sector_symmetry_policy]
+                if args.sector_symmetry_saved_projection is not None:
+                    command.append("--master-sector-symmetry-saved-projection" if args.sector_symmetry_saved_projection
+                                   else "--no-master-sector-symmetry-saved-projection")
+                if args.selective_symmetry_feedback is not None:
+                    command.append("--master-selective-symmetry-feedback" if args.selective_symmetry_feedback
+                                   else "--no-master-selective-symmetry-feedback")
+                if args.local_dimensional_recurrence_assistance is not None:
+                    command.append("--master-local-dimensional-recurrence-assistance" if args.local_dimensional_recurrence_assistance
+                                   else "--no-master-local-dimensional-recurrence-assistance")
                 if args.finite_feedback is not None:
                     command.append("--master-finite-feedback" if args.finite_feedback
                                    else "--no-master-finite-feedback")
@@ -159,6 +251,10 @@ def main(argv=None):
                     command += ["--master-containing-sector-depth", str(args.containing_sector_depth)]
             elif args.action == "finalize-refinement":
                 command.append("--finalize-refinement")
+                if args.recover_interrupted:
+                    command.append("--recover-interrupted-refinement")
+            elif args.action == "import-refinement":
+                command += ["--import-refinement", "--master-proof-recipe", str(args.proof_recipe.resolve())]
             elif args.action == "publish":
                 command.append("--publish-only")
             if args.action in ("run", "extend", "publish") and args.deep_verification is not None:

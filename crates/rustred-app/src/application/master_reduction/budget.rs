@@ -33,10 +33,17 @@ mod tests {
         ] {
             let limits = profile.relation_limits();
             assert_eq!(limits.max_columns, usize::MAX);
-            // Aggregate counts are memory-guarded; finite operation and wire
-            // limits remain independent of this optional column budget.
+            // Trusted generated native state follows the process RAM guard;
+            // only explicit caller grants add operational resource stops.
             assert_eq!(limits.max_nonzeros, usize::MAX);
-            assert_ne!(BinaryIoLimits::default().max_program_bytes, usize::MAX);
+            assert_eq!(
+                limits.algebra,
+                rustred::algebra::IndexedAlgebraLimits::unbounded_resources()
+            );
+            assert_eq!(
+                profile::native_io_limits(None).max_program_bytes,
+                usize::MAX
+            );
         }
     }
 }

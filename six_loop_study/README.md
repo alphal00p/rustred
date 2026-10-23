@@ -185,6 +185,19 @@ Shared mode reports CPU and RAM once for the whole native process. Per-parent
 process measurements cannot be attributed accurately to individual families.
 The pool header shows active and queued sector jobs and the optional limit.
 
+Completed parents retain their invocation-bound final counters, labelled
+`completed · final counters`, even while other parents keep running. Their
+event age remains the true time since completion, not a missing heartbeat.
+`Rules+` and `Resid+` count newly generated sectors in the current attempt;
+reused-sector totals are not inferred. Completion of generation is still not
+a claim of integral-family closure. Active-job observations continue to expire.
+
+An updated standalone `rustred-preparation-monitor` can also recover these
+final counters for an older, still-running producer from its recorded native
+progress paths. Run it against the same snapshot in a **separate pane/tab**;
+no solver restart is required. Interrupting that separate viewer is harmless,
+but interrupting the original generation launcher stops its campaign.
+
 The viewer is read-only and needs no stdin or terminal cursor replies, including
 when launched as a detached child in Zellij. An initialization/rendering failure
 is reported explicitly before falling back to plain progress. The producer

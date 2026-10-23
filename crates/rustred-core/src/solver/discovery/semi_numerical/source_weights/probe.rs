@@ -169,5 +169,17 @@ pub(super) fn probe_prefix(
             lower_nonzeros: lower.nvalues(),
         }));
     }
+    let selected_rows = frame.rows().len().min(source_limit);
+    if selected_rows != 0 && harder.u().nrows() as usize == selected_rows {
+        // Every selected row and every input denominator was admitted. A
+        // nonzero specialized N-by-N forbidden minor is a generic-field rank
+        // witness: these N rows have no nonzero left-null circuit on F. This
+        // rejects only this selected frame/prefix, never a larger source space.
+        // A sampled lower rank (or a pole above) cannot justify this exit.
+        return Err(MaterializationError::SourceFrameIneligible {
+            rows: selected_rows,
+            forbidden_columns: target_column,
+        });
+    }
     Ok(None)
 }

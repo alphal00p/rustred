@@ -8,6 +8,8 @@ use crate::solver::{
     CandidateEntryAdmission, CandidateOwnerPrograms, CandidateOwnerRoute, CandidateReducer,
     CandidateReductionError, DomainPowerBounds, FiniteRootAdmission, RootRegionInput,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 fn tadpole(limits: ReductionLimits) -> RoutedCandidateReducer<1> {
     let family = Arc::new(crate::solver::tests::tadpole());
@@ -282,6 +284,205 @@ fn admission_and_arity_precede_cache_lookup_and_input_cancellation() {
             CandidateReductionError::Application(ReductionError::WrongArity { .. })
         ))
     ));
+}
+
+#[test]
+fn cooperative_cancellation_preserves_complete_root_admission_before_cache_lookup() {
+    let routed = tadpole(Default::default());
+    let c = routed.programs.context.family().coefficient_context();
+    let mut application = routed.application();
+    application
+        .reduce_linear_combination([(key([3]), c.one())])
+        .unwrap();
+    let cancel = AtomicBool::new(true);
+    let admission = FiniteRootAdmission::try_new(
+        [RootRegionInput {
+            support: [true],
+            lower: vec![0],
+            upper: vec![Some(0)],
+            rank: None,
+            powers: DomainPowerBounds::default(),
+        }],
+        1,
+    )
+    .unwrap();
+    // Cancellation and warm cache cannot conceal a later inadmissible input,
+    // including one whose caller coefficient is zero.
+    for coefficient in [c.zero(), c.one()] {
+        assert!(matches!(
+            application.reduce_linear_combination_with_entry_admission_cancellable(
+                [(key([1]), c.one()), (key([3]), coefficient)],
+                CandidateEntryAdmission::ExplicitFinite(&admission),
+                &cancel,
+            ),
+            Err(CandidateRoutedError::EntryAdmission(_))
+        ));
+    }
+    assert!(matches!(
+        application.reduce_linear_combination_with_entry_admission_cancellable(
+            [(key([1, 0]), c.zero())],
+            CandidateEntryAdmission::SavedGenerationScope,
+            &cancel,
+        ),
+        Err(CandidateRoutedError::Candidate(
+            CandidateReductionError::Application(ReductionError::WrongArity { .. })
+        ))
+    ));
+    let mut snapshots = Vec::new();
+    assert!(matches!(
+        application.reduce_linear_combination_with_entry_admission_and_control(
+            [(key([3]), c.one())],
+            CandidateEntryAdmission::SavedGenerationScope,
+            &cancel,
+            Duration::ZERO,
+            |snapshot| snapshots.push(*snapshot),
+        ),
+        Err(CandidateRoutedError::Cancelled)
+    ));
+    assert_eq!(snapshots.len(), 2);
+    let last = snapshots.last().unwrap();
+    assert_eq!(last.status, CandidateRoutedApplicationStatus::Failed);
+    assert_eq!(last.unique_nodes, 0);
+    assert_eq!(last.statistics.work.cache_hits(), 0);
+    // The original API remains independent of an unrelated cancellation flag.
+    assert_eq!(
+        application
+            .reduce_linear_combination([(key([3]), c.one())])
+            .unwrap()
+            .terms()[&key([1])],
+        c.integer(-4)
+    );
+}
+
+#[test]
+fn cooperative_cancellation_retains_only_completed_guarded_cache_and_releases_pins() {
+    let family = Arc::new(crate::solver::tests::tadpole());
+    let c = family.coefficient_context();
+    let mut owners = CandidateOwnerPrograms::try_new(
+        context(
+            family.clone(),
+            None,
+            ReductionLimits {
+                max_cached_integrals: 2,
+                ..Default::default()
+            },
+        ),
+        [input(
+            [true],
+            None,
+            vec![
+                rule(&family, [3], &[([2], 3)]),
+                rule(&family, [2], &[([1], 2)]),
+            ],
+            &[[1], [5]],
+        )],
+    )
+    .unwrap();
+    let indexed = owners.context.coefficient_context().clone();
+    Arc::get_mut(&mut owners.context)
+        .unwrap()
+        .shared
+        .source_conditions = vec![polynomial(&indexed, "d-7")];
+    let routed = RoutedCandidateReducer::try_new(Arc::new(owners), [], Default::default()).unwrap();
+    for policy in [
+        CandidateRoutedCachePolicy::EvictLeastRecentlyUsed,
+        CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed,
+    ] {
+        for representation in [
+            CandidateCacheRepresentation::Sparse,
+            CandidateCacheRepresentation::Factorized,
+        ] {
+            let mut application = routed.application();
+            application.set_cache_policy(policy).unwrap();
+            application
+                .set_cache_representation(representation)
+                .unwrap();
+            let cancel = AtomicBool::new(false);
+            let mut snapshots = Vec::new();
+            assert!(matches!(
+                application.reduce_linear_combination_with_entry_admission_and_control(
+                    [(key([3]), c.one())],
+                    CandidateEntryAdmission::SavedGenerationScope,
+                    &cancel,
+                    Duration::ZERO,
+                    |snapshot| {
+                        snapshots.push(*snapshot);
+                        if snapshot.cached.entries > 0 && snapshot.active_nodes > 0 {
+                            cancel.store(true, Ordering::Relaxed);
+                        }
+                    },
+                ),
+                Err(CandidateRoutedError::Cancelled)
+            ));
+            let last = snapshots.last().unwrap();
+            assert_eq!(last.status, CandidateRoutedApplicationStatus::Failed);
+            assert!(last.pinned.unwrap().entries > 0);
+            assert!(last.active_nodes > 0);
+            assert!(
+                !application
+                    .cache
+                    .contains_key(&super::super::trace::Node::Route(key([3])))
+            );
+            let completed_leaf = application
+                .reduce_linear_combination([(key([1]), c.one())])
+                .unwrap();
+            assert_eq!(completed_leaf.statistics().work.cache_hits(), 1);
+            assert_eq!(
+                completed_leaf.nonzero_conditions(),
+                &[c.coefficient_fixture("d-7")]
+            );
+            // A separate root can evict the completed leaf: aborted parent
+            // references no longer pin any payload after the typed return.
+            application
+                .reduce_linear_combination([(key([5]), c.one())])
+                .unwrap();
+            cancel.store(false, Ordering::Relaxed);
+            let resumed = application
+                .reduce_linear_combination_with_entry_admission_cancellable(
+                    [(key([3]), c.one())],
+                    CandidateEntryAdmission::SavedGenerationScope,
+                    &cancel,
+                )
+                .unwrap();
+            assert_eq!(resumed.terms(), &BTreeMap::from([(key([1]), c.integer(6))]));
+            assert_eq!(
+                resumed.nonzero_conditions(),
+                &[c.coefficient_fixture("d-7")]
+            );
+            application.clear_cache().unwrap();
+            assert_eq!(application.cache_statistics().cached_integrals(), 0);
+            assert_eq!(application.cache_statistics().cached_coefficient_terms(), 0);
+            assert_eq!(application.cache_statistics().cached_coefficient_bytes(), 0);
+        }
+    }
+}
+
+#[test]
+fn cooperative_cancellation_at_root_collection_keeps_completed_root_reusable() {
+    let routed = tadpole(Default::default());
+    let c = routed.programs.context.family().coefficient_context();
+    let mut application = routed.application();
+    let cancel = AtomicBool::new(false);
+    assert!(matches!(
+        application.reduce_linear_combination_with_entry_admission_and_control(
+            [(key([3]), c.one())],
+            CandidateEntryAdmission::SavedGenerationScope,
+            &cancel,
+            Duration::ZERO,
+            |snapshot| {
+                if snapshot.phase == CandidateRoutedApplicationPhase::RootCollection {
+                    cancel.store(true, Ordering::Relaxed);
+                }
+            },
+        ),
+        Err(CandidateRoutedError::Cancelled)
+    ));
+    let completed = application
+        .reduce_linear_combination([(key([3]), c.one())])
+        .unwrap();
+    assert_eq!(completed.statistics().work.cache_hits(), 1);
+    assert_eq!(completed.statistics().work.rule_applications(), 0);
+    assert_eq!(completed.terms()[&key([1])], c.integer(-4));
 }
 
 #[test]

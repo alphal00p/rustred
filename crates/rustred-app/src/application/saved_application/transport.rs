@@ -1,5 +1,5 @@
-//! Standard gzip transport of unchanged native owner bytes, in bounded files.
-//! Decompression feeds the existing authenticated owner loader directly.
+//! Standard gzip transport of unchanged native payload bytes, in bounded files.
+//! Decompression feeds the existing owner and terminal-map codecs directly.
 use super::package::{Payload, authenticate, read_bounded, safe_child};
 use super::*;
 use crate::application::atomic_file::write_file_atomically;
@@ -18,6 +18,7 @@ pub(super) struct Chunk {
 }
 
 pub(super) fn validate(payload: &Payload) -> Result<(), AppError> {
+    safe_child(Path::new("."), &payload.path)?;
     match payload.encoding.as_deref() {
         None if payload.chunks.is_empty() => Ok(()),
         Some(ENCODING) if !payload.chunks.is_empty() => {
@@ -178,6 +179,22 @@ pub(super) fn export(source: &Path, output: &Path, payload: &Payload) -> Result<
     compress(&mut input, output, payload, CHUNK_BYTES)
 }
 
+/// Package an existing native encoding without changing its bytes or identity.
+/// `path` remains the logical payload name; only its compressed chunks are
+/// written. Chunk size bounds individual transport files, not native data.
+pub(super) fn export_bytes(bytes: &[u8], output: &Path, path: &str) -> Result<Payload, AppError> {
+    let payload = Payload {
+        path: path.to_owned(),
+        bytes: bytes.len() as u64,
+        blake3: blake3::hash(bytes).to_hex().to_string(),
+        encoding: None,
+        chunks: vec![],
+    };
+    validate(&payload)?;
+    let mut input = bytes;
+    compress(&mut input, output, &payload, CHUNK_BYTES)
+}
+
 fn compress(
     input: &mut impl Read,
     output: &Path,
@@ -248,5 +265,48 @@ mod tests {
         assert!(decode(&scratch.0, &oversized).is_err());
         std::fs::write(scratch.0.join(&packed.chunks[0].path), b"corrupt").unwrap();
         assert!(decode(&scratch.0, &packed).is_err());
+    }
+
+    #[test]
+    fn compressed_transport_rejects_missing_chunks_paths_and_trailing_streams() {
+        let scratch = super::super::tests::Scratch::new();
+        std::fs::create_dir(scratch.0.join("objects")).unwrap();
+        let bytes = b"unchanged terminal-map bytes";
+        let packed = export_bytes(bytes, &scratch.0, "terminal-maps.rrbin").unwrap();
+        assert!(!scratch.0.join("terminal-maps.rrbin").exists());
+
+        let mut invalid = packed.clone();
+        invalid.chunks[0].path = "objects/missing.rrbin.gz.part".into();
+        assert!(decode(&scratch.0, &invalid).is_err());
+        invalid.chunks[0].path = "../outside".into();
+        assert!(validate(&invalid).is_err());
+        invalid = packed.clone();
+        invalid.path = "/absolute".into();
+        assert!(validate(&invalid).is_err());
+        invalid = packed.clone();
+        invalid.encoding = Some("unknown".into());
+        assert!(validate(&invalid).is_err());
+        invalid = packed.clone();
+        invalid.chunks.push(invalid.chunks[0].clone());
+        assert!(validate(&invalid).is_err());
+
+        let path = scratch.0.join(&packed.chunks[0].path);
+        let compressed = std::fs::read(&path).unwrap();
+        for suffix in [b"trailing bytes".as_slice(), compressed.as_slice()] {
+            let mut extended = compressed.clone();
+            extended.extend_from_slice(suffix);
+            std::fs::write(&path, &extended).unwrap();
+            let mut trailing = packed.clone();
+            trailing.chunks[0].bytes = extended.len() as u64;
+            trailing.chunks[0].blake3 = blake3::hash(&extended).to_hex().to_string();
+            assert!(decode(&scratch.0, &trailing).is_err());
+        }
+
+        let truncated = &compressed[..compressed.len() - 4];
+        std::fs::write(&path, truncated).unwrap();
+        let mut short = packed;
+        short.chunks[0].bytes = truncated.len() as u64;
+        short.chunks[0].blake3 = blake3::hash(truncated).to_hex().to_string();
+        assert!(decode(&scratch.0, &short).is_err());
     }
 }

@@ -10,12 +10,37 @@ mod collection_audit;
 mod collection_tests;
 #[path = "tests/finite_source.rs"]
 mod finite_source_tests;
+#[path = "tests/fresh.rs"]
+mod fresh_tests;
 #[path = "tests/inherited.rs"]
 mod inherited_tests;
+#[path = "tests/local_dimension_lifecycle.rs"]
+mod local_dimension_lifecycle;
+#[path = "tests/local_dimension.rs"]
+mod local_dimension_tests;
+#[path = "tests/modular.rs"]
+#[cfg(feature = "reconstruction")]
+mod modular_tests;
+#[path = "tests/numerator_symmetry_measured.rs"]
+mod numerator_symmetry_measured;
+#[path = "tests/numerator_symmetry.rs"]
+mod numerator_symmetry_tests;
+#[path = "tests/parallel_assistance.rs"]
+mod parallel_assistance_tests;
 #[path = "tests/profile.rs"]
 mod profile_tests;
+#[path = "tests/recovery.rs"]
+mod recovery_tests;
 #[path = "tests/resource_budget.rs"]
 mod resource_budget_tests;
+#[path = "tests/sector_symmetry.rs"]
+mod sector_symmetry_tests;
+#[path = "tests/selective_symmetry_lifecycle.rs"]
+mod selective_symmetry_lifecycle;
+#[path = "tests/selective_symmetry.rs"]
+mod selective_symmetry_tests;
+#[path = "tests/terminal_import.rs"]
+mod terminal_import_tests;
 
 pub(super) struct Scratch(pub(super) PathBuf);
 impl Scratch {
