@@ -649,6 +649,50 @@ fn runtime_options_select_native_cache_representation_and_report_preparation() {
 }
 
 #[test]
+fn compressed_terminal_export_and_legacy_raw_load_have_identical_maps_and_metadata() {
+    let scratch = Scratch::new();
+    let original = prepared_fixture(&scratch.0.join("source"));
+    let runtime = scratch.0.join("runtime");
+    let mut report = original.export_runtime(&runtime).unwrap();
+    let descriptor: package::Payload =
+        serde_json::from_value(report["terminal_maps"].clone()).unwrap();
+    assert_eq!(descriptor.encoding.as_deref(), Some("gzip-chunks-v1"));
+    assert!(!runtime.join(&descriptor.path).exists());
+    assert!(report["selection"].get("encoding").is_none());
+    assert!(report["queries"].get("encoding").is_none());
+    let decoded = transport::decode(&runtime, &descriptor).unwrap();
+    let native = codec::encode(&original.terminals, original.options).unwrap();
+    assert_eq!(decoded, native);
+    assert_eq!(descriptor.blake3, blake3::hash(&native).to_hex().as_str());
+    let compressed = load_saved_application::<1>(&runtime, Default::default()).unwrap();
+
+    // Simulate a runtime from before terminal-map compression; no native codec
+    // version, guard, family definition or mathematical metadata is rewritten.
+    std::fs::write(runtime.join(&descriptor.path), &native).unwrap();
+    report["terminal_maps"]
+        .as_object_mut()
+        .unwrap()
+        .remove("encoding");
+    report["terminal_maps"]
+        .as_object_mut()
+        .unwrap()
+        .remove("chunks");
+    std::fs::write(
+        runtime.join("application.json"),
+        serde_json::to_vec(&report).unwrap(),
+    )
+    .unwrap();
+    let raw = load_saved_application::<1>(&runtime, Default::default()).unwrap();
+    for restored in [&compressed, &raw] {
+        assert_eq!(restored.terminals.rows, original.terminals.rows);
+        assert_eq!(restored.terminals.remaining, original.terminals.remaining);
+        assert_eq!(restored.metadata, original.metadata);
+        assert_eq!(restored.inputs.selection, original.inputs.selection);
+        assert_eq!(restored.inputs.queries, original.inputs.queries);
+    }
+}
+
+#[test]
 fn saved_runtime_eviction_is_default_and_preserves_exact_refined_outputs() {
     use rustred::solver::{CandidateCacheRepresentation, CandidateRoutedCachePolicy};
     let scratch = Scratch::new();

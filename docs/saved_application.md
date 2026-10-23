@@ -54,8 +54,18 @@ conditions, through the native compact-map round trip. The package contains:
 - Existing native owner/overlay/preference payloads, transported as standard
   gzip streams split into bounded 32 MiB chunks.
 - Compact terminal substitutions using RustRed's existing Symbolica state and
-  coefficient-table codec, plus complete native family definitions.
+  coefficient-table codec, plus complete native family definitions, transported
+  through the same gzip chunks as owner payloads.
 - Sizes, BLAKE3 digests, source identity and inherited assurance metadata.
+
+The logical `terminal-maps.rrbin` descriptor may name compressed chunks instead
+of a physical file. Its `bytes` and `blake3` always describe the unchanged native
+terminal-map encoding. Loaders retain support for older raw descriptors, check
+the decoded size against the caller's byte allowance before decompression, and
+authenticate both every chunk and the complete decoded payload. The 32 MiB
+chunk size is a transport-file size, not a limit on the native artifact. Selection
+and query JSON remain ordinary files; compression does not change mathematical
+metadata, admitted inputs or terminal identities.
 
 It excludes campaign ledgers, refinement/search matrices and numerical masters.
 Runtime loading verifies compressed chunks and the reconstructed native
