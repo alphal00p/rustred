@@ -739,7 +739,8 @@ def symmetry_progress_metadata(report):
                     "normalization_outputs_outside_source_inventory", "saved_output_keys_outside_symmetry_inventory",
                     "saved_terminal_keys_outside_source_inventory", "deferred_symmetry_sources", "unresolved_output_keys",
                     "nominated_directions", "supported_geometries", "replayed_source_rows", "regenerated_source_rows",
-                    "weighted_source_rows", "degenerate_grams", "skipped_geometries", "inventory_keys")
+                    "weighted_source_rows", "degenerate_grams", "skipped_geometries", "inventory_keys",
+                    "completed_witnesses", "total_witnesses", "reserved_workers")
     for name in ("numerator_symmetry_preparation", "numerator_symmetry_reduction",
                  "sector_symmetry_preparation", "sector_symmetry_reduction", "local_dimensional_recurrence_preparation"):
         value = report.get(name)

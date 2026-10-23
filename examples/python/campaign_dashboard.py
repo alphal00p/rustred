@@ -783,6 +783,10 @@ def local_dimensional_recurrence_metrics(master):
         ("Local source proof", proof_work,
          count(preparation.get("output_terms")) + " output terms; " + boundary),
     ]
+    if preparation.get("total_witnesses") is not None:
+        rows.insert(1, ("Local witnesses", count(preparation.get("completed_witnesses")) + "/"
+                       + count(preparation.get("total_witnesses")),
+                       count(preparation.get("reserved_workers")) + " source workers reserved; not measured busy cores"))
     if preparation.get("skipped_geometries") is not None or preparation.get("degenerate_grams") is not None:
         rows.append(("Local geometry", count(preparation.get("skipped_geometries")) + " skipped",
                      count(preparation.get("degenerate_grams")) + " degenerate Gram proposals; unsupported geometry is not a new master"))

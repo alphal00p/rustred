@@ -1,5 +1,71 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## Final source freeze and validated workflow (October 23, 01:04 UTC)
+
+Both requested stages are implemented in order on isolated branch
+`codex/selective-symmetry-dimrec`. Final parallel source audit PASS; functional
+acceptance **890 native passes, zero failures, five explicit ignores** (394 core,
+496 app). Root reran all six Python modules using actual Nix Python 3.11:
+**314 tests, one explicit skip, zero failures**, 30.337 s. The final source
+correction required no test-oracle or production repair. Native receipts:
+TMP/selective-symmetry-native-tests-20261023/final-parallel/. All acceptance
+build/test processes have exited. No user production action was taken.
+
+Frozen final executable: TMP/releases/20261023-local-dimension-parallel/rustred,
+SHA256 ca0f3fb1205f9d479551e4444f865b00cd08ffb605785de66ad0c512b5c55fdd.
+Its workflow.sh passes bash-n and an independent Python/lifecycle command audit.
+It exposes rrfeedback then rrdimension, exact phase resume and latest-publication
+inspection. Finalize only an unfinished stopped phase; skip it after normal
+completion. Fresh searches retain proved maps, not the old search matrix.
+Serial fallback0c881ccb/frozenf7 remains intact.
+
+Stage1 final independent facts: raw939, initial generators667, ordinary659;
+selected round0 adds7 verified dependencies to652. Complete map/guard/native
+checks pass; 30min owned pilot pauses cleanly in round1, not at fixed point.
+Actual cold app recovery takes433.347s, preserves all native bytes/cursors.
+Stage2 SERIAL full939 finishes1254.158s/1243.275CPU/10.033GB,652->652 both pure
+and after ordinary work. No local-pair extra rank on any lower cohort either.
+All maps/guards/cold proofs pass. Do not recommend local pairs as default.
+
+One bounded existing-pool parallel correction is now validated. Two matched
+same-binary H pairs reproduce22.436/22.437s(1worker) vs13.833/13.833s(16workers),
+1.62x whole-client benefit, higherCPU, byte-identical source and native outputs.
+No16core saturation claim. Full939 five-loop parallel16 owned run is ACTIVE
+under its existing1700s/128GB caller grant on224-239. Preparation339.186s vs old
+serial485.127s; source counts agree. Complete cold replay and tail remain before
+any whole-run performance claim. This cross-revision comparison is not a matched
+same-binary pair. Responsible local_dimrec_acceptance; no further implementation
+or tuning is planned. Root report:
+docs/research/selective_feedback_local_dimensions_2026-10-23.md.
+
+Backlog: Stage1 delivered; Stage2 delivered experimentally/no added rank;
+parallel correction delivered/tested, full5L measurement active; production
+deployment pending USER choice; denser dimension shifts/global saturation and
+further optimization deferred (require new evidence/request). Broad historical
+goal remains paused, unchanged. Final push follows the owned measurement.
+
+## Bounded source-parallel correction (October23,00:45UTC)
+
+Both requested serial features were committed/pushed0c881ccb after886native and
+314Python gates. Source-selection, mathematics, capsule format and frozenf7
+remain intact as fallback. Measured full939local source preparation485.127s,
+cold regeneration484.004s,4,126,070weighted source rows,2658equations,
+2,820,878terms. Exact pure join24.799s:652->652(no pure incremental gain), all939
+maps/136790guards/coldnativechecks pass. Ordinary tail still running within the
+original30min pair grant. Lower fullcohorts all pass with no additional rank.
+
+Root authorizes ONE reuse-based performance correction, not a new strategy:
+independent local witnesses on existing licensed SectorExecutor, deterministic
+ordinal merge, immutable shared Sources/geometry, caller-thread nonSync observer,
+atomic progress/cancel. Core+202productionlines, operational workers default1;
+app existing threads apply only during active prepare/controlled replay. Generic
+inspection remains serial. Worker count excluded from proof/phase identity;
+new1vs4 exact capsule/cold and cancellation/error tests. Independent audit PASS.
+Tiny Python UI adds witness completion/reserved-worker scalars;119phase and56
+dashboard tests pass. Combined metadata PASSES1m14s. Optimized final-parallel
+build session57462 and native capture/frontends are running. No production or
+original user run changes; no other optimizations planned before delivery.
+
 ## Stage2 execution gate and owned recovery check (October23,00:17UTC)
 
 Combined metadata passes1m13s; optimized build6m05s. Frozen candidate:

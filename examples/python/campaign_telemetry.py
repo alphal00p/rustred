@@ -496,7 +496,8 @@ def normalize_status(status, sequence=None):
                 ("local_dimensional_recurrence_preparation", (
                     "input_keys", "processed_keys", "nominated_directions", "supported_geometries",
                     "replayed_source_rows", "regenerated_source_rows", "weighted_source_rows", "degenerate_grams",
-                    "skipped_geometries", "inventory_keys", "equations", "output_terms"))):
+                    "skipped_geometries", "inventory_keys", "equations", "output_terms",
+                    "completed_witnesses", "total_witnesses", "reserved_workers"))):
             source = mapping(master.get(name))
             if not source:
                 continue

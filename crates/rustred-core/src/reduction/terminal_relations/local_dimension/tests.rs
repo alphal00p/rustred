@@ -371,3 +371,118 @@ fn preparation_cancellation_wrong_arity_and_defaults_are_explicit() {
         ExactAlgebraLimits::unbounded_resources()
     );
 }
+
+#[test]
+fn local_witness_workers_preserve_exact_claims_guards_and_native_bytes() {
+    let family = embedded_bubble(false);
+    let input = BTreeSet::from([key(&[1, 1, 1]), key(&[2, 3, 1]), key(&[1, 2, -1])]);
+    let serial = LocalDimensionRecurrencePlan::prepare(
+        family.clone(),
+        &input,
+        Default::default(),
+        &Default::default(),
+    )
+    .unwrap();
+    let parallel = LocalDimensionRecurrencePlan::prepare(
+        family.clone(),
+        &input,
+        LocalDimensionRecurrenceOptions {
+            workers: 4,
+            ..Default::default()
+        },
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(serial.witnesses, parallel.witnesses);
+    assert_eq!(serial.equations, parallel.equations);
+    assert_eq!(serial.inventory, parallel.inventory);
+    assert_eq!(serial.statistics, parallel.statistics);
+    let io = crate::persistence::BinaryIoLimits::unbounded_resources();
+    let bytes = serial.encode_native(io).unwrap();
+    assert_eq!(parallel.encode_native(io).unwrap(), bytes);
+    let replayed = LocalDimensionRecurrencePlan::from_native_bytes(
+        &bytes,
+        family,
+        LocalDimensionRecurrenceOptions {
+            workers: 4,
+            ..Default::default()
+        },
+        io,
+    )
+    .unwrap();
+    assert_eq!(replayed.encode_native(io).unwrap(), bytes);
+}
+
+#[test]
+fn non_sync_local_witness_callbacks_stay_on_original_caller_thread() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    let caller = std::thread::current().id();
+    let calls = Rc::new(Cell::new(0));
+    let saw_completed = Rc::new(Cell::new(false));
+    let observer = |progress: LocalDimensionRecurrenceProgress| {
+        assert_eq!(std::thread::current().id(), caller);
+        calls.set(calls.get() + 1);
+        if progress.completed_witnesses > 0 {
+            saw_completed.set(true);
+        }
+    };
+    let cancelled = || {
+        assert_eq!(std::thread::current().id(), caller);
+        false
+    };
+    LocalDimensionRecurrencePlan::prepare(
+        embedded_bubble(false),
+        &BTreeSet::from([key(&[2, 3, 1]), key(&[1, 2, -1])]),
+        LocalDimensionRecurrenceOptions {
+            workers: 4,
+            ..Default::default()
+        },
+        &LocalDimensionRecurrenceControl {
+            cancelled: Some(&cancelled),
+            progress: Some(&observer),
+        },
+    )
+    .unwrap();
+    assert!(calls.get() > 0);
+    assert!(saw_completed.get());
+}
+
+#[test]
+fn local_witness_parallel_cancellation_never_returns_a_partial_plan() {
+    use std::cell::Cell;
+    let cancel = Cell::new(false);
+    let observer = |progress: LocalDimensionRecurrenceProgress| {
+        if progress.completed_witnesses > 0 {
+            cancel.set(true);
+        }
+    };
+    let cancelled = || cancel.get();
+    let result = LocalDimensionRecurrencePlan::prepare(
+        embedded_bubble(false),
+        &BTreeSet::from([key(&[2, 3, 1]), key(&[1, 2, -1])]),
+        LocalDimensionRecurrenceOptions {
+            workers: 4,
+            ..Default::default()
+        },
+        &LocalDimensionRecurrenceControl {
+            cancelled: Some(&cancelled),
+            progress: Some(&observer),
+        },
+    );
+    assert!(matches!(result, Err(Error::Cancelled)));
+    assert!(cancel.get());
+    assert_eq!(LocalDimensionRecurrenceOptions::default().workers, 1);
+    assert!(matches!(
+        LocalDimensionRecurrencePlan::prepare(
+            tadpole(-1, false),
+            &BTreeSet::from([key(&[1])]),
+            LocalDimensionRecurrenceOptions {
+                workers: 0,
+                ..Default::default()
+            },
+            &Default::default()
+        ),
+        Err(Error::InvalidInput(_))
+    ));
+}

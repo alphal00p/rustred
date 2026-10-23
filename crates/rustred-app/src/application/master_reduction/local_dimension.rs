@@ -5,8 +5,9 @@
 //! local nominations during later selective symmetry feedback rounds.
 //!
 //! Explicit refinement preparation forwards its cancellation flag through
-//! cold source replay. Generic inspection has no such context and still uses
-//! uncontrolled replay. Even controlled replay cannot preempt an indivisible
+//! cold source replay, using the existing refinement worker budget. Generic
+//! inspection has no such context and still uses serial uncontrolled replay.
+//! Even controlled replay cannot preempt an indivisible
 //! Symbolica operation; cancellation is checked at the core's safe boundaries.
 use super::*;
 use rustred::family::IntegralKey;
@@ -128,6 +129,7 @@ fn load(
         directory,
         session,
         report,
+        1,
         &LocalDimensionRecurrenceControl::default(),
     )
 }
@@ -136,6 +138,7 @@ fn load_with_control(
     directory: &Path,
     session: &TerminalRelationSession,
     report: &Value,
+    workers: usize,
     control: &LocalDimensionRecurrenceControl<'_>,
 ) -> Result<Option<LocalDimensionRecurrencePlan>, AppError> {
     let descriptor = &report["local_dimensional_recurrence_certificate"];
@@ -160,7 +163,10 @@ fn load_with_control(
     let plan = LocalDimensionRecurrencePlan::from_native_bytes_with_control(
         &bytes(directory, descriptor)?,
         Arc::clone(session.family_owner()),
-        LocalDimensionRecurrenceOptions::default(),
+        LocalDimensionRecurrenceOptions {
+            workers,
+            ..Default::default()
+        },
         profile::native_io_limits(None),
         control,
     )
@@ -179,7 +185,7 @@ fn load_with_control(
     Ok(Some(plan))
 }
 
-fn record_plan(report: &mut Value, plan: &LocalDimensionRecurrencePlan) {
+fn record_plan(report: &mut Value, plan: &LocalDimensionRecurrencePlan, workers: usize) {
     let stats = plan.statistics();
     report["local_dimensional_recurrence_preparation"] = json!({
         "complete":true,"input_keys":stats.input_keys,"processed_keys":stats.input_keys,
@@ -189,6 +195,7 @@ fn record_plan(report: &mut Value, plan: &LocalDimensionRecurrencePlan) {
         "skipped_reasons":stats.skipped_reasons,
         "weighted_source_rows":stats.weighted_source_rows,"equations":stats.equations,
         "output_terms":stats.output_terms,"inventory_keys":stats.inventory_keys,
+        "reserved_workers":workers,
         "source_assurance":"each fixed-d row replayed as an exact regenerated weighted ordinary-IBP source sum",
         "cohort_scope":"original raw and normalized source keys only; later selective feedback targets are not automatically nominated",
         "shifted_dimension_runtime_keys":false,"new_master_keys":false,"minimality_claim":false,
@@ -208,12 +215,13 @@ pub(super) fn prepare(
         &options.directory,
         session,
         report,
+        options.threads,
         &LocalDimensionRecurrenceControl {
             cancelled: Some(&cancelled),
             progress: None,
         },
     )? {
-        record_plan(report, &plan);
+        record_plan(report, &plan, options.threads);
         return Ok(plan);
     }
     if cancel.load(Ordering::Relaxed) {
@@ -223,7 +231,7 @@ pub(super) fn prepare(
     }
     let input = keys(session);
     report["stage"] = json!("preparing_local_dimensional_recurrences");
-    report["local_dimensional_recurrence_preparation"] = json!({"complete":false,"input_keys":input.len(),"processed_keys":0,"cohort_scope":"original source keys only"});
+    report["local_dimensional_recurrence_preparation"] = json!({"complete":false,"input_keys":input.len(),"processed_keys":0,"reserved_workers":options.threads,"cohort_scope":"original source keys only"});
     observer(event(report, "master_reduction_progress", started));
     let snapshot = report.clone();
     let last_event = Cell::new(Instant::now());
@@ -237,6 +245,8 @@ pub(super) fn prepare(
                 "complete":false,"input_keys":p.input_keys,"processed_keys":p.processed_keys,
                 "nominated_directions":p.nominated_directions,"supported_geometries":p.supported_geometries,
                 "regenerated_source_rows":p.regenerated_source_rows,"equations":p.equations,
+                "completed_witnesses":p.completed_witnesses,"total_witnesses":p.total_witnesses,
+                "reserved_workers":options.threads,
             });
             observer(output);
             last_event.set(Instant::now());
@@ -245,7 +255,10 @@ pub(super) fn prepare(
     let plan = LocalDimensionRecurrencePlan::prepare(
         Arc::clone(session.family_owner()),
         &input,
-        LocalDimensionRecurrenceOptions::default(),
+        LocalDimensionRecurrenceOptions {
+            workers: options.threads,
+            ..Default::default()
+        },
         &LocalDimensionRecurrenceControl {
             cancelled: Some(&cancelled),
             progress: Some(&progress),
@@ -267,7 +280,7 @@ pub(super) fn prepare(
         "recipe":RECIPE,"file":file,"bytes":encoded.len(),"blake3":digest,
         "inventory_binding":binding(session,report)?,"input_keys":input.len(),"complete":true,
     });
-    record_plan(report, &plan);
+    record_plan(report, &plan, options.threads);
     // Preparation precedes the ordinary executor. Commit the complete proof
     // capsule before any of its immutable finite provider rows can be queried.
     save(options, session, report, "running", started, observer)?;

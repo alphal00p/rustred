@@ -6,10 +6,14 @@ use crate::identity::{
     IdentityConditionLimits, ParametricIbpConfig, RelationLimits, TangentSourceLimits,
 };
 use crate::reduction::terminal_relations::sources::Sources;
+use crate::solver::SectorExecutor;
 use geometry::{GeometryError, LinearMomentum, LocalGeometry};
 use model::SkippedWitness;
+use rayon::prelude::*;
 use std::collections::HashSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::Duration;
 use symbolica::prelude::{Matrix, PolynomialRing, Rational};
 
 fn native<T>(operation: impl FnOnce() -> T) -> Result<T, Error> {
@@ -231,6 +235,7 @@ fn equation(
     sources: &Sources,
     options: LocalDimensionRecurrenceOptions,
     control: &LocalDimensionRecurrenceControl<'_>,
+    regenerated: &AtomicUsize,
 ) -> Result<Witness, Error> {
     let context = family.coefficient_context();
     // Monomial multiplication changes the source seed BEFORE specialization:
@@ -277,6 +282,7 @@ fn equation(
         let (row, source_conditions) = sources
             .row(&seed, ordinal, indexed_limits(options))
             .map_err(algebra)?;
+        regenerated.fetch_add(1, Ordering::Relaxed);
         for condition in source_conditions {
             if seen_conditions.insert(condition.clone()) {
                 conditions.push(condition);
@@ -402,6 +408,126 @@ fn equation(
     })
 }
 
+struct WitnessJob {
+    source: IntegralKey,
+    geometry: Arc<(LocalGeometry, PolynomialGeometry)>,
+}
+
+/// Reuse the existing licensed pool and caller-thread observer pattern.
+/// Workers borrow frozen sources and see only atomic controls, not callbacks.
+fn prepare_witnesses(
+    pool: &SectorExecutor,
+    family: &IntegralFamily,
+    sources: &Sources,
+    jobs: &[WitnessJob],
+    options: LocalDimensionRecurrenceOptions,
+    control: &LocalDimensionRecurrenceControl<'_>,
+    mut progress: LocalDimensionRecurrenceProgress,
+) -> Result<Vec<Witness>, Error> {
+    let cancel = AtomicBool::new(false);
+    let regenerated = AtomicUsize::new(0);
+    let completed = AtomicUsize::new(0);
+    progress.total_witnesses = jobs.len();
+    control.report(progress);
+    control.checkpoint()?;
+    let execute = || {
+        pool.install(|| {
+            jobs.par_iter()
+                .map(|job| {
+                    let cancelled = || cancel.load(Ordering::Relaxed);
+                    let worker_control = LocalDimensionRecurrenceControl {
+                        cancelled: Some(&cancelled),
+                        progress: None,
+                    };
+                    let result = equation(
+                        family,
+                        &job.source,
+                        &job.geometry.0,
+                        &job.geometry.1,
+                        sources,
+                        options,
+                        &worker_control,
+                        &regenerated,
+                    );
+                    completed.fetch_add(1, Ordering::Relaxed);
+                    result
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    let results = if pool.workers() == 1 {
+        // SectorExecutor's width-one lane intentionally stays on the caller
+        // thread, including restricted Symbolica's thread-local permit.
+        let mut results = Vec::with_capacity(jobs.len());
+        for job in jobs {
+            results.push(equation(
+                family,
+                &job.source,
+                &job.geometry.0,
+                &job.geometry.1,
+                sources,
+                options,
+                control,
+                &regenerated,
+            ));
+            completed.fetch_add(1, Ordering::Relaxed);
+            progress.regenerated_source_rows = regenerated.load(Ordering::Relaxed);
+            progress.completed_witnesses = completed.load(Ordering::Relaxed);
+            control.report(progress);
+            if results.last().is_some_and(Result::is_err) {
+                break;
+            }
+        }
+        results
+    } else {
+        std::thread::scope(|scope| {
+            let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+            scope.spawn(move || {
+                let _ = sender.send(execute());
+            });
+            loop {
+                match receiver.recv_timeout(Duration::from_millis(250)) {
+                    Ok(result) => break Ok(result),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if control.cancelled.is_some_and(|cancelled| cancelled()) {
+                            cancel.store(true, Ordering::Relaxed);
+                        }
+                        progress.regenerated_source_rows = regenerated.load(Ordering::Relaxed);
+                        progress.completed_witnesses = completed.load(Ordering::Relaxed);
+                        control.report(progress);
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        break Err(Error::Algebra(
+                            "local witness coordinator disconnected".into(),
+                        ));
+                    }
+                }
+            }
+        })?
+    };
+    progress.regenerated_source_rows = regenerated.load(Ordering::Relaxed);
+    progress.completed_witnesses = completed.load(Ordering::Relaxed);
+    control.report(progress);
+    // Worker errors never set cancellation: ordinal merge must preserve a real
+    // exact-proof failure rather than mask it as an interrupted preparation.
+    let witnesses = join_witnesses(results)?;
+    control.checkpoint()?;
+    Ok(witnesses)
+}
+
+fn join_witnesses(results: Vec<Result<Witness, Error>>) -> Result<Vec<Witness>, Error> {
+    // Preserve the first genuine proof failure in original job order even if
+    // a simultaneous USER cancellation interrupted another earlier job.
+    if let Some(error) = results
+        .iter()
+        .filter_map(|result| result.as_ref().err())
+        .find(|error| !matches!(error, Error::Cancelled))
+    {
+        return Err(error.clone());
+    }
+    results.into_iter().collect()
+}
+
 impl LocalDimensionRecurrencePlan {
     pub fn prepare(
         family: Arc<IntegralFamily>,
@@ -410,6 +536,8 @@ impl LocalDimensionRecurrencePlan {
         control: &LocalDimensionRecurrenceControl<'_>,
     ) -> Result<Self, Error> {
         control.checkpoint()?;
+        let pool = SectorExecutor::new(options.workers)
+            .map_err(|error| Error::InvalidInput(error.to_string()))?;
         if input
             .iter()
             .any(|key| key.powers().len() != family.denominator_count())
@@ -444,6 +572,7 @@ impl LocalDimensionRecurrencePlan {
             (Vec<bool>, Vec<Rational>),
             Arc<(LocalGeometry, PolynomialGeometry)>,
         > = BTreeMap::new();
+        let mut jobs = Vec::new();
         for source in input {
             control.checkpoint()?;
             let mut effective_support = Vec::with_capacity(family.denominator_count());
@@ -505,7 +634,7 @@ impl LocalDimensionRecurrencePlan {
                     }
                     geometry_cache.insert(geometry_id.clone(), Arc::new((geometry, poly)));
                 }
-                let (geometry, poly) = &*geometry_cache[&geometry_id];
+                let (_, poly) = &*geometry_cache[&geometry_id];
                 if poly.gram.is_zero() {
                     plan.statistics.degenerate_grams += 1;
                     let encoded = direction
@@ -526,34 +655,38 @@ impl LocalDimensionRecurrencePlan {
                     );
                     continue;
                 }
-                let witness =
-                    equation(&family, source, geometry, poly, &sources, options, control)?;
-                plan.statistics.weighted_source_rows = plan
-                    .statistics
-                    .weighted_source_rows
-                    .checked_add(witness.contributions.len())
-                    .ok_or(Error::Overflow("weighted source rows"))?;
-                progress.regenerated_source_rows = plan.statistics.weighted_source_rows;
-                if !witness.equation.terms.is_empty() {
-                    plan.inventory
-                        .extend(witness.equation.terms.keys().cloned());
-                    plan.statistics.equations += 1;
-                    plan.statistics.output_terms = plan
-                        .statistics
-                        .output_terms
-                        .checked_add(witness.equation.terms.len())
-                        .ok_or(Error::Overflow("equation terms"))?;
-                    plan.equations
-                        .entry(source.clone())
-                        .or_default()
-                        .push(witness.equation.clone());
-                    progress.equations += 1;
-                }
-                plan.witnesses.push(witness);
+                jobs.push(WitnessJob {
+                    source: source.clone(),
+                    geometry: Arc::clone(&geometry_cache[&geometry_id]),
+                });
                 control.report(progress);
             }
             progress.processed_keys += 1;
             control.report(progress);
+        }
+        for witness in
+            prepare_witnesses(&pool, &family, &sources, &jobs, options, control, progress)?
+        {
+            plan.statistics.weighted_source_rows = plan
+                .statistics
+                .weighted_source_rows
+                .checked_add(witness.contributions.len())
+                .ok_or(Error::Overflow("weighted source rows"))?;
+            if !witness.equation.terms.is_empty() {
+                plan.inventory
+                    .extend(witness.equation.terms.keys().cloned());
+                plan.statistics.equations += 1;
+                plan.statistics.output_terms = plan
+                    .statistics
+                    .output_terms
+                    .checked_add(witness.equation.terms.len())
+                    .ok_or(Error::Overflow("equation terms"))?;
+                plan.equations
+                    .entry(witness.source.clone())
+                    .or_default()
+                    .push(witness.equation.clone());
+            }
+            plan.witnesses.push(witness);
         }
         plan.statistics.inventory_keys = plan.inventory.len();
         Ok(plan)
@@ -571,5 +704,24 @@ impl LocalDimensionRecurrencePlan {
             direction,
             reason,
         });
+    }
+}
+
+#[cfg(test)]
+mod parallel_error_tests {
+    use super::*;
+    #[test]
+    fn ordinal_join_never_masks_exact_failure_as_user_cancellation() {
+        assert!(matches!(
+            join_witnesses(vec![Err(Error::Cancelled), Err(Error::IdentityMismatch)]),
+            Err(Error::IdentityMismatch)
+        ));
+        assert!(
+            matches!(join_witnesses(vec![Err(Error::InvalidInput("first".into())), Err(Error::IdentityMismatch)]), Err(Error::InvalidInput(detail)) if detail == "first")
+        );
+        assert!(matches!(
+            join_witnesses(vec![Err(Error::Cancelled)]),
+            Err(Error::Cancelled)
+        ));
     }
 }

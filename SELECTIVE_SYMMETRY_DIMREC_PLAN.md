@@ -89,6 +89,21 @@ dotted/unequal-mass/full-numerator controls as supported, orientation/basis
 invariance, exact dimensional-pair/source replay, d−4 exceptional factors,
 mass scaling, cold lifecycle and measured incremental terminal rank/cost.
 
+### One bounded performance correction after the serial acceptance baseline
+
+Serial baseline0c881ccb/frozenf7a08ef passes886native/314Python checks. The full
+five-loop local cohort exposes4.126million regenerated ordinary sources and
+485s preparation at roughly one core. Reuse the existing licensed SectorExecutor
+and scoped main-thread observer pattern for independent witness jobs; do not
+add a scheduler, algebra kernel or source-selection strategy. Workers are an
+operational budget only (core default1; app uses existing refinement threads),
+excluded from proof bytes/phase identity. Join in original order, preserve all
+errors/guards, keep width1 inline and non-Sync callbacks on the caller thread.
+Require exact worker1/4 capsule/map/cold equality, cancellation and error tests,
+then matched source-time pilots. Keep the validated serial build as fallback.
+This is the only additional performance correction in this delivery; defer
+unrelated tuning and report negative/censored results honestly.
+
 ## Coordination and measurements
 
 Root orchestrates/interfaces/profiles/final verification. Separate core design/

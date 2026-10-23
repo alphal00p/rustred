@@ -5,12 +5,15 @@ use super::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocalDimensionRecurrenceOptions {
     pub exact_algebra: ExactAlgebraLimits,
+    /// Operational licensed worker budget, not source or capsule policy.
+    pub workers: usize,
 }
 
 impl Default for LocalDimensionRecurrenceOptions {
     fn default() -> Self {
         Self {
             exact_algebra: ExactAlgebraLimits::unbounded_resources(),
+            workers: 1,
         }
     }
 }
@@ -44,6 +47,8 @@ pub struct LocalDimensionRecurrenceProgress {
     pub supported_geometries: usize,
     pub regenerated_source_rows: usize,
     pub equations: usize,
+    pub total_witnesses: usize,
+    pub completed_witnesses: usize,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

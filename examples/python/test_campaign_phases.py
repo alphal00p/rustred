@@ -389,10 +389,14 @@ class PhaseTests(unittest.TestCase):
         report = {"local_dimensional_recurrence_assistance": True, "local_dimensional_recurrence_certificate": descriptor,
             "local_dimensional_recurrence_preparation": {"input_keys": 19, "processed_keys": 17,
                 "nominated_directions": 25, "supported_geometries": 3, "weighted_source_rows": 12,
+                "completed_witnesses": 7, "total_witnesses": 11, "reserved_workers": 4,
                 "equations": 7, "output_terms": 31, "complete": False, "native_witnesses": [1] * 1000}}
         self.assertEqual(PHASES.symmetry_metadata(report)["local_dimensional_recurrence_certificate"], descriptor)
         progress = PHASES.symmetry_progress_metadata(report)["local_dimensional_recurrence_preparation"]
         self.assertEqual(progress["weighted_source_rows"], 12)
+        self.assertEqual(progress["completed_witnesses"], 7)
+        self.assertEqual(progress["total_witnesses"], 11)
+        self.assertEqual(progress["reserved_workers"], 4)
         self.assertNotIn("native_witnesses", progress)
         with self.assertRaisesRegex(ValueError, "invalid native local"):
             PHASES.symmetry_metadata({**report, "local_dimensional_recurrence_assistance": 1})

@@ -80,6 +80,7 @@ fn standalone_local_provider_is_native_replayed_and_keeps_original_master_roster
 fn local_preparation_checkpoint_resumes_with_changed_workers_and_one_frozen_capsule() {
     let scratch = Scratch::new();
     let (mut options, mut native, mut report) = assisted(&scratch.0);
+    options.threads = 1;
     let cancel = AtomicBool::new(false);
     let stopped = Cell::new(false);
     save(
@@ -108,9 +109,37 @@ fn local_preparation_checkpoint_resumes_with_changed_workers_and_one_frozen_caps
     assert!(stopped.get());
     assert_eq!(report["status"], "paused");
     let certificate = report["local_dimensional_recurrence_certificate"].clone();
+    let file = certificate["file"].as_str().unwrap();
+    let source_bytes = std::fs::read(scratch.0.join(file)).unwrap();
+    // Independently preparing with four workers must generate the same native
+    // mathematical source capsule, not merely leave an old file untouched.
+    let parallel_scratch = Scratch::new();
+    let (mut parallel_options, parallel_native, mut parallel_report) =
+        assisted(&parallel_scratch.0);
+    parallel_options.threads = 4;
+    let _ = local::prepare(
+        &parallel_options,
+        &parallel_native,
+        &mut parallel_report,
+        &AtomicBool::new(false),
+        &|_| {},
+        Instant::now(),
+    )
+    .unwrap();
+    let parallel_certificate = &parallel_report["local_dimensional_recurrence_certificate"];
+    assert_eq!(parallel_certificate, &certificate);
+    assert_eq!(
+        std::fs::read(
+            parallel_scratch
+                .0
+                .join(parallel_certificate["file"].as_str().unwrap())
+        )
+        .unwrap(),
+        source_bytes
+    );
     let mut restored = load_master_relation_session(&scratch.0).unwrap();
     options.resume = true;
-    options.threads = 3;
+    options.threads = 4;
     execute_session(
         &options,
         &mut restored,
@@ -126,6 +155,11 @@ fn local_preparation_checkpoint_resumes_with_changed_workers_and_one_frozen_caps
         certificate
     );
     assert_eq!(restored.raw_terminals(), native.raw_terminals());
+    assert_eq!(
+        report["local_dimensional_recurrence_preparation"]["reserved_workers"],
+        4
+    );
+    assert_eq!(std::fs::read(scratch.0.join(file)).unwrap(), source_bytes);
 }
 
 #[test]

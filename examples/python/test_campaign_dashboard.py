@@ -180,11 +180,19 @@ class TelemetryTests(unittest.TestCase):
         master = {"operation": "refine", "local_dimensional_recurrence_assistance": True,
             "local_dimensional_recurrence_preparation": {"input_keys": 19, "processed_keys": 17,
                 "nominated_directions": 25, "supported_geometries": 3, "weighted_source_rows": 12,
+                "completed_witnesses": 7, "total_witnesses": 11, "reserved_workers": 4,
                 "equations": 7, "output_terms": 31, "complete": True,
                 "skipped": [{"reason": "unsupported numerator", "count": 2}]}}
         text = "\n".join(" | ".join(row) for row in DASHBOARD.local_dimensional_recurrence_metrics(master))
         self.assertIn("17/19", text)
         self.assertIn("12 weighted terms", text)
+        self.assertIn("7/11", text)
+        self.assertIn("4 source workers reserved; not measured busy cores", text)
+        status = sample_status()
+        status["master_reduction"] = master
+        normalized = TELEMETRY.normalize_status(status)["master_reduction"]["local_dimensional_recurrence_preparation"]
+        self.assertEqual((normalized["completed_witnesses"], normalized["total_witnesses"], normalized["reserved_workers"]),
+                         (7, 11, 4))
         self.assertIn("shifted integrals eliminated", text)
         self.assertIn("unsupported numerator 2", text)
         self.assertIn("not repeated in selected rounds", text)
