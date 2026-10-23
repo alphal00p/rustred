@@ -201,6 +201,9 @@ pub enum CandidateEntryAdmission<'a, const N: usize> {
     #[default]
     SavedGenerationScope,
     ExplicitFinite(&'a FiniteRootAdmission<N>),
+    /// Recorded starting coverage is advisory; source validity, rule
+    /// applicability and all operational limits remain independently enforced.
+    Advisory,
 }
 
 impl<const N: usize> CandidateEntryAdmission<'_, N> {
@@ -210,6 +213,7 @@ impl<const N: usize> CandidateEntryAdmission<'_, N> {
         saved_rank: Option<u32>,
     ) -> Result<(), CandidateRoutedError> {
         match self {
+            Self::Advisory => Ok(()),
             Self::SavedGenerationScope => {
                 validate_entry_rank(target, saved_rank).map_err(Into::into)
             }

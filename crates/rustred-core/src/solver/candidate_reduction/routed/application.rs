@@ -3,7 +3,11 @@
 //! terminals. No source generation or certification upgrade runs here.
 mod cache_policy;
 mod engine;
+mod persistent;
 use crate::reduction::guard_union;
+pub use persistent::{
+    CandidateRoutedCacheExportStatistics, CandidateRoutedPersistentCacheStatistics,
+};
 mod progress;
 mod transport;
 
@@ -44,6 +48,7 @@ pub struct CandidateRoutedApplicationStatistics {
     pub transport_endpoints: usize,
     pub work: ReductionStatistics,
     pub cache: CandidateRoutedCacheStatistics,
+    pub persistent_cache: CandidateRoutedPersistentCacheStatistics,
 }
 
 /// Exact coefficients under sufficient generic nonzero conditions. Reduction
@@ -288,3 +293,6 @@ impl<const N: usize> RoutedCandidateApplication<N> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod persistent_tests;

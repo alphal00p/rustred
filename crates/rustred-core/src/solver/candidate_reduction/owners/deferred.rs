@@ -142,6 +142,17 @@ impl<const N: usize> DeferredCandidateOwnerPrograms<N> {
     pub fn contains_owner(&self, sector: &[bool; N]) -> bool {
         self.owners.contains_key(sector)
     }
+    /// Authenticated baseline terminal inventory, without preparing formulas.
+    /// First owner preparation verifies exactly the same terminal set.
+    pub(in crate::solver::candidate_reduction) fn contains_terminal(
+        &self,
+        key: &IntegralKey,
+    ) -> bool {
+        let support = std::array::from_fn(|i| key.powers().get(i).copied().unwrap_or(0) > 0);
+        self.owners
+            .get(&support)
+            .is_some_and(|slot| slot.descriptor.terminals.contains(key))
+    }
     pub fn statistics(&self) -> DeferredCandidateOwnerStatistics {
         DeferredCandidateOwnerStatistics {
             declared_owners: self.owners.len(),

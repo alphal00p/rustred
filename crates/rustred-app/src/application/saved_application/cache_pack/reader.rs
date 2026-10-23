@@ -11,6 +11,7 @@ use super::*;
 use crate::AppError;
 
 mod key_index;
+mod visit;
 use key_index::KeyIndex;
 
 /// A lookup grant can be exhausted without establishing presence or absence.

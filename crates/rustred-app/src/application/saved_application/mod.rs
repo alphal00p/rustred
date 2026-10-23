@@ -6,7 +6,13 @@
 //! they are application data, not new source or closure certificates.
 #[cfg(test)]
 mod admission_diagnostic;
+mod cache_file;
 mod cache_pack;
+mod persistent;
+pub use cache_file::{
+    SavedApplicationCacheFile, SavedApplicationCacheFileIdentity, SavedApplicationCacheFileLimits,
+    SavedApplicationCacheFileStatistics,
+};
 mod charts;
 mod codec;
 mod options;
@@ -47,7 +53,7 @@ pub use cache_pack::{
     SavedApplicationCachePackStatistics, SavedApplicationCacheWriter,
 };
 pub use charts::SavedApplicationProductChartStatistics;
-pub use options::SavedApplicationOptions;
+pub use options::{SavedApplicationEntryCoveragePolicy, SavedApplicationOptions};
 pub use package::{
     export_saved_application, export_saved_application_with_policy, load_saved_application,
     load_saved_application_with_policy, prepare_saved_application,
@@ -366,9 +372,11 @@ impl<const N: usize> PreparedSavedApplication<N> {
     }
 
     /// Apply the saved, verified unit-Jacobian entry map without any IBP
-    /// application. Literal owners use the identity map. Every nonzero mapped
-    /// endpoint must lie in the original published union; a route cannot turn
-    /// the published R/D maxima into universal entry bounds.
+    /// application. Literal owners use the identity map. This route-only API
+    /// retains its historical coverage check under FollowUnresolvedPolicy,
+    /// including Preserve sessions. Explicit Advisory permits other verified
+    /// endpoints without certifying them. `routed_entry_is_admitted` always
+    /// probes the original recorded union.
     pub fn route_entry_to_owner(
         &self,
         target: &IntegralKey,
@@ -377,9 +385,13 @@ impl<const N: usize> PreparedSavedApplication<N> {
             .application
             .route_entry_to_owner(target)
             .map_err(failure)?;
-        for (endpoint, coefficient) in routed.terms() {
-            if !coefficient.is_zero() {
-                self.entry_domain.validate(endpoint)?;
+        if self.options.entry_coverage_policy
+            == SavedApplicationEntryCoveragePolicy::FollowUnresolvedPolicy
+        {
+            for (endpoint, coefficient) in routed.terms() {
+                if !coefficient.is_zero() {
+                    self.entry_domain.validate(endpoint)?;
+                }
             }
         }
         Ok(routed)
@@ -417,7 +429,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
             .application
             .reduce_routed_linear_combination_with_entry_admission(
                 terms,
-                entry::admission(Some(&self.entry_domain)),
+                Self::entry_admission(&self.entry_domain, self.options.entry_coverage_policy),
             )
             .map_err(failure)?;
         self.apply_terminal_substitutions(reduced)
@@ -443,7 +455,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 ));
             }
             // Admission is deliberately before cancellation and core-cache lookup.
-            if self.options.unresolved_policy == UnresolvedPolicy::Reject {
+            if self.enforces_recorded_entry_coverage() {
                 self.entry_domain.validate(&key)?;
             }
             inputs.push((key, coefficient));
@@ -452,7 +464,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
             self.application
                 .reduce_linear_combination_with_entry_admission_and_observer(
                     inputs,
-                    entry::admission(Some(&self.entry_domain)),
+                    Self::entry_admission(&self.entry_domain, self.options.entry_coverage_policy),
                     progress.interval,
                     |snapshot| progress.routed(snapshot),
                 )
@@ -460,7 +472,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
             self.application
                 .reduce_linear_combination_with_entry_admission(
                     inputs,
-                    entry::admission(Some(&self.entry_domain)),
+                    Self::entry_admission(&self.entry_domain, self.options.entry_coverage_policy),
                 )
         }
         .map_err(failure)?;

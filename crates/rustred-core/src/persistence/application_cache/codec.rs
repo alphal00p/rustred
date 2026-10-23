@@ -1,6 +1,10 @@
 //! Only integer keys/counts/IDs are RustRed framing. All algebra bytes and
 //! symbol remapping use the existing generated native coefficient-table codec.
-use std::{io::Write, ops::Range, sync::Arc};
+use std::{
+    io::Write,
+    ops::Range,
+    sync::{Arc, Mutex},
+};
 
 use super::*;
 use crate::persistence::error::check_limit;
@@ -124,6 +128,7 @@ pub fn encode_application_cache_chunk(
     Ok(out.finish())
 }
 
+#[derive(Debug)]
 struct Row {
     key: ApplicationCacheKey,
     terms: Range<usize>,
@@ -141,6 +146,7 @@ pub struct ApplicationCacheChunk<'a> {
     atoms: &'a [u8],
     arity: usize,
     limits: ApplicationCacheIoLimits,
+    index_owned_bytes: usize,
 }
 
 impl<'a> ApplicationCacheChunk<'a> {
@@ -170,6 +176,14 @@ impl<'a> ApplicationCacheChunk<'a> {
             ));
         }
         let count = read.count(limits.max_records, "cache records")?;
+        let mut index_owned_bytes = count
+            .checked_mul(std::mem::size_of::<Row>())
+            .ok_or(BinaryIoError::Invalid("cache index size overflow"))?;
+        check_limit(
+            "cache index bytes",
+            index_owned_bytes,
+            limits.max_index_owned_bytes,
+        )?;
         let mut rows = Vec::<Row>::new();
         rows.try_reserve_exact(count)
             .map_err(|_| BinaryIoError::Allocation {
@@ -178,6 +192,14 @@ impl<'a> ApplicationCacheChunk<'a> {
             })?;
         for _ in 0..count {
             let key = read.key(expected.physical_arity)?;
+            index_owned_bytes = index_owned_bytes
+                .checked_add(key.owned_heap_bytes())
+                .ok_or(BinaryIoError::Invalid("cache index size overflow"))?;
+            check_limit(
+                "cache index bytes",
+                index_owned_bytes,
+                limits.max_index_owned_bytes,
+            )?;
             if rows.last().is_some_and(|previous| previous.key >= key) {
                 return Err(BinaryIoError::Invalid(
                     "cache keys are not strictly ordered",
@@ -219,6 +241,7 @@ impl<'a> ApplicationCacheChunk<'a> {
             atoms,
             arity: expected.physical_arity,
             limits,
+            index_owned_bytes,
         })
     }
     pub fn len(&self) -> usize {
@@ -258,63 +281,206 @@ impl<'a> ApplicationCacheChunk<'a> {
             Arc::from(self.atoms),
             self.limits.binary,
         )?;
-        let mut census = crate::reduction::CacheWeight::default();
-        let mut coefficient = |id: u32| -> Result<Coefficient, BinaryIoError> {
-            let value = table.coefficient(CoefficientId::try_from_index(id as usize)?)?;
-            validate_coefficient(&value, context, self.limits)?;
-            census = census
-                .checked_add(coefficient_cache_weight([value.as_ref()]).map_err(native)?)
-                .map_err(native)?;
-            check_limit(
-                "decoded cache coefficient terms",
-                census.coefficient_terms,
-                self.limits.max_decoded_coefficient_terms,
-            )?;
-            check_limit(
-                "decoded cache coefficient bytes",
-                census.coefficient_bytes,
-                self.limits.max_decoded_coefficient_bytes,
-            )?;
-            Ok((*value).clone())
-        };
-        let mut terms = BTreeMap::new();
-        let mut read = Cursor(&self.bytes[row.terms.clone()]);
-        for _ in 0..row.term_count {
-            let target =
-                IntegralKey::try_from_preallocated(read.powers(self.arity)?).map_err(native)?;
-            let value = coefficient(read.id()?)?;
-            if value.is_zero()
-                || terms
-                    .last_key_value()
-                    .is_some_and(|(last, _)| last >= &target)
-            {
-                return Err(BinaryIoError::Invalid(
-                    "unordered, duplicate or zero cache terminal",
-                ));
-            }
-            terms.insert(target, value);
-        }
-        let mut nonzero_conditions = Vec::new();
-        nonzero_conditions
-            .try_reserve_exact(row.guard_count)
-            .map_err(|_| BinaryIoError::Allocation {
-                resource: "cache guards",
-                requested: row.guard_count,
-            })?;
-        let mut read = Cursor(&self.bytes[row.guards.clone()]);
-        for _ in 0..row.guard_count {
-            let value = coefficient(read.id()?)?;
-            if value.is_zero() {
-                return Err(BinaryIoError::Invalid("vanished cache guard"));
-            }
-            nonzero_conditions.push(value);
-        }
-        Ok(Some(ApplicationCacheRecord {
-            key: row.key.clone(),
-            terms,
-            nonzero_conditions,
-        }))
+        decode_row(
+            self.bytes,
+            row,
+            &table,
+            self.arity,
+            context,
+            self.limits,
+            None,
+        )
+        .map(Some)
     }
+}
+
+/// A retained, immutable native chunk with one shared coefficient table.
+///
+/// Inspection validates framing and the exact binding but grants no reduction
+/// authority. Coefficients are imported once, lazily, and each selected record
+/// is still checked against the caller's current coefficient context and limits.
+/// Unlike the borrowed chunk adapter, repeated hits neither copy the native
+/// table nor import its state again. Clones should share this object through Arc.
+/// The decoded coefficient census also bounds the aggregate unique table, in
+/// addition to the existing per-record clone-owned limits. A failed admission
+/// leaves previously admitted coefficients usable.
+pub struct OwnedApplicationCacheChunk {
+    bytes: Arc<[u8]>,
+    rows: Vec<Row>,
+    table: LazyDecodedCoefficientTable,
+    decoded_census: Mutex<crate::reduction::CacheWeight>,
+    arity: usize,
+    limits: ApplicationCacheIoLimits,
+    index_owned_bytes: usize,
+}
+impl OwnedApplicationCacheChunk {
+    pub fn inspect(
+        bytes: Arc<[u8]>,
+        expected: &ApplicationCacheBinding,
+        limits: ApplicationCacheIoLimits,
+    ) -> Result<Self, BinaryIoError> {
+        let inspected = ApplicationCacheChunk::inspect(&bytes, expected, limits)?;
+        let mut atom_frames = inspected.atoms;
+        let coefficient_count = read_length(&mut atom_frames)?;
+        let index_owned_bytes = coefficient_count
+            .checked_mul(std::mem::size_of::<Range<usize>>())
+            .and_then(|n| n.checked_add(inspected.index_owned_bytes))
+            .ok_or(BinaryIoError::Invalid("cache index size overflow"))?;
+        check_limit(
+            "cache index bytes",
+            index_owned_bytes,
+            limits.max_index_owned_bytes,
+        )?;
+        let table = LazyDecodedCoefficientTable::new(
+            Arc::from(inspected.state),
+            Arc::from(inspected.atoms),
+            limits.binary,
+        )?;
+        let rows = inspected.rows;
+        Ok(Self {
+            bytes,
+            rows,
+            table,
+            decoded_census: Mutex::default(),
+            arity: expected.physical_arity,
+            limits,
+            index_owned_bytes,
+        })
+    }
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+    pub fn index_owned_bytes(&self) -> usize {
+        self.index_owned_bytes
+    }
+    pub fn keys(&self) -> impl ExactSizeIterator<Item = &ApplicationCacheKey> + Clone {
+        self.rows.iter().map(|row| &row.key)
+    }
+    pub fn decoded_coefficient_count(&self) -> Result<usize, BinaryIoError> {
+        self.table.decoded_count()
+    }
+    /// Aggregate unique coefficient census retained by the shared lazy table.
+    pub fn decoded_coefficient_census(&self) -> Result<(usize, usize), BinaryIoError> {
+        let census = self
+            .decoded_census
+            .lock()
+            .map_err(|_| native("cache census lock poisoned"))?;
+        Ok((census.coefficient_terms, census.coefficient_bytes))
+    }
+    pub fn decode_record(
+        &self,
+        key: &ApplicationCacheKey,
+        context: &CoefficientContext,
+    ) -> Result<Option<ApplicationCacheRecord>, BinaryIoError> {
+        key.validate(self.arity)?;
+        let Ok(index) = self.rows.binary_search_by(|row| row.key.cmp(key)) else {
+            return Ok(None);
+        };
+        decode_row(
+            &self.bytes,
+            &self.rows[index],
+            &self.table,
+            self.arity,
+            context,
+            self.limits,
+            Some(&self.decoded_census),
+        )
+        .map(Some)
+    }
+}
+
+fn decode_row(
+    bytes: &[u8],
+    row: &Row,
+    table: &LazyDecodedCoefficientTable,
+    arity: usize,
+    context: &CoefficientContext,
+    limits: ApplicationCacheIoLimits,
+    total_census: Option<&Mutex<crate::reduction::CacheWeight>>,
+) -> Result<ApplicationCacheRecord, BinaryIoError> {
+    let mut census = crate::reduction::CacheWeight::default();
+    let mut coefficient = |id: u32| -> Result<Coefficient, BinaryIoError> {
+        let value = table.coefficient_with_admission(
+            CoefficientId::try_from_index(id as usize)?,
+            |value| {
+                validate_coefficient(value, context, limits)?;
+                if let Some(total_census) = total_census {
+                    let mut total = total_census
+                        .lock()
+                        .map_err(|_| native("cache census lock poisoned"))?;
+                    let prospective = total
+                        .checked_add(coefficient_cache_weight([value]).map_err(native)?)
+                        .map_err(native)?;
+                    check_limit(
+                        "shared decoded cache coefficient terms",
+                        prospective.coefficient_terms,
+                        limits.max_decoded_coefficient_terms,
+                    )?;
+                    check_limit(
+                        "shared decoded cache coefficient bytes",
+                        prospective.coefficient_bytes,
+                        limits.max_decoded_coefficient_bytes,
+                    )?;
+                    *total = prospective;
+                }
+                Ok(())
+            },
+        )?;
+        validate_coefficient(&value, context, limits)?;
+        census = census
+            .checked_add(coefficient_cache_weight([value.as_ref()]).map_err(native)?)
+            .map_err(native)?;
+        check_limit(
+            "decoded cache coefficient terms",
+            census.coefficient_terms,
+            limits.max_decoded_coefficient_terms,
+        )?;
+        check_limit(
+            "decoded cache coefficient bytes",
+            census.coefficient_bytes,
+            limits.max_decoded_coefficient_bytes,
+        )?;
+        Ok((*value).clone())
+    };
+    let mut terms = BTreeMap::new();
+    let mut read = Cursor(&bytes[row.terms.clone()]);
+    for _ in 0..row.term_count {
+        let target = IntegralKey::try_from_preallocated(read.powers(arity)?).map_err(native)?;
+        let value = coefficient(read.id()?)?;
+        if value.is_zero()
+            || terms
+                .last_key_value()
+                .is_some_and(|(last, _)| last >= &target)
+        {
+            return Err(BinaryIoError::Invalid(
+                "unordered, duplicate or zero cache terminal",
+            ));
+        }
+        terms.insert(target, value);
+    }
+    let mut nonzero_conditions = Vec::new();
+    nonzero_conditions
+        .try_reserve_exact(row.guard_count)
+        .map_err(|_| BinaryIoError::Allocation {
+            resource: "cache guards",
+            requested: row.guard_count,
+        })?;
+    let mut read = Cursor(&bytes[row.guards.clone()]);
+    for _ in 0..row.guard_count {
+        let value = coefficient(read.id()?)?;
+        if value.is_zero() {
+            return Err(BinaryIoError::Invalid("vanished cache guard"));
+        }
+        nonzero_conditions.push(value);
+    }
+    Ok(ApplicationCacheRecord {
+        key: row.key.clone(),
+        terms,
+        nonzero_conditions,
+    })
 }
 
 struct Cursor<'a>(&'a [u8]);

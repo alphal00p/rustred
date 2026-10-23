@@ -75,6 +75,8 @@ pub struct CacheSaveReport {
     pub complete: bool,
     pub accepted: GuardedRootExportStatistics,
     pub durable_records: usize,
+    /// Incomplete native routed records omitted from a resident export.
+    pub skipped_partial_records: usize,
     pub charged_disk_bytes: u64,
     /// Whether any session has a lazy backing. ResidentRoots excludes its
     /// unloaded records; FullSnapshot copies captured bases before the overlay.
@@ -91,7 +93,7 @@ impl CacheSaveReport {
         json!({"complete":self.complete, "accepted_records":self.accepted.exported_records,
             "accepted_coefficient_terms":self.accepted.exported_coefficient_terms,
             "accepted_coefficient_bytes":self.accepted.exported_coefficient_bytes,
-            "durable_records":self.durable_records, "charged_disk_bytes":self.charged_disk_bytes,
+            "durable_records":self.durable_records, "skipped_partial_records":self.skipped_partial_records, "charged_disk_bytes":self.charged_disk_bytes,
             "backing_attached":self.backing_attached, "base_copy_phase_completed":self.base_copy.is_some(),
             "mode":format!("{:?}",self.mode), "base_copy":self.base_copy.map(|s|json!({
                 "namespaces":s.namespaces, "copied_bases":s.copied_bases, "copied_chunks":s.copied_chunks,
@@ -284,6 +286,7 @@ fn save_sessions<P: NativeCacheProgram>(
         sink.flush().err()
     };
     Ok(CacheSaveReport {
+        skipped_partial_records: 0,
         complete: failure.is_none()
             && checkpoint_failure.is_none()
             && sink.batch.buffered_records() == 0,

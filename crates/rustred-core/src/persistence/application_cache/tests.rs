@@ -141,3 +141,116 @@ fn current_decode_census_and_collection_limits_are_enforced() {
     zero_guard.nonzero_conditions.push(context.zero());
     assert!(encode_application_cache_chunk(&binding(), &[zero_guard], &context, limits).is_err());
 }
+
+#[test]
+fn retained_chunk_shares_table_and_revalidates_selected_context() {
+    use std::sync::Arc;
+    let (context, records) = fixture();
+    let limits = ApplicationCacheIoLimits::default();
+    let encoded = encode_application_cache_chunk(&binding(), &records, &context, limits).unwrap();
+    let chunk = Arc::new(
+        OwnedApplicationCacheChunk::inspect(Arc::from(encoded), &binding(), limits).unwrap(),
+    );
+    assert_eq!(chunk.decoded_coefficient_count().unwrap(), 0);
+    assert_eq!(
+        chunk.keys().collect::<Vec<_>>(),
+        records.iter().map(|r| &r.key).collect::<Vec<_>>()
+    );
+    assert!(chunk.index_owned_bytes() > 0);
+    assert_eq!(
+        chunk.decode_record(&records[1].key, &context).unwrap(),
+        Some(records[1].clone())
+    );
+    let count = chunk.decoded_coefficient_count().unwrap();
+    assert_eq!(count, 2);
+    assert_eq!(
+        Arc::clone(&chunk)
+            .decode_record(&records[1].key, &context)
+            .unwrap(),
+        Some(records[1].clone())
+    );
+    assert_eq!(chunk.decoded_coefficient_count().unwrap(), count);
+    let foreign = CoefficientContext::new(["wrong_owned_context"]);
+    assert!(chunk.decode_record(&records[1].key, &foreign).is_err());
+    assert_eq!(
+        chunk.decode_record(&records[0].key, &context).unwrap(),
+        Some(records[0].clone())
+    );
+    assert_eq!(chunk.decoded_coefficient_count().unwrap(), count + 1);
+    assert_eq!(
+        chunk
+            .decode_record(&ApplicationCacheKey::route(&key(&[99, 1])), &context)
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn retained_chunk_index_budget_and_framing_are_checked_before_lookup() {
+    use std::sync::Arc;
+    let (context, records) = fixture();
+    let limits = ApplicationCacheIoLimits::default();
+    let encoded = encode_application_cache_chunk(&binding(), &records, &context, limits).unwrap();
+    let owned = OwnedApplicationCacheChunk::inspect(Arc::from(encoded.clone()), &binding(), limits)
+        .unwrap();
+    let tight = ApplicationCacheIoLimits {
+        max_index_owned_bytes: owned.index_owned_bytes() - 1,
+        ..limits
+    };
+    assert!(
+        OwnedApplicationCacheChunk::inspect(Arc::from(encoded.clone()), &binding(), tight).is_err()
+    );
+    let tight = ApplicationCacheIoLimits {
+        max_index_owned_bytes: 0,
+        ..limits
+    };
+    assert!(ApplicationCacheChunk::inspect(&encoded, &binding(), tight).is_err());
+    let mut trailing = encoded;
+    trailing.push(0);
+    assert!(OwnedApplicationCacheChunk::inspect(Arc::from(trailing), &binding(), limits).is_err());
+}
+
+#[test]
+fn shared_decoded_census_limits_unique_coefficients_across_records() {
+    use std::sync::Arc;
+    let context = CoefficientContext::new(["shared_budget_d"]);
+    let one = context.one();
+    let budget = coefficient_cache_weight([&one]).unwrap();
+    let records = [1, 2].map(|i| ApplicationCacheRecord {
+        key: ApplicationCacheKey::route(&key(&[i, 1])),
+        terms: BTreeMap::from([(key(&[1, 1]), context.integer(i))]),
+        nonzero_conditions: vec![],
+    });
+    let limits = ApplicationCacheIoLimits {
+        max_decoded_coefficient_terms: budget.coefficient_terms,
+        ..Default::default()
+    };
+    let encoded = encode_application_cache_chunk(&binding(), &records, &context, limits).unwrap();
+    let chunk =
+        OwnedApplicationCacheChunk::inspect(Arc::from(encoded), &binding(), limits).unwrap();
+    assert_eq!(
+        chunk.decode_record(&records[0].key, &context).unwrap(),
+        Some(records[0].clone())
+    );
+    assert_eq!(
+        chunk.decode_record(&records[0].key, &context).unwrap(),
+        Some(records[0].clone())
+    );
+    assert!(matches!(
+        chunk.decode_record(&records[1].key, &context),
+        Err(BinaryIoError::Limit {
+            resource: "shared decoded cache coefficient terms",
+            ..
+        })
+    ));
+    assert_eq!(chunk.decoded_coefficient_count().unwrap(), 1);
+    assert_eq!(
+        chunk.decoded_coefficient_census().unwrap().0,
+        budget.coefficient_terms
+    );
+    // Rejected growth does not poison previously usable entries.
+    assert_eq!(
+        chunk.decode_record(&records[0].key, &context).unwrap(),
+        Some(records[0].clone())
+    );
+}
