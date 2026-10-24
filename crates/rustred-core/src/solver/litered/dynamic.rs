@@ -108,6 +108,7 @@ fn build<const N: usize>(
     workers: usize,
     census: bool,
     options: LiteRedOptions,
+    priority: Option<&[usize]>,
 ) -> Result<(Box<dyn Lane>, LiteRedLaneReport), LiteRedError> {
     let arity = family.denominator_count();
     let root_array: [bool; N] = std::array::from_fn(|i| i < arity && root[i]);
@@ -116,6 +117,7 @@ fn build<const N: usize>(
         root_array,
         workers,
         CandidateFamilyAdmission::ParametricVacuum,
+        priority,
     )?;
     let start = std::time::Instant::now();
     let census = if census {
@@ -150,14 +152,16 @@ fn build<const N: usize>(
 
 impl DynamicLiteRedSession {
     /// Generate the candidate program of `root`'s downset in process (on
-    /// `workers` threads), optionally build the sector-symmetry census, and
-    /// return an uncompressed lane.
+    /// `workers` threads, with an optional coordinate priority, see
+    /// [`super::isps_at_ends_priority`]), optionally build the sector-symmetry
+    /// census, and return an uncompressed lane.
     pub fn generate(
         family: Arc<IntegralFamily>,
         root: &[bool],
         workers: usize,
         census: bool,
         options: LiteRedOptions,
+        priority: Option<&[usize]>,
     ) -> Result<(Self, LiteRedLaneReport), LiteRedError> {
         let arity = family.denominator_count();
         if root.len() != arity {
@@ -168,7 +172,7 @@ impl DynamicLiteRedSession {
         macro_rules! arms {
             ($($n:literal),* $(,)?) => {
                 match crate::campaign_storage_arity(arity) {
-                    $( $n => build::<$n>(family, root, workers, census, options)?, )*
+                    $( $n => build::<$n>(family, root, workers, census, options, priority)?, )*
                     _ => {
                         return Err(LiteRedError::InvalidInput(format!(
                             "arity {arity} is not compiled into this RustRed build"

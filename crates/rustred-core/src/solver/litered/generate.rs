@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use crate::family::IntegralFamily;
 use crate::reduction::ReductionLimits;
-use crate::sector::{Mask, OrderingPolicy, zero};
+use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, OrderingPolicy, zero};
 use crate::solver::{
     CandidateFamilyAdmission, CandidateReducer, SectorConfig, SectorExecutor, SectorSolveOptions,
     SourceSystem,
@@ -29,13 +29,34 @@ pub struct CandidateGenerationStatistics {
     pub seconds: f64,
 }
 
+/// The coordinate priority that puts the first auxiliary (non-root) slot
+/// first and the remaining auxiliary slots last, physical slots in between.
+/// On P14 this reproduces the layout of the vakint manifest family
+/// (ISPs at slots 0 and 9), for which the sector solver avoids the
+/// exceptional-geometry stall seen with the ISPs-last native order.
+/// `None` when every slot is physical.
+pub fn isps_at_ends_priority(root: &[bool]) -> Option<Vec<usize>> {
+    let physical: Vec<usize> = (0..root.len()).filter(|&i| root[i]).collect();
+    let auxiliary: Vec<usize> = (0..root.len()).filter(|&i| !root[i]).collect();
+    let (first, rest) = auxiliary.split_first()?;
+    Some(
+        std::iter::once(*first)
+            .chain(physical)
+            .chain(rest.iter().copied())
+            .collect(),
+    )
+}
+
 /// Solve the root downset of `family` on `workers` threads and return the
-/// candidate applier under `admission`.
+/// candidate applier under `admission`. `priority` optionally lists the slots
+/// by coordinate priority (the `family-candidates --permutation` semantics):
+/// it changes only the persisted order's final tie-breaks, never the keys.
 pub fn generate_candidate_program<const N: usize>(
     family: &IntegralFamily,
     root: [bool; N],
     workers: usize,
     admission: CandidateFamilyAdmission,
+    priority: Option<&[usize]>,
 ) -> Result<(CandidateReducer<N>, CandidateGenerationStatistics), LiteRedError> {
     let start = std::time::Instant::now();
     let arity = family.denominator_count();
@@ -44,6 +65,30 @@ pub fn generate_candidate_program<const N: usize>(
             "family arity {arity} unsupported by the in-process generator"
         )));
     }
+    let (permutation, ordering) = match priority {
+        None => (None, OrderingPolicy::SpiredUncutV1),
+        Some(slots) => {
+            let mut sorted = slots.to_vec();
+            sorted.sort_unstable();
+            if sorted != (0..arity).collect::<Vec<_>>() {
+                return Err(LiteRedError::InvalidInput(
+                    "coordinate priority must list every slot exactly once".into(),
+                ));
+            }
+            let mut ranks = vec![0; arity];
+            for (rank, &slot) in slots.iter().enumerate() {
+                ranks[slot] = rank;
+            }
+            let priority =
+                CoordinatePriority::try_new(arity, &ranks, CoordinatePriorityLimits::default())
+                    .map_err(|e| LiteRedError::InvalidInput(e.to_string()))?;
+            let ordering = OrderingPolicy::try_spired_with_coordinate_priority(&priority)
+                .map_err(|e| LiteRedError::InvalidInput(e.to_string()))?;
+            let permutation: [usize; N] =
+                std::array::from_fn(|i| slots.get(i).copied().unwrap_or(i));
+            (Some(permutation), ordering)
+        }
+    };
     let analyzer = zero::Analyzer::try_unrestricted(family)
         .map_err(|e| LiteRedError::InvalidInput(e.to_string()))?;
     let mut zeros: Vec<[bool; N]> = Vec::new();
@@ -82,6 +127,7 @@ pub fn generate_candidate_program<const N: usize>(
         .map_err(|e| LiteRedError::InvalidInput(e.to_string()))?;
     let config = SectorConfig {
         zero_sectors: Arc::from(zeros.clone()),
+        permutation,
         ..Default::default()
     };
     let executor =
@@ -105,7 +151,7 @@ pub fn generate_candidate_program<const N: usize>(
     let reducer = CandidateReducer::try_new_with_admission(
         family,
         root,
-        OrderingPolicy::SpiredUncutV1,
+        ordering,
         records,
         certificates,
         ReductionLimits::default(),

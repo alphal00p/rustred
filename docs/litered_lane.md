@@ -63,8 +63,17 @@ The default admission and every certified path are unchanged.
    structure sample's, the result is `UnluckySample` and the sample is
    skipped.
 5. **In-process generation** (`generate.rs`). The configuration equals the
-   `family-candidates` defaults. `DynamicLiteRedSession` adds runtime-arity
-   dispatch for hosts such as RustFlow.
+   `family-candidates` defaults. An optional coordinate priority has the
+   `--permutation` semantics. `isps_at_ends_priority` puts the first ISP
+   first and the remaining ISPs last.
+   - On RustFlow's native P14 spoke family, the default ISPs-last order
+     stalls in sector 217 (exceptional geometry, more than 15 min,
+     single-threaded).
+   - With the ISPs-at-ends priority the same family generates in about 1 min,
+     and rim in 77 s instead of about 200 s.
+
+   `DynamicLiteRedSession` adds runtime-arity dispatch for hosts such as
+   RustFlow.
 
 ## CLI
 
@@ -121,3 +130,10 @@ are in the pilot scratchpad: `rustred-dev/litered-lane`.
   equal the Kira tables.
 - **Timing.** About 6 to 14 s per family on 8 cores, including the census,
   compression and all reconstructions.
+- **RustFlow integration.** With RustFlow's `LiteRedRustRedBackend` (RustRed
+  only), `PreparedFlow::new_at_epsilon(1/2700)` closes for rim and spoke with
+  basis 42 in 5 rounds.
+  - The first sample takes 90 s (rim) and 80 s (spoke); each further epsilon
+    sample takes about 13 s.
+  - All 1764 DE-matrix entries equal the Kira-derived ones after the exact
+    basis change.
