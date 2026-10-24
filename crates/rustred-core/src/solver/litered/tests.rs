@@ -384,7 +384,7 @@ fn in_process_generation_and_dynamic_lane_agree_with_the_fixture() {
         None,
     )
     .unwrap();
-    assert_eq!(report.census_classes.is_some(), true);
+    assert!(report.census_classes.is_some());
     let ids = lane.add_targets(&targets()).unwrap();
     let compression = lane.compress(&[]).unwrap();
     assert!(compression.masters.len() < compression.terminals);
