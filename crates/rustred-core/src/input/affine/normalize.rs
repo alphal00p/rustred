@@ -248,11 +248,13 @@ pub(super) fn charge_dense_degree_box(
         "dense numerator degree-box terms",
         numerator_box,
         limits.max_dense_degree_box_terms,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "dense denominator degree-box terms",
         denominator_box,
         limits.max_dense_degree_box_terms,
+        limits.diagnostics_enabled,
     )?;
     let terms = numerator_box.checked_add(denominator_box).ok_or(
         SymbolicaAffineDenominatorError::ResourceCountOverflow {
@@ -268,6 +270,7 @@ pub(super) fn charge_dense_degree_box(
         "dense degree-box exponent entries",
         entries,
         limits.max_dense_degree_box_exponent_entries,
+        limits.diagnostics_enabled,
     )?;
     work.dense_degree_box_terms = work.dense_degree_box_terms.checked_add(terms).ok_or(
         SymbolicaAffineDenominatorError::ResourceCountOverflow {
@@ -278,6 +281,7 @@ pub(super) fn charge_dense_degree_box(
         "aggregate dense degree-box terms",
         work.dense_degree_box_terms,
         limits.max_aggregate_dense_degree_box_terms,
+        limits.diagnostics_enabled,
     )?;
     work.dense_degree_box_exponent_entries = work
         .dense_degree_box_exponent_entries
@@ -289,6 +293,7 @@ pub(super) fn charge_dense_degree_box(
         "aggregate dense degree-box exponent entries",
         work.dense_degree_box_exponent_entries,
         limits.max_aggregate_dense_degree_box_exponent_entries,
+        limits.diagnostics_enabled,
     )?;
     Ok((numerator_box, denominator_box))
 }

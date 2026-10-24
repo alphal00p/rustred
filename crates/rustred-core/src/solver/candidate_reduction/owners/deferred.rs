@@ -1,9 +1,10 @@
 //! Runtime-only, once-per-owner preparation over an immutable admitted manifest.
 //! Campaign/trace collections retain their ordinary eager representation.
+use once_cell::sync::OnceCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use super::model::{CandidateOwnerContext, CandidateOwnerPrograms, PreparedOwner};
@@ -44,7 +45,7 @@ pub struct DeferredCandidateOwnerStatistics {
 #[derive(Debug)]
 struct Slot<const N: usize> {
     descriptor: DeferredCandidateOwnerDescriptor<N>,
-    prepared: OnceLock<Result<Arc<PreparedOwner<N>>, CandidateReductionError>>,
+    prepared: OnceCell<Result<Arc<PreparedOwner<N>>, CandidateReductionError>>,
 }
 
 /// Immutable owner presence with independently synchronized, cached preparation.
@@ -104,7 +105,7 @@ impl<const N: usize> DeferredCandidateOwnerPrograms<N> {
                     sector,
                     Slot {
                         descriptor,
-                        prepared: OnceLock::new(),
+                        prepared: OnceCell::new(),
                     },
                 )
                 .is_some()
@@ -177,11 +178,13 @@ impl<const N: usize> DeferredCandidateOwnerPrograms<N> {
         &self,
         sector: &[bool; N],
     ) -> Result<Option<Arc<PreparedOwner<N>>>, CandidateReductionError> {
+        symbolica::utils::resources::checkpoint()
+            .map_err(crate::reduction::ReductionError::from)?;
         let Some(slot) = self.owners.get(sector) else {
             return Ok(None);
         };
-        let result = slot.prepared.get_or_init(|| {
-            self.attempts.fetch_add(1, Ordering::Relaxed);
+        let result = slot.prepared.get_or_try_init(|| {
+            let _ = self.attempts.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |before| Some(before.saturating_add(1)));
             let started = Instant::now();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let mut programs = self.loader.prepare(*sector, self.context.clone())?;
@@ -198,13 +201,24 @@ impl<const N: usize> DeferredCandidateOwnerPrograms<N> {
             })).unwrap_or_else(|_| Err(invalid("deferred owner preparation panicked")));
             let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
             let _ = self.preparation_nanoseconds.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |before| Some(before.saturating_add(elapsed)));
-            result
-        });
+            if let Err(error) = &result {
+                if is_resource_failure(error) {
+                    return Err(error.clone());
+                }
+            }
+            Ok(result)
+        })?;
+        symbolica::utils::resources::checkpoint()
+            .map_err(crate::reduction::ReductionError::from)?;
         result
             .as_ref()
             .map(|owner| Some(owner.clone()))
             .map_err(Clone::clone)
     }
+}
+
+fn is_resource_failure(error: &CandidateReductionError) -> bool {
+    crate::reduction::resource_limit_error(error).is_some()
 }
 
 fn invalid(message: &str) -> CandidateReductionError {
@@ -229,6 +243,8 @@ mod tests {
             shared: Arc<CandidateOwnerContext<3>>,
         ) -> Result<CandidateOwnerPrograms<3>, CandidateReductionError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
+            symbolica::utils::resources::checkpoint()
+                .map_err(crate::reduction::ReductionError::from)?;
             if self.fail {
                 return Err(invalid("fixture native admission failed"));
             }
@@ -290,6 +306,54 @@ mod tests {
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         catalogue.owner(&[true, false, true]).unwrap().unwrap();
         assert_eq!(catalogue.statistics().prepared_owners, 2);
+    }
+
+    #[test]
+    fn failed_request_budget_does_not_poison_later_concurrent_owner_preparation() {
+        use symbolica::utils::resources::{ResourceBudget, ResourceLimits};
+        for unavailable in [false, true] {
+            let (catalogue, calls) = fixture(false, false);
+            let reads = Arc::new(AtomicUsize::new(0));
+            let budget = ResourceBudget::with_memory_monitor(
+                ResourceLimits {
+                    max_process_rss_bytes: Some(1),
+                    ..Default::default()
+                },
+                move || {
+                    if reads.fetch_add(1, Ordering::Relaxed) == 0 {
+                        Ok(0)
+                    } else if unavailable {
+                        Err("fixture monitor unavailable".to_owned())
+                    } else {
+                        Ok(2)
+                    }
+                },
+            );
+            let error = budget
+                .run(|| catalogue.owner(&[false, true, true]))
+                .unwrap_err();
+            assert!(is_resource_failure(&error));
+            assert_eq!(calls.load(Ordering::Relaxed), 1);
+            assert_eq!(catalogue.statistics().preparation_attempts, 1);
+            assert_eq!(catalogue.statistics().failed_owners, 0);
+            assert_eq!(catalogue.statistics().prepared_owners, 0);
+            std::thread::scope(|scope| {
+                let workers = (0..4)
+                    .map(|_| {
+                        let catalogue = &catalogue;
+                        scope.spawn(move || catalogue.owner(&[false, true, true]).unwrap().unwrap())
+                    })
+                    .collect::<Vec<_>>();
+                let owners = workers
+                    .into_iter()
+                    .map(|worker| worker.join().unwrap())
+                    .collect::<Vec<_>>();
+                assert!(owners.iter().all(|owner| Arc::ptr_eq(&owners[0], owner)));
+            });
+            assert_eq!(calls.load(Ordering::Relaxed), 2);
+            assert_eq!(catalogue.statistics().preparation_attempts, 2);
+            assert_eq!(catalogue.statistics().prepared_owners, 1);
+        }
     }
 
     #[test]

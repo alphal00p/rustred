@@ -47,18 +47,24 @@ pub(crate) fn multiply_coefficient_matrices(
         "single Symbolica matrix entries",
         single_entries,
         limits.max_single_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "live Symbolica matrix entries",
         live_entries,
         limits.max_live_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
-    let operations =
-        product_operation_bound(left_shape.rows, left_shape.columns, right_shape.columns)?;
+    let operations = if limits.diagnostics_enabled {
+        product_operation_bound(left_shape.rows, left_shape.columns, right_shape.columns)?
+    } else {
+        0
+    };
     check_limit(
         "Symbolica coefficient matrix exact operations",
         operations,
         limits.max_exact_operations,
+        limits.diagnostics_enabled,
     )?;
     let field =
         CheckedCoefficientField::new(context, limits, single_entries, live_entries, operations);
@@ -146,25 +152,32 @@ pub(crate) fn multiply_three_coefficient_matrices(
         "single Symbolica matrix entries",
         single_entries,
         limits.max_single_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "live Symbolica matrix entries",
         live_entries,
         limits.max_live_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
-    let operations = checked_add(
-        "Symbolica coefficient matrix exact operations",
-        product_operation_bound(left_shape.rows, left_shape.columns, middle_shape.columns)?,
-        product_operation_bound(
-            intermediate_shape.rows,
-            intermediate_shape.columns,
-            right_shape.columns,
-        )?,
-    )?;
+    let operations = if limits.diagnostics_enabled {
+        checked_add(
+            "Symbolica coefficient matrix exact operations",
+            product_operation_bound(left_shape.rows, left_shape.columns, middle_shape.columns)?,
+            product_operation_bound(
+                intermediate_shape.rows,
+                intermediate_shape.columns,
+                right_shape.columns,
+            )?,
+        )?
+    } else {
+        0
+    };
     check_limit(
         "Symbolica coefficient matrix exact operations",
         operations,
         limits.max_exact_operations,
+        limits.diagnostics_enabled,
     )?;
 
     let field =

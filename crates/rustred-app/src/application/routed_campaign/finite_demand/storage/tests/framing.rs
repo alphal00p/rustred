@@ -99,6 +99,7 @@ fn finite_store_compact_encoded_page_decode_refusal_never_replaces_current() {
         program_identity: [3; 32],
     };
     let settings = StorageLimits {
+        diagnostics_enabled: true,
         raw: RawCensusLimits {
             max_page_records: 1,
             max_page_bytes: wire::MAX_FRAME,

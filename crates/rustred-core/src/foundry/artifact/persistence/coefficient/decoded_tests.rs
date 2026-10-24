@@ -188,6 +188,7 @@ fn coefficient_references_preserve_structural_term_budget() {
     let value = fraction(&context);
     let terms = value.raw().numerator.nterms() + value.raw().denominator.nterms();
     let mut writer = Writer::new(super::super::limits::ArtifactEncodingLimits {
+        diagnostics_enabled: true,
         max_collection_entries: terms - 1,
         ..Default::default()
     });
@@ -230,7 +231,7 @@ fn reference_reader_obeys_narrower_native_term_limit() {
     let mut writer = Writer::new(Default::default());
     encode_indexed_coefficient(&mut writer, &fraction(&context)).unwrap();
     let (bytes, table) = writer.finish_for_test().unwrap();
-    let mut limits = super::super::limits::ArtifactLoadLimits::default();
+    let mut limits = super::super::limits::ArtifactLoadLimits::default().with_diagnostics();
     limits.family.exact_algebra.max_polynomial_terms = 0;
     let mut reader = Reader::with_table(&bytes, limits, table).unwrap();
     assert!(matches!(

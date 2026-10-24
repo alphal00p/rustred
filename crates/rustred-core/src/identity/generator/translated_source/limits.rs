@@ -1,12 +1,13 @@
 use super::super::super::relation::RelationLimits;
 
-/// Aggregate resource policy for one complete translated-source batch.
+/// Optional aggregate count diagnostics for one complete translated-source batch.
 ///
-/// `relation` bounds every Symbolica coefficient/condition translation.
-/// The remaining limits cover caller-sized retained Rust containers, typed
-/// condition provenance, and coordinate storage across the whole batch.
+/// Count templates apply only when diagnostics are enabled. The explicit
+/// builder also enables child coefficient/condition diagnostics. Shared
+/// resource budgets remain active independently of these count settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TranslatedSourceLimits {
+    pub diagnostics_enabled: bool,
     pub relation: RelationLimits,
     pub max_requested_offsets: usize,
     /// Maximum raw selected `(source ordinal, offset)` requests admitted
@@ -24,6 +25,7 @@ pub struct TranslatedSourceLimits {
 impl Default for TranslatedSourceLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             relation: RelationLimits::default(),
             max_requested_offsets: 65_536,
             max_requested_source_translations: 1_000_000,
@@ -33,5 +35,27 @@ impl Default for TranslatedSourceLimits {
             max_retained_condition_source_entries: 16_000_000,
             max_retained_index_coordinate_cells: 64_000_000,
         }
+    }
+}
+
+impl TranslatedSourceLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.relation.arithmetic = self.relation.arithmetic.with_diagnostics();
+        self.relation.identity_conditions = self.relation.identity_conditions.with_diagnostics();
+        self
+    }
+
+    pub(super) fn check_limit(
+        self,
+        resource: &'static str,
+        requested: usize,
+        limit: usize,
+    ) -> Result<(), super::error::TranslatedSourceError> {
+        symbolica::utils::resources::checkpoint()?;
+        if self.diagnostics_enabled {
+            super::construction::check_limit(resource, requested, limit)?;
+        }
+        Ok(())
     }
 }

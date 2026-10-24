@@ -276,6 +276,7 @@ fn matrix_boundary_propagates_typed_exact_algebra_limits() {
             &context,
             &[vec![context.one()]],
             IntegralFamilyLimits {
+            diagnostics_enabled: true,
                 max_matrix_exact_operations: 7,
                 ..IntegralFamilyLimits::default()
             },
@@ -292,6 +293,7 @@ fn matrix_boundary_propagates_typed_exact_algebra_limits() {
             &context,
             &[vec![context.one()]],
             IntegralFamilyLimits {
+            diagnostics_enabled: true,
                 max_matrix_input_retained_bytes: 0,
                 ..IntegralFamilyLimits::default()
             },
@@ -307,6 +309,7 @@ fn matrix_boundary_propagates_typed_exact_algebra_limits() {
             &context,
             &[vec![context.one()]],
             IntegralFamilyLimits {
+            diagnostics_enabled: true,
                 max_matrix_output_retained_bytes: 0,
                 ..IntegralFamilyLimits::default()
             },
@@ -323,7 +326,9 @@ fn matrix_boundary_propagates_typed_exact_algebra_limits() {
             &context,
             &matrix,
             IntegralFamilyLimits {
+                diagnostics_enabled: true,
                 exact_algebra: ExactAlgebraLimits {
+                    diagnostics_enabled: true,
                     max_term_operations: 1,
                     ..ExactAlgebraLimits::default()
                 },
@@ -340,7 +345,9 @@ fn matrix_boundary_propagates_typed_exact_algebra_limits() {
             &context,
             &[vec![context.parameter("x").unwrap()]],
             IntegralFamilyLimits {
+                diagnostics_enabled: true,
                 exact_algebra: ExactAlgebraLimits {
+                    diagnostics_enabled: true,
                     max_exponent: 0,
                     ..ExactAlgebraLimits::default()
                 },

@@ -36,6 +36,7 @@ fn backend() -> SymbolicExactBackend {
 
 fn limited_backend(images: usize, values: usize, weights: usize) -> SymbolicExactBackend {
     SymbolicExactBackend::SemiNumericalSourceWeights {
+        diagnostics_enabled: true,
         max_degree: 8,
         max_probes: 2000,
         max_attempts: 3,
@@ -485,6 +486,7 @@ fn denominator_only_variable_survives_full_product_and_restoration() {
 
 fn cache_limits(images: usize, values: usize, weights: usize) -> super::Limits {
     super::Limits {
+        diagnostics_enabled: true,
         max_degree: 8,
         max_probes: 2000,
         max_attempts: 3,
@@ -581,4 +583,64 @@ fn changed_source_chronology_is_an_unusable_reconstruction_sample() {
             .unwrap()
             .is_some()
     );
+}
+
+#[test]
+fn fallible_native_oracle_preserves_the_original_cache_failure_without_retry() {
+    use symbolica::poly::reconstruction::ReconstructionOptions;
+    let context = CoefficientContext::new(["fallible_oracle_x"]);
+    let rows = vec![row::<2>(&context, &[(2, "fallible_oracle_x"), (1, "1")])];
+    let (frame, variables) = prepared(&rows, &[2, 1]);
+    let mut cache = super::ImageCache::new(&frame, 0, cache_limits(0, 100, 100));
+    let options = ReconstructionOptions::default().with_diagnostics();
+    let mut observed = Some(0);
+    let error = super::reconstruct_pass(
+        &mut cache,
+        &variables,
+        super::cache::Slot::Target(0),
+        &options,
+        4,
+        &mut observed,
+    )
+    .unwrap_err();
+    assert_eq!(observed, Some(1));
+    assert_eq!(error, super::invalid("cache budgets must be positive"));
+}
+
+#[test]
+fn ordinary_source_weight_reconstruction_ignores_count_templates_and_keeps_resources_typed() {
+    use std::time::Duration;
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+    let context = CoefficientContext::new(["ordinary_source_weight_x"]);
+    let rows = vec![row::<2>(
+        &context,
+        &[(2, "ordinary_source_weight_x"), (1, "1")],
+    )];
+    let backend = SymbolicExactBackend::SemiNumericalSourceWeights {
+        diagnostics_enabled: false,
+        max_degree: u16::MAX,
+        max_probes: 0,
+        max_attempts: 0,
+        max_primes: 0,
+        max_cached_images: 0,
+        max_cached_values: 0,
+        max_weight_slots: 0,
+    };
+    let (actual, events) = run(&rows, 2, backend, CoefficientVariableOrder::Original, &[]);
+    assert_eq!(
+        actual.unwrap(),
+        row(&context, &[(2, "1"), (1, "1/ordinary_source_weight_x")])
+    );
+    assert_no_exact_replay(&events);
+    let budget = ResourceBudget::new(ResourceLimits {
+        max_elapsed: Some(Duration::ZERO),
+        ..Default::default()
+    });
+    let (error, _) = budget.run(|| run(&rows, 2, backend, CoefficientVariableOrder::Original, &[]));
+    assert!(matches!(
+        error,
+        Err(MaterializationError::Resources(
+            ResourceLimitError::Elapsed { .. }
+        ))
+    ));
 }

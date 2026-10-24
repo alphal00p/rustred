@@ -108,7 +108,17 @@ impl fmt::Display for ParametricIbpError {
     }
 }
 
-impl std::error::Error for ParametricIbpError {}
+impl std::error::Error for ParametricIbpError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::IdentityCondition(error) => Some(error),
+            Self::Coefficient(error) => Some(error),
+            Self::Relation(error) => Some(error),
+            Self::Family(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<IndexedAlgebraError> for ParametricIbpError {
     fn from(value: IndexedAlgebraError) -> Self {

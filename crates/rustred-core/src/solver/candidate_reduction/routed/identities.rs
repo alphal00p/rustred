@@ -51,7 +51,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         let Some(route) = self.routes.get(&sector) else {
             return Ok(Vec::new());
         };
-        if self.limits.max_transport_calls == 0 {
+        if self.limits.diagnostics_enabled && self.limits.max_transport_calls == 0 {
             return Err(CandidateRoutedError::ResourceLimit {
                 resource: "transport calls",
                 requested: 1,
@@ -74,7 +74,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                             self.limits.max_transport_endpoints,
                         ),
                     ] {
-                        if requested > limit {
+                        if self.limits.diagnostics_enabled && requested > limit {
                             return Err(ExpansionError::ResourceLimit {
                                 resource,
                                 requested,

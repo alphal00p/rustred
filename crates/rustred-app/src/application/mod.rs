@@ -152,14 +152,12 @@ pub use rustred::foundry::campaign::{
     K6WaveCampaignProgress, K6WaveCampaignState,
 };
 
-/// Maximum UTF-8 source payload accepted by every in-process application API.
-pub const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
+/// Natural source-byte default; explicit caller grants and shared resources apply.
+pub const MAX_INPUT_BYTES: usize = usize::MAX;
 /// Maximum canonical TOML payload except explicitly enlarged candidate bundles.
 pub const MAX_OUTPUT_BYTES: usize = 256 * 1024 * 1024;
-/// Application ceiling for one closing-artifact reduction request.
+/// Rule-application template used only when closing reduction diagnostics are enabled.
 pub const MAX_CLOSING_RULE_APPLICATIONS: usize = 1_000_000;
-/// Early ingress ceiling aligned with core durable-artifact load defaults.
-pub const MAX_CLOSING_ARTIFACT_BYTES: usize = 256 * 1024 * 1024;
 /// Application ingress ceiling for one bounded foundry probe program.
 pub const MAX_FOUNDRY_CAMPAIGN_PROBES: usize = 4_096;
 /// Schema of the optional, nonsemantic foundry timing sidecar.
@@ -248,6 +246,8 @@ pub struct ClosingArtifactReduceRequest {
     /// Caller-owned authentication policy, independent of reduction limits.
     pub load_limits: ArtifactLoadLimits,
     pub target_powers: Vec<i64>,
+    /// Enables the caller's rule-application diagnostic; ordinary reduction is unbounded.
+    pub diagnostics_enabled: bool,
     pub max_rule_applications: usize,
 }
 
@@ -257,6 +257,7 @@ impl ClosingArtifactReduceRequest {
             artifact: artifact.into(),
             load_limits: ArtifactLoadLimits::default(),
             target_powers: target_powers.into(),
+            diagnostics_enabled: false,
             max_rule_applications: MAX_CLOSING_RULE_APPLICATIONS,
         }
     }
@@ -645,7 +646,7 @@ impl ClosingArtifactReduceResult {
 /// boundary catches an unwind, it must treat the shared runtime as poisoned
 /// and reject subsequent work rather than reuse potentially mutated state.
 pub fn derive(request: DeriveRequest) -> Result<DeriveResult, AppError> {
-    validate_ingress("derive input", &request.source)?;
+    validate_ingress(&request.source)?;
     if request.n_cores == 0 {
         return Err(AppError::input("derive n_cores must be a positive integer"));
     }
@@ -658,7 +659,7 @@ pub fn derive(request: DeriveRequest) -> Result<DeriveResult, AppError> {
 ///
 /// This function follows the panic contract documented on [`derive()`].
 pub fn campaign_plan(request: CampaignPlanRequest) -> Result<CampaignPlanResult, AppError> {
-    validate_ingress("campaign input", &request.source)?;
+    validate_ingress(&request.source)?;
     campaign::plan::plan_request(request)
 }
 
@@ -670,7 +671,7 @@ pub fn campaign_plan(request: CampaignPlanRequest) -> Result<CampaignPlanResult,
 pub fn campaign_preflight(
     request: CampaignPreflightRequest,
 ) -> Result<CampaignPreflightResult, AppError> {
-    validate_ingress("campaign execution resource profile", &request.profile)?;
+    validate_ingress(&request.profile)?;
     if request.n_cores == 0 {
         return Err(AppError::input(
             "campaign preflight n_cores must be a positive integer",
@@ -695,7 +696,7 @@ pub fn campaign_preflight(
 pub fn foundry_campaign_run(
     request: FoundryCampaignRunRequest,
 ) -> Result<FoundryCampaignRunResult, AppError> {
-    validate_ingress("foundry campaign configuration", &request.config)?;
+    validate_ingress(&request.config)?;
     campaign::foundry::run_request(request)
 }
 
@@ -709,7 +710,7 @@ pub fn foundry_campaign_run_with_progress(
     request: FoundryCampaignRunRequest,
     observe: impl FnMut(FoundryCampaignProgress),
 ) -> Result<FoundryCampaignRunResult, AppError> {
-    validate_ingress("foundry campaign configuration", &request.config)?;
+    validate_ingress(&request.config)?;
     campaign::foundry::run_request_with_progress(request, observe)
 }
 
@@ -721,7 +722,7 @@ pub fn foundry_campaign_run_with_progress(
 pub fn foundry_wave_campaign_run(
     request: FoundryWaveCampaignRunRequest,
 ) -> Result<FoundryWaveCampaignRunResult, AppError> {
-    validate_ingress("foundry wave campaign configuration", &request.config)?;
+    validate_ingress(&request.config)?;
     if request.sibling_worker_count == 0 {
         return Err(AppError::input(
             "foundry wave campaign sibling_worker_count must be a positive integer",
@@ -739,7 +740,7 @@ pub fn foundry_wave_campaign_run_with_progress(
     request: FoundryWaveCampaignRunRequest,
     observe: impl FnMut(K6WaveCampaignProgress),
 ) -> Result<FoundryWaveCampaignRunResult, AppError> {
-    validate_ingress("foundry wave campaign configuration", &request.config)?;
+    validate_ingress(&request.config)?;
     if request.sibling_worker_count == 0 {
         return Err(AppError::input(
             "foundry wave campaign sibling_worker_count must be a positive integer",
@@ -771,12 +772,6 @@ pub fn closing_artifact_reduce(
     closing::reduce_request(request)
 }
 
-fn validate_ingress(label: &str, source: &str) -> Result<(), AppError> {
-    if source.len() > MAX_INPUT_BYTES {
-        return Err(AppError::limit(format!(
-            "{label} has {} bytes, exceeding the {MAX_INPUT_BYTES}-byte application limit",
-            source.len()
-        )));
-    }
-    Ok(())
+pub(super) fn validate_ingress(source: &str) -> Result<(), AppError> {
+    symbolica::utils::resources::check_allocation(source.len() as u64).map_err(AppError::resource)
 }

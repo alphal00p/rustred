@@ -6,6 +6,8 @@ use crate::family::IntegralFamilyLimits;
 /// Resource policy for the generic-rank completion pass and final family.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IspCompletionLimits {
+    /// Enforce count/work thresholds only for an explicitly requested diagnostic.
+    pub diagnostics_enabled: bool,
     pub family: IntegralFamilyLimits,
     /// Largest transient rectangular matrix admitted by one rank test.
     pub max_rank_matrix_entries: usize,
@@ -28,6 +30,7 @@ pub struct IspCompletionLimits {
 impl Default for IspCompletionLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             family: IntegralFamilyLimits::default(),
             max_rank_matrix_entries: 16_000_000,
             max_rank_coefficient_terms: 64_000_000,
@@ -37,6 +40,15 @@ impl Default for IspCompletionLimits {
             max_rank_operations: 64_000_000,
             max_rank_tests: 65_536,
         }
+    }
+}
+
+impl IspCompletionLimits {
+    /// Explicitly enable diagnostic count/work thresholds, including family construction.
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.family = self.family.with_diagnostics();
+        self
     }
 }
 

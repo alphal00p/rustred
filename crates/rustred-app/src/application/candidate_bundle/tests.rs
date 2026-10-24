@@ -132,13 +132,13 @@ fn candidate_materialization_backends_keep_small_case_bundles_identical() {
     }
     assert_eq!(
         CandidateExactBackend::SparseFactorized
-            .solver_backend()
+            .solver_backend(false)
             .unwrap(),
         rustred::solver::SymbolicExactBackend::SparseFactorized,
     );
     assert_eq!(
         CandidateExactBackend::SparseTargetOnlyFactorized
-            .solver_backend()
+            .solver_backend(false)
             .unwrap(),
         rustred::solver::SymbolicExactBackend::SparseTargetOnlyFactorized,
     );
@@ -232,12 +232,9 @@ fn candidate_progress_is_observational_and_never_checks_or_installs() {
 }
 
 #[test]
-fn candidate_byte_budget_can_grow_without_changing_artifact_defaults() {
+fn candidate_and_artifact_byte_budgets_are_optional() {
     let defaults = CandidateBundleLimits::default();
-    assert_eq!(
-        defaults.bundle_byte_limit(),
-        crate::MAX_CLOSING_ARTIFACT_BYTES
-    );
+    assert_eq!(defaults.bundle_byte_limit(), usize::MAX);
     let enlarged = CandidateBundleLimits {
         max_bundle_bytes: 512 * 1024 * 1024,
         ..defaults
@@ -248,7 +245,10 @@ fn candidate_byte_budget_can_grow_without_changing_artifact_defaults() {
         ..defaults
     };
     assert_eq!(excessive.bundle_byte_limit(), usize::MAX);
-    assert_eq!(crate::MAX_CLOSING_ARTIFACT_BYTES, 256 * 1024 * 1024);
+    assert_eq!(
+        crate::ArtifactLoadLimits::default().max_artifact_bytes,
+        usize::MAX
+    );
 }
 
 #[test]
@@ -630,6 +630,7 @@ fn strict_schema_shapes_and_input_limits_reject_before_native_reconstruction() {
             ..limits
         },
         CandidateBundleLimits {
+            diagnostics_enabled: true,
             max_collection_entries: 0,
             ..limits
         },

@@ -22,17 +22,24 @@ impl SymbolicaAffineDenominatorCompiler {
         &self,
         coefficient: &Coefficient,
     ) -> Result<CoefficientCensus, SymbolicaAffineDenominatorError> {
+        self.combined
+            .validate_with_limits(coefficient, self.limits.exact_algebra)?;
+        if !self.limits.diagnostics_enabled {
+            return Ok(CoefficientCensus::default());
+        }
         let numerator_terms = coefficient.numerator.nterms();
         let denominator_terms = coefficient.denominator.nterms();
         check_limit(
             "combined numerator terms",
             numerator_terms,
             self.limits.max_combined_polynomial_terms,
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "combined denominator terms",
             denominator_terms,
             self.limits.max_combined_polynomial_terms,
+            self.limits.diagnostics_enabled,
         )?;
         let all_terms = numerator_terms.checked_add(denominator_terms).ok_or(
             SymbolicaAffineDenominatorError::ResourceCountOverflow {
@@ -48,17 +55,20 @@ impl SymbolicaAffineDenominatorCompiler {
             "combined exponent entries",
             exponent_entries,
             self.limits.max_combined_exponent_entries,
+            self.limits.diagnostics_enabled,
         )?;
         let census = coefficient_census(coefficient)?;
         check_limit(
             "combined coefficient integer bits",
             census.integer_bits,
             self.limits.max_coefficient_integer_bits,
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "combined retained bytes",
             census.retained_bytes,
             self.limits.max_combined_retained_bytes,
+            self.limits.diagnostics_enabled,
         )?;
         Ok(census)
     }
@@ -88,26 +98,31 @@ impl SymbolicaAffineDenominatorCompiler {
             "combined exact-operation numerator term envelope",
             allocation.numerator_terms,
             self.limits.max_combined_polynomial_terms,
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "combined exact-operation denominator term envelope",
             allocation.denominator_terms,
             self.limits.max_combined_polynomial_terms,
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "combined exact-operation exponent-entry envelope",
             allocation.census.exponent_entries,
             self.limits.max_combined_exponent_entries,
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "combined exact-operation integer bits",
             allocation.census.integer_bits,
             self.limits.max_coefficient_integer_bits,
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "combined exact-operation retained bytes",
             allocation.census.retained_bytes,
             self.limits.max_combined_retained_bytes,
+            self.limits.diagnostics_enabled,
         )?;
         Ok(allocation)
     }
@@ -118,6 +133,15 @@ impl SymbolicaAffineDenominatorCompiler {
         right: &Coefficient,
         work: &mut ExactWorkBudget,
     ) -> Result<Coefficient, SymbolicaAffineDenominatorError> {
+        if !self.limits.diagnostics_enabled {
+            let result = self
+                .combined
+                .try_add(left, right, self.limits.exact_algebra)?;
+            self.combined
+                .validate_with_limits(&result, self.limits.exact_algebra)?;
+            return Ok(result);
+        }
+
         let allocation = self.preflight_binary_shape(left, right, BinaryOperation::Add, work)?;
         let result = self
             .combined
@@ -133,6 +157,15 @@ impl SymbolicaAffineDenominatorCompiler {
         right: &Coefficient,
         work: &mut ExactWorkBudget,
     ) -> Result<Coefficient, SymbolicaAffineDenominatorError> {
+        if !self.limits.diagnostics_enabled {
+            let result = self
+                .combined
+                .try_mul(left, right, self.limits.exact_algebra)?;
+            self.combined
+                .validate_with_limits(&result, self.limits.exact_algebra)?;
+            return Ok(result);
+        }
+
         let allocation =
             self.preflight_binary_shape(left, right, BinaryOperation::Multiply, work)?;
         let result = self
@@ -149,6 +182,15 @@ impl SymbolicaAffineDenominatorCompiler {
         denominator: &Coefficient,
         work: &mut ExactWorkBudget,
     ) -> Result<Coefficient, SymbolicaAffineDenominatorError> {
+        if !self.limits.diagnostics_enabled {
+            let result =
+                self.combined
+                    .try_div(numerator, denominator, self.limits.exact_algebra)?;
+            self.combined
+                .validate_with_limits(&result, self.limits.exact_algebra)?;
+            return Ok(result);
+        }
+
         let allocation =
             self.preflight_binary_shape(numerator, denominator, BinaryOperation::Divide, work)?;
         let result = self
@@ -165,27 +207,33 @@ impl SymbolicaAffineDenominatorCompiler {
         projection_work: &mut ProjectionAllocationBudget,
     ) -> Result<Coefficient, SymbolicaAffineDenominatorError> {
         let combined_variables = self.combined.parameter_names().len();
-        projection_work.charge(
-            planned_polynomial_clone_census(&coefficient.numerator, combined_variables)?,
-            self.limits,
-            "aggregate lifted numerator terms",
-        )?;
-        projection_work.charge(
-            planned_polynomial_clone_census(&coefficient.denominator, combined_variables)?,
-            self.limits,
-            "aggregate lifted denominator terms",
-        )?;
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                planned_polynomial_clone_census(&coefficient.numerator, combined_variables)?,
+                self.limits,
+                "aggregate lifted numerator terms",
+            )?;
+        }
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                planned_polynomial_clone_census(&coefficient.denominator, combined_variables)?,
+                self.limits,
+                "aggregate lifted denominator terms",
+            )?;
+        }
         let numerator = lift_polynomial_prefix(
             &coefficient.numerator,
             &self.combined.template().numerator,
             self.base_count(),
             self.limits.max_combined_exponent_entries,
+            self.limits.diagnostics_enabled,
         )?;
         let denominator = lift_polynomial_prefix(
             &coefficient.denominator,
             &self.combined.template().denominator,
             self.base_count(),
             self.limits.max_combined_exponent_entries,
+            self.limits.diagnostics_enabled,
         )?;
         let lifted = Coefficient::from_num_den(numerator, denominator, &Z, false);
         self.combined

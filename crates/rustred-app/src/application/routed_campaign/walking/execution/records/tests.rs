@@ -51,6 +51,7 @@ fn domain(lower: u64, upper: Option<u64>) -> Domain<1> {
 }
 fn finished() -> Finished {
     Finished {
+        resource_failure: None,
         stats: NativeStats::Apply(Default::default()),
         error: None,
         error_kind: "native",
@@ -407,6 +408,7 @@ fn finalization_annotations_from_ledger_and_closure_match_previous_record_mutati
     state.commit(
         2,
         Finished {
+            resource_failure: None,
             stats: NativeStats::ApplyPartial(Default::default(), scope),
             ..finished()
         },

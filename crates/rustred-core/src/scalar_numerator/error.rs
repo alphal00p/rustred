@@ -225,7 +225,18 @@ impl fmt::Display for ScalarNumeratorError {
     }
 }
 
-impl std::error::Error for ScalarNumeratorError {}
+impl std::error::Error for ScalarNumeratorError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ExactAlgebra(error) => Some(error),
+            Self::Family(error) => Some(error),
+            Self::IntegralKey(error) => Some(error),
+            Self::FamilyEligibility(error) => Some(error),
+            Self::CertifiedEntryScope(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<crate::foundry::artifact::RootDomainError> for ScalarNumeratorError {
     fn from(error: crate::foundry::artifact::RootDomainError) -> Self {
@@ -275,8 +286,11 @@ pub(super) fn check_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), ScalarNumeratorError> {
-    if requested > limit {
+    symbolica::utils::resources::checkpoint()
+        .map_err(crate::algebra::ExactAlgebraError::Resource)?;
+    if diagnostics_enabled && requested > limit {
         Err(ScalarNumeratorError::ResourceLimit {
             resource,
             requested,

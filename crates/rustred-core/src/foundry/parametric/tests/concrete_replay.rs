@@ -393,6 +393,7 @@ fn concrete_replay_guard_overflow_and_resource_failures_are_typed() {
         .expect("anchored fixture")
         .peak_retained_coefficient_terms();
     let exact_retained = ParametricRuleLimits {
+        diagnostics_enabled: true,
         max_concrete_replay_retained_coefficient_terms: retained_terms,
         ..ParametricRuleLimits::default()
     };
@@ -418,6 +419,7 @@ fn concrete_replay_guard_overflow_and_resource_failures_are_typed() {
     let mut retained_bytes = 0usize;
     loop {
         let limits = ParametricRuleLimits {
+            diagnostics_enabled: true,
             max_concrete_replay_retained_coefficient_clone_owned_bytes: retained_bytes,
             ..ParametricRuleLimits::default()
         };
@@ -454,6 +456,7 @@ fn concrete_replay_guard_overflow_and_resource_failures_are_typed() {
             rule.nonzero_guards(),
             rule.source_combination(),
             ParametricRuleLimits {
+                diagnostics_enabled: true,
                 max_concrete_replay_retained_coefficient_clone_owned_bytes:
                     one_below_retained_bytes,
                 ..ParametricRuleLimits::default()
@@ -468,6 +471,7 @@ fn concrete_replay_guard_overflow_and_resource_failures_are_typed() {
     let resource_cases = [
         (
             ParametricRuleLimits {
+                diagnostics_enabled: true,
                 max_concrete_replay_terms: 3,
                 ..ParametricRuleLimits::default()
             },
@@ -479,6 +483,7 @@ fn concrete_replay_guard_overflow_and_resource_failures_are_typed() {
         ),
         (
             ParametricRuleLimits {
+                diagnostics_enabled: true,
                 max_concrete_replay_integral_key_power_cells: 3,
                 ..ParametricRuleLimits::default()
             },
@@ -490,6 +495,7 @@ fn concrete_replay_guard_overflow_and_resource_failures_are_typed() {
         ),
         (
             ParametricRuleLimits {
+                diagnostics_enabled: true,
                 max_concrete_replay_integral_keys: 1,
                 ..ParametricRuleLimits::default()
             },
@@ -501,6 +507,7 @@ fn concrete_replay_guard_overflow_and_resource_failures_are_typed() {
         ),
         (
             ParametricRuleLimits {
+                diagnostics_enabled: true,
                 max_concrete_replay_retained_coefficient_terms: retained_terms - 1,
                 ..ParametricRuleLimits::default()
             },
@@ -512,6 +519,7 @@ fn concrete_replay_guard_overflow_and_resource_failures_are_typed() {
         ),
         (
             ParametricRuleLimits {
+                diagnostics_enabled: true,
                 max_concrete_replay_exact_operations: exact - 1,
                 ..ParametricRuleLimits::default()
             },

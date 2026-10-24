@@ -7,18 +7,22 @@ use crate::family::IntegralKey;
 /// Hot-path resource policy for applying an already sealed artifact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ReductionLimits {
+    /// Enable optional work-count diagnostics. Ordinary reduction is constrained
+    /// only by configured RAM/time budgets and mathematical validity.
+    pub diagnostics_enabled: bool,
     pub exact_algebra: ExactAlgebraLimits,
     pub indexed_algebra: IndexedAlgebraLimits,
     pub max_rule_applications: usize,
     pub max_cached_integrals: usize,
     /// Aggregate numerator-plus-denominator sparse terms retained by every
     /// coefficient in the memoization cache.
-    /// The opt-in candidate factorized cache instead charges the larger of
-    /// its stored sparse parts and a conservative expanded-term envelope.
+    /// With count diagnostics enabled, a factorized cache additionally charges
+    /// its conservative expanded-term envelope. Ordinary accounting measures
+    /// its actually retained sparse parts.
     pub max_cached_coefficient_terms: usize,
     /// Aggregate clone-owned Symbolica coefficient payload retained by the
-    /// memoization cache. This excludes map/key bookkeeping, whose counts are
-    /// bounded independently by the integral and coefficient-term limits.
+    /// memoization cache. This excludes map/key bookkeeping, whose allocations are
+    /// observable separately; process RSS is governed by the shared resource budget.
     pub max_cached_coefficient_bytes: usize,
     pub max_pending_frames: usize,
     /// Maximum coefficient additions that merge like terms during one
@@ -32,15 +36,34 @@ pub struct ReductionLimits {
 impl Default for ReductionLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             exact_algebra: ExactAlgebraLimits::default(),
             indexed_algebra: IndexedAlgebraLimits::default(),
             max_rule_applications: 1_000_000,
             max_cached_integrals: 1_000_000,
             max_cached_coefficient_terms: 16_000_000,
-            max_cached_coefficient_bytes: 1024 * 1024 * 1024,
+            max_cached_coefficient_bytes: usize::MAX,
             max_pending_frames: 1_000_000,
             max_coalescing_additions: 16_000_000,
             max_factorization_terms: 1_000_000,
+        }
+    }
+}
+
+impl ReductionLimits {
+    /// Enable the optional work-count diagnostics, including native algebra.
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.exact_algebra = self.exact_algebra.with_diagnostics();
+        self.indexed_algebra = self.indexed_algebra.with_diagnostics();
+        self
+    }
+
+    pub(crate) const fn diagnostic_limit(self, limit: usize) -> Option<usize> {
+        if self.diagnostics_enabled {
+            Some(limit)
+        } else {
+            None
         }
     }
 }

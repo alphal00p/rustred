@@ -16,7 +16,7 @@ fn numeric_preconversion_envelope_checks_boundary_and_power_growth() {
     ));
 
     let huge_power = format!("{}^256", "9".repeat(200_000));
-    let default_compiler = compiler();
+    let default_compiler = Compiler::new(Limits::default().with_diagnostics()).unwrap();
     let rejected = parse_base(&default_compiler, &huge_power);
     assert!(matches!(
         rejected,
@@ -81,7 +81,7 @@ fn caller_owned_large_atom_is_bounded_before_project_clones() {
         .parse::<Integer>()
         .expect("test integer should parse");
     let huge_dimension = Atom::num(huge_integer);
-    let default_compiler = compiler();
+    let default_compiler = Compiler::new(Limits::default().with_diagnostics()).unwrap();
     let denominator =
         parse_base(&default_compiler, "k^2-1").expect("small denominator should parse");
     let logical_bytes = huge_dimension
@@ -89,7 +89,7 @@ fn caller_owned_large_atom_is_bounded_before_project_clones() {
         .get_byte_size()
         .checked_add(denominator.as_view().get_byte_size())
         .expect("test byte count should fit");
-    let mut limits = Limits::default();
+    let mut limits = Limits::default().with_diagnostics();
     limits.max_retained_atom_bytes = logical_bytes;
     let rejected = Compiler::new(limits)
         .expect("bounded compiler should initialize")
@@ -222,4 +222,97 @@ fn raw_preflight_rejects_depth_integer_and_unique_name_excesses() {
             ..
         })
     ));
+}
+
+#[test]
+fn ordinary_input_ignores_diagnostic_count_templates_and_keeps_ambient_resources() {
+    assert_eq!(Limits::default().max_input_bytes, usize::MAX);
+    assert_eq!(
+        super::super::SymbolicaAffineDenominatorLimits::default().max_input_bytes,
+        usize::MAX
+    );
+    let bounded = Compiler::new(Limits {
+        max_input_bytes: 0,
+        ..Limits::default()
+    })
+    .unwrap();
+    assert!(matches!(
+        bounded.compile_compact(&one_loop_source(1, "1"), None),
+        Err(Error::ResourceLimit { .. })
+    ));
+    let limits = Limits {
+        max_atom_nodes: 0,
+        max_abs_power: 0,
+        ..Limits::default()
+    };
+    let ordinary = Compiler::new(limits).unwrap();
+    ordinary
+        .compile_compact(&one_loop_source(1, "1"), None)
+        .unwrap();
+    let diagnostic = Compiler::new(limits.with_diagnostics()).unwrap();
+    assert!(matches!(
+        diagnostic.compile_compact(&one_loop_source(1, "1"), None),
+        Err(Error::ResourceLimit { .. })
+    ));
+    let budget = symbolica::utils::resources::ResourceBudget::new(
+        symbolica::utils::resources::ResourceLimits {
+            max_elapsed: Some(std::time::Duration::ZERO),
+            ..Default::default()
+        },
+    );
+    assert!(matches!(
+        budget.run(|| ordinary.compile_compact(&one_loop_source(1, "1"), None)),
+        Err(Error::Resource(
+            symbolica::utils::resources::ResourceLimitError::Elapsed { .. }
+        ))
+    ));
+}
+
+#[test]
+fn ordinary_numeric_preconversion_does_not_reject_tiny_exact_power_via_estimate() {
+    let plain = compiler();
+    let value = parse_base(&plain, &format!("1^{}", i64::MAX)).unwrap();
+    assert!(value.is_one());
+}
+
+#[test]
+fn resource_errors_remain_discoverable_through_typed_input_wrappers() {
+    use std::error::Error as _;
+    use std::time::Duration;
+
+    use crate::algebra::ExactAlgebraError;
+    use crate::family::IntegralFamilyError;
+    use crate::family::presentation::FamilyPresentationError;
+    use symbolica::utils::resources::ResourceLimitError;
+
+    let resource = ResourceLimitError::Elapsed {
+        elapsed: Duration::from_secs(2),
+        limit: Duration::from_secs(1),
+    };
+    let affine = SymbolicaAffineDenominatorError::ExactAlgebra(ExactAlgebraError::Resource(
+        resource.clone(),
+    ));
+    let family = IntegralFamilyError::ExactAlgebra(ExactAlgebraError::Resource(resource.clone()));
+    let presentation =
+        FamilyPresentationError::ExactAlgebra(ExactAlgebraError::Resource(resource.clone()));
+    let errors: Vec<Box<dyn std::error::Error>> = vec![
+        Box::new(Error::Resource(resource.clone())),
+        Box::new(LoweringError::Resource(resource.clone())),
+        Box::new(LoweringError::AffineDenominator(affine)),
+        Box::new(LoweringError::IntegralFamily(family)),
+        Box::new(presentation),
+    ];
+    for error in &errors {
+        let mut current = error.source();
+        let mut found = None;
+        while let Some(source) = current {
+            if let Some(resource) = source.downcast_ref::<ResourceLimitError>() {
+                found = Some(resource);
+                break;
+            }
+            current = source.source();
+        }
+        assert_eq!(found, Some(&resource));
+    }
+    assert!(Error::WrongRoot.source().is_none());
 }

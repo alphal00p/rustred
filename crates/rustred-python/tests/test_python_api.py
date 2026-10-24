@@ -292,6 +292,14 @@ class GeneratedProgramAssertions(unittest.TestCase):
 
 
 class PythonApiTests(GeneratedProgramAssertions):
+    def test_default_source_policy_accepts_text_above_the_old_template(self) -> None:
+        ordinary = rustred.derive(ONE_LOOP, input_format="symbolica")
+        enlarged = rustred.derive(
+            " " * (16 * 1024 * 1024 + 1) + ONE_LOOP,
+            input_format="symbolica",
+        )
+        self.assertEqual(ordinary.to_toml(), enlarged.to_toml())
+
     def test_execution_capabilities_describe_actual_runtime(self) -> None:
         capabilities = rustred.execution_capabilities()
         wasm = sys.platform in {"emscripten", "wasi"}
@@ -462,7 +470,7 @@ class PythonApiTests(GeneratedProgramAssertions):
             module.main()
         payload = output.getvalue()
         reduction_marker = (
-            'schema = "rustred.closing-artifact-reduce-output.toml.v3"'
+            'schema = "rustred.closing-artifact-reduce-output.toml.v4"'
         )
         reduction_offset = payload.index(reduction_marker)
         generation = tomllib.loads(payload[:reduction_offset])
@@ -784,7 +792,7 @@ class PythonApiTests(GeneratedProgramAssertions):
                 self.assertIsInstance(generated, rustred.ClosingArtifactGenerationResult)
                 self.assertIsInstance(generated.artifact, bytes)
                 self.assertIs(generated.artifact, generated.artifact)
-                self.assertEqual(generated.schema, "rustred.family-close-output.toml.v4")
+                self.assertEqual(generated.schema, "rustred.family-close-output.toml.v5")
                 self.assertEqual(generated.status, "generated-durable")
                 report = tomllib.loads(generated.to_toml())
                 self.assertEqual(report["arity"], len(target))
@@ -848,6 +856,16 @@ class PythonApiTests(GeneratedProgramAssertions):
             max_predicate_atoms=None,
         )
         chosen = rustred.family_close(UNIT_MASS_PROJECT_K1, **options)
+        for ordinary in (
+            baseline,
+            explicit_defaults,
+            rustred.inspect_closing_artifact(baseline.artifact),
+            rustred.reduce_with_closing_artifact(baseline.artifact, [3]),
+        ):
+            document = tomllib.loads(ordinary.to_toml())
+            resources = document.get("publication_resources", document.get("load_resources", {}))
+            for key in options:
+                self.assertNotIn(key, resources)
         self.assertProgramEqual(baseline.artifact, explicit_defaults.artifact)
         self.assertProgramEqual(chosen.artifact, baseline.artifact)
         self.assertEqual(
@@ -913,13 +931,10 @@ class PythonApiTests(GeneratedProgramAssertions):
             report = tomllib.loads(zero.to_toml())
             resources = report.get("publication_resources", report.get("load_resources"))
             self.assertEqual(resources["max_predicate_consistency_work"], "0")
-            for atom_limit in (0, 33, 256):
+            for atom_limit in (0, 33, 256, 257, 2 * sys.maxsize + 1):
                 report = tomllib.loads(call(max_predicate_atoms=atom_limit).to_toml())
                 resources = report.get("publication_resources", report.get("load_resources"))
                 self.assertEqual(resources["max_predicate_atoms"], str(atom_limit))
-            for invalid in (257, 2 * sys.maxsize + 1):
-                with self.assertRaises(rustred.RustRedInputError):
-                    call(max_predicate_atoms=invalid)
 
     @unittest.skipUnless(
         os.environ.get("SYMBOLICA_LICENSE") and (os.cpu_count() or 0) >= 2,
@@ -1034,6 +1049,28 @@ class PythonApiTests(GeneratedProgramAssertions):
             reduced_document["terms"][0]["common_mass_squared_factor"],
             "mass_squared^(-2)",
         )
+
+    def test_closing_reduction_count_diagnostics_are_explicit(self) -> None:
+        artifact = rustred.generate_closing_artifact(
+            family=rustred.ClosingFamily.UNIT_MASS_VACUUM_K1,
+        ).artifact
+        ordinary = rustred.reduce_with_closing_artifact(artifact, [3])
+        explicit_none = rustred.reduce_with_closing_artifact(
+            artifact, [3], max_rule_applications=None,
+        )
+        self.assertEqual(ordinary.to_toml(), explicit_none.to_toml())
+        diagnostic = rustred.reduce_with_closing_artifact(
+            artifact, [3], max_rule_applications=1_000_001,
+        )
+        self.assertEqual(
+            [(term.master_powers, term.unit_mass_coefficient, term.common_mass_squared_power)
+             for term in ordinary.terms],
+            [(term.master_powers, term.unit_mass_coefficient, term.common_mass_squared_power)
+             for term in diagnostic.terms],
+        )
+        with self.assertRaises(rustred.RustRedError) as failure:
+            rustred.reduce_with_closing_artifact(artifact, [3], max_rule_applications=0)
+        self.assertIn("limit", str(failure.exception).lower())
 
     def test_closing_artifact_python_cli_parity(self) -> None:
         selector = "unit-mass-vacuum-k1"
@@ -1344,7 +1381,7 @@ class PythonApiTests(GeneratedProgramAssertions):
         )
         self.assertEqual(
             str(inspect.signature(rustred.reduce_with_closing_artifact)),
-            "(artifact, target_powers, *, max_rule_applications=1000000, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None)",
+            "(artifact, target_powers, *, max_rule_applications=None, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None)",
         )
         self.assertEqual(
             str(inspect.signature(rustred.run_foundry_campaign)),

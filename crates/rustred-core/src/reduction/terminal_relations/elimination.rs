@@ -89,6 +89,7 @@ impl TerminalRelationSession {
             "independent rows",
             self.reducer.u().nrows() as usize + 1,
             self.limits.max_rows,
+            self.limits.diagnostics_enabled,
         )?;
         let mut new: Vec<_> = row
             .keys()
@@ -99,6 +100,7 @@ impl TerminalRelationSession {
             "columns",
             self.columns.len().saturating_add(new.len()),
             self.limits.max_columns,
+            self.limits.diagnostics_enabled,
         )?;
         let width = self
             .columns
@@ -114,6 +116,7 @@ impl TerminalRelationSession {
             "stored nonzeros",
             self.reducer.u().nvalues().saturating_add(width),
             self.limits.max_nonzeros,
+            self.limits.diagnostics_enabled,
         )?;
         sort_keys(&mut new);
         if !new.is_empty() {

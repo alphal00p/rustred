@@ -5,16 +5,17 @@
 //! import is explicitly a generated-data boundary, not a hostile-input parser.
 
 pub mod application_cache;
-pub mod finite_work;
 mod atoms;
 mod catalog;
 mod compare;
 mod envelope;
 mod error;
 mod family;
+pub mod finite_work;
 mod lazy;
 mod limits;
 mod native;
+mod structure;
 pub(crate) mod terminal_normalization;
 
 pub use atoms::{
@@ -28,6 +29,11 @@ pub use envelope::{
     encode_program, inspect_program,
 };
 pub use error::BinaryIoError;
+pub(crate) use error::{
+    native_encode_error, native_io_error, resource_allocation, resource_array, resource_checkpoint,
+};
+pub(crate) use error::{native_error, resource_failure};
 pub use family::NativeFamilyRecord;
 pub use lazy::LazyDecodedCoefficientTable;
 pub use limits::BinaryIoLimits;
+pub(crate) use structure::{decode_structure, encode_structure};

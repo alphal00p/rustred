@@ -41,7 +41,9 @@ pub fn encode_generated_candidate_sector<const N: usize>(
     if super::selection::canonical_masks(
         &root,
         request.selected_sectors.as_deref(),
-        request.bundle_limits.max_collection_entries,
+        request
+            .bundle_limits
+            .diagnostic_limit(request.bundle_limits.max_collection_entries),
     )?
     .is_some_and(|selected| {
         selected

@@ -54,6 +54,9 @@ pub enum Error {
 impl Error {
     pub(super) fn from_right_kernel(value: RightKernelError) -> Self {
         match value {
+            RightKernelError::Resource(error) => {
+                Self::ExactAlgebra(ExactAlgebraError::Resource(error))
+            }
             RightKernelError::ResourceLimit {
                 resource,
                 requested,
@@ -175,7 +178,16 @@ impl fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ExactAlgebra(error) => Some(error),
+            Self::Feynman(error) => Some(error),
+            Self::Sector(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<ExactAlgebraError> for Error {
     fn from(value: ExactAlgebraError) -> Self {
@@ -192,5 +204,30 @@ impl From<FeynmanPolynomialError> for Error {
 impl From<sector::Error> for Error {
     fn from(value: sector::Error) -> Self {
         Self::Sector(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use symbolica::utils::resources::ResourceLimitError;
+
+    #[test]
+    fn source_chain_preserves_the_original_denied_allocation() {
+        let resource = ResourceLimitError::Memory {
+            rss_bytes: 8,
+            additional_bytes: 4,
+            limit_bytes: 10,
+        };
+        let failure = Error::Feynman(FeynmanPolynomialError::ExactAlgebra(
+            ExactAlgebraError::Resource(resource.clone()),
+        ));
+        let mut cause: &(dyn std::error::Error + 'static) = &failure;
+        while !cause.is::<ResourceLimitError>() {
+            cause = cause
+                .source()
+                .expect("typed resource cause remains reachable");
+        }
+        assert_eq!(cause.downcast_ref::<ResourceLimitError>(), Some(&resource));
     }
 }

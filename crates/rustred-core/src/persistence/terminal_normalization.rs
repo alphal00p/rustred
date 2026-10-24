@@ -9,7 +9,6 @@ use crate::reduction::terminal_normalization::{
 };
 use crate::sector::OrderingPolicy;
 
-use super::error::check_limit;
 use super::limits::CappedWriter;
 use super::{
     BinaryIoError, BinaryIoLimits, BinaryProgramKind, BinarySection, CoefficientId,
@@ -46,7 +45,7 @@ pub(crate) fn encode(
         entries = entries
             .checked_add(row.len())
             .ok_or(BinaryIoError::Invalid("normalization entry count overflow"))?;
-        check_limit(
+        limits.check_count(
             "normalization entries",
             entries,
             limits.max_collection_entries,
@@ -138,6 +137,7 @@ pub(crate) fn decode(
         return Err(BinaryIoError::Invalid("normalization record count exceeds bytes").into());
     }
     let mut rows = Vec::new();
+    super::resource_array::<Vec<(usize, CoefficientId)>>(count)?;
     rows.try_reserve_exact(count)
         .map_err(|_| allocation("normalization rows", count))?;
     let mut entries = 0usize;
@@ -154,7 +154,7 @@ pub(crate) fn decode(
         entries = entries
             .checked_add(nterms)
             .ok_or(BinaryIoError::Invalid("normalization entry count overflow"))?;
-        check_limit(
+        limits.check_count(
             "normalization entries",
             entries,
             limits.max_collection_entries,
@@ -165,6 +165,7 @@ pub(crate) fn decode(
             );
         }
         let mut row = Vec::new();
+        super::resource_array::<(usize, CoefficientId)>(nterms)?;
         row.try_reserve_exact(nterms)
             .map_err(|_| allocation("normalization row terms", nterms))?;
         let mut previous = None;
@@ -251,23 +252,25 @@ pub(crate) fn decode(
 }
 
 fn check_counts(arity: usize, count: usize, limits: BinaryIoLimits) -> Result<(), BinaryIoError> {
-    check_limit("normalization arity", arity, limits.max_collection_entries)?;
-    check_limit("normalization rows", count, limits.max_collection_entries)?;
+    limits.check_count("normalization arity", arity, limits.max_collection_entries)?;
+    limits.check_count("normalization rows", count, limits.max_collection_entries)?;
     let cells = arity.checked_mul(count).ok_or(BinaryIoError::Invalid(
         "normalization coordinate count overflow",
     ))?;
-    check_limit(
+    limits.check_count(
         "normalization coordinates",
         cells,
         limits.max_collection_entries,
     )
 }
 fn scalar<T: bincode::Encode>(out: &mut impl Write, value: &T) -> Result<(), BinaryIoError> {
+    super::resource_checkpoint()?;
     bincode::encode_into_std_write(value, out, bincode::config::standard())
         .map(|_| ())
-        .map_err(native)
+        .map_err(super::native_encode_error)
 }
 fn read<T: bincode::Decode<()>>(source: &mut &[u8]) -> Result<T, BinaryIoError> {
+    super::resource_checkpoint()?;
     let (value, n) =
         bincode::decode_from_slice(source, bincode::config::standard()).map_err(native)?;
     *source = &source[n..];

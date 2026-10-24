@@ -48,7 +48,7 @@ fn symbolic_three_matrix_product_is_native_and_exactly_bounded() {
         &left,
         &middle,
         &right,
-        SymbolicaCoefficientMatrixLimits::default(),
+        SymbolicaCoefficientMatrixLimits::default().with_diagnostics(),
     )
     .unwrap();
     assert_eq!(
@@ -68,12 +68,13 @@ fn symbolic_three_matrix_product_is_native_and_exactly_bounded() {
     assert!(stats.output_retained_bytes() > 0);
 
     let exact = SymbolicaCoefficientMatrixLimits {
+        diagnostics_enabled: true,
         max_single_matrix_entries: stats.admitted_single_matrix_entries(),
         max_live_matrix_entries: stats.admitted_peak_live_entries(),
         max_exact_operations: stats.admitted_exact_operations(),
         max_input_retained_bytes: stats.input_retained_bytes(),
         max_output_retained_bytes: stats.output_retained_bytes(),
-        ..SymbolicaCoefficientMatrixLimits::default()
+        ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
     };
     let (_, replayed_stats) =
         multiply_three_coefficient_matrices(&context, &left, &middle, &right, exact).unwrap();
@@ -82,36 +83,41 @@ fn symbolic_three_matrix_product_is_native_and_exactly_bounded() {
     for (limits, resource) in [
         (
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_single_matrix_entries: stats.admitted_single_matrix_entries() - 1,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
             "single Symbolica matrix entries",
         ),
         (
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_live_matrix_entries: stats.admitted_peak_live_entries() - 1,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
             "live Symbolica matrix entries",
         ),
         (
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_exact_operations: stats.admitted_exact_operations() - 1,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
             "Symbolica coefficient matrix exact operations",
         ),
         (
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_input_retained_bytes: stats.input_retained_bytes() - 1,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
             "coefficient matrix input retained bytes",
         ),
         (
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_output_retained_bytes: stats.output_retained_bytes() - 1,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
             "coefficient matrix output retained bytes",
         ),
@@ -131,7 +137,7 @@ fn symbolic_three_matrix_product_is_native_and_exactly_bounded() {
             &left,
             &[vec![context.one(), context.zero(), context.zero()]],
             &right,
-            SymbolicaCoefficientMatrixLimits::default(),
+            SymbolicaCoefficientMatrixLimits::default().with_diagnostics(),
         ),
         Err(SymbolicaCoefficientMatrixError::ShapeMismatch { .. })
     ));
@@ -152,7 +158,7 @@ fn symbolic_congruence_uses_native_transpose_and_censuses_its_output() {
         &context,
         &transform,
         &middle,
-        SymbolicaCoefficientMatrixLimits::default(),
+        SymbolicaCoefficientMatrixLimits::default().with_diagnostics(),
     )
     .unwrap();
     assert_eq!(
@@ -173,20 +179,22 @@ fn symbolic_congruence_uses_native_transpose_and_censuses_its_output() {
     assert_eq!(stats.admitted_peak_live_entries(), 16);
 
     let exact = SymbolicaCoefficientMatrixLimits {
+        diagnostics_enabled: true,
         max_single_matrix_entries: stats.admitted_single_matrix_entries(),
         max_live_matrix_entries: stats.admitted_peak_live_entries(),
         max_exact_operations: stats.admitted_exact_operations(),
         max_input_retained_bytes: stats.input_retained_bytes(),
         max_output_retained_bytes: stats.output_retained_bytes(),
-        ..SymbolicaCoefficientMatrixLimits::default()
+        ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
     };
     let (_, replayed_stats) =
         congruence_of_coefficient_matrix(&context, &transform, &middle, exact).unwrap();
     assert_eq!(replayed_stats, stats);
 
     let one_below_output = SymbolicaCoefficientMatrixLimits {
+        diagnostics_enabled: true,
         max_output_retained_bytes: stats.output_retained_bytes() - 1,
-        ..SymbolicaCoefficientMatrixLimits::default()
+        ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
     };
     assert!(matches!(
         congruence_of_coefficient_matrix(&context, &transform, &middle, one_below_output,),
@@ -201,7 +209,7 @@ fn symbolic_congruence_uses_native_transpose_and_censuses_its_output() {
             &context,
             &transform,
             &[vec![context.one()]],
-            SymbolicaCoefficientMatrixLimits::default(),
+            SymbolicaCoefficientMatrixLimits::default().with_diagnostics(),
         ),
         Err(SymbolicaCoefficientMatrixError::ShapeMismatch { .. })
     ));

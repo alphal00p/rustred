@@ -365,12 +365,19 @@ fn affine_partition_roundtrip(require_native_consistency: bool) {
         };
         for max_work in [0, 1] {
             assert!(matches!(
-                install_source_port_with_limits(candidate(), Default::default(), max_work, 32),
+                install_source_port_with_limits(
+                    true,
+                    candidate(),
+                    Default::default(),
+                    max_work,
+                    32
+                ),
                 Err(ArtifactError::ResourceBudgetExhausted {
                     resource: "native affine literal consistency"
                 })
             ));
             let limits = ArtifactLoadLimits {
+                diagnostics_enabled: true,
                 max_predicate_consistency_work: max_work,
                 ..Default::default()
             };
@@ -386,7 +393,13 @@ fn affine_partition_roundtrip(require_native_consistency: bool) {
         let high = 8_388_608;
         for atom_limit in [0, 1, 2] {
             assert!(matches!(
-                install_source_port_with_limits(candidate(), Default::default(), high, atom_limit),
+                install_source_port_with_limits(
+                    true,
+                    candidate(),
+                    Default::default(),
+                    high,
+                    atom_limit
+                ),
                 Err(ArtifactError::ResourceBudgetExhausted {
                     resource: "predicate atoms"
                 })
@@ -395,6 +408,7 @@ fn affine_partition_roundtrip(require_native_consistency: bool) {
                 ClosedArtifact::decode_durable_with_limits(
                     &bytes,
                     ArtifactLoadLimits {
+                        diagnostics_enabled: true,
                         max_predicate_atoms: atom_limit,
                         max_predicate_consistency_work: high,
                         ..Default::default()
@@ -408,7 +422,7 @@ fn affine_partition_roundtrip(require_native_consistency: bool) {
             ));
         }
         assert_eq!(
-            install_source_port_with_limits(candidate(), Default::default(), high, 64)
+            install_source_port_with_limits(true, candidate(), Default::default(), high, 64)
                 .unwrap()
                 .encode_durable()
                 .unwrap(),
@@ -418,6 +432,7 @@ fn affine_partition_roundtrip(require_native_consistency: bool) {
             ClosedArtifact::decode_durable_with_limits(
                 &bytes,
                 ArtifactLoadLimits {
+                    diagnostics_enabled: true,
                     max_predicate_consistency_work: high,
                     max_predicate_atoms: 64,
                     ..Default::default()

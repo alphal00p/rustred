@@ -8,7 +8,10 @@ use rustred::{
     },
 };
 
-use crate::{AppError, SavedApplicationCacheBundleWriter};
+use crate::{AppError, AppErrorKind, SavedApplicationCacheBundleWriter};
+use symbolica::utils::resources::{check_allocation, checkpoint};
+
+use super::{binary_error, resource_error};
 
 #[derive(Clone, Copy)]
 pub(super) struct RecordWeight {
@@ -85,23 +88,22 @@ impl CompletedCacheBatch {
         record: &ApplicationCacheRecord,
         limits: ApplicationCacheIoLimits,
     ) -> Result<RecordWeight, AppError> {
-        if record.terms.len() > limits.max_terms_per_record
-            || record.nonzero_conditions.len() > limits.max_guards_per_record
+        checkpoint().map_err(resource_error)?;
+        if limits.diagnostics_enabled
+            && (record.terms.len() > limits.max_terms_per_record
+                || record.nonzero_conditions.len() > limits.max_guards_per_record)
         {
             return Err(AppError::limit(
                 "completed cache record exceeds per-record IO allowance",
             ));
         }
-        let (terms, coefficient_bytes) = record
+        let (terms, bytes) = record
             .coefficient_census()
-            .map_err(|error| AppError::limit(error.to_string()))?;
-        // Also bound the pending exact-key/record bookkeeping. Coefficients
-        // alone do not account for high-arity zero records.
-        let bytes = coefficient_bytes
-            .checked_add(record.key.owned_heap_bytes())
-            .and_then(|bytes| bytes.checked_add(std::mem::size_of::<ApplicationCacheRecord>()))
-            .ok_or_else(|| AppError::limit("completed cache record byte count overflow"))?;
-        if terms > limits.max_decoded_coefficient_terms
+            .map_err(|error| binary_error(error, AppErrorKind::Limit))?;
+        // This explicit IO capacity covers coefficient payloads. Exact keys,
+        // map nodes and guard storage are checked by the native resource-aware
+        // clone and ambient RSS budget, rather than charged as coefficients.
+        if (limits.diagnostics_enabled && terms > limits.max_decoded_coefficient_terms)
             || bytes > limits.max_decoded_coefficient_bytes
         {
             return Err(AppError::limit(
@@ -111,11 +113,10 @@ impl CompletedCacheBatch {
         Ok(RecordWeight { terms, bytes })
     }
     pub fn needs_flush(&self, weight: RecordWeight, limits: ApplicationCacheIoLimits) -> bool {
-        self.count >= limits.max_records
-            || self
-                .terms
-                .checked_add(weight.terms)
-                .is_none_or(|n| n > limits.max_decoded_coefficient_terms)
+        (limits.diagnostics_enabled && self.count >= limits.max_records)
+            || self.terms.checked_add(weight.terms).is_none_or(|n| {
+                limits.diagnostics_enabled && n > limits.max_decoded_coefficient_terms
+            })
             || self
                 .bytes
                 .checked_add(weight.bytes)
@@ -137,6 +138,8 @@ impl CompletedCacheBatch {
             .namespaces
             .get_mut(namespace)
             .ok_or_else(|| AppError::internal_invariant("unknown cache batch namespace"))?;
+        check_allocation(std::mem::size_of::<ApplicationCacheRecord>() as u64)
+            .map_err(resource_error)?;
         batch
             .records
             .try_reserve(1)
@@ -167,6 +170,7 @@ impl CompletedCacheBatch {
             if batch.records.is_empty() {
                 continue;
             }
+            checkpoint().map_err(resource_error)?;
             let durable = self
                 .durable_records
                 .checked_add(batch.records.len())

@@ -346,15 +346,18 @@ fn bounded_native_limits_remain_caller_owned_in_structural_and_replay_phases() {
     let poisoned = replace(&bytes, SectionTag::SYMBOLICA_STATE, b"poison", false);
     for limits in [
         ArtifactLoadLimits {
+            diagnostics_enabled: true,
             max_index_arity: 0,
             ..Default::default()
         },
         ArtifactLoadLimits {
+            diagnostics_enabled: true,
             max_collection_entries: 0,
             ..Default::default()
         },
         ArtifactLoadLimits {
             cover_replay: ArtifactCoverReplayLimits {
+                diagnostics_enabled: true,
                 max_requested_boxes: 1,
                 ..Default::default()
             },
@@ -362,6 +365,7 @@ fn bounded_native_limits_remain_caller_owned_in_structural_and_replay_phases() {
         },
         ArtifactLoadLimits {
             cover_replay: ArtifactCoverReplayLimits {
+                diagnostics_enabled: true,
                 max_requested_box_coordinate_cells: 1,
                 ..Default::default()
             },
@@ -373,13 +377,14 @@ fn bounded_native_limits_remain_caller_owned_in_structural_and_replay_phases() {
             Err(ArtifactPersistenceError::ResourceLimit { .. })
         ));
     }
-    let mut limits = ArtifactLoadLimits::default();
+    let mut limits = ArtifactLoadLimits::default().with_diagnostics();
     limits.rule_derivation.max_source_rows = 0;
     assert!(matches!(
         ClosedArtifact::decode_durable_with_limits(&bytes, limits),
         Err(ArtifactPersistenceError::ResourceLimit { .. })
     ));
     let limits = ArtifactEncodingLimits {
+        diagnostics_enabled: true,
         max_collection_entries: 0,
         ..Default::default()
     };

@@ -149,6 +149,7 @@ impl Writer {
         additional: usize,
         resource: &'static str,
     ) -> Result<(), ArtifactPersistenceError> {
+        crate::persistence::resource_checkpoint()?;
         let requested = self
             .bytes
             .len()
@@ -159,6 +160,9 @@ impl Writer {
             requested,
             self.limits.max_artifact_bytes,
         )?;
+        if requested > self.bytes.capacity() {
+            crate::persistence::resource_allocation(additional)?;
+        }
         self.bytes.try_reserve_exact(additional).map_err(|_| {
             ArtifactPersistenceError::AllocationFailure {
                 resource,
@@ -194,7 +198,8 @@ impl Writer {
         value: usize,
         resource: &'static str,
     ) -> Result<(), ArtifactPersistenceError> {
-        check_limit(resource, value, self.limits.max_collection_entries)?;
+        self.limits
+            .check_count(resource, value, self.limits.max_collection_entries)?;
         let value = u64::try_from(value)
             .map_err(|_| ArtifactPersistenceError::ResourceCountOverflow { resource })?;
         self.u64(value)
@@ -385,6 +390,7 @@ impl<'input> Reader<'input> {
     }
 
     fn take(&mut self, len: usize) -> Result<&'input [u8], ArtifactPersistenceError> {
+        crate::persistence::resource_checkpoint()?;
         let end = self.offset.checked_add(len).ok_or(
             ArtifactPersistenceError::ResourceCountOverflow {
                 resource: "decoded byte offset",
@@ -447,7 +453,10 @@ impl<'input> Reader<'input> {
         &mut self,
         resource: &'static str,
     ) -> Result<usize, ArtifactPersistenceError> {
-        self.usize(resource, self.limits.max_collection_entries)
+        let value = self.usize(resource, usize::MAX)?;
+        self.limits
+            .check_count(resource, value, self.limits.max_collection_entries)?;
+        Ok(value)
     }
 
     pub(super) fn bytes(
@@ -507,6 +516,7 @@ pub(super) fn check_limit(
     requested: usize,
     limit: usize,
 ) -> Result<(), ArtifactPersistenceError> {
+    crate::persistence::resource_checkpoint()?;
     if requested > limit {
         Err(ArtifactPersistenceError::ResourceLimit {
             resource,
@@ -522,6 +532,7 @@ pub(super) fn try_vec<T>(
     len: usize,
     resource: &'static str,
 ) -> Result<Vec<T>, ArtifactPersistenceError> {
+    crate::persistence::resource_array::<T>(len)?;
     let mut result = Vec::new();
     result
         .try_reserve_exact(len)

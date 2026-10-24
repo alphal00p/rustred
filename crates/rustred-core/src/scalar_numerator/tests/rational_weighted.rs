@@ -41,6 +41,7 @@ fn rational_weighted_mixed_denominator_powers_match_generic_in_two_three_and_fiv
             head,
             labels.clone(),
             ScalarNumeratorLimits {
+                diagnostics_enabled: true,
                 max_lowered_terms: 1,
                 ..Default::default()
             },
@@ -197,6 +198,7 @@ fn rational_weighted_resource_and_input_errors_match_generic() {
             base.clone(),
             Atom::one(),
             ScalarNumeratorLimits {
+                diagnostics_enabled: true,
                 max_polynomial_terms: 1,
                 ..Default::default()
             },
@@ -206,13 +208,14 @@ fn rational_weighted_resource_and_input_errors_match_generic() {
             base.clone(),
             Atom::one(),
             ScalarNumeratorLimits {
+                diagnostics_enabled: true,
                 max_lowered_terms: 1,
                 ..Default::default()
             },
         ),
     ];
     for work in 0..32 {
-        let mut limits = ScalarNumeratorLimits::default();
+        let mut limits = ScalarNumeratorLimits::default().with_diagnostics();
         limits.exact_algebra.max_term_operations = work;
         cases.push((square.clone(), base.clone(), Atom::one(), limits));
     }

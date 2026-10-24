@@ -79,12 +79,13 @@ impl<const N: usize> Engine<'_, N> {
             ));
         }
         let count = remaining as usize + 1;
-        if self
-            .stats
-            .work_items
-            .checked_add(pending.len())
-            .and_then(|n| n.checked_add(count))
-            .is_none_or(|n| n > self.limits.max_work_items)
+        if self.limits.diagnostics_enabled
+            && self
+                .stats
+                .work_items
+                .checked_add(pending.len())
+                .and_then(|n| n.checked_add(count))
+                .is_none_or(|n| n > self.limits.max_work_items)
         {
             return Err(CaseIntersectionFailure::Budget {
                 kind: CaseIntersectionBudget::WorkItems,
@@ -101,6 +102,7 @@ impl<const N: usize> Engine<'_, N> {
         self.check_terms(&equations)?;
         let equations = std::sync::Arc::from(equations);
         for degree in (0..count).rev() {
+            super::checkpoint()?;
             let mut fixed = *self.current.parent.fixed();
             fixed[axis] = Some((-(degree as i32)) as i16);
             let face =
@@ -111,8 +113,8 @@ impl<const N: usize> Engine<'_, N> {
                 ancestry: self.current.ancestry.clone(),
             });
         }
-        self.stats.rank_splits += 1;
-        self.stats.rank_children += count;
+        self.stats.rank_splits = self.stats.rank_splits.saturating_add(1);
+        self.stats.rank_children = self.stats.rank_children.saturating_add(count);
         Ok(true)
     }
 }

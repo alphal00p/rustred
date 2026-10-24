@@ -23,6 +23,7 @@ use super::{ProductSkipReason, TerminalAliasError, TerminalAliasPlan, VacuumPara
 /// Resource bounds, independent of loop count and topology names.
 #[derive(Clone, Copy, Debug)]
 pub struct TerminalNormalizationLimits {
+    pub diagnostics_enabled: bool,
     pub parametric: VacuumParametricLimits,
     pub max_terminals: usize,
     pub max_supports: usize,
@@ -33,6 +34,7 @@ pub struct TerminalNormalizationLimits {
 impl Default for TerminalNormalizationLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             parametric: VacuumParametricLimits::default(),
             max_terminals: 1_000_000,
             max_supports: 100_000,
@@ -199,6 +201,7 @@ impl TerminalNormalizationPlan {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TerminalNormalizationError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     Alias(TerminalAliasError),
     Binary(BinaryIoError),
     Transport(crate::sector::symmetry::integral_transport::Error),
@@ -214,6 +217,7 @@ pub enum TerminalNormalizationError {
 impl fmt::Display for TerminalNormalizationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(f),
             Self::Alias(e) => e.fmt(f),
             Self::Binary(e) => e.fmt(f),
             Self::Transport(e) => e.fmt(f),
@@ -251,8 +255,10 @@ fn check(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), TerminalNormalizationError> {
-    if requested > limit {
+    symbolica::utils::resources::checkpoint().map_err(TerminalNormalizationError::Resources)?;
+    if diagnostics_enabled && requested > limit {
         Err(TerminalNormalizationError::Limit {
             resource,
             requested,
@@ -264,4 +270,12 @@ fn check(
 }
 fn algebra(e: impl fmt::Display) -> TerminalNormalizationError {
     TerminalNormalizationError::ExactAlgebra(e.to_string())
+}
+
+impl TerminalNormalizationLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.parametric = self.parametric.with_diagnostics();
+        self
+    }
 }

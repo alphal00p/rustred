@@ -17,27 +17,33 @@ impl SymbolicaAffineDenominatorCompiler {
         work: &mut ExactWorkBudget,
         projection_work: &mut ProjectionAllocationBudget,
     ) -> Result<Coefficient, SymbolicaAffineDenominatorError> {
-        projection_work.charge(
-            planned_polynomial_clone_census(&coefficient.numerator, self.base_count())?,
-            self.limits,
-            "aggregate projected complete numerator terms",
-        )?;
-        projection_work.charge(
-            planned_polynomial_clone_census(&coefficient.denominator, self.base_count())?,
-            self.limits,
-            "aggregate projected complete denominator terms",
-        )?;
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                planned_polynomial_clone_census(&coefficient.numerator, self.base_count())?,
+                self.limits,
+                "aggregate projected complete numerator terms",
+            )?;
+        }
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                planned_polynomial_clone_census(&coefficient.denominator, self.base_count())?,
+                self.limits,
+                "aggregate projected complete denominator terms",
+            )?;
+        }
         let numerator = project_polynomial_prefix(
             &coefficient.numerator,
             &self.coefficients.template().numerator,
             self.base_count(),
             self.limits.max_combined_exponent_entries,
+            self.limits.diagnostics_enabled,
         )?;
         let denominator = project_polynomial_prefix(
             &coefficient.denominator,
             &self.coefficients.template().denominator,
             self.base_count(),
             self.limits.max_combined_exponent_entries,
+            self.limits.diagnostics_enabled,
         )?;
         self.projected_rational(numerator, denominator, work, projection_work)
     }
@@ -50,11 +56,16 @@ impl SymbolicaAffineDenominatorCompiler {
         projection_work: &mut ProjectionAllocationBudget,
     ) -> Result<Coefficient, SymbolicaAffineDenominatorError> {
         if numerator.is_zero() {
-            projection_work.charge(
-                planned_coefficient_clone_census(self.coefficients.template(), self.base_count())?,
-                self.limits,
-                "aggregate projected zero coefficient terms",
-            )?;
+            if self.limits.diagnostics_enabled {
+                projection_work.charge(
+                    planned_coefficient_clone_census(
+                        self.coefficients.template(),
+                        self.base_count(),
+                    )?,
+                    self.limits,
+                    "aggregate projected zero coefficient terms",
+                )?;
+            }
             return Ok(self.coefficients.zero());
         }
         let numerator: Coefficient = numerator.into();
@@ -68,11 +79,15 @@ impl SymbolicaAffineDenominatorCompiler {
     ) -> Result<(), SymbolicaAffineDenominatorError> {
         self.coefficients
             .validate_with_limits(coefficient, self.limits.exact_algebra)?;
+        if !self.limits.diagnostics_enabled {
+            return Ok(());
+        }
         let census = coefficient_census(coefficient)?;
         check_limit(
             "one projected coefficient integer bits",
             census.integer_bits,
             self.limits.max_projected_integer_bits,
+            self.limits.diagnostics_enabled,
         )
     }
 
@@ -83,6 +98,15 @@ impl SymbolicaAffineDenominatorCompiler {
         work: &mut ExactWorkBudget,
         projection_work: &mut ProjectionAllocationBudget,
     ) -> Result<Coefficient, SymbolicaAffineDenominatorError> {
+        if !self.limits.diagnostics_enabled {
+            let result = self
+                .coefficients
+                .try_add(left, right, self.limits.exact_algebra)?;
+            self.coefficients
+                .validate_with_limits(&result, self.limits.exact_algebra)?;
+            return Ok(result);
+        }
+
         charge_dense_degree_box(
             left,
             right,
@@ -97,11 +121,13 @@ impl SymbolicaAffineDenominatorCompiler {
             BinaryOperation::Add,
             self.base_count(),
         )?;
-        projection_work.charge(
-            allocation.census,
-            self.limits,
-            "aggregate projected exact-operation terms",
-        )?;
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                allocation.census,
+                self.limits,
+                "aggregate projected exact-operation terms",
+            )?;
+        }
         let result = self
             .coefficients
             .try_add(left, right, self.limits.exact_algebra)?;
@@ -117,6 +143,15 @@ impl SymbolicaAffineDenominatorCompiler {
         work: &mut ExactWorkBudget,
         projection_work: &mut ProjectionAllocationBudget,
     ) -> Result<Coefficient, SymbolicaAffineDenominatorError> {
+        if !self.limits.diagnostics_enabled {
+            let result = self
+                .coefficients
+                .try_mul(left, right, self.limits.exact_algebra)?;
+            self.coefficients
+                .validate_with_limits(&result, self.limits.exact_algebra)?;
+            return Ok(result);
+        }
+
         charge_dense_degree_box(
             left,
             right,
@@ -131,11 +166,13 @@ impl SymbolicaAffineDenominatorCompiler {
             BinaryOperation::Multiply,
             self.base_count(),
         )?;
-        projection_work.charge(
-            allocation.census,
-            self.limits,
-            "aggregate projected exact-operation terms",
-        )?;
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                allocation.census,
+                self.limits,
+                "aggregate projected exact-operation terms",
+            )?;
+        }
         let result = self
             .coefficients
             .try_mul(left, right, self.limits.exact_algebra)?;
@@ -151,6 +188,15 @@ impl SymbolicaAffineDenominatorCompiler {
         work: &mut ExactWorkBudget,
         projection_work: &mut ProjectionAllocationBudget,
     ) -> Result<Coefficient, SymbolicaAffineDenominatorError> {
+        if !self.limits.diagnostics_enabled {
+            let result =
+                self.coefficients
+                    .try_div(numerator, denominator, self.limits.exact_algebra)?;
+            self.coefficients
+                .validate_with_limits(&result, self.limits.exact_algebra)?;
+            return Ok(result);
+        }
+
         charge_dense_degree_box(
             numerator,
             denominator,
@@ -165,11 +211,13 @@ impl SymbolicaAffineDenominatorCompiler {
             BinaryOperation::Divide,
             self.base_count(),
         )?;
-        projection_work.charge(
-            allocation.census,
-            self.limits,
-            "aggregate projected exact-operation terms",
-        )?;
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                allocation.census,
+                self.limits,
+                "aggregate projected exact-operation terms",
+            )?;
+        }
         let result =
             self.coefficients
                 .try_div(numerator, denominator, self.limits.exact_algebra)?;
@@ -184,6 +232,7 @@ pub(in crate::input::affine) fn project_polynomial_prefix(
     target_template: &CoefficientPolynomial,
     retained: usize,
     max_exponent_entries: usize,
+    diagnostics_enabled: bool,
 ) -> Result<CoefficientPolynomial, SymbolicaAffineDenominatorError> {
     if target_template.variables().len() != retained {
         return Err(
@@ -214,6 +263,7 @@ pub(in crate::input::affine) fn project_polynomial_prefix(
         "target projection exponent entries",
         target_entries,
         max_exponent_entries,
+        diagnostics_enabled,
     )?;
     let mut target = target_template.zero_with_capacity(source.nterms());
     for (integer, exponents) in source.coefficients.iter().zip(source.exponents_iter()) {
@@ -237,6 +287,7 @@ pub(in crate::input::affine) fn lift_polynomial_prefix(
     target_template: &CoefficientPolynomial,
     retained: usize,
     max_exponent_entries: usize,
+    diagnostics_enabled: bool,
 ) -> Result<CoefficientPolynomial, SymbolicaAffineDenominatorError> {
     if source.variables().len() != retained || target_template.variables().len() < retained {
         return Err(
@@ -255,6 +306,7 @@ pub(in crate::input::affine) fn lift_polynomial_prefix(
         "base lift exponent entries",
         target_entries,
         max_exponent_entries,
+        diagnostics_enabled,
     )?;
     let mut exponent_row = Vec::new();
     exponent_row

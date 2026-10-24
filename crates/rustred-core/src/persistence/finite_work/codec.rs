@@ -35,6 +35,24 @@ impl ValidatedWorkPage {
         max_encoded_bytes: usize,
         max_records: usize,
     ) -> GeneratedWorkResult<Self> {
+        Self::decode_generated_with_diagnostics(
+            bytes,
+            expected,
+            execution,
+            max_encoded_bytes,
+            max_records,
+            false,
+        )
+    }
+    pub fn decode_generated_with_diagnostics(
+        bytes: &[u8],
+        expected: &GeneratedWorkPageRef,
+        execution: &GeneratedExecutionBinding,
+        max_encoded_bytes: usize,
+        max_records: usize,
+        diagnostics_enabled: bool,
+    ) -> GeneratedWorkResult<Self> {
+        checkpoint()?;
         if bytes.len() as u64 != expected.object.bytes
             || blake3::hash(bytes).as_bytes() != &expected.object.digest
         {
@@ -42,7 +60,13 @@ impl ValidatedWorkPage {
         }
         let page: GeneratedWorkPageRecord =
             decode_metadata_frame(PAGE_MAGIC, bytes, max_encoded_bytes)?;
-        let payload_bytes = validate_page_record(&page, expected, execution, max_records)?;
+        let payload_bytes = validate_page_record_with_diagnostics(
+            &page,
+            expected,
+            execution,
+            max_records,
+            diagnostics_enabled,
+        )?;
         Ok(Self {
             execution: page.execution,
             digest: expected.object.digest,
@@ -75,6 +99,7 @@ pub fn work_payload_bytes(
     records: &[GeneratedWorkKey],
     capacity: usize,
 ) -> GeneratedWorkResult<usize> {
+    checkpoint()?;
     let mut bytes = capacity
         .checked_mul(std::mem::size_of::<GeneratedWorkKey>())
         .ok_or_else(|| resource("page capacity overflow"))?;
@@ -91,6 +116,16 @@ pub fn validate_page_record(
     execution: &GeneratedExecutionBinding,
     max_records: usize,
 ) -> GeneratedWorkResult<usize> {
+    validate_page_record_with_diagnostics(page, reference, execution, max_records, false)
+}
+pub fn validate_page_record_with_diagnostics(
+    page: &GeneratedWorkPageRecord,
+    reference: &GeneratedWorkPageRef,
+    execution: &GeneratedExecutionBinding,
+    max_records: usize,
+    diagnostics_enabled: bool,
+) -> GeneratedWorkResult<usize> {
+    checkpoint()?;
     if page.execution != *execution
         || page.records.len() as u64 != reference.records
         || page.records.first() != Some(&reference.first)
@@ -102,10 +137,11 @@ pub fn validate_page_record(
             "finite page execution/range/sort/duplicate mismatch",
         ));
     }
-    if page.records.len() > max_records {
+    if diagnostics_enabled && page.records.len() > max_records {
         return Err(resource("finite page record allowance"));
     }
     for work in &page.records {
+        checkpoint()?;
         work.validate(execution.physical_arity as usize)?;
     }
     work_payload_bytes(&page.records, page.records.capacity())
@@ -117,6 +153,7 @@ pub fn encode_metadata_frame(
     value: &impl bincode::Encode,
     limit: usize,
 ) -> GeneratedWorkResult<Vec<u8>> {
+    checkpoint()?;
     if limit < magic.len() + 32 {
         return Err(resource("finite frame allowance"));
     }
@@ -124,10 +161,12 @@ pub fn encode_metadata_frame(
         bytes: Vec::new(),
         limit: limit - 32,
     };
-    writer.write_all(magic).map_err(resource)?;
+    writer.write_all(magic).map_err(io_resource)?;
     bincode::encode_into_std_write(value, &mut writer, bincode::config::standard())
-        .map_err(resource)?;
+        .map_err(encode_resource)?;
     let digest = blake3::hash(&writer.bytes);
+    allocation(32)?;
+    writer.bytes.try_reserve_exact(32).map_err(resource)?;
     writer.bytes.extend_from_slice(digest.as_bytes());
     Ok(writer.bytes)
 }
@@ -136,12 +175,8 @@ pub fn decode_metadata_frame<T: bincode::Decode<()>>(
     bytes: &[u8],
     limit: usize,
 ) -> GeneratedWorkResult<T> {
-    decode_metadata_frame_with_allocation_limit(
-        magic,
-        bytes,
-        limit,
-        metadata_decode_allowance(limit),
-    )
+    checkpoint()?;
+    decode_metadata_frame_with_allocation_limit(magic, bytes, limit, usize::MAX)
 }
 
 /// Separate encoded permission from the caller's actual decoded-allocation
@@ -163,9 +198,11 @@ pub fn decode_metadata_frame_with_allocation_limit<T: bincode::Decode<()>>(
 }
 
 fn decode_payload<T: bincode::Decode<()>>(bytes: &[u8], budget: usize) -> GeneratedWorkResult<T> {
-    use bincode::de::{Decoder, read::Reader};
+    checkpoint()?;
+    use bincode::de::Decoder;
     let map_error = |error| match error {
         bincode::error::DecodeError::LimitExceeded => resource(error),
+        bincode::error::DecodeError::Io { inner, .. } => io_resource(inner),
         _ => corrupt(error),
     };
     // Bincode's configured limit is const-generic, but its public claim API
@@ -173,7 +210,7 @@ fn decode_payload<T: bincode::Decode<()>>(bytes: &[u8], budget: usize) -> Genera
     // Bincode still checks nested container allocations before reserving them;
     // do not replace this with an unbounded decoder plus a post-decode check.
     let mut decoder = bincode::de::DecoderImpl::new(
-        bincode::de::read::SliceReader::new(bytes),
+        crate::persistence::structure::ResourceReader::new(bytes),
         bincode::config::standard().with_limit::<{ usize::MAX }>(),
         (),
     );
@@ -181,7 +218,7 @@ fn decode_payload<T: bincode::Decode<()>>(bytes: &[u8], budget: usize) -> Genera
         .claim_bytes_read(usize::MAX - budget)
         .map_err(map_error)?;
     let value = T::decode(&mut decoder).map_err(map_error)?;
-    if decoder.reader().peek_read(1).is_some() {
+    if decoder.reader().remaining() != 0 {
         return Err(corrupt("trailing finite frame bytes"));
     }
     Ok(value)
@@ -239,6 +276,7 @@ struct BoundedBytes {
 }
 impl Write for BoundedBytes {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        checkpoint().map_err(std::io::Error::other)?;
         let length = self
             .bytes
             .len()
@@ -251,6 +289,7 @@ impl Write for BoundedBytes {
             let capacity = length
                 .max(self.bytes.capacity().saturating_mul(2))
                 .min(self.limit);
+            allocation(capacity - self.bytes.len()).map_err(std::io::Error::other)?;
             self.bytes
                 .try_reserve_exact(capacity - self.bytes.len())
                 .map_err(std::io::Error::other)?;

@@ -47,10 +47,9 @@ fn context_construction_is_fallible_and_preserves_semantic_error_ordering() {
     let rational = CoefficientContext::new(Vec::<String>::new());
     assert!(matches!(
         IndexedCoefficientContext::try_new(&rational, "allocation-failure", usize::MAX),
-        Err(IndexedAlgebraError::ResourceLimit {
+        Err(IndexedAlgebraError::AllocationFailure {
             resource: "indexed coefficient index variables",
             requested: usize::MAX,
-            limit: 4_096,
         })
     ));
     assert!(matches!(
@@ -59,6 +58,7 @@ fn context_construction_is_fallible_and_preserves_semantic_error_ordering() {
             "allocation-failure",
             usize::MAX,
             IndexedContextLimits {
+                diagnostics_enabled: true,
                 max_index_variables: usize::MAX,
                 max_fingerprint_bytes: usize::MAX,
                 max_native_symbol_name_bytes: usize::MAX,
@@ -82,6 +82,7 @@ fn construction_limits_accept_exact_bounds_and_reject_one_below() {
         .len();
     let native_name_bytes = aggregate_qualified_index_symbol_bytes(index_count).unwrap();
     let exact = IndexedContextLimits {
+        diagnostics_enabled: true,
         max_index_variables: index_count,
         max_fingerprint_bytes: fingerprint_bytes,
         max_native_symbol_name_bytes: native_name_bytes,
@@ -99,6 +100,7 @@ fn construction_limits_accept_exact_bounds_and_reject_one_below() {
             scope,
             index_count,
             IndexedContextLimits {
+                diagnostics_enabled: true,
                 max_index_variables: index_count - 1,
                 ..exact
             },
@@ -115,6 +117,7 @@ fn construction_limits_accept_exact_bounds_and_reject_one_below() {
             scope,
             index_count,
             IndexedContextLimits {
+            diagnostics_enabled: true,
                 max_fingerprint_bytes: fingerprint_bytes - 1,
                 ..exact
             },
@@ -131,6 +134,7 @@ fn construction_limits_accept_exact_bounds_and_reject_one_below() {
             scope,
             index_count,
             IndexedContextLimits {
+            diagnostics_enabled: true,
                 max_native_symbol_name_bytes: native_name_bytes - 1,
                 ..exact
             },
@@ -446,6 +450,7 @@ fn native_result_ingress_retains_index_poles_and_refuses_foreign_maps_and_limits
             .admit_native_result_with_limits(
                 admitted.raw().clone(),
                 ExactAlgebraLimits {
+                    diagnostics_enabled: true,
                     max_polynomial_terms: 0,
                     ..Default::default()
                 },
@@ -530,4 +535,25 @@ fn native_symbol_name_size_is_independent_of_long_semantic_scope() {
     );
     assert!(long.fingerprint().len() > long_scope.len());
     assert!(!long_name.contains("scope-component"));
+}
+
+#[test]
+fn indexed_membership_is_a_pure_predicate_under_an_expired_budget() {
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimits};
+    let base = CoefficientContext::new(["pure_index_membership_parameter"]);
+    let context = IndexedCoefficientContext::try_new(&base, "pure-membership", 1).unwrap();
+    let valid = context.index(0).unwrap();
+    let budget = ResourceBudget::new(ResourceLimits {
+        max_elapsed: Some(std::time::Duration::ZERO),
+        ..Default::default()
+    });
+    budget.run(|| {
+        assert!(context.contains(&valid));
+        assert!(matches!(
+            context.validate_with_limits(&valid, Default::default()),
+            Err(IndexedAlgebraError::ExactAlgebra(
+                ExactAlgebraError::Resource(_)
+            ))
+        ));
+    });
 }

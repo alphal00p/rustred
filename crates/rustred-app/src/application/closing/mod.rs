@@ -29,8 +29,8 @@ use model::{
 };
 
 pub(super) const GENERATE_SCHEMA: &str = "rustred.closing-artifact-generate-output.toml.v2";
-pub(super) const INSPECT_SCHEMA: &str = "rustred.closing-artifact-inspect-output.toml.v4";
-pub(super) const REDUCE_SCHEMA: &str = "rustred.closing-artifact-reduce-output.toml.v3";
+pub(super) const INSPECT_SCHEMA: &str = "rustred.closing-artifact-inspect-output.toml.v5";
+pub(super) const REDUCE_SCHEMA: &str = "rustred.closing-artifact-reduce-output.toml.v4";
 
 const GENERATED_STATUS: &str = "generated-durable";
 const INSPECTED_STATUS: &str = "inspected";
@@ -182,14 +182,7 @@ pub(super) fn inspect_request(
         lifecycle: lifecycle(),
         artifact: artifact_summary(&artifact),
         validation: validation_output(&artifact),
-        load_resources: ResourcePolicyOutput::new(
-            request
-                .load_limits
-                .rule_derivation
-                .max_domain_bound_endpoint_cells,
-            request.load_limits.max_predicate_consistency_work,
-            request.load_limits.max_predicate_atoms,
-        ),
+        load_resources: ResourcePolicyOutput::from(request.load_limits),
     };
     let canonical_toml = render::serialize(&output)?;
     Ok(ClosingArtifactInspectResult::new(
@@ -202,13 +195,6 @@ pub(super) fn inspect_request(
 pub(super) fn reduce_request(
     request: ClosingArtifactReduceRequest,
 ) -> Result<ClosingArtifactReduceResult, AppError> {
-    if request.max_rule_applications > super::MAX_CLOSING_RULE_APPLICATIONS {
-        return Err(AppError::limit(format!(
-            "closing-artifact reduction max_rule_applications is {}, exceeding the application ceiling {}",
-            request.max_rule_applications,
-            super::MAX_CLOSING_RULE_APPLICATIONS
-        )));
-    }
     let artifact = decode_artifact(&request.artifact, request.load_limits)?;
     let target = IntegralKey::try_new(request.target_powers.iter().copied())
         .map_err(|error| AppError::input(format!("invalid reduction target: {error}")))?;
@@ -219,8 +205,11 @@ pub(super) fn reduce_request(
             artifact.arity()
         )));
     }
-    let mut limits = ReductionLimits::default();
-    limits.max_rule_applications = request.max_rule_applications;
+    let limits = ReductionLimits {
+        diagnostics_enabled: request.diagnostics_enabled,
+        max_rule_applications: request.max_rule_applications,
+        ..Default::default()
+    };
     let mut reducer = Reducer::with_limits(&artifact, limits).map_err(|error| {
         map_reduction_error("cannot initialize closing-artifact reducer", error)
     })?;
@@ -279,14 +268,7 @@ pub(super) fn reduce_request(
             cached_coefficient_bytes: statistics.cached_coefficient_bytes(),
         },
         terms: output_terms,
-        load_resources: ResourcePolicyOutput::new(
-            request
-                .load_limits
-                .rule_derivation
-                .max_domain_bound_endpoint_cells,
-            request.load_limits.max_predicate_consistency_work,
-            request.load_limits.max_predicate_atoms,
-        ),
+        load_resources: ResourcePolicyOutput::from(request.load_limits),
     };
     let canonical_toml = render::serialize(&output)?;
     Ok(ClosingArtifactReduceResult::new(
@@ -304,23 +286,16 @@ fn generate_family(selector: ClosingFamilySelector) -> Result<ClosedArtifact, Ap
         ClosingFamilySelector::UnitMassVacuumK1 => derive_one_loop_unit_mass_tadpole(),
         ClosingFamilySelector::UnitMassVacuumK3 => derive_two_loop_unit_mass_sunset(),
     }
-    .map_err(|error| AppError::derivation(format!("cannot generate closing artifact: {error}")))
+    .map_err(|error| {
+        if let Some(resource) = AppError::resource_cause(&error) {
+            AppError::resource(resource)
+        } else {
+            AppError::derivation(format!("cannot generate closing artifact: {error}"))
+        }
+    })
 }
 
-fn decode_artifact(
-    bytes: &[u8],
-    mut limits: ArtifactLoadLimits,
-) -> Result<ClosedArtifact, AppError> {
-    if bytes.len() > super::MAX_CLOSING_ARTIFACT_BYTES {
-        return Err(AppError::limit(format!(
-            "closing artifact has {} bytes, exceeding the application ceiling {}",
-            bytes.len(),
-            super::MAX_CLOSING_ARTIFACT_BYTES
-        )));
-    }
-    limits.max_artifact_bytes = limits
-        .max_artifact_bytes
-        .min(super::MAX_CLOSING_ARTIFACT_BYTES);
+fn decode_artifact(bytes: &[u8], limits: ArtifactLoadLimits) -> Result<ClosedArtifact, AppError> {
     ClosedArtifact::decode_durable_with_limits(bytes, limits).map_err(map_artifact_load_error)
 }
 

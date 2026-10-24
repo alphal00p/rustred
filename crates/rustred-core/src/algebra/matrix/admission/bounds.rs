@@ -26,8 +26,10 @@ pub(in crate::algebra::matrix) fn check_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), SymbolicaCoefficientMatrixError> {
-    if requested > limit {
+    checkpoint()?;
+    if diagnostics_enabled && requested > limit {
         Err(SymbolicaCoefficientMatrixError::ResourceLimit {
             resource,
             requested,
@@ -36,6 +38,12 @@ pub(in crate::algebra::matrix) fn check_limit(
     } else {
         Ok(())
     }
+}
+
+pub(in crate::algebra::matrix) fn checkpoint() -> Result<(), SymbolicaCoefficientMatrixError> {
+    symbolica::utils::resources::checkpoint()
+        .map_err(crate::algebra::ExactAlgebraError::Resource)
+        .map_err(SymbolicaCoefficientMatrixError::ExactAlgebra)
 }
 
 fn square_sum(bound: usize) -> Result<usize, SymbolicaCoefficientMatrixError> {

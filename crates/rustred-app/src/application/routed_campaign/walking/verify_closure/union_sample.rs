@@ -341,18 +341,21 @@ pub(super) fn validate<const N: usize>(
     drop(candidates);
     let next = AtomicUsize::new(0);
     let total = Mutex::new(Stats::default());
+    let resources = symbolica::utils::resources::ResourceBudget::capture_current();
     std::thread::scope(|scope| {
         for _ in 0..threads.max(1) {
             scope.spawn(|| {
-                let mut stats = Stats::default();
-                loop {
-                    let index = next.fetch_add(1, Ordering::Relaxed);
-                    if index >= selected.len() || cancellation.load(Ordering::Relaxed) {
-                        break;
+                resources.run_captured(|| {
+                    let mut stats = Stats::default();
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        if index >= selected.len() || cancellation.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        one(selected[index], domains, &buckets, seed, &mut stats);
                     }
-                    one(selected[index], domains, &buckets, seed, &mut stats);
-                }
-                total.lock().expect("union sample stats").add(&stats);
+                    total.lock().expect("union sample stats").add(&stats);
+                });
             });
         }
     });

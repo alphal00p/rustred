@@ -12,7 +12,7 @@ use super::{
         checked_coefficient_mul_on_map, checked_coefficient_neg_on_map,
         checked_coefficient_sub_on_map, preflight_power_degrees,
     },
-    validation::validate_coefficient_on_map,
+    validation::{validate_coefficient_on_map, validate_coefficient_structure_on_map},
 };
 use crate::algebra::is_exact_plain_symbol;
 
@@ -95,8 +95,7 @@ impl CoefficientContext {
     /// RustRed code uses this check before every proof-bearing composition so
     /// that an undeclared variable cannot be appended implicitly.
     pub fn contains(&self, coefficient: &Coefficient) -> bool {
-        self.validate_with_limits(coefficient, ExactAlgebraLimits::default())
-            .is_ok()
+        validate_coefficient_structure_on_map(coefficient, &self.variables).is_ok()
     }
 
     pub fn validate_with_limits(

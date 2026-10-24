@@ -27,20 +27,33 @@ pub(super) fn normalize_parts(
         "propagators",
         parts.propagators.len(),
         limits.max_propagators,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "external Gram entries",
         parts.external_gram.len(),
         limits.max_gram_entries,
+        limits.diagnostics_enabled,
     )?;
-    check_limit("loop momenta", parts.loop_momenta.len(), limits.max_momenta)?;
+    check_limit(
+        "loop momenta",
+        parts.loop_momenta.len(),
+        limits.max_momenta,
+        limits.diagnostics_enabled,
+    )?;
     check_limit(
         "external momenta",
         parts.external_momenta.len(),
         limits.max_momenta,
+        limits.diagnostics_enabled,
     )?;
     if let Some(parameters) = &parts.parameters {
-        check_limit("parameters", parameters.len(), limits.max_parameters)?;
+        check_limit(
+            "parameters",
+            parameters.len(),
+            limits.max_parameters,
+            limits.diagnostics_enabled,
+        )?;
     }
     // Count caller-owned or independently parsed field Atoms before Gram
     // symmetry and canonical rendering clone any of their packed payloads.
@@ -55,6 +68,7 @@ pub(super) fn normalize_parts(
         "retained project Atom integer bits",
         retained_atom_integer_bits,
         limits.max_retained_atom_integer_bits,
+        limits.diagnostics_enabled,
     )?;
     let retained_atom_base_bytes = checked_mul(
         "retained project Atom bytes",
@@ -65,6 +79,7 @@ pub(super) fn normalize_parts(
         "retained project Atom bytes",
         retained_atom_base_bytes,
         limits.max_retained_atom_bytes,
+        limits.diagnostics_enabled,
     )?;
     authenticate_project_parts(&parts, limits)?;
     if stats.atom_nodes == 0 {
@@ -97,7 +112,12 @@ pub(super) fn normalize_parts(
         .ok_or(Error::ResourceCountOverflow {
             resource: "momenta",
         })?;
-    check_limit("momenta", momentum_count, limits.max_momenta)?;
+    check_limit(
+        "momenta",
+        momentum_count,
+        limits.max_momenta,
+        limits.diagnostics_enabled,
+    )?;
 
     let mut momentum_names = Vec::<&str>::new();
     momentum_names
@@ -207,6 +227,7 @@ pub(super) fn normalize_parts(
                 "inferred parameters",
                 parameters.len(),
                 limits.max_parameters,
+                limits.diagnostics_enabled,
             )?;
             (parameters.clone(), parameters, ParameterSource::Inferred)
         }
@@ -225,6 +246,7 @@ pub(super) fn normalize_parts(
         "canonical nodes",
         prospective_canonical_nodes,
         limits.max_canonical_nodes,
+        limits.diagnostics_enabled,
     )?;
     let canonical_scaffold_bytes = checked_mul(
         "canonical Atom scaffold bytes",
@@ -240,6 +262,7 @@ pub(super) fn normalize_parts(
         "retained project Atom bytes",
         stats.retained_atom_bytes,
         limits.max_retained_atom_bytes,
+        limits.diagnostics_enabled,
     )?;
     stats.retained_atom_integer_bits = checked_add(
         "retained project Atom integer bits",
@@ -254,6 +277,7 @@ pub(super) fn normalize_parts(
         "retained project Atom integer bits",
         stats.retained_atom_integer_bits,
         limits.max_retained_atom_integer_bits,
+        limits.diagnostics_enabled,
     )?;
 
     let mut propagators = Vec::new();
@@ -299,6 +323,7 @@ pub(super) fn normalize_parts(
         canonical.as_view(),
         limits.max_canonical_nodes,
         limits.max_nesting_depth,
+        limits.diagnostics_enabled,
     )?;
     Ok(Project {
         name,

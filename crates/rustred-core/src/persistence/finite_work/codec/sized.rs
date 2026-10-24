@@ -22,6 +22,7 @@ pub fn encode_metadata_frame_repeatable(
     value: &impl bincode::Encode,
     limit: usize,
 ) -> GeneratedWorkResult<Vec<u8>> {
+    checkpoint()?;
     let framing = magic
         .len()
         .checked_add(32)
@@ -36,7 +37,7 @@ pub fn encode_metadata_frame_repeatable(
         },
         bincode::config::standard(),
     );
-    value.encode(&mut counter).map_err(resource)?;
+    value.encode(&mut counter).map_err(encode_resource)?;
     let payload_bytes = counter.into_writer().inner.bytes_written;
     let frame_bytes = framing
         .checked_add(payload_bytes)
@@ -44,15 +45,19 @@ pub fn encode_metadata_frame_repeatable(
         .ok_or_else(|| resource("finite frame size exceeds allowance"))?;
     let payload_end = frame_bytes - 32;
     let mut bytes = Vec::new();
+    allocation(frame_bytes)?;
     bytes.try_reserve_exact(frame_bytes).map_err(resource)?;
     bytes.resize(payload_end, 0);
     bytes[..magic.len()].copy_from_slice(magic);
-    let written = bincode::encode_into_slice(
-        value,
-        &mut bytes[magic.len()..],
+    let mut encoder = EncoderImpl::new(
+        ResourceSliceWriter {
+            bytes: &mut bytes[magic.len()..],
+            written: 0,
+        },
         bincode::config::standard(),
-    )
-    .map_err(resource)?;
+    );
+    value.encode(&mut encoder).map_err(encode_resource)?;
+    let written = encoder.into_writer().written;
     if written != payload_bytes {
         return Err(resource(
             "repeatable metadata changed encoded length between passes",
@@ -71,6 +76,7 @@ struct BoundedSizeWriter {
 impl Writer for BoundedSizeWriter {
     #[inline(always)]
     fn write(&mut self, bytes: &[u8]) -> Result<(), bincode::error::EncodeError> {
+        checkpoint().map_err(budget_error)?;
         let length = self
             .inner
             .bytes_written
@@ -84,5 +90,33 @@ impl Writer for BoundedSizeWriter {
         // SizeWriter's public implementation uses unchecked addition. The
         // preceding check makes its update safe even in optimized builds.
         self.inner.write(bytes)
+    }
+}
+
+fn budget_error(error: GeneratedWorkError) -> bincode::error::EncodeError {
+    bincode::error::EncodeError::Io {
+        inner: std::io::Error::other(error),
+        index: 0,
+    }
+}
+
+struct ResourceSliceWriter<'a> {
+    bytes: &'a mut [u8],
+    written: usize,
+}
+impl Writer for ResourceSliceWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> Result<(), bincode::error::EncodeError> {
+        checkpoint().map_err(budget_error)?;
+        let end = self
+            .written
+            .checked_add(bytes.len())
+            .ok_or(bincode::error::EncodeError::UnexpectedEnd)?;
+        let target = self
+            .bytes
+            .get_mut(self.written..end)
+            .ok_or(bincode::error::EncodeError::UnexpectedEnd)?;
+        target.copy_from_slice(bytes);
+        self.written = end;
+        Ok(())
     }
 }

@@ -58,6 +58,8 @@ pub enum SymbolicExactBackend {
     /// exact replay/publication gates. The bounds are deliberately explicit.
     #[cfg(feature = "reconstruction")]
     SemiNumerical {
+        /// Enforce the optional reconstruction work-count diagnostics.
+        diagnostics_enabled: bool,
         max_degree: u16,
         max_probes: usize,
         max_attempts: usize,
@@ -74,6 +76,8 @@ pub enum SymbolicExactBackend {
     /// unchanged. It grants no stronger integer-point or closure authority.
     #[cfg(feature = "reconstruction")]
     SemiNumericalSourceWeights {
+        /// Enforce the optional reconstruction work-count diagnostics.
+        diagnostics_enabled: bool,
         max_degree: u16,
         max_probes: usize,
         max_attempts: usize,
@@ -420,6 +424,7 @@ impl<const N: usize> Discovery<N> {
 /// Exact replay failed to recover the numerical target pivot.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MaterializationError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     TooManyColumns,
     NonCanonicalRow {
         row: usize,
@@ -458,11 +463,6 @@ pub enum MaterializationError {
         rows: usize,
         forbidden_columns: usize,
     },
-    /// An abort-only embedding cannot interrupt a permanent failure inside
-    /// Symbolica's Option-valued reconstruction oracle. Such hosts must choose
-    /// finite explicit probe/attempt/prime grants rather than unbounded ones.
-    #[cfg(feature = "reconstruction")]
-    SourceWeightUnboundedOracleUnsupported,
 }
 
 /// Native factorized replay of a shared finite-corner trace. Column ordering
@@ -481,6 +481,7 @@ pub(super) fn exact_materialize_factorized_targets<const N: usize>(
 impl fmt::Display for MaterializationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(f),
             Self::TooManyColumns => write!(f, "exact integral-column count does not fit in u32"),
             Self::NonCanonicalRow { row } => {
                 write!(
@@ -528,11 +529,6 @@ impl fmt::Display for MaterializationError {
                 f,
                 "selected {rows}-row source frame/prefix has full generic row rank on its {forbidden_columns} forbidden columns; no terminal circuit exists within this frame/prefix"
             ),
-            #[cfg(feature = "reconstruction")]
-            Self::SourceWeightUnboundedOracleUnsupported => write!(
-                f,
-                "unbounded source-weight reconstruction requires panic=unwind; this host must supply finite probe, attempt and prime grants"
-            ),
             Self::CoefficientVariableMapMismatch => {
                 write!(
                     f,
@@ -565,7 +561,14 @@ impl fmt::Display for MaterializationError {
     }
 }
 
-impl std::error::Error for MaterializationError {}
+impl std::error::Error for MaterializationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 /// Replay pruned original rows over Symbolica's rational-polynomial field.
 ///
@@ -654,6 +657,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     }
     #[cfg(feature = "reconstruction")]
     if let SymbolicExactBackend::SemiNumerical {
+        diagnostics_enabled,
         max_degree,
         max_probes,
         max_attempts,
@@ -666,6 +670,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
             order,
             target_column,
             &variables,
+            diagnostics_enabled,
             max_degree,
             max_probes,
             max_attempts,
@@ -675,6 +680,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     }
     #[cfg(feature = "reconstruction")]
     if let SymbolicExactBackend::SemiNumericalSourceWeights {
+        diagnostics_enabled,
         max_degree,
         max_probes,
         max_attempts,
@@ -690,6 +696,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
             order,
             target_column,
             &variables,
+            diagnostics_enabled,
             max_degree,
             max_probes,
             max_attempts,

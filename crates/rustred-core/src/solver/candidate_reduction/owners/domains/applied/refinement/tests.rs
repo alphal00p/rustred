@@ -153,6 +153,7 @@ fn application_refinement_preflights_whole_partition_and_extra_live_scratch() {
     for (limits, expected) in [
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_boundary_cells: 1,
                 ..base
             },
@@ -160,6 +161,7 @@ fn application_refinement_preflights_whole_partition_and_extra_live_scratch() {
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_scratch_boxes: 13,
                 ..base
             },
@@ -167,6 +169,7 @@ fn application_refinement_preflights_whole_partition_and_extra_live_scratch() {
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_scratch_coordinate_cells: 55,
                 ..base
             },
@@ -189,7 +192,7 @@ fn application_refinement_preflights_whole_partition_and_extra_live_scratch() {
         assert_eq!(budget.stats, before);
     }
     let mut budget = Budget {
-        limits: base,
+        limits: base.with_diagnostics(),
         stats: OwnerAppliedStats {
             boundary_cells: usize::MAX,
             ..Default::default()
@@ -289,6 +292,7 @@ fn application_refinement_reserves_child_beyond_retained_sign_partition_peak() {
         ] {
             let mut budget = Budget {
                 limits: OwnerAppliedLimits {
+                    diagnostics_enabled: true,
                     cell_refinement: policy(2),
                     max_scratch_boxes: boxes,
                     max_scratch_coordinate_cells: coordinates,

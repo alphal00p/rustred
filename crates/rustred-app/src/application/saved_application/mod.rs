@@ -244,7 +244,7 @@ impl TerminalMaps {
                 first
                     .coefficient_context()
                     .validate_with_limits(coefficient, options.reduction_limits.exact_algebra)
-                    .map_err(failure)?;
+                    .map_err(native_failure)?;
             }
             // Decoder-interned guard vectors are immutable and context-bound
             // identically for every row. Validate the shared allocation once.
@@ -253,7 +253,7 @@ impl TerminalMaps {
                     first
                         .coefficient_context()
                         .validate_with_limits(condition, options.reduction_limits.exact_algebra)
-                        .map_err(failure)?;
+                        .map_err(native_failure)?;
                     if condition.is_zero() {
                         return Err(AppError::input(
                             "terminal application has an impossible nonzero condition",
@@ -368,7 +368,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         self.application.owner_preparation_statistics()
     }
     pub fn clear_cache(&mut self) -> Result<(), AppError> {
-        self.application.clear_cache().map_err(failure)
+        self.application.clear_cache().map_err(native_failure)
     }
 
     /// Apply the saved, verified unit-Jacobian entry map without any IBP
@@ -384,7 +384,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         let routed = self
             .application
             .route_entry_to_owner(target)
-            .map_err(failure)?;
+            .map_err(native_failure)?;
         if self.options.entry_coverage_policy
             == SavedApplicationEntryCoveragePolicy::FollowUnresolvedPolicy
         {
@@ -407,7 +407,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         let routed = match self.application.route_entry_to_owner(target) {
             Ok(routed) => routed,
             Err(rustred::solver::CandidateRoutedError::MissingOwner { .. }) => return Ok(false),
-            Err(error) => return Err(failure(error)),
+            Err(error) => return Err(native_failure(error)),
         };
         for (endpoint, coefficient) in routed.terms() {
             if !coefficient.is_zero() && !self.entry_domain.is_admitted(endpoint)? {
@@ -431,7 +431,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 terms,
                 Self::entry_admission(&self.entry_domain, self.options.entry_coverage_policy),
             )
-            .map_err(failure)?;
+            .map_err(native_failure)?;
         self.apply_terminal_substitutions(reduced)
     }
 
@@ -449,7 +449,10 @@ impl<const N: usize> PreparedSavedApplication<N> {
     ) -> Result<SavedApplicationReduction, AppError> {
         let mut inputs = Vec::new();
         for (key, coefficient) in terms {
-            if inputs.len() >= self.options.trace_limits.max_input_targets {
+            symbolica::utils::resources::checkpoint().map_err(AppError::resource)?;
+            if self.options.trace_limits.diagnostics_enabled
+                && inputs.len() >= self.options.trace_limits.max_input_targets
+            {
                 return Err(AppError::limit(
                     "saved application input term limit exceeded",
                 ));
@@ -475,7 +478,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
                     Self::entry_admission(&self.entry_domain, self.options.entry_coverage_policy),
                 )
         }
-        .map_err(failure)?;
+        .map_err(native_failure)?;
         self.apply_terminal_substitutions_progress(reduced, progress)
     }
 
@@ -538,7 +541,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
                         coefficient,
                         self.options.reduction_limits.exact_algebra,
                     )
-                    .map_err(failure)?;
+                    .map_err(native_failure)?;
                 if value.is_zero() {
                     continue;
                 }
@@ -547,7 +550,8 @@ impl<const N: usize> PreparedSavedApplication<N> {
                         additions = additions
                             .checked_add(1)
                             .filter(|&n| {
-                                n <= self.options.reduction_limits.max_coalescing_additions
+                                !self.options.reduction_limits.diagnostics_enabled
+                                    || n <= self.options.reduction_limits.max_coalescing_additions
                             })
                             .ok_or_else(|| {
                                 AppError::limit("terminal substitution addition limit exceeded")
@@ -558,7 +562,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
                                 &value,
                                 self.options.reduction_limits.exact_algebra,
                             )
-                            .map_err(failure)?
+                            .map_err(native_failure)?
                     }
                     None => value,
                 };
@@ -620,8 +624,11 @@ impl<const N: usize> PreparedSavedApplication<N> {
     ) -> Result<Self, AppError> {
         let started = Instant::now();
         options.validate_preparation()?;
-        let (selection, arity, limits) =
-            Selection::parse_with_byte_limit(&inputs.selection, package::metadata_limit(policy)?)?;
+        let (selection, arity, limits) = Selection::parse_with_diagnostics(
+            &inputs.selection,
+            package::metadata_limit(policy)?,
+            options.binary_limits.diagnostics_enabled,
+        )?;
         if arity > N {
             return Err(AppError::input(format!(
                 "saved application arity {arity} exceeds storage arity {N}"
@@ -736,13 +743,13 @@ impl<const N: usize> PreparedSavedApplication<N> {
         }
         application
             .set_unresolved_policy(options.unresolved_policy)
-            .map_err(failure)?;
+            .map_err(native_failure)?;
         application
             .set_cache_representation(options.cache_representation)
-            .map_err(failure)?;
+            .map_err(native_failure)?;
         application
             .set_cache_policy(options.cache_policy)
-            .map_err(failure)?;
+            .map_err(native_failure)?;
         metadata["owner_preparation"] =
             serde_json::json!(if deferred { "on_first_use" } else { "eager" });
         metadata["preparation_workers"] = serde_json::json!(options.preparation_workers);
@@ -764,6 +771,10 @@ impl<const N: usize> PreparedSavedApplication<N> {
 
 fn failure(error: impl std::fmt::Display) -> AppError {
     AppError::execution(error.to_string())
+}
+
+fn native_failure(error: impl std::error::Error + 'static) -> AppError {
+    AppError::from_native(error, crate::AppErrorKind::Execution)
 }
 
 fn append_conditions<'a>(

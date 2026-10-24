@@ -59,7 +59,10 @@ pub(super) fn scan_store(
         chunk_bytes = chunk_bytes
             .checked_add(entry.metadata().map_err(fail)?.len())
             .ok_or_else(|| fail("physical cache bytes overflow"))?;
-        if chunks > limits.max_chunks || chunk_bytes > limits.max_disk_bytes {
+        resource_checkpoint()?;
+        if (limits.diagnostics_enabled && chunks > limits.max_chunks)
+            || chunk_bytes > limits.max_disk_bytes
+        {
             return Err(AppError::limit("resumed cache disk allowance exceeded"));
         }
     }
@@ -103,7 +106,10 @@ pub(super) fn staging_bytes(
         bytes = bytes
             .checked_add(entry.metadata().map_err(fail)?.len())
             .ok_or_else(|| fail("cache staging byte overflow"))?;
-        if count > limits.max_chunks || bytes > limits.max_disk_bytes {
+        resource_checkpoint()?;
+        if (limits.diagnostics_enabled && count > limits.max_chunks)
+            || bytes > limits.max_disk_bytes
+        {
             return Err(AppError::limit("cache staging allowance exceeded"));
         }
     }
@@ -137,7 +143,7 @@ impl WriteState {
     pub fn write(&mut self, path: &Path, bytes: &[u8], force: bool) -> Result<(), AppError> {
         self.ensure_open()?;
         self.poisoned = true;
-        crate::application::atomic_file::write_file_atomically(path, bytes, force).map_err(fail)?;
+        crate::application::atomic_file::write_file_atomically_resource(path, bytes, force)?;
         #[cfg(test)]
         if std::mem::take(&mut self.fail_after_install) {
             return Err(fail("injected post-install directory-sync failure"));

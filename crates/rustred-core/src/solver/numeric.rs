@@ -399,7 +399,7 @@ fn exact_materialize_many_using<const N: usize>(
             order,
             &target_columns,
         )
-        .map_err(|error| SolverError::ExactReplay(error.to_string()));
+        .map_err(SolverError::exact_replay);
     }
     let mut reducer =
         SparseRowReducer::new(ncolumns, RationalPolynomialField::new(Z), LuLMode::None);

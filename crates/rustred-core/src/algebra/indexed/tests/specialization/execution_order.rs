@@ -85,6 +85,7 @@ fn fixed_zero_annihilation_respects_tiny_integer_budget_in_both_orders() {
         let mut fixed = [(zero_index, 0), (power_index, i64::MAX)];
         fixed.sort_unstable_by_key(|(index, _)| *index);
         let limits = IndexedAlgebraLimits {
+            diagnostics_enabled: true,
             max_specialization_integer_bits: 0,
             ..Default::default()
         };
@@ -115,6 +116,7 @@ fn fixed_i64_min_uses_the_unsigned_magnitude_preflight() {
     let context = IndexedCoefficientContext::try_new(&base, "fixed-i64-min", 2).unwrap();
     let value = context.index(0).unwrap();
     let exact = IndexedAlgebraLimits {
+        diagnostics_enabled: true,
         max_specialization_integer_bits: 65,
         ..Default::default()
     };
@@ -131,6 +133,7 @@ fn fixed_i64_min_uses_the_unsigned_magnitude_preflight() {
         assert!(guard.raw.is_one());
         assert_eq!(
             specialize(IndexedAlgebraLimits {
+                diagnostics_enabled: true,
                 max_specialization_integer_bits: 64,
                 ..exact
             }),
@@ -163,6 +166,7 @@ fn absent_fixed_variables_do_not_bypass_prospective_limits() {
             assert_eq!(specialize(Default::default()).unwrap(), source);
             assert_eq!(
                 specialize(IndexedAlgebraLimits {
+                    diagnostics_enabled: true,
                     max_specialization_power_operations: 0,
                     ..Default::default()
                 }),
@@ -174,6 +178,7 @@ fn absent_fixed_variables_do_not_bypass_prospective_limits() {
             );
             assert_eq!(
                 specialize(IndexedAlgebraLimits {
+                    diagnostics_enabled: true,
                     max_specialization_integer_bits: 0,
                     ..Default::default()
                 }),

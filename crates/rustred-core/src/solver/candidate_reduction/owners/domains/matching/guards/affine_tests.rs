@@ -280,6 +280,7 @@ fn affine_guard_box_input_limits_and_fallback_native_errors_are_not_bypassed() {
             [None, None, Some(0)],
             Some(0),
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_input_terms: 1,
                 ..Default::default()
             }
@@ -296,6 +297,7 @@ fn affine_guard_box_input_limits_and_fallback_native_errors_are_not_bypassed() {
             [None, None, Some(0)],
             Some(0),
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_gcd_factor_work: 0,
                 ..Default::default()
             }
@@ -326,6 +328,7 @@ fn affine_guard_box_optional_scratch_admission_and_empty_rank_do_not_invent_proo
             Some(0),
             Default::default(),
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_total_integer_bits: 1,
                 ..Default::default()
             }
@@ -340,6 +343,7 @@ fn affine_guard_box_optional_scratch_admission_and_empty_rank_do_not_invent_proo
             &OWNER,
             Some(0),
             IndexedAlgebraLimits {
+                diagnostics_enabled: true,
                 max_specialization_integer_bits: 1,
                 ..Default::default()
             },

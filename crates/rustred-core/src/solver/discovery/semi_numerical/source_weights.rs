@@ -9,7 +9,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use symbolica::domains::finite_field::{FiniteFieldCore, PrimeIteratorU64, Zp64};
 use symbolica::poly::reconstruction::{
     RationalReconstructionStats, ReconstructionError, ReconstructionMethod, ReconstructionOptions,
-    reconstruct_rational_function_over_q,
+    reconstruct_rational_function_over_q_fallible,
 };
 
 use crate::algebra::Coefficient;
@@ -37,6 +37,7 @@ pub(super) fn invalid(message: impl Into<String>) -> MaterializationError {
 
 #[derive(Clone, Copy)]
 struct Limits {
+    diagnostics_enabled: bool,
     max_degree: u16,
     max_probes: usize,
     max_attempts: usize,
@@ -78,6 +79,7 @@ pub(in super::super) fn materialize<const N: usize>(
     order: &IntegralOrder<N>,
     target_column: usize,
     variables: &FrameVariables,
+    diagnostics_enabled: bool,
     max_degree: u16,
     max_probes: usize,
     max_attempts: usize,
@@ -101,15 +103,20 @@ pub(in super::super) fn materialize<const N: usize>(
     if variables.active_len() == 0 {
         return Err(invalid("at least one coefficient variable is required"));
     }
-    if max_degree == 0 || max_probes == 0 || max_attempts == 0 || max_primes < 2 {
+    if diagnostics_enabled
+        && (max_degree == 0 || max_probes == 0 || max_attempts == 0 || max_primes < 2)
+    {
         return Err(invalid("invalid native reconstruction options"));
     }
-    if max_cached_images == 0 || max_cached_values == 0 || max_weight_slots == 0 {
+    if diagnostics_enabled
+        && (max_cached_images == 0 || max_cached_values == 0 || max_weight_slots == 0)
+    {
         return Err(invalid(
             "cache and source-weight slot budgets must be positive",
         ));
     }
     let limits = Limits {
+        diagnostics_enabled,
         max_degree,
         max_probes,
         max_attempts,
@@ -199,30 +206,17 @@ struct ReconstructedFrame {
 }
 
 fn validate_oracle_grants(_limits: Limits) -> Result<(), MaterializationError> {
-    if _limits.max_degree > u16::MAX / 2 {
+    if _limits.diagnostics_enabled && _limits.max_degree > u16::MAX / 2 {
         return Err(invalid(
             "Symbolica's native doubled-degree exponent representation requires max_degree <= u16::MAX/2",
         ));
     }
-    #[cfg(not(panic = "unwind"))]
-    if _limits.max_probes == usize::MAX
-        || _limits.max_attempts == usize::MAX
-        || _limits.max_primes == usize::MAX
-    {
-        return Err(MaterializationError::SourceWeightUnboundedOracleUnsupported);
-    }
     Ok(())
 }
 
-// Symbolica's public callback returns Option, so None means an unusable sample,
-// not a permanent caller-side error. Returning None forever after a certified
-// frame miss or resource refusal would make unbounded native retries spin.
-// This private control marker crosses only one native Rust call. Foreign native
-// panics are resumed untouched; this is not a library-panic containment promise.
-// Abort-only hosts never invoke this bridge and require explicit finite grants.
-#[cfg(panic = "unwind")]
-struct OracleFailureAbort;
-
+// The checked oracle distinguishes unusable specializations from permanent
+// native errors. Keep the original typed error locally, rather than round-trip
+// its scientific/resource identity through a numerical callback string.
 fn reconstruct_pass(
     cache: &mut ImageCache<'_>,
     variables: &FrameVariables,
@@ -234,36 +228,32 @@ fn reconstruct_pass(
     Result<(Coefficient, RationalReconstructionStats), ReconstructionError>,
     MaterializationError,
 > {
-    let mut operation = || {
-        reconstruct_rational_function_over_q(
-            variables.active_variables(),
-            |field, point| {
-                *observed_probes = observed_probes.and_then(|count| count.checked_add(1));
-                let value = cache.coefficient(field, point, slot);
-                #[cfg(panic = "unwind")]
-                if cache.has_failure() {
-                    // resume_unwind deliberately avoids the global panic hook.
-                    std::panic::resume_unwind(Box::new(OracleFailureAbort));
-                }
-                value
-            },
-            ReconstructionMethod::Automatic,
-            options,
-            max_primes,
-        )
-    };
-    #[cfg(panic = "unwind")]
-    let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(&mut operation)) {
-        Ok(result) => result,
-        Err(payload) if payload.is::<OracleFailureAbort>() => {
-            cache.check_failure()?;
-            return Err(invalid("oracle abort marker has no permanent failure"));
-        }
-        Err(payload) => std::panic::resume_unwind(payload),
-    };
-    #[cfg(not(panic = "unwind"))]
-    let result = operation();
-    cache.check_failure()?;
+    let mut oracle_failure = None;
+    let result = reconstruct_rational_function_over_q_fallible(
+        variables.active_variables(),
+        |field, point| {
+            *observed_probes = observed_probes.and_then(|count| count.checked_add(1));
+            let value = cache.coefficient(field, point, slot);
+            if let Err(error) = cache.check_failure() {
+                let signal = match crate::reduction::resource_limit_error(&error) {
+                    Some(resource) => ReconstructionError::ResourceLimit(resource.clone()),
+                    None => ReconstructionError::OracleFailure(error.to_string()),
+                };
+                oracle_failure = Some(error);
+                return Err(signal);
+            }
+            Ok(value)
+        },
+        ReconstructionMethod::Automatic,
+        options,
+        max_primes,
+    );
+    if let Some(error) = oracle_failure {
+        return Err(error);
+    }
+    if let Err(ReconstructionError::ResourceLimit(error)) = result {
+        return Err(MaterializationError::Resources(error));
+    }
     Ok(result)
 }
 
@@ -284,6 +274,21 @@ fn reconstruct_scalar(
         cache::Slot::Target(column) => format!("target column {column}"),
         cache::Slot::Weight(source) => format!("source weight {source}"),
     };
+    if !options.diagnostics_enabled {
+        let mut observed_probes = Some(0);
+        return reconstruct_pass(cache, variables, slot, options, 2, &mut observed_probes)?
+            .map(|(value, stats)| {
+                (
+                    value,
+                    ScalarWork {
+                        probes: observed_probes,
+                        primes: Some(stats.primes),
+                        passes: 1,
+                    },
+                )
+            })
+            .map_err(|error| invalid(format!("{label} reconstruction failed: {error}")));
+    }
     let mut window = options.clone();
     let growing_passes = options.max_probes == usize::MAX
         || options.max_attempts == usize::MAX
@@ -381,10 +386,12 @@ fn reconstruct_frame(
     let mut primes_exhausted = false;
     let mut active_primes = Vec::new();
     loop {
-        if !primes_exhausted && primes_started < limits.max_primes {
+        symbolica::utils::resources::checkpoint().map_err(MaterializationError::Resources)?;
+        if !primes_exhausted && (!limits.diagnostics_enabled || primes_started < limits.max_primes)
+        {
             if let Some(prime) = primes.next() {
                 active_primes.push((Zp64::new(prime), 0usize));
-                primes_started += 1;
+                primes_started = primes_started.saturating_add(1);
             } else {
                 primes_exhausted = true;
             }
@@ -394,7 +401,7 @@ fn reconstruct_frame(
         // point grant at a globally bad prime cannot starve every later prime.
         // Every explicit per-prime point grant is still available in full.
         for (field, probes) in &mut active_primes {
-            *probes += 1;
+            *probes = probes.saturating_add(1);
             let prime = field.get_prime();
             let point: Vec<_> = (0..variables.active_len())
                 .map(|_| field.to_element(random.random_range(1..prime)))
@@ -417,8 +424,13 @@ fn reconstruct_frame(
         if admitted.is_some() {
             break;
         }
-        active_primes.retain(|(_, probes)| *probes < limits.max_probes);
-        if active_primes.is_empty() && (primes_exhausted || primes_started == limits.max_primes) {
+        if limits.diagnostics_enabled {
+            active_primes.retain(|(_, probes)| *probes < limits.max_probes);
+        }
+        if active_primes.is_empty()
+            && (primes_exhausted
+                || (limits.diagnostics_enabled && primes_started == limits.max_primes))
+        {
             break;
         }
     }
@@ -430,7 +442,12 @@ fn reconstruct_frame(
     // silently removed to obtain a more convenient rank certificate.
     cache.freeze(chronology);
     let options = ReconstructionOptions {
-        max_degree: limits.max_degree,
+        diagnostics_enabled: limits.diagnostics_enabled,
+        max_degree: if limits.diagnostics_enabled {
+            limits.max_degree
+        } else {
+            ReconstructionOptions::default().max_degree
+        },
         max_probes: limits.max_probes,
         max_attempts: limits.max_attempts,
         verification_points: 3,

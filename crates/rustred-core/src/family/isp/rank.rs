@@ -41,13 +41,19 @@ pub(super) fn preflight_rank_matrix(
     rows: usize,
     columns: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), IspCompletionError> {
     let entries = rows
         .checked_mul(columns)
         .ok_or(IspCompletionError::ResourceCountOverflow {
             resource: "automatic ISP rank matrix entries",
         })?;
-    check_limit("automatic ISP rank matrix entries", entries, limit)
+    check_limit(
+        "automatic ISP rank matrix entries",
+        entries,
+        limit,
+        diagnostics_enabled,
+    )
 }
 
 pub(super) fn authenticate_input_rows(
@@ -110,13 +116,22 @@ impl RankBudget {
             "automatic ISP rank tests",
             self.tests,
             self.limits.max_rank_tests,
+            self.limits.diagnostics_enabled,
         )?;
         let columns = matrix.first().map_or(0, Vec::len);
-        preflight_rank_matrix(matrix.len(), columns, self.limits.max_rank_matrix_entries)?;
+        preflight_rank_matrix(
+            matrix.len(),
+            columns,
+            self.limits.max_rank_matrix_entries,
+            self.limits.diagnostics_enabled,
+        )?;
         preflight_rank_coefficients(matrix.iter().flatten(), self.limits)
     }
 
     fn remaining_operations(&self) -> Result<usize, IspCompletionError> {
+        if !self.limits.diagnostics_enabled {
+            return Ok(usize::MAX);
+        }
         self.limits
             .max_rank_operations
             .checked_sub(self.operations)
@@ -137,6 +152,7 @@ impl RankBudget {
             "automatic ISP rank operations",
             requested,
             self.limits.max_rank_operations,
+            self.limits.diagnostics_enabled,
         )?;
         self.operations = requested;
         Ok(())
@@ -159,6 +175,7 @@ pub(super) fn checked_row_rank(
     budget.start_test(matrix)?;
     let operations_before = budget.operations;
     let native_limits = SymbolicaCoefficientMatrixLimits {
+        diagnostics_enabled: budget.limits.diagnostics_enabled,
         exact_algebra: budget.limits.family.exact_algebra,
         max_single_matrix_entries: budget.limits.max_rank_matrix_entries,
         max_live_matrix_entries: budget.limits.max_rank_matrix_entries,
@@ -170,6 +187,7 @@ pub(super) fn checked_row_rank(
         rank_of_coefficient_matrix(context, matrix, native_limits).map_err(|error| {
             map_symbolica_rank_error(error, operations_before, budget.limits.max_rank_operations)
         })?;
+    checkpoint()?;
     if stats.rank_calls() != 1 {
         return Err(IspCompletionError::InternalVerificationFailure {
             detail: format!(
@@ -279,6 +297,10 @@ pub(super) fn preflight_rank_coefficients<'coefficient>(
     coefficients: impl IntoIterator<Item = &'coefficient Coefficient>,
     limits: IspCompletionLimits,
 ) -> Result<(), IspCompletionError> {
+    checkpoint()?;
+    if !limits.diagnostics_enabled {
+        return Ok(());
+    }
     let mut coefficient_terms = 0usize;
     let mut coefficient_bytes = 0usize;
     for coefficient in coefficients {
@@ -298,6 +320,7 @@ pub(super) fn preflight_rank_coefficients<'coefficient>(
             "automatic ISP rank coefficient terms",
             coefficient_terms,
             limits.max_rank_coefficient_terms,
+            limits.diagnostics_enabled,
         )?;
         coefficient_bytes = checked_coefficient_display_bytes(
             coefficient_bytes,
@@ -331,7 +354,12 @@ pub(super) fn checked_coefficient_display_bytes(
             .ok_or(IspCompletionError::ResourceCountOverflow {
                 resource: "automatic ISP rank coefficient bytes",
             })?;
-    check_limit("automatic ISP rank coefficient bytes", requested, limit)?;
+    check_limit(
+        "automatic ISP rank coefficient bytes",
+        requested,
+        limit,
+        true,
+    )?;
     Ok(requested)
 }
 
@@ -354,8 +382,10 @@ pub(super) fn check_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), IspCompletionError> {
-    if requested > limit {
+    checkpoint()?;
+    if diagnostics_enabled && requested > limit {
         Err(IspCompletionError::ResourceLimit {
             resource,
             requested,
@@ -364,4 +394,10 @@ pub(super) fn check_limit(
     } else {
         Ok(())
     }
+}
+
+pub(super) fn checkpoint() -> Result<(), IspCompletionError> {
+    symbolica::utils::resources::checkpoint()
+        .map_err(ExactAlgebraError::Resource)
+        .map_err(IspCompletionError::ExactAlgebra)
 }

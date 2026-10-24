@@ -129,12 +129,14 @@ pub(super) fn aggregate_qualified_index_symbol_bytes(
 pub(super) fn preflight_qualified_index_symbols(
     index_count: usize,
     max_native_symbol_name_bytes: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), IndexedAlgebraError> {
     let requested = aggregate_qualified_index_symbol_bytes(index_count)?;
     check_limit(
         "indexed coefficient aggregate Symbolica name bytes",
         requested,
         max_native_symbol_name_bytes,
+        diagnostics_enabled,
     )
 }
 
@@ -152,12 +154,13 @@ pub(super) fn qualified_index_symbol(position: usize) -> Result<String, IndexedA
 pub(super) fn base_context_fingerprint(
     base: &CoefficientContext,
 ) -> Result<String, IndexedAlgebraError> {
-    base_context_fingerprint_with_limit(base, usize::MAX)
+    base_context_fingerprint_with_limit(base, usize::MAX, false)
 }
 
 pub(super) fn base_context_fingerprint_with_limit(
     base: &CoefficientContext,
     max_fingerprint_bytes: usize,
+    diagnostics_enabled: bool,
 ) -> Result<String, IndexedAlgebraError> {
     let resource = "indexed coefficient base-context fingerprint bytes";
     let mut requested = checked_string_add(
@@ -171,7 +174,12 @@ pub(super) fn base_context_fingerprint_with_limit(
         requested = checked_string_add(resource, requested, 1)?;
         requested = checked_string_add(resource, requested, name.len())?;
     }
-    check_limit(resource, requested, max_fingerprint_bytes)?;
+    check_limit(
+        resource,
+        requested,
+        max_fingerprint_bytes,
+        diagnostics_enabled,
+    )?;
 
     let mut result = try_string_with_capacity(resource, requested)?;
     result.push_str(BASE_CONTEXT_PREFIX);
@@ -206,6 +214,7 @@ pub(super) fn indexed_context_fingerprint_segments(
         scope,
         index_count,
         usize::MAX,
+        false,
     )
 }
 
@@ -214,6 +223,7 @@ pub(super) fn indexed_context_fingerprint_segments_with_limit(
     scope: &[&str],
     index_count: usize,
     max_fingerprint_bytes: usize,
+    diagnostics_enabled: bool,
 ) -> Result<String, IndexedAlgebraError> {
     let resource = "indexed coefficient context fingerprint bytes";
     let mut scope_len = 0usize;
@@ -231,7 +241,12 @@ pub(super) fn indexed_context_fingerprint_segments_with_limit(
     requested = checked_string_add(resource, requested, scope_len)?;
     requested = checked_string_add(resource, requested, INDEXED_CONTEXT_INDEX_SEPARATOR.len())?;
     requested = checked_string_add(resource, requested, decimal_digits(index_count))?;
-    check_limit(resource, requested, max_fingerprint_bytes)?;
+    check_limit(
+        resource,
+        requested,
+        max_fingerprint_bytes,
+        diagnostics_enabled,
+    )?;
 
     let mut result = try_string_with_capacity(resource, requested)?;
     result.push_str(INDEXED_CONTEXT_PREFIX);
@@ -289,7 +304,7 @@ mod tests {
             overhead + super::decimal_digits(usize::MAX)
         );
         assert!(matches!(
-            preflight_qualified_index_symbols(usize::MAX, usize::MAX),
+            preflight_qualified_index_symbols(usize::MAX, usize::MAX, true),
             Err(IndexedAlgebraError::ResourceCountOverflow {
                 resource: "indexed coefficient aggregate Symbolica name bytes",
             })

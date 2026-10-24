@@ -23,6 +23,9 @@ pub mod input;
 pub mod persistence;
 mod platform;
 pub mod reduction;
+/// Shared, cooperative RAM and elapsed-time budgets. A single scoped budget
+/// can span ingress, exact algebra, routing, and lower-family reduction.
+pub use symbolica::utils::resources;
 pub mod scalar_numerator;
 pub mod sector;
 pub mod solver;

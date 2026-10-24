@@ -518,6 +518,7 @@ mod lift_grant_tests {
         let context = IndexedCoefficientContext::try_new(&base, "lift-grant-test", 1).unwrap();
         let value = base.coefficient_fixture("lift_grant_x+1");
         let small = ExactAlgebraLimits {
+            diagnostics_enabled: true,
             max_polynomial_terms: 1,
             ..ExactAlgebraLimits::unbounded_resources()
         };

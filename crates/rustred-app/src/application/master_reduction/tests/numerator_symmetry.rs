@@ -195,6 +195,7 @@ fn saved_symmetry_resources_follow_the_ram_guard_without_changing_flag_off_defau
     assert_eq!(
         request.reduction_limits,
         ReductionLimits {
+            diagnostics_enabled: false,
             exact_algebra: ExactAlgebraLimits::unbounded_resources(),
             indexed_algebra: IndexedAlgebraLimits::unbounded_resources(),
             max_rule_applications: usize::MAX,
@@ -209,6 +210,7 @@ fn saved_symmetry_resources_follow_the_ram_guard_without_changing_flag_off_defau
     assert_eq!(
         request.trace_limits,
         RoutedCandidateLimits {
+            diagnostics_enabled: false,
             max_input_targets: usize::MAX,
             max_unique_nodes: usize::MAX,
             max_transport_calls: usize::MAX,

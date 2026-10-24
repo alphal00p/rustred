@@ -243,6 +243,7 @@ fn bounded_route_impossible_weighted_pinches_consume_mask_allowance() {
             &[None; 3],
             Some(2),
             CandidateDomainRouteLimits {
+                diagnostics_enabled: true,
                 max_masks: 2,
                 ..Default::default()
             },
@@ -365,6 +366,7 @@ fn bounded_route_cancellation_stop_and_coordinate_budget_preserve_prefix() {
                 &[None; 3],
                 Some(4),
                 CandidateDomainRouteLimits {
+                    diagnostics_enabled: true,
                     max_coordinate_cells: cells,
                     ..Default::default()
                 },

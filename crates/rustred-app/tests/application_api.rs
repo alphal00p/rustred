@@ -200,20 +200,29 @@ fn public_application_operations_are_byte_identical_to_the_cli() {
 
 #[test]
 fn public_application_limits_fail_before_semantic_work() {
-    let oversized = "x".repeat(MAX_INPUT_BYTES + 1);
-    let oversized_error = derive(DeriveRequest::new(oversized)).unwrap_err();
-    assert_eq!(oversized_error.kind(), AppErrorKind::Limit);
-    assert!(oversized_error.message().contains("application limit"));
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
 
-    let oversized_campaign = "x".repeat(MAX_INPUT_BYTES + 1);
-    let campaign_error =
-        foundry_campaign_run(FoundryCampaignRunRequest::new(oversized_campaign)).unwrap_err();
+    assert_eq!(MAX_INPUT_BYTES, usize::MAX);
+    let budget = ResourceBudget::new(ResourceLimits {
+        max_elapsed: Some(std::time::Duration::ZERO),
+        ..Default::default()
+    });
+    let input_error = budget
+        .run(|| derive(DeriveRequest::new(ONE_LOOP)))
+        .unwrap_err();
+    assert_eq!(input_error.kind(), AppErrorKind::Limit);
+    assert!(matches!(
+        input_error.resource_limit_error(),
+        Some(ResourceLimitError::Elapsed { .. })
+    ));
+    let campaign_error = budget
+        .run(|| foundry_campaign_run(FoundryCampaignRunRequest::new(FOUNDRY_CAMPAIGN)))
+        .unwrap_err();
     assert_eq!(campaign_error.kind(), AppErrorKind::Limit);
-    assert!(
-        campaign_error
-            .message()
-            .contains("foundry campaign configuration")
-    );
+    assert!(matches!(
+        campaign_error.resource_limit_error(),
+        Some(ResourceLimitError::Elapsed { .. })
+    ));
 
     let zero_wave_workers =
         foundry_wave_campaign_run(FoundryWaveCampaignRunRequest::new(FOUNDRY_CAMPAIGN, 0))

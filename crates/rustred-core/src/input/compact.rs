@@ -36,6 +36,7 @@ impl Compiler {
                 "Symbolica integral input bytes",
                 source.len(),
                 self.limits.max_input_bytes,
+                true,
             )?;
             let parsed =
                 parse_authenticated_source(source, RawSourceKind::CompactIntegral, self.limits)?;
@@ -64,6 +65,7 @@ impl Compiler {
             source,
             self.limits.max_atom_nodes,
             self.limits.max_nesting_depth,
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "source Atom integer-bit copy envelope",
@@ -73,6 +75,7 @@ impl Compiler {
                 MAX_COMPACT_SOURCE_ATOM_COPIES,
             )?,
             self.limits.max_retained_atom_integer_bits,
+            self.limits.diagnostics_enabled,
         )?;
         let source_copy_bytes = checked_add(
             "source Atom copy bytes",
@@ -91,6 +94,7 @@ impl Compiler {
             "source Atom copy bytes",
             source_copy_bytes,
             self.limits.max_retained_atom_bytes,
+            self.limits.diagnostics_enabled,
         )?;
         stats.atom_nodes = source_census.nodes;
         stats.maximum_depth = source_census.maximum_depth;
@@ -107,7 +111,12 @@ impl Compiler {
         {
             return Err(Error::WrongRoot);
         }
-        check_limit("I clauses", root.get_nargs(), self.limits.max_clauses)?;
+        check_limit(
+            "I clauses",
+            root.get_nargs(),
+            self.limits.max_clauses,
+            self.limits.diagnostics_enabled,
+        )?;
         stats.clauses = root.get_nargs();
 
         let mut name: Option<String> = None;
@@ -165,6 +174,7 @@ impl Compiler {
                 "clause arguments",
                 stats.clause_arguments,
                 self.limits.max_clause_arguments,
+                self.limits.diagnostics_enabled,
             )?;
             validate_clause_arity(kind, nargs, clause_ordinal)?;
             let args = collect_atom_views(function.iter(), nargs)?;
@@ -197,7 +207,12 @@ impl Compiler {
                 }
                 ClauseKind::Prop => {
                     let requested = checked_add("propagators", props.len(), 1)?;
-                    check_limit("propagators", requested, self.limits.max_propagators)?;
+                    check_limit(
+                        "propagators",
+                        requested,
+                        self.limits.max_propagators,
+                        self.limits.diagnostics_enabled,
+                    )?;
                     let id = atom_label(args[0], "propagator", self.limits)?;
                     let target_power =
                         atom_i64(args[2]).ok_or_else(|| Error::InvalidTargetPower {
@@ -224,6 +239,7 @@ impl Compiler {
                         "external Gram entries",
                         requested,
                         self.limits.max_gram_entries,
+                        self.limits.diagnostics_enabled,
                     )?;
                     grams.push(AtomGramEntry {
                         left: atom_label(args[0], "Gram momentum", self.limits)?,

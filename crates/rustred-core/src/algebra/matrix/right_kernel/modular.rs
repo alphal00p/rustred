@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 
 use symbolica::prelude::{FiniteFieldCore, Integer, Matrix, Zp64};
 
-use super::admission::{RightKernelError, RightKernelLimits, try_vec};
+use super::admission::{RightKernelError, RightKernelLimits, checkpoint, try_vec};
 
 const PRIME: u64 = (1_u64 << 61) - 1;
 
@@ -26,10 +26,11 @@ pub(super) fn admitted(
     limits: RightKernelLimits,
 ) -> bool {
     rows >= columns
-        && rank_operations
-            .checked_mul(2)
-            .and_then(|work| work.checked_add(entries))
-            .is_some_and(|work| work <= limits.max_rank_operations)
+        && (!limits.diagnostics_enabled
+            || rank_operations
+                .checked_mul(2)
+                .and_then(|work| work.checked_add(entries))
+                .is_some_and(|work| work <= limits.max_rank_operations))
 }
 
 /// Shape and budgets have already been admitted by the caller. Keep the native
@@ -48,7 +49,10 @@ pub(super) fn full_column_rank(
     );
     let mut matrix = Matrix::from_linear(modular_entries, rows as u32, columns as u32, field)
         .map_err(|_| RightKernelError::NativeShape)?;
-    Ok(matrix.partial_row_reduce(columns as u32) as usize == columns)
+    checkpoint()?;
+    let full_rank = matrix.partial_row_reduce(columns as u32) as usize == columns;
+    checkpoint()?;
+    Ok(full_rank)
 }
 
 #[cfg(test)]
@@ -58,6 +62,7 @@ mod tests {
 
     fn limits() -> RightKernelLimits {
         RightKernelLimits {
+            diagnostics_enabled: true,
             max_rows: 100,
             max_columns: 100,
             max_entries: 10_000,

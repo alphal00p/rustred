@@ -426,6 +426,7 @@ fn structural_and_materialization_budgets_fail_closed() {
     ));
     let p = TangentSourcePlan::try_new(&f, &s, Default::default()).unwrap();
     let limits = TranslatedSourceLimits {
+        diagnostics_enabled: true,
         max_requested_source_translations: 0,
         ..Default::default()
     };

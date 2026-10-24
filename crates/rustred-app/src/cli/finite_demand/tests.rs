@@ -159,19 +159,20 @@ fn finite_source_carrier_is_relative_input_only_and_never_opens_legacy_checkpoin
 #[test]
 fn finite_source_transport_uses_policy_without_rebinding_original_query_allowances() {
     let s = Scratch::new();
+    let payload_bytes = policy()["max_source_bytes"].as_u64().unwrap() as usize + 1;
     for path in [
         s.0.join("bin/source.json"),
         s.0.join("inputs/selection.json"),
     ] {
         let mut bytes = fs::read(&path).unwrap();
-        bytes.resize(crate::MAX_INPUT_BYTES + 1, b' ');
+        bytes.resize(payload_bytes, b' ');
         fs::write(path, bytes).unwrap();
     }
     let path = s.0.join("bin/source.json");
     let mut document = policy();
     let small = FiniteDemandPolicy::from_json(&serde_json::to_vec(&document).unwrap()).unwrap();
     assert!(read_source_with_policy(&path, &small).is_err());
-    document["max_source_bytes"] = json!(crate::MAX_INPUT_BYTES + 1);
+    document["max_source_bytes"] = json!(payload_bytes);
     let large = FiniteDemandPolicy::from_json(&serde_json::to_vec(&document).unwrap()).unwrap();
     let (source, _, _) = read_source_with_policy(&path, &large).unwrap();
     document["max_source_bytes"] = Value::Null;

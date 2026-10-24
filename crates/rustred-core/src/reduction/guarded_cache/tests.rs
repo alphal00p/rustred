@@ -391,6 +391,51 @@ fn invalid_backing_records_and_typed_errors_never_become_misses() {
 }
 
 #[test]
+fn backing_resource_failures_remain_typed_and_never_become_cache_misses() {
+    use symbolica::utils::resources::ResourceLimitError;
+
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let program = ClosedUnitMassProgram::new(&artifact, [94; 32]);
+    for resource in [
+        ResourceLimitError::Memory {
+            rss_bytes: 40,
+            additional_bytes: 3,
+            limit_bytes: 42,
+        },
+        ResourceLimitError::Elapsed {
+            elapsed: std::time::Duration::from_secs(3),
+            limit: std::time::Duration::from_secs(2),
+        },
+    ] {
+        let error = GuardedCacheBackingError::resource(resource.clone());
+        assert_eq!(
+            std::error::Error::source(&error)
+                .unwrap()
+                .downcast_ref::<ResourceLimitError>(),
+            Some(&resource)
+        );
+        let mut backing = Backing::new(&program);
+        backing.lookup_error = Some(error);
+        let mut cache = GuardedRootCache::new(&program, Default::default());
+        assert_eq!(
+            program.reduce_guarded_root(
+                &key(2),
+                &mut cache,
+                Default::default(),
+                Some(&mut backing)
+            ),
+            Err(GuardedCacheError::Reduction(ReductionError::Resources(
+                resource
+            )))
+        );
+        assert_eq!(backing.lookups, 1);
+        assert_eq!(backing.stores, 0);
+        assert_eq!(cache.statistics().completed_reductions, 0);
+        assert_eq!(cache.statistics().cached_integrals, 0);
+    }
+}
+
+#[test]
 fn failed_reduction_or_store_does_not_publish_a_root_and_cache_stays_reusable() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let program = ClosedUnitMassProgram::new(&artifact, [14; 32]);

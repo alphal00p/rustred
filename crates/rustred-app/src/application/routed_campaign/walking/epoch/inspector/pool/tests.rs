@@ -426,3 +426,71 @@ fn one_worker_capability_refusal_wakes_authorized_idle_siblings_without_dispatch
 }
 mod escrow;
 mod snapshot;
+
+#[test]
+fn queued_jobs_keep_the_submitting_scope_across_reused_single_worker() {
+    use symbolica::utils::resources::{
+        ResourceBudget, ResourceLimitError, ResourceLimits, checkpoint,
+    };
+    let coordinator = std::thread::current().id();
+    let job = |bytes: &[u8], _: &AtomicBool| {
+        assert_ne!(std::thread::current().id(), coordinator);
+        let code = match checkpoint() {
+            Ok(()) => 0,
+            Err(ResourceLimitError::Memory {
+                rss_bytes: 11,
+                limit_bytes: 10,
+                ..
+            }) => 1,
+            Err(ResourceLimitError::Elapsed { .. }) => 2,
+            other => panic!("unexpected worker resource result: {other:?}"),
+        };
+        vec![bytes[0], code]
+    };
+    with_polling_pool(1, &job, |pool| {
+        for rolling in [false, true] {
+            for (id, expected) in [(1, 1), (2, 0), (3, 2)] {
+                let mut submit = || {
+                    if rolling {
+                        pool.submit_rolling(vec![work(id)])
+                    } else {
+                        pool.submit(vec![work(id)])
+                    }
+                };
+                match expected {
+                    1 => ResourceBudget::with_memory_monitor(
+                        ResourceLimits {
+                            max_process_rss_bytes: Some(10),
+                            max_elapsed: None,
+                        },
+                        || Ok(11),
+                    )
+                    .run(submit)
+                    .unwrap(),
+                    2 => ResourceBudget::new(ResourceLimits {
+                        max_process_rss_bytes: None,
+                        max_elapsed: Some(Duration::ZERO),
+                    })
+                    .run(submit)
+                    .unwrap(),
+                    _ => submit().unwrap(),
+                }
+                let mut result = None;
+                loop {
+                    match pool.poll(Duration::from_secs(5)).unwrap() {
+                        Poll::Started(key) => assert_eq!(key, id),
+                        Poll::Result { key, bytes } => {
+                            assert_eq!(key, id);
+                            result = Some(bytes.into_vec());
+                        }
+                        Poll::Waiting => panic!("tiny resource probe did not return"),
+                        Poll::Drained => break,
+                    }
+                }
+                assert_eq!(result.unwrap(), vec![id as u8, expected]);
+                pool.retire(&[id]).unwrap();
+            }
+        }
+    })
+    .unwrap();
+}

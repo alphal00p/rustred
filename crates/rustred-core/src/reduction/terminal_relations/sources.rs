@@ -98,9 +98,10 @@ pub(super) fn seeds(
     centres: &BTreeSet<IntegralKey>,
     depth: u32,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<Vec<IntegralKey>, TerminalRelationError> {
     let mut seen = centres.clone();
-    check("seeds", seen.len(), limit)?;
+    check("seeds", seen.len(), limit, diagnostics_enabled)?;
     let mut result: Vec<_> = seen.iter().cloned().collect();
     let mut frontier = seen.clone();
     for _ in 0..depth {
@@ -115,7 +116,12 @@ pub(super) fn seeds(
                     let key = IntegralKey::try_new(powers).map_err(invalid)?;
                     if !seen.contains(&key) {
                         next.insert(key);
-                        check("seeds", seen.len().saturating_add(next.len()), limit)?;
+                        check(
+                            "seeds",
+                            seen.len().saturating_add(next.len()),
+                            limit,
+                            diagnostics_enabled,
+                        )?;
                     }
                 }
             }
@@ -136,6 +142,7 @@ pub(super) fn containing_sector_seeds(
     centres: &BTreeSet<IntegralKey>,
     max_promoted_axes: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<BTreeSet<IntegralKey>, TerminalRelationError> {
     fn visit(
         powers: &mut [i64],
@@ -144,15 +151,24 @@ pub(super) fn containing_sector_seeds(
         remaining: usize,
         output: &mut BTreeSet<IntegralKey>,
         limit: usize,
+        diagnostics_enabled: bool,
     ) -> Result<(), TerminalRelationError> {
         for position in start..inactive.len() {
             let axis = inactive[position];
             let previous = powers[axis];
             powers[axis] = 1;
             output.insert(IntegralKey::try_new(powers.to_vec()).map_err(invalid)?);
-            check("seeds", output.len(), limit)?;
+            check("seeds", output.len(), limit, diagnostics_enabled)?;
             if remaining > 1 {
-                visit(powers, inactive, position + 1, remaining - 1, output, limit)?;
+                visit(
+                    powers,
+                    inactive,
+                    position + 1,
+                    remaining - 1,
+                    output,
+                    limit,
+                    diagnostics_enabled,
+                )?;
             }
             powers[axis] = previous;
         }
@@ -175,6 +191,7 @@ pub(super) fn containing_sector_seeds(
                 max_promoted_axes,
                 &mut output,
                 limit,
+                diagnostics_enabled,
             )?;
         }
     }

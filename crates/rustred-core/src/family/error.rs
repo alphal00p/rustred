@@ -209,7 +209,14 @@ impl fmt::Display for IntegralFamilyError {
     }
 }
 
-impl std::error::Error for IntegralFamilyError {}
+impl std::error::Error for IntegralFamilyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ExactAlgebra(error) | Self::InvalidCoefficient { error, .. } => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<ExactAlgebraError> for IntegralFamilyError {
     fn from(value: ExactAlgebraError) -> Self {
@@ -221,8 +228,11 @@ pub(super) fn check_family_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), IntegralFamilyError> {
-    if requested > limit {
+    symbolica::utils::resources::checkpoint()
+        .map_err(|error| IntegralFamilyError::ExactAlgebra(ExactAlgebraError::Resource(error)))?;
+    if diagnostics_enabled && requested > limit {
         Err(IntegralFamilyError::ResourceLimit {
             resource,
             requested,

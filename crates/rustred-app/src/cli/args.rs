@@ -115,6 +115,7 @@ pub(crate) struct CampaignReduceArgs {
     pub(crate) artifact: StreamPath,
     pub(crate) resources: ResourceLimitsArgs,
     pub(crate) target_powers: Vec<i64>,
+    pub(crate) diagnostics_enabled: bool,
     pub(crate) max_rule_applications: usize,
     pub(crate) output: StreamPath,
     pub(crate) force: bool,

@@ -48,7 +48,7 @@ impl SavedApplicationCacheWriter {
         quota: Arc<quota::Quota>,
         bundle_managed: bool,
     ) -> Result<Self, AppError> {
-        binding.validate(limits.chunk).map_err(fail)?;
+        binding.validate(limits.chunk).map_err(binary_error)?;
         fs::create_dir(directory).map_err(fail)?;
         fs::create_dir(directory.join("chunks")).map_err(fail)?;
         let lock = lock(directory)?;
@@ -149,6 +149,7 @@ impl SavedApplicationCacheWriter {
         records: &[ApplicationCacheRecord],
         context: &CoefficientContext,
     ) -> Result<(), AppError> {
+        resource_checkpoint()?;
         self.writes.ensure_open()?;
         if records.is_empty() {
             return Ok(());
@@ -159,7 +160,7 @@ impl SavedApplicationCacheWriter {
             context,
             self.limits.chunk,
         )
-        .map_err(fail)?;
+        .map_err(binary_error)?;
         let bytes = compression::encode(&decoded, self.limits)?;
         let chunk = index::Chunk {
             digest: *blake3::hash(&bytes).as_bytes(),
@@ -203,7 +204,8 @@ impl SavedApplicationCacheWriter {
                 .physical_chunk_bytes
                 .checked_add(chunk.bytes)
                 .ok_or_else(|| fail("cache disk byte overflow"))?;
-            if self.physical_chunks >= self.limits.max_chunks || total > self.limits.max_disk_bytes
+            if (self.limits.diagnostics_enabled && self.physical_chunks >= self.limits.max_chunks)
+                || total > self.limits.max_disk_bytes
             {
                 return Err(AppError::limit("cache disk or chunk allowance reached"));
             }
@@ -216,6 +218,7 @@ impl SavedApplicationCacheWriter {
         Ok(())
     }
     pub fn checkpoint(&mut self) -> Result<(), AppError> {
+        resource_checkpoint()?;
         self.writes.ensure_open()?;
         let previous = self.manifest.generation;
         self.manifest.generation = previous

@@ -19,9 +19,9 @@ pub(super) fn run(arguments: CandidateInspectArgs) -> Result<(), CliError> {
         })
         .transpose()?
         .unwrap_or_default();
-    let bytes = read_artifact(&arguments.input)?;
-    let report =
-        inspect_generated_candidate_program(&bytes, CandidateBundleLimits::default(), options)?;
+    let limits = CandidateBundleLimits::default();
+    let bytes = read_artifact(&arguments.input, limits.bundle_byte_limit())?;
+    let report = inspect_generated_candidate_program(&bytes, limits, options)?;
     write_output(
         &arguments.output,
         report.to_json()?.as_bytes(),

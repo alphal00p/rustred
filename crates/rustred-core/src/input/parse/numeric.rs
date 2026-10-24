@@ -16,6 +16,10 @@ pub(super) fn validate_numeric_preconversion_envelope(
     token: &Token,
     limits: Limits,
 ) -> Result<usize, Error> {
+    symbolica::utils::resources::checkpoint().map_err(Error::Resource)?;
+    if !limits.diagnostics_enabled {
+        return Ok(0);
+    }
     let mut aggregate = 0usize;
     analyze_numeric_token(token, &mut aggregate, limits)?;
     Ok(aggregate)
@@ -145,6 +149,7 @@ fn analyze_numeric_token(
             "pre-conversion integer bits",
             retained,
             limits.max_preconversion_integer_bits,
+            limits.diagnostics_enabled,
         )?;
         *aggregate = aggregate
             .checked_add(retained)
@@ -155,6 +160,7 @@ fn analyze_numeric_token(
             "aggregate pre-conversion integer bits",
             *aggregate,
             limits.max_preconversion_integer_bits,
+            limits.diagnostics_enabled,
         )?;
     }
     Ok(envelope)

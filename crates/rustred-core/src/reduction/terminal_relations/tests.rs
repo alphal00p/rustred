@@ -127,7 +127,7 @@ fn empty_inventory_and_seed_limits_are_explicit() {
     let mut limits = TerminalRelationLimits::default();
     limits.max_seeds = 1;
     assert!(TerminalRelationSession::new(tadpole(), BTreeSet::from([key(1)]), 1, limits).is_err());
-    let seed = sources::seeds(&BTreeSet::from([key(1)]), 1, 10).unwrap();
+    let seed = sources::seeds(&BTreeSet::from([key(1)]), 1, 10, true).unwrap();
     assert_eq!(seed, vec![key(1), key(0), key(2)]);
 }
 
@@ -152,9 +152,15 @@ fn refused_scope_extension_keeps_old_checkpoint_usable() {
 #[test]
 fn column_budget_can_be_raised_or_removed_without_losing_proved_rows() {
     let mut session = TerminalRelationSession::new(
-        tadpole(), BTreeSet::from([key(1), key(2)]), 0,
-        TerminalRelationLimits { max_columns: 2, ..Default::default() },
-    ).unwrap();
+        tadpole(),
+        BTreeSet::from([key(1), key(2)]),
+        0,
+        TerminalRelationLimits {
+            max_columns: 2,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     let before = session.to_native_bytes(Default::default()).unwrap();
     assert!(session.set_max_columns(Some(1)).is_err());
     assert!(session.set_max_columns(Some(0)).is_err());
@@ -173,11 +179,19 @@ fn column_budget_can_be_raised_or_removed_without_losing_proved_rows() {
         session.step(&cancel).unwrap();
     }
     let mut reference = TerminalRelationSession::new(
-        tadpole(), BTreeSet::from([key(1), key(2), key(3), key(4)]), 0,
+        tadpole(),
+        BTreeSet::from([key(1), key(2), key(3), key(4)]),
+        0,
         Default::default(),
-    ).unwrap();
-    while !reference.is_complete() { reference.step(&cancel).unwrap(); }
-    assert_eq!(session.apply_all_terminals().unwrap(), reference.apply_all_terminals().unwrap());
+    )
+    .unwrap();
+    while !reference.is_complete() {
+        reference.step(&cancel).unwrap();
+    }
+    assert_eq!(
+        session.apply_all_terminals().unwrap(),
+        reference.apply_all_terminals().unwrap()
+    );
 }
 
 #[test]

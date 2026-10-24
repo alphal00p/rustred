@@ -63,6 +63,7 @@ pub(super) fn session_conditions(
             &mut conditions,
             value.clone(),
             limits.diagonal.max_conditions,
+            limits.diagonal.diagnostics_enabled,
         )?;
     }
     for condition in session.family_owner().domain().conditions() {
@@ -70,6 +71,7 @@ pub(super) fn session_conditions(
             &mut conditions,
             condition.polynomial().clone().into(),
             limits.diagonal.max_conditions,
+            limits.diagonal.diagnostics_enabled,
         )?;
     }
     for row in retained_rows(session)? {
@@ -78,6 +80,7 @@ pub(super) fn session_conditions(
                 &mut conditions,
                 value.denominator.clone().into(),
                 limits.diagonal.max_conditions,
+                limits.diagonal.diagnostics_enabled,
             )?;
         }
     }

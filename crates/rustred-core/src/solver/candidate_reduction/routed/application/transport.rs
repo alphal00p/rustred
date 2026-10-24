@@ -60,13 +60,13 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         charge(
             &mut statistics.input_terms,
             1,
-            self.limits.max_input_targets,
+            self.limits.diagnostic_limit(self.limits.max_input_targets),
             "input targets",
         )?;
         charge(
             &mut statistics.operational_nodes,
             1,
-            self.limits.max_unique_nodes,
+            self.limits.diagnostic_limit(self.limits.max_unique_nodes),
             "operational nodes",
         )?;
         statistics.requested_targets = 1;
@@ -89,7 +89,8 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             charge(
                 &mut statistics.transport_calls,
                 1,
-                self.limits.max_transport_calls,
+                self.limits
+                    .diagnostic_limit(self.limits.max_transport_calls),
                 "transport calls",
             )?;
             let mapped =
@@ -98,16 +99,10 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     .transport_with_usage(target, self.limits.expansion, |usage| {
                         let operations = statistics
                             .transport_operations
-                            .checked_add(usage.operations)
-                            .ok_or(ExpansionError::ResourceCountOverflow {
-                                resource: "aggregate routed operations",
-                            })?;
+                            .saturating_add(usage.operations);
                         let endpoints = statistics
                             .transport_endpoints
-                            .checked_add(usage.endpoints)
-                            .ok_or(ExpansionError::ResourceCountOverflow {
-                                resource: "aggregate routed endpoints",
-                            })?;
+                            .saturating_add(usage.endpoints);
                         for (resource, requested, limit) in [
                             (
                                 "aggregate routed operations",
@@ -120,7 +115,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                                 self.limits.max_transport_endpoints,
                             ),
                         ] {
-                            if requested > limit {
+                            if self.limits.diagnostics_enabled && requested > limit {
                                 return Err(ExpansionError::ResourceLimit {
                                     resource,
                                     requested,
@@ -147,7 +142,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 charge(
                     &mut statistics.operational_nodes,
                     1,
-                    self.limits.max_unique_nodes,
+                    self.limits.diagnostic_limit(self.limits.max_unique_nodes),
                     "operational nodes",
                 )?;
                 // Only installed exact zero certificates justify omission.

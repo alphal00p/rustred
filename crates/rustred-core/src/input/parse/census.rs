@@ -26,8 +26,9 @@ pub(in crate::input) fn census_atom_resources<'a>(
     atom: AtomView<'a>,
     max_nodes: usize,
     max_depth: usize,
+    diagnostics_enabled: bool,
 ) -> Result<AtomResourceCensus, Error> {
-    check_limit("Atom nodes", 1, max_nodes)?;
+    check_limit("Atom nodes", 1, max_nodes, diagnostics_enabled)?;
     let packed_bytes = atom.get_byte_size();
     let mut pending = Vec::new();
     pending
@@ -41,7 +42,7 @@ pub(in crate::input) fn census_atom_resources<'a>(
     let mut maximum_depth = 0usize;
     let mut integer_bits = 0usize;
     while let Some((current, depth)) = pending.pop() {
-        check_limit("Atom nesting depth", depth, max_depth)?;
+        check_limit("Atom nesting depth", depth, max_depth, diagnostics_enabled)?;
         maximum_depth = maximum_depth.max(depth);
         match current {
             AtomView::Fun(function) => {
@@ -53,6 +54,7 @@ pub(in crate::input) fn census_atom_resources<'a>(
                         &mut nodes,
                         max_nodes,
                         max_depth,
+                        diagnostics_enabled,
                     )?;
                 }
             }
@@ -65,6 +67,7 @@ pub(in crate::input) fn census_atom_resources<'a>(
                         &mut nodes,
                         max_nodes,
                         max_depth,
+                        diagnostics_enabled,
                     )?;
                 }
             }
@@ -77,6 +80,7 @@ pub(in crate::input) fn census_atom_resources<'a>(
                         &mut nodes,
                         max_nodes,
                         max_depth,
+                        diagnostics_enabled,
                     )?;
                 }
             }
@@ -89,6 +93,7 @@ pub(in crate::input) fn census_atom_resources<'a>(
                         &mut nodes,
                         max_nodes,
                         max_depth,
+                        diagnostics_enabled,
                     )?;
                 }
             }
@@ -133,17 +138,23 @@ pub(in crate::input) fn schedule_atom_census_child<'a>(
     nodes: &mut usize,
     max_nodes: usize,
     max_depth: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), Error> {
     let child_depth = parent_depth
         .checked_add(1)
         .ok_or(Error::ResourceCountOverflow {
             resource: "Atom nesting depth",
         })?;
-    check_limit("Atom nesting depth", child_depth, max_depth)?;
+    check_limit(
+        "Atom nesting depth",
+        child_depth,
+        max_depth,
+        diagnostics_enabled,
+    )?;
     let requested = nodes.checked_add(1).ok_or(Error::ResourceCountOverflow {
         resource: "Atom nodes",
     })?;
-    check_limit("Atom nodes", requested, max_nodes)?;
+    check_limit("Atom nodes", requested, max_nodes, diagnostics_enabled)?;
     pending
         .try_reserve(1)
         .map_err(|_| Error::AllocationFailure {
@@ -159,8 +170,9 @@ pub(in crate::input) fn census_atom(
     atom: AtomView<'_>,
     max_nodes: usize,
     max_depth: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(usize, usize), Error> {
-    let census = census_atom_resources(atom, max_nodes, max_depth)?;
+    let census = census_atom_resources(atom, max_nodes, max_depth, diagnostics_enabled)?;
     Ok((census.nodes, census.maximum_depth))
 }
 
@@ -174,6 +186,7 @@ pub(in crate::input) fn census_project_parts(
             atom.as_view(),
             limits.max_atom_nodes,
             limits.max_nesting_depth,
+            limits.diagnostics_enabled,
         )?;
         stats.atom_nodes = checked_add(
             "explicit project Atom nodes",
@@ -184,6 +197,7 @@ pub(in crate::input) fn census_project_parts(
             "explicit project Atom nodes",
             stats.atom_nodes,
             limits.max_atom_nodes,
+            limits.diagnostics_enabled,
         )?;
         stats.maximum_depth = stats.maximum_depth.max(census.maximum_depth);
         stats.retained_atom_integer_bits = checked_add(
@@ -195,6 +209,7 @@ pub(in crate::input) fn census_project_parts(
             "aggregate project Atom integer bits",
             stats.retained_atom_integer_bits,
             limits.max_retained_atom_integer_bits,
+            limits.diagnostics_enabled,
         )?;
         stats.retained_atom_bytes = checked_add(
             "aggregate project Atom bytes",
@@ -205,6 +220,7 @@ pub(in crate::input) fn census_project_parts(
             "aggregate project Atom bytes",
             stats.retained_atom_bytes,
             limits.max_retained_atom_bytes,
+            limits.diagnostics_enabled,
         )?;
         Ok(())
     };
@@ -363,6 +379,7 @@ pub(in crate::input) fn authenticate_atom_tree(
             "Atom symbol authentication",
             inspected,
             limits.max_symbol_inspections,
+            limits.diagnostics_enabled,
         )?;
         match current {
             AtomView::Var(variable) => {

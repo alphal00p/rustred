@@ -19,8 +19,11 @@ use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError};
 use crate::family::{IntegralFamily, IntegralKey};
 
 fn native<T>(operation: &'static str, run: impl FnOnce() -> T) -> Result<T, Error> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
-        .map_err(|_| Error::SymbolicaPanic { operation })
+    symbolica::utils::resources::checkpoint().map_err(ExactAlgebraError::Resource)?;
+    let value = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
+        .map_err(|_| Error::SymbolicaPanic { operation })?;
+    symbolica::utils::resources::checkpoint().map_err(ExactAlgebraError::Resource)?;
+    Ok(value)
 }
 
 struct Conditions {
@@ -52,6 +55,7 @@ impl Conditions {
             "weighted lowering guard nodes",
             self.nodes,
             self.limits.max_output_atom_nodes,
+            self.limits.diagnostics_enabled,
         )?;
         self.values.insert(condition);
         Ok(())
@@ -61,38 +65,31 @@ impl Conditions {
     /// collection can cancel them. Function arguments remain caller-owned,
     /// but any rational pole occurring inside them is retained as well.
     fn scan(&mut self, expression: AtomView<'_>) -> Result<(), Error> {
-        match expression {
-            AtomView::Num(number) => match number.get_coeff_view() {
-                CoefficientView::Natural(..) | CoefficientView::Large(..) => {}
-                _ => {
-                    return Err(Error::InvalidWeightedInput {
-                        detail: "weighted lowering requires finite exact rational or complex-rational numeric atoms",
-                    });
+        let mut pending = vec![expression];
+        while let Some(part) = pending.pop() {
+            symbolica::utils::resources::checkpoint().map_err(ExactAlgebraError::Resource)?;
+            match part {
+                AtomView::Num(number) => match number.get_coeff_view() {
+                    CoefficientView::Natural(..) | CoefficientView::Large(..) => {}
+                    _ => {
+                        return Err(Error::InvalidWeightedInput {
+                            detail: "weighted lowering requires finite exact rational or complex-rational numeric atoms",
+                        });
+                    }
+                },
+                AtomView::Var(_) => {}
+                AtomView::Fun(function) => pending.extend(function.iter()),
+                AtomView::Mul(product) => pending.extend(product.iter()),
+                AtomView::Add(sum) => pending.extend(sum.iter()),
+                AtomView::Pow(power) => {
+                    if Rational::try_from(power.get_exp())
+                        .is_ok_and(|exponent| exponent.is_negative())
+                    {
+                        self.retain(power.get_base().to_owned())?;
+                    }
+                    pending.push(power.get_exp());
+                    pending.push(power.get_base());
                 }
-            },
-            AtomView::Var(_) => {}
-            AtomView::Fun(function) => {
-                for argument in function.iter() {
-                    self.scan(argument)?;
-                }
-            }
-            AtomView::Mul(product) => {
-                for factor in product.iter() {
-                    self.scan(factor)?;
-                }
-            }
-            AtomView::Add(sum) => {
-                for term in sum.iter() {
-                    self.scan(term)?;
-                }
-            }
-            AtomView::Pow(power) => {
-                if Rational::try_from(power.get_exp()).is_ok_and(|exponent| exponent.is_negative())
-                {
-                    self.retain(power.get_base().to_owned())?;
-                }
-                self.scan(power.get_base())?;
-                self.scan(power.get_exp())?;
             }
         }
         Ok(())
@@ -143,7 +140,10 @@ pub(super) fn lower_weighted_in_request(
             limits,
         )?;
     }
-    let mut comparisons = ExactComparisonBudget::new(limits.max_loop_momentum_label_checks);
+    let mut comparisons = ExactComparisonBudget::new(
+        limits.max_loop_momentum_label_checks,
+        limits.diagnostics_enabled,
+    );
     for momentum in &prepared.loop_momenta {
         if contains_exact_atom(mass_squared.as_view(), momentum.as_view(), &mut comparisons)? {
             return Err(Error::InvalidWeightedInput {
@@ -183,6 +183,7 @@ pub(super) fn lower_weighted_in_request(
         "weighted denominator polynomial terms",
         polynomial.coefficients.len(),
         limits.max_polynomial_terms,
+        limits.diagnostics_enabled,
     )?;
     let context = family.coefficient_context();
     let mut weights = BTreeMap::<IntegralKey, Atom>::new();
@@ -214,6 +215,7 @@ pub(super) fn lower_weighted_in_request(
             "weighted lowering retained nodes",
             retained_nodes,
             limits.max_output_atom_nodes,
+            limits.diagnostics_enabled,
         )?;
         weights.insert(integral, sum);
     }
@@ -288,11 +290,13 @@ pub(super) fn lower_weighted_in_request(
                 conditions.nodes,
             )?,
             limits.max_output_atom_nodes,
+            limits.diagnostics_enabled,
         )?;
         check_limit(
             "lowered scalar-numerator terms",
             checked_add("lowered scalar-numerator terms", terms.len(), 1)?,
             limits.max_lowered_terms,
+            limits.diagnostics_enabled,
         )?;
         terms.push(LoweredScalarNumeratorTerm {
             coefficient,

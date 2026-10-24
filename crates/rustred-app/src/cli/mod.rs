@@ -296,10 +296,11 @@ fn generate_campaign_artifact(arguments: CampaignGenerateArgs) -> Result<(), Cli
 }
 
 fn inspect_campaign_artifact(arguments: CampaignInspectArgs) -> Result<(), CliError> {
-    let artifact = read_artifact(&arguments.artifact)?;
+    let load_limits = arguments.resources.load_limits();
+    let artifact = read_artifact(&arguments.artifact, load_limits.max_artifact_bytes)?;
     let result = closing_artifact_inspect(ClosingArtifactInspectRequest {
         artifact,
-        load_limits: arguments.resources.load_limits(),
+        load_limits,
     })?;
     write_output(
         &arguments.output,
@@ -309,11 +310,13 @@ fn inspect_campaign_artifact(arguments: CampaignInspectArgs) -> Result<(), CliEr
 }
 
 fn reduce_campaign_target(arguments: CampaignReduceArgs) -> Result<(), CliError> {
-    let artifact = read_artifact(&arguments.artifact)?;
+    let load_limits = arguments.resources.load_limits();
+    let artifact = read_artifact(&arguments.artifact, load_limits.max_artifact_bytes)?;
     let result = closing_artifact_reduce(ClosingArtifactReduceRequest {
         artifact,
-        load_limits: arguments.resources.load_limits(),
+        load_limits,
         target_powers: arguments.target_powers,
+        diagnostics_enabled: arguments.diagnostics_enabled,
         max_rule_applications: arguments.max_rule_applications,
     })?;
     write_output(

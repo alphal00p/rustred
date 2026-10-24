@@ -40,6 +40,7 @@ fn oversized_optional_intermediate_is_reported_without_refusing_requested_root()
     backend.capture_extra_guards = 100;
     let workload = backend.workload(&[5]);
     let mut options = options();
+    options.storage_limits.chunk.diagnostics_enabled = true;
     options.storage_limits.chunk.max_decoded_coefficient_terms = 20;
     let report = prepare_application_cache(
         &workload,

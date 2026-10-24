@@ -17,6 +17,7 @@ fn domain(n: u64) -> Arc<Domain<1>> {
 }
 fn finished(error: Option<&str>) -> Finished {
     Finished {
+        resource_failure: None,
         stats: NativeStats::Apply(Default::default()),
         error: error.map(str::to_owned),
         error_kind: if error.is_some() {

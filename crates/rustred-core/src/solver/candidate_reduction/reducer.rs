@@ -367,6 +367,9 @@ impl<const N: usize> CandidateReducer<N> {
         mut lookup: Option<&mut CandidateGuardedLookup<'_, E>>,
         mut capture: Option<&mut dyn CaptureObserver<N, E>>,
     ) -> Result<CandidateDecomposition, E> {
+        symbolica::utils::resources::checkpoint()
+            .map_err(ReductionError::from)
+            .map_err(CandidateReductionError::from)?;
         if self.unresolved_policy == UnresolvedPolicy::Preserve
             && (lookup.is_some() || capture.is_some())
         {
@@ -541,7 +544,10 @@ impl<const N: usize> CandidateReducer<N> {
                         );
                     }
                     request
-                        .record_rule_application(self.limits.max_rule_applications)
+                        .record_rule_application(
+                            self.limits
+                                .diagnostic_limit(self.limits.max_rule_applications),
+                        )
                         .map_err(CandidateReductionError::from)?;
                     let (terms, conditions) = if guarded {
                         let (terms, conditions) = if let Some((baseline, rule)) = selected {
@@ -794,7 +800,8 @@ impl<const N: usize> CandidateReducer<N> {
         frame: Frame,
         request: &mut ReductionRequest,
     ) -> Result<(), CandidateReductionError> {
-        request.retain_pending_frame(self.limits.max_pending_frames)?;
+        request
+            .retain_pending_frame(self.limits.diagnostic_limit(self.limits.max_pending_frames))?;
         stack
             .try_reserve(1)
             .map_err(|_| ReductionError::AllocationFailure {
@@ -814,7 +821,7 @@ impl<const N: usize> CandidateReducer<N> {
         let previous = self.cache.get(&target);
         let previous_count = usize::from(previous.is_some());
         let previous_weight = previous.map(|entry| entry.weight).unwrap_or_default();
-        let mut weight = terms.weight()?;
+        let mut weight = terms.weight(self.limits.diagnostics_enabled)?;
         if let Some(conditions) = &conditions {
             weight = weight.checked_add(crate::reduction::coefficient_cache_weight(
                 conditions.iter(),
@@ -842,6 +849,7 @@ impl<const N: usize> CandidateReducer<N> {
         &self,
         target: &IntegralKey,
     ) -> Result<CandidateDecomposition, CandidateReductionError> {
+        symbolica::utils::resources::checkpoint().map_err(ReductionError::from)?;
         let entry = self
             .cache
             .get(target)
@@ -856,6 +864,7 @@ impl<const N: usize> CandidateReducer<N> {
             .filter(|key| !self.canonical_terminals().contains(*key))
             .cloned()
             .collect();
+        symbolica::utils::resources::checkpoint().map_err(ReductionError::from)?;
         Ok(CandidateDecomposition {
             family_fingerprint: self.program.family_fingerprint.clone(),
             target: target.clone(),
@@ -987,6 +996,35 @@ enum Frame {
 mod guarded_tests {
     use super::*;
     use crate::solver::candidate_reduction::owner_test_support::{input, key, rule};
+
+    #[test]
+    fn cached_plain_candidate_still_obeys_the_current_elapsed_budget() {
+        use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+        let family = crate::solver::tests::tadpole();
+        let record = input([true], None, vec![], &[[1]]);
+        let mut reducer = CandidateReducer::try_new(
+            &family,
+            [true],
+            record.ordering,
+            [([true], record.solution)],
+            vec![],
+            Default::default(),
+        )
+        .unwrap();
+        let target = key([1]);
+        let expected = reducer.reduce_unit_mass(&target).unwrap();
+        let budget = ResourceBudget::new(ResourceLimits {
+            max_elapsed: Some(std::time::Duration::ZERO),
+            ..Default::default()
+        });
+        assert!(matches!(
+            budget.run(|| reducer.reduce_unit_mass(&target)),
+            Err(CandidateReductionError::Application(
+                ReductionError::Resources(ResourceLimitError::Elapsed { .. })
+            ))
+        ));
+        assert_eq!(reducer.reduce_unit_mass(&target).unwrap(), expected);
+    }
 
     #[test]
     fn guarded_candidate_retains_cancelled_original_poles_and_cached_subtree_domain() {

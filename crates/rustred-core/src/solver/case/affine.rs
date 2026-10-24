@@ -32,6 +32,7 @@ mod one_parameter;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AffineGeometryError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     Coordinate(GeometryError),
     /// The equations have not been replaced by sampled or rectangular cases.
     UnsupportedNonlinear {
@@ -46,6 +47,7 @@ pub enum AffineGeometryError {
 impl fmt::Display for AffineGeometryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(f),
             Self::Coordinate(error) => error.fmt(f),
             Self::UnsupportedNonlinear { .. } => {
                 write!(f, "case retains unsupported nonlinear equalities")
@@ -57,7 +59,24 @@ impl fmt::Display for AffineGeometryError {
     }
 }
 
-impl std::error::Error for AffineGeometryError {}
+impl std::error::Error for AffineGeometryError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            Self::Coordinate(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+fn resource_boundary<T>(
+    run: impl FnOnce() -> Result<T, AffineGeometryError>,
+) -> Result<T, AffineGeometryError> {
+    symbolica::utils::resources::checkpoint().map_err(AffineGeometryError::Resources)?;
+    let result = run();
+    symbolica::utils::resources::checkpoint().map_err(AffineGeometryError::Resources)?;
+    result
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AffineIntersection<const N: usize> {
@@ -132,30 +151,36 @@ impl<const N: usize> AffineCase<N> {
         max_numerator_rank: Option<u32>,
         refine_sector_endpoints: bool,
     ) -> Result<AffineIntersection<N>, AffineGeometryError> {
-        // This also performs variable-map/shape/parameter admission checks.
-        let coordinate = match max_numerator_rank {
-            None => geometry::intersect(parent, equations, indices, sector),
-            Some(_) => {
-                geometry::intersect_in_rank(parent, equations, indices, sector, max_numerator_rank)
+        resource_boundary(|| {
+            // This also performs variable-map/shape/parameter admission checks.
+            let coordinate = match max_numerator_rank {
+                None => geometry::intersect(parent, equations, indices, sector),
+                Some(_) => geometry::intersect_in_rank(
+                    parent,
+                    equations,
+                    indices,
+                    sector,
+                    max_numerator_rank,
+                ),
+            };
+            match coordinate {
+                Ok(Some(face)) => return Ok(AffineIntersection::Coordinate(face)),
+                Ok(None) => return Ok(AffineIntersection::Empty),
+                Err(GeometryError::UnsupportedGeometry { .. }) => {}
+                Err(error) => return Err(AffineGeometryError::Coordinate(error)),
             }
-        };
-        match coordinate {
-            Ok(Some(face)) => return Ok(AffineIntersection::Coordinate(face)),
-            Ok(None) => return Ok(AffineIntersection::Empty),
-            Err(GeometryError::UnsupportedGeometry { .. }) => {}
-            Err(error) => return Err(AffineGeometryError::Coordinate(error)),
-        }
-        catch_unwind(AssertUnwindSafe(|| {
-            intersect_native(
-                parent,
-                equations,
-                indices,
-                sector,
-                max_numerator_rank,
-                refine_sector_endpoints,
-            )
-        }))
-        .map_err(|_| AffineGeometryError::NativeAlgebra)?
+            catch_unwind(AssertUnwindSafe(|| {
+                intersect_native(
+                    parent,
+                    equations,
+                    indices,
+                    sector,
+                    max_numerator_rank,
+                    refine_sector_endpoints,
+                )
+            }))
+            .map_err(|_| AffineGeometryError::NativeAlgebra)?
+        })
     }
 
     pub fn face(&self) -> &CoordinateCase<N> {
@@ -191,9 +216,11 @@ impl<const N: usize> AffineCase<N> {
         &self,
         polynomial: &CoefficientPolynomial,
     ) -> Result<(usize, usize), AffineGeometryError> {
-        self.validate_polynomial(polynomial)?;
-        self.chart
-            .restriction_term_bound(polynomial, self.face.fixed(), &self.indices)
+        resource_boundary(|| {
+            self.validate_polynomial(polynomial)?;
+            self.chart
+                .restriction_term_bound(polynomial, self.face.fixed(), &self.indices)
+        })
     }
 
     /// Retained native payload census, without cloning or native arithmetic.
@@ -279,10 +306,12 @@ impl<const N: usize> AffineCase<N> {
         &self,
         polynomial: &CoefficientPolynomial,
     ) -> Result<CoefficientPolynomial, AffineGeometryError> {
-        self.validate_polynomial(polynomial)?;
-        Ok(self
-            .chart
-            .restrict_equation(polynomial, &self.face, &self.indices))
+        resource_boundary(|| {
+            self.validate_polynomial(polynomial)?;
+            Ok(self
+                .chart
+                .restrict_equation(polynomial, &self.face, &self.indices))
+        })
     }
 
     /// Restrict a polynomial value exactly, including every rational factor.
@@ -294,8 +323,10 @@ impl<const N: usize> AffineCase<N> {
         &self,
         polynomial: &CoefficientPolynomial,
     ) -> Result<Coefficient, AffineGeometryError> {
-        self.validate_polynomial(polynomial)?;
-        Ok(self.restrict_polynomial_value_validated(polynomial))
+        resource_boundary(|| {
+            self.validate_polynomial(polynomial)?;
+            Ok(self.restrict_polynomial_value_validated(polynomial))
+        })
     }
 
     /// Restrict numerator and denominator jointly, preserving their relative
@@ -304,10 +335,12 @@ impl<const N: usize> AffineCase<N> {
         &self,
         coefficient: &Coefficient,
     ) -> Result<Coefficient, AffineGeometryError> {
-        self.validate_polynomial(&coefficient.numerator)?;
-        self.validate_polynomial(&coefficient.denominator)?;
-        self.chart
-            .restrict_coefficient(coefficient, &self.face, &self.indices)
+        resource_boundary(|| {
+            self.validate_polynomial(&coefficient.numerator)?;
+            self.validate_polynomial(&coefficient.denominator)?;
+            self.chart
+                .restrict_coefficient(coefficient, &self.face, &self.indices)
+        })
     }
 
     fn validate_polynomial(
@@ -358,17 +391,19 @@ impl<const N: usize> AffineCase<N> {
         sector: &[bool; N],
         max_numerator_rank: Option<u32>,
     ) -> Result<AffineIntersection<N>, AffineGeometryError> {
-        let mut combined = self.equations.clone();
-        for equation in equations {
-            combined.push(self.restrict_equation(equation)?);
-        }
-        Self::from_coordinate_in_rank(
-            &self.face,
-            &combined,
-            &self.indices,
-            sector,
-            max_numerator_rank,
-        )
+        resource_boundary(|| {
+            let mut combined = self.equations.clone();
+            for equation in equations {
+                combined.push(self.restrict_equation(equation)?);
+            }
+            Self::from_coordinate_in_rank(
+                &self.face,
+                &combined,
+                &self.indices,
+                sector,
+                max_numerator_rank,
+            )
+        })
     }
 
     /// Whether a displacement preserves every equality, including fixed axes.
@@ -403,16 +438,18 @@ impl<const N: usize> AffineCase<N> {
     /// for integer/sector domains when their feasibility remains unresolved.
     /// No sampled points or assumed free-integer chart parameters are involved.
     pub fn contains_affine(&self, other: &Self) -> Result<bool, AffineGeometryError> {
-        self.compatible(other)?;
-        if !geometry::contains(&self.face, &other.face) {
-            return Ok(false);
-        }
-        for equation in &self.equations {
-            if !other.restrict_equation(equation)?.is_zero() {
+        resource_boundary(|| {
+            self.compatible(other)?;
+            if !geometry::contains(&self.face, &other.face) {
                 return Ok(false);
             }
-        }
-        Ok(true)
+            for equation in &self.equations {
+                if !other.restrict_equation(equation)?.is_zero() {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        })
     }
 
     pub fn contains_coordinate(&self, other: &CoordinateCase<N>) -> bool {

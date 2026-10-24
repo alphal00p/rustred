@@ -11,16 +11,17 @@
 //! Optional OFFSET/COUNT divide validation work; they do not change the package
 //! or its mathematical scope. REPEATS defaults to three warm applications.
 //! CACHE_MODE is independent (default, clear between cases) or shared.
-//! CACHE_BYTES explicitly replaces the default cache byte/aggregate-term policy;
-//! all other operational limits and the exact input scope stay unchanged.
+//! CACHE_BYTES sets only the retained coefficient byte capacity.
+//! Count templates stay inactive unless LIMITS_JSON enables diagnostics explicitly.
 //! CACHE_REPRESENTATION is sparse (default) or factorized (Symbolica-native).
-//! LIMITS_JSON optionally overrides named operational work/cardinality limits;
+//! LIMITS_JSON optionally overrides named work/cardinality templates;
+//! diagnostics_enabled defaults false and explicitly enables them recursively;
 //! it never changes admission or the mathematical rank/power scope.
 //! `preparation_workers` in that object controls only native route preparation.
 //! A failed request is recorded and its partial memoization cleared, so one
 //! exhausted cache cannot manufacture failures for all later inventory cases.
-//! compare-cache uses one exact CASE_ID, fail-on-limit reference (1 GiB by
-//! default), and a smaller bounded LRU cache. Optional LIMITS_JSON supplies
+//! compare-cache uses one exact CASE_ID, an unbounded fail-on-limit reference by
+//! default, and a smaller bounded LRU cache. Optional LIMITS_JSON supplies
 //! identical other limits; the command fixes both cache policies/byte caps.
 //! It requires actual eviction plus exact first/warm terms and guard equality.
 //! PROGRESS_MS opts into structured request snapshots (zero/default is off).
@@ -175,7 +176,6 @@ fn suite<const N: usize>(args: &[String], arity: usize) -> Result<()> {
             return Err("cache byte allowance must be positive".into());
         }
         options.reduction_limits.max_cached_coefficient_bytes = bytes;
-        options.reduction_limits.max_cached_coefficient_terms = usize::MAX;
     }
     options.cache_representation = match args.get(8).map(String::as_str).unwrap_or("sparse") {
         "sparse" => rustred::solver::CandidateCacheRepresentation::Sparse,
@@ -234,6 +234,8 @@ fn suite<const N: usize>(args: &[String], arity: usize) -> Result<()> {
             "route_preparation":preparation.route_preparation.as_secs_f64(),
             "other":preparation.other.as_secs_f64()
         },
+        "diagnostics_enabled":options.reduction_limits.diagnostics_enabled
+            || options.trace_limits.diagnostics_enabled || options.binary_limits.diagnostics_enabled,
         "cache_max_coefficient_terms":options.reduction_limits.max_cached_coefficient_terms})
     );
     let mut failures = 0;

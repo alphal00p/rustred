@@ -26,7 +26,12 @@ impl VacuumDiagonalCollectionPlan {
         inputs: &[(Arc<IntegralFamily>, BTreeSet<IntegralKey>)],
         limits: VacuumDiagonalCollectionLimits,
     ) -> Result<Self> {
-        check("families", inputs.len(), limits.aliases.max_families)?;
+        check(
+            "families",
+            inputs.len(),
+            limits.aliases.max_families,
+            limits.aliases.diagnostics_enabled,
+        )?;
         let mut families = BTreeMap::new();
         let mut inventories = BTreeMap::new();
         let mut raw_count = 0usize;
@@ -66,8 +71,14 @@ impl VacuumDiagonalCollectionPlan {
                 "requested terminals",
                 raw_count,
                 limits.aliases.max_terminals,
+                limits.aliases.diagnostics_enabled,
             )?;
-            check("requested terminals", raw_count, limits.max_columns)?;
+            check(
+                "requested terminals",
+                raw_count,
+                limits.max_columns,
+                limits.diagnostics_enabled,
+            )?;
             if families
                 .insert(family.fingerprint().to_owned(), Arc::clone(family))
                 .is_some()
@@ -118,6 +129,7 @@ impl VacuumDiagonalCollectionPlan {
                 "corner seeds",
                 sources.len().saturating_add(corners.len()),
                 limits.max_corner_seeds,
+                limits.diagnostics_enabled,
             )?;
             if corners.is_empty() {
                 continue;
@@ -134,11 +146,13 @@ impl VacuumDiagonalCollectionPlan {
                 "ordinary source templates",
                 template_rows,
                 limits.max_source_rows,
+                limits.diagnostics_enabled,
             )?;
             check(
                 "native source rows",
                 native_rows.saturating_add(corners.len().saturating_mul(family.loop_count())),
                 limits.max_source_rows,
+                limits.diagnostics_enabled,
             )?;
             let generator = Sources::new(family)?;
             let ordinals: Vec<_> = (0..generator.len())
@@ -165,21 +179,33 @@ impl VacuumDiagonalCollectionPlan {
                         generator.row(&corner, ordinal, limits.algebra)?;
                     native_rows += 1;
                     source_terms = source_terms.saturating_add(terms.len());
-                    check("stored source terms", source_terms, limits.max_source_terms)?;
+                    check(
+                        "stored source terms",
+                        source_terms,
+                        limits.max_source_terms,
+                        limits.diagnostics_enabled,
+                    )?;
                     condition_occurrences =
                         condition_occurrences.saturating_add(row_conditions.len());
                     check(
                         "stored source conditions",
                         condition_occurrences,
                         limits.max_conditions,
+                        limits.diagnostics_enabled,
                     )?;
                     for condition in &row_conditions {
                         retain(
                             &mut sum_conditions,
                             condition.clone(),
                             limits.max_conditions,
+                            limits.diagnostics_enabled,
                         )?;
-                        retain(&mut conditions, condition.clone(), limits.max_conditions)?;
+                        retain(
+                            &mut conditions,
+                            condition.clone(),
+                            limits.max_conditions,
+                            limits.diagnostics_enabled,
+                        )?;
                     }
                     for (key, value) in &terms {
                         accumulate(
@@ -202,12 +228,18 @@ impl VacuumDiagonalCollectionPlan {
                     });
                 }
                 source_terms = source_terms.saturating_add(sum.len());
-                check("stored source terms", source_terms, limits.max_source_terms)?;
+                check(
+                    "stored source terms",
+                    source_terms,
+                    limits.max_source_terms,
+                    limits.diagnostics_enabled,
+                )?;
                 condition_occurrences = condition_occurrences.saturating_add(sum_conditions.len());
                 check(
                     "stored source conditions",
                     condition_occurrences,
                     limits.max_conditions,
+                    limits.diagnostics_enabled,
                 )?;
                 support
                     .get_mut(fingerprint)
@@ -217,6 +249,7 @@ impl VacuumDiagonalCollectionPlan {
                     "source support columns",
                     support.values().map(BTreeSet::len).sum(),
                     limits.max_columns,
+                    limits.diagnostics_enabled,
                 )?;
                 sources.push(VacuumDiagonalSource {
                     family: fingerprint.clone(),
@@ -296,7 +329,12 @@ impl VacuumDiagonalCollectionPlan {
             .into_iter()
             .chain(ordered.into_iter().map(|(_, _, _, key)| key))
             .collect();
-        check("quotient columns", columns.len(), limits.max_columns)?;
+        check(
+            "quotient columns",
+            columns.len(),
+            limits.max_columns,
+            limits.diagnostics_enabled,
+        )?;
         super::elimination::finish(
             Prepared {
                 families,

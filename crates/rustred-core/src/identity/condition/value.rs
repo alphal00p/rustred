@@ -271,7 +271,8 @@ fn check_source_limit(
     requested: usize,
     limits: IdentityConditionLimits,
 ) -> Result<(), IdentityConditionError> {
-    if requested > limits.max_sources {
+    symbolica::utils::resources::checkpoint()?;
+    if limits.diagnostics_enabled && requested > limits.max_sources {
         Err(IdentityConditionError::ResourceLimit {
             resource: "identity condition sources",
             requested,

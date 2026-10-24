@@ -9,16 +9,37 @@ fn caller_unbounded_policy_admits_observed_exponent_entries_but_keeps_overflow_c
     let trusted = MultiAffineNumeratorExpansionLimits::unbounded_resources();
     let label = "multi-affine native exponent entries";
     assert_eq!(
-        admit_product_limit(label, 4_576_278, 15, default.max_native_exponent_entries),
+        admit_product_limit(
+            label,
+            4_576_278,
+            15,
+            default.max_native_exponent_entries,
+            true
+        ),
         Err(MultiAffineNumeratorExpansionError::ResourceLimit {
             resource: label,
             requested: 68_644_170,
             limit: 64_000_000,
         })
     );
-    assert!(admit_product_limit(label, 4_576_278, 15, trusted.max_native_exponent_entries).is_ok());
+    assert!(
+        admit_product_limit(
+            label,
+            4_576_278,
+            15,
+            trusted.max_native_exponent_entries,
+            true
+        )
+        .is_ok()
+    );
     assert_eq!(
-        admit_product_limit(label, usize::MAX, 2, trusted.max_native_exponent_entries),
+        admit_product_limit(
+            label,
+            usize::MAX,
+            2,
+            trusted.max_native_exponent_entries,
+            true
+        ),
         Err(MultiAffineNumeratorExpansionError::ResourceCountOverflow { resource: label })
     );
 }
@@ -36,6 +57,7 @@ fn factor_preflight_over_old_exponent_cap_needs_no_large_native_materialization(
     let trusted = MultiAffineNumeratorExpansionLimits::unbounded_resources();
     let default = MultiAffineNumeratorExpansionLimits::default();
     let capped = MultiAffineNumeratorExpansionLimits {
+        diagnostics_enabled: true,
         max_native_exponent_entries: default.max_native_exponent_entries,
         ..trusted
     };
@@ -60,10 +82,12 @@ fn explicit_transport_coefficient_and_endpoint_caps_still_refuse_and_overflows_d
     assert!(admit_live_coefficients(weight, trusted).is_ok());
     for capped in [
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_retained_coefficient_terms: 64_000_000,
             ..trusted
         },
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_retained_coefficient_clone_owned_bytes: 1_000_000_000,
             ..trusted
         },
@@ -76,6 +100,7 @@ fn explicit_transport_coefficient_and_endpoint_caps_still_refuse_and_overflows_d
             4_576_278,
             15,
             MultiAffineNumeratorExpansionLimits {
+                diagnostics_enabled: true,
                 max_endpoint_power_entries: 64_000_000,
                 ..trusted
             }
@@ -83,7 +108,7 @@ fn explicit_transport_coefficient_and_endpoint_caps_still_refuse_and_overflows_d
         .is_err()
     );
     assert!(matches!(
-        preflight_endpoint_key_storage(usize::MAX, 2, trusted),
+        preflight_endpoint_key_storage(usize::MAX, 2, trusted.with_diagnostics()),
         Err(MultiAffineNumeratorExpansionError::ResourceCountOverflow { .. })
     ));
 }

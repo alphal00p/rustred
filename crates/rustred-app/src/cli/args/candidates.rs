@@ -403,6 +403,10 @@ fn parse(
     let default_finite_limits = FiniteCaseLimits::default();
     let default_case_limits = CaseIntersectionLimits::default();
     let case_intersection_limits = CaseIntersectionLimits {
+        diagnostics_enabled: case_max_work_items.is_some()
+            || case_max_terms_per_conjunction.is_some()
+            || case_max_normalizations.is_some()
+            || case_max_factorizations.is_some(),
         max_work_items: case_max_work_items.unwrap_or(default_case_limits.max_work_items),
         max_terms_per_conjunction: case_max_terms_per_conjunction
             .unwrap_or(default_case_limits.max_terms_per_conjunction),
@@ -412,13 +416,16 @@ fn parse(
             .unwrap_or(default_case_limits.max_factorizations),
     };
     let finite_case_limits = FiniteCaseLimits {
+        diagnostics_enabled: finite_max_visited_points.is_some()
+            || finite_max_retained_terminals.is_some(),
         max_visited_points: finite_max_visited_points
             .unwrap_or(default_finite_limits.max_visited_points),
         max_retained_terminals: finite_max_retained_terminals
             .unwrap_or(default_finite_limits.max_retained_terminals),
     };
     let defaults = CandidateBundleLimits::default();
-    let bundle_limits = CandidateBundleLimits {
+    let mut bundle_limits = CandidateBundleLimits {
+        diagnostics_enabled: false,
         max_bundle_bytes: bundle_max_bytes.unwrap_or(defaults.max_bundle_bytes),
         max_collection_entries: bundle_max_entries.unwrap_or(defaults.max_collection_entries),
         max_coefficient_bytes: bundle_max_coefficient_bytes
@@ -433,6 +440,12 @@ fn parse(
             ..defaults.exact_algebra
         },
     };
+    if bundle_max_entries.is_some()
+        || bundle_max_polynomial_terms.is_some()
+        || bundle_max_term_operations.is_some()
+    {
+        bundle_limits = bundle_limits.with_diagnostics();
+    }
     if max_negative_index_degree.is_some() && max_total_excess_degree.is_some() {
         return Err(ArgError::InvalidCombination(
             "--max-negative-index-degree and --max-total-excess-degree are mutually exclusive",
@@ -646,6 +659,7 @@ mod tests {
         assert_eq!(
             parsed.case_intersection_limits,
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 8192,
                 max_terms_per_conjunction: 123456,
                 max_normalizations: 2345,
@@ -754,6 +768,7 @@ mod tests {
         assert_eq!(
             args.finite_case_limits,
             FiniteCaseLimits {
+                diagnostics_enabled: true,
                 max_visited_points: 123,
                 max_retained_terminals: 45
             }

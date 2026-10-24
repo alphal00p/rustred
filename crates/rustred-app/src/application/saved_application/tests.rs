@@ -700,6 +700,31 @@ fn compressed_terminal_export_and_legacy_raw_load_have_identical_maps_and_metada
 }
 
 #[test]
+fn compact_saved_maps_use_caller_byte_grants_and_optional_count_diagnostics() {
+    let scratch = Scratch::new();
+    let mut original = prepared_fixture(&scratch.0.join("source"));
+    let runtime = scratch.0.join("runtime");
+    original.export_runtime(&runtime).unwrap();
+    let input = [(
+        IntegralKey::try_new([4]).unwrap(),
+        original.family().coefficient_context().one(),
+    )];
+    let expected = original.reduce_linear_combination(input.clone()).unwrap();
+    let mut options = SavedApplicationOptions::default();
+    options.binary_limits.max_program_bytes = 1024 * 1024 * 1024 + 1;
+    options.binary_limits.max_collection_entries = 0;
+    let mut restored = load_saved_application::<1>(&runtime, options).unwrap();
+    let actual = restored.reduce_linear_combination(input).unwrap();
+    assert_eq!(actual.terms(), expected.terms());
+    assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+    options.binary_limits.diagnostics_enabled = true;
+    assert!(load_saved_application::<1>(&runtime, options).is_err());
+    options.binary_limits.diagnostics_enabled = false;
+    options.binary_limits.max_program_bytes = 1;
+    assert!(load_saved_application::<1>(&runtime, options).is_err());
+}
+
+#[test]
 fn saved_runtime_eviction_is_default_and_preserves_exact_refined_outputs() {
     use rustred::solver::{CandidateCacheRepresentation, CandidateRoutedCachePolicy};
     let scratch = Scratch::new();
@@ -719,6 +744,7 @@ fn saved_runtime_eviction_is_default_and_preserves_exact_refined_outputs() {
             cache_representation: representation,
             ..Default::default()
         };
+        options.reduction_limits.diagnostics_enabled = true;
         options.reduction_limits.max_cached_integrals = 2;
         assert_eq!(
             options.cache_policy,
@@ -888,6 +914,7 @@ powers=[0,1,1]
     let metadata = json!({"family_fingerprint":family.fingerprint(),"raw_terminals":rows.len(),
         "remaining_terminals":remaining.len(),"source_keys_checked":rows.len()});
     let mut options = SavedApplicationOptions::default();
+    options.trace_limits.diagnostics_enabled = true;
     options.trace_limits.max_transport_calls = 1;
     let mut application = PreparedSavedApplication::<3>::from_parts(
         package::ApplicationInputs {
@@ -1189,4 +1216,62 @@ fn advisory_saved_coverage_is_independent_of_strict_complete_application() {
         .unwrap();
     assert_eq!(legacy.terms(), result.terms());
     assert_eq!(legacy.nonzero_conditions(), result.nonzero_conditions());
+}
+
+#[test]
+fn public_saved_application_keeps_resource_causes_and_can_retry() {
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+    let scratch = Scratch::new();
+    let mut prepared = prepared_fixture(&scratch.0.join("resource-native-source"));
+    let context = prepared.family().coefficient_context().clone();
+    let key = IntegralKey::try_new([4]).unwrap();
+    let expired = ResourceBudget::new(ResourceLimits {
+        max_process_rss_bytes: None,
+        max_elapsed: Some(Duration::ZERO),
+    });
+    let error = expired
+        .run(|| prepared.reduce_linear_combination([(key.clone(), context.one())]))
+        .unwrap_err();
+    assert_eq!(error.kind(), crate::AppErrorKind::Limit);
+    assert!(matches!(
+        error.resource_limit_error(),
+        Some(ResourceLimitError::Elapsed { .. })
+    ));
+    let result = prepared
+        .reduce_linear_combination([(key, context.one())])
+        .unwrap();
+    assert!(!result.terms.is_empty());
+    assert!(result.unresolved.is_empty());
+    assert!(
+        !result.conditions.is_empty(),
+        "the retry retains native and terminal guards"
+    );
+}
+
+#[test]
+fn public_saved_input_count_template_is_inactive_until_diagnostics_are_enabled() {
+    let scratch = Scratch::new();
+    let mut prepared = prepared_fixture(&scratch.0.join("count-template-native-source"));
+    let context = prepared.family().coefficient_context().clone();
+    let key = IntegralKey::try_new([4]).unwrap();
+    prepared.options.trace_limits.max_input_targets = 0;
+    assert!(!prepared.options.trace_limits.diagnostics_enabled);
+    let reference = prepared
+        .reduce_linear_combination([(key.clone(), context.one())])
+        .unwrap();
+    assert!(!reference.terms().is_empty());
+    prepared.options.trace_limits.diagnostics_enabled = true;
+    let error = prepared
+        .reduce_linear_combination([(key.clone(), context.one())])
+        .unwrap_err();
+    assert!(error.message().contains("input term limit"));
+    prepared.options.trace_limits.diagnostics_enabled = false;
+    let repeated = prepared
+        .reduce_linear_combination([(key, context.one())])
+        .unwrap();
+    assert_eq!(repeated.terms(), reference.terms());
+    assert_eq!(
+        repeated.nonzero_conditions(),
+        reference.nonzero_conditions()
+    );
 }

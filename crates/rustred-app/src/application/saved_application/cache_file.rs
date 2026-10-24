@@ -22,6 +22,7 @@ use rustred::{
 };
 use serde::{Deserialize, Serialize};
 
+use super::cache_pack::{io_error, resource_allocation, resource_checkpoint};
 use crate::AppError;
 
 #[cfg(test)]
@@ -58,7 +59,6 @@ impl Default for SavedApplicationCacheFileLimits {
         chunk.binary.max_program_bytes = MAX_DECODED_BYTES - HEADER_BYTES;
         chunk.binary.max_total_atom_bytes = MAX_DECODED_BYTES - HEADER_BYTES;
         chunk.max_records = 1_000_000;
-        chunk.max_index_owned_bytes = 128 * 1024 * 1024;
         Self {
             chunk,
             max_compressed_bytes: MAX_COMPRESSED_BYTES,
@@ -115,14 +115,17 @@ impl SavedApplicationCacheFile {
         context: &CoefficientContext,
         limits: SavedApplicationCacheFileLimits,
     ) -> Result<(Vec<u8>, SavedApplicationCacheFileIdentity), AppError> {
+        resource_checkpoint()?;
         let limits = limits.effective();
         let native = encode_application_cache_chunk(binding, records, context, limits.chunk)
             .map_err(binary_error)?;
         let native_digest = blake3::hash(&native);
         let mut decoded = Vec::new();
-        decoded
-            .try_reserve_exact(HEADER_BYTES + native.len())
-            .map_err(fail)?;
+        let decoded_bytes = HEADER_BYTES
+            .checked_add(native.len())
+            .ok_or_else(|| fail("decoded cache frame overflow"))?;
+        resource_allocation(decoded_bytes)?;
+        decoded.try_reserve_exact(decoded_bytes).map_err(fail)?;
         decoded.extend_from_slice(MAGIC);
         decoded.extend_from_slice(&(native.len() as u64).to_le_bytes());
         decoded.extend_from_slice(native_digest.as_bytes());
@@ -143,7 +146,7 @@ impl SavedApplicationCacheFile {
                 "compressed application cache file exceeds allowance",
             ));
         }
-        compressed.map_err(fail)?;
+        compressed.map_err(io_error)?;
         let encoded = output.bytes;
         let identity = SavedApplicationCacheFileIdentity {
             compressed_bytes: encoded.len() as u64,
@@ -151,6 +154,7 @@ impl SavedApplicationCacheFile {
             decoded_bytes: decoded.len() as u64,
             decoded_blake3: *blake3::hash(&decoded).as_bytes(),
         };
+        resource_checkpoint()?;
         Ok((encoded, identity))
     }
 
@@ -174,6 +178,7 @@ impl SavedApplicationCacheFile {
         identity: &SavedApplicationCacheFileIdentity,
         limits: SavedApplicationCacheFileLimits,
     ) -> Result<Self, AppError> {
+        resource_checkpoint()?;
         let limits = limits.effective();
         validate_identity(identity, limits)?;
         let encoded = read_file(path, Some(identity.compressed_bytes), limits)?;
@@ -206,6 +211,7 @@ impl SavedApplicationCacheFile {
         expected_identity: Option<&SavedApplicationCacheFileIdentity>,
         limits: SavedApplicationCacheFileLimits,
     ) -> Result<Self, AppError> {
+        resource_checkpoint()?;
         let limits = limits.effective();
         if encoded.len() > limits.max_compressed_bytes {
             return Err(AppError::limit(
@@ -242,9 +248,11 @@ impl SavedApplicationCacheFile {
             return Err(fail("decoded application cache file length mismatch"));
         }
         let mut native = Vec::new();
+        resource_allocation(native_length)?;
         native.try_reserve_exact(native_length).map_err(fail)?;
         let mut buffer = [0u8; 16 * 1024];
         while native.len() < native_length {
+            resource_checkpoint()?;
             let requested = buffer.len().min(native_length - native.len());
             let count = decoder.read(&mut buffer[..requested]).map_err(fail)?;
             if count == 0 {
@@ -278,6 +286,7 @@ impl SavedApplicationCacheFile {
         if expected_identity.is_some_and(|expected| *expected != identity) {
             return Err(fail("decoded application cache file digest mismatch"));
         }
+        resource_allocation(native.len())?;
         let chunk = OwnedApplicationCacheChunk::inspect(Arc::from(native), expected, limits.chunk)
             .map_err(binary_error)?;
         Ok(Self {
@@ -299,14 +308,19 @@ impl SavedApplicationCacheFile {
         self.chunk.keys()
     }
     pub fn statistics(&self) -> Result<SavedApplicationCacheFileStatistics, AppError> {
-        let (decoded_coefficient_terms, decoded_coefficient_bytes) =
-            self.chunk.decoded_coefficient_census().map_err(fail)?;
+        let (decoded_coefficient_terms, decoded_coefficient_bytes) = self
+            .chunk
+            .decoded_coefficient_census()
+            .map_err(binary_error)?;
         Ok(SavedApplicationCacheFileStatistics {
             records: self.chunk.len(),
             compressed_bytes: self.identity.compressed_bytes,
             decoded_bytes: self.identity.decoded_bytes,
             index_owned_bytes: self.chunk.index_owned_bytes(),
-            decoded_coefficients: self.chunk.decoded_coefficient_count().map_err(fail)?,
+            decoded_coefficients: self
+                .chunk
+                .decoded_coefficient_count()
+                .map_err(binary_error)?,
             decoded_coefficient_terms,
             decoded_coefficient_bytes,
             hits: self.hits,
@@ -336,6 +350,7 @@ impl SavedApplicationCacheFile {
         } else {
             self.misses = self.misses.saturating_add(1);
         }
+        resource_checkpoint()?;
         Ok(record)
     }
 }
@@ -363,7 +378,9 @@ fn read_file(
         return Err(fail("compressed application cache file length mismatch"));
     }
     let mut encoded = Vec::new();
-    encoded.try_reserve_exact(length as usize).map_err(fail)?;
+    let length_usize = usize::try_from(length).map_err(fail)?;
+    resource_allocation(length_usize)?;
+    encoded.try_reserve_exact(length_usize).map_err(fail)?;
     Read::by_ref(&mut file)
         .take(length)
         .read_to_end(&mut encoded)
@@ -372,10 +389,12 @@ fn read_file(
     if encoded.len() != length as usize || file.read(&mut probe).map_err(fail)? != 0 {
         return Err(fail("application cache file changed during read"));
     }
+    resource_checkpoint()?;
     Ok(encoded)
 }
 fn binary_error(error: rustred::persistence::BinaryIoError) -> AppError {
     match error {
+        rustred::persistence::BinaryIoError::Resource(error) => AppError::resource(error),
         rustred::persistence::BinaryIoError::Limit { .. } => {
             AppError::limit(format!("application cache file: {error}"))
         }
@@ -426,7 +445,12 @@ impl Write for BoundedBytes {
                 "compressed cache output allowance exceeded",
             ));
         }
-        self.bytes.try_reserve(bytes.len()).map_err(|_| {
+        resource_checkpoint().map_err(io::Error::other)?;
+        let additional = bytes
+            .len()
+            .saturating_sub(self.bytes.capacity() - self.bytes.len());
+        resource_allocation(additional).map_err(io::Error::other)?;
+        self.bytes.try_reserve_exact(bytes.len()).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::OutOfMemory,
                 "compressed cache allocation failed",
@@ -451,6 +475,9 @@ impl rustred::reduction::GuardedCacheBacking for SavedApplicationCacheFile {
     ) -> Result<Option<ApplicationCacheRecord>, rustred::reduction::GuardedCacheBackingError> {
         SavedApplicationCacheFile::lookup(self, key, context).map_err(|error| {
             use rustred::reduction::GuardedCacheBackingErrorKind;
+            if let Some(resource) = error.resource_limit_error() {
+                return rustred::reduction::GuardedCacheBackingError::resource(resource.clone());
+            }
             rustred::reduction::GuardedCacheBackingError {
                 kind: if error.kind() == crate::AppErrorKind::Limit {
                     GuardedCacheBackingErrorKind::Limit

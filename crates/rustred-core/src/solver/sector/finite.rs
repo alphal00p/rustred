@@ -5,6 +5,7 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
+use symbolica::utils::resources::{self, ResourceLimitError};
 
 use crate::solver::{AffineGeometryError, Case, CoordinateCase, Integral, Power};
 
@@ -40,9 +41,10 @@ impl std::str::FromStr for FiniteCasePolicy {
     }
 }
 
-/// Aggregate per-sector enumeration/storage budgets, not semantic bounds.
+/// Optional per-sector enumeration/storage diagnostics, not semantic bounds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FiniteCaseLimits {
+    pub diagnostics_enabled: bool,
     /// Fully fixed simplex points tested, including rejected/duplicate points.
     pub max_visited_points: usize,
     /// Distinct concrete points retained across all finite cases in a sector.
@@ -52,14 +54,24 @@ pub struct FiniteCaseLimits {
 impl Default for FiniteCaseLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_visited_points: 1_000_000,
             max_retained_terminals: 1_000_000,
         }
     }
 }
 
+impl FiniteCaseLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FiniteRetentionError {
+    Resources(ResourceLimitError),
+    StorageCountOverflow,
     MissingNumeratorRank,
     VisitedPointBudget {
         requested: usize,
@@ -80,6 +92,10 @@ pub enum FiniteRetentionError {
 impl fmt::Display for FiniteRetentionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(f),
+            Self::StorageCountOverflow => {
+                f.write_str("finite retained-point collection size exceeds usize representation")
+            }
             Self::MissingNumeratorRank => {
                 f.write_str("retain-rank-finite requires an explicit maximum numerator rank")
             }
@@ -103,7 +119,21 @@ impl fmt::Display for FiniteRetentionError {
     }
 }
 
-impl std::error::Error for FiniteRetentionError {}
+impl std::error::Error for FiniteRetentionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            Self::Geometry(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<ResourceLimitError> for FiniteRetentionError {
+    fn from(error: ResourceLimitError) -> Self {
+        Self::Resources(error)
+    }
+}
 
 #[derive(Debug, Default)]
 pub(super) struct Retention<const N: usize> {
@@ -135,6 +165,7 @@ impl<const N: usize> Retention<N> {
         maximum: u32,
         limits: FiniteCaseLimits,
     ) -> Result<bool, FiniteRetentionError> {
+        resources::checkpoint()?;
         if sector
             .iter()
             .zip(case.fixed())
@@ -184,6 +215,8 @@ impl<const N: usize> Retention<N> {
         let Enumeration {
             points, visited, ..
         } = enumeration;
+        // A resource refusal cannot publish a prefix of the finite query.
+        resources::checkpoint()?;
         self.visited = visited;
         self.points.extend(points);
         Ok(true)
@@ -205,6 +238,7 @@ impl<const N: usize> Enumeration<'_, N> {
         fixed: &mut [Option<i16>; N],
         remaining: u32,
     ) -> Result<(), FiniteRetentionError> {
+        resources::checkpoint()?;
         if let Some((&axis, rest)) = free.split_first() {
             for degree in 0..=remaining {
                 fixed[axis] = Some(-(degree as i16));
@@ -213,14 +247,17 @@ impl<const N: usize> Enumeration<'_, N> {
             fixed[axis] = None;
             return Ok(());
         }
-        let requested =
+        let requested = if self.limits.diagnostics_enabled {
             self.visited
                 .checked_add(1)
                 .ok_or(FiniteRetentionError::VisitedPointBudget {
                     requested: usize::MAX,
                     limit: self.limits.max_visited_points,
-                })?;
-        if requested > self.limits.max_visited_points {
+                })?
+        } else {
+            self.visited.saturating_add(1)
+        };
+        if self.limits.diagnostics_enabled && requested > self.limits.max_visited_points {
             return Err(FiniteRetentionError::VisitedPointBudget {
                 requested,
                 limit: self.limits.max_visited_points,
@@ -245,16 +282,14 @@ impl<const N: usize> Enumeration<'_, N> {
             .len()
             .checked_add(self.points.len())
             .and_then(|count| count.checked_add(1))
-            .ok_or(FiniteRetentionError::RetainedTerminalBudget {
-                requested: usize::MAX,
-                limit: self.limits.max_retained_terminals,
-            })?;
-        if requested > self.limits.max_retained_terminals {
+            .ok_or(FiniteRetentionError::StorageCountOverflow)?;
+        if self.limits.diagnostics_enabled && requested > self.limits.max_retained_terminals {
             return Err(FiniteRetentionError::RetainedTerminalBudget {
                 requested,
                 limit: self.limits.max_retained_terminals,
             });
         }
+        resources::check_allocation(std::mem::size_of::<Integral<N>>() as u64)?;
         self.points.insert(integral);
         Ok(())
     }

@@ -85,7 +85,7 @@ pub fn encode_program(
     sections: &[BinarySection<'_>],
     limits: BinaryIoLimits,
 ) -> Result<Vec<u8>, BinaryIoError> {
-    check_limit("section count", sections.len(), limits.max_sections)?;
+    limits.check_count("section count", sections.len(), limits.max_sections)?;
     let count = u32::try_from(sections.len())
         .map_err(|_| BinaryIoError::Invalid("section count exceeds wire width"))?;
     let mut total = HEADER_BYTES;
@@ -101,9 +101,7 @@ pub fn encode_program(
     }
     check_limit("program bytes", total, limits.max_program_bytes)?;
     let mut out = CappedWriter::new("program bytes", limits.max_program_bytes);
-    let write = |result: std::io::Result<()>| {
-        result.map_err(|error| BinaryIoError::Native(error.to_string()))
-    };
+    let write = |result: std::io::Result<()>| result.map_err(super::native_io_error);
     write(out.write_all(MAGIC))?;
     write(out.write_all(&BINARY_PROGRAM_VERSION.to_le_bytes()))?;
     write(out.write_all(&[kind as u8, WIRE_LENGTH_BYTES, 0, 0]))?;
@@ -154,13 +152,14 @@ pub fn inspect_program(
     }
     let count = usize::try_from(cursor.u32()?)
         .map_err(|_| BinaryIoError::Invalid("section count exceeds host width"))?;
-    check_limit("section count", count, limits.max_sections)?;
+    limits.check_count("section count", count, limits.max_sections)?;
     if count > cursor.remaining() / SECTION_HEADER_BYTES {
         return Err(BinaryIoError::Invalid(
             "section count exceeds remaining framing",
         ));
     }
     let mut sections = Vec::new();
+    super::resource_array::<BinarySection<'_>>(count)?;
     sections
         .try_reserve_exact(count)
         .map_err(|_| BinaryIoError::Allocation {
@@ -222,6 +221,7 @@ impl<'a> Cursor<'a> {
     }
 
     fn take(&mut self, count: usize) -> Result<&'a [u8], BinaryIoError> {
+        super::resource_checkpoint()?;
         let end = self
             .offset
             .checked_add(count)

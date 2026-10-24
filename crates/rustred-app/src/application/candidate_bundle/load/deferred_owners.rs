@@ -4,10 +4,11 @@ use std::sync::{Arc, Mutex};
 
 use rustred::family::{IntegralFamily, IntegralKey};
 use rustred::persistence::{LazyDecodedCoefficientTable, SectionTag};
-use rustred::reduction::ReductionLimits;
+use rustred::reduction::{ReductionError, ReductionLimits};
 use rustred::solver::{
     CandidateOwnerContext, CandidateOwnerInput, CandidateOwnerPrograms, CandidateReductionError,
     DeferredCandidateOwnerDescriptor, DeferredCandidateOwnerLoader, DeferredCandidateOwnerPrograms,
+    OwnerFeedbackError,
 };
 
 use super::super::{codec, model::ProgramRecord};
@@ -17,6 +18,17 @@ use crate::application::candidate_bundle::{
     CandidateDomainOverlayLoadLimits, load_generated_domain_overlay,
     validate_domain_overlay_ingress,
 };
+
+fn native_error(error: impl std::error::Error + 'static) -> AppError {
+    AppError::from_native(error, crate::AppErrorKind::Execution)
+}
+
+fn admission_error(error: AppError) -> CandidateReductionError {
+    if let Some(resource) = error.resource_limit_error() {
+        return CandidateReductionError::Application(ReductionError::Resources(resource.clone()));
+    }
+    CandidateReductionError::InvalidInput(format!("deferred native owner admission: {error}"))
+}
 
 pub(crate) struct DeferredOwnerOverlay<'a, const N: usize> {
     pub bytes: &'a [u8],
@@ -63,56 +75,69 @@ impl<const N: usize> DeferredCandidateOwnerLoader<N> for Loader<N> {
         context: Arc<CandidateOwnerContext<N>>,
     ) -> Result<CandidateOwnerPrograms<N>, CandidateReductionError> {
         let result = (|| -> Result<CandidateOwnerPrograms<N>, AppError> {
-            let source = self
+            let mut source_slot = self
                 .sources
                 .get(&sector)
                 .ok_or_else(|| AppError::input("deferred owner source is missing"))?
                 .lock()
-                .map_err(|_| AppError::execution("deferred owner source lock poisoned"))?
-                .take()
-                .ok_or_else(|| AppError::execution("deferred owner source was already consumed"))?;
-            let baseline = source.baseline.decode(&context, self.limits)?;
-            let preferred = source
-                .preferred
+                .map_err(|_| AppError::execution("deferred owner source lock poisoned"))?;
+            // Keep the complete authenticated source alive until preparation
+            // finishes. A resource refusal is retryable by the core owner cell,
+            // including when earlier native decoding or overlays have completed.
+            let result = (|| -> Result<CandidateOwnerPrograms<N>, AppError> {
+                let source = source_slot.as_ref().ok_or_else(|| {
+                    AppError::execution("deferred owner source was already consumed")
+                })?;
+                let baseline = source.baseline.decode(&context, self.limits)?;
+                let preferred = source
+                    .preferred
+                    .as_ref()
+                    .map(|owner| owner.decode(&context, self.limits))
+                    .transpose()?;
+                let subsets = source
+                    .subset
+                    .as_ref()
+                    .map(|ordinals| BTreeMap::from([(sector, ordinals.as_slice())]))
+                    .unwrap_or_default();
+                let programs = CandidateOwnerPrograms::try_new_with_preference_rule_subsets(
+                    context,
+                    [baseline],
+                    preferred.into_iter(),
+                    &subsets,
+                )
+                .map_err(native_error)?;
+                let mut programs = Arc::new(programs);
+                for overlay in &source.overlays {
+                    let (overlay, _) = load_generated_domain_overlay(
+                        &programs,
+                        &overlay.bytes,
+                        sector,
+                        overlay.baseline_digest,
+                        CandidateDomainOverlayLoadLimits {
+                            bundle: self.limits.bundle,
+                            ..Default::default()
+                        },
+                    )?;
+                    programs = programs
+                        .append_residual_free_domain_overlays(vec![overlay], Default::default())
+                        .map_err(|error| match error {
+                            OwnerFeedbackError::Candidate(error) => native_error(error),
+                            error => native_error(error),
+                        })?;
+                }
+                Arc::try_unwrap(programs).map_err(|_| {
+                    AppError::internal_invariant("fresh deferred owner remained shared")
+                })
+            })();
+            if !result
                 .as_ref()
-                .map(|owner| owner.decode(&context, self.limits))
-                .transpose()?;
-            let subsets = source
-                .subset
-                .as_ref()
-                .map(|ordinals| BTreeMap::from([(sector, ordinals.as_slice())]))
-                .unwrap_or_default();
-            let programs = CandidateOwnerPrograms::try_new_with_preference_rule_subsets(
-                context,
-                [baseline],
-                preferred.into_iter(),
-                &subsets,
-            )
-            .map_err(|error| AppError::execution(error.to_string()))?;
-            let mut programs = Arc::new(programs);
-            for overlay in source.overlays {
-                let (overlay, _) = load_generated_domain_overlay(
-                    &programs,
-                    &overlay.bytes,
-                    sector,
-                    overlay.baseline_digest,
-                    CandidateDomainOverlayLoadLimits {
-                        bundle: self.limits.bundle,
-                        ..Default::default()
-                    },
-                )?;
-                programs = programs
-                    .append_residual_free_domain_overlays(vec![overlay], Default::default())
-                    .map_err(|error| AppError::execution(error.to_string()))?;
+                .is_err_and(|error| error.resource_limit_error().is_some())
+            {
+                *source_slot = None;
             }
-            Arc::try_unwrap(programs)
-                .map_err(|_| AppError::internal_invariant("fresh deferred owner remained shared"))
+            result
         })();
-        result.map_err(|error| {
-            CandidateReductionError::InvalidInput(format!(
-                "deferred native owner admission: {error}"
-            ))
-        })
+        result.map_err(admission_error)
     }
 }
 
@@ -162,16 +187,21 @@ pub(crate) fn prepare_deferred_candidate_owners<const N: usize>(
     limits: CandidateOwnerLoadLimits,
     reduction_limits: ReductionLimits,
 ) -> Result<DeferredCandidateOwnerPrograms<N>, AppError> {
-    let subset_entries = rule_subsets
-        .values()
-        .try_fold(0usize, |sum, ordinals| sum.checked_add(ordinals.len()))
-        .ok_or_else(|| AppError::limit("deferred preferred subset count overflow"))?;
-    if rule_subsets.len() > preferences.len()
-        || subset_entries > limits.bundle.max_collection_entries
-    {
-        return Err(AppError::limit(
-            "deferred preferred subset metadata exceeds admission limit",
+    if rule_subsets.len() > preferences.len() {
+        return Err(AppError::input(
+            "deferred preferred subset has no preferred owner",
         ));
+    }
+    if limits.bundle.diagnostics_enabled {
+        let subset_entries = rule_subsets
+            .values()
+            .try_fold(0usize, |sum, ordinals| sum.checked_add(ordinals.len()))
+            .ok_or_else(|| AppError::limit("deferred preferred subset count overflow"))?;
+        if subset_entries > limits.bundle.max_collection_entries {
+            return Err(AppError::limit(
+                "deferred preferred subset metadata exceeds admission limit",
+            ));
+        }
     }
     let admission = owners::admit_owner_inputs::<N>(inputs, preferences, limits)?;
     let all_inputs = inputs
@@ -242,7 +272,7 @@ pub(crate) fn prepare_deferred_candidate_owners<const N: usize>(
     let proofs = owners::zero_proofs::<N>(&family, &admission.zero_masks)?;
     let context = Arc::new(
         CandidateOwnerContext::try_new(family, admission.scope, proofs, reduction_limits)
-            .map_err(|error| AppError::execution(error.to_string()))?,
+            .map_err(native_error)?,
     );
     let mut descriptors = Vec::new();
     let mut sources = BTreeMap::new();
@@ -321,8 +351,7 @@ pub(crate) fn prepare_deferred_candidate_owners<const N: usize>(
             .collect(),
         limits,
     });
-    DeferredCandidateOwnerPrograms::try_new(context, descriptors, loader)
-        .map_err(|error| AppError::execution(error.to_string()))
+    DeferredCandidateOwnerPrograms::try_new(context, descriptors, loader).map_err(native_error)
 }
 
 #[cfg(test)]
@@ -332,6 +361,29 @@ mod tests {
     use rustred::persistence::{CoefficientId, CoefficientTableBuilder};
     use rustred::sector::Mask;
     use rustred::solver::RoutedCandidateReducer;
+
+    #[test]
+    fn deferred_native_resources_keep_the_typed_cause_in_both_directions() {
+        let resource = symbolica::utils::resources::ResourceLimitError::Memory {
+            rss_bytes: 100,
+            additional_bytes: 20,
+            limit_bytes: 110,
+        };
+        let mapped = native_error(CandidateReductionError::Application(
+            ReductionError::Resources(resource.clone()),
+        ));
+        assert_eq!(mapped.resource_limit_error(), Some(&resource));
+        assert!(matches!(
+            admission_error(mapped),
+            CandidateReductionError::Application(ReductionError::Resources(error))
+                if error == resource
+        ));
+        assert!(matches!(
+            admission_error(AppError::input("invalid generated owner")),
+            CandidateReductionError::InvalidInput(message)
+                if message.contains("invalid generated owner")
+        ));
+    }
 
     fn fixture() -> (Arc<IntegralFamily>, Vec<u8>) {
         let mut request = crate::FamilyCandidatesRequest::new(
@@ -390,6 +442,98 @@ powers=[1]
             Default::default(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn production_loader_retries_resources_with_authenticated_preferred_source_intact() {
+        use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+
+        let (family, bytes) = fixture();
+        let preferred = replace_first_coefficient(&bytes, |value| value + value);
+        let mask = Mask::try_new([true]).unwrap();
+        let inputs = [CandidateOwnerBundle {
+            bytes: &bytes,
+            owner_sector: &mask,
+        }];
+        let preferences = [CandidateOwnerBundle {
+            bytes: &preferred,
+            owner_sector: &mask,
+        }];
+        let ordinals = [0usize];
+        let subsets = BTreeMap::from([([true], ordinals.as_slice())]);
+        let catalogue = Arc::new(
+            prepare_deferred_candidate_owners::<1>(
+                family.clone(),
+                &inputs,
+                &preferences,
+                &subsets,
+                &[],
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap(),
+        );
+        let mut application = rustred::solver::RoutedCandidateApplication::try_new_deferred(
+            catalogue.clone(),
+            [],
+            Default::default(),
+        )
+        .unwrap();
+        // Entry checks pass before the real loader starts. Its first resource
+        // checkpoint then refuses deterministically, after the Source is leased.
+        const LIMIT: u64 = 1_000_000_000;
+        let observed = catalogue.clone();
+        let budget = ResourceBudget::with_memory_monitor(
+            ResourceLimits {
+                max_process_rss_bytes: Some(LIMIT),
+                ..Default::default()
+            },
+            move || {
+                Ok(if observed.statistics().preparation_attempts == 0 {
+                    0
+                } else {
+                    LIMIT + 1
+                })
+            },
+        );
+        let input = [(
+            IntegralKey::try_new([2]).unwrap(),
+            family.coefficient_context().one(),
+        )];
+        let error = budget
+            .run(|| application.reduce_linear_combination(input.clone()))
+            .unwrap_err();
+        assert!(matches!(
+            native_error(error).resource_limit_error(),
+            Some(ResourceLimitError::Memory {
+                limit_bytes: LIMIT,
+                ..
+            })
+        ));
+        assert_eq!(catalogue.statistics().preparation_attempts, 1);
+        assert_eq!(catalogue.statistics().prepared_owners, 0);
+        assert_eq!(catalogue.statistics().failed_owners, 0);
+        let retried = application
+            .reduce_linear_combination(input.clone())
+            .unwrap();
+        assert_eq!(catalogue.statistics().preparation_attempts, 2);
+        assert_eq!(catalogue.statistics().prepared_owners, 1);
+        assert_eq!(catalogue.statistics().failed_owners, 0);
+        let (_, eager) = owners::load_generated_candidate_owners_with_preference_rule_subsets::<1>(
+            &inputs,
+            &preferences,
+            &subsets,
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+        let expected = RoutedCandidateReducer::try_new(Arc::new(eager), [], Default::default())
+            .unwrap()
+            .application()
+            .reduce_linear_combination(input)
+            .unwrap();
+        assert_eq!(retried.terms(), expected.terms());
+        assert_eq!(retried.nonzero_conditions(), expected.nonzero_conditions());
     }
 
     #[test]

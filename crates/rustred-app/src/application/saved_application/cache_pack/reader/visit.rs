@@ -30,8 +30,10 @@ impl SavedApplicationCachePack {
         let mut index_bytes = self.statistics.directory_owned_bytes;
         let mut coefficient_terms = 0usize;
         let mut coefficient_bytes = 0usize;
+        resource_checkpoint()?;
         for run in self.manifest.runs.iter().rev() {
             for chunk in run {
+                resource_checkpoint()?;
                 let encoded = index::read_bounded(
                     &self.directory.join("chunks").join(chunk.file_name()),
                     usize::try_from(chunk.bytes).map_err(fail)?,
@@ -61,12 +63,13 @@ impl SavedApplicationCachePack {
                     .saturating_add(payload.len() as u64);
                 self.statistics.largest_decoded_chunk =
                     self.statistics.largest_decoded_chunk.max(payload.len());
+                resource_allocation(payload.len())?;
                 let decoded = OwnedApplicationCacheChunk::inspect(
                     Arc::from(payload),
                     &self.manifest.binding,
                     self.limits.chunk,
                 )
-                .map_err(fail)?;
+                .map_err(binary_error)?;
                 if decoded.len() != chunk.records
                     || decoded.keys().next() != Some(&chunk.first)
                     || decoded.keys().last() != Some(&chunk.last)
@@ -83,6 +86,7 @@ impl SavedApplicationCachePack {
                     ));
                 }
                 for key in decoded.keys() {
+                    resource_checkpoint()?;
                     if seen.contains(key) {
                         continue;
                     }
@@ -101,28 +105,31 @@ impl SavedApplicationCachePack {
                     }
                     let record = decoded
                         .decode_record(key, context)
-                        .map_err(fail)?
+                        .map_err(binary_error)?
                         .ok_or_else(|| fail("indexed cache record vanished during scan"))?;
-                    let (terms, bytes) = record.coefficient_census().map_err(fail)?;
+                    let (terms, bytes) = record.coefficient_census().map_err(binary_error)?;
                     coefficient_terms = coefficient_terms.checked_add(terms).ok_or_else(|| {
                         AppError::limit("cache scan coefficient term census overflow")
                     })?;
                     coefficient_bytes = coefficient_bytes.checked_add(bytes).ok_or_else(|| {
                         AppError::limit("cache scan coefficient byte census overflow")
                     })?;
-                    if coefficient_terms > self.limits.chunk.max_decoded_coefficient_terms
+                    if (self.limits.chunk.diagnostics_enabled
+                        && coefficient_terms > self.limits.chunk.max_decoded_coefficient_terms)
                         || coefficient_bytes > self.limits.chunk.max_decoded_coefficient_bytes
                     {
                         return Err(AppError::limit(
                             "cache scan emitted coefficient allowance exceeded",
                         ));
                     }
+                    resource_allocation(next_bytes - index_bytes)?;
                     seen.insert(key.clone());
                     index_bytes = next_bytes;
                     visit(record)?;
                 }
             }
         }
+        resource_checkpoint()?;
         Ok(seen.len())
     }
 }

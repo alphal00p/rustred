@@ -75,13 +75,18 @@ where
 pub(crate) fn symbolica_matrix_limits(
     limits: IntegralFamilyLimits,
 ) -> SymbolicaCoefficientMatrixLimits {
-    SymbolicaCoefficientMatrixLimits::for_family(
+    let native = SymbolicaCoefficientMatrixLimits::for_family(
         limits.exact_algebra,
         limits.max_matrix_entries,
         limits.max_matrix_exact_operations,
         limits.max_matrix_input_retained_bytes,
         limits.max_matrix_output_retained_bytes,
-    )
+    );
+    if limits.diagnostics_enabled {
+        native.with_diagnostics()
+    } else {
+        native
+    }
 }
 
 pub(super) fn map_symbolica_matrix_error(

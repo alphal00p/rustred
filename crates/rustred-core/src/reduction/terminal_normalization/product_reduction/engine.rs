@@ -32,7 +32,7 @@ struct Request {
     stack: Vec<Frame>,
 }
 impl Request {
-    fn push(&mut self, frame: Frame, limit: usize) -> Result<(), Error> {
+    fn push(&mut self, frame: Frame, limit: Option<usize>) -> Result<(), Error> {
         self.algebra.retain_pending_frame(limit)?;
         self.stack
             .try_reserve(1)
@@ -92,9 +92,10 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
         self.cache.clear();
         self.zero_supports.clear();
         self.cache_weight = CacheWeight::default();
-        self.families.clear();
-        self.families
-            .insert(self.anchor.fingerprint().to_owned(), self.anchor.clone());
+        // The anchor is always registered at construction. Retain its existing
+        // key/node so cache clearing remains allocation-free after mutation.
+        let anchor = self.anchor.fingerprint();
+        self.families.retain(|fingerprint, _| fingerprint == anchor);
         Ok(())
     }
 
@@ -115,14 +116,15 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
             charge(
                 &mut request.stats.input_products,
                 1,
-                self.limits.max_input_products,
+                self.limits.diagnostic_limit(self.limits.max_input_products),
                 "input products",
             )?;
             let mut length = 0;
             charge(
                 &mut length,
                 factors.len(),
-                self.limits.max_factors_per_product,
+                self.limits
+                    .diagnostic_limit(self.limits.max_factors_per_product),
                 "factors per product",
             )?;
             conditions.denominator(&self.context, &coefficient, self.limits)?;
@@ -150,7 +152,9 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
             for factor in &factors {
                 request.push(
                     Frame::Expand(factor.clone()),
-                    self.limits.reduction.max_pending_frames,
+                    self.limits
+                        .reduction
+                        .diagnostic_limit(self.limits.reduction.max_pending_frames),
                 )?;
                 self.run(&mut request)?;
             }
@@ -199,7 +203,12 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
         }
         if !self.families.contains_key(family.fingerprint()) {
             let mut count = self.families.len();
-            charge(&mut count, 1, self.limits.max_families, "families")?;
+            charge(
+                &mut count,
+                1,
+                self.limits.diagnostic_limit(self.limits.max_families),
+                "families",
+            )?;
             self.families
                 .insert(family.fingerprint().to_owned(), family);
         }
@@ -265,12 +274,16 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
                             rows,
                             conditions,
                         },
-                        self.limits.reduction.max_pending_frames,
+                        self.limits
+                            .reduction
+                            .diagnostic_limit(self.limits.reduction.max_pending_frames),
                     )?;
                     for child in children.into_iter().rev() {
                         request.push(
                             Frame::Expand(child),
-                            self.limits.reduction.max_pending_frames,
+                            self.limits
+                                .reduction
+                                .diagnostic_limit(self.limits.reduction.max_pending_frames),
                         )?;
                     }
                 }
@@ -373,7 +386,7 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
         charge(
             &mut request.stats.provider_calls,
             1,
-            self.limits.max_provider_calls,
+            self.limits.diagnostic_limit(self.limits.max_provider_calls),
             "provider calls",
         )?;
         let census = self.cache_budget.snapshot();
@@ -408,7 +421,9 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
             .provider
             .reduce(family.clone(), target.integral(), remaining)
             .map_err(|error| {
-                if P::error_is_missing_coverage(&error) {
+                if let Some(resource) = P::resource_limit_error(&error) {
+                    Error::Reduction(ReductionError::Resources(resource))
+                } else if P::error_is_missing_coverage(&error) {
                     Error::UnresolvedFactor {
                         family: target.family_fingerprint().to_owned(),
                         target: target.integral().clone(),
@@ -435,13 +450,19 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
             .saturating_add(result.work.cache_hits);
         request.algebra.record_rule_applications(
             result.work.rule_applications,
-            self.limits.reduction.max_rule_applications,
+            self.limits
+                .reduction
+                .diagnostic_limit(self.limits.reduction.max_rule_applications),
         )?;
         request.algebra.record_coalescing_additions(
             result.work.coalescing_additions,
-            self.limits.reduction.max_coalescing_additions,
+            self.limits
+                .reduction
+                .diagnostic_limit(self.limits.reduction.max_coalescing_additions),
         )?;
-        if result.terms.len() > self.limits.reduction.max_factorization_terms {
+        if self.limits.reduction.diagnostics_enabled
+            && result.terms.len() > self.limits.reduction.max_factorization_terms
+        {
             return Err(ReductionError::FactorizationTermLimit {
                 requested: result.terms.len(),
                 limit: self.limits.reduction.max_factorization_terms,
@@ -486,7 +507,9 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
             charge(
                 &mut request.stats.product_terminals,
                 keys.len(),
-                self.limits.products.max_terminals,
+                self.limits
+                    .products
+                    .diagnostic_limit(self.limits.products.max_terminals),
                 "product terminals",
             )?;
             let plan = VacuumProductPlan::prepare(
@@ -509,13 +532,17 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
             charge(
                 &mut request.stats.basis_candidates,
                 plan.statistics().basis_candidates,
-                self.limits.products.max_basis_candidates,
+                self.limits
+                    .products
+                    .diagnostic_limit(self.limits.products.max_basis_candidates),
                 "basis candidates",
             )?;
             charge(
                 &mut request.stats.canonical_candidates,
                 plan.statistics().canonical_candidates,
-                self.limits.products.max_canonical_candidates,
+                self.limits
+                    .products
+                    .diagnostic_limit(self.limits.products.max_canonical_candidates),
                 "canonical candidates",
             )?;
             for (fingerprint, lower) in plan.families() {
@@ -524,7 +551,9 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
                     charge(
                         &mut count,
                         1,
-                        self.limits.products.max_lower_families,
+                        self.limits
+                            .products
+                            .diagnostic_limit(self.limits.products.max_lower_families),
                         "lower families",
                     )?;
                     request.lower_families.insert(fingerprint.clone());
@@ -543,7 +572,8 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
                 charge(
                     &mut factor_count,
                     product.factors().len(),
-                    self.limits.max_factors_per_product,
+                    self.limits
+                        .diagnostic_limit(self.limits.max_factors_per_product),
                     "factors per product",
                 )?;
                 for factor in product.factors() {

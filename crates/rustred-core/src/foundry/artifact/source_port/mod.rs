@@ -77,10 +77,13 @@ pub enum AffineOwnershipRole {
 /// Fail-closed cold-audit failure, with no partially installed state.
 #[derive(Clone, Debug)]
 pub enum SourcePortAuditError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     /// Ordinary bridge/validation failure.
     Message(String),
     /// An exact proof exhausted a caller-owned resource allowance.
-    ResourceBudgetExhausted { resource: &'static str },
+    ResourceBudgetExhausted {
+        resource: &'static str,
+    },
     /// The caller requested a policy beyond the supported traversal bound.
     UnsupportedResourcePolicy {
         resource: &'static str,
@@ -118,6 +121,7 @@ pub enum SourcePortAuditError {
 impl fmt::Display for SourcePortAuditError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(f),
             Self::Message(message) => f.write_str(message),
             Self::ResourceBudgetExhausted { resource } => {
                 write!(f, "source-port proof budget exhausted: {resource}")
@@ -160,7 +164,14 @@ impl fmt::Display for SourcePortAuditError {
     }
 }
 
-impl std::error::Error for SourcePortAuditError {}
+impl std::error::Error for SourcePortAuditError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl SourcePortAuditError {
     pub(crate) fn message(value: impl Into<String>) -> Self {
@@ -191,7 +202,8 @@ impl SourcePortAuditError {
             Self::UnsupportedAffineOwnership { domain, role } => {
                 Some((domain.sector(), domain.fixed(), domain.equations(), *role))
             }
-            Self::Message(_)
+            Self::Resources(_)
+            | Self::Message(_)
             | Self::ResourceBudgetExhausted { .. }
             | Self::UnsupportedResourcePolicy { .. }
             | Self::UnprovedDescentObligation { .. } => None,
@@ -199,7 +211,35 @@ impl SourcePortAuditError {
     }
 }
 
-fn error(value: impl fmt::Display) -> SourcePortAuditError {
+fn error(value: impl fmt::Display + 'static) -> SourcePortAuditError {
+    if let Some(resource) = crate::persistence::resource_failure(&value) {
+        return SourcePortAuditError::Resources(resource);
+    }
+    let any = &value as &dyn std::any::Any;
+    macro_rules! preserve {
+        ($($ty:ty),* $(,)?) => { $(
+            if let Some(error) = any.downcast_ref::<$ty>() {
+                if let Some(resource) = crate::reduction::resource_limit_error(error) {
+                    return SourcePortAuditError::Resources(resource.clone());
+                }
+            }
+        )* };
+    }
+    preserve!(
+        SourcePortAuditError,
+        super::ArtifactError,
+        crate::foundry::parametric::ParametricRuleError,
+        crate::foundry::cell::RuleCellError,
+        crate::identity::IdentityConditionError,
+        crate::foundry::completion::CompletionGeometryError,
+        crate::algebra::IndexedAlgebraError,
+        crate::solver::SolverError,
+        crate::solver::AffineGeometryError,
+        crate::family::IntegralFamilyError,
+        crate::identity::ParametricIbpError,
+        crate::identity::ParametricRelationError,
+        crate::identity::TranslatedSourceError,
+    );
     SourcePortAuditError::message(value.to_string())
 }
 
@@ -308,7 +348,12 @@ impl<const N: usize> SourcePortAudit<N> {
     /// installer's exact unit-mass vacuum admission, not a frontend copy.
     /// Success is only a family-shape check, not evidence of closure.
     pub fn validate_install_family(family: &IntegralFamily) -> Result<(), SourcePortAuditError> {
-        super::install::validate_unit_mass_family(family).map_err(error)
+        super::install::validate_unit_mass_family(family).map_err(|cause| {
+            match crate::reduction::resource_limit_error(&cause) {
+                Some(resource) => SourcePortAuditError::Resources(resource.clone()),
+                None => error(cause),
+            }
+        })
     }
 
     /// The initial bridge admits uncut, unshifted vacuum sources only. It is
@@ -737,6 +782,11 @@ impl<const N: usize> SourcePortAudit<N> {
             .collect();
         let coverage = |owners: &[PredicateCoveragePiece<'_>]| {
             let limits = PredicateCoverLimits {
+                diagnostics_enabled: self.limits.diagnostics_enabled,
+                geometry: crate::foundry::completion::CompletionGeometryLimits {
+                    diagnostics_enabled: self.limits.diagnostics_enabled,
+                    ..Default::default()
+                },
                 max_predicates: self.limits.max_predicate_atoms,
                 max_consistency_work: self.limits.max_predicate_consistency_work,
                 ..Default::default()
@@ -776,6 +826,9 @@ impl<const N: usize> SourcePortAudit<N> {
                         unbounded_boxes,
                         ..
                     } => Ok((*boxes, *unbounded_boxes, Some(issue.to_string()))),
+                    predicate_cover::PredicateCoverError::Resources(resource) => {
+                        Err(SourcePortAuditError::Resources(resource.clone()))
+                    }
                     predicate_cover::PredicateCoverError::Budget(resource) => {
                         Err(SourcePortAuditError::ResourceBudgetExhausted { resource })
                     }

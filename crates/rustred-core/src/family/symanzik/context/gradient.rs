@@ -5,7 +5,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use super::FeynmanPolynomialContext;
 use crate::family::symanzik::error::FeynmanPolynomialError;
 use crate::family::symanzik::model::FeynmanPolynomial;
-use crate::family::symanzik::work::{FeynmanWorkBudget, check_limit, checked_mul};
+use crate::family::symanzik::work::{FeynmanWorkBudget, check_limit, checkpoint, estimated_mul};
 
 impl FeynmanPolynomialContext {
     /// Differentiate an authenticated polynomial with respect to every
@@ -16,26 +16,30 @@ impl FeynmanPolynomialContext {
     ) -> Result<Vec<FeynmanPolynomial>, FeynmanPolynomialError> {
         self.authenticate(polynomial)?;
         let mut work = FeynmanWorkBudget::new(self.limits);
-        let operations = checked_mul(
+        let operations = estimated_mul(
             polynomial.raw.nterms(),
             self.parameter_count(),
             "Feynman polynomial derivative terms",
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "Feynman polynomial derivative terms",
             operations,
             self.limits.max_term_operations,
+            self.limits.diagnostics_enabled,
         )?;
         work.charge_term_operations(operations)?;
-        let output_entries = checked_mul(
+        let output_entries = estimated_mul(
             operations,
             self.parameter_count(),
             "Feynman gradient exponent entries",
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "Feynman gradient exponent entries",
             output_entries,
             self.limits.max_exponent_entries,
+            self.limits.diagnostics_enabled,
         )?;
 
         let mut gradient = Vec::new();
@@ -46,6 +50,7 @@ impl FeynmanPolynomialContext {
                 requested: self.parameter_count(),
             })?;
         for variable in 0..self.parameter_count() {
+            checkpoint()?;
             // `MultivariatePolynomial::derivative` preserves the complete
             // variable map and delegates coefficient scaling to the native
             // coefficient ring. The native API has no fallible resource hook,

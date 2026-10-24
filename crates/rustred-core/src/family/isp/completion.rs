@@ -27,7 +27,7 @@ use super::error::IspCompletionError;
 use super::model::{IspCompletionLimits, IspCompletionStats};
 use super::rank::{
     RankBudget, authenticate_input_rows, check_limit, checked_row_rank,
-    checked_scalar_product_count, preflight_rank_coefficients, preflight_rank_matrix,
+    checked_scalar_product_count, checkpoint, preflight_rank_coefficients, preflight_rank_matrix,
 };
 
 /// A complete family plus the exact deterministic ISP-completion witness.
@@ -42,7 +42,7 @@ pub struct IspCompletion {
 
 impl IspCompletion {
     /// Complete an independent, possibly short denominator list with the
-    /// default checked resource policy.
+    /// default representation checks and ambient RAM/time policy.
     #[allow(clippy::too_many_arguments)]
     pub fn try_new<'name>(
         name: impl Into<Cow<'name, str>>,
@@ -67,8 +67,8 @@ impl IspCompletion {
         )
     }
 
-    /// Complete an independent denominator list under explicit rank and
-    /// family-construction budgets.
+    /// Complete an independent denominator list with optional diagnostic rank
+    /// and family-construction ceilings.
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_with_limits<'name>(
         name: impl Into<Cow<'name, str>>,
@@ -81,6 +81,7 @@ impl IspCompletion {
         mut power_shifts: Vec<Coefficient>,
         limits: IspCompletionLimits,
     ) -> Result<Self, IspCompletionError> {
+        checkpoint()?;
         let loops = loop_momenta.len();
         if loops == 0 {
             return Err(IspCompletionError::NoLoopMomenta);
@@ -90,6 +91,7 @@ impl IspCompletion {
             "family scalar products",
             scalar_products,
             limits.family.max_scalar_products,
+            limits.family.diagnostics_enabled,
         )?;
         if denominators.is_empty() {
             return Err(IspCompletionError::NoInputDenominators);
@@ -115,6 +117,7 @@ impl IspCompletion {
             denominators.len(),
             scalar_products,
             limits.max_rank_matrix_entries,
+            limits.diagnostics_enabled,
         )?;
         preflight_rank_coefficients(
             denominators
@@ -155,6 +158,7 @@ impl IspCompletion {
                 candidate_rows,
                 scalar_products,
                 limits.max_rank_matrix_entries,
+                limits.diagnostics_enabled,
             )?;
             let zero = coefficients.zero();
             let one = coefficients.one();

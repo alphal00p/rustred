@@ -18,6 +18,32 @@ fn override_from_value(
     // Validate a complete copy before altering the caller's configuration.
     let mut candidate = *options;
     for (name, value) in object {
+        if name == "diagnostics_enabled" {
+            let enabled = value
+                .as_bool()
+                .ok_or("diagnostics_enabled must be boolean")?;
+            candidate.reduction_limits.diagnostics_enabled = enabled;
+            candidate.reduction_limits.exact_algebra.diagnostics_enabled = enabled;
+            candidate
+                .reduction_limits
+                .indexed_algebra
+                .diagnostics_enabled = enabled;
+            candidate
+                .reduction_limits
+                .indexed_algebra
+                .exact_algebra
+                .diagnostics_enabled = enabled;
+            candidate.trace_limits.diagnostics_enabled = enabled;
+            candidate.trace_limits.expansion.diagnostics_enabled = enabled;
+            candidate
+                .trace_limits
+                .expansion
+                .exact_algebra
+                .diagnostics_enabled = enabled;
+            candidate.binary_limits.diagnostics_enabled = enabled;
+            candidate.binary_limits.exact_algebra.diagnostics_enabled = enabled;
+            continue;
+        }
         if name == "cache_policy" {
             candidate.cache_policy = match value.as_str() {
                 Some("evict-lru") => {
@@ -90,8 +116,39 @@ mod tests {
     }
 
     #[test]
+    fn count_templates_require_explicit_recursive_diagnostic_enablement() {
+        let original = SavedApplicationOptions::default();
+        let mut options = original;
+        override_from_value(&mut options, &json!({"max_rule_applications":0})).unwrap();
+        assert!(!options.reduction_limits.diagnostics_enabled);
+        override_from_value(&mut options, &json!({"diagnostics_enabled":true})).unwrap();
+        assert!(options.reduction_limits.diagnostics_enabled);
+        assert!(
+            options
+                .reduction_limits
+                .indexed_algebra
+                .exact_algebra
+                .diagnostics_enabled
+        );
+        assert!(
+            options
+                .trace_limits
+                .expansion
+                .exact_algebra
+                .diagnostics_enabled
+        );
+        assert!(options.binary_limits.exact_algebra.diagnostics_enabled);
+        assert_eq!(options.reduction_limits.max_rule_applications, 0);
+        override_from_value(&mut options, &json!({"diagnostics_enabled":false})).unwrap();
+        options.reduction_limits.max_rule_applications =
+            original.reduction_limits.max_rule_applications;
+        assert_eq!(options, original);
+    }
+
+    #[test]
     fn invalid_or_unknown_limits_are_transactional_errors() {
         for value in [
+            json!({"diagnostics_enabled": 1}),
             json!({"cache_policy": "unknown"}),
             json!({"cache_policy": 1}),
             json!({"preparation_workers": 0}),

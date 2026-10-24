@@ -138,9 +138,9 @@ impl<'family> FamilyScalarNumeratorService<'family> {
     /// Unlike the legacy `lower()` path, factored scalar-product polynomials
     /// are changed to denominator coordinates before native polynomial
     /// collection. `max_polynomial_terms` bounds this denominator-basis
-    /// polynomial (including conservative preflight estimates), while
+    /// polynomial when count diagnostics are explicitly enabled, while
     /// `max_lowered_terms` bounds the final nonzero keys. Scalar-coefficient
-    /// collection shares the request's exact-work budget. These resource
+    /// collection shares the active request's RAM/time budget. Diagnostic resource
     /// checks are not an entry-domain authorization, and their acceptance
     /// need not coincide with `lower()` under the same numerical limits.
     pub fn lower_weighted(
@@ -198,6 +198,7 @@ impl PreparedScalarProducts {
             "loop-momentum label equality checks",
             duplicate_checks,
             limits.max_loop_momentum_label_checks,
+            limits.diagnostics_enabled,
         )?;
         let mut momentum_label_nodes = 0usize;
         for (second, momentum) in loop_momenta.iter().enumerate() {
@@ -216,6 +217,7 @@ impl PreparedScalarProducts {
                 "scalar-numerator momentum label nodes",
                 momentum_label_nodes,
                 limits.max_momentum_label_nodes,
+                limits.diagnostics_enabled,
             )?;
             if let Some(first) = loop_momenta[..second]
                 .iter()
@@ -223,7 +225,7 @@ impl PreparedScalarProducts {
             {
                 return Err(ScalarNumeratorError::DuplicateLoopMomentum { first, second });
             }
-            if contains_head(momentum.as_view(), dot_head) {
+            if contains_head(momentum.as_view(), dot_head)? {
                 return Err(ScalarNumeratorError::ScalarProductHeadInLoopMomentum {
                     momentum: second,
                 });

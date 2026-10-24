@@ -43,7 +43,7 @@ fn message_location_keeps_typed_proof_errors_intact() {
 #[test]
 fn lowering_storage_failure_identifies_sector_and_retained_rule() {
     let (audit, solution) = solved_tadpole();
-    let mut limits = super::SourcePortLimits::default();
+    let mut limits = super::SourcePortLimits::default().with_diagnostics();
     limits.rule_derivation.max_domain_bound_endpoint_cells = 1;
     let failure = audit
         .with_limits(limits)

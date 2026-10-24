@@ -339,7 +339,8 @@ fn rejection_lookahead_never_bypasses_source_unknown_or_native_refusal() {
             1 => poly(&c, c.zero()),
             _ => quadratic(&c),
         }];
-        let mut limits = OwnerDomainMatchLimits::default();
+        let mut limits = OwnerDomainMatchLimits::default().with_diagnostics();
+        limits.guard_algebra.diagnostics_enabled = true;
         limits.guard_algebra.max_univariate_degree = 1;
         if source_kind == 2 {
             let error = refusal(&p, limits);
@@ -414,9 +415,12 @@ fn rejection_lookahead_optional_preflight_is_inconclusive_but_mandatory_error_st
         };
         install(&mut p, first);
         let mut limits = OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_bounded_refinement_cells: 100,
             ..Default::default()
         };
+        limits = limits.with_diagnostics();
+        limits.guard_algebra.diagnostics_enabled = true;
         limits.guard_algebra.max_univariate_degree = 1;
         if stage != 0 {
             // These are speculative rejection probes behind an unresolved
@@ -479,6 +483,7 @@ fn rejection_lookahead_cumulative_limits_and_cancellation_are_typed_incomplete()
     for (limits, resource, increment) in [
         (
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_predicates: 1,
                 ..Default::default()
             },
@@ -487,6 +492,7 @@ fn rejection_lookahead_cumulative_limits_and_cancellation_are_typed_incomplete()
         ),
         (
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_cells: baseline.cells,
                 ..Default::default()
             },
@@ -495,6 +501,7 @@ fn rejection_lookahead_cumulative_limits_and_cancellation_are_typed_incomplete()
         ),
         (
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_coordinate_cells: baseline.coordinate_cells,
                 ..Default::default()
             },
@@ -566,6 +573,7 @@ fn rejection_lookahead_cumulative_limits_and_cancellation_are_typed_incomplete()
 fn rejection_lookahead_without_witness_preserves_original_refinement_cursor() {
     let mut p = coupled_refinement_fixture(1);
     let limits = OwnerDomainMatchLimits {
+        diagnostics_enabled: true,
         max_bounded_refinement_cells: 3,
         ..Default::default()
     };

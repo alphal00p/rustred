@@ -38,6 +38,7 @@ impl<const N: usize> BoundOwnerSearch<N> {
         overlay_limits: OwnerOverlayLimits,
         replay_limits: SourcePortLimits,
     ) -> Result<(BoundOwnerOverlay<N>, SourcePortRuleReplayAudit<N>), OwnerFeedbackError<N>> {
+        symbolica::utils::resources::checkpoint().map_err(OwnerFeedbackError::from)?;
         if !solution.finite_residuals.is_empty() {
             return Err(OwnerFeedbackError::InvalidInput(
                 "restored rules-only owner overlay must not retain finite residual terminals"
@@ -61,11 +62,7 @@ impl<const N: usize> BoundOwnerSearch<N> {
                 "restored finite-retention metadata requires an explicit rank".into(),
             ));
         }
-        super::limits::check(
-            solution.requested_cases.len(),
-            attempt_limits.max_requested_cases,
-            "requested domains",
-        )?;
+        attempt_limits.check_requested(solution.requested_cases.len())?;
         validate_solution_order(&self.sector, &self.owner.ordering, &solution.order)?;
         OwnerOverlayUsage::default().admit_solution(&solution, overlay_limits)?;
         let zeros = self
@@ -90,6 +87,7 @@ impl<const N: usize> BoundOwnerSearch<N> {
                 &solution,
             )
             .map_err(OwnerFeedbackError::Replay)?;
+        symbolica::utils::resources::checkpoint().map_err(OwnerFeedbackError::from)?;
         let overlay = BoundOwnerOverlay {
             lineage: self.lineage.clone(),
             sector: self.sector,

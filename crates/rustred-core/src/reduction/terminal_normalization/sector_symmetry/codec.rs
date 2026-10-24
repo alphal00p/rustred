@@ -317,7 +317,7 @@ impl TerminalSectorSymmetryEquations {
             .section(SectionTag::PROGRAM)
             .expect("checked section");
         let (record, consumed): (Record, usize) =
-            bincode::decode_from_slice(payload, bincode::config::standard()).map_err(native)?;
+            crate::persistence::decode_structure(payload).map_err(native)?;
         if consumed != payload.len() || record.schema != PROVIDER_SCHEMA || record.recipe != RECIPE
         {
             return Err(invalid("unsupported or trailing sector symmetry orbit records").into());
@@ -816,7 +816,7 @@ impl TerminalSectorSymmetryRoundTrip {
             .section(SectionTag::PROGRAM)
             .expect("checked section");
         let (record, consumed): (RoundTripRecord, usize) =
-            bincode::decode_from_slice(payload, bincode::config::standard()).map_err(native)?;
+            crate::persistence::decode_structure(payload).map_err(native)?;
         if consumed != payload.len()
             || record.schema != SCHEMA
             || record.recipe != ROUND_TRIP_RECIPE
@@ -927,8 +927,8 @@ fn invalid(message: &'static str) -> BinaryIoError {
     BinaryIoError::Invalid(message)
 }
 
-fn native(error: impl std::fmt::Display) -> BinaryIoError {
-    BinaryIoError::Native(error.to_string())
+fn native(error: impl std::fmt::Display + 'static) -> BinaryIoError {
+    crate::persistence::native_error(error)
 }
 
 fn grant(
@@ -936,15 +936,7 @@ fn grant(
     requested: usize,
     io: BinaryIoLimits,
 ) -> Result<(), BinaryIoError> {
-    if requested > io.max_collection_entries {
-        Err(BinaryIoError::Limit {
-            resource,
-            requested,
-            limit: io.max_collection_entries,
-        })
-    } else {
-        Ok(())
-    }
+    io.check_count(resource, requested, io.max_collection_entries)
 }
 
 fn index(id: CoefficientId) -> Result<u32, BinaryIoError> {
@@ -1040,12 +1032,18 @@ fn decode_matrix(
         .into_iter()
         .map(|id| coefficient(table, used, id))
         .collect::<Result<Vec<_>, _>>()?;
-    CoefficientMatrix::try_new_with_max_entries(
-        usize::try_from(record.rows).map_err(native)?,
-        usize::try_from(record.columns).map_err(native)?,
-        entries,
-        limits.verification.max_matrix_entries,
-    )
+    let rows = usize::try_from(record.rows).map_err(native)?;
+    let columns = usize::try_from(record.columns).map_err(native)?;
+    if limits.verification.diagnostics_enabled {
+        CoefficientMatrix::try_new_with_max_entries(
+            rows,
+            columns,
+            entries,
+            limits.verification.max_matrix_entries,
+        )
+    } else {
+        CoefficientMatrix::try_new(rows, columns, entries)
+    }
     .map_err(native)
 }
 
@@ -1054,7 +1052,8 @@ fn encode_record(
     table: crate::persistence::EncodedCoefficientTable,
     io: BinaryIoLimits,
 ) -> Result<Vec<u8>, BinaryIoError> {
-    let program = bincode::encode_to_vec(record, bincode::config::standard()).map_err(native)?;
+    let program =
+        crate::persistence::encode_structure(&record, io.max_program_bytes).map_err(native)?;
     encode_program(
         BinaryProgramKind::TerminalNormalization,
         &[

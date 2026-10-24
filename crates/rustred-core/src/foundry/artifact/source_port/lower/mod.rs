@@ -58,6 +58,7 @@ pub(super) fn lower_rule<const N: usize>(
     checked: CheckedRule<N>,
     max_total_excess_degree: Option<u64>,
     rule_limits: crate::foundry::parametric::ParametricRuleLimits,
+    cell_limits: crate::foundry::cell::RuleCellLimits,
     cover_limits: crate::foundry::artifact::ArtifactCoverReplayLimits,
 ) -> Result<Vec<Arc<RuleCell>>, SourcePortAuditError> {
     let context = corpus.context();
@@ -81,6 +82,7 @@ pub(super) fn lower_rule<const N: usize>(
     let zero_sectors = zero_sectors.as_slice();
     let limits = ReplayLimits {
         rule: rule_limits,
+        cell: cell_limits,
         geometry: cover_limits.geometry(),
         ..Default::default()
     };
@@ -182,15 +184,21 @@ pub(super) fn lower_rule<const N: usize>(
             let count = application_ordinal
                 .checked_add(1)
                 .ok_or_else(|| error("degree hull count overflow"))?;
-            if count > limits.geometry.max_requested_boxes
+            if (limits.geometry.diagnostics_enabled && count > limits.geometry.max_requested_boxes)
                 || count
                     .checked_mul(physical_arity)
                     .and_then(|v| v.checked_mul(2))
-                    .is_none_or(|v| v > limits.geometry.max_requested_box_coordinate_cells)
+                    .is_none_or(|v| {
+                        limits.geometry.diagnostics_enabled
+                            && v > limits.geometry.max_requested_box_coordinate_cells
+                    })
                 || count
                     .checked_mul(physical_arity)
                     .and_then(|v| v.checked_mul(3))
-                    .is_none_or(|v| v > limits.geometry.max_split_operations)
+                    .is_none_or(|v| {
+                        limits.geometry.diagnostics_enabled
+                            && v > limits.geometry.max_split_operations
+                    })
             {
                 return Err(SourcePortAuditError::ResourceBudgetExhausted {
                     resource: "scoped lowering degree hulls",
@@ -203,6 +211,7 @@ pub(super) fn lower_rule<const N: usize>(
                 super::super::scope::EntryDegreeBound::MaxTotalExcessDegree(degree),
             )
             .map_err(|issue| match issue {
+                PredicateCoverError::Resources(error) => SourcePortAuditError::Resources(error),
                 PredicateCoverError::Budget(resource) => {
                     SourcePortAuditError::ResourceBudgetExhausted { resource }
                 }
@@ -219,8 +228,15 @@ pub(super) fn lower_rule<const N: usize>(
         for (shift, _) in &rhs {
             let mut refined = Vec::new();
             for piece in pieces {
-                refined.extend(geometry::sign_partition(&piece, &sector, shift.values())?);
-                if refined.len() > limits.geometry.max_requested_boxes {
+                refined.extend(geometry::sign_partition_with_limits(
+                    &piece,
+                    &sector,
+                    shift.values(),
+                    limits.geometry,
+                )?);
+                if limits.geometry.diagnostics_enabled
+                    && refined.len() > limits.geometry.max_requested_boxes
+                {
                     return Err(error("combined sign-cell refinement budget exceeded"));
                 }
             }

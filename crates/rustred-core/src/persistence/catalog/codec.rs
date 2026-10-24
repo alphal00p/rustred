@@ -43,7 +43,7 @@ pub(super) fn encode(
     scalar(&mut records, &(catalog.family_fingerprint.len() as u64))?;
     records
         .write_all(catalog.family_fingerprint.as_bytes())
-        .map_err(native_error)?;
+        .map_err(crate::persistence::native_io_error)?;
     scalar(&mut records, &(catalog.terms.len() as u64))?;
 
     // References borrow the immutable input. Neither the hash table nor the
@@ -56,6 +56,8 @@ pub(super) fn encode(
         } else {
             let id = u32::try_from(dictionary.len())
                 .map_err(|_| BinaryIoError::Invalid("terminal value ID exceeds u32"))?;
+            crate::persistence::resource_array::<&Atom>(1)?;
+            crate::persistence::resource_array::<(&Atom, u32)>(1)?;
             dictionary.try_reserve(1).map_err(|_| {
                 allocation(
                     "terminal value dictionary",
@@ -96,7 +98,7 @@ pub(super) fn encode(
         write_length(&mut values, frame_bytes)?;
         let written =
             bincode::encode_into_std_write(value, &mut values, bincode::config::standard())
-                .map_err(native_error)?;
+                .map_err(crate::persistence::native_encode_error)?;
         if written != frame_bytes {
             return Err(BinaryIoError::Invalid(
                 "native atom encoding length changed",
@@ -104,7 +106,7 @@ pub(super) fn encode(
         }
     }
     let mut state = CappedWriter::new("Symbolica state bytes", limits.max_state_bytes);
-    State::export_partial(&mut state, symbols).map_err(native_error)?;
+    State::export_partial(&mut state, symbols).map_err(crate::persistence::native_io_error)?;
     encode_program(
         BinaryProgramKind::TerminalValues,
         &[
@@ -185,11 +187,13 @@ pub(super) fn decode(
         ));
     }
     let mut entries = Vec::new();
+    crate::persistence::resource_array::<(IntegralKey, u32)>(count)?;
     entries
         .try_reserve_exact(count)
         .map_err(|_| allocation("terminal catalog entries", count))?;
     for _ in 0..count {
         let mut powers = Vec::new();
+        crate::persistence::resource_array::<i64>(index_count)?;
         powers
             .try_reserve_exact(index_count)
             .map_err(|_| allocation("terminal key coordinates", index_count))?;
@@ -218,7 +222,7 @@ pub(super) fn decode(
     )?;
     let mut source = table;
     let value_count = read_length(&mut source)?;
-    check_limit(
+    limits.check_count(
         "terminal value table entries",
         value_count,
         limits.max_collection_entries,
@@ -246,6 +250,7 @@ pub(super) fn decode(
         ));
     }
     let mut frames = Vec::new();
+    crate::persistence::resource_array::<&[u8]>(value_count)?;
     frames
         .try_reserve_exact(value_count)
         .map_err(|_| allocation("terminal native frames", value_count))?;
@@ -266,24 +271,28 @@ pub(super) fn decode(
         .section(SectionTag::SYMBOLICA_STATE)
         .expect("checked section");
     preflight_state_export(state)?;
+    crate::persistence::resource_allocation(state.len())?;
     let state_map = catch_unwind(AssertUnwindSafe(|| {
-        let mut source = state;
-        let map = State::import(&mut source, None).map_err(native_error)?;
-        if !source.is_empty() {
+        let mut source = crate::persistence::structure::ResourceReader::new(state);
+        let map = State::import(&mut source, None).map_err(crate::persistence::native_io_error)?;
+        if source.remaining() != 0 {
             return Err(BinaryIoError::Invalid("trailing Symbolica state bytes"));
         }
         Ok(map)
     }))
     .map_err(|_| BinaryIoError::Native("native Symbolica state import panicked".into()))??;
     let mut values = Vec::new();
+    crate::persistence::resource_array::<Atom>(value_count)?;
     values
         .try_reserve_exact(value_count)
         .map_err(|_| allocation("decoded terminal values", value_count))?;
     let mut unique = HashSet::new();
+    crate::persistence::resource_array::<Atom>(value_count)?;
     unique
         .try_reserve(value_count)
         .map_err(|_| allocation("decoded terminal value identities", value_count))?;
     for frame in frames {
+        crate::persistence::resource_allocation(frame.len())?;
         let value = catch_unwind(AssertUnwindSafe(|| {
             let (atom, consumed): (Atom, usize) = bincode::decode_from_slice_with_context(
                 frame,
@@ -318,12 +327,14 @@ pub(super) fn decode(
 }
 
 fn scalar<T: bincode::Encode>(writer: &mut impl Write, value: &T) -> Result<(), BinaryIoError> {
+    crate::persistence::resource_checkpoint()?;
     bincode::encode_into_std_write(value, writer, bincode::config::standard())
         .map(|_| ())
-        .map_err(native_error)
+        .map_err(crate::persistence::native_encode_error)
 }
 
 fn read_scalar<T: bincode::Decode<()>>(source: &mut &[u8]) -> Result<T, BinaryIoError> {
+    crate::persistence::resource_checkpoint()?;
     let (value, consumed) =
         bincode::decode_from_slice(source, bincode::config::standard()).map_err(native_error)?;
     *source = &source[consumed..];
@@ -344,12 +355,12 @@ fn take<'a>(source: &mut &'a [u8], count: usize) -> Result<&'a [u8], BinaryIoErr
 }
 
 fn check_counts(arity: usize, count: usize, limits: BinaryIoLimits) -> Result<(), BinaryIoError> {
-    check_limit(
+    limits.check_count(
         "terminal catalog arity",
         arity,
         limits.max_collection_entries,
     )?;
-    check_limit(
+    limits.check_count(
         "terminal catalog entries",
         count,
         limits.max_collection_entries,
@@ -357,7 +368,7 @@ fn check_counts(arity: usize, count: usize, limits: BinaryIoLimits) -> Result<()
     let coordinates = arity
         .checked_mul(count)
         .ok_or(BinaryIoError::Invalid("terminal coordinate count overflow"))?;
-    check_limit(
+    limits.check_count(
         "terminal catalog coordinates",
         coordinates,
         limits.max_collection_entries,

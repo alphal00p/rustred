@@ -126,13 +126,14 @@ pub(crate) fn check_entry(
     weight: CacheWeight,
     limits: ReductionLimits,
 ) -> Result<(), ReductionError> {
-    if limits.max_cached_integrals == 0 {
+    if limits.diagnostics_enabled && limits.max_cached_integrals == 0 {
         return Err(ReductionError::CacheLimit {
             requested: 1,
             limit: 0,
         });
     }
-    if weight.coefficient_terms > limits.max_cached_coefficient_terms {
+    if limits.diagnostics_enabled && weight.coefficient_terms > limits.max_cached_coefficient_terms
+    {
         return Err(ReductionError::CacheCoefficientTermLimit {
             requested: weight.coefficient_terms,
             limit: limits.max_cached_coefficient_terms,

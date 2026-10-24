@@ -156,6 +156,7 @@ fn correlation_empty_fixed_face_spends_no_predicate_budget() {
             None,
             bounds,
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_predicates: 0,
                 ..Default::default()
             },

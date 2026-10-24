@@ -48,11 +48,13 @@ fn exact_algebra_failure_crosses_native_boundary_as_typed_error() {
         &context,
         &matrix,
         SymbolicaCoefficientMatrixLimits {
+            diagnostics_enabled: true,
             exact_algebra: ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_term_operations: 0,
                 ..ExactAlgebraLimits::default()
             },
-            ..SymbolicaCoefficientMatrixLimits::default()
+            ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
         },
     )
     .unwrap_err();
@@ -80,11 +82,13 @@ fn checked_field_abort_is_contained_across_parallel_native_sessions() {
                     &context,
                     &matrix,
                     SymbolicaCoefficientMatrixLimits {
+                        diagnostics_enabled: true,
                         exact_algebra: ExactAlgebraLimits {
+                            diagnostics_enabled: true,
                             max_term_operations: 0,
                             ..ExactAlgebraLimits::default()
                         },
-                        ..SymbolicaCoefficientMatrixLimits::default()
+                        ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
                     },
                 )
                 .unwrap_err();

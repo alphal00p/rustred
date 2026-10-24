@@ -709,3 +709,104 @@ fn diagnostic_mask_is_distinct_from_the_manifest_ordinal() {
     assert_eq!(error.ordinal(), 397);
     assert_eq!(error.sector(), &[true, false, true]);
 }
+
+#[test]
+fn preparation_install_inherits_each_call_even_on_one_private_worker() {
+    use symbolica::utils::resources::{
+        ResourceBudget, ResourceLimitError, ResourceLimits, checkpoint,
+    };
+    let coordinator = std::thread::current().id();
+    for private in [false, true] {
+        let executor = SectorExecutor::new(1).unwrap();
+        let executor = if private {
+            executor.with_shared_scheduling(None).unwrap()
+        } else {
+            executor
+        };
+        // Construct the reusable executor outside every request scope.
+        let budget = ResourceBudget::with_memory_monitor(
+            ResourceLimits {
+                max_process_rss_bytes: Some(10),
+                max_elapsed: None,
+            },
+            || Ok(11),
+        );
+        let (thread, result) =
+            budget.run(|| executor.install(|| (std::thread::current().id(), checkpoint())));
+        assert_eq!(thread != coordinator, private);
+        assert!(matches!(
+            result,
+            Err(ResourceLimitError::Memory {
+                rss_bytes: 11,
+                limit_bytes: 10,
+                ..
+            })
+        ));
+        assert!(
+            executor.install(checkpoint).is_ok(),
+            "a later unbounded call must not retain its predecessor's scope"
+        );
+        let expired = ResourceBudget::new(ResourceLimits {
+            max_process_rss_bytes: None,
+            max_elapsed: Some(Duration::ZERO),
+        });
+        assert!(matches!(
+            expired.run(|| executor.install(checkpoint)),
+            Err(ResourceLimitError::Elapsed { .. })
+        ));
+    }
+}
+
+#[test]
+fn stolen_preparation_call_uses_its_own_context_and_restores_the_suspended_call() {
+    use symbolica::utils::resources::{
+        ResourceBudget, ResourceLimitError, ResourceLimits, checkpoint,
+    };
+    let executor = SectorExecutor::new(1)
+        .unwrap()
+        .with_shared_scheduling(None)
+        .unwrap();
+    let finished = AtomicBool::new(false);
+    let (entered, ready) = std::sync::mpsc::channel();
+    std::thread::scope(|scope| {
+        let suspended = scope.spawn(|| {
+            let expired = ResourceBudget::new(ResourceLimits {
+                max_process_rss_bytes: None,
+                max_elapsed: Some(Duration::ZERO),
+            });
+            expired.run(|| {
+                executor.install(|| {
+                    entered.send(()).unwrap();
+                    let started = Instant::now();
+                    while !finished.load(Ordering::Acquire) {
+                        assert!(
+                            started.elapsed() < Duration::from_secs(5),
+                            "independent queued call did not run"
+                        );
+                        rayon::yield_now();
+                    }
+                    checkpoint()
+                })
+            })
+        });
+        ready.recv_timeout(Duration::from_secs(5)).unwrap();
+        // This independent unbounded call is executed by the same sole Rayon
+        // worker while the expired callback above is cooperatively suspended.
+        let independent = executor.install(|| {
+            let result = checkpoint();
+            finished.store(true, Ordering::Release);
+            result
+        });
+        assert!(
+            independent.is_ok(),
+            "a stolen call must not inherit its suspended predecessor's deadline"
+        );
+        assert!(
+            matches!(
+                suspended.join().unwrap(),
+                Err(ResourceLimitError::Elapsed { .. })
+            ),
+            "returning from the independent call restores the suspended budget"
+        );
+    });
+}

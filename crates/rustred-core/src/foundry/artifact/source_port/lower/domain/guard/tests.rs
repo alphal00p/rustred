@@ -332,7 +332,7 @@ fn affine_guard_factor_and_chart_work_budgets_are_enforced() {
     let context = context();
     let g = g(&context);
     let exclusion = standard_domain(&context, [None; 3], &[g.clone()]);
-    let mut limits = RuleCellLimits::default();
+    let mut limits = RuleCellLimits::default().with_diagnostics();
     limits.guard_algebra.max_gcd_factor_work = 0;
     assert!(
         check(
@@ -349,7 +349,7 @@ fn affine_guard_factor_and_chart_work_budgets_are_enforced() {
         .sub(&context.index(0).unwrap(), &context.index(1).unwrap())
         .unwrap();
     let target = standard_domain(&context, [None; 3], &[target_eq]);
-    let mut limits = RuleCellLimits::default();
+    let mut limits = RuleCellLimits::default().with_diagnostics();
     limits.guard_algebra.max_exact_hyperplane_replay_work = 0;
     assert!(
         check(

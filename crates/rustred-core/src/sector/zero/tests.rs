@@ -101,7 +101,7 @@ fn domain_evidence_uses_only_zero_sector_sources() {
 #[test]
 fn resource_exhaustion_is_an_error_not_a_sector_decision() {
     let family = one_denominator_massive_family();
-    let mut limits = Limits::default();
+    let mut limits = Limits::default().with_diagnostics();
     limits.max_rank_operations = 0;
     let analyzer = Analyzer::try_unrestricted_with_limits(&family, limits).unwrap();
     let active = Mask::try_new([true]).unwrap();
@@ -112,6 +112,58 @@ fn resource_exhaustion_is_an_error_not_a_sector_decision() {
             resource: "rank operations",
             ..
         })
+    ));
+}
+
+#[test]
+fn ordinary_zero_analysis_ignores_diagnostic_count_thresholds() {
+    let family = one_denominator_massive_family();
+    let limits = Limits {
+        max_rank_rows: 0,
+        max_rank_columns: 0,
+        max_rank_entries: 0,
+        max_rank_operations: 0,
+        max_rref_integer_bits: 0,
+        max_kernel_entries: 0,
+        max_kernel_integer_bits: 0,
+        max_power_shift_pair_checks: 0,
+        ..Limits::default()
+    };
+    let analyzer = Analyzer::try_unrestricted_with_limits(&family, limits).unwrap();
+    assert!(matches!(
+        analyzer.analyze(&Mask::try_new([true]).unwrap()).unwrap(),
+        Decision::Inconclusive(_)
+    ));
+    assert!(matches!(
+        analyzer.analyze(&Mask::try_new([false]).unwrap()).unwrap(),
+        Decision::ProvedZero(_)
+    ));
+    let enabled = limits.with_diagnostics();
+    assert!(enabled.diagnostics_enabled);
+    assert!(enabled.feynman.diagnostics_enabled);
+    assert!(enabled.feynman.exact_algebra.diagnostics_enabled);
+}
+
+#[test]
+fn ambient_zero_analysis_budget_is_typed_with_diagnostics_disabled() {
+    use crate::algebra::ExactAlgebraError;
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+
+    let family = one_denominator_massive_family();
+    let analyzer = Analyzer::try_unrestricted(&family).unwrap();
+    let active = Mask::try_new([true]).unwrap();
+    let budget = ResourceBudget::with_memory_monitor(
+        ResourceLimits {
+            max_process_rss_bytes: Some(1),
+            ..ResourceLimits::default()
+        },
+        || Ok(2),
+    );
+    assert!(matches!(
+        budget.run(|| analyzer.analyze(&active)),
+        Err(Error::ExactAlgebra(ExactAlgebraError::Resource(
+            ResourceLimitError::Memory { .. }
+        )))
     ));
 }
 

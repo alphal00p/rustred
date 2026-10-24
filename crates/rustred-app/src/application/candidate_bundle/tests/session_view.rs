@@ -4,6 +4,7 @@ use std::{sync::Arc, time::Duration};
 #[test]
 fn generated_policy_is_retained_and_file_ingress_uses_explicit_bounds() {
     let mut request = FamilyCandidatesRequest::new(K1);
+    request.bundle_limits.diagnostics_enabled = true;
     request.bundle_limits.max_collection_entries = 10_000_000;
     let result = family_candidates(request.clone()).unwrap();
     assert_eq!(result.bundle_limits(), request.bundle_limits);
@@ -14,6 +15,7 @@ fn generated_policy_is_retained_and_file_ingress_uses_explicit_bounds() {
     );
     assert_eq!(view.metadata().unwrap()["decoded_coefficients"], 0);
     let mut restricted = result.clone();
+    restricted.bundle_limits.diagnostics_enabled = true;
     restricted.bundle_limits.max_collection_entries = 1;
     assert!(
         restricted

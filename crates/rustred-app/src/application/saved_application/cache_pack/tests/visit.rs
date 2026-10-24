@@ -79,6 +79,7 @@ fn completed_scan_propagates_callback_corruption_and_collection_limits() {
     // conservatively make decoded byte census larger than the source value.
     let (one_record_terms, _) = record(1).coefficient_census().unwrap();
     tight = limits;
+    tight.chunk.diagnostics_enabled = true;
     tight.chunk.max_decoded_coefficient_terms = one_record_terms;
     let mut reader = SavedApplicationCachePack::open_generated(&path, &binding(1), tight).unwrap();
     let mut callbacks = 0;

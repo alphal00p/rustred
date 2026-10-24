@@ -60,6 +60,7 @@ fn finite_retention_rejects_invalid_request_before_parsing_or_search() {
             .contains("requires max_numerator_rank")
     );
     request.max_numerator_rank = Some(10);
+    request.finite_case_limits.diagnostics_enabled = true;
     request.finite_case_limits.max_visited_points = 0;
     assert!(
         family_candidates(request.clone())
@@ -67,7 +68,7 @@ fn finite_retention_rejects_invalid_request_before_parsing_or_search() {
             .message()
             .contains("must be positive")
     );
-    request.finite_case_limits = FiniteCaseLimits::default();
+    request.finite_case_limits = FiniteCaseLimits::default().with_diagnostics();
     request.finite_case_limits.max_retained_terminals = 0;
     assert!(
         family_candidates(request.clone())

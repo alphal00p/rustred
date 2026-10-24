@@ -27,16 +27,19 @@ impl SymbolicaAffineDenominatorCompiler {
         let loops = self.loop_momenta.len();
         let externals = self.external_momenta.len();
         let loop_loop_count = upper_triangular_count(loops)?;
-        projection_work.charge(
-            planned_polynomial_clone_census(&coefficient.denominator, base_count)?,
-            self.limits,
-            "aggregate projected denominator terms",
-        )?;
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                planned_polynomial_clone_census(&coefficient.denominator, base_count)?,
+                self.limits,
+                "aggregate projected denominator terms",
+            )?;
+        }
         let denominator = project_polynomial_prefix(
             &coefficient.denominator,
             &self.coefficients.template().denominator,
             base_count,
             self.limits.max_combined_exponent_entries,
+            self.limits.diagnostics_enabled,
         )?;
         let mut group_counts = BTreeMap::<ProjectionGroup, usize>::new();
         for (term, exponents) in coefficient.numerator.exponents_iter().enumerate() {
@@ -56,139 +59,164 @@ impl SymbolicaAffineDenominatorCompiler {
                     },
                 )?;
             } else {
-                let requested = projection_work
-                    .groups
-                    .checked_add(group_counts.len())
-                    .and_then(|value| value.checked_add(1))
-                    .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                        resource: "aggregate projection groups",
-                    })?;
-                check_limit(
-                    "aggregate projection groups",
-                    requested,
-                    self.limits.max_projection_groups,
-                )?;
-                projection_work.charge(
-                    CoefficientCensus {
-                        retained_bytes: std::mem::size_of::<(ProjectionGroup, usize)>()
-                            .checked_add(64)
-                            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                                resource: "projection count-group metadata bytes",
-                            })?,
-                        ..CoefficientCensus::default()
-                    },
-                    self.limits,
-                    "aggregate projection count-group metadata terms",
-                )?;
+                symbolica::utils::resources::checkpoint().map_err(|error| {
+                    SymbolicaAffineDenominatorError::ExactAlgebra(
+                        crate::algebra::ExactAlgebraError::Resource(error),
+                    )
+                })?;
+                if self.limits.diagnostics_enabled {
+                    let requested = projection_work
+                        .groups
+                        .checked_add(group_counts.len())
+                        .and_then(|value| value.checked_add(1))
+                        .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                            resource: "aggregate projection groups",
+                        })?;
+                    check_limit(
+                        "aggregate projection groups",
+                        requested,
+                        self.limits.max_projection_groups,
+                        self.limits.diagnostics_enabled,
+                    )?;
+                }
+                if self.limits.diagnostics_enabled {
+                    projection_work.charge(
+                        CoefficientCensus {
+                            retained_bytes: std::mem::size_of::<(ProjectionGroup, usize)>()
+                                .checked_add(64)
+                                .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                                    resource: "projection count-group metadata bytes",
+                                })?,
+                            ..CoefficientCensus::default()
+                        },
+                        self.limits,
+                        "aggregate projection count-group metadata terms",
+                    )?;
+                }
                 group_counts.insert(group, 1);
             }
         }
-        let projected_numerator_terms =
-            group_counts.values().try_fold(0usize, |total, count| {
-                total.checked_add(*count).ok_or(
-                    SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                        resource: "projected numerator terms",
-                    },
+        if self.limits.diagnostics_enabled {
+            let projected_numerator_terms =
+                group_counts.values().try_fold(0usize, |total, count| {
+                    total.checked_add(*count).ok_or(
+                        SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                            resource: "projected numerator terms",
+                        },
+                    )
+                })?;
+            check_limit(
+                "projected numerator terms",
+                projected_numerator_terms,
+                self.limits.max_projected_polynomial_terms,
+                self.limits.diagnostics_enabled,
+            )?;
+            let projected_exponent_entries = projected_numerator_terms
+                .checked_mul(base_count)
+                .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                    resource: "projected numerator exponent entries",
+                })?;
+            check_limit(
+                "projected numerator exponent entries",
+                projected_exponent_entries,
+                self.limits.max_projected_exponent_entries,
+                self.limits.diagnostics_enabled,
+            )?;
+
+            let projection_groups = group_counts.len();
+            check_limit(
+                "projection groups",
+                projection_groups,
+                self.limits.max_projection_groups,
+                self.limits.diagnostics_enabled,
+            )?;
+            let projection_denominator_replication_terms = projection_groups
+                .checked_mul(denominator.nterms())
+                .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                    resource: "projection denominator replication terms",
+                })?;
+            check_limit(
+                "projection denominator replication terms",
+                projection_denominator_replication_terms,
+                self.limits.max_projection_denominator_replication_terms,
+                self.limits.diagnostics_enabled,
+            )?;
+            let replication_entries = projection_denominator_replication_terms
+                .checked_mul(base_count)
+                .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                    resource: "projection denominator replication exponent entries",
+                })?;
+            check_limit(
+                "projection denominator replication exponent entries",
+                replication_entries,
+                self.limits
+                    .max_projection_denominator_replication_exponent_entries,
+                self.limits.diagnostics_enabled,
+            )?;
+            let projection_gram_operations = group_counts
+                .keys()
+                .filter(|group| matches!(group, ProjectionGroup::ExternalPair(_, _)))
+                .count()
+                .checked_mul(2)
+                .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                    resource: "projection Gram operations",
+                })?;
+            check_limit(
+                "projection Gram operations",
+                projection_gram_operations,
+                self.limits.max_projection_gram_operations,
+                self.limits.diagnostics_enabled,
+            )?;
+            if self.limits.diagnostics_enabled {
+                projection_work.charge_structure(
+                    projection_groups,
+                    projection_denominator_replication_terms,
+                    projection_gram_operations,
+                    self.limits,
+                )?;
+            }
+
+            let denominator_replication_census = multiply_census(
+                polynomial_census(&denominator)?,
+                projection_groups,
+                "projection denominator replication census",
+            )?;
+            if self.limits.diagnostics_enabled {
+                projection_work.charge(
+                    denominator_replication_census,
+                    self.limits,
+                    "aggregate projection denominator replication terms",
+                )?;
+            }
+            if self.limits.diagnostics_enabled {
+                projection_work.charge(
+                    planned_polynomial_clone_census(&coefficient.numerator, base_count)?,
+                    self.limits,
+                    "aggregate projected group-polynomial terms",
+                )?;
+            }
+            let group_metadata_bytes = projection_groups
+                .checked_mul(
+                    std::mem::size_of::<(ProjectionGroup, CoefficientPolynomial)>()
+                        .checked_add(64)
+                        .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                            resource: "projection group metadata bytes",
+                        })?,
                 )
-            })?;
-        check_limit(
-            "projected numerator terms",
-            projected_numerator_terms,
-            self.limits.max_projected_polynomial_terms,
-        )?;
-        let projected_exponent_entries = projected_numerator_terms.checked_mul(base_count).ok_or(
-            SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "projected numerator exponent entries",
-            },
-        )?;
-        check_limit(
-            "projected numerator exponent entries",
-            projected_exponent_entries,
-            self.limits.max_projected_exponent_entries,
-        )?;
-
-        let projection_groups = group_counts.len();
-        check_limit(
-            "projection groups",
-            projection_groups,
-            self.limits.max_projection_groups,
-        )?;
-        let projection_denominator_replication_terms = projection_groups
-            .checked_mul(denominator.nterms())
-            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "projection denominator replication terms",
-            })?;
-        check_limit(
-            "projection denominator replication terms",
-            projection_denominator_replication_terms,
-            self.limits.max_projection_denominator_replication_terms,
-        )?;
-        let replication_entries = projection_denominator_replication_terms
-            .checked_mul(base_count)
-            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "projection denominator replication exponent entries",
-            })?;
-        check_limit(
-            "projection denominator replication exponent entries",
-            replication_entries,
-            self.limits
-                .max_projection_denominator_replication_exponent_entries,
-        )?;
-        let projection_gram_operations = group_counts
-            .keys()
-            .filter(|group| matches!(group, ProjectionGroup::ExternalPair(_, _)))
-            .count()
-            .checked_mul(2)
-            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "projection Gram operations",
-            })?;
-        check_limit(
-            "projection Gram operations",
-            projection_gram_operations,
-            self.limits.max_projection_gram_operations,
-        )?;
-        projection_work.charge_structure(
-            projection_groups,
-            projection_denominator_replication_terms,
-            projection_gram_operations,
-            self.limits,
-        )?;
-
-        let denominator_replication_census = multiply_census(
-            polynomial_census(&denominator)?,
-            projection_groups,
-            "projection denominator replication census",
-        )?;
-        projection_work.charge(
-            denominator_replication_census,
-            self.limits,
-            "aggregate projection denominator replication terms",
-        )?;
-        projection_work.charge(
-            planned_polynomial_clone_census(&coefficient.numerator, base_count)?,
-            self.limits,
-            "aggregate projected group-polynomial terms",
-        )?;
-        let group_metadata_bytes = projection_groups
-            .checked_mul(
-                std::mem::size_of::<(ProjectionGroup, CoefficientPolynomial)>()
-                    .checked_add(64)
-                    .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                        resource: "projection group metadata bytes",
-                    })?,
-            )
-            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "projection group metadata bytes",
-            })?;
-        projection_work.charge(
-            CoefficientCensus {
-                retained_bytes: group_metadata_bytes,
-                ..CoefficientCensus::default()
-            },
-            self.limits,
-            "aggregate projection group metadata terms",
-        )?;
-
+                .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                    resource: "projection group metadata bytes",
+                })?;
+            if self.limits.diagnostics_enabled {
+                projection_work.charge(
+                    CoefficientCensus {
+                        retained_bytes: group_metadata_bytes,
+                        ..CoefficientCensus::default()
+                    },
+                    self.limits,
+                    "aggregate projection group metadata terms",
+                )?;
+            }
+        }
         let mut groups = BTreeMap::<ProjectionGroup, CoefficientPolynomial>::new();
         for (group, count) in group_counts {
             groups.insert(
@@ -225,20 +253,25 @@ impl SymbolicaAffineDenominatorCompiler {
                 .append_monomial(integer.clone(), &exponents[..base_count]);
         }
 
-        let zero_slots = self.coordinates.len().checked_add(1).ok_or(
-            SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "projected affine coordinate baseline",
-            },
-        )?;
-        projection_work.charge(
-            multiply_census(
-                planned_coefficient_clone_census(self.coefficients.template(), self.base_count())?,
-                zero_slots,
-                "projected affine coordinate baseline",
-            )?,
-            self.limits,
-            "aggregate projected affine coordinate baseline terms",
-        )?;
+        if self.limits.diagnostics_enabled {
+            let zero_slots = self.coordinates.len().checked_add(1).ok_or(
+                SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                    resource: "projected affine coordinate baseline",
+                },
+            )?;
+            projection_work.charge(
+                multiply_census(
+                    planned_coefficient_clone_census(
+                        self.coefficients.template(),
+                        self.base_count(),
+                    )?,
+                    zero_slots,
+                    "projected affine coordinate baseline",
+                )?,
+                self.limits,
+                "aggregate projected affine coordinate baseline terms",
+            )?;
+        }
         let zero = self.coefficients.zero();
         let mut constant = zero.clone();
         let mut coordinates = Vec::new();
@@ -289,6 +322,17 @@ impl SymbolicaAffineDenominatorCompiler {
             self.coefficients
                 .validate_with_limits(value, self.limits.exact_algebra)?;
         }
+        symbolica::utils::resources::checkpoint().map_err(|error| {
+            SymbolicaAffineDenominatorError::ExactAlgebra(
+                crate::algebra::ExactAlgebraError::Resource(error),
+            )
+        })?;
+        if !self.limits.diagnostics_enabled {
+            return Ok((
+                AffineDenominator::new(constant, coordinates),
+                ProjectionStats::default(),
+            ));
+        }
         let mut output_census = coefficient_census(&constant)?;
         for value in &coordinates {
             output_census
@@ -298,21 +342,25 @@ impl SymbolicaAffineDenominatorCompiler {
             "projected polynomial terms",
             output_census.polynomial_terms,
             self.limits.max_projected_polynomial_terms,
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "projected exponent entries",
             output_census.exponent_entries,
             self.limits.max_projected_exponent_entries,
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "projected integer bits",
             output_census.integer_bits,
             self.limits.max_projected_integer_bits,
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "projected retained bytes",
             output_census.retained_bytes,
             self.limits.max_projected_retained_bytes,
+            self.limits.diagnostics_enabled,
         )?;
         Ok((
             AffineDenominator::new(constant, coordinates),

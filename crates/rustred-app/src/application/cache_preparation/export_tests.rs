@@ -123,6 +123,7 @@ fn live_export_is_bounded_guard_preserving_and_does_not_touch_ram_policy() {
     let scratch = Scratch::new();
     let output = scratch.0.join("saved");
     let mut limits = SavedApplicationCachePackLimits::default();
+    limits.chunk.diagnostics_enabled = true;
     limits.chunk.max_records = 1;
     let report = session.save_completed(&output, limits, false).unwrap();
     assert!(report.complete, "{}", report.to_document());
@@ -282,7 +283,7 @@ fn save_storage_defaults_share_preparation_policy_without_resolving_ram() {
     assert!(
         CacheSaveOptions::default()
             .resolve(8, Default::default())
-            .is_err()
+            .is_ok()
     );
 }
 
@@ -402,6 +403,7 @@ fn fresh_preparation_resume_reuses_durable_root_inside_one_rule_budget() {
     assert_eq!(partial.status, CachePreparationStatus::Cancelled);
     assert_eq!(partial.completed_roots, 1);
     let mut strict = rustred::reduction::ReductionLimits::default();
+    strict.diagnostics_enabled = true;
     strict.max_rule_applications = 1;
     let mut resumed = ClosedCachePreparationBackend::new(vec![program()], strict).unwrap();
     let report = prepare_application_cache(
@@ -478,7 +480,9 @@ fn failed_live_checkpoint_reports_only_published_prefix_and_can_resume() {
     let scratch = Scratch::new();
     let output = scratch.0.join("saved");
     let mut limits = SavedApplicationCachePackLimits::default();
+    limits.chunk.diagnostics_enabled = true;
     limits.chunk.max_records = 1;
+    limits.diagnostics_enabled = true;
     limits.max_chunks = 1;
     let partial = session.save_completed(&output, limits, false).unwrap();
     assert!(!partial.complete);
@@ -579,6 +583,7 @@ fn full_snapshot_facade_preserves_unloaded_base_and_reports_failed_overlay() {
     loaded.attach_bundle(&output, limits).unwrap();
     loaded.reduce_guarded_root(&key(8)).unwrap();
     let mut tight = limits;
+    tight.diagnostics_enabled = true;
     tight.max_chunks = saved.base_copy.unwrap().copied_chunks + 1;
     // The copied full base already uses two chunks; no room for a new overlay.
     assert_eq!(tight.max_chunks, 2);
@@ -613,6 +618,7 @@ fn optional_lookup_budget_falls_back_but_strict_and_corruption_do_not() {
     let limits = SavedApplicationCachePackLimits::default();
     source.save_completed(&base, limits, false).unwrap();
     let mut no_reads = limits;
+    no_reads.diagnostics_enabled = true;
     no_reads.max_lookup_chunks = 0;
     let mut optional =
         ClosedApplicationCache::new(program(), Default::default(), Default::default());
@@ -685,6 +691,7 @@ fn preparation_root_resume_budget_refusal_remains_strict() {
         .status,
         CachePreparationStatus::Complete
     );
+    options.storage_limits.diagnostics_enabled = true;
     options.storage_limits.max_lookup_chunks = 0;
     let mut fresh =
         ClosedCachePreparationBackend::new(vec![program()], Default::default()).unwrap();

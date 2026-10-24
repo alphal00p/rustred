@@ -110,6 +110,7 @@ fn authenticate_rule_cell_source_views_with_limits(
     cells: &[Arc<RuleCell>],
     limits: TranslatedSourceLimits,
 ) -> Result<(), ArtifactError> {
+    symbolica::utils::resources::checkpoint().map_err(ArtifactError::Resources)?;
     let requested =
         cells.iter().try_fold(0usize, |count, cell| {
             count.checked_add(cell.sources().provenance().len()).ok_or(
@@ -123,7 +124,7 @@ fn authenticate_rule_cell_source_views_with_limits(
             detail: "the published K6 rule cells retain no translated source views",
         });
     }
-    if requested > limits.max_requested_source_translations {
+    if limits.diagnostics_enabled && requested > limits.max_requested_source_translations {
         return Err(ArtifactError::TranslatedSource(
             TranslatedSourceError::ResourceLimit {
                 resource: "K6 canonical source-view joins",
@@ -133,6 +134,13 @@ fn authenticate_rule_cell_source_views_with_limits(
         ));
     }
 
+    let bytes = requested
+        .checked_mul(std::mem::size_of::<TranslatedSourceRequest>())
+        .and_then(|bytes| u64::try_from(bytes).ok())
+        .ok_or(ArtifactError::ResourceCountOverflow {
+            resource: "K6 canonical source-view join bytes",
+        })?;
+    symbolica::utils::resources::check_allocation(bytes).map_err(ArtifactError::Resources)?;
     let mut requests = Vec::new();
     requests.try_reserve_exact(requested).map_err(|_| {
         ArtifactError::TranslatedSource(TranslatedSourceError::AllocationFailure {
@@ -141,6 +149,7 @@ fn authenticate_rule_cell_source_views_with_limits(
         })
     })?;
     for cell in cells {
+        symbolica::utils::resources::checkpoint().map_err(ArtifactError::Resources)?;
         if cell.sources().family_fingerprint() != completed.family_fingerprint()
             || cell.sources().context_fingerprint() != completed.context_fingerprint()
             || cell.sources().len() != cell.sources().provenance().len()
@@ -180,6 +189,7 @@ fn authenticate_rule_cell_source_views_with_limits(
     }
 
     for cell in cells {
+        symbolica::utils::resources::checkpoint().map_err(ArtifactError::Resources)?;
         let originals = match cell.sources().construction() {
             SourceViewConstruction::ResidualProjection(evidence) => {
                 if evidence.original_relations().len() != cell.sources().len() {

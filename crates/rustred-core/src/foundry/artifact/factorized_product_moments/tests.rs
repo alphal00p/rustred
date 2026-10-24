@@ -648,7 +648,7 @@ fn angular_guards_and_product_resource_limits_are_exact() {
     };
     let mut precharged = ReductionRequest::default();
     precharged
-        .record_rule_application(work_limits.max_rule_applications)
+        .record_rule_application(Some(work_limits.max_rule_applications))
         .unwrap();
     let mut failed_statistics = ReductionStatistics::default();
     assert!(matches!(
@@ -750,7 +750,7 @@ fn pending_frames_are_aggregate_and_restore_the_caller_baseline() {
     };
     let mut request = ReductionRequest::default();
     request
-        .retain_pending_frame(limits.max_pending_frames)
+        .retain_pending_frame(Some(limits.max_pending_frames))
         .unwrap();
     assert_eq!(
         execute(

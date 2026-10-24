@@ -288,6 +288,7 @@ fn work_factorization_normalization_and_term_budgets_fail_closed() {
         (
             vec!["a-1"],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 0,
                 ..Default::default()
             },
@@ -296,6 +297,7 @@ fn work_factorization_normalization_and_term_budgets_fail_closed() {
         (
             vec!["(a-1)*(a-2)"],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 2,
                 ..Default::default()
             },
@@ -304,6 +306,7 @@ fn work_factorization_normalization_and_term_budgets_fail_closed() {
         (
             vec!["a^2-1"],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_factorizations: 0,
                 ..Default::default()
             },
@@ -312,6 +315,7 @@ fn work_factorization_normalization_and_term_budgets_fail_closed() {
         (
             vec!["a*b-1", "a*b-2"],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_normalizations: 0,
                 ..Default::default()
             },
@@ -320,6 +324,7 @@ fn work_factorization_normalization_and_term_budgets_fail_closed() {
         (
             vec!["a+b-1"],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_terms_per_conjunction: 2,
                 ..Default::default()
             },
@@ -520,4 +525,56 @@ fn actual_fam112_conjunction_splits_after_its_fixed_coordinate_is_absorbed() {
             .all(|case| parent.contains(case).unwrap())
     );
     assert_eq!(result.stats.factor_children, 2);
+}
+
+#[test]
+fn ordinary_intersection_ignores_count_diagnostics_and_preserves_resource_causes() {
+    use std::time::Duration;
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+
+    let context = CoefficientContext::new(["ordinary_intersection_x", "ordinary_intersection_y"]);
+    let equations = equations(
+        &context,
+        &["(ordinary_intersection_x-1)*(ordinary_intersection_y-2)"],
+    );
+    let parent = Case::<2>::generic();
+    let limits = CaseIntersectionLimits {
+        max_work_items: 0,
+        max_terms_per_conjunction: 0,
+        max_normalizations: 0,
+        max_factorizations: 0,
+        ..Default::default()
+    };
+    let baseline = parent
+        .intersect_many(&equations, &[0, 1], &[true; 2], Default::default())
+        .unwrap();
+    let result = parent
+        .intersect_many(&equations, &[0, 1], &[true; 2], limits)
+        .unwrap();
+    assert_eq!(result.cases, baseline.cases);
+    assert!(matches!(
+        parent
+            .intersect_many(&equations, &[0, 1], &[true; 2], limits.with_diagnostics())
+            .unwrap_err()
+            .failure,
+        CaseIntersectionFailure::Budget {
+            kind: CaseIntersectionBudget::WorkItems,
+            limit: 0
+        }
+    ));
+    let budget = ResourceBudget::new(ResourceLimits {
+        max_elapsed: Some(Duration::ZERO),
+        ..Default::default()
+    });
+    let error = budget
+        .run(|| parent.intersect_many(&equations, &[0, 1], &[true; 2], limits))
+        .unwrap_err();
+    assert!(matches!(
+        error.failure,
+        CaseIntersectionFailure::Resources(ResourceLimitError::Elapsed { .. })
+    ));
+    let source = std::error::Error::source(&error).unwrap();
+    assert!(source.downcast_ref::<ResourceLimitError>().is_some());
+    assert_eq!(error.original_conjunction.as_ref(), equations.as_slice());
+    assert_eq!(error.unresolved_conjunction.as_ref(), equations.as_slice());
 }

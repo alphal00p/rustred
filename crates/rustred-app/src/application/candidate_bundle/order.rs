@@ -49,11 +49,7 @@ pub enum CandidateOrderDirection {
 impl CandidateIntegralOrder {
     /// Parse bounded declarative metadata, then compile once outside solver loops.
     pub fn from_json(text: &str) -> Result<CompiledOrder, AppError> {
-        if text.len() > crate::MAX_INPUT_BYTES {
-            return Err(AppError::limit(
-                "integral-order JSON exceeds the input byte limit",
-            ));
-        }
+        crate::application::validate_ingress(text)?;
         let descriptor: Self = serde_json::from_str(text).map_err(|error| {
             AppError::schema(format!("invalid integral-order descriptor: {error}"))
         })?;

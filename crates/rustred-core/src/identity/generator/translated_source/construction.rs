@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use symbolica::utils::resources;
 
 use super::super::super::condition::IdentityConditionSource;
 use super::super::super::relation::{
@@ -11,12 +12,10 @@ use super::model::{
     IntegralShift, TranslatedSource, TranslatedSourceBatch, TranslatedSourceProvenance,
 };
 
-const DEFAULT_MAX_INTEGRAL_SHIFT_COMPONENTS: usize = 4_096;
-
 impl IntegralShift {
-    /// Construct a shift under the default family-sized component ceiling.
+    /// Construct a shift; concrete family arity is authenticated at translation.
     pub fn try_new(values: impl IntoIterator<Item = i64>) -> Result<Self, TranslatedSourceError> {
-        Self::try_new_with_component_limit(values, DEFAULT_MAX_INTEGRAL_SHIFT_COMPONENTS)
+        Self::collect(values, None)
     }
 
     /// Construct a shift under an explicit component ceiling.
@@ -24,10 +23,21 @@ impl IntegralShift {
         values: impl IntoIterator<Item = i64>,
         max_components: usize,
     ) -> Result<Self, TranslatedSourceError> {
+        Self::collect(values, Some(max_components))
+    }
+
+    fn collect(
+        values: impl IntoIterator<Item = i64>,
+        max_components: Option<usize>,
+    ) -> Result<Self, TranslatedSourceError> {
+        resources::checkpoint()?;
         let mut retained = Vec::new();
         for value in values {
             let requested = checked_add("integral-shift components", retained.len(), 1)?;
-            check_limit("integral-shift components", requested, max_components)?;
+            if let Some(max_components) = max_components {
+                check_limit("integral-shift components", requested, max_components)?;
+            }
+            allocation_for::<i64>(1, "integral-shift components")?;
             retained
                 .try_reserve(1)
                 .map_err(|_| TranslatedSourceError::AllocationFailure {
@@ -39,7 +49,10 @@ impl IntegralShift {
         if retained.is_empty() {
             return Err(TranslatedSourceError::EmptyIntegralShift);
         }
-        Ok(Self(IndexShift::from_nonempty_preallocated(retained)))
+        allocation_for::<i64>(retained.len(), "integral-shift components")?;
+        let shift = Self(IndexShift::from_nonempty_preallocated(retained));
+        resources::checkpoint()?;
+        Ok(shift)
     }
 }
 
@@ -49,14 +62,15 @@ impl ParametricIbpGenerator<'_> {
     ///
     /// Offsets are canonicalized before any Symbolica work: they are sorted
     /// lexicographically and exact duplicates are removed. Results are then
-    /// ordered offset-major and source-chronology-minor. Scope and aggregate
-    /// resource checks precede output construction.
+    /// ordered offset-major and source-chronology-minor. Scope, representation,
+    /// and any explicitly enabled aggregate diagnostics precede construction.
     pub fn translate_completed_source_rows(
         &self,
         completed: &CompletedIbpSourceRows,
         offsets: impl IntoIterator<Item = IntegralShift>,
         limits: TranslatedSourceLimits,
     ) -> Result<TranslatedSourceBatch, TranslatedSourceError> {
+        resources::checkpoint()?;
         self.validate_completed_scope(completed)?;
         if completed.relations.is_empty() {
             return Err(TranslatedSourceError::EmptySourceRows);
@@ -67,7 +81,7 @@ impl ParametricIbpGenerator<'_> {
         for offset in offsets {
             requested_offsets =
                 checked_add("requested translated-source offsets", requested_offsets, 1)?;
-            check_limit(
+            limits.check_limit(
                 "requested translated-source offsets",
                 requested_offsets,
                 limits.max_requested_offsets,
@@ -79,6 +93,7 @@ impl ParametricIbpGenerator<'_> {
                     actual: offset.len(),
                 });
             }
+            allocation_for::<IntegralShift>(1, "canonical translated-source offsets")?;
             canonical_offsets.try_reserve(1).map_err(|_| {
                 TranslatedSourceError::AllocationFailure {
                     resource: "canonical translated-source offsets",
@@ -90,13 +105,15 @@ impl ParametricIbpGenerator<'_> {
         if canonical_offsets.is_empty() {
             return Err(TranslatedSourceError::EmptyOffsets);
         }
+        resources::checkpoint()?;
         canonical_offsets.sort_unstable();
         canonical_offsets.dedup();
+        resources::checkpoint()?;
 
         let source_rows = completed.relations.len();
         let offset_count = canonical_offsets.len();
         let translated_sources = checked_mul("translated source rows", source_rows, offset_count)?;
-        check_limit(
+        limits.check_limit(
             "translated source rows",
             translated_sources,
             limits.max_translated_sources,
@@ -114,7 +131,7 @@ impl ParametricIbpGenerator<'_> {
             terms_per_offset,
             offset_count,
         )?;
-        check_limit(
+        limits.check_limit(
             "translated source term entries",
             translated_terms,
             limits.max_translated_term_entries,
@@ -132,7 +149,7 @@ impl ParametricIbpGenerator<'_> {
             conditions_per_offset,
             offset_count,
         )?;
-        check_limit(
+        limits.check_limit(
             "translated source condition entries",
             translated_conditions,
             limits.max_translated_condition_entries,
@@ -140,7 +157,7 @@ impl ParametricIbpGenerator<'_> {
 
         let retained_condition_sources =
             retained_condition_source_entry_bound(completed, &canonical_offsets)?;
-        check_limit(
+        limits.check_limit(
             "translated-source retained condition-source entries",
             retained_condition_sources,
             limits.max_retained_condition_source_entries,
@@ -156,13 +173,14 @@ impl ParametricIbpGenerator<'_> {
                     .map(move |relation| (relation, offset))
             }),
         )?;
-        check_limit(
+        limits.check_limit(
             "translated-source retained index-coordinate cells",
             coordinate_cells,
             limits.max_retained_index_coordinate_cells,
         )?;
 
         let mut translated = Vec::new();
+        allocation_for::<TranslatedSource>(translated_sources, "translated source rows")?;
         translated
             .try_reserve_exact(translated_sources)
             .map_err(|_| TranslatedSourceError::AllocationFailure {
@@ -171,6 +189,7 @@ impl ParametricIbpGenerator<'_> {
             })?;
         for (offset_ordinal, offset) in canonical_offsets.iter().enumerate() {
             for (source_ordinal, source) in completed.relations.iter().enumerate() {
+                resources::checkpoint()?;
                 translated.push(
                     translate_source(self, source, source_ordinal, offset, limits.relation)
                         .map_err(|error| TranslatedSourceError::RelationTranslation {
@@ -179,9 +198,11 @@ impl ParametricIbpGenerator<'_> {
                             error,
                         })?,
                 );
+                resources::checkpoint()?;
             }
         }
 
+        resources::checkpoint()?;
         Ok(TranslatedSourceBatch {
             family_fingerprint: self.source_scope.family_fingerprint.clone(),
             context_fingerprint: self.source_scope.context_fingerprint.clone(),
@@ -196,6 +217,7 @@ impl ParametricIbpGenerator<'_> {
         &self,
         completed: &CompletedIbpSourceRows,
     ) -> Result<(), TranslatedSourceError> {
+        resources::checkpoint()?;
         if !same_owner_or_value(
             &self.source_scope.family_fingerprint,
             &completed.scope.family_fingerprint,
@@ -256,51 +278,65 @@ pub(super) fn retained_condition_source_entry_bound_for<'a>(
 ) -> Result<usize, TranslatedSourceError> {
     let mut total = 0usize;
     for (relation, offset) in translations {
+        resources::checkpoint()?;
         let is_zero = offset.values().iter().all(|value| *value == 0);
         for condition in relation.nonzero_conditions() {
+            resources::checkpoint()?;
             total = add_condition_source_entries(total, condition.sources().len())?;
             if is_zero {
                 continue;
             }
-            if !condition.sources().iter().any(|source| {
-                matches!(
-                    source,
+            let mut has_index_translation = false;
+            let mut has_relation_translation = false;
+            let mut has_attachment = false;
+            for source in condition.sources() {
+                resources::checkpoint()?;
+                match source {
                     IdentityConditionSource::IndexTranslation { offset: existing }
-                        if existing.as_ref() == offset.values()
-                )
-            }) {
-                total = add_condition_source_entries(total, 1)?;
-            }
-            if !condition.sources().iter().any(|source| {
-                matches!(
-                    source,
+                        if existing.as_ref() == offset.values() =>
+                    {
+                        has_index_translation = true
+                    }
                     IdentityConditionSource::RelationTranslation {
                         source_row,
                         target_row,
                         offset: existing,
                     } if source_row == relation.row_id()
                         && target_row == relation.row_id()
-                        && existing.as_ref() == offset.values()
-                )
-            }) {
+                        && existing.as_ref() == offset.values() =>
+                    {
+                        has_relation_translation = true
+                    }
+                    IdentityConditionSource::RelationConditionAttached { row }
+                        if row == relation.row_id() =>
+                    {
+                        has_attachment = true
+                    }
+                    _ => {}
+                }
+            }
+            if !has_index_translation {
                 total = add_condition_source_entries(total, 1)?;
             }
-            if !condition.sources().iter().any(|source| {
-                matches!(
-                    source,
-                    IdentityConditionSource::RelationConditionAttached { row }
-                        if row == relation.row_id()
-                )
-            }) {
+            if !has_relation_translation {
+                total = add_condition_source_entries(total, 1)?;
+            }
+            if !has_attachment {
                 total = add_condition_source_entries(total, 1)?;
             }
         }
         if !is_zero {
-            let denominator_conditions = relation
-                .terms()
-                .values()
-                .filter(|coefficient| !coefficient.raw().denominator.is_constant())
-                .count();
+            let denominator_conditions = relation.terms().values().try_fold(
+                0usize,
+                |count, coefficient| -> Result<usize, TranslatedSourceError> {
+                    resources::checkpoint()?;
+                    if coefficient.raw().denominator.is_constant() {
+                        Ok(count)
+                    } else {
+                        checked_add("translated denominator conditions", count, 1)
+                    }
+                },
+            )?;
             // Translation is an automorphism, so each nonconstant source
             // denominator stays nonconstant. Sealed relation construction
             // already retained its guard; rebuilding the translated term can
@@ -330,6 +366,7 @@ pub(super) fn retained_coordinate_cell_bound_for<'a>(
     let resource = "translated-source retained index-coordinate cells";
     let mut total = checked_mul(resource, arity, retained_offset_count)?;
     for (relation, offset) in translations {
+        resources::checkpoint()?;
         total = checked_add(
             resource,
             total,
@@ -388,6 +425,7 @@ pub(super) fn checked_add(
     left: usize,
     right: usize,
 ) -> Result<usize, TranslatedSourceError> {
+    resources::checkpoint()?;
     left.checked_add(right)
         .ok_or(TranslatedSourceError::ResourceCountOverflow { resource })
 }
@@ -397,6 +435,7 @@ pub(super) fn checked_mul(
     left: usize,
     right: usize,
 ) -> Result<usize, TranslatedSourceError> {
+    resources::checkpoint()?;
     left.checked_mul(right)
         .ok_or(TranslatedSourceError::ResourceCountOverflow { resource })
 }
@@ -406,6 +445,7 @@ pub(super) fn check_limit(
     requested: usize,
     limit: usize,
 ) -> Result<(), TranslatedSourceError> {
+    resources::checkpoint()?;
     if requested > limit {
         Err(TranslatedSourceError::ResourceLimit {
             resource,
@@ -415,4 +455,15 @@ pub(super) fn check_limit(
     } else {
         Ok(())
     }
+}
+
+pub(super) fn allocation_for<T>(
+    count: usize,
+    resource: &'static str,
+) -> Result<(), TranslatedSourceError> {
+    let bytes = checked_mul(resource, count, size_of::<T>())?;
+    let bytes = u64::try_from(bytes)
+        .map_err(|_| TranslatedSourceError::ResourceCountOverflow { resource })?;
+    resources::check_allocation(bytes)?;
+    Ok(())
 }

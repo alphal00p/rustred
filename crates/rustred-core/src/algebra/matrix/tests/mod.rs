@@ -4,5 +4,6 @@ mod field;
 mod inverse;
 mod products;
 mod rank;
+mod resource_policy;
 mod support;
 mod transport;

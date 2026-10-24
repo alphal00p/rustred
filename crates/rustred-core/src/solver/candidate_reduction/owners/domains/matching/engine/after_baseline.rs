@@ -27,7 +27,9 @@ where
             charge(
                 &mut self.budget.stats.rules,
                 1,
-                self.budget.limits.max_rules,
+                self.budget
+                    .limits
+                    .diagnostic_limit(self.budget.limits.max_rules),
                 "rules",
             )
             .map_err(|failure| (identity, failure))?;

@@ -18,6 +18,7 @@ pub(super) fn preflight<const N: usize>(
     equations: &[CoefficientPolynomial],
     indices: &[usize; N],
 ) -> Result<(), CaseIntersectionFailure> {
+    super::engine::checkpoint()?;
     geometry::preflight(equations, indices).map_err(|error| match error {
         GeometryError::InvalidInput(message) => CaseIntersectionFailure::InvalidInput(message),
         other => CaseIntersectionFailure::Admission(AffineGeometryError::Coordinate(other)),
@@ -72,6 +73,7 @@ pub(super) fn restrict<const N: usize>(
 ) -> Result<Vec<CoefficientPolynomial>, CaseIntersectionFailure> {
     let mut restricted = Vec::with_capacity(equations.len());
     for source in equations {
+        super::engine::checkpoint()?;
         let equation = if let Some(affine) = parent.affine() {
             let restricted = affine
                 .restrict_equation(source)
@@ -97,6 +99,7 @@ pub(super) fn restrict<const N: usize>(
         }
     }
     canonicalize(&mut restricted);
+    super::engine::checkpoint()?;
     Ok(restricted)
 }
 
@@ -124,8 +127,8 @@ pub(super) fn normalize(
 }
 
 /// Structural admission only: native F4 itself has no cancellation callback.
-pub(super) fn lex_eligible(equations: &[CoefficientPolynomial]) -> bool {
-    lex::eligible(equations)
+pub(super) fn lex_eligible(equations: &[CoefficientPolynomial], diagnostics_enabled: bool) -> bool {
+    lex::eligible(equations, diagnostics_enabled)
 }
 
 /// An exceptional representation fallback, not a different authority path.
@@ -145,6 +148,7 @@ pub(super) fn take_lex_calls() -> usize {
 fn normalize_in_order<O: MonomialOrder>(
     equations: &[CoefficientPolynomial],
 ) -> Result<Vec<CoefficientPolynomial>, CaseIntersectionFailure> {
+    super::engine::checkpoint()?;
     let ideal: Vec<_> = equations
         .iter()
         .map(|polynomial| {
@@ -153,9 +157,12 @@ fn normalize_in_order<O: MonomialOrder>(
                 .reorder::<O>()
         })
         .collect();
+    super::engine::checkpoint()?;
     let basis = GroebnerBasis::new(&ideal, false);
+    super::engine::checkpoint()?;
     let mut normalized = Vec::with_capacity(basis.system.len());
     for polynomial in basis.system {
+        super::engine::checkpoint()?;
         let polynomial = polynomial.reorder::<LexOrder>();
         if polynomial.is_zero() {
             continue;
@@ -172,6 +179,7 @@ fn normalize_in_order<O: MonomialOrder>(
         normalized.push(reduced);
     }
     canonicalize(&mut normalized);
+    super::engine::checkpoint()?;
     Ok(normalized)
 }
 
@@ -184,7 +192,9 @@ mod tests;
 pub(super) fn factors(
     equation: &CoefficientPolynomial,
 ) -> Result<Vec<CoefficientPolynomial>, CaseIntersectionFailure> {
+    super::engine::checkpoint()?;
     let factors = equation.factor();
+    super::engine::checkpoint()?;
     if factors.is_empty()
         || factors.iter().any(|(factor, multiplicity)| {
             factor.is_zero() || *multiplicity == 0 || factor.variables() != equation.variables()
@@ -201,6 +211,7 @@ pub(super) fn factors(
     if factors.is_empty() {
         return Err(CaseIntersectionFailure::NativeAlgebra);
     }
+    super::engine::checkpoint()?;
     Ok(factors)
 }
 

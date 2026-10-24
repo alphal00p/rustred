@@ -347,6 +347,7 @@ pub(crate) fn canonical_equalities(
     equations: &[CoefficientPolynomial],
     indices: &[usize],
 ) -> Result<Option<(Matrix<Q>, Matrix<IntegerRing>)>, AffineGeometryError> {
+    symbolica::utils::resources::checkpoint().map_err(AffineGeometryError::Resources)?;
     let n = indices.len();
     let Some(template) = equations.first() else {
         return Err(AffineGeometryError::InvalidInput(
@@ -474,5 +475,6 @@ pub(crate) fn canonical_equalities(
         Q,
     )
     .map_err(|_| AffineGeometryError::NativeAlgebra)?;
+    symbolica::utils::resources::checkpoint().map_err(AffineGeometryError::Resources)?;
     Ok(Some((matrix, primitive)))
 }

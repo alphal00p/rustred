@@ -840,7 +840,7 @@ impl ProductExecution<'_, '_, '_> {
         }
         self.statistics.record_rule_applications(count);
         self.request
-            .record_rule_applications(count, self.limits.max_rule_applications)?;
+            .record_rule_applications(count, self.limits.diagnostic_limit(self.limits.max_rule_applications))?;
         Ok(())
     }
 
@@ -850,7 +850,7 @@ impl ProductExecution<'_, '_, '_> {
         }
         self.statistics.record_coalescing_additions(count);
         self.request
-            .record_coalescing_additions(count, self.limits.max_coalescing_additions)
+            .record_coalescing_additions(count, self.limits.diagnostic_limit(self.limits.max_coalescing_additions))
     }
 
     fn remaining_moment_limits(&self) -> Result<FactorizedProductMomentLimits, ReductionError> {
@@ -1311,7 +1311,7 @@ fn push_frame<T>(
             resource,
             requested,
         })?;
-    request.retain_pending_frame(limits.max_pending_frames)?;
+    request.retain_pending_frame(limits.diagnostic_limit(limits.max_pending_frames))?;
     stack.push(frame);
     Ok(())
 }

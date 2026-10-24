@@ -18,6 +18,7 @@ mod reader;
 mod tests;
 mod writer;
 
+use crate::AppError;
 use rustred::persistence::application_cache::ApplicationCacheIoLimits;
 
 pub use bundle::{
@@ -29,6 +30,9 @@ pub use writer::SavedApplicationCacheWriter;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SavedApplicationCachePackLimits {
+    /// Enable the count and cumulative lookup-work diagnostics below.
+    /// Ordinary execution is governed by explicit bytes and ambient resources.
+    pub diagnostics_enabled: bool,
     pub chunk: ApplicationCacheIoLimits,
     pub max_manifest_bytes: usize,
     pub max_directory_owned_bytes: usize,
@@ -52,17 +56,18 @@ pub struct SavedApplicationCachePackLimits {
 impl Default for SavedApplicationCachePackLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             chunk: Default::default(),
-            max_manifest_bytes: 16 * 1024 * 1024,
-            max_directory_owned_bytes: 32 * 1024 * 1024,
+            max_manifest_bytes: usize::MAX,
+            max_directory_owned_bytes: usize::MAX,
             max_chunks: 32768,
             max_runs: 4096,
             max_namespaces: 128,
-            max_encoded_chunk_bytes: 65 * 1024 * 1024,
+            max_encoded_chunk_bytes: usize::MAX,
             max_lookup_chunks: 8,
             max_lookup_encoded_bytes: 512 * 1024 * 1024,
             max_lookup_decoded_bytes: 512 * 1024 * 1024,
-            max_disk_bytes: 32_000_000_000,
+            max_disk_bytes: u64::MAX,
         }
     }
 }
@@ -98,4 +103,41 @@ pub struct SavedApplicationCachePackStatistics {
 
 fn fail(error: impl std::fmt::Display) -> crate::AppError {
     crate::AppError::input(format!("application cache pack: {error}"))
+}
+
+pub(super) fn resource_checkpoint() -> Result<(), AppError> {
+    symbolica::utils::resources::checkpoint().map_err(AppError::resource)
+}
+
+pub(super) fn resource_allocation(bytes: usize) -> Result<(), AppError> {
+    symbolica::utils::resources::check_allocation(u64::try_from(bytes).map_err(fail)?)
+        .map_err(AppError::resource)
+}
+
+pub(super) fn io_error(error: std::io::Error) -> AppError {
+    if let Some(inner) = error.get_ref() {
+        if let Some(error) = inner.downcast_ref::<symbolica::utils::resources::ResourceLimitError>()
+        {
+            return AppError::resource(error.clone());
+        }
+        if let Some(error) = inner.downcast_ref::<AppError>() {
+            return error.clone();
+        }
+    }
+    fail(error)
+}
+
+pub(super) fn encode_error(error: bincode::error::EncodeError) -> AppError {
+    match error {
+        bincode::error::EncodeError::Io { inner, .. } => io_error(inner),
+        error => fail(error),
+    }
+}
+
+pub(super) fn binary_error(error: rustred::persistence::BinaryIoError) -> AppError {
+    match error {
+        rustred::persistence::BinaryIoError::Resource(error) => AppError::resource(error),
+        rustred::persistence::BinaryIoError::Limit { .. } => AppError::limit(error.to_string()),
+        error => fail(error),
+    }
 }

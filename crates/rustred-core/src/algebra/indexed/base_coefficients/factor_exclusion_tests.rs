@@ -77,6 +77,7 @@ fn native_factor_exclusion_retains_remaining_exact_hyperplane_and_replay_budget(
         c.integer_zero_locus_domain_resolution_with_factor_exclusion(
             &s,
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_exact_hyperplane_replay_substitutions: 0,
                 ..Default::default()
             },
@@ -96,6 +97,7 @@ fn native_factor_exclusion_mandatory_admission_precedes_callback_and_errors_prop
         c.integer_zero_locus_domain_resolution_with_factor_exclusion(
             &s,
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_gcd_factor_work: 0,
                 ..Default::default()
             },
@@ -115,6 +117,7 @@ fn native_factor_exclusion_mandatory_admission_precedes_callback_and_errors_prop
         c.integer_zero_locus_domain_resolution_with_factor_exclusion(
             &s,
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_factor_terms: 0,
                 ..Default::default()
             },

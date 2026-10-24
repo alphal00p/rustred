@@ -60,7 +60,10 @@ pub(crate) fn verify_concrete_specialization_replay(
     source_combination: &[ParametricSourceRowContribution],
     limits: ParametricRuleLimits,
 ) -> Result<ConcreteSpecializationReplayWitness, ParametricRuleError> {
-    let mut budget = ReplayBudget::new(limits.max_concrete_replay_exact_operations);
+    let mut budget = ReplayBudget::new(
+        limits.max_concrete_replay_exact_operations,
+        limits.diagnostics_enabled,
+    );
 
     // Guards are pre-cancellation domain facts. Check every retained guard
     // before specializing any coefficient which relies on it.
@@ -104,6 +107,7 @@ pub(crate) fn verify_concrete_specialization_replay(
         1,
     )?;
     check_limit(
+        limits.diagnostics_enabled,
         "concrete specialization replay terms",
         integral_keys_checked,
         limits.max_concrete_replay_terms,
@@ -114,6 +118,7 @@ pub(crate) fn verify_concrete_specialization_replay(
         1,
     )?;
     check_cell_limit(
+        limits.diagnostics_enabled,
         "concrete specialization replay integral-key power cells",
         replay_key_buffers,
         anchor.len(),
@@ -122,6 +127,7 @@ pub(crate) fn verify_concrete_specialization_replay(
 
     let mut accumulated = BTreeMap::<IntegralKey, AccumulatedCoefficient>::new();
     let mut retained = RetainedCoefficientCensus::new(
+        limits.diagnostics_enabled,
         limits.max_concrete_replay_retained_coefficient_terms,
         limits.max_concrete_replay_retained_coefficient_clone_owned_bytes,
     );
@@ -256,6 +262,7 @@ fn accumulate(
                 1,
             )?;
             check_limit(
+                limits.diagnostics_enabled,
                 "concrete specialization replay distinct integral keys",
                 requested,
                 limits.max_concrete_replay_integral_keys,
@@ -315,6 +322,7 @@ fn coefficient_weight(
 }
 
 struct RetainedCoefficientCensus {
+    diagnostics_enabled: bool,
     current_terms: usize,
     current_clone_owned_bytes: usize,
     peak_terms: usize,
@@ -323,8 +331,9 @@ struct RetainedCoefficientCensus {
 }
 
 impl RetainedCoefficientCensus {
-    fn new(max_terms: usize, max_clone_owned_bytes: usize) -> Self {
+    fn new(diagnostics_enabled: bool, max_terms: usize, max_clone_owned_bytes: usize) -> Self {
         Self {
+            diagnostics_enabled,
             current_terms: 0,
             current_clone_owned_bytes: 0,
             peak_terms: 0,
@@ -349,6 +358,7 @@ impl RetainedCoefficientCensus {
             new.terms,
         )?;
         check_limit(
+            self.diagnostics_enabled,
             "concrete specialization replay retained coefficient terms",
             terms,
             self.max_terms,
@@ -365,6 +375,7 @@ impl RetainedCoefficientCensus {
             new.clone_owned_bytes,
         )?;
         check_limit(
+            self.diagnostics_enabled,
             "concrete specialization replay retained coefficient clone-owned bytes",
             clone_owned_bytes,
             self.max_clone_owned_bytes,
@@ -408,17 +419,22 @@ fn copy_anchor(anchor: &[i64]) -> Result<Vec<i64>, ParametricRuleError> {
 }
 
 struct ReplayBudget {
+    diagnostics_enabled: bool,
     used: usize,
     limit: usize,
 }
 
 impl ReplayBudget {
-    fn new(limit: usize) -> Self {
-        Self { used: 0, limit }
+    fn new(limit: usize, diagnostics_enabled: bool) -> Self {
+        Self {
+            used: 0,
+            limit,
+            diagnostics_enabled,
+        }
     }
 
     fn charge(&mut self, resource: &'static str) -> Result<(), ParametricRuleError> {
         self.used = checked_add(resource, self.used, 1)?;
-        check_limit(resource, self.used, self.limit)
+        check_limit(self.diagnostics_enabled, resource, self.used, self.limit)
     }
 }

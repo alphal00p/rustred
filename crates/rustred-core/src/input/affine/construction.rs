@@ -14,8 +14,14 @@ pub(super) fn check_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), SymbolicaAffineDenominatorError> {
-    if requested > limit {
+    symbolica::utils::resources::checkpoint().map_err(|error| {
+        SymbolicaAffineDenominatorError::ExactAlgebra(crate::algebra::ExactAlgebraError::Resource(
+            error,
+        ))
+    })?;
+    if diagnostics_enabled && requested > limit {
         Err(SymbolicaAffineDenominatorError::ResourceLimit {
             resource,
             requested: requested as u128,

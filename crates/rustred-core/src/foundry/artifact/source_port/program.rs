@@ -247,6 +247,7 @@ impl<const N: usize> CheckedProgram<N> {
                     rule,
                     degree,
                     self.limits.rule_derivation,
+                    self.limits.rule_cells,
                     self.limits.cover_replay,
                 )
                 .map_err(|issue| {
@@ -309,6 +310,7 @@ impl<const N: usize> CheckedProgram<N> {
         });
         let artifact = match self.scope {
             CheckedProgramScope::Unrestricted => install_source_port_with_limits(
+                self.limits.diagnostics_enabled,
                 candidate,
                 self.limits.cover_replay.geometry(),
                 self.limits.max_predicate_consistency_work,
@@ -335,6 +337,7 @@ impl<const N: usize> CheckedProgram<N> {
                     })
                     .collect::<Result<Vec<_>, SourcePortAuditError>>()?;
                 install_source_port_through_total_excess_with_observer(
+                    self.limits.diagnostics_enabled,
                     candidate,
                     entry,
                     degrees,
@@ -352,6 +355,7 @@ impl<const N: usize> CheckedProgram<N> {
             }
         }
         .map_err(|issue| match issue {
+            super::super::ArtifactError::Resources(error) => SourcePortAuditError::Resources(error),
             super::super::ArtifactError::ResourceBudgetExhausted { resource } => {
                 SourcePortAuditError::ResourceBudgetExhausted { resource }
             }
@@ -596,6 +600,7 @@ pub(super) fn lower_sector_for_test<const N: usize>(
             rule,
             None,
             audit.limits.rule_derivation,
+            audit.limits.rule_cells,
             audit.limits.cover_replay,
         )
         .map_err(|issue| error(format!("rule {ordinal} lowering: {issue}")))?;

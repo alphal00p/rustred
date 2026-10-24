@@ -23,6 +23,7 @@ fn application(capacity: usize) -> RoutedCandidateApplication<1> {
             &[[1], [5]],
         )],
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_integrals: capacity,
             ..Default::default()
         },

@@ -52,9 +52,9 @@ pub const STABLE_PATIENCE: u32 = 2;
 pub struct DynamicSolveOptions {
     pub max_depth: u32,
     pub include_lorentz: bool,
-    /// Maximum distinct concrete integrals searched during RHS closure.
-    /// Exceeding this budget is an error, never an incomplete reduction.
-    pub max_targets: usize,
+    /// Optional diagnostic ceiling on distinct RHS-closure targets.
+    /// Exceeding an explicitly configured ceiling returns an error.
+    pub max_targets: Option<usize>,
     /// Laporta only: search depths `0..=max_depth` and stop once the residual
     /// set has stayed unchanged for [`STABLE_PATIENCE`] deeper searches. This
     /// is a heuristic for search completeness, not a proof.
@@ -66,7 +66,7 @@ impl Default for DynamicSolveOptions {
         Self {
             max_depth: 2,
             include_lorentz: false,
-            max_targets: 1024,
+            max_targets: None,
             until_stable: false,
         }
     }
@@ -292,7 +292,7 @@ fn export<const N: usize>(
     sector: &[bool; N],
 ) -> Result<DynamicRule, SolverError> {
     let exceptions = extract_exceptions(&candidate, sources.index_variables(), sector)
-        .map_err(|error| SolverError::ExactReplay(error.to_string()))?
+        .map_err(SolverError::exact_replay)?
         .branches;
     let powers = dynamic_powers::<N>;
     let mut nonzero_conditions = sources.conditions().to_vec();
@@ -503,10 +503,12 @@ impl<'s, const N: usize> Closure<'s, N> {
         };
         let mut visited = BTreeSet::new();
         while !pending.is_empty() {
-            if visited.len().saturating_add(pending.len()) > options.max_targets {
+            symbolica::utils::resources::checkpoint()?;
+            if let Some(limit) = options.max_targets
+                && visited.len().saturating_add(pending.len()) > limit
+            {
                 return Err(SolverError::InvalidInput(format!(
-                    "Laporta RHS closure exceeds max_targets={}; increase the explicit target budget, which also counts preferred masters",
-                    options.max_targets
+                    "Laporta RHS closure exceeds max_targets={limit}; increase the explicit diagnostic target budget, which also counts preferred masters"
                 )));
             }
             let mut sectors = BTreeMap::<[bool; N], Vec<CoordinateCase<N>>>::new();
@@ -606,8 +608,8 @@ fn extend_conditions(target: &mut Vec<CoefficientPolynomial>, source: &[Coeffici
     }
 }
 
-fn invalid_input(error: impl std::fmt::Display) -> SolverError {
-    SolverError::InvalidInput(error.to_string())
+fn invalid_input(error: impl std::error::Error + 'static) -> SolverError {
+    SolverError::invalid_input(error)
 }
 
 /// The cut support as sector restrictions, without a sector pattern.
@@ -668,6 +670,7 @@ fn zero_census<const N: usize>(
     let analyzer = Analyzer::try_new(family, restrictions.clone()).map_err(invalid_input)?;
     let mut zero = Vec::new();
     for bits in 0..sector_count {
+        symbolica::utils::resources::checkpoint()?;
         let sector = std::array::from_fn(|axis| axis < arity && bits & (1 << axis) != 0);
         if !sectors
             .iter()
@@ -719,6 +722,7 @@ fn substitute(
     done: &mut BTreeSet<usize>,
     visiting: &mut BTreeSet<usize>,
 ) -> Result<(), SolverError> {
+    symbolica::utils::resources::checkpoint()?;
     if done.contains(&index) {
         return Ok(());
     }

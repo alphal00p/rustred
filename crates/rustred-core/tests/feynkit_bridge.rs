@@ -209,7 +209,7 @@ fn check(vertex: bool) {
         &[],
         DynamicSolveOptions {
             max_depth: 0,
-            max_targets: 1024,
+            max_targets: Some(1024),
             ..options
         },
     )
@@ -353,7 +353,7 @@ fn zero_sectors_duplicates_and_invalid_inputs_are_explicit() {
             &[vec![2, 1, 0, 0, 0]],
             &[],
             DynamicSolveOptions {
-                max_targets: 1,
+                max_targets: Some(1),
                 ..Default::default()
             }
         )

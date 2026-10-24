@@ -117,7 +117,7 @@ impl TerminalProducts {
                     ..limits
                 },
             )
-            .map_err(failure)?;
+            .map_err(native_failure)?;
             merge_work(&mut prepared.statistics.work, plan.statistics())?;
             for (fingerprint, lower) in plan.families() {
                 if !family

@@ -68,7 +68,15 @@ impl fmt::Display for ParametricRelationError {
     }
 }
 
-impl std::error::Error for ParametricRelationError {}
+impl std::error::Error for ParametricRelationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::IdentityCondition(error) => Some(error),
+            Self::Coefficient(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<IndexedAlgebraError> for ParametricRelationError {
     fn from(value: IndexedAlgebraError) -> Self {

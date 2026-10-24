@@ -44,7 +44,12 @@ impl RankScopeBudget {
         if sector.is_empty() {
             return Err(invalid("rank scope needs a nonempty coordinate space"));
         }
-        check("rank-scope arity", sector.len(), self.limits.max_arity)?;
+        check(
+            self.limits.diagnostics_enabled,
+            "rank-scope arity",
+            sector.len(),
+            self.limits.max_arity,
+        )?;
         let inactive = sector.iter().filter(|&&active| !active).count();
         // There is one empty assignment when every coordinate is active,
         // independent of the numerical degree bound (including u64::MAX).
@@ -55,7 +60,12 @@ impl RankScopeBudget {
         };
         let count = try_simplex_sample_count(inactive, degree).map_err(simplex_error)?;
         let boxes = add("rank-scope boxes", self.boxes, count)?;
-        check("rank-scope boxes", boxes, self.limits.max_requested_boxes)?;
+        check(
+            self.limits.diagnostics_enabled,
+            "rank-scope boxes",
+            boxes,
+            self.limits.max_requested_boxes,
+        )?;
         // Charge all offset coordinates plus the final lower/upper arrays,
         // including peak stars-and-bars workspace. Cumulative
         // accounting is intentionally conservative across sector calls.
@@ -76,6 +86,7 @@ impl RankScopeBudget {
             coordinates,
         )?;
         check(
+            self.limits.diagnostics_enabled,
             "rank-scope coordinate cells",
             coordinate_cells,
             self.limits.max_requested_box_coordinate_cells,
@@ -102,6 +113,7 @@ impl RankScopeBudget {
             )?,
         )?;
         check(
+            self.limits.diagnostics_enabled,
             "rank-scope structural work",
             structural_work,
             self.limits.max_split_operations,
@@ -173,8 +185,14 @@ fn mul(resource: &'static str, left: usize, right: usize) -> Result<usize, Artif
     left.checked_mul(right).ok_or_else(|| overflow(resource))
 }
 
-fn check(resource: &'static str, requested: usize, limit: usize) -> Result<(), ArtifactError> {
-    if requested > limit {
+fn check(
+    diagnostics_enabled: bool,
+    resource: &'static str,
+    requested: usize,
+    limit: usize,
+) -> Result<(), ArtifactError> {
+    symbolica::utils::resources::checkpoint().map_err(ArtifactError::Resources)?;
+    if diagnostics_enabled && requested > limit {
         return Err(ArtifactError::ResourceLimit {
             resource,
             requested,
@@ -221,6 +239,7 @@ fn simplex_error(error: SimplexSupportError) -> ArtifactError {
 
 fn geometry_error(error: CompletionGeometryError) -> ArtifactError {
     match error {
+        CompletionGeometryError::Resources(error) => ArtifactError::Resources(error),
         CompletionGeometryError::ResourceCountOverflow { resource } => overflow(resource),
         CompletionGeometryError::AllocationFailure {
             resource,

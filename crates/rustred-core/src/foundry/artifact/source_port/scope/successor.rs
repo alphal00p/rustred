@@ -108,8 +108,14 @@ impl PreparedSuccessorScope {
         if arity == 0 {
             return Err(invalid("successor coordinate space is empty"));
         }
-        check("successor arity", arity, limits.max_arity)?;
         check(
+            limits.diagnostics_enabled,
+            "successor arity",
+            arity,
+            limits.max_arity,
+        )?;
+        check(
+            limits.diagnostics_enabled,
             "successor destination sectors",
             destinations.len(),
             limits.max_requested_boxes,
@@ -120,6 +126,7 @@ impl PreparedSuccessorScope {
         for destination in destinations {
             input_boxes = add(input_boxes, destination.boxes.len())?;
             check(
+                limits.diagnostics_enabled,
                 "successor input boxes",
                 input_boxes,
                 limits.max_requested_boxes,
@@ -132,6 +139,7 @@ impl PreparedSuccessorScope {
         }
         let input_coordinates = mul(mul(input_boxes, arity)?, 2)?;
         check(
+            limits.diagnostics_enabled,
             "successor input coordinates",
             input_coordinates,
             limits.max_requested_box_coordinate_cells,
@@ -211,9 +219,15 @@ impl PreparedSuccessorScope {
         let limits = self.budget.limits;
 
         let pieces = partition_count(source, sector, rhs_shift)?;
-        check("successor sign pieces", pieces, limits.max_uncovered_boxes)?;
+        check(
+            limits.diagnostics_enabled,
+            "successor sign pieces",
+            pieces,
+            limits.max_uncovered_boxes,
+        )?;
         let piece_coordinates = mul(mul(pieces, arity)?, 2)?;
         check(
+            limits.diagnostics_enabled,
             "successor sign coordinates",
             piece_coordinates,
             limits.max_uncovered_box_coordinate_cells,
@@ -276,16 +290,19 @@ impl SuccessorScopeBudget {
         let coordinates = add(self.requested_coordinates, coordinates)?;
         let work = add(self.work, work)?;
         check(
+            self.limits.diagnostics_enabled,
             "successor allocated boxes",
             boxes,
             self.limits.max_requested_boxes,
         )?;
         check(
+            self.limits.diagnostics_enabled,
             "successor allocated coordinates",
             coordinates,
             self.limits.max_requested_box_coordinate_cells,
         )?;
         check(
+            self.limits.diagnostics_enabled,
             "successor structural/split work",
             work,
             self.limits.max_split_operations,
@@ -297,6 +314,10 @@ impl SuccessorScopeBudget {
     }
 
     fn remaining(&self) -> Result<CompletionGeometryLimits, ArtifactError> {
+        symbolica::utils::resources::checkpoint().map_err(ArtifactError::Resources)?;
+        if !self.limits.diagnostics_enabled {
+            return Ok(self.limits);
+        }
         let subtract = |limit: usize, used: usize| {
             limit
                 .checked_sub(used)
@@ -422,8 +443,14 @@ fn overflow() -> ArtifactError {
 fn invalid(detail: &'static str) -> ArtifactError {
     ArtifactError::InvalidRuleShape { detail }
 }
-fn check(resource: &'static str, requested: usize, limit: usize) -> Result<(), ArtifactError> {
-    if requested > limit {
+fn check(
+    diagnostics_enabled: bool,
+    resource: &'static str,
+    requested: usize,
+    limit: usize,
+) -> Result<(), ArtifactError> {
+    symbolica::utils::resources::checkpoint().map_err(ArtifactError::Resources)?;
+    if diagnostics_enabled && requested > limit {
         return Err(ArtifactError::ResourceLimit {
             resource,
             requested,
@@ -434,6 +461,7 @@ fn check(resource: &'static str, requested: usize, limit: usize) -> Result<(), A
 }
 fn geometry_error(error: CompletionGeometryError) -> ArtifactError {
     match error {
+        CompletionGeometryError::Resources(error) => ArtifactError::Resources(error),
         CompletionGeometryError::ResourceCountOverflow { resource } => {
             ArtifactError::ResourceCountOverflow { resource }
         }

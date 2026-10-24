@@ -49,11 +49,22 @@ pub(in crate::foundry::artifact::source_port) fn coefficient_vanishes_in_affine_
             "bounded coefficient restriction has incompatible index geometry",
         ));
     }
-    check_limit("arity", arity, geometry.max_arity)?;
+    check_limit(
+        geometry.diagnostics_enabled,
+        "arity",
+        arity,
+        geometry.max_arity,
+    )?;
     // Even an all-constant proof has one leaf. Check these before any native
     // specialization, including the no-finite-axis case.
-    check_limit("finite leaves", 1, geometry.max_uncovered_boxes)?;
     check_limit(
+        geometry.diagnostics_enabled,
+        "finite leaves",
+        1,
+        geometry.max_uncovered_boxes,
+    )?;
+    check_limit(
+        geometry.diagnostics_enabled,
         "finite leaf coordinates",
         arity,
         geometry.max_uncovered_box_coordinate_cells,
@@ -93,6 +104,7 @@ pub(in crate::foundry::artifact::source_port) fn coefficient_vanishes_in_affine_
         }
     }
     check_limit(
+        geometry.diagnostics_enabled,
         "singleton assignments",
         fixed.len(),
         geometry.max_split_operations,
@@ -130,13 +142,19 @@ pub(in crate::foundry::artifact::source_port) fn coefficient_vanishes_in_affine_
         leaves = leaves
             .checked_mul(width)
             .ok_or_else(|| error("bounded coefficient restriction finite leaf count overflow"))?;
-        check_limit("finite leaves", leaves, geometry.max_uncovered_boxes)?;
+        check_limit(
+            geometry.diagnostics_enabled,
+            "finite leaves",
+            leaves,
+            geometry.max_uncovered_boxes,
+        )?;
         finite.push((axis, lower, upper));
     }
     let coordinate_work = leaves
         .checked_mul(arity)
         .ok_or_else(|| error("bounded coefficient restriction finite coordinate count overflow"))?;
     check_limit(
+        geometry.diagnostics_enabled,
         "finite leaf coordinates",
         coordinate_work,
         geometry.max_uncovered_box_coordinate_cells,
@@ -146,6 +164,7 @@ pub(in crate::foundry::artifact::source_port) fn coefficient_vanishes_in_affine_
         .and_then(|work| work.checked_add(fixed.len()))
         .ok_or_else(|| error("bounded coefficient restriction assignment count overflow"))?;
     check_limit(
+        geometry.diagnostics_enabled,
         "finite assignments",
         assignment_work,
         geometry.max_split_operations,
@@ -164,6 +183,7 @@ pub(in crate::foundry::artifact::source_port) fn coefficient_vanishes_in_affine_
     local.extend(finite.iter().map(|(_, lower, _)| *lower));
     fixed.clear();
     for leaf in 0..leaves {
+        symbolica::utils::resources::checkpoint().map_err(error)?;
         fixed.clear();
         for (position, &(axis, _, _)) in finite.iter().enumerate() {
             let value = physical_value(local[position], sector[axis]).ok_or_else(|| {
@@ -223,8 +243,14 @@ fn specialize(
         .map_err(error)
 }
 
-fn check_limit(resource: &str, requested: usize, limit: usize) -> Result<(), SourcePortAuditError> {
-    if requested > limit {
+fn check_limit(
+    diagnostics_enabled: bool,
+    resource: &str,
+    requested: usize,
+    limit: usize,
+) -> Result<(), SourcePortAuditError> {
+    symbolica::utils::resources::checkpoint().map_err(error)?;
+    if diagnostics_enabled && requested > limit {
         Err(error(format!(
             "bounded coefficient restriction {resource} exceeds geometry budget: {requested} > {limit}"
         )))

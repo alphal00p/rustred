@@ -46,6 +46,7 @@ fn publish(state: &mut State<1>, id: usize, plan: Option<&Plan>, frontier: bool)
     state.commit(
         id,
         Finished {
+            resource_failure: None,
             stats: match plan {
                 Some(plan) => NativeStats::ApplyG2(Default::default(), plan.scope()),
                 None => NativeStats::Apply(Default::default()),

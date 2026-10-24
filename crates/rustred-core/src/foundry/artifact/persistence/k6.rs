@@ -332,7 +332,7 @@ fn decode_root_bounds(
 ) -> Result<Box<[InteriorBounds]>, ArtifactPersistenceError> {
     let mut reader = parent.child(header);
     let count = reader.count("K6 root-power bounds")?;
-    check_persistence_limit(
+    reader.limits().check_count(
         "K6 root-power bounds",
         count,
         reader.limits().max_index_arity,
@@ -480,7 +480,13 @@ fn decode_cell(
         None
     };
     let construction_fixed = if construction == FIXED_SOURCES || construction == RESIDUAL_SOURCES {
-        decode_fixed(&mut reader, 6, cell_limits.max_fixed_restrictions)?
+        decode_fixed(
+            &mut reader,
+            6,
+            cell_limits
+                .diagnostics_enabled
+                .then_some(cell_limits.max_fixed_restrictions),
+        )?
     } else if construction == DIRECT_SOURCES {
         Box::new([])
     } else {
@@ -497,8 +503,19 @@ fn decode_cell(
     )?;
     let application_sector = decode_mask(&mut reader, 6)?;
     let application_bounds = decode_bounds(&mut reader, 6, "K6 monotone bounds")?;
-    let fixed = decode_fixed(&mut reader, 6, cell_limits.max_fixed_restrictions)?;
-    let pruned = decode_pruned_ordinals(&mut reader, cell_limits.max_pruned_terms)?;
+    let fixed = decode_fixed(
+        &mut reader,
+        6,
+        cell_limits
+            .diagnostics_enabled
+            .then_some(cell_limits.max_fixed_restrictions),
+    )?;
+    let pruned = decode_pruned_ordinals(
+        &mut reader,
+        cell_limits
+            .diagnostics_enabled
+            .then_some(cell_limits.max_pruned_terms),
+    )?;
     let expected_snapshot =
         reader.bytes("K6 exact cell witness", parent.limits().max_artifact_bytes)?;
     reader.finish()?;
@@ -589,9 +606,17 @@ fn preflight_cell_source_requests(
             translated.max_requested_source_translations,
         ),
         ("K6 translated sources", translated.max_translated_sources),
-        ("K6 cell source views", cells.max_source_views),
     ] {
-        check_persistence_limit(resource, request_count, limit)?;
+        if translated.diagnostics_enabled {
+            check_persistence_limit(resource, request_count, limit)?;
+        }
+    }
+    if cells.diagnostics_enabled {
+        check_persistence_limit(
+            "K6 cell source views",
+            request_count,
+            cells.max_source_views,
+        )?;
     }
     let coordinate_cells =
         request_count
@@ -599,11 +624,13 @@ fn preflight_cell_source_requests(
             .ok_or(ArtifactPersistenceError::ResourceCountOverflow {
                 resource: "K6 retained source-offset coordinate cells",
             })?;
-    check_persistence_limit(
-        "K6 retained source-offset coordinate cells",
-        coordinate_cells,
-        translated.max_retained_index_coordinate_cells,
-    )?;
+    if translated.diagnostics_enabled {
+        check_persistence_limit(
+            "K6 retained source-offset coordinate cells",
+            coordinate_cells,
+            translated.max_retained_index_coordinate_cells,
+        )?;
+    }
 
     let mut previous: Option<([i64; 6], usize)> = None;
     let mut distinct_offsets = 0usize;
@@ -632,11 +659,13 @@ fn preflight_cell_source_requests(
         } else {
             distinct_offsets = 1;
         }
-        check_persistence_limit(
-            "K6 canonical source offsets",
-            distinct_offsets,
-            translated.max_requested_offsets,
-        )?;
+        if translated.diagnostics_enabled {
+            check_persistence_limit(
+                "K6 canonical source offsets",
+                distinct_offsets,
+                translated.max_requested_offsets,
+            )?;
+        }
         previous = Some((offset, ordinal));
     }
     Ok(request_count)
@@ -648,7 +677,9 @@ fn decode_exact_i64_array<const N: usize>(
     arity_field: &'static str,
 ) -> Result<[i64; N], ArtifactPersistenceError> {
     let count = reader.count(resource)?;
-    check_persistence_limit(resource, count, reader.limits().max_index_arity)?;
+    reader
+        .limits()
+        .check_count(resource, count, reader.limits().max_index_arity)?;
     if count != N {
         return Err(ArtifactPersistenceError::SemanticMismatch { field: arity_field });
     }
@@ -781,7 +812,9 @@ fn decode_mask(reader: &mut Reader<'_>, arity: usize) -> Result<Mask, ArtifactPe
         });
     }
     let count = reader.count("K6 sector mask")?;
-    check_persistence_limit("K6 sector mask", count, reader.limits().max_index_arity)?;
+    reader
+        .limits()
+        .check_count("K6 sector mask", count, reader.limits().max_index_arity)?;
     if count != arity {
         return Err(ArtifactPersistenceError::SemanticMismatch {
             field: "K6 sector arity",
@@ -810,7 +843,9 @@ fn decode_bounds(
     resource: &'static str,
 ) -> Result<Vec<InteriorBounds>, ArtifactPersistenceError> {
     let count = reader.count(resource)?;
-    check_persistence_limit(resource, count, reader.limits().max_index_arity)?;
+    reader
+        .limits()
+        .check_count(resource, count, reader.limits().max_index_arity)?;
     if count != arity {
         return Err(ArtifactPersistenceError::SemanticMismatch {
             field: "K6 domain-bound arity",
@@ -838,10 +873,12 @@ fn encode_fixed(
 fn decode_fixed(
     reader: &mut Reader<'_>,
     arity: usize,
-    limit: usize,
+    limit: Option<usize>,
 ) -> Result<Box<[FixedIndexRestriction]>, ArtifactPersistenceError> {
     let count = reader.count("K6 fixed restrictions")?;
-    check_persistence_limit("K6 fixed restrictions", count, limit)?;
+    if let Some(limit) = limit {
+        check_persistence_limit("K6 fixed restrictions", count, limit)?;
+    }
     if count > arity {
         return Err(ArtifactPersistenceError::SemanticMismatch {
             field: "K6 fixed restriction count",
@@ -870,10 +907,12 @@ fn decode_fixed(
 
 fn decode_pruned_ordinals(
     reader: &mut Reader<'_>,
-    limit: usize,
+    limit: Option<usize>,
 ) -> Result<Vec<usize>, ArtifactPersistenceError> {
     let count = reader.count("K6 pruned RHS ordinals")?;
-    check_persistence_limit("K6 pruned RHS ordinals", count, limit)?;
+    if let Some(limit) = limit {
+        check_persistence_limit("K6 pruned RHS ordinals", count, limit)?;
+    }
     let mut pruned = try_vec(count, "K6 pruned RHS ordinals")?;
     for _ in 0..count {
         pruned.push(reader.count("K6 pruned RHS ordinal")?);
@@ -1010,10 +1049,132 @@ mod tests {
     }
 
     #[test]
+    fn cold_k6_replay_ignores_inactive_child_count_templates() {
+        let encoded = synthetic_exact_artifact().encode_durable().unwrap();
+        let mut limits = ArtifactLoadLimits::default();
+        limits.translated_sources = TranslatedSourceLimits {
+            max_requested_offsets: 0,
+            max_requested_source_translations: 0,
+            max_translated_sources: 0,
+            max_translated_term_entries: 0,
+            max_translated_condition_entries: 0,
+            max_retained_condition_source_entries: 0,
+            max_retained_index_coordinate_cells: 0,
+            ..Default::default()
+        };
+        limits.rule_cells = RuleCellLimits {
+            max_source_views: 0,
+            max_fixed_restrictions: 0,
+            max_pruned_terms: 0,
+            max_retained_terms: 0,
+            max_guards: 0,
+            max_guard_split_coordinate_cells: 0,
+            max_projected_source_terms: 0,
+            max_projection_group_routes: 0,
+            max_projection_zero_sectors: 0,
+            ..Default::default()
+        };
+        type Disable = fn(&mut ArtifactLoadLimits);
+        let fields: &[(&str, Disable)] = &[
+            ("translated_sources.max_requested_offsets", |limits| {
+                limits.translated_sources.max_requested_offsets = 0
+            }),
+            (
+                "translated_sources.max_requested_source_translations",
+                |limits| limits.translated_sources.max_requested_source_translations = 0,
+            ),
+            ("translated_sources.max_translated_sources", |limits| {
+                limits.translated_sources.max_translated_sources = 0
+            }),
+            ("translated_sources.max_translated_term_entries", |limits| {
+                limits.translated_sources.max_translated_term_entries = 0
+            }),
+            (
+                "translated_sources.max_translated_condition_entries",
+                |limits| limits.translated_sources.max_translated_condition_entries = 0,
+            ),
+            (
+                "translated_sources.max_retained_condition_source_entries",
+                |limits| {
+                    limits
+                        .translated_sources
+                        .max_retained_condition_source_entries = 0
+                },
+            ),
+            (
+                "translated_sources.max_retained_index_coordinate_cells",
+                |limits| {
+                    limits
+                        .translated_sources
+                        .max_retained_index_coordinate_cells = 0
+                },
+            ),
+            ("rule_cells.max_source_views", |limits| {
+                limits.rule_cells.max_source_views = 0
+            }),
+            ("rule_cells.max_fixed_restrictions", |limits| {
+                limits.rule_cells.max_fixed_restrictions = 0
+            }),
+            ("rule_cells.max_pruned_terms", |limits| {
+                limits.rule_cells.max_pruned_terms = 0
+            }),
+            ("rule_cells.max_retained_terms", |limits| {
+                limits.rule_cells.max_retained_terms = 0
+            }),
+            ("rule_cells.max_guards", |limits| {
+                limits.rule_cells.max_guards = 0
+            }),
+            ("rule_cells.max_guard_split_coordinate_cells", |limits| {
+                limits.rule_cells.max_guard_split_coordinate_cells = 0
+            }),
+            ("rule_cells.max_projected_source_terms", |limits| {
+                limits.rule_cells.max_projected_source_terms = 0
+            }),
+            ("rule_cells.max_projection_group_routes", |limits| {
+                limits.rule_cells.max_projection_group_routes = 0
+            }),
+            ("rule_cells.max_projection_zero_sectors", |limits| {
+                limits.rule_cells.max_projection_zero_sectors = 0
+            }),
+        ];
+        let mut cases = vec![("all child templates", limits)];
+        for &(name, disable) in fields {
+            let mut one = ArtifactLoadLimits::default();
+            disable(&mut one);
+            cases.push((name, one));
+        }
+        let mut failures = Vec::new();
+        for (name, policy) in cases {
+            let result = ClosedArtifact::decode_durable_with_limits(&encoded, policy)
+                .and_then(|loaded| loaded.encode_durable())
+                .map_err(|error| error.to_string())
+                .and_then(|bytes| {
+                    crate::persistence::equivalent_generated_programs(
+                        &encoded,
+                        &bytes,
+                        Default::default(),
+                    )
+                    .map_err(|error| error.to_string())
+                });
+            if !matches!(result, Ok(true)) {
+                failures.push(format!("{name}: {result:?}"));
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "inactive child policies changed cold replay: {failures:#?}"
+        );
+        assert!(matches!(
+            ClosedArtifact::decode_durable_with_limits(&encoded, limits.with_diagnostics()),
+            Err(ArtifactPersistenceError::ResourceLimit { .. })
+        ));
+    }
+
+    #[test]
     fn cold_k6_replay_obeys_caller_translation_cell_and_cover_limits() {
         let bytes = synthetic_exact_artifact().encode_durable().unwrap();
 
-        let mut translation_limited = ArtifactLoadLimits::default();
+        let mut translation_limited = ArtifactLoadLimits::default().with_diagnostics();
         translation_limited
             .translated_sources
             .max_requested_source_translations = 8;
@@ -1026,7 +1187,7 @@ mod tests {
             }
         );
 
-        let mut offset_limited = ArtifactLoadLimits::default();
+        let mut offset_limited = ArtifactLoadLimits::default().with_diagnostics();
         offset_limited.translated_sources.max_requested_offsets = 0;
         assert_eq!(
             decode_error(&bytes, offset_limited),
@@ -1037,7 +1198,7 @@ mod tests {
             }
         );
 
-        let mut coordinate_limited = ArtifactLoadLimits::default();
+        let mut coordinate_limited = ArtifactLoadLimits::default().with_diagnostics();
         coordinate_limited
             .translated_sources
             .max_retained_index_coordinate_cells = 53;
@@ -1050,7 +1211,7 @@ mod tests {
             }
         );
 
-        let mut source_view_limited = ArtifactLoadLimits::default();
+        let mut source_view_limited = ArtifactLoadLimits::default().with_diagnostics();
         source_view_limited.rule_cells.max_source_views = 8;
         assert_eq!(
             decode_error(&bytes, source_view_limited),
@@ -1061,11 +1222,11 @@ mod tests {
             }
         );
 
-        let mut cell_limited = ArtifactLoadLimits::default();
+        let mut cell_limited = ArtifactLoadLimits::default().with_diagnostics();
         cell_limited.rule_cells.max_retained_terms = 0;
         assert!(ClosedArtifact::decode_durable_with_limits(&bytes, cell_limited).is_err());
 
-        let mut cover_limited = ArtifactLoadLimits::default();
+        let mut cover_limited = ArtifactLoadLimits::default().with_diagnostics();
         cover_limited.cover_replay.max_requested_boxes = 0;
         assert_eq!(
             decode_error(&bytes, cover_limited),
@@ -1124,7 +1285,7 @@ mod tests {
             ),
         ];
         for (tighten, resource, requested, limit) in cases {
-            let mut limits = ArtifactLoadLimits::default();
+            let mut limits = ArtifactLoadLimits::default().with_diagnostics();
             tighten(&mut limits);
             assert_eq!(
                 decode_error(&bytes, limits),
@@ -1163,7 +1324,7 @@ mod tests {
         let bytes = fixed.finish();
         let mut reader = parent.child(&bytes);
         assert_eq!(
-            decode_fixed(&mut reader, 6, 0),
+            decode_fixed(&mut reader, 6, Some(0)),
             Err(ArtifactPersistenceError::ResourceLimit {
                 resource: "K6 fixed restrictions",
                 requested: 1,
@@ -1177,7 +1338,7 @@ mod tests {
         let bytes = pruned.finish();
         let mut reader = parent.child(&bytes);
         assert_eq!(
-            decode_pruned_ordinals(&mut reader, 0),
+            decode_pruned_ordinals(&mut reader, Some(0)),
             Err(ArtifactPersistenceError::ResourceLimit {
                 resource: "K6 pruned RHS ordinals",
                 requested: 1,

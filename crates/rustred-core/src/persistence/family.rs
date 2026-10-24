@@ -39,6 +39,8 @@ impl NativeFamilyRecord {
         family: &IntegralFamily,
         table: &mut CoefficientTableBuilder,
     ) -> Result<Self, BinaryIoError> {
+        super::resource_checkpoint()?;
+        super::resource_array::<DenominatorRecord>(family.denominators().len())?;
         let mut intern = |value: &Coefficient| table.intern(value).map(|id| id.index() as u32);
         let dimension = intern(family.dimension())?;
         let denominators = family
@@ -110,6 +112,7 @@ impl NativeFamilyRecord {
             ));
         }
         let compare = |id: u32, expected: &Coefficient| -> Result<(), BinaryIoError> {
+            super::resource_checkpoint()?;
             let value = table.coefficient(CoefficientId::try_from_index(id as usize)?)?;
             family
                 .coefficient_context()
@@ -155,6 +158,7 @@ impl NativeFamilyRecord {
         family_limits: IntegralFamilyLimits,
         io_limits: BinaryIoLimits,
     ) -> Result<(), BinaryIoError> {
+        super::resource_checkpoint()?;
         let loops = self.loop_momenta.len();
         let externals = self.external_momenta.len();
         let coordinates = loops
@@ -181,21 +185,26 @@ impl NativeFamilyRecord {
                 "inconsistent complete family geometry",
             ));
         }
-        check_limit(
-            "family scalar products",
-            coordinates,
-            family_limits.max_scalar_products,
-        )?;
+        if family_limits.diagnostics_enabled {
+            check_limit(
+                "family scalar products",
+                coordinates,
+                family_limits.max_scalar_products,
+            )?;
+        }
         let matrix_entries = coordinates
             .checked_mul(coordinates)
             .ok_or(BinaryIoError::Invalid("family matrix size overflow"))?;
-        check_limit(
-            "family matrix entries",
-            matrix_entries.checked_mul(2).ok_or(BinaryIoError::Invalid(
-                "augmented family matrix size overflow",
-            ))?,
-            family_limits.max_matrix_entries,
-        )?;
+        let augmented = matrix_entries.checked_mul(2).ok_or(BinaryIoError::Invalid(
+            "augmented family matrix size overflow",
+        ))?;
+        if family_limits.diagnostics_enabled {
+            check_limit(
+                "family matrix entries",
+                augmented,
+                family_limits.max_matrix_entries,
+            )?;
+        }
         let coefficient_count = externals
             .checked_mul(externals)
             .and_then(|gram| matrix_entries.checked_add(gram))
@@ -206,7 +215,8 @@ impl NativeFamilyRecord {
             })
             .and_then(|count| count.checked_add(1))
             .ok_or(BinaryIoError::Invalid("family coefficient count overflow"))?;
-        check_limit(
+        super::resource_array::<Coefficient>(coefficient_count)?;
+        io_limits.check_count(
             "family coefficient entries",
             coefficient_count,
             io_limits.max_collection_entries,
@@ -217,14 +227,15 @@ impl NativeFamilyRecord {
             .chain(&self.parameters)
             .try_fold(0usize, |sum, label| sum.checked_add(label.len()))
             .ok_or(BinaryIoError::Invalid("family label byte count overflow"))?;
-        check_limit(
-            "family labels",
-            label_bytes,
-            family_limits
-                .max_fingerprint_bytes
-                .min(io_limits.max_program_bytes),
-        )?;
-        check_limit(
+        check_limit("family labels", label_bytes, io_limits.max_program_bytes)?;
+        if family_limits.diagnostics_enabled {
+            check_limit(
+                "family labels",
+                label_bytes,
+                family_limits.max_fingerprint_bytes,
+            )?;
+        }
+        io_limits.check_count(
             "family parameters",
             self.parameters.len(),
             io_limits.max_collection_entries,
@@ -245,6 +256,7 @@ impl NativeFamilyRecord {
         let context = CoefficientContext::try_new(self.parameters.clone())
             .map_err(|error| BinaryIoError::Native(error.to_string()))?;
         let coefficient = |index: u32| -> Result<Coefficient, BinaryIoError> {
+            super::resource_checkpoint()?;
             let value = table.coefficient(CoefficientId::try_from_index(index as usize)?)?;
             if value.numerator.variables() != context.variables()
                 || value.denominator.variables() != context.variables()

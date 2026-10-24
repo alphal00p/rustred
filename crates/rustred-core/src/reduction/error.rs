@@ -9,6 +9,7 @@ use crate::sector::symmetry::CanonicalizationError;
 /// Typed failure while applying a sealed closing artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReductionError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     WrongArity {
         expected: usize,
         actual: usize,
@@ -87,6 +88,7 @@ pub enum ReductionError {
 impl fmt::Display for ReductionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(formatter),
             Self::WrongArity { expected, actual } => {
                 write!(formatter, "integral arity is {actual}, expected {expected}")
             }
@@ -187,7 +189,35 @@ impl fmt::Display for ReductionError {
     }
 }
 
-impl std::error::Error for ReductionError {}
+impl std::error::Error for ReductionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            Self::ExactAlgebra(error) => Some(error),
+            Self::IndexedAlgebra(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<symbolica::utils::resources::ResourceLimitError> for ReductionError {
+    fn from(error: symbolica::utils::resources::ResourceLimitError) -> Self {
+        Self::Resources(error)
+    }
+}
+
+pub(crate) fn resource_limit_error<'a>(
+    error: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a symbolica::utils::resources::ResourceLimitError> {
+    let mut cause = Some(error);
+    while let Some(error) = cause {
+        if let Some(resource) = error.downcast_ref() {
+            return Some(resource);
+        }
+        cause = error.source();
+    }
+    None
+}
 
 impl From<crate::foundry::artifact::RootDomainError> for ReductionError {
     fn from(error: crate::foundry::artifact::RootDomainError) -> Self {

@@ -43,6 +43,7 @@ fn extract_saved_owner_fixtures_without_generation() {
     );
     let mut limits = CandidateBundleLimits::default();
     if let Some(entries) = std::env::var_os("RUSTRED_OWNER_FIXTURE_MAX_ENTRIES") {
+        limits.diagnostics_enabled = true;
         limits.max_collection_entries = entries.to_str().unwrap().parse().unwrap();
         assert!(limits.max_collection_entries > 0);
     }

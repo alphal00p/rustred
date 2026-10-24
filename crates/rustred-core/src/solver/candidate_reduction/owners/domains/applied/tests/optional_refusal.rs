@@ -6,7 +6,8 @@ use crate::foundry::completion::LatticeBox;
 use std::sync::atomic::Ordering;
 
 fn small_limits() -> OwnerAppliedLimits {
-    let mut limits = OwnerAppliedLimits::default();
+    let mut limits = OwnerAppliedLimits::default().with_diagnostics();
+    limits.matching.guard_algebra.diagnostics_enabled = true;
     limits.matching.guard_algebra.max_gcd_factor_work = 64;
     limits
 }
@@ -368,6 +369,7 @@ fn optional_refusal_does_not_swallow_denominator_or_child_source_preflight() {
     // endpoint work fits 96 here, whereas native separable admission is 128.
     assert!(2 * (2 * (c.base().parameter_names().len() + 3) + 1) + 64 <= 96);
     let mut child_limits = small_limits();
+    child_limits.matching.guard_algebra.diagnostics_enabled = true;
     child_limits.matching.guard_algebra.max_gcd_factor_work = 96;
     let (out, result) = inspect(&p, [1, 0, 0], child_limits);
     let error = result.unwrap_err();
@@ -394,6 +396,7 @@ fn optional_refusal_keeps_input_context_and_global_native_errors_strict() {
         stats: Default::default(),
         cancel: &cancel,
     };
+    budget.limits.matching.guard_algebra.diagnostics_enabled = true;
     budget.limits.matching.guard_algebra.max_input_terms = 0;
     let error = algebra::coefficient(
         c,
@@ -436,6 +439,7 @@ fn optional_refusal_keeps_input_context_and_global_native_errors_strict() {
         &p,
         [1, 0, 0],
         OwnerAppliedLimits {
+            diagnostics_enabled: true,
             max_native_operations: 3,
             ..small_limits()
         },
@@ -466,6 +470,7 @@ fn optional_refusal_event_limit_cancel_and_consumer_stop_keep_spent_prefix() {
         &p,
         [1, 0, 0],
         OwnerAppliedLimits {
+            diagnostics_enabled: true,
             max_events: 1,
             ..small_limits()
         },
@@ -542,6 +547,7 @@ fn optional_refusal_counter_overflow_is_atomic() {
         stats: Default::default(),
         cancel: &cancel,
     };
+    budget.limits.diagnostics_enabled = true;
     assert!(budget.optional_refusal(true).unwrap());
     assert!(budget.optional_refusal(false).unwrap());
     assert!(!budget.optional_refusal(true).unwrap());

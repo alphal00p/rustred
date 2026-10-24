@@ -85,6 +85,7 @@ impl TerminalRelationSession {
             "assistance keys",
             pending.len(),
             self.assistance_key_limit(),
+            self.limits.diagnostics_enabled,
         )?;
         self.assistance = Some(Assistance {
             binding,
@@ -166,6 +167,7 @@ impl TerminalRelationSession {
                 .saturating_add(assistance.pending.len())
                 .saturating_add(additions.len()),
             self.assistance_key_limit(),
+            self.limits.diagnostics_enabled,
         )?;
         Ok(additions)
     }
@@ -178,6 +180,7 @@ impl TerminalRelationSession {
             "pending assistance rows",
             equations.len(),
             self.limits.max_rows,
+            self.limits.diagnostics_enabled,
         )?;
         let context = self.family.coefficient_context();
         let mut nonzeros = 0usize;
@@ -189,11 +192,13 @@ impl TerminalRelationSession {
                 "pending assistance nonzeros",
                 nonzeros,
                 self.limits.max_nonzeros,
+                self.limits.diagnostics_enabled,
             )?;
             check(
                 "pending assistance conditions",
                 conditions,
                 self.limits.max_nonzeros,
+                self.limits.diagnostics_enabled,
             )?;
             for (key, value) in &equation.terms {
                 if key.powers().len() != self.family.denominator_count() {

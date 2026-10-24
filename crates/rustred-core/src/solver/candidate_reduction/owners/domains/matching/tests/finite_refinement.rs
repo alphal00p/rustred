@@ -4,6 +4,7 @@ use super::*;
 
 fn limits(faces: usize) -> OwnerDomainMatchLimits {
     OwnerDomainMatchLimits {
+        diagnostics_enabled: true,
         max_bounded_refinement_cells: faces,
         refinement_axes: OwnerDomainRefinementAxes::FiniteAxes,
         ..Default::default()
@@ -84,6 +85,7 @@ fn finite_positive_refinement_default_preserved_and_every_guard_stage_matches_ex
                 upper,
                 rank,
                 OwnerDomainMatchLimits {
+                    diagnostics_enabled: true,
                     max_bounded_refinement_cells: 100,
                     ..Default::default()
                 },
@@ -187,10 +189,12 @@ fn finite_positive_refinement_full_split_budget_is_transactional() {
     for cap in [
         limits(2),
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_cells: baseline.cells,
             ..limits(3)
         },
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_coordinate_cells: baseline.coordinate_cells,
             ..limits(3)
         },
@@ -209,6 +213,7 @@ fn finite_positive_refinement_preflight_retry_keeps_original_phase_and_spent_wor
         let lower = [1, 1, 0];
         let upper = [Some(3), Some(3), Some(0)];
         let mut cap = limits(2);
+        cap.guard_algebra.diagnostics_enabled = true;
         cap.guard_algebra.max_gcd_factor_work = 64;
         let error = p
             .visit_owner_domain_matches(
@@ -420,6 +425,7 @@ fn finite_positive_refinement_exact_gaps_and_global_refusals_are_not_bypassed() 
             &[Some(2), Some(2), Some(0)],
             Some(0),
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_predicates: 0,
                 ..limits(3)
             },

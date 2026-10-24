@@ -183,7 +183,7 @@ fn full_leaf_and_coordinate_budgets_are_checked_before_the_first_leaf() {
     // The very first leaf would already refute vanishing. The requested
     // full traversal still has four leaves, and must be budgeted first.
     let domain = cell(&[0, 0], &[Some(1), Some(1)]);
-    let mut limits = CompletionGeometryLimits::default();
+    let mut limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_uncovered_boxes = 3;
     assert!(
         coefficient_vanishes(&c, &value, &domain, &[true; 2], Default::default(), limits,)
@@ -191,7 +191,7 @@ fn full_leaf_and_coordinate_budgets_are_checked_before_the_first_leaf() {
             .to_string()
             .contains("finite leaves")
     );
-    limits = CompletionGeometryLimits::default();
+    limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_uncovered_box_coordinate_cells = 7;
     assert!(
         coefficient_vanishes(&c, &value, &domain, &[true; 2], Default::default(), limits,)
@@ -199,7 +199,7 @@ fn full_leaf_and_coordinate_budgets_are_checked_before_the_first_leaf() {
             .to_string()
             .contains("finite leaf coordinates")
     );
-    limits = CompletionGeometryLimits::default();
+    limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_split_operations = 7;
     assert!(
         coefficient_vanishes(&c, &value, &domain, &[true; 2], Default::default(), limits,)
@@ -213,12 +213,12 @@ fn full_leaf_and_coordinate_budgets_are_checked_before_the_first_leaf() {
 fn constants_do_not_bypass_geometry_or_context_validation() {
     let c = context(1);
     let domain = cell(&[0], &[None]);
-    let mut limits = CompletionGeometryLimits::default();
+    let mut limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_uncovered_boxes = 0;
     assert!(
         coefficient_vanishes(&c, &c.zero(), &domain, &[true], Default::default(), limits,).is_err()
     );
-    limits = CompletionGeometryLimits::default();
+    limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_arity = 0;
     assert!(
         coefficient_vanishes(&c, &c.zero(), &domain, &[true], Default::default(), limits,).is_err()
@@ -265,7 +265,7 @@ fn native_specialization_limits_remain_authoritative() {
     let n = c.index(0).unwrap();
     let square = c.mul(&n, &n).unwrap();
     let domain = cell(&[3], &[Some(3)]); // Physical n=4.
-    let mut limits = IndexedAlgebraLimits::default();
+    let mut limits = IndexedAlgebraLimits::default().with_diagnostics();
     limits.max_specialization_integer_bits = 1;
     assert!(
         coefficient_vanishes(&c, &square, &domain, &[true], limits, Default::default(),)
@@ -273,7 +273,7 @@ fn native_specialization_limits_remain_authoritative() {
             .to_string()
             .contains("integer bits")
     );
-    limits = IndexedAlgebraLimits::default();
+    limits = IndexedAlgebraLimits::default().with_diagnostics();
     limits.max_specialization_power_operations = 0;
     assert!(
         coefficient_vanishes(&c, &square, &domain, &[true], limits, Default::default(),)
@@ -281,7 +281,7 @@ fn native_specialization_limits_remain_authoritative() {
             .to_string()
             .contains("power operations")
     );
-    limits = IndexedAlgebraLimits::default();
+    limits = IndexedAlgebraLimits::default().with_diagnostics();
     limits.exact_algebra.max_polynomial_terms = 1;
     assert!(
         coefficient_vanishes(
@@ -371,7 +371,7 @@ fn affine_finite_leaf_proof_preflights_budgets_context_and_domain_maps() {
             Some(affine),
         )
     };
-    let mut limits = CompletionGeometryLimits::default();
+    let mut limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_uncovered_boxes = 1;
     assert!(
         check(&value, limits, &affine, &[false; 3])
@@ -379,7 +379,7 @@ fn affine_finite_leaf_proof_preflights_budgets_context_and_domain_maps() {
             .to_string()
             .contains("finite leaves")
     );
-    limits = CompletionGeometryLimits::default();
+    limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_uncovered_box_coordinate_cells = 5;
     assert!(
         check(&value, limits, &affine, &[false; 3])
@@ -387,7 +387,7 @@ fn affine_finite_leaf_proof_preflights_budgets_context_and_domain_maps() {
             .to_string()
             .contains("finite leaf coordinates")
     );
-    limits = CompletionGeometryLimits::default();
+    limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_split_operations = 1;
     assert!(
         check(&value, limits, &affine, &[false; 3])

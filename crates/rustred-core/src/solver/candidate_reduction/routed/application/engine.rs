@@ -56,7 +56,7 @@ mod tests {
         let node = Node::Route(key([1]));
         let mut request = Request::default();
         request.active.insert(node.clone());
-        request.push(Frame::Enter(node), usize::MAX).unwrap();
+        request.push(Frame::Enter(node), None).unwrap();
         assert!(matches!(
             application.run_stack(&mut request),
             Err(CandidateRoutedError::Cycle { .. })
@@ -88,7 +88,7 @@ mod tests {
                     )])),
                     conditions: vec![],
                 },
-                usize::MAX,
+                None,
             )
             .unwrap();
         assert!(matches!(
@@ -122,6 +122,7 @@ impl<'a, const N: usize> Request<'a, N> {
         }
     }
     fn check_cancel(&self) -> Result<(), CandidateRoutedError> {
+        symbolica::utils::resources::checkpoint().map_err(ReductionError::from)?;
         if self
             .cancel
             .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
@@ -170,8 +171,10 @@ impl<'a, const N: usize> Request<'a, N> {
         (progress.observer)(&snapshot);
     }
 
-    fn push(&mut self, frame: Frame<N>, limit: usize) -> Result<(), CandidateRoutedError> {
+    fn push(&mut self, frame: Frame<N>, limit: Option<usize>) -> Result<(), CandidateRoutedError> {
         self.algebra.retain_pending_frame(limit)?;
+        symbolica::utils::resources::check_allocation(std::mem::size_of::<Frame<N>>() as u64)
+            .map_err(ReductionError::from)?;
         self.stack
             .try_reserve(1)
             .map_err(|_| ReductionError::AllocationFailure {
@@ -309,7 +312,12 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 CandidateRoutedApplicationStatus::Running,
                 true,
             );
-            let result = self.reduce_request(terms, admission, &mut request, true);
+            let result = self
+                .reduce_request(terms, admission, &mut request, true)
+                .and_then(|result| {
+                    symbolica::utils::resources::checkpoint().map_err(ReductionError::from)?;
+                    Ok(result)
+                });
             request.observe(
                 self,
                 None,
@@ -352,7 +360,12 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         admission: CandidateEntryAdmission<'_, N>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
         let mut request = Request::default();
-        let result = self.reduce_routed_request(terms, admission, &mut request);
+        let result = self
+            .reduce_routed_request(terms, admission, &mut request)
+            .and_then(|result| {
+                symbolica::utils::resources::checkpoint().map_err(ReductionError::from)?;
+                Ok(result)
+            });
         self.release_request_pins(&mut request.pins);
         self.work.merge_work(request.stats.work);
         self.cache_work.merge(request.stats.cache);
@@ -447,7 +460,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 charge(
                     &mut request.stats.input_terms,
                     1,
-                    self.limits.max_input_targets,
+                    self.limits.diagnostic_limit(self.limits.max_input_targets),
                     "input terms",
                 )?;
             }
@@ -464,13 +477,13 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 charge(
                     &mut size,
                     entries.len(),
-                    self.limits.max_unique_nodes,
+                    self.limits.diagnostic_limit(self.limits.max_unique_nodes),
                     "initial operational nodes",
                 )?;
                 charge(
                     &mut size,
                     1,
-                    self.limits.max_unique_nodes,
+                    self.limits.diagnostic_limit(self.limits.max_unique_nodes),
                     "initial operational nodes",
                 )?;
             }
@@ -498,7 +511,10 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             request.check_cancel()?;
             let root = Node::Route(target);
             self.pin_dependency(&root, &mut request.pins)?;
-            request.push(Frame::Enter(root.clone()), limits.max_pending_frames)?;
+            request.push(
+                Frame::Enter(root.clone()),
+                limits.diagnostic_limit(limits.max_pending_frames),
+            )?;
             self.run_stack(request)?;
             request.observe(
                 self,
@@ -542,7 +558,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         charge(
             &mut request.stats.operational_nodes,
             request.seen.len(),
-            self.limits.max_unique_nodes,
+            self.limits.diagnostic_limit(self.limits.max_unique_nodes),
             "operational nodes",
         )?;
         let mut unresolved = BTreeSet::new();
@@ -656,13 +672,13 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 charge(
                     &mut size,
                     request.seen.len(),
-                    self.limits.max_unique_nodes,
+                    self.limits.diagnostic_limit(self.limits.max_unique_nodes),
                     "operational nodes",
                 )?;
                 charge(
                     &mut size,
                     1,
-                    self.limits.max_unique_nodes,
+                    self.limits.diagnostic_limit(self.limits.max_unique_nodes),
                     "operational nodes",
                 )?;
                 request.seen.insert(node.clone());
@@ -713,7 +729,8 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                         charge(
                             &mut request.stats.transport_calls,
                             1,
-                            self.limits.max_transport_calls,
+                            self.limits
+                                .diagnostic_limit(self.limits.max_transport_calls),
                             "transport calls",
                         )?;
                         let mapped = route.transport.transport_with_usage(
@@ -723,17 +740,11 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                                 let operations = request
                                     .stats
                                     .transport_operations
-                                    .checked_add(usage.operations)
-                                    .ok_or(ExpansionError::ResourceCountOverflow {
-                                        resource: "aggregate routed operations",
-                                    })?;
+                                    .saturating_add(usage.operations);
                                 let endpoints = request
                                     .stats
                                     .transport_endpoints
-                                    .checked_add(usage.endpoints)
-                                    .ok_or(ExpansionError::ResourceCountOverflow {
-                                        resource: "aggregate routed endpoints",
-                                    })?;
+                                    .saturating_add(usage.endpoints);
                                 for (resource, requested, limit) in [
                                     (
                                         "aggregate routed operations",
@@ -746,7 +757,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                                         self.limits.max_transport_endpoints,
                                     ),
                                 ] {
-                                    if requested > limit {
+                                    if self.limits.diagnostics_enabled && requested > limit {
                                         return Err(ExpansionError::ResourceLimit {
                                             resource,
                                             requested,
@@ -802,9 +813,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     let result = if owner.batches[0].terminals.contains(key) {
                         OwnerStep::Terminal
                     } else {
-                        request
-                            .algebra
-                            .record_rule_application(limits.max_rule_applications)?;
+                        request.algebra.record_rule_application(
+                            limits.diagnostic_limit(limits.max_rule_applications),
+                        )?;
                         owner.evaluate_step::<CandidateReductionError>(key, |batch| {
                             let evaluator = CandidateEvaluator {
                                 context: &shared.context,
@@ -878,11 +889,14 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     terms: terms.clone(),
                     conditions,
                 },
-                limits.max_pending_frames,
+                limits.diagnostic_limit(limits.max_pending_frames),
             )?;
             for child in terms.keys().rev() {
                 self.pin_dependency(child, &mut request.pins)?;
-                request.push(Frame::Enter(child.clone()), limits.max_pending_frames)?;
+                request.push(
+                    Frame::Enter(child.clone()),
+                    limits.diagnostic_limit(limits.max_pending_frames),
+                )?;
             }
         }
         Ok(())

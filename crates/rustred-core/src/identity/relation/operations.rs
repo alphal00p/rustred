@@ -31,7 +31,9 @@ impl ParametricRelation {
                 limits.arithmetic.exact_algebra,
             )?;
             let requested = condition.sources().len();
-            if requested > limits.identity_conditions.max_sources {
+            if limits.identity_conditions.diagnostics_enabled
+                && requested > limits.identity_conditions.max_sources
+            {
                 return Err(ParametricRelationError::IdentityCondition(
                     IdentityConditionError::ResourceLimit {
                         resource: "identity condition sources",

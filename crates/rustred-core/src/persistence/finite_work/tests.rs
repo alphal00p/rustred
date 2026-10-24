@@ -8,6 +8,7 @@ fn binding() -> GeneratedExecutionBinding {
 }
 fn limits() -> GeneratedDirectoryLimits {
     GeneratedDirectoryLimits {
+        diagnostics_enabled: true,
         max_arity: 16,
         max_runs: 16,
         max_pages: 32,

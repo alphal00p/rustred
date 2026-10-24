@@ -379,6 +379,7 @@ fn all_work_and_scratch_limits_fail_closed_with_prefix_statistics() {
     for (limits, callbacks) in [
         (
             OwnerSuccessorLimits {
+                diagnostics_enabled: true,
                 max_rules: 1,
                 ..Default::default()
             },
@@ -386,6 +387,7 @@ fn all_work_and_scratch_limits_fail_closed_with_prefix_statistics() {
         ),
         (
             OwnerSuccessorLimits {
+                diagnostics_enabled: true,
                 max_terms: 1,
                 ..Default::default()
             },
@@ -393,6 +395,7 @@ fn all_work_and_scratch_limits_fail_closed_with_prefix_statistics() {
         ),
         (
             OwnerSuccessorLimits {
+                diagnostics_enabled: true,
                 max_regions: 1,
                 ..Default::default()
             },
@@ -400,6 +403,7 @@ fn all_work_and_scratch_limits_fail_closed_with_prefix_statistics() {
         ),
         (
             OwnerSuccessorLimits {
+                diagnostics_enabled: true,
                 max_split_operations: 1,
                 ..Default::default()
             },
@@ -407,6 +411,7 @@ fn all_work_and_scratch_limits_fail_closed_with_prefix_statistics() {
         ),
         (
             OwnerSuccessorLimits {
+                diagnostics_enabled: true,
                 max_scratch_boxes: 5,
                 ..Default::default()
             },
@@ -414,6 +419,7 @@ fn all_work_and_scratch_limits_fail_closed_with_prefix_statistics() {
         ),
         (
             OwnerSuccessorLimits {
+                diagnostics_enabled: true,
                 max_scratch_coordinate_cells: 35,
                 ..Default::default()
             },
@@ -517,4 +523,48 @@ fn minimum_wide_shift_keeps_mathematical_positive_tail_without_machine_endpoint_
     assert_eq!(regions[1].source_local_lower()[0], 1_u64 << 63);
     assert_eq!(regions[1].source_local_upper()[0], None);
     assert_eq!(regions[1].target_rank_upper_bound(), Some(0));
+}
+
+#[test]
+fn one_hop_inspection_zero_work_limits_require_opt_in() {
+    let family = Arc::new(crate::solver::tests::sunset());
+    let selected = formula(&family, [None; 3], &[([-1, 0, 0], 1)]);
+    let p = programs(
+        family,
+        Some(2),
+        vec![input([true, false, false], Some(2), vec![selected], &[])],
+        Default::default(),
+    );
+    let limits = OwnerSuccessorLimits {
+        max_rules: 0,
+        max_terms: 0,
+        max_regions: 0,
+        max_split_operations: 0,
+        max_scratch_boxes: 0,
+        max_scratch_coordinate_cells: 0,
+        ..Default::default()
+    };
+    let stats = p
+        .visit_owner_rule_successors(
+            [true, false, false],
+            Some(2),
+            limits,
+            &AtomicBool::new(false),
+            |_| ControlFlow::Continue(()),
+        )
+        .unwrap();
+    assert!(stats.regions > 0);
+    assert!(matches!(
+        p.visit_owner_rule_successors(
+            [true, false, false],
+            Some(2),
+            limits.with_diagnostics(),
+            &AtomicBool::new(false),
+            |_| ControlFlow::Continue(())
+        ),
+        Err(OwnerSuccessorError {
+            failure: OwnerSuccessorFailure::ResourceLimit { .. },
+            ..
+        })
+    ));
 }

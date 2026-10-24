@@ -27,6 +27,22 @@ pub use workload::{
     CachePreparationPrimerBudget, CachePreparationTarget, CachePreparationWorkload,
 };
 
+fn resource_error(error: symbolica::utils::resources::ResourceLimitError) -> crate::AppError {
+    crate::AppError::resource(error)
+}
+
+fn binary_error(
+    error: rustred::persistence::BinaryIoError,
+    fallback: crate::AppErrorKind,
+) -> crate::AppError {
+    match error {
+        rustred::persistence::BinaryIoError::Resource(resource) => {
+            crate::AppError::resource(resource)
+        }
+        error => crate::AppError::new(fallback, error.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod export_tests;
 #[cfg(test)]

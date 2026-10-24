@@ -170,6 +170,7 @@ fn two_loop_generation_and_application_surfaces_publish_the_closed_sunset() {
     assert_eq!(rendered_rule_sizes, [5, 4, 3, 2, 1]);
 
     let reduction = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        diagnostics_enabled: false,
         load_limits: Default::default(),
         artifact: generated.artifact().to_vec(),
         target_powers: vec![2, 2, 1],
@@ -295,14 +296,39 @@ fn durable_schema_and_load_resource_failures_keep_typed_categories() {
         artifact: with_durable_arity(&artifact, u64::MAX),
     })
     .unwrap_err();
-    assert_eq!(excessive_arity.kind(), AppErrorKind::Limit);
-    assert!(excessive_arity.message().contains("artifact arity"));
+    assert_eq!(excessive_arity.kind(), AppErrorKind::Input);
+    assert!(
+        excessive_arity
+            .message()
+            .contains("one-loop algorithm arity")
+    );
+
+    let diagnostic_arity = closing_artifact_inspect(ClosingArtifactInspectRequest {
+        load_limits: rustred_app::ArtifactLoadLimits::default().with_diagnostics(),
+        artifact: with_durable_arity(&artifact, u64::MAX),
+    })
+    .unwrap_err();
+    assert_eq!(diagnostic_arity.kind(), AppErrorKind::Limit);
+    assert!(diagnostic_arity.message().contains("artifact arity"));
+
+    let explicit_arity = closing_artifact_inspect(ClosingArtifactInspectRequest {
+        load_limits: rustred_app::ArtifactLoadLimits {
+            max_index_arity: 0,
+            ..Default::default()
+        }
+        .with_diagnostics(),
+        artifact,
+    })
+    .unwrap_err();
+    assert_eq!(explicit_arity.kind(), AppErrorKind::Limit);
+    assert!(explicit_arity.message().contains("artifact arity"));
 }
 
 #[test]
 fn reduction_exposes_exact_typed_masters_and_common_mass_homogeneity() {
     let artifact = generate_artifact().into_artifact();
     let result = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        diagnostics_enabled: false,
         load_limits: Default::default(),
         artifact: artifact.clone(),
         target_powers: vec![3],
@@ -336,6 +362,7 @@ fn reduction_exposes_exact_typed_masters_and_common_mass_homogeneity() {
     );
 
     let zero = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        diagnostics_enabled: false,
         load_limits: Default::default(),
         artifact,
         target_powers: vec![0],
@@ -346,9 +373,10 @@ fn reduction_exposes_exact_typed_masters_and_common_mass_homogeneity() {
 }
 
 #[test]
-fn application_rejects_wrong_arity_and_enforces_resource_limits() {
+fn application_rejects_wrong_arity_and_enforces_opt_in_diagnostics() {
     let artifact = generate_artifact().into_artifact();
     let wrong_arity = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        diagnostics_enabled: false,
         load_limits: Default::default(),
         artifact: artifact.clone(),
         target_powers: vec![2, 1],
@@ -358,16 +386,24 @@ fn application_rejects_wrong_arity_and_enforces_resource_limits() {
     assert_eq!(wrong_arity.kind(), AppErrorKind::Input);
     assert!(wrong_arity.message().contains("arity 1"));
 
-    let excessive_limit = closing_artifact_reduce(ClosingArtifactReduceRequest {
+    // A larger diagnostic allowance is valid; it is not an application ceiling.
+    closing_artifact_reduce(ClosingArtifactReduceRequest {
+        diagnostics_enabled: true,
         load_limits: Default::default(),
         artifact: artifact.clone(),
         target_powers: vec![1],
         max_rule_applications: MAX_CLOSING_RULE_APPLICATIONS + 1,
     })
-    .unwrap_err();
-    assert_eq!(excessive_limit.kind(), AppErrorKind::Limit);
+    .expect("accept a caller-owned larger diagnostic allowance");
+
+    let mut ordinary = ClosingArtifactReduceRequest::new(artifact.clone(), vec![3]);
+    assert!(!ordinary.diagnostics_enabled);
+    ordinary.max_rule_applications = 0;
+    let ordinary = closing_artifact_reduce(ordinary).expect("inactive zero-count template");
+    assert_eq!(ordinary.terms().len(), 1);
 
     let exhausted = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        diagnostics_enabled: true,
         load_limits: Default::default(),
         artifact,
         target_powers: vec![3],
@@ -400,6 +436,7 @@ fn campaign_cli_bytes_match_the_application_surfaces() {
     );
 
     let reduced = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        diagnostics_enabled: false,
         load_limits: Default::default(),
         artifact: generated.artifact().to_vec(),
         target_powers: vec![3],

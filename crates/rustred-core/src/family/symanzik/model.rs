@@ -18,8 +18,11 @@ pub(super) type FeynmanPolynomialRing =
 /// Checked work and representation budgets for one `U/F/G` construction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FeynmanPolynomialLimits {
+    /// Enforce count/work thresholds only for an explicitly requested diagnostic.
+    pub diagnostics_enabled: bool,
     pub exact_algebra: ExactAlgebraLimits,
     pub max_parameters: usize,
+    /// Optional diagnostic exponent ceiling; the native `u16` boundary is always checked.
     pub max_parameter_exponent: u16,
     /// Maximum terms in an authenticated polynomial and in the prospective
     /// outer-ring result buffer admitted before native Symbolica arithmetic.
@@ -54,6 +57,7 @@ pub struct FeynmanPolynomialLimits {
 impl Default for FeynmanPolynomialLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             exact_algebra: ExactAlgebraLimits::default(),
             max_parameters: 4_096,
             max_parameter_exponent: u16::MAX,
@@ -63,6 +67,23 @@ impl Default for FeynmanPolynomialLimits {
             max_determinant_matrix_entries: 1_048_576,
             max_determinant_ring_operations: 16_000_000,
             max_adjugate_minors: 1_048_576,
+        }
+    }
+}
+
+impl FeynmanPolynomialLimits {
+    /// Explicitly enable diagnostic count/work thresholds, including exact algebra.
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.exact_algebra = self.exact_algebra.with_diagnostics();
+        self
+    }
+
+    pub(super) const fn parameter_exponent_limit(self) -> u16 {
+        if self.diagnostics_enabled {
+            self.max_parameter_exponent
+        } else {
+            u16::MAX
         }
     }
 }

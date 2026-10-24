@@ -78,6 +78,7 @@ impl CheckpointStore {
         limits: CandidateBundleLimits,
         create_lock: bool,
     ) -> Result<Self, AppError> {
+        symbolica::utils::resources::checkpoint().map_err(AppError::resource)?;
         manifest.validate(limits)?;
         if options.max_total_bytes == 0 || options.directory.as_os_str().is_empty() {
             return Err(AppError::input(
@@ -138,7 +139,8 @@ impl CheckpointStore {
             .map_err(|error| io_error("list directory", &options.directory, error))?
             .enumerate()
         {
-            if count >= max_files {
+            symbolica::utils::resources::checkpoint().map_err(AppError::resource)?;
+            if limits.diagnostics_enabled && count >= max_files {
                 return Err(AppError::limit(
                     "checkpoint directory exceeds its file-count limit",
                 ));

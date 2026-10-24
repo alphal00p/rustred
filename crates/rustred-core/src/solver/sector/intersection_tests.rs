@@ -51,6 +51,7 @@ fn sector_options_transport_intersection_limits_and_fail_atomically() {
     let system = SourceSystem::<1>::from_family(&crate::solver::tests::tadpole()).unwrap();
     let solver = SectorSolver::new(&system, [true], SectorConfig::default()).unwrap();
     let limits = CaseIntersectionLimits {
+        diagnostics_enabled: true,
         max_work_items: 0,
         max_terms_per_conjunction: 101,
         max_normalizations: 17,
@@ -106,6 +107,7 @@ fn coverage_uses_selected_intersection_limits_without_suppressing_unproved_work(
             .unwrap()
     );
     let limits = CaseIntersectionLimits {
+        diagnostics_enabled: true,
         max_work_items: 0,
         ..Default::default()
     };

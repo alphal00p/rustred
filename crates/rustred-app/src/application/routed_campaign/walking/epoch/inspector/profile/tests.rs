@@ -270,6 +270,7 @@ fn enabled_observation_preserves_exact_resolver_bytes_for_empty_success_error_ca
                 .finish(
                     &job(0),
                     Finished {
+                        resource_failure: None,
                         stats: NativeStats::Apply(Default::default()),
                         error: (error != "none").then(|| "same controlled failure".into()),
                         error_kind: error,

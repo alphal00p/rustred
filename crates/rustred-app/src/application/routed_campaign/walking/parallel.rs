@@ -8,6 +8,7 @@ use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
+use symbolica::utils::resources::ResourceBudget;
 
 mod escrow;
 mod owner_retention;
@@ -44,7 +45,7 @@ impl Failure {
 struct Slot<const N: usize> {
     id: Option<usize>,
     phase: Option<Phase>,
-    job: Option<Arc<Domain<N>>>,
+    job: Option<(Arc<Domain<N>>, ResourceBudget)>,
     running: bool,
     chunk: Option<Vec<Event<N>>>,
     finished: Option<Finished>,
@@ -276,22 +277,24 @@ impl<const N: usize> Pool<N> {
         };
         slot.id = Some(id);
         slot.phase = Some(domain.phase);
-        slot.job = Some(domain);
+        // Capture the submitting request, not the reusable worker's creation
+        // context. Queued time remains charged to the same original clock.
+        slot.job = Some((domain, ResourceBudget::capture_current()));
         drop(state);
         self.work.notify_all();
         true
     }
-    fn take(&self, slot: usize) -> Option<(usize, Arc<Domain<N>>)> {
+    fn take(&self, slot: usize) -> Option<(usize, Arc<Domain<N>>, ResourceBudget)> {
         let mut state = self.lock();
         loop {
             if state.shutdown || self.stop.load(Ordering::Acquire) {
                 return None;
             }
             let current = &mut state.slots[slot];
-            if let Some(job) = current.job.take() {
+            if let Some((job, resources)) = current.job.take() {
                 current.running = true;
                 current.stream_started();
-                return Some((current.id.expect("assigned slot"), job));
+                return Some((current.id.expect("assigned slot"), job, resources));
             }
             state = self.work.wait(state).unwrap_or_else(|e| e.into_inner());
         }
@@ -766,7 +769,8 @@ fn with_ticket_pool_limits<const N: usize, R>(
                     pool.fail(Failure { id: None, phase: None, kind: "worker_license", detail: "parallel Symbolica worker requires a license".into() });
                     return;
                 }
-                while let Some((id, domain)) = pool.take(slot) {
+                while let Some((id, domain, resources)) = pool.take(slot) {
+                    resources.run_captured(|| {
                     let mut emitter = Emitter { pool, slot, id, phase: domain.phase, chunk: Vec::new(), bytes: 0, events: 0 };
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| inspect(id, &domain, &pool.stop, &mut |event| emitter.emit(event))));
                     match result {
@@ -783,6 +787,7 @@ fn with_ticket_pool_limits<const N: usize, R>(
                             state.slots[slot].stream_ended();
                         }
                     }
+                    });
                 }
                 }));
                 if lifecycle.is_err() {

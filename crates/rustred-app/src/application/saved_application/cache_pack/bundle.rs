@@ -4,7 +4,7 @@ mod snapshot;
 pub use snapshot::SavedApplicationCacheCopyStatistics;
 
 use super::*;
-use crate::{AppError, application::atomic_file::write_file_atomically};
+use crate::{AppError, application::atomic_file::write_file_atomically_resource};
 use rustred::algebra::CoefficientContext;
 use rustred::persistence::application_cache::{ApplicationCacheBinding, ApplicationCacheRecord};
 use std::{
@@ -33,15 +33,17 @@ fn namespaces(
     bindings: &[ApplicationCacheBinding],
     limits: SavedApplicationCachePackLimits,
 ) -> Result<Vec<Namespace>, AppError> {
-    if bindings.is_empty() || bindings.len() > limits.max_namespaces {
+    resource_checkpoint()?;
+    if bindings.is_empty() || (limits.diagnostics_enabled && bindings.len() > limits.max_namespaces)
+    {
         return Err(fail("invalid cache bundle namespace count"));
     }
     let mut namespaces = Vec::new();
     for binding in bindings {
-        binding.validate(limits.chunk).map_err(fail)?;
+        binding.validate(limits.chunk).map_err(binary_error)?;
         let mut bytes = index::BoundedBytes::new(limits.max_manifest_bytes);
         bincode::encode_into_std_write(binding, &mut bytes, bincode::config::standard())
-            .map_err(fail)?;
+            .map_err(encode_error)?;
         namespaces.push(Namespace {
             id: *blake3::hash(&bytes.finish()).as_bytes(),
             binding: binding.clone(),
@@ -60,15 +62,16 @@ fn encode(
     manifest: &Manifest,
     limits: SavedApplicationCachePackLimits,
 ) -> Result<Vec<u8>, AppError> {
-    if limits.max_manifest_bytes > index::MAX_FRAME {
-        return Err(fail("bundle index allowance exceeds bounded frame"));
-    }
+    resource_checkpoint()?;
     let mut out = index::BoundedBytes::new(limits.max_manifest_bytes.saturating_sub(32));
-    out.write_all(MAGIC).map_err(fail)?;
+    out.write_all(MAGIC).map_err(io_error)?;
     bincode::encode_into_std_write(manifest, &mut out, bincode::config::standard())
-        .map_err(fail)?;
+        .map_err(encode_error)?;
     let mut bytes = out.finish();
-    bytes.extend_from_slice(blake3::hash(&bytes).as_bytes());
+    let digest = blake3::hash(&bytes);
+    resource_allocation(32usize.saturating_sub(bytes.capacity() - bytes.len()))?;
+    bytes.try_reserve_exact(32).map_err(fail)?;
+    bytes.extend_from_slice(digest.as_bytes());
     Ok(bytes)
 }
 fn read(
@@ -76,9 +79,7 @@ fn read(
     bindings: &[ApplicationCacheBinding],
     limits: SavedApplicationCachePackLimits,
 ) -> Result<(Manifest, usize), AppError> {
-    if limits.max_manifest_bytes > index::MAX_FRAME {
-        return Err(fail("bundle index allowance exceeds bounded frame"));
-    }
+    resource_checkpoint()?;
     let expected = namespaces(bindings, limits)?;
     let bytes = index::read_bounded(&directory.join(FILE), limits.max_manifest_bytes)?;
     if bytes.len() < MAGIC.len() + 32 || !bytes.starts_with(MAGIC) {
@@ -88,12 +89,13 @@ fn read(
     if blake3::hash(&bytes[..end]).as_bytes() != &bytes[end..] {
         return Err(fail("cache bundle digest mismatch"));
     }
-    let (manifest, consumed): (Manifest, usize) = bincode::decode_from_slice(
-        &bytes[MAGIC.len()..end],
-        bincode::config::standard().with_limit::<{ index::MAX_FRAME }>(),
-    )
-    .map_err(fail)?;
-    if consumed != end - MAGIC.len() || manifest.namespaces != expected {
+    // Namespace identities are already known. Compare their exact wire
+    // encoding before allocating any supplied directory counts.
+    let manifest = Manifest {
+        namespaces: expected,
+    };
+    let expected_bytes = encode(&manifest, limits)?;
+    if bytes != expected_bytes {
         return Err(fail("cache bundle program bindings differ"));
     }
     Ok((manifest, bytes.len()))
@@ -209,7 +211,7 @@ impl SavedApplicationCacheBundleWriter {
             )?;
         }
         quota.reserve(bytes.len() as u64)?;
-        write_file_atomically(&directory.join(FILE), &bytes, false).map_err(fail)?;
+        write_file_atomically_resource(&directory.join(FILE), &bytes, false)?;
         Ok(Self {
             directory: directory.to_path_buf(),
             manifest,
@@ -297,10 +299,13 @@ impl SavedApplicationCacheBundleWriter {
     pub fn checkpoint_metadata(&mut self, metadata: &[u8]) -> Result<(), AppError> {
         self.writes.ensure_open()?;
         let mut out = index::BoundedBytes::new(self.limits.max_manifest_bytes.saturating_sub(32));
-        out.write_all(METADATA_MAGIC).map_err(fail)?;
-        out.write_all(metadata).map_err(fail)?;
+        out.write_all(METADATA_MAGIC).map_err(io_error)?;
+        out.write_all(metadata).map_err(io_error)?;
         let mut bytes = out.finish();
-        bytes.extend_from_slice(blake3::hash(&bytes).as_bytes());
+        let digest = blake3::hash(&bytes);
+        resource_allocation(32usize.saturating_sub(bytes.capacity() - bytes.len()))?;
+        bytes.try_reserve_exact(32).map_err(fail)?;
+        bytes.extend_from_slice(digest.as_bytes());
         let path = self.directory.join(METADATA);
         let previous = metadata_bytes(&path)?;
         self.quota.reserve(bytes.len() as u64)?;

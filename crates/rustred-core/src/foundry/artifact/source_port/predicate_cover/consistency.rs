@@ -29,25 +29,40 @@ use scalar_cache::ScalarEntry;
 /// Shared by the entire Boolean traversal, not reset for each failed box.
 struct WorkBudget {
     remaining: usize,
+    enforce_diagnostics: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct WorkExhausted;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum WorkExhausted {
+    Diagnostic,
+    NativeUnavailable,
+    Resources(symbolica::utils::resources::ResourceLimitError),
+}
+impl From<symbolica::utils::resources::ResourceLimitError> for WorkExhausted {
+    fn from(error: symbolica::utils::resources::ResourceLimitError) -> Self {
+        Self::Resources(error)
+    }
+}
 
 #[cfg(test)]
 impl Default for WorkBudget {
     fn default() -> Self {
         Self {
             remaining: super::super::DEFAULT_PREDICATE_CONSISTENCY_WORK,
+            enforce_diagnostics: true,
         }
     }
 }
 
 impl WorkBudget {
     fn charge_units(&mut self, work: usize) -> Result<(), WorkExhausted> {
+        symbolica::utils::resources::checkpoint()?;
+        if !self.enforce_diagnostics {
+            return Ok(());
+        }
         let Some(remaining) = self.remaining.checked_sub(work) else {
             self.remaining = 0;
-            return Err(WorkExhausted);
+            return Err(WorkExhausted::Diagnostic);
         };
         self.remaining = remaining;
         Ok(())
@@ -114,11 +129,21 @@ impl<'a> RestrictionCache<'a> {
         atoms: &'a [Atom<'a>],
         max_work: usize,
     ) -> Self {
+        Self::with_policy(sector, atoms, max_work, true)
+    }
+
+    pub(super) fn with_policy(
+        sector: &'a [bool],
+        atoms: &'a [Atom<'a>],
+        max_work: usize,
+        enforce_diagnostics: bool,
+    ) -> Self {
         Self {
             sector,
             atoms,
             budget: WorkBudget {
                 remaining: max_work,
+                enforce_diagnostics,
             },
             limits: CacheLimits::default(),
             entries: BTreeMap::new(),
@@ -139,6 +164,7 @@ impl<'a> RestrictionCache<'a> {
         cell: &LatticeBox,
         assignments: &[Option<bool>],
     ) -> Result<bool, WorkExhausted> {
+        symbolica::utils::resources::checkpoint()?;
         if self.contradicts_without_refinement(cell, assignments)? {
             return Ok(true);
         }
@@ -259,11 +285,22 @@ impl<'a> RestrictionCache<'a> {
         requested: Option<usize>,
         shape: Shape,
     ) -> Result<usize, WorkExhausted> {
+        // Estimated native work is telemetry unless diagnostics are enabled.
+        // Real matrix/input-cell/allocation sizes have separate checked admission.
+        if requested.is_none() && !self.budget.enforce_diagnostics {
+            symbolica::utils::resources::checkpoint()?;
+            add(&mut self.statistics.native_work, usize::MAX);
+            return Ok(usize::MAX);
+        }
         let remaining = self.budget.remaining;
         if let Some(work) = requested {
-            if self.budget.charge_units(work).is_ok() {
-                add(&mut self.statistics.native_work, work);
-                return Ok(work);
+            match self.budget.charge_units(work) {
+                Ok(()) => {
+                    add(&mut self.statistics.native_work, work);
+                    return Ok(work);
+                }
+                Err(WorkExhausted::Diagnostic) => {}
+                Err(error) => return Err(error),
             }
         } else {
             self.budget.remaining = 0;
@@ -275,7 +312,7 @@ impl<'a> RestrictionCache<'a> {
             shape,
             local_cap: None,
         });
-        Err(WorkExhausted)
+        Err(WorkExhausted::Diagnostic)
     }
 
     fn local_exhaustion(
@@ -291,7 +328,7 @@ impl<'a> RestrictionCache<'a> {
             shape,
             local_cap: Some(cap),
         });
-        WorkExhausted
+        WorkExhausted::Diagnostic
     }
 
     pub(super) fn report(&self, outcome: &str) {

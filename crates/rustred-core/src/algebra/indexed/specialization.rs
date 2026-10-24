@@ -10,7 +10,7 @@ use crate::algebra::{
 use super::context::IndexedCoefficientContext;
 use super::error::IndexedAlgebraError;
 use super::limits::{
-    IndexedAlgebraLimits, ceil_log2, check_limit, checked_indexed_add, checked_indexed_mul,
+    IndexedAlgebraLimits, ceil_log2, check_limit, estimated_indexed_add, estimated_indexed_mul,
     integer_magnitude_bits, verify_polynomial_execution_envelope,
 };
 use super::value::{IndexedCoefficient, IndexedPolynomial};
@@ -170,16 +170,19 @@ impl IndexedCoefficientContext {
             "coefficient specialization output terms",
             source.nterms(),
             limits.exact_algebra.max_polynomial_terms,
+            limits.exact_algebra.diagnostics_enabled,
         )?;
-        let operations = source.nterms().checked_mul(self.index_count()).ok_or(
-            IndexedAlgebraError::ResourceCountOverflow {
-                resource: "coefficient specialization power operations",
-            },
+        let operations = estimated_indexed_mul(
+            "coefficient specialization power operations",
+            source.nterms(),
+            self.index_count(),
+            limits.diagnostics_enabled,
         )?;
         check_limit(
             "coefficient specialization power operations",
             operations,
             limits.max_specialization_power_operations,
+            limits.diagnostics_enabled,
         )?;
 
         let base_count = self.base.variables().len();
@@ -195,6 +198,7 @@ impl IndexedCoefficientContext {
                 "coefficient specialization integer bits",
                 requested,
                 limits.max_specialization_integer_bits,
+                limits.diagnostics_enabled,
             )?;
             largest_term_bits = largest_term_bits.max(requested);
         }
@@ -208,11 +212,13 @@ impl IndexedCoefficientContext {
             "coefficient specialization integer bits",
             collected_bits,
             limits.max_specialization_integer_bits,
+            limits.diagnostics_enabled,
         )?;
-        let output_exponent_entry_bound = checked_indexed_mul(
+        let output_exponent_entry_bound = estimated_indexed_mul(
             "coefficient specialization output exponent entries",
             source.nterms(),
             base_count,
+            limits.diagnostics_enabled || limits.exact_algebra.diagnostics_enabled,
         )?;
         Ok(SpecializationPreflight {
             output_term_bound: source.nterms(),
@@ -440,16 +446,19 @@ impl IndexedCoefficientContext {
             "fixed-index specialization output terms",
             source.nterms(),
             limits.exact_algebra.max_polynomial_terms,
+            limits.exact_algebra.diagnostics_enabled,
         )?;
-        let operations = source.nterms().checked_mul(fixed.len()).ok_or(
-            IndexedAlgebraError::ResourceCountOverflow {
-                resource: "fixed-index specialization power operations",
-            },
+        let operations = estimated_indexed_mul(
+            "fixed-index specialization power operations",
+            source.nterms(),
+            fixed.len(),
+            limits.diagnostics_enabled,
         )?;
         check_limit(
             "fixed-index specialization power operations",
             operations,
             limits.max_specialization_power_operations,
+            limits.diagnostics_enabled,
         )?;
         let mut assignment = vec![1_i64; self.index_count()];
         for &(position, value) in fixed {
@@ -465,22 +474,25 @@ impl IndexedCoefficientContext {
                 &assignment,
             )?);
         }
-        largest = checked_indexed_add(
+        largest = estimated_indexed_add(
             "fixed-index specialization integer bits",
             largest,
             ceil_log2(source.nterms()),
+            limits.diagnostics_enabled || limits.exact_algebra.diagnostics_enabled,
         )?;
         check_limit(
             "fixed-index specialization integer bits",
             largest,
             limits.max_specialization_integer_bits,
+            limits.diagnostics_enabled,
         )?;
         Ok(SpecializationPreflight {
             output_term_bound: source.nterms(),
-            output_exponent_entry_bound: checked_indexed_mul(
+            output_exponent_entry_bound: estimated_indexed_mul(
                 "fixed-index specialization output exponent entries",
                 source.nterms(),
                 self.variables.len(),
+                limits.diagnostics_enabled || limits.exact_algebra.diagnostics_enabled,
             )?,
             largest_output_integer_bit_bound: largest,
         })
@@ -562,15 +574,17 @@ fn check_coefficient_specialization_normalization_limits(
     variable_count: usize,
     limits: IndexedAlgebraLimits,
 ) -> Result<(), IndexedAlgebraError> {
-    let normalization_input_term_pairs = checked_indexed_mul(
+    let normalization_input_term_pairs = estimated_indexed_mul(
         "coefficient specialization normalization input term pairs",
         numerator.output_term_bound.max(1),
         denominator.output_term_bound,
+        limits.diagnostics_enabled || limits.exact_algebra.diagnostics_enabled,
     )?;
     check_limit(
         "coefficient specialization normalization input term pairs",
         normalization_input_term_pairs,
         limits.exact_algebra.max_term_operations,
+        limits.exact_algebra.diagnostics_enabled,
     )?;
 
     let (numerator_bits, denominator_bits) = if numerator_is_zero || denominator_is_one {
@@ -589,6 +603,7 @@ fn check_coefficient_specialization_normalization_limits(
                 numerator.largest_output_integer_bit_bound,
                 term_cap,
                 "coefficient specialization normalized numerator support",
+                limits.diagnostics_enabled,
             )?
             .1,
             normalized_factor_envelope_from_source(
@@ -599,6 +614,7 @@ fn check_coefficient_specialization_normalization_limits(
                 denominator.largest_output_integer_bit_bound,
                 term_cap,
                 "coefficient specialization normalized denominator support",
+                limits.diagnostics_enabled,
             )?
             .1,
         )
@@ -607,6 +623,7 @@ fn check_coefficient_specialization_normalization_limits(
         "coefficient specialization normalized integer bits",
         numerator_bits.max(denominator_bits),
         limits.max_specialization_integer_bits,
+        limits.diagnostics_enabled,
     )
 }
 
@@ -618,6 +635,7 @@ fn normalized_factor_envelope_from_source(
     mapped_integer_bit_bound: usize,
     successful_term_cap: usize,
     resource: &'static str,
+    diagnostics_enabled: bool,
 ) -> Result<(usize, usize), IndexedAlgebraError> {
     if source.is_zero() {
         return Ok((0, 0));
@@ -641,22 +659,30 @@ fn normalized_factor_envelope_from_source(
         for exponents in source.exponents_iter() {
             degree = degree.max(usize::from(exponents[variable]));
         }
-        support_size = checked_indexed_mul(resource, support_size, degree + 1)?;
+        support_size =
+            estimated_indexed_mul(resource, support_size, degree + 1, diagnostics_enabled)?;
     }
     // Exact division may materialize every monomial in this support before
     // the post-normalization authenticator sees the result. Reject the dense
     // support prospectively; `min(successful_term_cap)` would only turn the
     // configured term cap into a post-allocation publication gate.
-    check_limit(resource, support_size, successful_term_cap)?;
+    check_limit(
+        resource,
+        support_size,
+        successful_term_cap,
+        diagnostics_enabled,
+    )?;
     let term_bound = support_size;
-    let integer_bit_bound = checked_indexed_add(
+    let integer_bit_bound = estimated_indexed_add(
         resource,
         mapped_integer_bit_bound.max(1),
-        checked_indexed_add(
+        estimated_indexed_add(
             resource,
             support_size.saturating_sub(1),
             ceil_log2(mapped_term_bound),
+            diagnostics_enabled,
         )?,
+        diagnostics_enabled,
     )?;
     Ok((term_bound, integer_bit_bound))
 }

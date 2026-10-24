@@ -10,80 +10,33 @@ pub(super) fn census_atom(
     node_limit: usize,
     limits: ScalarNumeratorLimits,
 ) -> Result<usize, ScalarNumeratorError> {
-    fn visit(
-        atom: AtomView<'_>,
-        depth: usize,
-        resource: &'static str,
-        node_limit: usize,
-        depth_limit: usize,
-        count: &mut usize,
-    ) -> Result<(), ScalarNumeratorError> {
-        *count = checked_add(resource, *count, 1)?;
-        check_limit(resource, *count, node_limit)?;
-        check_limit("scalar-numerator Atom nesting depth", depth, depth_limit)?;
-        let child_depth = checked_add("scalar-numerator Atom nesting depth", depth, 1)?;
-        match atom {
+    let mut count = 0usize;
+    let mut pending = vec![(atom, 0usize)];
+    while let Some((part, depth)) = pending.pop() {
+        count = count.saturating_add(1);
+        check_limit(resource, count, node_limit, limits.diagnostics_enabled)?;
+        check_limit(
+            "scalar-numerator Atom nesting depth",
+            depth,
+            limits.max_nesting_depth,
+            limits.diagnostics_enabled,
+        )?;
+        let child_depth = depth.saturating_add(1);
+        match part {
             AtomView::Fun(function) => {
-                for argument in function.iter() {
-                    visit(
-                        argument,
-                        child_depth,
-                        resource,
-                        node_limit,
-                        depth_limit,
-                        count,
-                    )?;
-                }
+                pending.extend(function.iter().map(|child| (child, child_depth)))
             }
             AtomView::Pow(power) => {
-                visit(
-                    power.get_base(),
-                    child_depth,
-                    resource,
-                    node_limit,
-                    depth_limit,
-                    count,
-                )?;
-                visit(
-                    power.get_exp(),
-                    child_depth,
-                    resource,
-                    node_limit,
-                    depth_limit,
-                    count,
-                )?;
+                pending.push((power.get_base(), child_depth));
+                pending.push((power.get_exp(), child_depth));
             }
             AtomView::Mul(product) => {
-                for factor in product.iter() {
-                    visit(
-                        factor,
-                        child_depth,
-                        resource,
-                        node_limit,
-                        depth_limit,
-                        count,
-                    )?;
-                }
+                pending.extend(product.iter().map(|child| (child, child_depth)))
             }
-            AtomView::Add(sum) => {
-                for term in sum.iter() {
-                    visit(term, child_depth, resource, node_limit, depth_limit, count)?;
-                }
-            }
+            AtomView::Add(sum) => pending.extend(sum.iter().map(|child| (child, child_depth))),
             AtomView::Num(_) | AtomView::Var(_) => {}
         }
-        Ok(())
     }
-
-    let mut count = 0;
-    visit(
-        atom,
-        0,
-        resource,
-        node_limit,
-        limits.max_nesting_depth,
-        &mut count,
-    )?;
     Ok(count)
 }
 
@@ -92,11 +45,16 @@ const MAX_SYMBOLICA_POLYNOMIAL_EXPONENT: usize = i32::MAX as usize - 1;
 pub(super) struct ExactComparisonBudget {
     used: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 }
 
 impl ExactComparisonBudget {
-    pub(super) const fn new(limit: usize) -> Self {
-        Self { used: 0, limit }
+    pub(super) const fn new(limit: usize, diagnostics_enabled: bool) -> Self {
+        Self {
+            used: 0,
+            limit,
+            diagnostics_enabled,
+        }
     }
 
     pub(super) fn equals(
@@ -104,8 +62,13 @@ impl ExactComparisonBudget {
         left: AtomView<'_>,
         right: AtomView<'_>,
     ) -> Result<bool, ScalarNumeratorError> {
-        self.used = checked_add("loop-momentum exact subtree checks", self.used, 1)?;
-        check_limit("loop-momentum exact subtree checks", self.used, self.limit)?;
+        self.used = self.used.saturating_add(1);
+        check_limit(
+            "loop-momentum exact subtree checks",
+            self.used,
+            self.limit,
+            self.diagnostics_enabled,
+        )?;
         Ok(left == right)
     }
 }
@@ -116,11 +79,12 @@ pub(super) fn validate_scalar_syntax(
     loop_momenta: &[Atom],
     comparisons: &mut ExactComparisonBudget,
 ) -> Result<(), ScalarNumeratorError> {
-    fn visit(
-        atom: AtomView<'_>,
+    fn visit<'a>(
+        atom: AtomView<'a>,
         dot_head: Symbol,
         loop_momenta: &[Atom],
         comparisons: &mut ExactComparisonBudget,
+        pending: &mut Vec<AtomView<'a>>,
     ) -> Result<(), ScalarNumeratorError> {
         if let Some(momentum) = resolve_loop(atom, loop_momenta, comparisons)? {
             return Err(ScalarNumeratorError::LoopMomentumOutsideScalarProduct {
@@ -144,7 +108,8 @@ pub(super) fn validate_scalar_syntax(
                 let right_argument = arguments
                     .next()
                     .expect("validated scalar product has a right argument");
-                if contains_head(left_argument, dot_head) || contains_head(right_argument, dot_head)
+                if contains_head(left_argument, dot_head)?
+                    || contains_head(right_argument, dot_head)?
                 {
                     return Err(ScalarNumeratorError::NestedScalarProductArgument {
                         expression: atom.to_owned(),
@@ -184,23 +149,24 @@ pub(super) fn validate_scalar_syntax(
             }
             AtomView::Fun(function) => {
                 for argument in function.iter() {
-                    visit(argument, dot_head, loop_momenta, comparisons)?;
+                    pending.push(argument);
                 }
                 Ok(())
             }
             AtomView::Pow(power) => {
-                visit(power.get_base(), dot_head, loop_momenta, comparisons)?;
-                visit(power.get_exp(), dot_head, loop_momenta, comparisons)
+                pending.push(power.get_exp());
+                pending.push(power.get_base());
+                Ok(())
             }
             AtomView::Mul(product) => {
                 for factor in product.iter() {
-                    visit(factor, dot_head, loop_momenta, comparisons)?;
+                    pending.push(factor);
                 }
                 Ok(())
             }
             AtomView::Add(sum) => {
                 for term in sum.iter() {
-                    visit(term, dot_head, loop_momenta, comparisons)?;
+                    pending.push(term);
                 }
                 Ok(())
             }
@@ -208,7 +174,11 @@ pub(super) fn validate_scalar_syntax(
         }
     }
 
-    visit(numerator, dot_head, loop_momenta, comparisons)
+    let mut pending = vec![numerator];
+    while let Some(atom) = pending.pop() {
+        visit(atom, dot_head, loop_momenta, comparisons, &mut pending)?;
+    }
+    Ok(())
 }
 
 /// Admit an already expanded polynomial shape before asking Symbolica to
@@ -228,6 +198,7 @@ pub(super) fn preflight_polynomial_shape(
         "scalar-numerator input terms",
         term_count,
         limits.max_input_terms,
+        limits.diagnostics_enabled,
     )?;
     match numerator {
         AtomView::Add(sum) => {
@@ -254,6 +225,7 @@ fn preflight_term(
         "scalar-numerator factors per term",
         factor_count,
         limits.max_factors_per_term,
+        limits.diagnostics_enabled,
     )?;
     let mut degree = 0usize;
     match term {
@@ -268,6 +240,7 @@ fn preflight_term(
         "scalar-product degree",
         degree,
         limits.max_scalar_product_degree,
+        limits.diagnostics_enabled,
     )
 }
 
@@ -333,22 +306,32 @@ fn matches_any_exact(
     Ok(false)
 }
 
-pub(super) fn contains_head(atom: AtomView<'_>, head: Symbol) -> bool {
-    match atom {
-        AtomView::Var(variable) => variable.get_symbol() == head,
-        AtomView::Fun(function) => {
-            function.get_symbol() == head
-                || function
-                    .iter()
-                    .any(|argument| contains_head(argument, head))
+pub(super) fn contains_head(
+    atom: AtomView<'_>,
+    head: Symbol,
+) -> Result<bool, ScalarNumeratorError> {
+    let mut pending = vec![atom];
+    while let Some(part) = pending.pop() {
+        symbolica::utils::resources::checkpoint()
+            .map_err(crate::algebra::ExactAlgebraError::Resource)?;
+        match part {
+            AtomView::Var(variable) if variable.get_symbol() == head => return Ok(true),
+            AtomView::Fun(function) => {
+                if function.get_symbol() == head {
+                    return Ok(true);
+                }
+                pending.extend(function.iter());
+            }
+            AtomView::Pow(power) => {
+                pending.push(power.get_base());
+                pending.push(power.get_exp());
+            }
+            AtomView::Mul(product) => pending.extend(product.iter()),
+            AtomView::Add(sum) => pending.extend(sum.iter()),
+            AtomView::Num(_) | AtomView::Var(_) => {}
         }
-        AtomView::Pow(power) => {
-            contains_head(power.get_base(), head) || contains_head(power.get_exp(), head)
-        }
-        AtomView::Mul(product) => product.iter().any(|factor| contains_head(factor, head)),
-        AtomView::Add(sum) => sum.iter().any(|term| contains_head(term, head)),
-        AtomView::Num(_) => false,
     }
+    Ok(false)
 }
 
 fn resolve_loop(
@@ -369,41 +352,51 @@ pub(super) fn contains_exact_atom(
     needle: AtomView<'_>,
     comparisons: &mut ExactComparisonBudget,
 ) -> Result<bool, ScalarNumeratorError> {
-    if comparisons.equals(atom, needle)? {
-        return Ok(true);
+    let mut pending = vec![atom];
+    while let Some(part) = pending.pop() {
+        if comparisons.equals(part, needle)? {
+            return Ok(true);
+        }
+        match part {
+            AtomView::Fun(function) => pending.extend(function.iter()),
+            AtomView::Pow(power) => {
+                pending.push(power.get_base());
+                pending.push(power.get_exp());
+            }
+            AtomView::Mul(product) => pending.extend(product.iter()),
+            AtomView::Add(sum) => pending.extend(sum.iter()),
+            AtomView::Num(_) | AtomView::Var(_) => {}
+        }
     }
-    match atom {
-        AtomView::Fun(function) => {
-            for argument in function.iter() {
-                if contains_exact_atom(argument, needle, comparisons)? {
-                    return Ok(true);
-                }
-            }
-            Ok(false)
+    Ok(false)
+}
+
+/// Evaluate an algebraic syntax tree without consuming the Rust call stack.
+/// Function arguments may be left opaque by the owning shape analysis.
+pub(super) fn fold_expression<'a, T>(
+    atom: AtomView<'a>,
+    children: impl Fn(AtomView<'a>) -> Vec<AtomView<'a>>,
+    mut evaluate: impl FnMut(AtomView<'a>, Vec<T>) -> Result<T, ScalarNumeratorError>,
+) -> Result<T, ScalarNumeratorError> {
+    let mut pending = vec![(atom, None)];
+    let mut values = Vec::new();
+    while let Some((part, child_count)) = pending.pop() {
+        symbolica::utils::resources::checkpoint()
+            .map_err(crate::algebra::ExactAlgebraError::Resource)?;
+        if let Some(child_count) = child_count {
+            let start = values
+                .len()
+                .checked_sub(child_count)
+                .expect("postorder children have completed");
+            let children = values.split_off(start);
+            values.push(evaluate(part, children)?);
+        } else {
+            let next = children(part);
+            pending.push((part, Some(next.len())));
+            pending.extend(next.into_iter().rev().map(|child| (child, None)));
         }
-        AtomView::Pow(power) => {
-            if contains_exact_atom(power.get_base(), needle, comparisons)? {
-                Ok(true)
-            } else {
-                contains_exact_atom(power.get_exp(), needle, comparisons)
-            }
-        }
-        AtomView::Mul(product) => {
-            for factor in product.iter() {
-                if contains_exact_atom(factor, needle, comparisons)? {
-                    return Ok(true);
-                }
-            }
-            Ok(false)
-        }
-        AtomView::Add(sum) => {
-            for term in sum.iter() {
-                if contains_exact_atom(term, needle, comparisons)? {
-                    return Ok(true);
-                }
-            }
-            Ok(false)
-        }
-        AtomView::Num(_) | AtomView::Var(_) => Ok(false),
     }
+    Ok(values
+        .pop()
+        .expect("the nonempty input has one folded value"))
 }

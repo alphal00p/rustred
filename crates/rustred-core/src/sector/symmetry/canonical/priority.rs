@@ -7,12 +7,14 @@ pub const DEFAULT_MAX_PRIORITY_QUOTIENT_PRIORITIES: usize = 1_000_000;
 pub const DEFAULT_MAX_PRIORITY_RETAINED_RANK_ENTRIES: usize = 16_000_000;
 pub const DEFAULT_MAX_PRIORITY_TRANSPORT_RANK_ENTRIES: usize = 64_000_000;
 
-/// Hard bounds for exact coordinate-priority group actions and exhaustive
+/// Optional diagnostic bounds for exact coordinate-priority group actions and exhaustive
 /// quotients. `max_transport_rank_entries` bounds arithmetic work as the
 /// number of copied ranks, while `max_retained_rank_entries` bounds the
 /// implementation-owned priority/permutation rank payload at peak.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CoordinatePriorityActionLimits {
+    /// Count/work ceilings require explicit opt-in; ambient RAM/time checks remain active.
+    pub diagnostics_enabled: bool,
     pub max_orbit_images: usize,
     pub max_quotient_priorities: usize,
     pub max_retained_rank_entries: usize,
@@ -22,11 +24,19 @@ pub struct CoordinatePriorityActionLimits {
 impl Default for CoordinatePriorityActionLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_orbit_images: DEFAULT_MAX_PRIORITY_ORBIT_IMAGES,
             max_quotient_priorities: DEFAULT_MAX_PRIORITY_QUOTIENT_PRIORITIES,
             max_retained_rank_entries: DEFAULT_MAX_PRIORITY_RETAINED_RANK_ENTRIES,
             max_transport_rank_entries: DEFAULT_MAX_PRIORITY_TRANSPORT_RANK_ENTRIES,
         }
+    }
+}
+
+impl CoordinatePriorityActionLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
     }
 }
 
@@ -123,11 +133,13 @@ impl Canonicalizer {
             "priority retained rank entries",
             retained_entries,
             limits.max_retained_rank_entries,
+            limits.diagnostics_enabled,
         )?;
         admit_limit(
             "priority transport rank entries",
             retained_entries,
             limits.max_transport_rank_entries,
+            limits.diagnostics_enabled,
         )?;
         transport(priority, source_for_target)
     }
@@ -144,6 +156,7 @@ impl Canonicalizer {
             "priority orbit images",
             self.group_order(),
             limits.max_orbit_images,
+            limits.diagnostics_enabled,
         )?;
         let retained_entries = checked_product(
             "priority orbit retained rank entries",
@@ -154,11 +167,13 @@ impl Canonicalizer {
             "priority retained rank entries",
             retained_entries,
             limits.max_retained_rank_entries,
+            limits.diagnostics_enabled,
         )?;
         admit_limit(
             "priority transport rank entries",
             retained_entries,
             limits.max_transport_rank_entries,
+            limits.diagnostics_enabled,
         )?;
 
         let mut images = Vec::new();
@@ -214,11 +229,13 @@ impl Canonicalizer {
             "priority quotient priorities",
             priority_count,
             limits.max_quotient_priorities,
+            limits.diagnostics_enabled,
         )?;
         admit_limit(
             "priority orbit images",
             self.group_order(),
             limits.max_orbit_images,
+            limits.diagnostics_enabled,
         )?;
         if priority_count % self.group_order() != 0 {
             return Err(Error::OrbitInvariant {
@@ -248,20 +265,26 @@ impl Canonicalizer {
             "priority retained rank entries",
             peak_entries,
             limits.max_retained_rank_entries,
+            limits.diagnostics_enabled,
         )?;
-        let transport_entries = checked_product(
-            "priority quotient transport rank entries",
-            priority_count,
+        let transport_entries = if limits.diagnostics_enabled {
             checked_product(
-                "priority quotient transport group entries",
-                self.group_order(),
-                self.arity(),
-            )?,
-        )?;
+                "priority quotient transport rank entries",
+                priority_count,
+                checked_product(
+                    "priority quotient transport group entries",
+                    self.group_order(),
+                    self.arity(),
+                )?,
+            )?
+        } else {
+            0
+        };
         admit_limit(
             "priority transport rank entries",
             transport_entries,
             limits.max_transport_rank_entries,
+            limits.diagnostics_enabled,
         )?;
 
         let mut classes = Vec::new();
@@ -281,6 +304,7 @@ impl Canonicalizer {
         permutation.extend(0..self.arity());
 
         loop {
+            super::action::checkpoint()?;
             let priority = copy_validated_priority(&permutation)?;
             let orbit = self.coordinate_priority_orbit(&priority, limits)?;
             if orbit.canonical() == &priority {
@@ -309,6 +333,7 @@ impl Canonicalizer {
     }
 
     fn check_priority(&self, priority: &CoordinatePriority) -> Result<(), Error> {
+        super::action::checkpoint()?;
         if priority.arity() == self.arity() {
             Ok(())
         } else {
@@ -324,6 +349,7 @@ fn transport(
     priority: &CoordinatePriority,
     source_for_target: &[usize],
 ) -> Result<CoordinatePriority, Error> {
+    super::action::checkpoint()?;
     let arity = priority.arity();
     debug_assert_eq!(source_for_target.len(), arity);
     let mut rank_by_slot = Vec::new();
@@ -370,8 +396,14 @@ fn checked_product(resource: &'static str, left: usize, right: usize) -> Result<
         .ok_or(Error::ResourceCountOverflow { resource })
 }
 
-fn admit_limit(resource: &'static str, requested: usize, limit: usize) -> Result<(), Error> {
-    if requested <= limit {
+fn admit_limit(
+    resource: &'static str,
+    requested: usize,
+    limit: usize,
+    diagnostics_enabled: bool,
+) -> Result<(), Error> {
+    super::action::checkpoint()?;
+    if !diagnostics_enabled || requested <= limit {
         Ok(())
     } else {
         Err(Error::ResourceLimit {

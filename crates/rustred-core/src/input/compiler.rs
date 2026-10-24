@@ -46,11 +46,13 @@ impl Compiler {
                 "propagators",
                 propagators.len(),
                 self.limits.max_propagators,
+                self.limits.diagnostics_enabled,
             )?;
             check_limit(
                 "external Gram entries",
                 external_gram.len(),
                 self.limits.max_gram_entries,
+                self.limits.diagnostics_enabled,
             )?;
             let mut stats = Stats::default();
             let dimension = parse_expression_accumulating(

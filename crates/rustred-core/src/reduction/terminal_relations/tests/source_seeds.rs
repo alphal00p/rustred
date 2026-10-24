@@ -33,16 +33,16 @@ fn sunset() -> Arc<IntegralFamily> {
 fn containing_sectors_promote_support_directly_with_generic_combination_depth() {
     let raw = BTreeSet::from([multi(&[2, -3, 0])]);
     assert!(
-        sources::containing_sector_seeds(&raw, 0, 10)
+        sources::containing_sector_seeds(&raw, 0, 10, true)
             .unwrap()
             .is_empty()
     );
-    let single = sources::containing_sector_seeds(&raw, 1, 10).unwrap();
+    let single = sources::containing_sector_seeds(&raw, 1, 10, true).unwrap();
     assert_eq!(
         single,
         BTreeSet::from([multi(&[2, 1, 0]), multi(&[2, -3, 1])])
     );
-    let double = sources::containing_sector_seeds(&raw, 2, 10).unwrap();
+    let double = sources::containing_sector_seeds(&raw, 2, 10, true).unwrap();
     assert_eq!(
         double,
         single
@@ -51,16 +51,16 @@ fn containing_sectors_promote_support_directly_with_generic_combination_depth() 
             .collect()
     );
     assert!(
-        !sources::seeds(&raw, 1, 100)
+        !sources::seeds(&raw, 1, 100, true)
             .unwrap()
             .contains(&multi(&[2, 1, 0]))
     );
 
     let three_axes = BTreeSet::from([multi(&[0, -2, -3, 7])]);
-    let promoted = sources::containing_sector_seeds(&three_axes, 3, 7).unwrap();
+    let promoted = sources::containing_sector_seeds(&three_axes, 3, 7, true).unwrap();
     assert_eq!(promoted.len(), 7);
     assert!(promoted.contains(&multi(&[1, 1, 1, 7])));
-    assert!(sources::containing_sector_seeds(&three_axes, 3, 6).is_err());
+    assert!(sources::containing_sector_seeds(&three_axes, 3, 6, true).is_err());
 }
 
 #[test]

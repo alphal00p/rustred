@@ -57,7 +57,7 @@ fn native_translated_condition_coordinates_obey_the_original_rule_budget() {
         cells > 0,
         "fixture must actually own translated condition coordinates"
     );
-    let mut exact = ParametricRuleLimits::default();
+    let mut exact = ParametricRuleLimits::default().with_diagnostics();
     exact.max_guard_provenance_index_cells = cells;
     let (combined, normalized) =
         compile_with_limits(context, &sources, &contributions, &[], exact).unwrap();

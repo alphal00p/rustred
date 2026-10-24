@@ -28,9 +28,6 @@ fn preflight<const N: usize>(
     limits: IndexedAlgebraLimits,
     budget: &Budget<'_>,
 ) -> Result<(usize, usize), OwnerAppliedFailure> {
-    let (terms, _) = case
-        .restriction_term_bound(raw)
-        .map_err(OwnerAppliedFailure::AffineRestriction)?;
     let degree = raw.exponents_iter().try_fold(0usize, |maximum, powers| {
         powers
             .iter()
@@ -39,11 +36,21 @@ fn preflight<const N: usize>(
             })
             .map(|degree| maximum.max(degree))
     })?;
-    budget.check(
-        degree,
-        usize::from(limits.exact_algebra.max_exponent),
-        "affine total degree",
-    )?;
+    let exponent_limit = usize::from(limits.exact_algebra.exponent_limit());
+    if degree > exponent_limit {
+        return Err(OwnerAppliedFailure::ResourceLimit {
+            resource: "affine total degree",
+            requested: degree,
+            limit: exponent_limit,
+        });
+    }
+    if !budget.limits.diagnostics_enabled {
+        budget.cancelled()?;
+        return Ok((0, 0));
+    }
+    let (terms, _) = case
+        .restriction_term_bound(raw)
+        .map_err(OwnerAppliedFailure::AffineRestriction)?;
     budget.check(
         terms,
         limits.exact_algebra.max_polynomial_terms,

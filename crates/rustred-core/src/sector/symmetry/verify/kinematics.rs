@@ -178,7 +178,11 @@ pub(super) fn derive_scalar_product_map(
             source_count,
             target_count,
             linear,
-            algebra.limits.max_matrix_entries,
+            if algebra.limits.diagnostics_enabled {
+                algebra.limits.max_matrix_entries
+            } else {
+                usize::MAX
+            },
         )?,
     })
 }

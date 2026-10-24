@@ -9,6 +9,7 @@ use super::{
 
 fn limits() -> RightKernelLimits {
     RightKernelLimits {
+        diagnostics_enabled: true,
         max_rows: 100,
         max_columns: 100,
         max_entries: 10_000,
@@ -78,6 +79,31 @@ fn full_column_rank_has_no_witness() {
         first_primitive_right_kernel(&[1, 0, 0, 1], 2, 2, limits()).unwrap(),
         RightKernelDecision::FullColumnRank { rank: 2 }
     );
+}
+
+#[test]
+fn right_kernel_thresholds_require_diagnostic_opt_in() {
+    let limits = RightKernelLimits {
+        diagnostics_enabled: false,
+        max_rows: 0,
+        max_columns: 0,
+        max_entries: 0,
+        max_rank_operations: 0,
+        max_rref_integer_bits: 0,
+        max_kernel_entries: 0,
+        max_kernel_integer_bits: 0,
+    };
+    assert_eq!(
+        first_primitive_right_kernel(&[2, 3, 4, 6], 2, 2, limits).unwrap(),
+        RightKernelDecision::Deficient {
+            rank: 1,
+            primitive_kernel: vec![Integer::from(3), Integer::from(-2)].into_boxed_slice(),
+        }
+    );
+    assert!(matches!(
+        first_primitive_right_kernel(&[1], 2, 2, limits),
+        Err(RightKernelError::Shape { .. })
+    ));
 }
 
 #[test]

@@ -113,7 +113,14 @@ impl fmt::Display for FeynmanPolynomialError {
     }
 }
 
-impl std::error::Error for FeynmanPolynomialError {}
+impl std::error::Error for FeynmanPolynomialError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ExactAlgebra(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<ExactAlgebraError> for FeynmanPolynomialError {
     fn from(value: ExactAlgebraError) -> Self {

@@ -38,15 +38,17 @@ impl Work {
         }
     }
     pub(super) fn charge(&mut self, count: usize) -> Result<(), Error> {
-        self.used = checked_add("weighted collection work", self.used, count)?;
+        self.used = self.used.saturating_add(count);
         #[cfg(test)]
         if let Some(diagnostic) = &mut self.diagnostic {
-            *diagnostic.counts.entry(diagnostic.phase).or_default() += count;
+            let used = diagnostic.counts.entry(diagnostic.phase).or_default();
+            *used = used.saturating_add(count);
         }
         check_limit(
             "weighted collection work",
             self.used,
             self.limits.exact_algebra.max_term_operations,
+            self.limits.exact_algebra.diagnostics_enabled,
         )
     }
 
@@ -84,7 +86,13 @@ impl Work {
         self.diagnostic.as_ref()
     }
     pub fn preflight(&mut self, atom: AtomView<'_>) -> Result<(), Error> {
-        shape(atom, self.limits, self).map(|_| ())
+        if self.limits.diagnostics_enabled || self.limits.exact_algebra.diagnostics_enabled {
+            shape(atom, self.limits, self).map(|_| ())
+        } else {
+            symbolica::utils::resources::checkpoint()
+                .map_err(crate::algebra::ExactAlgebraError::Resource)?;
+            Ok(())
+        }
     }
 
     /// Admit syntactic common-factor collection without assuming that every
@@ -93,15 +101,23 @@ impl Work {
     /// charges the possible union of factors against each summand. Expanded
     /// rational support is still checked separately AFTER this collection.
     pub(super) fn preflight_collection(&mut self, atom: AtomView<'_>) -> Result<(), Error> {
-        collection(atom, self.limits, self).map(|_| ())
+        if self.limits.diagnostics_enabled || self.limits.exact_algebra.diagnostics_enabled {
+            collection(atom, self.limits, self).map(|_| ())
+        } else {
+            symbolica::utils::resources::checkpoint()
+                .map_err(crate::algebra::ExactAlgebraError::Resource)?;
+            Ok(())
+        }
     }
 }
 
-fn collection(
+fn collection_node(
     atom: AtomView<'_>,
     limits: ScalarNumeratorLimits,
     work: &mut Work,
+    children: Vec<(usize, usize)>,
 ) -> Result<(usize, usize), Error> {
+    let mut children = children.into_iter();
     work.charge(1)?;
     let (nodes, degree) = match atom {
         AtomView::Num(_) => (1, 0),
@@ -109,8 +125,9 @@ fn collection(
         AtomView::Mul(product) => {
             let mut nodes = 1;
             let mut degree = 0;
-            for factor in product.iter() {
-                let (next_nodes, next_degree) = collection(factor, limits, work)?;
+            for _factor in product.iter() {
+                let (next_nodes, next_degree) =
+                    children.next().expect("completed collection child");
                 nodes = checked_add("weighted factor-collection nodes", nodes, next_nodes)?;
                 degree = checked_add("weighted factor-collection degree", degree, next_degree)?;
             }
@@ -120,8 +137,9 @@ fn collection(
         AtomView::Add(sum) => {
             let mut nodes = 1;
             let mut degree = 0;
-            for term in sum.iter() {
-                let (next_nodes, next_degree) = collection(term, limits, work)?;
+            for _term in sum.iter() {
+                let (next_nodes, next_degree) =
+                    children.next().expect("completed collection child");
                 nodes = checked_add("weighted factor-collection nodes", nodes, next_nodes)?;
                 degree = checked_add("weighted factor-collection degree", degree, next_degree)?;
             }
@@ -133,7 +151,7 @@ fn collection(
             (nodes, degree)
         }
         AtomView::Pow(power) => {
-            let (nodes, degree) = collection(power.get_base(), limits, work)?;
+            let (nodes, degree) = children.next().expect("completed collection child");
             let exponent = Rational::try_from(power.get_exp())
                 .ok()
                 .filter(|value| value.is_integer());
@@ -161,6 +179,7 @@ fn collection(
         "weighted factor-collection degree",
         degree,
         limits.max_scalar_product_degree.min(isize::MAX as usize),
+        limits.diagnostics_enabled,
     )?;
     Ok((nodes, degree))
 }
@@ -196,24 +215,29 @@ fn admit(shape: Shape, limits: ScalarNumeratorLimits) -> Result<Shape, Error> {
         "weighted numerator term bound",
         shape.numerator,
         limits.max_polynomial_terms,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "weighted denominator term bound",
         shape.denominator,
         limits.max_polynomial_terms,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "weighted polynomial degree",
         shape.degree,
         limits.max_scalar_product_degree,
+        limits.diagnostics_enabled,
     )?;
     Ok(shape)
 }
-fn shape(
+fn shape_node(
     atom: AtomView<'_>,
     limits: ScalarNumeratorLimits,
     work: &mut Work,
+    children: Vec<Shape>,
 ) -> Result<Shape, Error> {
+    let mut children = children.into_iter();
     work.charge(1)?;
     match atom {
         AtomView::Num(_) => admit(
@@ -238,8 +262,8 @@ fn shape(
                 denominator: 1,
                 degree: 0,
             };
-            for factor in product.iter() {
-                let next = shape(factor, limits, work)?;
+            for _factor in product.iter() {
+                let next = children.next().expect("completed shape child");
                 bound = multiply(bound, next, limits, work)?;
             }
             Ok(bound)
@@ -250,8 +274,8 @@ fn shape(
                 denominator: 1,
                 degree: 0,
             };
-            for term in sum.iter() {
-                let next = shape(term, limits, work)?;
+            for _term in sum.iter() {
+                let next = children.next().expect("completed shape child");
                 bound = admit(
                     Shape {
                         numerator: checked_add(
@@ -314,7 +338,7 @@ fn shape(
                 .to_i64()
                 .ok_or(Error::ScalarProductExponentOverflow)?;
             let mut magnitude = exponent.unsigned_abs();
-            let mut base = shape(power.get_base(), limits, work)?;
+            let mut base = children.next().expect("completed shape child");
             if exponent < 0 {
                 std::mem::swap(&mut base.numerator, &mut base.denominator);
             }
@@ -335,4 +359,42 @@ fn shape(
             Ok(result)
         }
     }
+}
+
+fn collection(
+    atom: AtomView<'_>,
+    limits: ScalarNumeratorLimits,
+    work: &mut Work,
+) -> Result<(usize, usize), Error> {
+    crate::scalar_numerator::syntax::fold_expression(
+        atom,
+        |part| match part {
+            AtomView::Mul(product) => product.iter().collect(),
+            AtomView::Add(sum) => sum.iter().collect(),
+            AtomView::Pow(power) => vec![power.get_base()],
+            _ => Vec::new(),
+        },
+        |part, children| collection_node(part, limits, work, children),
+    )
+}
+fn shape(
+    atom: AtomView<'_>,
+    limits: ScalarNumeratorLimits,
+    work: &mut Work,
+) -> Result<Shape, Error> {
+    crate::scalar_numerator::syntax::fold_expression(
+        atom,
+        |part| match part {
+            AtomView::Mul(product) => product.iter().collect(),
+            AtomView::Add(sum) => sum.iter().collect(),
+            AtomView::Pow(power)
+                if Rational::try_from(power.get_exp())
+                    .is_ok_and(|exponent| exponent.is_integer()) =>
+            {
+                vec![power.get_base()]
+            }
+            _ => Vec::new(),
+        },
+        |part, children| shape_node(part, limits, work, children),
+    )
 }

@@ -115,6 +115,7 @@ fn native_family_rejects_bad_ids_contexts_shapes_and_limits() {
         record
             .validate_shape(
                 IntegralFamilyLimits {
+                    diagnostics_enabled: true,
                     max_matrix_entries: 25,
                     ..Default::default()
                 },
@@ -128,6 +129,7 @@ fn native_family_rejects_bad_ids_contexts_shapes_and_limits() {
             .to_family(
                 &table,
                 IntegralFamilyLimits {
+                    diagnostics_enabled: true,
                     max_scalar_products: 4,
                     ..Default::default()
                 },
@@ -141,6 +143,7 @@ fn native_family_rejects_bad_ids_contexts_shapes_and_limits() {
                 &table,
                 IntegralFamilyLimits::default(),
                 BinaryIoLimits {
+                    diagnostics_enabled: true,
                     max_collection_entries: 1,
                     ..Default::default()
                 }

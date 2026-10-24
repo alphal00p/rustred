@@ -8,7 +8,7 @@ use symbolica::prelude::Integer;
 
 use crate::algebra::CoefficientPolynomial;
 use crate::foundry::completion::{LatticeBox, MAX_BOUNDED_AXIS_FACES};
-use crate::solver::canonical_equalities;
+use crate::solver::{AffineGeometryError, canonical_equalities};
 
 use super::AffineApplicationDomain;
 
@@ -22,15 +22,18 @@ impl AffineApplicationDomain {
     /// Read the defining polynomials, not the persisted cached matrix: a cold
     /// witness must not gain authority from an unchecked redundant matrix.
     /// Original powers remain integers; rational charts never relax that.
-    pub(crate) fn is_proved_empty_in_box(&self, cell: &LatticeBox) -> bool {
+    pub(crate) fn is_proved_empty_in_box(
+        &self,
+        cell: &LatticeBox,
+    ) -> Result<bool, AffineGeometryError> {
         if cell.arity() != self.sector.len()
             || self.indices.len() != cell.arity()
             || self.fixed.len() != cell.arity()
         {
-            return false;
+            return Ok(false);
         }
         let Some(template) = self.equations.first() else {
-            return false;
+            return Ok(false);
         };
         if self.indices.iter().enumerate().any(|(axis, &index)| {
             index >= template.nvars() || self.indices[..axis].contains(&index)
@@ -39,7 +42,7 @@ impl AffineApplicationDomain {
                 || equation.coefficients.len().checked_mul(equation.nvars())
                     != Some(equation.exponents.len())
         }) {
-            return false;
+            return Ok(false);
         }
         let input_cells = self.equations.iter().try_fold(0usize, |total, equation| {
             total.checked_add(equation.exponents.len())
@@ -51,7 +54,7 @@ impl AffineApplicationDomain {
                 .checked_mul(cell.arity() + 1)
                 .is_none_or(|cells| cells > MAX_MATRIX_CELLS)
         {
-            return false;
+            return Ok(false);
         }
         // Admit the original equations before specialization: a nonlinear or
         // parameter-dependent equation must not accidentally acquire affine
@@ -62,7 +65,7 @@ impl AffineApplicationDomain {
             .map(|equation| linear_row(equation, &self.indices))
             .collect::<Option<Vec<_>>>()
         else {
-            return false;
+            return Ok(false);
         };
         let mut intervals = Vec::with_capacity(cell.arity());
         for axis in 0..cell.arity() {
@@ -78,20 +81,30 @@ impl AffineApplicationDomain {
                 if lower.as_ref().is_some_and(|lo| value < *lo)
                     || upper.as_ref().is_some_and(|hi| value > *hi)
                 {
-                    return true;
+                    return Ok(true);
                 }
                 lower = Some(value.clone());
                 upper = Some(value);
             }
             intervals.push((lower, upper));
         }
-        self.proves_empty_without_split(&rows, &intervals)
-            || self.bounded_face_refinement_proves_empty(&rows, &intervals)
+        if self.proves_empty_without_split(&rows, &intervals)? {
+            Ok(true)
+        } else {
+            self.bounded_face_refinement_proves_empty(&rows, &intervals)
+        }
     }
 
-    fn proves_empty_without_split(&self, rows: &[Vec<Integer>], intervals: &[Interval]) -> bool {
-        rows.iter().any(|row| excludes_box(row, intervals))
-            || self.singleton_reduction_proves_empty(intervals)
+    fn proves_empty_without_split(
+        &self,
+        rows: &[Vec<Integer>],
+        intervals: &[Interval],
+    ) -> Result<bool, AffineGeometryError> {
+        if rows.iter().any(|row| excludes_box(row, intervals)) {
+            Ok(true)
+        } else {
+            self.singleton_reduction_proves_empty(intervals)
+        }
     }
 
     /// Exhaust one short, equation-dependent finite axis, not a sample of
@@ -102,7 +115,7 @@ impl AffineApplicationDomain {
         &self,
         rows: &[Vec<Integer>],
         intervals: &[Interval],
-    ) -> bool {
+    ) -> Result<bool, AffineGeometryError> {
         let selected = intervals
             .iter()
             .enumerate()
@@ -122,7 +135,7 @@ impl AffineApplicationDomain {
             })
             .min_by_key(|&(count, axis, _)| (count, axis));
         let Some((count, axis, lower)) = selected else {
-            return false;
+            return Ok(false);
         };
         let matrix_work = self
             .equations
@@ -140,24 +153,27 @@ impl AffineApplicationDomain {
         if matrix_work.is_none_or(|cells| cells > MAX_MATRIX_CELLS)
             || polynomial_work.is_none_or(|cells| cells > MAX_POLYNOMIAL_CELLS)
         {
-            return false;
+            return Ok(false);
         }
         let mut face = intervals.to_vec();
         let mut value = lower.clone();
         for _ in 0..count {
             face[axis] = (Some(value.clone()), Some(value.clone()));
-            if !self.proves_empty_without_split(rows, &face) {
-                return false;
+            if !self.proves_empty_without_split(rows, &face)? {
+                return Ok(false);
             }
             value += Integer::one();
         }
-        true
+        Ok(true)
     }
 
     /// A sign cell can fix an axis shared by several equations. Re-reduce
     /// those exact equations together so consequences of that fixed value
     /// reach the other rows. This is not general inequality propagation.
-    fn singleton_reduction_proves_empty(&self, intervals: &[Interval]) -> bool {
+    fn singleton_reduction_proves_empty(
+        &self,
+        intervals: &[Interval],
+    ) -> Result<bool, AffineGeometryError> {
         let singleton: Vec<_> = intervals
             .iter()
             .enumerate()
@@ -174,7 +190,7 @@ impl AffineApplicationDomain {
                 .and_then(|rows| rows.checked_mul(self.indices.len() + 1))
                 .is_none_or(|cells| cells > MAX_MATRIX_CELLS)
         {
-            return false;
+            return Ok(false);
         }
         catch_unwind(AssertUnwindSafe(|| {
             let mut equations = self.equations.to_vec();
@@ -186,14 +202,17 @@ impl AffineApplicationDomain {
                 }
             }
             match canonical_equalities(&self.fixed, &equations, &self.indices) {
-                Ok(None) => true,
+                Ok(None) => Ok(true),
                 Ok(Some((_, primitive))) => {
-                    primitive.row_iter().any(|row| excludes_box(row, intervals))
+                    Ok(primitive.row_iter().any(|row| excludes_box(row, intervals)))
                 }
-                Err(_) => false,
+                Err(error) => match crate::reduction::resource_limit_error(&error) {
+                    Some(resource) => Err(AffineGeometryError::Resources(resource.clone())),
+                    None => Ok(false),
+                },
             }
         }))
-        .unwrap_or(false)
+        .unwrap_or(Ok(false))
     }
 }
 
@@ -278,9 +297,9 @@ mod tests {
     fn excludes_half_integer_boundary_but_not_the_remaining_infinite_ray() {
         let domain = domain("1+n0-2*n1", [false, false]);
         let boundary = LatticeBox::try_new([0, 0], [Some(0), None]).unwrap();
-        assert!(domain.is_proved_empty_in_box(&boundary));
+        assert!(domain.is_proved_empty_in_box(&boundary).unwrap());
         let ray = LatticeBox::try_new([1, 0], [None, None]).unwrap();
-        assert!(!domain.is_proved_empty_in_box(&ray));
+        assert!(!domain.is_proved_empty_in_box(&ray).unwrap());
         assert!(domain.contains_powers(&[-1, 0]));
         assert!(domain.contains_powers(&[-2001, -1000]));
     }
@@ -289,12 +308,12 @@ mod tests {
     fn interval_bounds_and_integer_congruences_are_both_conservative() {
         let domain = domain("n0-n1", [true, true]);
         let separated = LatticeBox::try_new([0, 4], [Some(2), None]).unwrap();
-        assert!(domain.is_proved_empty_in_box(&separated));
+        assert!(domain.is_proved_empty_in_box(&separated).unwrap());
         let touching = LatticeBox::try_new([0, 2], [Some(2), None]).unwrap();
-        assert!(!domain.is_proved_empty_in_box(&touching));
+        assert!(!domain.is_proved_empty_in_box(&touching).unwrap());
         // True infinity, and endpoints above signed machine range.
         let large = LatticeBox::try_new([u64::MAX, u64::MAX], [None, None]).unwrap();
-        assert!(!domain.is_proved_empty_in_box(&large));
+        assert!(!domain.is_proved_empty_in_box(&large).unwrap());
     }
 
     #[test]
@@ -302,10 +321,14 @@ mod tests {
         let domain = domain("2*n0-n1", [false, false]);
         // n1=-1 gives n0=-1/2: within the real interval but not an index.
         assert!(
-            domain.is_proved_empty_in_box(&LatticeBox::try_new([0, 1], [None, Some(1)]).unwrap())
+            domain
+                .is_proved_empty_in_box(&LatticeBox::try_new([0, 1], [None, Some(1)]).unwrap())
+                .unwrap()
         );
         assert!(
-            !domain.is_proved_empty_in_box(&LatticeBox::try_new([0, 2], [None, Some(2)]).unwrap())
+            !domain
+                .is_proved_empty_in_box(&LatticeBox::try_new([0, 2], [None, Some(2)]).unwrap())
+                .unwrap()
         );
     }
 
@@ -314,11 +337,15 @@ mod tests {
         let mut domain = domain("1+n0-2*n1", [false, false]);
         domain.primitive_matrix = None;
         assert!(
-            domain.is_proved_empty_in_box(&LatticeBox::try_new([0, 0], [Some(0), None]).unwrap())
+            domain
+                .is_proved_empty_in_box(&LatticeBox::try_new([0, 0], [Some(0), None]).unwrap())
+                .unwrap()
         );
         domain.equations = Box::new([]);
         assert!(
-            !domain.is_proved_empty_in_box(&LatticeBox::try_new([0, 0], [Some(0), None]).unwrap())
+            !domain
+                .is_proved_empty_in_box(&LatticeBox::try_new([0, 0], [Some(0), None]).unwrap())
+                .unwrap()
         );
     }
 
@@ -329,7 +356,7 @@ mod tests {
         let boundary = LatticeBox::try_new([0, 0], [Some(0), None]).unwrap();
         for equation in ["1+n0-2*d*n1", "1+n0-n1^2"] {
             domain.equations = vec![context.coefficient_fixture(equation).numerator].into();
-            assert!(!domain.is_proved_empty_in_box(&boundary));
+            assert!(!domain.is_proved_empty_in_box(&boundary).unwrap());
         }
     }
 }

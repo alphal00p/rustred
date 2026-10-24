@@ -34,7 +34,7 @@ pub(super) fn encode(
         .map(|(fingerprint, family)| {
             Ok((
                 fingerprint.clone(),
-                NativeFamilyRecord::from_family(family, &mut table).map_err(failure)?,
+                NativeFamilyRecord::from_family(family, &mut table).map_err(native_failure)?,
             ))
         })
         .collect::<Result<Vec<_>, AppError>>()?;
@@ -53,7 +53,12 @@ pub(super) fn encode(
         let terms = row
             .terms
             .iter()
-            .map(|(k, c)| Ok((key(k), table.intern(c).map_err(failure)?.index() as u32)))
+            .map(|(k, c)| {
+                Ok((
+                    key(k),
+                    table.intern(c).map_err(native_failure)?.index() as u32,
+                ))
+            })
             .collect::<Result<_, AppError>>()?;
         let pointer = Arc::as_ptr(&row.conditions);
         let conditions = if let Some(ids) = guard_ids.get(&pointer) {
@@ -62,7 +67,12 @@ pub(super) fn encode(
             let ids = row
                 .conditions
                 .iter()
-                .map(|c| table.intern(c).map(|id| id.index() as u32).map_err(failure))
+                .map(|c| {
+                    table
+                        .intern(c)
+                        .map(|id| id.index() as u32)
+                        .map_err(native_failure)
+                })
                 .collect::<Result<Vec<_>, _>>()?;
             guard_ids.insert(pointer, ids.clone());
             ids
@@ -70,7 +80,7 @@ pub(super) fn encode(
         rows.push((key(source), terms, conditions));
     }
     let remaining = maps.remaining.iter().map(key).collect();
-    let encoded = table.finish().map_err(failure)?;
+    let encoded = table.finish().map_err(native_failure)?;
     let record = Record {
         families,
         rows,
@@ -80,7 +90,7 @@ pub(super) fn encode(
     };
     let mut bytes = MAGIC.to_vec();
     bincode::encode_into_std_write(record, &mut bytes, bincode::config::standard())
-        .map_err(failure)?;
+        .map_err(native_failure)?;
     if bytes.len() > options.binary_limits.max_program_bytes {
         return Err(AppError::limit(
             "compact terminal maps exceed binary allowance",
@@ -100,17 +110,17 @@ pub(super) fn decode(
     }
     // Existing native ingress is trusted generated data. Bound outer structural
     // allocations before delegating atom/state validation to its native codec.
-    let (record, consumed): (Record, usize) = bincode::decode_from_slice(
+    let (record, consumed): (Record, usize) = super::super::candidate_bundle::decode_record(
         &bytes[MAGIC.len()..],
-        bincode::config::standard().with_limit::<{ 1024 * 1024 * 1024 }>(),
-    )
-    .map_err(failure)?;
+        options.binary_limits.max_program_bytes,
+    )?;
     if consumed != bytes.len() - MAGIC.len() {
         return Err(AppError::input("trailing bytes in compact terminal maps"));
     }
-    if record.rows.len() > options.binary_limits.max_collection_entries
-        || record.remaining.len() > options.binary_limits.max_collection_entries
-        || record.families.len() > 1024
+    if options.binary_limits.diagnostics_enabled
+        && (record.rows.len() > options.binary_limits.max_collection_entries
+            || record.remaining.len() > options.binary_limits.max_collection_entries
+            || record.families.len() > 1024)
     {
         return Err(AppError::limit(
             "compact terminal map collection allowance exceeded",
@@ -121,7 +131,7 @@ pub(super) fn decode(
         &record.atoms,
         options.binary_limits,
     )
-    .map_err(failure)?;
+    .map_err(native_failure)?;
     let mut families = BTreeMap::new();
     let mut fingerprints = Vec::new();
     for (fingerprint, encoded) in record.families {
@@ -131,7 +141,7 @@ pub(super) fn decode(
                 IntegralFamilyLimits::default(),
                 options.binary_limits,
             )
-            .map_err(failure)?;
+            .map_err(native_failure)?;
         if family.fingerprint() != fingerprint
             || families
                 .insert(fingerprint.clone(), Arc::new(family))
@@ -149,13 +159,13 @@ pub(super) fn decode(
                 .get(key.family as usize)
                 .ok_or_else(|| AppError::input("invalid compact terminal family index"))?
                 .clone(),
-            integral: IntegralKey::try_new(key.powers).map_err(failure)?,
+            integral: IntegralKey::try_new(key.powers).map_err(native_failure)?,
         })
     };
     let coefficient = |id: u32| -> Result<Coefficient, AppError> {
         Ok(table
-            .coefficient(CoefficientId::try_from_index(id as usize).map_err(failure)?)
-            .map_err(failure)?
+            .coefficient(CoefficientId::try_from_index(id as usize).map_err(native_failure)?)
+            .map_err(native_failure)?
             .clone())
     };
     let mut remaining = BTreeSet::new();

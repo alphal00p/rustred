@@ -80,7 +80,10 @@ struct Record {
     misses: u64,
 }
 
-fn binary(error: impl fmt::Display) -> TerminalRelationError {
+fn binary(error: impl fmt::Display + 'static) -> TerminalRelationError {
+    if let Some(error) = crate::persistence::resource_failure(&error) {
+        return TerminalRelationError::Resources(error);
+    }
     TerminalRelationError::Binary(error.to_string())
 }
 fn wire(value: usize) -> Result<u64, TerminalRelationError> {
@@ -166,6 +169,7 @@ fn native_options(value: Options) -> Result<TerminalRelationModularOptions, Term
         max_candidates: grant_host(value.candidates)?,
         reconstruction: ProjectedSourceWeightLimits {
             arithmetic: ExactAlgebraLimits {
+                diagnostics_enabled: false,
                 max_exponent: value.exponent,
                 max_polynomial_terms: grant_host(value.polynomial_terms)?,
                 max_term_operations: grant_host(value.operations)?,
@@ -304,7 +308,8 @@ pub(super) fn encode(
         circuits,
         misses: wire(value.reconstruction_misses)?,
     };
-    let program = bincode::encode_to_vec(record, bincode::config::standard()).map_err(binary)?;
+    let program =
+        crate::persistence::encode_structure(&record, io.max_program_bytes).map_err(binary)?;
     let coefficients = table.finish().map_err(binary)?;
     encode_program(
         BinaryProgramKind::TerminalRelations,
@@ -385,7 +390,7 @@ pub(super) fn decode(
     // Outer framing is caller-bounded. As with the native coefficient import,
     // these are generated checkpoint records, not a hostile-input sandbox.
     let (record, used): (Record, usize) =
-        bincode::decode_from_slice(data, bincode::config::standard()).map_err(binary)?;
+        crate::persistence::decode_structure(data).map_err(binary)?;
     if record.version != VERSION || used != data.len() {
         return Err(binary("unsupported or trailing modular checkpoint records"));
     }
@@ -448,6 +453,7 @@ pub(super) fn decode(
         "modular source identities",
         count,
         io.max_collection_entries,
+        io.diagnostics_enabled,
     )?;
     let mut rows: Vec<_> = session
         .basis_rows()
@@ -714,11 +720,13 @@ fn decode_image(
         "modular column records",
         columns.len(),
         io.max_collection_entries,
+        io.diagnostics_enabled,
     )?;
     check(
         "modular nonzero records",
         encoded.values.len(),
         io.max_collection_entries,
+        io.diagnostics_enabled,
     )?;
     let width = u32::try_from(columns.len())
         .map_err(binary)?

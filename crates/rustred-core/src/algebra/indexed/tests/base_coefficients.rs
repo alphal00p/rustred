@@ -289,6 +289,7 @@ fn guard_locus_admission_fails_before_unbounded_symbolica_work() {
         .unwrap();
 
     let input_limited = IndexedGuardLimits {
+        diagnostics_enabled: true,
         max_input_terms: 1,
         ..IndexedGuardLimits::default()
     };
@@ -305,6 +306,7 @@ fn guard_locus_admission_fails_before_unbounded_symbolica_work() {
         .base_coefficient_system(&polynomial, Default::default(), Default::default())
         .unwrap();
     let degree_limited = IndexedGuardLimits {
+        diagnostics_enabled: true,
         max_univariate_degree: 1,
         ..IndexedGuardLimits::default()
     };
@@ -317,6 +319,7 @@ fn guard_locus_admission_fails_before_unbounded_symbolica_work() {
         })
     ));
     let work_limited = IndexedGuardLimits {
+        diagnostics_enabled: true,
         max_gcd_factor_work: 44,
         ..IndexedGuardLimits::default()
     };
@@ -329,6 +332,7 @@ fn guard_locus_admission_fails_before_unbounded_symbolica_work() {
         })
     ));
     let recombination_limited = IndexedGuardLimits {
+        diagnostics_enabled: true,
         max_factor_recombination_subsets: 3,
         ..IndexedGuardLimits::default()
     };
@@ -558,6 +562,7 @@ fn exact_hyperplane_replay_is_preflighted_and_charged_across_all_equations() {
     for (limits, resource, requested, limit) in [
         (
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_exact_hyperplane_replay_substitutions: 1,
                 ..Default::default()
             },
@@ -567,6 +572,7 @@ fn exact_hyperplane_replay_is_preflighted_and_charged_across_all_equations() {
         ),
         (
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_exact_hyperplane_replay_terms: 2,
                 ..Default::default()
             },
@@ -589,6 +595,7 @@ fn exact_hyperplane_replay_is_preflighted_and_charged_across_all_equations() {
         context.integer_zero_locus_domain_resolution(
             &system,
             IndexedGuardLimits {
+            diagnostics_enabled: true,
                 max_exact_hyperplane_replay_work: 0,
                 ..Default::default()
             },
@@ -607,6 +614,7 @@ fn exact_hyperplane_replay_is_preflighted_and_charged_across_all_equations() {
         context.integer_zero_locus_domain_resolution(
             &system,
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_exact_hyperplane_replay_substitutions: 2,
                 ..Default::default()
             },
@@ -642,6 +650,7 @@ fn univariate_exact_root_replay_obeys_the_aggregate_substitution_limit() {
         context.univariate_integer_zero_set(
             &system,
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_exact_hyperplane_replay_substitutions: 1,
                 ..Default::default()
             },
@@ -678,6 +687,7 @@ fn coupled_irreducible_factor_fails_closed_and_factor_caps_precede_symbolica() {
     );
 
     let limited = IndexedGuardLimits {
+        diagnostics_enabled: true,
         max_factor_variables: 1,
         ..IndexedGuardLimits::default()
     };

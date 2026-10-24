@@ -206,6 +206,7 @@ fn preferred_rule_subset_loader_preserves_baseline_and_full_admission() {
     }
     assert!(load(&BTreeMap::from([(masks[0], &[usize::MAX][..])])).is_err());
     let mut limits = CandidateOwnerLoadLimits::default();
+    limits.bundle.diagnostics_enabled = true;
     limits.bundle.max_collection_entries = 1;
     assert!(
         load_generated_candidate_owners_with_preference_rule_subsets::<3>(
@@ -445,6 +446,7 @@ fn selected_owner_loader_checks_whole_list_budgets_before_native_import() {
     check(
         CandidateOwnerLoadLimits {
             bundle: CandidateBundleLimits {
+                diagnostics_enabled: true,
                 max_collection_entries: 1,
                 ..base.bundle
             },
@@ -455,6 +457,7 @@ fn selected_owner_loader_checks_whole_list_budgets_before_native_import() {
     check(
         CandidateOwnerLoadLimits {
             bundle: CandidateBundleLimits {
+                diagnostics_enabled: true,
                 max_collection_entries: 2 * repeated_terminals,
                 ..base.bundle
             },
@@ -495,6 +498,7 @@ fn selected_owner_loader_checks_whole_list_budgets_before_native_import() {
     );
     check(
         CandidateOwnerLoadLimits {
+            bundle: CandidateBundleLimits::default().with_diagnostics(),
             max_zero_sector_visits: 7,
             ..base
         },
@@ -513,6 +517,7 @@ fn selected_owner_loader_checks_whole_list_budgets_before_native_import() {
         &inputs(&inflated),
         CandidateOwnerLoadLimits {
             bundle: CandidateBundleLimits {
+                diagnostics_enabled: true,
                 max_collection_entries: 150_000,
                 ..base.bundle
             },

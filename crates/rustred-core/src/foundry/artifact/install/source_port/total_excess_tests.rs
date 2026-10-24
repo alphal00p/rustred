@@ -22,6 +22,7 @@ fn install(
         scope::EntryDegreeBound::MaxTotalExcessDegree(entry_degree),
     )?;
     install_source_port_through_total_excess_with_limits(
+        true,
         candidate,
         entry,
         degrees,
@@ -68,6 +69,7 @@ fn bounded_actual_cell_gate_rejects_wrong_entry_kind_and_root() {
                 .unwrap();
         assert!(
             install_source_port_through_total_excess_with_limits(
+                true,
                 candidate,
                 entry,
                 degree(3),
@@ -126,6 +128,7 @@ fn bounded_actual_cell_gate_rejects_actual_coverage_holes() {
 #[test]
 fn bounded_actual_cell_gate_preserves_typed_caller_limits() {
     let geometry = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_requested_boxes: 1,
         ..Default::default()
     };
@@ -138,6 +141,7 @@ fn bounded_actual_cell_gate_preserves_typed_caller_limits() {
         })
     ));
     let geometry = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_requested_box_coordinate_cells: 3,
         ..Default::default()
     };
@@ -150,6 +154,7 @@ fn bounded_actual_cell_gate_preserves_typed_caller_limits() {
         })
     ));
     let geometry = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_split_operations: 0,
         ..Default::default()
     };
@@ -176,11 +181,13 @@ fn actual_cell_observer_reports_only_its_own_successor_stage() {
         )
         .unwrap();
         let geometry = CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_requested_box_coordinate_cells: coordinate_limit,
             ..Default::default()
         };
         let mut observations = Vec::new();
         let result = install_source_port_through_total_excess_with_observer(
+            true,
             candidate,
             entry,
             degree(3),

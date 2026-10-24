@@ -1,9 +1,9 @@
 use std::fs::File;
 use std::io::{self, Read, Write};
 
+use crate::MAX_INPUT_BYTES;
 use crate::cli::args::StreamPath;
 use crate::cli::error::CliError;
-use crate::{MAX_CLOSING_ARTIFACT_BYTES, MAX_INPUT_BYTES};
 
 pub(crate) fn read_input(source: &StreamPath) -> Result<String, CliError> {
     let bytes = match source {
@@ -23,22 +23,16 @@ pub(crate) fn read_input(source: &StreamPath) -> Result<String, CliError> {
     })
 }
 
-pub(crate) fn read_artifact(source: &StreamPath) -> Result<Vec<u8>, CliError> {
+pub(crate) fn read_artifact(source: &StreamPath, max_bytes: usize) -> Result<Vec<u8>, CliError> {
     match source {
-        StreamPath::Stdio => read_bounded(
-            io::stdin().lock(),
-            "artifact on standard input",
-            MAX_CLOSING_ARTIFACT_BYTES,
-        ),
+        StreamPath::Stdio => {
+            read_bounded(io::stdin().lock(), "artifact on standard input", max_bytes)
+        }
         StreamPath::File(path) => {
             let file = File::open(path).map_err(|error| {
                 CliError::InputIo(format!("cannot open artifact {}: {error}", path.display()))
             })?;
-            read_bounded(
-                file,
-                &format!("artifact {}", path.display()),
-                MAX_CLOSING_ARTIFACT_BYTES,
-            )
+            read_bounded(file, &format!("artifact {}", path.display()), max_bytes)
         }
     }
 }
@@ -51,6 +45,7 @@ pub(super) fn read_bounded(
     let mut bytes = Vec::new();
     let mut buffer = [0_u8; 8 * 1024];
     loop {
+        symbolica::utils::resources::checkpoint().map_err(crate::AppError::resource)?;
         let read = reader
             .read(&mut buffer)
             .map_err(|error| CliError::InputIo(format!("cannot read {label}: {error}")))?;
@@ -67,6 +62,8 @@ pub(super) fn read_bounded(
                 "{label} exceeds the {max_bytes}-byte CLI limit"
             )));
         }
+        symbolica::utils::resources::check_allocation(read as u64)
+            .map_err(crate::AppError::resource)?;
         bytes.try_reserve(read).map_err(|_| {
             CliError::InputIo(format!(
                 "cannot reserve {requested} bytes while reading {label}"

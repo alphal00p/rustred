@@ -37,7 +37,7 @@ fn encode_reference(
                 resource: "coefficient polynomial terms",
             })?
     };
-    check_limit(
+    writer.limits().check_count(
         "coefficient polynomial terms",
         terms,
         writer.limits().max_collection_entries,
@@ -98,12 +98,14 @@ fn decode_reference<'reader>(
     let value = reader.native_coefficient(id)?;
     // The table owns full sparse validation. These cheap checks respect a
     // narrower reference-reader term policy before cloning native payloads.
-    for polynomial in [&value.numerator, &value.denominator] {
-        check_limit(
-            "polynomial terms",
-            polynomial.nterms(),
-            limits.family.exact_algebra.max_polynomial_terms,
-        )?;
+    if limits.family.exact_algebra.diagnostics_enabled {
+        for polynomial in [&value.numerator, &value.denominator] {
+            check_limit(
+                "polynomial terms",
+                polynomial.nterms(),
+                limits.family.exact_algebra.max_polynomial_terms,
+            )?;
+        }
     }
     Ok(value)
 }

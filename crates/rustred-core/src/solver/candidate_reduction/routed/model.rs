@@ -31,6 +31,8 @@ pub struct CandidateRoutedIdentity {
 /// remain authoritative for every formula across every owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RoutedCandidateLimits {
+    /// Opt in to count-based diagnostic stops; disabled for ordinary work.
+    pub diagnostics_enabled: bool,
     pub max_input_targets: usize,
     /// Distinct operational states, including Route and Apply for one key.
     pub max_unique_nodes: usize,
@@ -44,12 +46,29 @@ pub struct RoutedCandidateLimits {
 impl Default for RoutedCandidateLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_input_targets: 100_000,
             max_unique_nodes: 1_000_000,
             max_transport_calls: 100_000,
             max_transport_operations: 64_000_000,
             max_transport_endpoints: 4_000_000,
             expansion: Default::default(),
+        }
+    }
+}
+
+impl RoutedCandidateLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.expansion = self.expansion.with_diagnostics();
+        self
+    }
+
+    pub(super) const fn diagnostic_limit(self, limit: usize) -> Option<usize> {
+        if self.diagnostics_enabled {
+            Some(limit)
+        } else {
+            None
         }
     }
 }
@@ -204,7 +223,16 @@ impl fmt::Display for CandidateRoutedError {
         }
     }
 }
-impl std::error::Error for CandidateRoutedError {}
+impl std::error::Error for CandidateRoutedError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Candidate(error) => Some(error),
+            Self::Transport(error) => Some(error),
+            Self::EntryAdmission(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 /// Immutable owner dispatcher. Traces keep request-local work; `application`
 /// creates a separate exact coefficient cache over this same snapshot.

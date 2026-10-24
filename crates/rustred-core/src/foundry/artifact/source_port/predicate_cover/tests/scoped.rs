@@ -96,6 +96,7 @@ fn all_requested_boxes_share_one_boolean_work_allowance() {
         LatticeBox::try_new([1], [Some(3)]).unwrap(),
     ];
     let mut limits = PredicateCoverLimits {
+        diagnostics_enabled: true,
         max_boolean_nodes: 1,
         ..Default::default()
     };
@@ -106,6 +107,7 @@ fn all_requested_boxes_share_one_boolean_work_allowance() {
     limits.max_boolean_nodes = 2;
     let proof = certify_predicate_cover_within(&[true], &owners, &[], &requested, limits).unwrap();
     assert_eq!(proof.boolean_nodes, 2);
+    limits.geometry.diagnostics_enabled = true;
     limits.geometry.max_requested_boxes = 1;
     assert!(certify_predicate_cover_within(&[true], &owners, &[], &requested, limits).is_err());
 }
@@ -144,9 +146,11 @@ fn geometry_work_is_not_reset_for_each_requested_box() {
         LatticeBox::try_new([0], [Some(0)]).unwrap(),
         LatticeBox::try_new([2], [Some(2)]).unwrap(),
     ];
-    let mut limits = PredicateCoverLimits::default();
+    let mut limits = PredicateCoverLimits::default().with_diagnostics();
+    limits.geometry.diagnostics_enabled = true;
     limits.geometry.max_split_operations = 1;
     assert!(certify_predicate_cover_within(&[true], &owners, &[], &requested, limits).is_err());
+    limits.geometry.diagnostics_enabled = true;
     limits.geometry.max_split_operations = 2;
     certify_predicate_cover_within(&[true], &owners, &[], &requested, limits).unwrap();
     let wrong_arity = [full::<2>()];

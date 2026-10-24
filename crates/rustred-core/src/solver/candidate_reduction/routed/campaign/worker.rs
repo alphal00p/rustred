@@ -53,7 +53,9 @@ fn child<const N: usize>(
 }
 
 pub(super) fn run<const N: usize>(reducer: &RoutedCandidateReducer<N>, shared: &Shared<'_, N>) {
-    run_with_progress(reducer, shared, || {});
+    shared
+        .resources
+        .run_captured(|| run_with_progress(reducer, shared, || {}));
 }
 
 /// Reuses exactly the campaign processing kernel. The bounded progress hook

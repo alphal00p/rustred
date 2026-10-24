@@ -218,6 +218,7 @@ fn case_intersection_resources_do_not_change_saved_identity_or_regenerate_shards
     let before = files();
     request.checkpoint.as_mut().unwrap().resume = true;
     request.case_intersection_limits = CaseIntersectionLimits {
+        diagnostics_enabled: true,
         max_work_items: 16_384,
         max_terms_per_conjunction: 400_000,
         max_normalizations: 4096,
@@ -603,6 +604,7 @@ fn aggregate_entry_refusal_resumes_assembly_without_any_search() {
         .unwrap();
     assert!(local_max < full);
     request.checkpoint.as_mut().unwrap().resume = true;
+    request.bundle_limits.diagnostics_enabled = true;
     request.bundle_limits.max_collection_entries = full - 1;
     let events = Mutex::new(Vec::new());
     let error =
@@ -614,6 +616,7 @@ fn aggregate_entry_refusal_resumes_assembly_without_any_search() {
             .contains("aggregate collection-entry budget exceeded:")
     );
     assert_no_search(&events.into_inner().unwrap());
+    request.bundle_limits.diagnostics_enabled = true;
     request.bundle_limits.max_collection_entries = full;
     let (retry, events) = observed(request.clone());
     assert_no_search(&events);

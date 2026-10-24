@@ -74,6 +74,7 @@ fn captured_narrowed_rank_ten_uses_existing_splitter_before_divisor_work() {
             &indices,
             &sector,
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 8192,
                 ..Default::default()
             },
@@ -100,6 +101,7 @@ fn complete_original_rank_simplex_matches_native_equation_evaluation() {
             &indices,
             &sector,
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 8192,
                 ..Default::default()
             },
@@ -146,6 +148,7 @@ fn exhausted_budget_retains_original_conjunction_and_no_partial_union() {
             &indices,
             &sector,
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 1,
                 ..Default::default()
             },

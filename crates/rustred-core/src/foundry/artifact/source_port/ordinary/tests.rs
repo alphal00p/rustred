@@ -150,13 +150,23 @@ fn finite_zero_proof_budget_is_fail_closed_not_partial_coverage() {
     let boxes = geometry::application_boxes(&rule, &[0, 1, 2, 3], &sector, &[]).unwrap();
     let contribution = Term {
         // Every shift is compact-representable, but the first physical sign
-        // cell has 32^4 points, exceeding the default proof budget.
+        // cell has 32^4 points, exceeding the explicitly enabled diagnostic proof budget.
         integral: Integral::symbolic([32, -32, 32, -32]).unwrap(),
         coefficient: context.coefficient_fixture("n0*n1*n2*n3"),
     };
-    let error =
-        geometry::uniformly_zero_term(&rule, &contribution, &boxes, &sector, &[], &[0, 1, 2, 3])
-            .unwrap_err();
+    let limits = crate::foundry::completion::CompletionGeometryLimits::default().with_diagnostics();
+    let error = geometry::uniformly_zero_wide_with_limits(
+        &[32, -32, 32, -32],
+        Some(&contribution.coefficient),
+        &boxes,
+        &sector,
+        &[] as &[[bool; 4]],
+        limits,
+        |coefficient, piece| {
+            geometry::coefficient_vanishes(coefficient, piece, &sector, &[0, 1, 2, 3], limits)
+        },
+    )
+    .unwrap_err();
     assert!(error.to_string().contains("budget"));
 }
 

@@ -29,6 +29,8 @@ mod ordering;
 /// factor recombination and a conservative coefficient-limb charge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IndexedGuardLimits {
+    /// Enforce count/work thresholds only for an explicitly requested diagnostic.
+    pub diagnostics_enabled: bool,
     /// Largest sparse guard admitted before splitting by base monomial.
     pub max_input_terms: usize,
     /// Largest simultaneous index-polynomial coefficient system.
@@ -72,6 +74,7 @@ pub struct IndexedGuardLimits {
 impl Default for IndexedGuardLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_input_terms: 65_536,
             max_coefficient_equations: 4_096,
             max_univariate_degree: 16,
@@ -240,6 +243,7 @@ impl IndexedCoefficientContext {
             "guard affine factor work",
             *charged_work,
             limits.max_gcd_factor_work,
+            limits.diagnostics_enabled,
         )?;
         let factors = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| raw.factor()))
             .map_err(|_| {
@@ -283,11 +287,13 @@ impl IndexedCoefficientContext {
             "guard coefficient split input terms",
             value.raw().nterms(),
             guard_limits.max_input_terms,
+            guard_limits.diagnostics_enabled,
         )?;
         check_limit(
             "guard coefficient split input integer bits",
             total_integer_bits(&value.raw().coefficients)?,
             guard_limits.max_total_integer_bits,
+            guard_limits.diagnostics_enabled,
         )?;
 
         let base_count = self.base().variables().len();
@@ -315,6 +321,7 @@ impl IndexedCoefficientContext {
             "guard coefficient equations",
             split.len(),
             guard_limits.max_coefficient_equations,
+            guard_limits.diagnostics_enabled,
         )?;
 
         let mut equations = Vec::new();
@@ -406,6 +413,7 @@ impl IndexedCoefficientContext {
             "guard univariate degree",
             max_degree,
             limits.max_univariate_degree,
+            limits.diagnostics_enabled,
         )?;
         let coefficient_bits = system
             .equations
@@ -423,6 +431,7 @@ impl IndexedCoefficientContext {
             "guard univariate coefficient bits",
             coefficient_bits,
             limits.max_total_integer_bits,
+            limits.diagnostics_enabled,
         )?;
         let coefficient_limbs = integer_limb_count(max_integer_bits(
             system
@@ -447,6 +456,7 @@ impl IndexedCoefficientContext {
             "guard gcd/factor work",
             gcd_work,
             limits.max_gcd_factor_work,
+            limits.diagnostics_enabled,
         )?;
 
         let common = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -486,6 +496,7 @@ impl IndexedCoefficientContext {
             "guard factor recombination subsets",
             recombination_subsets,
             limits.max_factor_recombination_subsets,
+            limits.diagnostics_enabled,
         )?;
         let common_max_bits = max_integer_bits(common.coefficients.iter());
         // A coarse Mignotte bound gives every coefficient of an integer
@@ -509,6 +520,7 @@ impl IndexedCoefficientContext {
             "guard prospective factor terms",
             prospective_factor_terms,
             limits.max_factor_terms,
+            limits.diagnostics_enabled,
         )?;
         let prospective_factor_bits = prospective_factor_terms
             .checked_mul(prospective_coefficient_bits)
@@ -519,6 +531,7 @@ impl IndexedCoefficientContext {
             "guard prospective factor integer bits",
             prospective_factor_bits,
             limits.max_total_integer_bits,
+            limits.diagnostics_enabled,
         )?;
         let common_dense_slots =
             common_degree
@@ -541,7 +554,12 @@ impl IndexedCoefficientContext {
                 resource: "guard gcd/factor work",
             },
         )?;
-        check_limit("guard gcd/factor work", work, limits.max_gcd_factor_work)?;
+        check_limit(
+            "guard gcd/factor work",
+            work,
+            limits.max_gcd_factor_work,
+            limits.diagnostics_enabled,
+        )?;
 
         let mut roots = Vec::new();
         let mut replay_substitutions = 0usize;
@@ -560,7 +578,12 @@ impl IndexedCoefficientContext {
                     resource: "guard factor terms",
                 })
         })?;
-        check_limit("guard factor terms", factor_terms, limits.max_factor_terms)?;
+        check_limit(
+            "guard factor terms",
+            factor_terms,
+            limits.max_factor_terms,
+            limits.diagnostics_enabled,
+        )?;
         let factor_bits = factors.iter().try_fold(0usize, |total, (factor, _)| {
             total
                 .checked_add(total_integer_bits(&factor.coefficients)?)
@@ -572,6 +595,7 @@ impl IndexedCoefficientContext {
             "guard factor integer bits",
             factor_bits,
             limits.max_total_integer_bits,
+            limits.diagnostics_enabled,
         )?;
         for (factor, _multiplicity) in factors {
             if factor.is_constant() || factor.degree(variable_position) != 1 {
@@ -764,6 +788,7 @@ impl IndexedCoefficientContext {
                 "guard separable factor work",
                 charged_work,
                 limits.max_gcd_factor_work,
+                limits.diagnostics_enabled,
             )?;
 
             let factors =
@@ -950,6 +975,11 @@ fn charge_exact_hyperplane_replay<'a, I>(
 where
     I: Clone + ExactSizeIterator<Item = (usize, &'a Integer)>,
 {
+    if !limits.diagnostics_enabled {
+        symbolica::utils::resources::checkpoint()
+            .map_err(crate::algebra::ExactAlgebraError::Resource)?;
+        return Ok(());
+    }
     let root_count = roots.len();
     let substitutions = root_count.checked_mul(system.equations.len()).ok_or(
         IndexedAlgebraError::ResourceCountOverflow {
@@ -1048,16 +1078,19 @@ where
         "guard exact-hyperplane replay substitutions",
         prospective_substitutions,
         limits.max_exact_hyperplane_replay_substitutions,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "guard exact-hyperplane replay terms",
         prospective_terms,
         limits.max_exact_hyperplane_replay_terms,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "guard exact-hyperplane replay work",
         prospective_work,
         limits.max_exact_hyperplane_replay_work,
+        limits.diagnostics_enabled,
     )?;
     *aggregate_substitutions = prospective_substitutions;
     *aggregate_terms = prospective_terms;
@@ -1093,6 +1126,11 @@ fn separable_factor_work(
     base_count: usize,
     limits: IndexedGuardLimits,
 ) -> Result<usize, IndexedAlgebraError> {
+    if !limits.diagnostics_enabled {
+        symbolica::utils::resources::checkpoint()
+            .map_err(crate::algebra::ExactAlgebraError::Resource)?;
+        return Ok(0);
+    }
     validate_factor_payload(polynomial, limits)?;
     let degrees = (base_count..polynomial.nvars())
         .map(|position| usize::from(polynomial.degree(position)))
@@ -1102,12 +1140,14 @@ fn separable_factor_work(
         "guard factor variables",
         degrees.len(),
         limits.max_factor_variables,
+        limits.diagnostics_enabled,
     )?;
     let max_degree = degrees.iter().copied().max().unwrap_or(0);
     check_limit(
         "guard factor per-variable degree",
         max_degree,
         limits.max_univariate_degree,
+        limits.diagnostics_enabled,
     )?;
     let total_degree = degrees.iter().try_fold(0usize, |total, &degree| {
         total
@@ -1120,6 +1160,7 @@ fn separable_factor_work(
         "guard factor total degree",
         total_degree,
         limits.max_factor_total_degree,
+        limits.diagnostics_enabled,
     )?;
     let dense_slots = degrees.iter().try_fold(1usize, |slots, &degree| {
         slots
@@ -1136,6 +1177,7 @@ fn separable_factor_work(
         "guard factor dense slots",
         dense_slots,
         limits.max_factor_dense_slots,
+        limits.diagnostics_enabled,
     )?;
     let recombination_subsets = 2usize
         .checked_pow(u32::try_from(total_degree).map_err(|_| {
@@ -1150,6 +1192,7 @@ fn separable_factor_work(
         "guard factor recombination subsets",
         recombination_subsets,
         limits.max_factor_recombination_subsets,
+        limits.diagnostics_enabled,
     )?;
 
     // A product of `total_degree` factors can each occupy at most the input
@@ -1165,6 +1208,7 @@ fn separable_factor_work(
         "guard prospective factor terms",
         prospective_factor_terms,
         limits.max_factor_terms,
+        limits.diagnostics_enabled,
     )?;
     let prospective_coefficient_bits = max_integer_bits(polynomial.coefficients.iter())
         .checked_add(total_degree)
@@ -1182,6 +1226,7 @@ fn separable_factor_work(
         "guard prospective factor integer bits",
         prospective_total_bits,
         limits.max_total_integer_bits,
+        limits.diagnostics_enabled,
     )?;
 
     let dense_square =
@@ -1209,7 +1254,12 @@ fn validate_factorization_output(
                 resource: "guard factor terms",
             })
     })?;
-    check_limit("guard factor terms", factor_terms, limits.max_factor_terms)?;
+    check_limit(
+        "guard factor terms",
+        factor_terms,
+        limits.max_factor_terms,
+        limits.diagnostics_enabled,
+    )?;
     let factor_bits = factors.iter().try_fold(0usize, |total, (factor, _)| {
         total
             .checked_add(total_integer_bits(&factor.coefficients)?)
@@ -1221,6 +1271,7 @@ fn validate_factorization_output(
         "guard factor integer bits",
         factor_bits,
         limits.max_total_integer_bits,
+        limits.diagnostics_enabled,
     )
 }
 
@@ -1276,10 +1327,20 @@ fn validate_factor_payload(
         "guard factor terms",
         polynomial.nterms(),
         limits.max_factor_terms,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "guard factor integer bits",
         total_integer_bits(&polynomial.coefficients)?,
         limits.max_total_integer_bits,
+        limits.diagnostics_enabled,
     )
+}
+
+impl IndexedGuardLimits {
+    /// Explicitly enable diagnostic count/work thresholds.
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
+    }
 }

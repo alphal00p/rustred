@@ -43,7 +43,7 @@ pub(super) fn decode_i64_vec(
     resource: &'static str,
 ) -> Result<Vec<i64>, ArtifactPersistenceError> {
     let len = reader.count(resource)?;
-    if len > reader.limits().max_index_arity {
+    if reader.limits().diagnostics_enabled && len > reader.limits().max_index_arity {
         return Err(ArtifactPersistenceError::ResourceLimit {
             resource,
             requested: len,
@@ -82,7 +82,7 @@ pub(super) fn decode_bool_vec_checked(
     admit_length: impl FnOnce(usize) -> Result<(), ArtifactPersistenceError>,
 ) -> Result<Vec<bool>, ArtifactPersistenceError> {
     let len = reader.count(resource)?;
-    if len > reader.limits().max_index_arity {
+    if reader.limits().diagnostics_enabled && len > reader.limits().max_index_arity {
         return Err(ArtifactPersistenceError::ResourceLimit {
             resource,
             requested: len,

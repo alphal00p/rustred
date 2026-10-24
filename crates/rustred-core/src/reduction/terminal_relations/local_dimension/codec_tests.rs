@@ -249,6 +249,7 @@ fn native_local_dimension_rejects_trailing_or_corrupted_native_payloads() {
 fn native_local_dimension_honors_caller_io_and_replay_cancellation() {
     let (family, plan, bytes) = fixture();
     let io = BinaryIoLimits {
+        diagnostics_enabled: true,
         max_collection_entries: 0,
         ..BinaryIoLimits::unbounded_resources()
     };

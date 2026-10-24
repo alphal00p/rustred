@@ -3,6 +3,8 @@ use crate::identity::RelationLimits;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RuleCellLimits {
+    /// Enforce operational count templates only for explicit diagnostics.
+    pub diagnostics_enabled: bool,
     pub indexed_algebra: IndexedAlgebraLimits,
     pub guard_algebra: IndexedGuardLimits,
     pub relation: RelationLimits,
@@ -20,6 +22,7 @@ pub struct RuleCellLimits {
 impl Default for RuleCellLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             indexed_algebra: IndexedAlgebraLimits::default(),
             guard_algebra: IndexedGuardLimits::default(),
             relation: RelationLimits::default(),
@@ -33,5 +36,16 @@ impl Default for RuleCellLimits {
             max_projection_group_routes: 16_000_000,
             max_projection_zero_sectors: 1_000_000,
         }
+    }
+}
+
+impl RuleCellLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.indexed_algebra = self.indexed_algebra.with_diagnostics();
+        self.guard_algebra = self.guard_algebra.with_diagnostics();
+        self.relation.arithmetic = self.relation.arithmetic.with_diagnostics();
+        self.relation.identity_conditions = self.relation.identity_conditions.with_diagnostics();
+        self
     }
 }

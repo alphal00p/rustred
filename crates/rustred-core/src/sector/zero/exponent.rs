@@ -19,7 +19,12 @@ impl Analyzer {
             .filter(|&&active| active)
             .count();
         let columns = checked_add(active_count, 1, "rank matrix columns")?;
-        check_limit("rank matrix columns", columns, self.limits.max_rank_columns)?;
+        check_limit(
+            "rank matrix columns",
+            columns,
+            self.limits.max_rank_columns,
+            self.limits.diagnostics_enabled,
+        )?;
         let mut active_parameter_order = Vec::new();
         active_parameter_order
             .try_reserve_exact(active_count)
@@ -49,12 +54,14 @@ impl Analyzer {
                 "rank matrix rows",
                 requested_rows,
                 self.limits.max_rank_rows,
+                self.limits.diagnostics_enabled,
             )?;
             let requested_entries = checked_add(entries.len(), columns, "rank matrix entries")?;
             check_limit(
                 "rank matrix entries",
                 requested_entries,
                 self.limits.max_rank_entries,
+                self.limits.diagnostics_enabled,
             )?;
             entries
                 .try_reserve_exact(columns)

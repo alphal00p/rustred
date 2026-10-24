@@ -6,6 +6,8 @@ use crate::algebra::ExactAlgebraLimits;
 /// decoder validates every malformed internal allocation count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BinaryIoLimits {
+    /// Enforce count/work templates only for an explicitly requested diagnostic.
+    pub diagnostics_enabled: bool,
     pub max_program_bytes: usize,
     pub max_sections: usize,
     pub max_collection_entries: usize,
@@ -16,32 +18,53 @@ pub struct BinaryIoLimits {
 }
 
 impl BinaryIoLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.exact_algebra = self.exact_algebra.with_diagnostics();
+        self
+    }
+
     /// Explicit trusted-native transport policy without byte/count quotas.
     /// Native representations, checked size arithmetic and allocation failures
     /// still apply. This does not turn generated Symbolica records into a
     /// hostile-input sandbox; the caller owns process/RAM admission.
     pub const fn unbounded_resources() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_program_bytes: usize::MAX,
-            max_sections: usize::MAX,
-            max_collection_entries: usize::MAX,
+            max_sections: 32,
+            max_collection_entries: 8_000_000,
             max_state_bytes: usize::MAX,
             max_atom_bytes: usize::MAX,
             max_total_atom_bytes: usize::MAX,
             exact_algebra: ExactAlgebraLimits::unbounded_resources(),
         }
     }
+
+    pub(crate) fn check_count(
+        self,
+        resource: &'static str,
+        requested: usize,
+        limit: usize,
+    ) -> Result<(), super::BinaryIoError> {
+        super::resource_checkpoint()?;
+        if self.diagnostics_enabled {
+            super::error::check_limit(resource, requested, limit)?;
+        }
+        Ok(())
+    }
 }
 
 impl Default for BinaryIoLimits {
     fn default() -> Self {
         Self {
-            max_program_bytes: 1024 * 1024 * 1024,
+            diagnostics_enabled: false,
+            max_program_bytes: usize::MAX,
             max_sections: 32,
             max_collection_entries: 8_000_000,
-            max_state_bytes: 16 * 1024 * 1024,
-            max_atom_bytes: 16 * 1024 * 1024,
-            max_total_atom_bytes: 512 * 1024 * 1024,
+            max_state_bytes: usize::MAX,
+            max_atom_bytes: usize::MAX,
+            max_total_atom_bytes: usize::MAX,
             exact_algebra: ExactAlgebraLimits::default(),
         }
     }
@@ -70,6 +93,7 @@ impl CappedWriter {
 
 impl Write for CappedWriter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        super::resource_allocation(bytes.len()).map_err(io::Error::other)?;
         let requested = self.bytes.len().checked_add(bytes.len()).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -109,19 +133,55 @@ mod tests {
     };
 
     #[test]
-    fn unbounded_native_transport_has_only_machine_representation_grants() {
+    fn ordinary_native_transport_has_unbounded_bytes_and_disabled_count_templates() {
         let io = BinaryIoLimits::unbounded_resources();
         for grant in [
             io.max_program_bytes,
-            io.max_sections,
-            io.max_collection_entries,
             io.max_state_bytes,
             io.max_atom_bytes,
             io.max_total_atom_bytes,
         ] {
             assert_eq!(grant, usize::MAX);
         }
+        assert!(!io.diagnostics_enabled);
+        assert_eq!(io.max_sections, BinaryIoLimits::default().max_sections);
+        assert_eq!(
+            io.max_collection_entries,
+            BinaryIoLimits::default().max_collection_entries
+        );
         assert_eq!(io.exact_algebra, ExactAlgebraLimits::unbounded_resources());
+    }
+
+    #[test]
+    fn diagnostic_counts_are_opt_in_and_do_not_replace_framing() {
+        let mut io = BinaryIoLimits {
+            max_sections: 0,
+            max_collection_entries: 0,
+            ..Default::default()
+        };
+        let section = BinarySection {
+            tag: SectionTag::PROGRAM,
+            bytes: &[1],
+        };
+        let bytes = encode_program(BinaryProgramKind::Candidates, &[section], io).unwrap();
+        inspect_program(&bytes, io).unwrap();
+        io.diagnostics_enabled = true;
+        assert!(matches!(
+            inspect_program(&bytes, io),
+            Err(BinaryIoError::Limit {
+                resource: "section count",
+                ..
+            })
+        ));
+        assert!(matches!(
+            encode_program(BinaryProgramKind::Candidates, &[section], io),
+            Err(BinaryIoError::Limit {
+                resource: "section count",
+                ..
+            })
+        ));
+        io.diagnostics_enabled = false;
+        assert!(inspect_program(&bytes[..bytes.len() - 1], io).is_err());
     }
 
     #[test]

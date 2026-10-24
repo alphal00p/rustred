@@ -13,8 +13,8 @@ use super::super::{
     OrdinarySourceIncidenceIndex,
 };
 use super::{
-    ProbeLocalBudgetScope, ProbeLocalSchedulerError, ProbeLocalSchedulerLimits,
-    ProbeLocalSchedulerReport,
+    ProbeLocalBudgetScope, ProbeLocalOutcome, ProbeLocalRejection, ProbeLocalSchedulerError,
+    ProbeLocalSchedulerLimits, ProbeLocalSchedulerReport,
 };
 use admission::{admit_probes, validate_fixed_task};
 use budget::{RunBudget, try_vec};
@@ -197,6 +197,7 @@ impl<'inputs, 'family> ProbeLocalObstructionScheduler<'inputs, 'family> {
                     self.limits,
                     &mut budget,
                 )?;
+                refuse_shared_resource_failure(report.outcome())?;
                 if let Some(stop) = report.outcome().budget_stop()
                     && stop.cause().scope() == ProbeLocalBudgetScope::Aggregate
                 {
@@ -212,5 +213,92 @@ impl<'inputs, 'family> ProbeLocalObstructionScheduler<'inputs, 'family> {
             });
         }
         Ok(ProbeLocalSchedulerReport::new(reports, budget.census()))
+    }
+}
+
+/// A shared execution-budget failure is fatal to the whole request. In
+/// particular, a failed allocation must not be retried under a sibling probe
+/// merely because the current RSS alone remains below the limit.
+fn refuse_shared_resource_failure(
+    outcome: &ProbeLocalOutcome,
+) -> Result<(), ProbeLocalSchedulerError> {
+    let error: &(dyn std::error::Error + 'static) = match outcome {
+        ProbeLocalOutcome::Rejected { error, .. } => match error {
+            ProbeLocalRejection::Campaign(error) => error,
+            ProbeLocalRejection::SourceDiscovery(error) => error,
+            ProbeLocalRejection::SampledDual(error) => error,
+        },
+        _ => return Ok(()),
+    };
+    match crate::reduction::resource_limit_error(error) {
+        Some(error) => Err(ProbeLocalSchedulerError::Resources(error.clone())),
+        None => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod resource_tests {
+    use std::time::Duration;
+
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimits};
+
+    use super::super::{ProbeLocalStage, ProbeLocalStopContext};
+    use super::*;
+    use crate::foundry::completion::source_discovery::CampaignError;
+    use crate::identity::{IdentityConditionError, ParametricRelationError, TranslatedSourceError};
+
+    #[test]
+    fn shared_resource_failure_stops_before_sibling_probes_and_preserves_its_cause() {
+        let memory = ResourceBudget::with_memory_monitor(
+            ResourceLimits {
+                max_process_rss_bytes: Some(2),
+                ..Default::default()
+            },
+            || Ok(1),
+        );
+        let elapsed = ResourceBudget::new(ResourceLimits {
+            max_elapsed: Some(Duration::ZERO),
+            ..Default::default()
+        });
+        for original in [
+            memory.run(|| memory.check_allocation(2)).unwrap_err(),
+            elapsed.run(|| elapsed.checkpoint()).unwrap_err(),
+        ] {
+            for translated in [
+                TranslatedSourceError::RequestTranslation {
+                    canonical_request_ordinal: 0,
+                    source_ordinal: 0,
+                    error: ParametricRelationError::IdentityCondition(
+                        IdentityConditionError::Resources(original.clone()),
+                    ),
+                },
+                TranslatedSourceError::Resources(original.clone()),
+            ] {
+                let outcome = ProbeLocalOutcome::Rejected {
+                    context: ProbeLocalStopContext::BeforeBootstrap,
+                    stage: ProbeLocalStage::EpochBuild,
+                    error: ProbeLocalRejection::Campaign(CampaignError::TranslatedSources(
+                        translated,
+                    )),
+                };
+                let mut visited = 0;
+                let result = (|| -> Result<(), ProbeLocalSchedulerError> {
+                    for outcome in [&outcome, &outcome] {
+                        visited += 1;
+                        refuse_shared_resource_failure(outcome)?;
+                    }
+                    Ok(())
+                })();
+                let error = result.unwrap_err();
+                assert_eq!(visited, 1, "a shared refusal must not try a sibling probe");
+                assert_eq!(
+                    crate::reduction::resource_limit_error(&error),
+                    Some(&original)
+                );
+            }
+            ResourceBudget::new(ResourceLimits::default())
+                .run(symbolica::utils::resources::checkpoint)
+                .unwrap();
+        }
     }
 }

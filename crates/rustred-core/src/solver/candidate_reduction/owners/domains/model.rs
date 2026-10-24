@@ -7,6 +7,8 @@ use crate::solver::candidate_reduction::model::{PreparedRule, PreparedTerm};
 /// Work and scratch limits; callers separately bound retained callback output.
 #[derive(Clone, Copy, Debug)]
 pub struct OwnerSuccessorLimits {
+    /// Enable optional work-count diagnostics; authored domains are unchanged.
+    pub diagnostics_enabled: bool,
     pub max_rules: usize,
     pub max_terms: usize,
     pub max_regions: usize,
@@ -21,6 +23,7 @@ pub struct OwnerSuccessorLimits {
 impl Default for OwnerSuccessorLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_rules: 100_000,
             max_terms: 1_000_000,
             max_regions: 4_000_000,
@@ -144,6 +147,7 @@ impl<'a, const N: usize> OwnerSuccessorRegion<'a, N> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OwnerSuccessorFailure {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     UnknownOwner,
     Cancelled,
     StoppedByConsumer,
@@ -173,4 +177,36 @@ impl fmt::Display for OwnerSuccessorError {
         )
     }
 }
-impl std::error::Error for OwnerSuccessorError {}
+impl std::error::Error for OwnerSuccessorError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.failure)
+    }
+}
+
+impl OwnerSuccessorLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
+    }
+    pub(super) const fn diagnostic_limit(self, limit: usize) -> Option<usize> {
+        if self.diagnostics_enabled {
+            Some(limit)
+        } else {
+            None
+        }
+    }
+}
+
+impl fmt::Display for OwnerSuccessorFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for OwnerSuccessorFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            _ => None,
+        }
+    }
+}

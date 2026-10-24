@@ -35,8 +35,10 @@ impl PreparedScalarProducts {
             self.limits.max_input_nodes,
             self.limits,
         )?;
-        let mut comparisons =
-            ExactComparisonBudget::new(self.limits.max_loop_momentum_label_checks);
+        let mut comparisons = ExactComparisonBudget::new(
+            self.limits.max_loop_momentum_label_checks,
+            self.limits.diagnostics_enabled,
+        );
         validate_scalar_syntax(
             numerator.as_view(),
             self.dot_head,
@@ -60,6 +62,7 @@ impl PreparedScalarProducts {
             "scalar-numerator polynomial terms",
             polynomial.coefficients.len(),
             self.limits.max_polynomial_terms,
+            self.limits.diagnostics_enabled,
         )?;
 
         let mut output = Vec::new();
@@ -80,6 +83,7 @@ impl PreparedScalarProducts {
                 "scalar-product degree",
                 degree,
                 self.limits.max_scalar_product_degree,
+                self.limits.diagnostics_enabled,
             )?;
 
             let mut contributions = BTreeMap::new();
@@ -102,6 +106,7 @@ impl PreparedScalarProducts {
                 "lowered scalar-numerator terms",
                 requested,
                 self.limits.max_lowered_terms,
+                self.limits.diagnostics_enabled,
             )?;
             output.try_reserve(contributions.len()).map_err(|_| {
                 ScalarNumeratorError::AllocationFailure {
@@ -129,6 +134,7 @@ impl PreparedScalarProducts {
                 "lowered scalar-numerator output nodes",
                 output_atom_nodes,
                 self.limits.max_output_atom_nodes,
+                self.limits.diagnostics_enabled,
             )?;
 
             for ((powers, mass_power), coefficient) in contributions {
@@ -173,6 +179,7 @@ impl PreparedScalarProducts {
             "affine scalar-product contributions",
             upper_bound,
             self.limits.max_lowered_terms,
+            self.limits.diagnostics_enabled,
         )?;
 
         let mut next = BTreeMap::new();

@@ -194,6 +194,7 @@ fn weight_poles_survive_join_cancellation_and_fail_before_fixed_pole_cancellatio
     assert_eq!(regular.sources.len(), 1);
     assert!(regular.weight_conditions.is_empty());
     let guard_budget = RuleCellLimits {
+        diagnostics_enabled: true,
         max_guards: 0,
         ..Default::default()
     };
@@ -265,6 +266,7 @@ fn invalid_normalization_rows_context_fixed_faces_and_empty_support_fail_closed(
                 &input,
                 &[],
                 TranslatedSourceLimits {
+                    diagnostics_enabled: true,
                     max_requested_source_translations: 0,
                     ..Default::default()
                 },
@@ -280,6 +282,7 @@ fn invalid_normalization_rows_context_fixed_faces_and_empty_support_fail_closed(
                 &[],
                 Default::default(),
                 RuleCellLimits {
+                    diagnostics_enabled: true,
                     max_source_views: 0,
                     ..Default::default()
                 }

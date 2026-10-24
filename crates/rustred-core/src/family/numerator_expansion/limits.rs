@@ -1,9 +1,11 @@
-//! Explicit caller policy for one cold multi-affine materialization.
+//! Optional diagnostic thresholds for one cold multi-affine materialization.
 
 use crate::algebra::ExactAlgebraLimits;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MultiAffineNumeratorExpansionLimits {
+    /// Enforce count/work thresholds only for an explicitly requested diagnostic.
+    pub diagnostics_enabled: bool,
     pub exact_algebra: ExactAlgebraLimits,
     pub max_factors: usize,
     pub max_relation_coefficient_entries: usize,
@@ -37,6 +39,7 @@ impl MultiAffineNumeratorExpansionLimits {
     /// fits available memory or can be preempted inside a Symbolica operation.
     pub const fn unbounded_resources() -> Self {
         Self {
+            diagnostics_enabled: false,
             exact_algebra: ExactAlgebraLimits::unbounded_resources(),
             max_factors: usize::MAX,
             max_relation_coefficient_entries: usize::MAX,
@@ -56,6 +59,7 @@ impl MultiAffineNumeratorExpansionLimits {
 impl Default for MultiAffineNumeratorExpansionLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             exact_algebra: ExactAlgebraLimits::default(),
             max_factors: 128,
             max_relation_coefficient_entries: 16_384,
@@ -69,5 +73,14 @@ impl Default for MultiAffineNumeratorExpansionLimits {
             max_retained_coefficient_terms: 64_000_000,
             max_retained_coefficient_clone_owned_bytes: 1_000_000_000,
         }
+    }
+}
+
+impl MultiAffineNumeratorExpansionLimits {
+    /// Explicitly enable diagnostic count/work thresholds.
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.exact_algebra = self.exact_algebra.with_diagnostics();
+        self
     }
 }

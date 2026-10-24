@@ -29,7 +29,7 @@ fn typed_fingerprint_preflights_exact_and_one_below_huge_gmp_payloads() {
     assert_eq!(stats.encoded_bytes(), family.fingerprint().len());
     assert!(stats.integer_bits() > 4_000);
     assert!(family.fingerprint().contains("I-"));
-    let mut exact = IntegralFamilyLimits::default();
+    let mut exact = IntegralFamilyLimits::default().with_diagnostics();
     exact.max_fingerprint_bytes = stats.encoded_bytes();
     exact.max_fingerprint_encoding_work = stats.encoding_work();
     exact.max_fingerprint_polynomial_terms = stats.polynomial_terms();
@@ -43,7 +43,7 @@ fn typed_fingerprint_preflights_exact_and_one_below_huge_gmp_payloads() {
         ($field:ident, $getter:ident, $resource:literal) => {{
             let requested = stats.$getter();
             assert!(requested > 0, $resource);
-            let mut limits = IntegralFamilyLimits::default();
+            let mut limits = IntegralFamilyLimits::default().with_diagnostics();
             limits.$field = requested - 1;
             assert!(matches!(
                 huge_gmp_fingerprint_family(limits),

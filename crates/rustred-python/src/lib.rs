@@ -364,7 +364,7 @@ fn derive(
     n_cores: PythonInteger,
 ) -> PyResult<PyDeriveResult> {
     let request = DeriveRequest {
-        source: bounded_owned_input("derive input", source)?,
+        source: source.to_owned(),
         input_format: parse_input_format(input_format)?,
         relations: parse_relation_selection(relations)?,
         n_cores: positive_core_count("derive n_cores", n_cores.0)?,
@@ -384,7 +384,7 @@ fn derive(
 /// generated IBP artifact or a closure claim. All counting stays in Rust.
 #[pyfunction]
 fn entry_domain_plan(py: Python<'_>, source: &str) -> PyResult<Py<PyAny>> {
-    let source = bounded_owned_input("finite entry-domain input", source)?;
+    let source = source.to_owned();
     let report = py
         .detach(move || execute(move || rustred_app::entry_domain_plan(&source)))
         .map_err(map_coordinator_error)?
@@ -407,7 +407,7 @@ fn campaign_plan(
     root_id: Option<&str>,
 ) -> PyResult<PyCampaignPlanResult> {
     let request = CampaignPlanRequest {
-        source: bounded_owned_input("campaign input", source)?,
+        source: source.to_owned(),
         input_format: parse_input_format(input_format)?,
         // Root identifiers have their own application/core validation and
         // error category. The adapter must not apply the source-payload limit
@@ -437,7 +437,7 @@ fn campaign_preflight(
     max_memory_bytes: PythonInteger,
 ) -> PyResult<PyCampaignPreflightResult> {
     let request = CampaignPreflightRequest {
-        profile: bounded_owned_input("campaign execution resource profile", profile)?,
+        profile: profile.to_owned(),
         n_cores: positive_core_count("campaign preflight n_cores", n_cores.0)?,
         max_memory_bytes: positive_memory_bytes(max_memory_bytes.0)?,
     };
@@ -456,7 +456,7 @@ fn campaign_preflight(
 #[pyo3(signature = (config), text_signature = "(config)")]
 fn run_foundry_campaign(py: Python<'_>, config: &str) -> PyResult<PyFoundryCampaignRunResult> {
     let request = FoundryCampaignRunRequest {
-        config: bounded_owned_input("foundry campaign configuration", config)?,
+        config: config.to_owned(),
     };
     let result = py
         .detach(move || execute(move || app_foundry_campaign_run(request)))
@@ -481,7 +481,7 @@ fn run_foundry_wave_campaign(
     n_cores: PythonInteger,
 ) -> PyResult<PyFoundryWaveCampaignRunResult> {
     let request = FoundryWaveCampaignRunRequest {
-        config: bounded_owned_input("foundry wave campaign configuration", config)?,
+        config: config.to_owned(),
         sibling_worker_count: positive_core_count("foundry wave campaign n_cores", n_cores.0)?,
     };
     let result = py
@@ -533,14 +533,14 @@ fn family_close(
         })
         .collect::<PyResult<Vec<_>>>()?;
     let mut request = FamilyCloseRequest {
-        source: bounded_owned_input("family close input", source)?,
+        source: source.to_owned(),
         input_format: parse_input_format(input_format)?,
         n_cores: positive_core_count("family close n_cores", n_cores.0)?,
         permutation,
         nonpositive_indices,
         publication_limits: Default::default(),
     };
-    apply_resource_limits(
+    if apply_resource_limits(
         max_domain_bound_endpoint_cells,
         max_predicate_consistency_work,
         max_predicate_atoms,
@@ -550,7 +550,9 @@ fn family_close(
             .max_domain_bound_endpoint_cells,
         &mut request.publication_limits.max_predicate_consistency_work,
         &mut request.publication_limits.max_predicate_atoms,
-    )?;
+    )? {
+        request.publication_limits = request.publication_limits.with_diagnostics();
+    }
     let result = py
         .detach(move || execute(move || app_family_close(request)))
         .map_err(map_coordinator_error)?;
@@ -603,8 +605,8 @@ fn inspect_closing_artifact(
     max_predicate_consistency_work: Option<PythonInteger>,
     max_predicate_atoms: Option<PythonInteger>,
 ) -> PyResult<PyClosingArtifactInspectionResult> {
-    let mut request = ClosingArtifactInspectRequest::new(bounded_artifact_bytes(artifact)?);
-    apply_resource_limits(
+    let mut request = ClosingArtifactInspectRequest::new(artifact.as_bytes().to_vec());
+    if apply_resource_limits(
         max_domain_bound_endpoint_cells,
         max_predicate_consistency_work,
         max_predicate_atoms,
@@ -614,7 +616,9 @@ fn inspect_closing_artifact(
             .max_domain_bound_endpoint_cells,
         &mut request.load_limits.max_predicate_consistency_work,
         &mut request.load_limits.max_predicate_atoms,
-    )?;
+    )? {
+        request.load_limits = request.load_limits.with_diagnostics();
+    }
     let result = py
         .detach(move || execute(move || app_closing_artifact_inspect(request)))
         .map_err(map_coordinator_error)?;
@@ -628,19 +632,19 @@ fn inspect_closing_artifact(
 
 #[pyfunction]
 #[pyo3(
-    signature = (artifact, target_powers, *, max_rule_applications = PythonInteger(1_000_000), max_domain_bound_endpoint_cells = None, max_predicate_consistency_work = None, max_predicate_atoms = None),
-    text_signature = "(artifact, target_powers, *, max_rule_applications=1000000, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None)"
+    signature = (artifact, target_powers, *, max_rule_applications = None, max_domain_bound_endpoint_cells = None, max_predicate_consistency_work = None, max_predicate_atoms = None),
+    text_signature = "(artifact, target_powers, *, max_rule_applications=None, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None)"
 )]
 fn reduce_with_closing_artifact(
     py: Python<'_>,
     artifact: &Bound<'_, PyBytes>,
     target_powers: Vec<PythonInteger>,
-    max_rule_applications: PythonInteger,
+    max_rule_applications: Option<PythonInteger>,
     max_domain_bound_endpoint_cells: Option<PythonInteger>,
     max_predicate_consistency_work: Option<PythonInteger>,
     max_predicate_atoms: Option<PythonInteger>,
 ) -> PyResult<PyClosingArtifactReductionResult> {
-    let artifact = bounded_artifact_bytes(artifact)?;
+    let artifact = artifact.as_bytes().to_vec();
     let target_powers = target_powers
         .into_iter()
         .enumerate()
@@ -652,13 +656,13 @@ fn reduce_with_closing_artifact(
             })
         })
         .collect::<PyResult<Vec<_>>>()?;
-    let max_rule_applications = nonnegative_usize(
-        "closing-artifact max_rule_applications",
-        max_rule_applications.0,
-    )?;
     let mut request = ClosingArtifactReduceRequest::new(artifact, target_powers);
-    request.max_rule_applications = max_rule_applications;
-    apply_resource_limits(
+    if let Some(value) = max_rule_applications {
+        request.max_rule_applications =
+            nonnegative_usize("closing-artifact max_rule_applications", value.0)?;
+        request.diagnostics_enabled = true;
+    }
+    if apply_resource_limits(
         max_domain_bound_endpoint_cells,
         max_predicate_consistency_work,
         max_predicate_atoms,
@@ -668,7 +672,9 @@ fn reduce_with_closing_artifact(
             .max_domain_bound_endpoint_cells,
         &mut request.load_limits.max_predicate_consistency_work,
         &mut request.load_limits.max_predicate_atoms,
-    )?;
+    )? {
+        request.load_limits = request.load_limits.with_diagnostics();
+    }
     let result = py
         .detach(move || execute(move || app_closing_artifact_reduce(request)))
         .map_err(map_coordinator_error)?;
@@ -769,7 +775,9 @@ fn apply_resource_limits(
     endpoint_limit: &mut usize,
     consistency_limit: &mut usize,
     atom_limit: &mut usize,
-) -> PyResult<()> {
+) -> PyResult<bool> {
+    let requested =
+        endpoint_cells.is_some() || consistency_work.is_some() || predicate_atoms.is_some();
     if let Some(value) = endpoint_cells {
         *endpoint_limit = nonnegative_usize("max_domain_bound_endpoint_cells", value.0)?;
     }
@@ -778,15 +786,9 @@ fn apply_resource_limits(
     }
     if let Some(value) = predicate_atoms {
         let value = nonnegative_usize("max_predicate_atoms", value.0)?;
-        if value > rustred_app::SourcePortLimits::MAX_PREDICATE_ATOMS {
-            return Err(RustRedInputError::new_err(format!(
-                "max_predicate_atoms exceeds supported maximum {}",
-                rustred_app::SourcePortLimits::MAX_PREDICATE_ATOMS
-            )));
-        }
         *atom_limit = value;
     }
-    Ok(())
+    Ok(requested)
 }
 
 fn nonnegative_usize(label: &str, value: i128) -> PyResult<usize> {
@@ -812,29 +814,6 @@ fn positive_memory_bytes(value: i128) -> PyResult<u64> {
     u64::try_from(value).map_err(|_| {
         RustRedInputError::new_err(format!("{LABEL} must fit an unsigned 64-bit integer"))
     })
-}
-
-fn bounded_owned_input(label: &str, source: &str) -> PyResult<String> {
-    if source.len() > rustred_app::MAX_INPUT_BYTES {
-        return Err(RustRedLimitError::new_err(format!(
-            "{label} has {} bytes, exceeding the {}-byte application limit",
-            source.len(),
-            rustred_app::MAX_INPUT_BYTES
-        )));
-    }
-    Ok(source.to_owned())
-}
-
-fn bounded_artifact_bytes(artifact: &Bound<'_, PyBytes>) -> PyResult<Vec<u8>> {
-    let bytes = artifact.as_bytes();
-    if bytes.len() > rustred_app::MAX_CLOSING_ARTIFACT_BYTES {
-        return Err(RustRedLimitError::new_err(format!(
-            "closing artifact has {} bytes, exceeding the {}-byte application limit",
-            bytes.len(),
-            rustred_app::MAX_CLOSING_ARTIFACT_BYTES
-        )));
-    }
-    Ok(bytes.to_vec())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

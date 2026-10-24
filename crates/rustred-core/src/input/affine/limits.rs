@@ -3,6 +3,8 @@ use crate::algebra::ExactAlgebraLimits;
 /// Resource policy for exact evaluation, projection, and retention.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SymbolicaAffineDenominatorLimits {
+    /// Enable optional diagnostic count ceilings; disabled for ordinary execution.
+    pub diagnostics_enabled: bool,
     pub exact_algebra: ExactAlgebraLimits,
     pub max_input_bytes: usize,
     pub max_input_nodes: usize,
@@ -44,12 +46,14 @@ pub struct SymbolicaAffineDenominatorLimits {
 impl Default for SymbolicaAffineDenominatorLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             exact_algebra: ExactAlgebraLimits {
+                diagnostics_enabled: false,
                 max_exponent: u16::MAX,
                 max_polynomial_terms: 100_000,
                 max_term_operations: 1_000_000,
             },
-            max_input_bytes: 16 * 1024 * 1024,
+            max_input_bytes: usize::MAX,
             max_input_nodes: 100_000,
             max_nesting_depth: 256,
             max_label_bytes: 1_024,
@@ -85,5 +89,13 @@ impl Default for SymbolicaAffineDenominatorLimits {
             max_normalized_expression_bytes: 64 * 1024 * 1024,
             max_compiled_retained_bytes: 1024 * 1024 * 1024,
         }
+    }
+}
+
+impl SymbolicaAffineDenominatorLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.exact_algebra = self.exact_algebra.with_diagnostics();
+        self
     }
 }

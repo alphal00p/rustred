@@ -330,6 +330,7 @@ fn exponent_and_key_overflow_have_typed_failures() {
             &IntegralKey::try_new(BASE).unwrap(),
             &[native_overflow],
             MultiAffineNumeratorExpansionLimits {
+                diagnostics_enabled: true,
                 max_total_power: u64::MAX,
                 ..MultiAffineNumeratorExpansionLimits::default()
             },
@@ -351,6 +352,7 @@ fn exponent_and_key_overflow_have_typed_failures() {
             &IntegralKey::try_new(BASE).unwrap(),
             &aggregate,
             MultiAffineNumeratorExpansionLimits {
+                diagnostics_enabled: true,
                 max_total_power: u64::MAX,
                 max_native_polynomial_operations: usize::MAX,
                 ..MultiAffineNumeratorExpansionLimits::default()
@@ -369,6 +371,7 @@ fn exponent_and_key_overflow_have_typed_failures() {
             &IntegralKey::try_new(BASE).unwrap(),
             &factors,
             MultiAffineNumeratorExpansionLimits {
+                diagnostics_enabled: true,
                 max_total_power: u64::MAX,
                 ..MultiAffineNumeratorExpansionLimits::default()
             },
@@ -388,6 +391,7 @@ fn caller_limits_reject_support_before_symbolica_expansion() {
         &base,
         &[s5_factor(&family, 2)],
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_native_polynomial_terms: 9,
             ..MultiAffineNumeratorExpansionLimits::default()
         },
@@ -407,6 +411,7 @@ fn caller_limits_reject_support_before_symbolica_expansion() {
         &base,
         &[s5_factor(&family, 1)],
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_factors: 0,
             ..MultiAffineNumeratorExpansionLimits::default()
         },
@@ -426,6 +431,7 @@ fn caller_limits_reject_support_before_symbolica_expansion() {
         &base,
         &[s5_factor(&family, 1)],
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_endpoints: 3,
             ..MultiAffineNumeratorExpansionLimits::default()
         },
@@ -451,6 +457,7 @@ fn retained_budget_counts_native_polynomial_and_output_clone_simultaneously() {
             &base,
             &[],
             MultiAffineNumeratorExpansionLimits {
+                diagnostics_enabled: true,
                 // The native identity coefficient and its output clone each
                 // retain one numerator and one denominator term.
                 max_retained_coefficient_terms: 3,

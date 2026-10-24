@@ -93,26 +93,37 @@ where
         "single Symbolica matrix entries",
         augmented_entries,
         limits.max_single_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "live Symbolica matrix entries",
         peak_live_entries,
         limits.max_live_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
-    let product = product_operation_bound(size, size, size)?;
-    let operations = checked_add(
-        "Symbolica coefficient matrix exact operations",
+    let product = if limits.diagnostics_enabled {
+        product_operation_bound(size, size, size)?
+    } else {
+        0
+    };
+    let operations = if limits.diagnostics_enabled {
         checked_add(
             "Symbolica coefficient matrix exact operations",
-            determinant_operation_bound(size)?,
-            inverse_operation_bound(size)?,
-        )?,
-        checked_mul("Symbolica coefficient matrix exact operations", 2, product)?,
-    )?;
+            checked_add(
+                "Symbolica coefficient matrix exact operations",
+                determinant_operation_bound(size)?,
+                inverse_operation_bound(size)?,
+            )?,
+            checked_mul("Symbolica coefficient matrix exact operations", 2, product)?,
+        )?
+    } else {
+        0
+    };
     check_limit(
         "Symbolica coefficient matrix exact operations",
         operations,
         limits.max_exact_operations,
+        limits.diagnostics_enabled,
     )?;
 
     let field = CheckedCoefficientField::new(
@@ -221,21 +232,28 @@ where
         "single Symbolica matrix entries",
         product_entries,
         limits.max_single_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "live Symbolica matrix entries",
         live_entries,
         limits.max_live_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
-    let operations = checked_mul(
-        "Symbolica coefficient matrix exact operations",
-        2,
-        product_operation_bound(size, size, size)?,
-    )?;
+    let operations = if limits.diagnostics_enabled {
+        checked_mul(
+            "Symbolica coefficient matrix exact operations",
+            2,
+            product_operation_bound(size, size, size)?,
+        )?
+    } else {
+        0
+    };
     check_limit(
         "Symbolica coefficient matrix exact operations",
         operations,
         limits.max_exact_operations,
+        limits.diagnostics_enabled,
     )?;
     let field =
         CheckedCoefficientField::new(context, limits, product_entries, live_entries, operations);

@@ -7,18 +7,46 @@ use super::{
     ExactAlgebraOperation,
 };
 
+/// Operational authentication polls shared resources and optional diagnostics.
 pub(crate) fn validate_coefficient_on_map(
     coefficient: &Coefficient,
     variables: &Arc<Vec<PolyVariable>>,
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
-    validate_polynomial_on_map(
+    validate_coefficient_impl(coefficient, variables, Some(limits))
+}
+
+pub(crate) fn validate_polynomial_on_map(
+    polynomial: &MultivariatePolynomial<IntegerRing, u16>,
+    variables: &Arc<Vec<PolyVariable>>,
+    part: CoefficientPolynomialPart,
+    limits: ExactAlgebraLimits,
+) -> Result<(), ExactAlgebraError> {
+    validate_polynomial_impl(polynomial, variables, part, Some(limits))
+}
+
+/// A logical membership predicate must not turn a transient budget failure into
+/// false mathematical data. Reuse exactly the same structural authenticator,
+/// without the fallible operational polling used by numerical/algebraic calls.
+pub(crate) fn validate_coefficient_structure_on_map(
+    coefficient: &Coefficient,
+    variables: &Arc<Vec<PolyVariable>>,
+) -> Result<(), ExactAlgebraError> {
+    validate_coefficient_impl(coefficient, variables, None)
+}
+
+fn validate_coefficient_impl(
+    coefficient: &Coefficient,
+    variables: &Arc<Vec<PolyVariable>>,
+    limits: Option<ExactAlgebraLimits>,
+) -> Result<(), ExactAlgebraError> {
+    validate_polynomial_impl(
         &coefficient.numerator,
         variables,
         CoefficientPolynomialPart::Numerator,
         limits,
     )?;
-    validate_polynomial_on_map(
+    validate_polynomial_impl(
         &coefficient.denominator,
         variables,
         CoefficientPolynomialPart::Denominator,
@@ -30,11 +58,11 @@ pub(crate) fn validate_coefficient_on_map(
     Ok(())
 }
 
-pub(crate) fn validate_polynomial_on_map(
+fn validate_polynomial_impl(
     polynomial: &MultivariatePolynomial<IntegerRing, u16>,
     variables: &Arc<Vec<PolyVariable>>,
     part: CoefficientPolynomialPart,
-    limits: ExactAlgebraLimits,
+    limits: Option<ExactAlgebraLimits>,
 ) -> Result<(), ExactAlgebraError> {
     if polynomial.variables().as_ref() != variables.as_ref() {
         return Err(ExactAlgebraError::VariableMapMismatch { part });
@@ -54,11 +82,14 @@ pub(crate) fn validate_polynomial_on_map(
             variables: variables.len(),
         });
     }
-    check_exact_resource_limit(
-        "authenticated polynomial terms",
-        polynomial.coefficients.len(),
-        limits.max_polynomial_terms,
-    )?;
+    if let Some(limits) = limits {
+        check_exact_resource_limit(
+            "authenticated polynomial terms",
+            polynomial.coefficients.len(),
+            limits.max_polynomial_terms,
+            limits.diagnostics_enabled,
+        )?;
+    }
     for (term, coefficient) in polynomial.coefficients.iter().enumerate() {
         // Symbolica's public `Integer` representation can retain a numeric zero
         // in a noncanonical backend variant, whereas `IntegerRing::is_zero`
@@ -80,12 +111,14 @@ pub(crate) fn validate_polynomial_on_map(
         .enumerate()
     {
         for (variable, &exponent) in exponents.iter().enumerate() {
-            if exponent > limits.max_exponent {
+            if let Some(limits) = limits
+                && exponent > limits.exponent_limit()
+            {
                 return Err(ExactAlgebraError::ExponentLimit {
                     operation: ExactAlgebraOperation::Authenticate,
                     variable,
                     requested: u64::from(exponent),
-                    limit: limits.max_exponent,
+                    limit: limits.exponent_limit(),
                 });
             }
         }
@@ -104,8 +137,10 @@ pub(super) fn check_exact_resource_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), ExactAlgebraError> {
-    if requested > limit {
+    checkpoint_exact()?;
+    if diagnostics_enabled && requested > limit {
         Err(ExactAlgebraError::ResourceLimit {
             resource,
             requested,
@@ -189,4 +224,9 @@ mod wasm_tests {
         assert_eq!(integer_clone_owned_heap_byte_bound(&large), Some(24));
         assert_eq!(integer_clone_owned_heap_byte_bound(&(-large)), Some(24));
     }
+}
+
+/// Poll the shared request budget before and after native exact arithmetic.
+pub(crate) fn checkpoint_exact() -> Result<(), ExactAlgebraError> {
+    symbolica::utils::resources::checkpoint().map_err(ExactAlgebraError::Resource)
 }

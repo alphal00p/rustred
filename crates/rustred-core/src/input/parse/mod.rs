@@ -55,6 +55,7 @@ pub(super) fn parse_authenticated_source(
         "Symbolica source bytes",
         source.len(),
         limits.max_input_bytes,
+        true,
     )?;
     if source.contains('\u{1b}') {
         return Err(Error::UnsupportedToken {
@@ -103,13 +104,19 @@ pub(super) fn parse_authenticated_source(
                     "unique raw Symbolica identifiers",
                     requested,
                     limits.max_unique_identifiers,
+                    limits.diagnostics_enabled,
                 )?;
                 validated_names.insert(raw.to_string(), logical.to_owned());
             }
             Token::Op(_, _, _, children) | Token::Fn(_, _, children) => {
                 for child in children {
                     let requested = checked_add("raw identifier traversal", pending.len(), 1)?;
-                    check_limit("raw identifier traversal", requested, limits.max_atom_nodes)?;
+                    check_limit(
+                        "raw identifier traversal",
+                        requested,
+                        limits.max_atom_nodes,
+                        limits.diagnostics_enabled,
+                    )?;
                     pending
                         .try_reserve(1)
                         .map_err(|_| Error::AllocationFailure {
@@ -139,16 +146,19 @@ pub(super) fn parse_authenticated_source(
         atom.as_view(),
         limits.max_atom_nodes,
         limits.max_nesting_depth,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "one parsed Atom integer bits",
         census.integer_bits,
         limits.max_retained_atom_integer_bits,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "one parsed Atom bytes",
         census.packed_bytes,
         limits.max_retained_atom_bytes,
+        limits.diagnostics_enabled,
     )?;
     Ok(AuthenticatedParsedSource {
         atom,
@@ -172,6 +182,7 @@ pub(super) fn parse_expression_accumulating(
         "explicit Symbolica expression bytes",
         stats.input_bytes,
         limits.max_input_bytes,
+        true,
     )?;
     let parsed = parse_authenticated_source(source, kind, limits)?;
     stats.preconversion_integer_bits = checked_add(
@@ -183,6 +194,7 @@ pub(super) fn parse_expression_accumulating(
         "aggregate pre-conversion integer bits",
         stats.preconversion_integer_bits,
         limits.max_preconversion_integer_bits,
+        limits.diagnostics_enabled,
     )?;
     stats.atom_nodes = checked_add(
         "explicit Symbolica expression nodes",
@@ -193,6 +205,7 @@ pub(super) fn parse_expression_accumulating(
         "explicit Symbolica expression nodes",
         stats.atom_nodes,
         limits.max_atom_nodes,
+        limits.diagnostics_enabled,
     )?;
     stats.maximum_depth = stats.maximum_depth.max(parsed.census.maximum_depth);
     stats.retained_atom_integer_bits = checked_add(
@@ -204,6 +217,7 @@ pub(super) fn parse_expression_accumulating(
         "aggregate explicit Atom integer bits",
         stats.retained_atom_integer_bits,
         limits.max_retained_atom_integer_bits,
+        limits.diagnostics_enabled,
     )?;
     stats.retained_atom_bytes = checked_add(
         "aggregate explicit Atom bytes",
@@ -214,6 +228,7 @@ pub(super) fn parse_expression_accumulating(
         "aggregate explicit Atom bytes",
         stats.retained_atom_bytes,
         limits.max_retained_atom_bytes,
+        limits.diagnostics_enabled,
     )?;
     Ok(parsed.atom)
 }

@@ -116,7 +116,7 @@ impl VerifiedVacuumProductChart {
                     .checked_pow(exponent)
                     .and_then(|power| width.checked_mul(power))
                     .unwrap_or(usize::MAX);
-                if width > limits.max_polynomial_terms {
+                if limits.diagnostics_enabled && width > limits.max_polynomial_terms {
                     return Err(Error::ResourceLimit {
                         resource: "projection expanded terms",
                         requested: width,
@@ -124,7 +124,7 @@ impl VerifiedVacuumProductChart {
                     });
                 }
                 degree = degree.saturating_add(exponent as usize);
-                if degree > limits.max_scalar_product_degree {
+                if limits.diagnostics_enabled && degree > limits.max_scalar_product_degree {
                     return Err(Error::ResourceLimit {
                         resource: "projection numerator degree",
                         requested: degree,
@@ -136,7 +136,7 @@ impl VerifiedVacuumProductChart {
                 }
             }
             expanded_terms = expanded_terms.saturating_add(width);
-            if expanded_terms > limits.max_polynomial_terms {
+            if limits.diagnostics_enabled && expanded_terms > limits.max_polynomial_terms {
                 return Err(Error::ResourceLimit {
                     resource: "projection expanded terms",
                     requested: expanded_terms,
@@ -144,12 +144,12 @@ impl VerifiedVacuumProductChart {
                 });
             }
             numerator += term;
-            census(&numerator, limits.max_input_nodes, limits.max_nesting_depth)?;
+            census(&numerator, limits)?;
         }
         let numerator =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| numerator.expand()))
                 .map_err(|_| Error::ExactAlgebra("native numerator expansion panicked".into()))?;
-        census(&numerator, limits.max_input_nodes, limits.max_nesting_depth)?;
+        census(&numerator, limits)?;
         let input = VacuumTensorProjectionInput {
             numerator,
             dot_head,
@@ -187,7 +187,7 @@ impl VerifiedVacuumProductChart {
             }
             for value in [value.denominator.clone().into(), value] {
                 if seen.insert(value.clone()) {
-                    if conditions.len() >= limits.max_input_terms {
+                    if limits.diagnostics_enabled && conditions.len() >= limits.max_input_terms {
                         return Err(Error::ResourceLimit {
                             resource: "projection conditions",
                             requested: conditions.len().saturating_add(1),
@@ -210,18 +210,8 @@ impl VerifiedVacuumProductChart {
             .iter()
             .chain(lowered.nonzero_conditions())
         {
-            guard_nodes = guard_nodes
-                .checked_add(census(
-                    condition,
-                    limits.max_input_nodes,
-                    limits.max_nesting_depth,
-                )?)
-                .ok_or(Error::ResourceLimit {
-                    resource: "projection guard nodes",
-                    requested: usize::MAX,
-                    limit: limits.max_input_nodes,
-                })?;
-            if guard_nodes > limits.max_input_nodes {
+            guard_nodes = guard_nodes.saturating_add(census(condition, limits)?);
+            if limits.diagnostics_enabled && guard_nodes > limits.max_input_nodes {
                 return Err(Error::ResourceLimit {
                     resource: "projection guard nodes",
                     requested: guard_nodes,
@@ -293,11 +283,14 @@ impl VerifiedVacuumProductChart {
     }
 }
 
-fn census(atom: &Atom, limit: usize, max_depth: usize) -> Result<usize, Error> {
+fn census(atom: &Atom, limits: ScalarNumeratorLimits) -> Result<usize, Error> {
+    let limit = limits.max_input_nodes;
+    let max_depth = limits.max_nesting_depth;
     let mut nodes = 0usize;
     let mut stack = vec![(atom.as_view(), 0usize)];
     while let Some((node, depth)) = stack.pop() {
-        if depth > max_depth {
+        symbolica::utils::resources::checkpoint().map_err(Error::Resources)?;
+        if limits.diagnostics_enabled && depth > max_depth {
             return Err(Error::ResourceLimit {
                 resource: "projection atom depth",
                 requested: depth,
@@ -305,7 +298,7 @@ fn census(atom: &Atom, limit: usize, max_depth: usize) -> Result<usize, Error> {
             });
         }
         nodes = nodes.saturating_add(1);
-        if nodes > limit {
+        if limits.diagnostics_enabled && nodes > limit {
             return Err(Error::ResourceLimit {
                 resource: "projection atom nodes",
                 requested: nodes,

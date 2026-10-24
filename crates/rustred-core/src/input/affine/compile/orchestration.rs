@@ -36,14 +36,18 @@ impl SymbolicaAffineDenominatorCompiler {
             "input expression bytes",
             input_bytes,
             self.limits.max_input_bytes,
+            true,
         )?;
         checked_atom_shape(source, self.limits)?;
-        let fixed_retained_bytes = compiled_retained_byte_bound(input_bytes, 0, 0, 0)?;
-        check_limit(
-            "compiled fixed retained bytes",
-            fixed_retained_bytes,
-            self.limits.max_compiled_retained_bytes,
-        )?;
+        if self.limits.diagnostics_enabled {
+            let fixed_retained_bytes = compiled_retained_byte_bound(input_bytes, 0, 0, 0)?;
+            check_limit(
+                "compiled fixed retained bytes",
+                fixed_retained_bytes,
+                self.limits.max_compiled_retained_bytes,
+                self.limits.diagnostics_enabled,
+            )?;
+        }
 
         let mut evaluator = CheckedEvaluator::new(self);
         let evaluated = evaluator.evaluate(source, true)?;
@@ -52,33 +56,39 @@ impl SymbolicaAffineDenominatorCompiler {
         self.validate_retained_shape(&evaluated)?;
         reject_momentum_denominator(&evaluated, self.base_count())?;
 
-        // Bound the Atom that rational-polynomial conversion will construct
-        // before asking Symbolica to allocate it.
-        let normalized_census = normalized_expression_census(&evaluated)?;
-        check_limit(
-            "normalized expression nodes",
-            normalized_census.nodes,
-            self.limits.max_normalized_expression_nodes,
-        )?;
-        check_limit(
-            "normalized expression integer bits",
-            normalized_census.integer_bits,
-            self.limits.max_normalized_expression_integer_bits,
-        )?;
-        let maximum_symbol_bytes = maximum_combined_symbol_bytes(&self.combined)?;
-        let normalized_render_byte_bound =
-            normalized_expression_render_byte_bound(normalized_census, maximum_symbol_bytes)?;
-        if normalized_render_byte_bound > self.limits.max_normalized_expression_bytes {
-            return Err(
-                SymbolicaAffineDenominatorError::NormalizedExpressionTooLarge {
-                    requested: normalized_render_byte_bound,
-                    limit: self.limits.max_normalized_expression_bytes,
-                },
-            );
+        // Optional diagnostic envelope for the converted Atom. Ordinary work
+        // uses the shared RAM/time policy rather than this size estimate.
+        if self.limits.diagnostics_enabled {
+            let normalized_census = normalized_expression_census(&evaluated)?;
+            check_limit(
+                "normalized expression nodes",
+                normalized_census.nodes,
+                self.limits.max_normalized_expression_nodes,
+                self.limits.diagnostics_enabled,
+            )?;
+            check_limit(
+                "normalized expression integer bits",
+                normalized_census.integer_bits,
+                self.limits.max_normalized_expression_integer_bits,
+                self.limits.diagnostics_enabled,
+            )?;
+            let maximum_symbol_bytes = maximum_combined_symbol_bytes(&self.combined)?;
+            let normalized_render_byte_bound =
+                normalized_expression_render_byte_bound(normalized_census, maximum_symbol_bytes)?;
+            if normalized_render_byte_bound > self.limits.max_normalized_expression_bytes {
+                return Err(
+                    SymbolicaAffineDenominatorError::NormalizedExpressionTooLarge {
+                        requested: normalized_render_byte_bound,
+                        limit: self.limits.max_normalized_expression_bytes,
+                    },
+                );
+            }
         }
         let normalized_expression = evaluated.to_expression();
         let normalized_expression_bytes = normalized_expression.as_view().get_byte_size();
-        if normalized_expression_bytes > self.limits.max_normalized_expression_bytes {
+        if self.limits.diagnostics_enabled
+            && normalized_expression_bytes > self.limits.max_normalized_expression_bytes
+        {
             return Err(
                 SymbolicaAffineDenominatorError::NormalizedExpressionTooLarge {
                     requested: normalized_expression_bytes,
@@ -92,21 +102,29 @@ impl SymbolicaAffineDenominatorCompiler {
             &mut evaluator.work,
             &mut evaluator.projection_work,
         )?;
-        let variable_map_arc_bytes = retained_variable_map_arc_bytes(
-            std::iter::once(affine_denominator.constant())
-                .chain(affine_denominator.coefficients().iter()),
-        )?;
-        let compiled_retained_bytes = compiled_retained_byte_bound(
-            input_bytes,
-            normalized_expression_bytes,
-            projection_stats.projected_retained_bytes,
-            variable_map_arc_bytes,
-        )?;
-        check_limit(
-            "compiled retained bytes",
-            compiled_retained_bytes,
-            self.limits.max_compiled_retained_bytes,
-        )?;
+        if self.limits.diagnostics_enabled {
+            let variable_map_arc_bytes = retained_variable_map_arc_bytes(
+                std::iter::once(affine_denominator.constant())
+                    .chain(affine_denominator.coefficients().iter()),
+            )?;
+            let compiled_retained_bytes = compiled_retained_byte_bound(
+                input_bytes,
+                normalized_expression_bytes,
+                projection_stats.projected_retained_bytes,
+                variable_map_arc_bytes,
+            )?;
+            check_limit(
+                "compiled retained bytes",
+                compiled_retained_bytes,
+                self.limits.max_compiled_retained_bytes,
+                self.limits.diagnostics_enabled,
+            )?;
+        }
+        symbolica::utils::resources::checkpoint().map_err(|error| {
+            SymbolicaAffineDenominatorError::ExactAlgebra(
+                crate::algebra::ExactAlgebraError::Resource(error),
+            )
+        })?;
         Ok(CompiledSymbolicaAffineDenominator {
             source: source.to_owned(),
             normalized_expression,
@@ -125,6 +143,7 @@ impl SymbolicaAffineDenominatorCompiler {
                 "input expression bytes",
                 input_bytes,
                 self.limits.max_input_bytes,
+                true,
             )?;
             checked_atom_shape(source, self.limits)?;
             let mut evaluator = CheckedEvaluator::new(self);

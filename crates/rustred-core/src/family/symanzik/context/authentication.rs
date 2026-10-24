@@ -3,13 +3,14 @@
 use super::FeynmanPolynomialContext;
 use crate::family::symanzik::error::FeynmanPolynomialError;
 use crate::family::symanzik::model::FeynmanPolynomial;
-use crate::family::symanzik::work::check_limit;
+use crate::family::symanzik::work::{check_limit, checkpoint};
 
 impl FeynmanPolynomialContext {
     pub(in crate::family::symanzik) fn authenticate(
         &self,
         polynomial: &FeynmanPolynomial,
     ) -> Result<(), FeynmanPolynomialError> {
+        checkpoint()?;
         if polynomial.context != self.family_fingerprint
             || polynomial.raw.variables().as_ref() != self.variables.as_ref()
             || polynomial.raw.ring() != &self.field
@@ -28,6 +29,7 @@ impl FeynmanPolynomialContext {
             "Feynman polynomial exponent entries",
             expected,
             self.limits.max_exponent_entries,
+            self.limits.diagnostics_enabled,
         )?;
         if polynomial.raw.exponents.len() != expected {
             return Err(FeynmanPolynomialError::MalformedPolynomial {
@@ -43,6 +45,7 @@ impl FeynmanPolynomialContext {
             "Feynman polynomial terms",
             polynomial.raw.nterms(),
             self.limits.max_polynomial_terms,
+            self.limits.diagnostics_enabled,
         )?;
         for (term, coefficient) in polynomial.raw.coefficients.iter().enumerate() {
             self.coefficients
@@ -55,11 +58,11 @@ impl FeynmanPolynomialContext {
         }
         for (term, exponents) in polynomial.raw.exponents_iter().enumerate() {
             for (variable, &exponent) in exponents.iter().enumerate() {
-                if exponent > self.limits.max_parameter_exponent {
+                if exponent > self.limits.parameter_exponent_limit() {
                     return Err(FeynmanPolynomialError::ParameterExponentOverflow {
                         variable,
                         requested: u32::from(exponent),
-                        limit: self.limits.max_parameter_exponent,
+                        limit: self.limits.parameter_exponent_limit(),
                     });
                 }
             }

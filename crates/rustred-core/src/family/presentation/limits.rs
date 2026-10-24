@@ -3,6 +3,8 @@
 /// Aggregate admission limits for one authenticated family presentation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FamilyPresentationLimits {
+    /// Enable optional diagnostic count ceilings; disabled for ordinary execution.
+    pub diagnostics_enabled: bool,
     /// Sum of UTF-8 bytes across denominator IDs and source routing labels.
     pub max_role_and_routing_label_bytes: usize,
     /// Total caller-owned exact coefficients inspected in roles and routing.
@@ -19,11 +21,19 @@ pub struct FamilyPresentationLimits {
 impl Default for FamilyPresentationLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_role_and_routing_label_bytes: 1024 * 1024 * 1024,
             max_coefficient_inputs: 16_000_000,
             max_condition_inputs: 16_000_000,
             max_nonzero_conditions: 16_000_000,
             max_condition_sources: 16_000_000,
         }
+    }
+}
+
+impl FamilyPresentationLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
     }
 }

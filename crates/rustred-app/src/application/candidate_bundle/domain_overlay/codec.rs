@@ -12,8 +12,8 @@ use rustred::solver::{
 };
 
 use super::super::{
-    CandidateBundleLimits, MAX_CANDIDATE_BUNDLE_BYTES,
-    codec::{CollectionBudget, binary_error, rules},
+    CandidateBundleLimits,
+    codec::{CollectionBudget, binary_error, decode_record, rules},
     order,
 };
 use super::CandidateDomainOverlayLoadLimits;
@@ -153,9 +153,8 @@ pub(super) fn read_structure(
     let program = envelope
         .section(SectionTag::PROGRAM)
         .expect("checked section");
-    let config = bincode::config::standard().with_limit::<MAX_CANDIDATE_BUNDLE_BYTES>();
-    let (record, consumed): (DomainRecord, usize) = bincode::decode_from_slice(program, config)
-        .map_err(|e| AppError::schema(format!("invalid partial rules record: {e}")))?;
+    let allowance = limits.bundle_byte_limit();
+    let (record, consumed): (DomainRecord, usize) = decode_record(program, allowance)?;
     if consumed != program.len() {
         return Err(AppError::schema("trailing partial rules structural bytes"));
     }
@@ -163,8 +162,7 @@ pub(super) fn read_structure(
     let bytes = envelope
         .section(SectionTag::FAMILY)
         .expect("checked section");
-    let (family, consumed): (NativeFamilyRecord, usize) = bincode::decode_from_slice(bytes, config)
-        .map_err(|e| AppError::schema(format!("invalid partial native family record: {e}")))?;
+    let (family, consumed): (NativeFamilyRecord, usize) = decode_record(bytes, allowance)?;
     if consumed != bytes.len() {
         return Err(AppError::schema("trailing partial native family bytes"));
     }
@@ -212,11 +210,7 @@ fn validate(record: &DomainRecord, limits: CandidateBundleLimits) -> Result<(), 
             "partial rules need nonempty nominated cases",
         ));
     }
-    if record.family_fingerprint.len() > crate::MAX_INPUT_BYTES {
-        return Err(AppError::limit(
-            "partial family fingerprint exceeds its byte limit",
-        ));
-    }
+    crate::application::validate_ingress(&record.family_fingerprint)?;
     let mut budget = CollectionBudget::new(limits, 1)?;
     budget.admit_rules(&record.rules, 0)?;
     budget.admit_cases(&record.requested_cases)?;
@@ -249,8 +243,11 @@ pub(super) fn load<const N: usize>(
     // Root/order are checked against the actually loaded immutable owner before
     // importing a Symbolica frame; no metadata-only substitute owner is built.
     let search = programs
-        .bind_owner_search(expected_owner, record.policy.native()?)
-        .map_err(|e| AppError::input(e.to_string()))?;
+        .bind_owner_search(
+            expected_owner,
+            record.policy.native(limits.bundle.diagnostics_enabled)?,
+        )
+        .map_err(|e| AppError::from_native(e, crate::AppErrorKind::Input))?;
     if rustred::storage_array::<_, N>(&record.root_sector, false).as_ref()
         != Some(search.owner_root())
         || search.owner_ordering().stable_id().to_string() != record.integral_order
@@ -312,7 +309,7 @@ pub(super) fn load<const N: usize>(
     let solution = SectorDomainSolution {
         order: IntegralOrder::from_persisted_policy(expected_owner, &order)
             .and_then(|order| order.with_physical_arity(physical_arity))
-            .map_err(|e| AppError::input(e.to_string()))?,
+            .map_err(|e| AppError::from_native(e, crate::AppErrorKind::Input))?,
         requested_cases,
         max_numerator_rank: record.max_numerator_rank,
         finite_case_policy: record.finite_case_policy.parse().map_err(AppError::input)?,
@@ -323,11 +320,16 @@ pub(super) fn load<const N: usize>(
     search
         .restore_replayed_residual_free_overlay(
             solution,
-            record.attempt_limits.native(),
+            record
+                .attempt_limits
+                .native(limits.bundle.diagnostics_enabled),
             limits.overlay,
             limits.replay,
         )
         .map_err(|e| {
+            if let Some(resource) = AppError::resource_cause(&e) {
+                return AppError::resource(resource);
+            }
             let message = format!("partial rules cold validation: {e}");
             match e {
                 OwnerFeedbackError::ResourceLimit { .. }

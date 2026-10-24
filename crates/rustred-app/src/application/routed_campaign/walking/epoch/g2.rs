@@ -151,6 +151,7 @@ pub(super) fn inspect<const N: usize>(
             emit,
         ),
         None => inspection::Finished {
+            resource_failure: None,
             stats: inspection::NativeStats::Apply(Default::default()),
             error: None,
             error_kind: "none",

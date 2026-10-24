@@ -1,4 +1,4 @@
-//! Bounded translation of complete, sealed parametric source batches.
+//! Translation of complete, sealed source batches with optional count diagnostics.
 
 mod construction;
 mod error;

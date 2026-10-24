@@ -132,7 +132,15 @@ impl fmt::Display for IspCompletionError {
     }
 }
 
-impl std::error::Error for IspCompletionError {}
+impl std::error::Error for IspCompletionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidInputCoefficient { error, .. } | Self::ExactAlgebra(error) => Some(error),
+            Self::Family(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<ExactAlgebraError> for IspCompletionError {
     fn from(value: ExactAlgebraError) -> Self {

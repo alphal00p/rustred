@@ -24,7 +24,7 @@ fn explicit_work_allowance_is_shared_across_boxes_and_zero_never_calls_native() 
     assert_eq!(cache.budget.remaining, cost - 1);
     assert_eq!(
         cache.contradicts(&second, &[Some(true)]),
-        Err(WorkExhausted)
+        Err(WorkExhausted::Diagnostic)
     );
     assert_eq!(cache.statistics.classification_materializations, 1);
     // An earlier proved cache entry remains reusable after exhaustion.
@@ -33,7 +33,10 @@ fn explicit_work_allowance_is_shared_across_boxes_and_zero_never_calls_native() 
 
     let mut zero = RestrictionCache::with_work_limit(&[false; 2], &atoms, 0);
     assert_eq!(zero.contradicts(&first, &[None]), Ok(false));
-    assert_eq!(zero.contradicts(&first, &[Some(true)]), Err(WorkExhausted));
+    assert_eq!(
+        zero.contradicts(&first, &[Some(true)]),
+        Err(WorkExhausted::Diagnostic)
+    );
     assert_eq!(zero.statistics.classification_materializations, 0);
     assert_eq!(zero.statistics.native_work, 0);
 }
@@ -244,7 +247,10 @@ fn exhausted_work_is_never_cached_as_unknown_or_as_a_proof() {
     let mut cache = RestrictionCache::new(&[false; 2], &atoms);
     cache.budget.remaining = 1;
     for literal in [Some(false), Some(true)] {
-        assert_eq!(cache.contradicts(&cell, &[literal]), Err(WorkExhausted));
+        assert_eq!(
+            cache.contradicts(&cell, &[literal]),
+            Err(WorkExhausted::Diagnostic)
+        );
     }
     assert_eq!(cache.statistics.hits, 0);
     assert_eq!(cache.statistics.native_work, 0);
@@ -275,7 +281,10 @@ fn repeated_native_work_is_measurably_eliminated_without_increasing_its_budget()
     disable_cache(&mut direct);
     direct.budget.remaining = exact_cost;
     assert_eq!(direct.contradicts(&cell, &[Some(true)]), Ok(false));
-    assert_eq!(direct.contradicts(&cell, &[Some(true)]), Err(WorkExhausted));
+    assert_eq!(
+        direct.contradicts(&cell, &[Some(true)]),
+        Err(WorkExhausted::Diagnostic)
+    );
     assert_eq!(direct.statistics.native_work, exact_cost);
     eprintln!(
         "restriction-cache synthetic workload: {:?}",

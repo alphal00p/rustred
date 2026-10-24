@@ -5,12 +5,12 @@ use rustred::solver::CandidateRoutedDeltaExportLimits;
 use serde::{Deserialize, Serialize};
 
 macro_rules! limits_dto {
-    ($name:ident => $native:ty { $($(#[$attr:meta])* $field:ident : $ty:ty),* $(,)? }) => {
+    ($name:ident => $native:ty { $($(#[$attr:meta])* $field:ident : $ty:ty),* $(,)? } $(; $runtime_field:ident : $runtime_value:expr)?) => {
         #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
         #[serde(deny_unknown_fields)]
         pub(crate) struct $name { $( $(#[$attr])* pub(crate) $field: $ty, )* }
         impl From<$name> for $native {
-            fn from(v: $name) -> Self { Self { $( $field: v.$field.into(), )* } }
+            fn from(v: $name) -> Self { Self { $( $runtime_field: $runtime_value, )? $( $field: v.$field.into(), )* } }
         }
     };
 }
@@ -47,6 +47,8 @@ limits_dto!(RawLimits => storage::RawCensusLimits {
     #[serde(with = "nullable_u64")] max_merge_read_bytes: u64,
     max_decode_transient_bytes: usize,
 });
+// The required finite-authoring policy opts in at conversion. The runtime flag
+// is deliberately absent from its serialized numeric policy schema.
 limits_dto!(StoreLimits => storage::StorageLimits {
     raw: RawLimits,
     #[serde(with = "nullable_usize")] max_arity: usize,
@@ -66,7 +68,7 @@ limits_dto!(StoreLimits => storage::StorageLimits {
     #[serde(with = "nullable_usize")] max_lookup_pages: usize,
     #[serde(with = "nullable_u64")] max_lookup_bytes: u64,
     #[serde(with = "nullable_usize")] max_transient_bytes: usize,
-});
+}; diagnostics_enabled: true);
 limits_dto!(ExportLimits => CandidateRoutedDeltaExportLimits {
     #[serde(with = "nullable_usize")] max_records: usize,
     #[serde(with = "nullable_usize")] max_live_payload_bytes: usize,

@@ -96,7 +96,7 @@ fn captured_fg115_small_coefficient_proves_whole_exclusion_before_dense_factor_w
         &piece,
         &sector,
         Some(&target),
-        Default::default(),
+        RuleCellLimits::default().with_diagnostics(),
         &mut Work::default(),
     )
     .unwrap_err();
@@ -139,7 +139,7 @@ fn captured_fg115_small_coefficient_proves_whole_exclusion_before_dense_factor_w
     assert!(check_capture(&context, FG115, &sector, &piece, &target, &[incomplete]).is_err());
 
     let chart = target.prepare_restriction().unwrap();
-    let mut limited = RuleCellLimits::default();
+    let mut limited = RuleCellLimits::default().with_diagnostics();
     limited.guard_algebra.max_input_terms = guard.raw().nterms() - 1;
     assert!(
         validate_guard_on_domain_with_limits(
@@ -153,7 +153,7 @@ fn captured_fg115_small_coefficient_proves_whole_exclusion_before_dense_factor_w
         )
         .is_err()
     );
-    limited = RuleCellLimits::default();
+    limited = RuleCellLimits::default().with_diagnostics();
     limited.guard_algebra.max_gcd_factor_work = 0;
     assert!(
         validate_guard_on_domain_with_limits(
@@ -194,7 +194,7 @@ fn cheap_coefficient_scheduling_is_generic_and_admits_all_exclusion_siblings() {
         // equation cannot be dropped just because the first one is implied.
         let extra = exact_domain(&context, &[false; 3], [None; 3], &["n0-n1", "n2+1"]);
         assert!(check(&context, &guard, &piece, None, &[extra], Default::default()).is_err());
-        let mut limits = RuleCellLimits::default();
+        let mut limits = RuleCellLimits::default().with_diagnostics();
         limits.guard_algebra.max_coefficient_equations = 1;
         assert!(check(&context, &guard, &piece, None, &[exclusion.clone()], limits).is_err());
         // A late foreign-index binding is admitted before any cheap success.
@@ -451,7 +451,7 @@ fn factor_work_and_guard_work_remain_shared_and_context_authenticated() {
             &coefficient,
             &[],
             &domain,
-            Default::default(),
+            RuleCellLimits::default().with_diagnostics(),
             &mut work,
             &mut factor_work
         )
@@ -459,7 +459,7 @@ fn factor_work_and_guard_work_remain_shared_and_context_authenticated() {
         super::super::factors::Consequence::Affine(_)
     ));
     assert!(factor_work > 0 && work.operations > 0);
-    let mut limits = RuleCellLimits::default();
+    let mut limits = RuleCellLimits::default().with_diagnostics();
     limits.guard_algebra.max_gcd_factor_work = factor_work;
     assert!(
         super::super::factors::classify(
@@ -473,7 +473,7 @@ fn factor_work_and_guard_work_remain_shared_and_context_authenticated() {
         )
         .is_err()
     );
-    limits = RuleCellLimits::default();
+    limits = RuleCellLimits::default().with_diagnostics();
     limits.guard_algebra.max_exact_hyperplane_replay_work = work.operations;
     assert!(
         super::super::factors::classify(
@@ -494,7 +494,7 @@ fn factor_work_and_guard_work_remain_shared_and_context_authenticated() {
             &coefficient,
             &[],
             &domain,
-            Default::default(),
+            RuleCellLimits::default().with_diagnostics(),
             &mut Work::default(),
             &mut exhausted_factor_work
         )
@@ -532,7 +532,7 @@ fn derived_rows_share_the_original_equation_quota_before_retention() {
         .unwrap();
     assert_eq!(system.equations().len(), 2);
     let mut consequences = Vec::new();
-    let mut limits = RuleCellLimits::default();
+    let mut limits = RuleCellLimits::default().with_diagnostics();
     limits.guard_algebra.max_coefficient_equations = 2;
     assert!(
         super::super::conjunction::retain_consequence(

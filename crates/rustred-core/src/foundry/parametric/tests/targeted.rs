@@ -589,7 +589,7 @@ fn sector_monotone_sunset_resource_boundaries_are_preflighted() {
         )
     };
     let exact = ParametricRuleLimits {
-        // Prepared interior + monotone box + five same-sector cells, each
+        diagnostics_enabled: true, // Prepared interior + monotone box + five same-sector cells, each
         // retaining two endpoints for three coordinates.
         max_domain_bound_endpoint_cells: 42,
         max_sector_monotone_thresholds: 4,
@@ -599,6 +599,7 @@ fn sector_monotone_sunset_resource_boundaries_are_preflighted() {
 
     assert_eq!(
         derive(ParametricRuleLimits {
+            diagnostics_enabled: true,
             max_domain_bound_endpoint_cells: 41,
             ..exact
         }),
@@ -610,6 +611,7 @@ fn sector_monotone_sunset_resource_boundaries_are_preflighted() {
     );
     assert_eq!(
         derive(ParametricRuleLimits {
+            diagnostics_enabled: true,
             max_sector_monotone_thresholds: 3,
             ..exact
         }),
@@ -680,6 +682,7 @@ fn targeted_parametric_back_substitution_budgets_have_exact_boundaries() {
     let (_, context, relations, _) = tadpole_sources();
     let defaults = ParametricRuleLimits::default();
     let exact = ParametricRuleLimits {
+        diagnostics_enabled: true,
         max_back_substitution_output_nonzero_entries: 3,
         max_back_substitution_live_nonzero_entries: 10,
         ..defaults
@@ -702,6 +705,7 @@ fn targeted_parametric_back_substitution_budgets_have_exact_boundaries() {
             &[1],
             OrderingPolicy::default(),
             ParametricRuleLimits {
+                diagnostics_enabled: true,
                 max_back_substitution_output_nonzero_entries: 2,
                 ..exact
             },
@@ -720,6 +724,7 @@ fn targeted_parametric_back_substitution_budgets_have_exact_boundaries() {
             &[1],
             OrderingPolicy::default(),
             ParametricRuleLimits {
+                diagnostics_enabled: true,
                 max_back_substitution_live_nonzero_entries: 9,
                 ..exact
             },

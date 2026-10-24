@@ -49,9 +49,7 @@ impl SavedApplicationCachePack {
         expected: &ApplicationCacheBinding,
         limits: SavedApplicationCachePackLimits,
     ) -> Result<Self, AppError> {
-        if limits.max_manifest_bytes > index::MAX_FRAME {
-            return Err(fail("manifest allowance exceeds bounded frame"));
-        }
+        resource_checkpoint()?;
         let bytes =
             index::read_bounded(&directory.join(index::MANIFEST), limits.max_manifest_bytes)?;
         let (manifest, statistics) = index::decode(&bytes, expected, limits)?;
@@ -181,6 +179,7 @@ impl SavedApplicationCachePack {
             .map_err(fail)?;
         let mut work = LookupWork::default();
         for (run_index, run) in self.manifest.runs.iter().enumerate().rev() {
+            resource_checkpoint()?;
             self.statistics.runs_probed = self.statistics.runs_probed.saturating_add(1);
             let offset = run.partition_point(|chunk| chunk.last < *key);
             let Some(chunk) = run.get(offset).filter(|chunk| chunk.first <= *key) else {
@@ -245,7 +244,7 @@ impl SavedApplicationCachePack {
             drop(bytes);
             let decoded =
                 ApplicationCacheChunk::inspect(&payload, &self.manifest.binding, self.limits.chunk)
-                    .map_err(fail)?;
+                    .map_err(binary_error)?;
             if decoded.len() != chunk.records
                 || decoded.first_key() != Some(&chunk.first)
                 || decoded.last_key() != Some(&chunk.last)
@@ -259,7 +258,7 @@ impl SavedApplicationCachePack {
                     ));
                 }
             }
-            let record = decoded.decode_record(key, context).map_err(fail)?;
+            let record = decoded.decode_record(key, context).map_err(binary_error)?;
             // Only a fully checked read can install an exact absence proof.
             // The slot denotes the immutable descriptor in this reader's
             // authenticated binding; a changed snapshot clears all slots.
@@ -270,7 +269,7 @@ impl SavedApplicationCachePack {
                     slot,
                     decoded.keys(),
                     self.limits.max_directory_owned_bytes - directory_bytes,
-                );
+                )?;
             }
             self.statistics.directory_owned_bytes = directory_bytes + self.key_index.owned_bytes();
             if let Some(record) = record {
@@ -278,6 +277,7 @@ impl SavedApplicationCachePack {
                 return Ok(SavedApplicationCacheLookupOutcome::Hit(record));
             }
         }
+        resource_checkpoint()?;
         self.statistics.misses = self.statistics.misses.saturating_add(1);
         Ok(SavedApplicationCacheLookupOutcome::Absent)
     }
@@ -317,9 +317,11 @@ impl LookupWork {
             .checked_add(chunk.decoded_bytes)
             .and_then(|n| n.checked_add(1))
             .ok_or_else(overflow)?;
-        if chunks > limits.max_lookup_chunks
-            || encoded > limits.max_lookup_encoded_bytes
-            || decoded > limits.max_lookup_decoded_bytes
+        resource_checkpoint()?;
+        if limits.diagnostics_enabled
+            && (chunks > limits.max_lookup_chunks
+                || encoded > limits.max_lookup_encoded_bytes
+                || decoded > limits.max_lookup_decoded_bytes)
         {
             return Ok(false);
         }

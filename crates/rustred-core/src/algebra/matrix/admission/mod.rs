@@ -8,8 +8,8 @@ mod session;
 mod shape;
 
 pub(super) use bounds::{
-    check_limit, checked_add, checked_mul, determinant_operation_bound, inverse_operation_bound,
-    product_operation_bound, square_representation_bounds,
+    check_limit, checked_add, checked_mul, checkpoint, determinant_operation_bound,
+    inverse_operation_bound, product_operation_bound, square_representation_bounds,
 };
 pub(super) use input::{coefficient_retained_bytes, matrix_from_rows};
 pub(crate) use limits::{

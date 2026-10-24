@@ -97,6 +97,7 @@ impl CandidateArtifact {
             "total_coefficients":self.coefficients.len(),
             "collection_entries":self.collection_entries,
             "transport_limits":{"bundle_max_bytes":self.limits.max_bundle_bytes,
+                "bundle_diagnostics_enabled":self.limits.diagnostics_enabled,
                 "bundle_max_entries":self.limits.max_collection_entries,
                 "bundle_max_coefficient_bytes":self.limits.max_coefficient_bytes,
                 "bundle_max_total_coefficient_bytes":self.limits.max_total_coefficient_bytes},

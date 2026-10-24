@@ -9,6 +9,7 @@ mod certify;
 mod checkpoint;
 mod circuit_replay;
 mod codec;
+pub(super) use codec::decode_record;
 mod domain_overlay;
 mod generate;
 mod inspection;

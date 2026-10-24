@@ -58,6 +58,7 @@ fn persisted_filters_skip_more_than_eight_overlaps_without_spending_a_read_grant
     // This is the failed three-loop preparation pattern: a fresh reader must
     // skip broad range-only candidates, not first warm an exact-key side index.
     let limits = SavedApplicationCachePackLimits {
+        diagnostics_enabled: true,
         max_lookup_chunks: 1,
         ..Default::default()
     };

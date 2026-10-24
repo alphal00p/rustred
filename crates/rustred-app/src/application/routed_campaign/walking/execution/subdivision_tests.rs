@@ -38,6 +38,7 @@ fn setup() -> (State<1>, OwnerDomainWalkRequest) {
 }
 fn finish(optional: usize) -> Finished {
     Finished {
+        resource_failure: None,
         stats: NativeStats::Apply(rustred::solver::OwnerAppliedStats {
             events: optional,
             optional_coefficient_refusals: optional,

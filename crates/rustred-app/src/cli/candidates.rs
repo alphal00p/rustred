@@ -239,9 +239,13 @@ pub(super) fn certify(arguments: CertifyCandidatesArgs) -> Result<(), CliError> 
     if let Some(report) = &arguments.report_output {
         preflight_output_destination(report, arguments.force)?;
     }
-    // This helper is bounded binary I/O only; it does not interpret the
-    // candidate payload as a closed artifact or bypass its separate decoder.
-    let mut request = CandidateCertificationRequest::new(read_artifact(&arguments.input)?);
+    // Byte admission follows the candidate caller policy; the payload retains
+    // its separate native decoder and does not become a closed artifact.
+    let limits = crate::CandidateBundleLimits::default();
+    let mut request = CandidateCertificationRequest::new(read_artifact(
+        &arguments.input,
+        limits.bundle_byte_limit(),
+    )?);
     request.publication_limits = arguments.resources.publication_limits();
     request.max_negative_index_degree = arguments.max_negative_index_degree;
     request.max_total_excess_degree = arguments.max_total_excess_degree;

@@ -5,11 +5,11 @@ use rustred::foundry::artifact::{SourcePortAudit, SourcePortAuditError};
 use rustred::identity::ParametricIbpGenerator;
 use serde::Serialize;
 
+use crate::application::AppError;
 use crate::application::family_close::progress::{
     FamilyCloseProgress, Observer, emit, installation_event,
 };
 use crate::application::resource_policy::ResourcePolicyOutput;
-use crate::application::{AppError, MAX_CLOSING_ARTIFACT_BYTES};
 
 use super::{codec, model::*, preparation};
 
@@ -110,11 +110,11 @@ fn certify<const N: usize>(
     observe: Observer<'_>,
 ) -> Result<CandidateCertificationResult, AppError> {
     SourcePortAudit::<N>::validate_install_family(&family)
-        .map_err(|error| AppError::input(error.to_string()))?;
+        .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Input))?;
     let prepared =
         preparation::prepare::<N>(family, &bundle.root_sector, bundle.permutation.as_deref())?;
     let context = ParametricIbpGenerator::try_new(&prepared.family)
-        .map_err(|e| AppError::execution(e.to_string()))?
+        .map_err(|e| AppError::from_native(e, crate::AppErrorKind::Execution))?
         .context()
         .clone();
     let prepared_at = started.elapsed();
@@ -167,12 +167,7 @@ fn certify<const N: usize>(
     });
     let bytes = artifact
         .encode_durable()
-        .map_err(|e| AppError::serialization(e.to_string()))?;
-    if bytes.len() > MAX_CLOSING_ARTIFACT_BYTES {
-        return Err(AppError::output_limit(
-            "certified artifact exceeds application byte ceiling",
-        ));
-    }
+        .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Serialization))?;
     let elapsed = started.elapsed();
     emit(observe, || FamilyCloseProgress::Encoded {
         bytes: bytes.len(),
@@ -226,14 +221,7 @@ fn certify<const N: usize>(
         certification_us: (certified_at - reconstructed_at).as_micros(),
         artifact_encoding_us: (elapsed - certified_at).as_micros(),
         total_us: elapsed.as_micros(),
-        publication_resources: ResourcePolicyOutput::new(
-            request
-                .publication_limits
-                .rule_derivation
-                .max_domain_bound_endpoint_cells,
-            request.publication_limits.max_predicate_consistency_work,
-            request.publication_limits.max_predicate_atoms,
-        ),
+        publication_resources: ResourcePolicyOutput::from(request.publication_limits),
     };
     Ok(CandidateCertificationResult {
         artifact: bytes,
@@ -243,6 +231,9 @@ fn certify<const N: usize>(
 }
 
 fn publication_error(error: SourcePortAuditError) -> AppError {
+    if let Some(resource) = AppError::resource_cause(&error) {
+        return AppError::resource(resource);
+    }
     match error {
         SourcePortAuditError::ResourceBudgetExhausted { .. }
         | SourcePortAuditError::UnsupportedResourcePolicy { .. } => {

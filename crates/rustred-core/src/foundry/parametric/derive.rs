@@ -174,6 +174,7 @@ fn build_rule(
         witness_ordering_keys,
     )?;
     check_cell_limit(
+        limits.diagnostics_enabled,
         "live parametric ordering-key coordinate cells",
         live_ordering_keys,
         context.index_count(),
@@ -198,6 +199,7 @@ fn build_rule(
             endpoints_per_domain,
         )?;
         check_limit(
+            limits.diagnostics_enabled,
             "live sector-monotone domain bound endpoint cells",
             live_domain_endpoints,
             limits.max_domain_bound_endpoint_cells,
@@ -433,6 +435,7 @@ impl<'context> GuardCollector<'context> {
             }
             self.origins = checked_add("parametric rule guard origins", self.origins, 1)?;
             check_limit(
+                self.limits.diagnostics_enabled,
                 "parametric rule guard origins",
                 self.origins,
                 self.limits.max_guard_origins,
@@ -448,12 +451,14 @@ impl<'context> GuardCollector<'context> {
         }
         let requested = checked_add("parametric rule nonzero guards", self.guards.len(), 1)?;
         check_limit(
+            self.limits.diagnostics_enabled,
             "parametric rule nonzero guards",
             requested,
             self.limits.max_rule_guards,
         )?;
         self.origins = checked_add("parametric rule guard origins", self.origins, 1)?;
         check_limit(
+            self.limits.diagnostics_enabled,
             "parametric rule guard origins",
             self.origins,
             self.limits.max_guard_origins,

@@ -371,7 +371,12 @@ pub(super) fn validate_coefficient(
     family
         .coefficient_context()
         .validate_with_limits(coefficient, family.limits.exact_algebra)
-        .map_err(|error| FamilyPresentationError::InvalidCoefficient { location, error })
+        .map_err(|error| match error {
+            error @ crate::algebra::ExactAlgebraError::Resource(_) => {
+                FamilyPresentationError::ExactAlgebra(error)
+            }
+            error => FamilyPresentationError::InvalidCoefficient { location, error },
+        })
 }
 
 pub(super) fn coefficients_equal(

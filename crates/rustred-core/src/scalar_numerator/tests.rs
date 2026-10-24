@@ -367,6 +367,7 @@ fn scalar_degree_limit_is_explicit_not_a_rank_specialization() {
         head,
         vec![loop_momentum.clone()],
         ScalarNumeratorLimits {
+            diagnostics_enabled: true,
             max_scalar_product_degree: 3,
             ..ScalarNumeratorLimits::default()
         },
@@ -393,6 +394,7 @@ fn symbolica_exponent_domain_is_an_unconditional_boundary() {
         head,
         vec![loop_momentum.clone()],
         ScalarNumeratorLimits {
+            diagnostics_enabled: true,
             max_scalar_product_degree: usize::MAX,
             ..ScalarNumeratorLimits::default()
         },
@@ -417,6 +419,7 @@ fn momentum_labels_and_exact_comparisons_are_bounded() {
             head,
             vec![loop_momentum.clone()],
             ScalarNumeratorLimits {
+                diagnostics_enabled: true,
                 max_momentum_label_nodes: 0,
                 ..ScalarNumeratorLimits::default()
             },
@@ -433,6 +436,7 @@ fn momentum_labels_and_exact_comparisons_are_bounded() {
         head,
         vec![loop_momentum],
         ScalarNumeratorLimits {
+            diagnostics_enabled: true,
             max_loop_momentum_label_checks: 0,
             ..ScalarNumeratorLimits::default()
         },
@@ -444,6 +448,72 @@ fn momentum_labels_and_exact_comparisons_are_bounded() {
             resource: "loop-momentum exact subtree checks",
             requested: 1,
             limit: 0,
+        })
+    ));
+}
+
+#[test]
+fn scalar_count_caps_are_explicit_diagnostics() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let head = dot_head();
+    let momentum = symbol("optional_diagnostic_k").to_atom();
+    let numerator = dot(head, momentum.clone(), momentum.clone()).pow(2);
+    let limits = ScalarNumeratorLimits {
+        max_input_nodes: 1,
+        max_scalar_product_degree: 1,
+        max_polynomial_terms: 1,
+        ..Default::default()
+    };
+    let base = IntegralKey::try_new([3]).unwrap();
+    let ordinary =
+        ScalarNumeratorService::try_new(&artifact, head, vec![momentum.clone()], limits).unwrap();
+    assert_eq!(ordinary.lower(&numerator, &base).unwrap().terms().len(), 3);
+    let diagnostic =
+        ScalarNumeratorService::try_new(&artifact, head, vec![momentum], limits.with_diagnostics())
+            .unwrap();
+    assert!(matches!(
+        diagnostic.lower(&numerator, &base),
+        Err(ScalarNumeratorError::ResourceLimit { .. })
+    ));
+}
+
+#[test]
+fn deep_scalar_syntax_uses_explicit_stacks_with_diagnostics_off() {
+    use super::syntax::{
+        ExactComparisonBudget, census_atom, contains_exact_atom, contains_head,
+        validate_scalar_syntax,
+    };
+    let head = dot_head();
+    let function = symbol("deep_scalar_function");
+    let parameter = symbol("deep_scalar_parameter").to_atom();
+    let mut numerator = parameter.clone();
+    for _ in 0..2048 {
+        numerator = FunctionBuilder::new(function).add_arg(numerator).finish();
+    }
+    let limits = ScalarNumeratorLimits {
+        max_nesting_depth: 16,
+        ..Default::default()
+    };
+    assert_eq!(
+        census_atom(numerator.as_view(), "deep scalar nodes", 1, limits).unwrap(),
+        2049
+    );
+    let mut comparisons = ExactComparisonBudget::new(1, false);
+    validate_scalar_syntax(numerator.as_view(), head, &[], &mut comparisons).unwrap();
+    assert!(
+        contains_exact_atom(numerator.as_view(), parameter.as_view(), &mut comparisons).unwrap()
+    );
+    assert!(!contains_head(numerator.as_view(), head).unwrap());
+    assert!(matches!(
+        census_atom(
+            numerator.as_view(),
+            "deep scalar nodes",
+            usize::MAX,
+            limits.with_diagnostics()
+        ),
+        Err(ScalarNumeratorError::ResourceLimit {
+            resource: "scalar-numerator Atom nesting depth",
+            ..
         })
     ));
 }

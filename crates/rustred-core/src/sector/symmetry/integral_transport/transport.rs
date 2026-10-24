@@ -84,11 +84,13 @@ impl Prepared {
             "transport source axes",
             arity,
             limits.max_endpoint_power_entries,
+            limits.diagnostics_enabled,
         )?;
         admit(
             "transport target axes",
             target_arity,
             limits.max_endpoint_power_entries,
+            limits.diagnostics_enabled,
         )?;
         let mut count = 0usize;
         let mut rank = 0u64;
@@ -105,7 +107,12 @@ impl Prepared {
                     .ok_or_else(|| overflow("transport numerator rank"))?;
             }
         }
-        admit("transport factors", count, limits.max_factors)?;
+        admit(
+            "transport factors",
+            count,
+            limits.max_factors,
+            limits.diagnostics_enabled,
+        )?;
         let entries = count
             .checked_mul(target_arity)
             .ok_or_else(|| overflow("transport relation entries"))?;
@@ -113,8 +120,9 @@ impl Prepared {
             "transport relation entries",
             entries,
             limits.max_relation_coefficient_entries,
+            limits.diagnostics_enabled,
         )?;
-        if rank > limits.max_total_power {
+        if limits.diagnostics_enabled && rank > limits.max_total_power {
             return Err(ExpansionError::ResourceLimit {
                 resource: "transport numerator rank",
                 requested: usize::try_from(rank).unwrap_or(usize::MAX),

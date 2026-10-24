@@ -23,6 +23,7 @@ pub(super) fn configure_saved_resources(
     use rustred::solver::RoutedCandidateLimits;
 
     request.reduction_limits = ReductionLimits {
+        diagnostics_enabled: false,
         exact_algebra: ExactAlgebraLimits::unbounded_resources(),
         indexed_algebra: IndexedAlgebraLimits::unbounded_resources(),
         max_rule_applications: usize::MAX,
@@ -34,6 +35,7 @@ pub(super) fn configure_saved_resources(
         max_factorization_terms: usize::MAX,
     };
     request.trace_limits = RoutedCandidateLimits {
+        diagnostics_enabled: false,
         max_input_targets: usize::MAX,
         max_unique_nodes: usize::MAX,
         max_transport_calls: usize::MAX,

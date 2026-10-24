@@ -32,6 +32,7 @@ impl<'a> ReplayAlgebra<'a> {
             "retained matrix entries",
             self.stats.matrix_entries,
             self.limits.max_matrix_entries,
+            self.limits.diagnostics_enabled,
         )
     }
 
@@ -42,12 +43,19 @@ impl<'a> ReplayAlgebra<'a> {
             "exact operations",
             self.stats.exact_operations,
             self.limits.max_exact_operations,
+            self.limits.diagnostics_enabled,
         )
     }
 
     pub(super) fn remaining_symbolica_limits(
         &self,
     ) -> Result<SymbolicaCoefficientMatrixLimits, Error> {
+        if !self.limits.diagnostics_enabled {
+            return Ok(SymbolicaCoefficientMatrixLimits {
+                exact_algebra: self.limits.exact_algebra,
+                ..SymbolicaCoefficientMatrixLimits::default()
+            });
+        }
         let max_exact_operations = self
             .limits
             .max_exact_operations
@@ -76,6 +84,7 @@ impl<'a> ReplayAlgebra<'a> {
                 limit: self.limits.max_symbolica_output_retained_bytes,
             })?;
         Ok(SymbolicaCoefficientMatrixLimits {
+            diagnostics_enabled: self.limits.diagnostics_enabled,
             exact_algebra: self.limits.exact_algebra,
             max_single_matrix_entries: self.limits.max_symbolica_single_matrix_entries,
             max_live_matrix_entries: self.limits.max_symbolica_live_matrix_entries,
@@ -91,13 +100,18 @@ impl<'a> ReplayAlgebra<'a> {
     ) -> Result<(), Error> {
         let exact_operations = checked_add(
             self.stats.exact_operations,
-            stats.admitted_exact_operations(),
+            if self.limits.diagnostics_enabled {
+                stats.admitted_exact_operations()
+            } else {
+                stats.exact_operations()
+            },
             "exact symmetry operations",
         )?;
         check_limit(
             "exact operations",
             exact_operations,
             self.limits.max_exact_operations,
+            self.limits.diagnostics_enabled,
         )?;
         let symbolica_exact_operations = checked_add(
             self.stats.symbolica_exact_operations,
@@ -118,6 +132,7 @@ impl<'a> ReplayAlgebra<'a> {
             "Symbolica input retained bytes",
             symbolica_input_retained_bytes,
             self.limits.max_symbolica_input_retained_bytes,
+            self.limits.diagnostics_enabled,
         )?;
         let symbolica_output_retained_bytes = checked_add(
             self.stats.symbolica_output_retained_bytes,
@@ -128,6 +143,7 @@ impl<'a> ReplayAlgebra<'a> {
             "Symbolica output retained bytes",
             symbolica_output_retained_bytes,
             self.limits.max_symbolica_output_retained_bytes,
+            self.limits.diagnostics_enabled,
         )?;
         let symbolica_determinant_calls = checked_add(
             self.stats.symbolica_determinant_calls,

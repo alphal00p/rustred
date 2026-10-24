@@ -67,12 +67,14 @@ impl IngressBudget {
             .map_err(|_| AppError::limit("coefficient count exceeds host width"))?;
         // Preserve the complete-checkpoint diagnostics while sharing precisely
         // the same conservative accounting with selected immutable records.
-        charge(
-            &mut self.coefficient_entries,
-            count,
-            self.limits.max_collection_entries,
-            "checkpoint aggregate coefficient-entry budget exceeded",
-        )?;
+        if self.limits.diagnostics_enabled {
+            charge(
+                &mut self.coefficient_entries,
+                count,
+                self.limits.max_collection_entries,
+                "checkpoint aggregate coefficient-entry budget exceeded",
+            )?;
+        }
         charge(
             &mut self.coefficient_bytes,
             table.len(),

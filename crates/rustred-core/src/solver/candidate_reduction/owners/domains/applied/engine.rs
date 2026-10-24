@@ -20,13 +20,20 @@ pub(in crate::solver::candidate_reduction::owners::domains) struct Budget<'a> {
 fn charge(
     value: &mut usize,
     addition: usize,
-    limit: usize,
+    limit: Option<usize>,
     resource: &'static str,
 ) -> Result<(), OwnerAppliedFailure> {
-    let requested = value
-        .checked_add(addition)
-        .ok_or(OwnerAppliedFailure::CountOverflow { resource })?;
-    if requested > limit {
+    symbolica::utils::resources::checkpoint().map_err(OwnerAppliedFailure::Resources)?;
+    let requested = if limit.is_some() {
+        value
+            .checked_add(addition)
+            .ok_or(OwnerAppliedFailure::CountOverflow { resource })?
+    } else {
+        value.saturating_add(addition)
+    };
+    if let Some(limit) = limit
+        && requested > limit
+    {
         return Err(OwnerAppliedFailure::ResourceLimit {
             resource,
             requested,
@@ -38,6 +45,7 @@ fn charge(
 }
 impl Budget<'_> {
     pub fn cancelled(&self) -> Result<(), OwnerAppliedFailure> {
+        symbolica::utils::resources::checkpoint().map_err(OwnerAppliedFailure::Resources)?;
         if self.cancel.load(Ordering::Acquire) {
             Err(OwnerAppliedFailure::Cancelled)
         } else {
@@ -50,7 +58,8 @@ impl Budget<'_> {
         limit: usize,
         resource: &'static str,
     ) -> Result<(), OwnerAppliedFailure> {
-        if requested > limit {
+        symbolica::utils::resources::checkpoint().map_err(OwnerAppliedFailure::Resources)?;
+        if self.limits.diagnostics_enabled && requested > limit {
             Err(OwnerAppliedFailure::ResourceLimit {
                 resource,
                 requested,
@@ -65,7 +74,8 @@ impl Budget<'_> {
         charge(
             &mut self.stats.native_operations,
             1,
-            self.limits.max_native_operations,
+            self.limits
+                .diagnostic_limit(self.limits.max_native_operations),
             "native operations",
         )
     }
@@ -73,7 +83,7 @@ impl Budget<'_> {
         charge(
             &mut self.stats.sign_splits,
             n,
-            self.limits.max_sign_splits,
+            self.limits.diagnostic_limit(self.limits.max_sign_splits),
             "sign splits",
         )
     }
@@ -81,7 +91,7 @@ impl Budget<'_> {
         charge(
             &mut self.stats.boundary_cells,
             1,
-            self.limits.max_boundary_cells,
+            self.limits.diagnostic_limit(self.limits.max_boundary_cells),
             "boundary cells",
         )
     }
@@ -89,7 +99,7 @@ impl Budget<'_> {
         charge(
             &mut self.stats.application_refinement_steps,
             1,
-            usize::MAX,
+            None,
             "application refinement steps",
         )
     }
@@ -97,7 +107,7 @@ impl Budget<'_> {
         charge(
             &mut self.stats.application_refinement_cells,
             1,
-            usize::MAX,
+            None,
             "application refinement cells",
         )
     }
@@ -109,28 +119,43 @@ impl Budget<'_> {
         target: &[bool; N],
         conditional: bool,
     ) -> Result<(), OwnerAppliedFailure> {
-        charge(&mut self.stats.successors, 1, usize::MAX, "successors")?;
+        charge(
+            &mut self.stats.successors,
+            1,
+            self.limits.diagnostic_limit(usize::MAX),
+            "successors",
+        )?;
         // Each component is bounded by the successfully charged total, so these
         // increments cannot overflow and introduce no new failure or allowance.
         if source == target {
-            self.stats.same_support_successors += 1;
+            self.stats.same_support_successors =
+                self.stats.same_support_successors.saturating_add(1);
         } else if target.iter().zip(source).all(|(&t, &s)| !t || s) {
-            self.stats.strict_subsupport_successors += 1;
+            self.stats.strict_subsupport_successors =
+                self.stats.strict_subsupport_successors.saturating_add(1);
         } else {
-            self.stats.unsupported_support_successors += 1;
+            self.stats.unsupported_support_successors =
+                self.stats.unsupported_support_successors.saturating_add(1);
             if conditional {
-                self.stats.conditional_unsupported_support_successors += 1;
+                self.stats.conditional_unsupported_support_successors = self
+                    .stats
+                    .conditional_unsupported_support_successors
+                    .saturating_add(1);
             }
         }
         if conditional {
-            self.stats.conditional_successors += 1;
+            self.stats.conditional_successors = self.stats.conditional_successors.saturating_add(1);
         }
         Ok(())
     }
     /// Commit total/stage counters together, before later event/cancel checks.
     /// Returns whether this is the first refusal of this phase in the query.
     pub(super) fn optional_refusal(&mut self, original: bool) -> Result<bool, OwnerAppliedFailure> {
+        self.cancelled()?;
         let next = |value: usize, resource| {
+            if !self.limits.diagnostics_enabled {
+                return Ok(value.saturating_add(1));
+            }
             value
                 .checked_add(1)
                 .ok_or(OwnerAppliedFailure::CountOverflow { resource })
@@ -171,7 +196,12 @@ impl Budget<'_> {
         event: OwnerAppliedEvent<'_, N>,
     ) -> Result<(), OwnerAppliedFailure> {
         self.cancelled()?;
-        charge(&mut self.stats.events, 1, self.limits.max_events, "events")?;
+        charge(
+            &mut self.stats.events,
+            1,
+            self.limits.diagnostic_limit(self.limits.max_events),
+            "events",
+        )?;
         if visit(event).is_break() {
             Err(OwnerAppliedFailure::StoppedByConsumer)
         } else {
@@ -183,7 +213,7 @@ impl Budget<'_> {
         visit: &mut impl FnMut(OwnerAppliedEvent<'_, N>) -> ControlFlow<()>,
         problem: OwnerAppliedProblem<'_, N>,
     ) -> Result<(), OwnerAppliedFailure> {
-        charge(&mut self.stats.problems, 1, usize::MAX, "problems")?;
+        charge(&mut self.stats.problems, 1, None, "problems")?;
         self.emit(visit, OwnerAppliedEvent::Problem(problem))
     }
 }
@@ -290,7 +320,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         charge(
             &mut budget.stats.selected_pieces,
             1,
-            usize::MAX,
+            None,
             "selected pieces",
         )?;
         budget.check(
@@ -299,11 +329,14 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             "staged term indices",
         )?;
         budget.check(12, budget.limits.max_scratch_boxes, "scratch boxes")?;
-        let coordinates = N
-            .checked_mul(24)
-            .ok_or(OwnerAppliedFailure::CountOverflow {
-                resource: "scratch coordinate cells",
-            })?;
+        let coordinates = if budget.limits.diagnostics_enabled {
+            N.checked_mul(24)
+                .ok_or(OwnerAppliedFailure::CountOverflow {
+                    resource: "scratch coordinate cells",
+                })?
+        } else {
+            N.saturating_mul(24)
+        };
         budget.check(
             coordinates,
             budget.limits.max_scratch_coordinate_cells,
@@ -332,7 +365,9 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             charge(
                 &mut budget.stats.shift_groups,
                 1,
-                budget.limits.max_shift_groups,
+                budget
+                    .limits
+                    .diagnostic_limit(budget.limits.max_shift_groups),
                 "shift groups",
             )?;
             let signs = geometry::sign_cells(&source, piece.owner(), shift, budget)?;
@@ -528,7 +563,9 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             charge(
                 &mut budget.stats.term_visits,
                 1,
-                budget.limits.max_term_visits,
+                budget
+                    .limits
+                    .diagnostic_limit(budget.limits.max_term_visits),
                 "RHS term visits",
             )?;
             budget.native()?;
@@ -551,7 +588,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 visit,
             )?;
             if nonzero == Zero::Yes {
-                budget.stats.zero_terms += 1;
+                budget.stats.zero_terms = budget.stats.zero_terms.saturating_add(1);
                 continue;
             }
             if !valid {
@@ -616,15 +653,25 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                         piece.owner(),
                         self.owners[piece.owner()].ordering.clone(),
                         CompletionGeometryLimits {
+                            diagnostics_enabled: budget.limits.diagnostics_enabled,
+                            max_arity: N,
+                            max_requested_boxes: 1,
+                            max_requested_box_coordinate_cells: N.saturating_mul(2),
                             max_uncovered_boxes: 1,
-                            max_uncovered_box_coordinate_cells: budget
-                                .limits
-                                .max_scratch_coordinate_cells,
+                            max_uncovered_box_coordinate_cells: if budget.limits.diagnostics_enabled
+                            {
+                                budget.limits.max_scratch_coordinate_cells
+                            } else {
+                                N.saturating_mul(2)
+                            },
                             max_split_operations: 0,
                             ..Default::default()
                         },
                         |_, _| Ok(false),
                     ) {
+                        if let Some(resource) = crate::reduction::resource_limit_error(&error) {
+                            return Err(OwnerAppliedFailure::Resources(resource.clone()));
+                        }
                         return budget.problem(
                             visit,
                             problem(
@@ -651,7 +698,8 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 Some(previous) => {
                     singleton_classification = None;
                     budget.native()?;
-                    budget.stats.coalescing_additions += 1;
+                    budget.stats.coalescing_additions =
+                        budget.stats.coalescing_additions.saturating_add(1);
                     context
                         .add_with_limits(&previous, &coefficient, algebra_limits.exact_algebra)
                         .map_err(OwnerAppliedFailure::Algebra)?
@@ -659,7 +707,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             });
         }
         if zero_sector {
-            budget.stats.zero_sector_groups += 1;
+            budget.stats.zero_sector_groups = budget.stats.zero_sector_groups.saturating_add(1);
             return Ok(());
         }
         let Some(coefficient) = sum else {
@@ -684,7 +732,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             )?,
         };
         if nonzero == Zero::Yes {
-            budget.stats.cancelled_groups += 1;
+            budget.stats.cancelled_groups = budget.stats.cancelled_groups.saturating_add(1);
             return Ok(());
         }
         let mut image = match geometry::image(cell, piece.owner(), shift, rank) {

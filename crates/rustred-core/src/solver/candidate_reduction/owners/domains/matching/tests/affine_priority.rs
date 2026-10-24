@@ -22,6 +22,7 @@ fn affine_guard_box_original_positive_sum_skips_impossible_equality_without_refi
         [Some(2); 3],
         Some(2),
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_bounded_refinement_cells: 100,
             ..Default::default()
         },
@@ -59,6 +60,7 @@ fn affine_guard_box_original_rank_zero_sum_needs_no_singleton_and_keeps_positive
         [None; 3],
         Some(0),
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_bounded_refinement_cells: 1,
             ..Default::default()
         },

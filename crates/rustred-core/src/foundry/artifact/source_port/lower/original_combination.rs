@@ -56,11 +56,13 @@ pub(super) fn compile_with_limits(
         ));
     }
     check_limit(
+        limits.diagnostics_enabled,
         "original source rows",
         sources.len(),
         limits.max_source_rows,
     )?;
     check_limit(
+        limits.diagnostics_enabled,
         "original source combination",
         contributions.len(),
         limits.max_source_combination_terms,
@@ -111,6 +113,7 @@ pub(super) fn compile_with_limits(
         }
     }
     check_limit(
+        limits.diagnostics_enabled,
         "original source input terms",
         input_terms,
         limits.max_input_nonzero_entries,
@@ -125,16 +128,19 @@ pub(super) fn compile_with_limits(
         .and_then(|value| value.checked_add(contributions.len()))
         .ok_or_else(|| error("combined replay operation count overflow"))?;
     check_limit(
+        limits.diagnostics_enabled,
         "original replay operations",
         operations,
         limits.max_replay_exact_operations,
     )?;
     check_limit(
+        limits.diagnostics_enabled,
         "original condition provenance",
         condition_sources,
         limits.max_guard_provenance_sources,
     )?;
     check_limit(
+        limits.diagnostics_enabled,
         "original condition provenance coordinate cells",
         provenance_cells,
         limits.max_guard_provenance_index_cells,
@@ -223,6 +229,7 @@ pub(super) fn compile_with_limits(
                     .map_err(error)?;
             } else {
                 check_limit(
+                    limits.diagnostics_enabled,
                     "original physical columns",
                     columns.len() + 1,
                     limits.max_shift_columns,
@@ -231,15 +238,26 @@ pub(super) fn compile_with_limits(
                     .checked_mul(context.index_count())
                     .ok_or_else(|| error("combined coordinate count overflow"))?;
                 check_limit(
+                    limits.diagnostics_enabled,
                     "original physical coordinates",
                     cells,
                     limits.max_index_coordinate_cells,
                 )?;
                 columns.insert(shift.clone(), product);
             }
-            check_limit("original rule guards", guards.len(), limits.max_rule_guards)?;
+            check_limit(
+                limits.diagnostics_enabled,
+                "original rule guards",
+                guards.len(),
+                limits.max_rule_guards,
+            )?;
         }
-        check_limit("original rule guards", guards.len(), limits.max_rule_guards)?;
+        check_limit(
+            limits.diagnostics_enabled,
+            "original rule guards",
+            guards.len(),
+            limits.max_rule_guards,
+        )?;
         normalized.push((ordinal, source.row_id().clone(), weight));
     }
     columns.retain(|_, coefficient| !coefficient.is_zero());
@@ -254,8 +272,14 @@ pub(super) fn compile_with_limits(
     ))
 }
 
-fn check_limit(resource: &str, requested: usize, limit: usize) -> Result<(), SourcePortAuditError> {
-    if requested > limit {
+fn check_limit(
+    diagnostics_enabled: bool,
+    resource: &str,
+    requested: usize,
+    limit: usize,
+) -> Result<(), SourcePortAuditError> {
+    symbolica::utils::resources::checkpoint().map_err(error)?;
+    if diagnostics_enabled && requested > limit {
         Err(error(format!(
             "{resource} budget exceeded: requested {requested}, limit {limit}"
         )))
@@ -268,13 +292,23 @@ pub(super) fn validate_guard_limits(
     guards: &[Guard],
     limits: ParametricRuleLimits,
 ) -> Result<(), SourcePortAuditError> {
-    check_limit("combined rule guards", guards.len(), limits.max_rule_guards)?;
+    check_limit(
+        limits.diagnostics_enabled,
+        "combined rule guards",
+        guards.len(),
+        limits.max_rule_guards,
+    )?;
     let origins = guards.iter().try_fold(0usize, |count, guard| {
         count
             .checked_add(guard.origins.len())
             .ok_or_else(|| error("combined guard origin count overflow"))
     })?;
-    check_limit("combined guard origins", origins, limits.max_guard_origins)
+    check_limit(
+        limits.diagnostics_enabled,
+        "combined guard origins",
+        origins,
+        limits.max_guard_origins,
+    )
 }
 
 pub(super) fn append_guard(

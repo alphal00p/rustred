@@ -134,6 +134,7 @@ fn late_lex_normalization_budget_is_shared_and_failure_retains_full_input() {
             &indices,
             &sector,
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_normalizations: 1,
                 ..Default::default()
             },
@@ -156,6 +157,7 @@ fn late_lex_normalization_budget_is_shared_and_failure_retains_full_input() {
             &indices,
             &sector,
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 1,
                 ..Default::default()
             },
@@ -196,43 +198,58 @@ fn bounded_lex_does_not_turn_an_unsupported_or_sibling_into_success() {
 #[test]
 fn late_lex_structural_admission_counts_support_not_full_context() {
     let context = CoefficientContext::new(["d", "a", "b", "c", "unused"]);
-    assert!(native::lex_eligible(&equations(
-        &context,
-        &["a*b-1", "b*c-a"]
-    )));
-    assert!(!native::lex_eligible(&equations(&context, &["a*b-1"])));
-    assert!(!native::lex_eligible(&equations(
-        &context,
-        &["a*b-1", "c*unused-1"]
-    )));
-    assert!(!native::lex_eligible(&equations(
-        &context,
-        &["a^14+b-1", "a*b-2"]
-    )));
-    assert!(!native::lex_eligible(&equations(
-        &context,
-        &["a^3*b^2-1", "a*b-2"]
-    )));
+    assert!(native::lex_eligible(
+        &equations(&context, &["a*b-1", "b*c-a"]),
+        true
+    ));
+    assert!(!native::lex_eligible(
+        &equations(&context, &["a*b-1"]),
+        true
+    ));
+    assert!(!native::lex_eligible(
+        &equations(&context, &["a*b-1", "c*unused-1"]),
+        true
+    ));
+    assert!(!native::lex_eligible(
+        &equations(&context, &["a^14+b-1", "a*b-2"]),
+        true
+    ));
+    assert!(!native::lex_eligible(
+        &equations(&context, &["a^3*b^2-1", "a*b-2"]),
+        true
+    ));
     let sixteen = "a^4+b^4+c^4+a^3+b^3+c^3+a^2+b^2+c^2+a+b+c+a*b+a*c+b*c+1";
     let allowed = equations(&context, &[sixteen; 8]);
     assert_eq!(allowed.iter().map(|p| p.nterms()).sum::<usize>(), 128);
-    assert!(native::lex_eligible(&allowed));
+    assert!(native::lex_eligible(&allowed, true));
     let mut too_many_terms = allowed.clone();
     too_many_terms[0] = equations(&context, &[&format!("{sixteen}+a*b*c")]).remove(0);
-    assert!(!native::lex_eligible(&too_many_terms));
-    assert!(!native::lex_eligible(&equations(&context, &["a*b-1"; 9])));
-    assert!(native::lex_eligible(&equations(
-        &context,
-        &["170141183460469231731687303715884105728*a+b", "a*b-1"]
-    )));
-    assert!(!native::lex_eligible(&equations(
-        &context,
-        &["340282366920938463463374607431768211456*a+b", "a*b-1"]
-    )));
-    assert!(!native::lex_eligible(&equations(
-        &context,
-        &["-340282366920938463463374607431768211456*a+b", "a*b-1"]
-    )));
+    assert!(!native::lex_eligible(&too_many_terms, true));
+    assert!(!native::lex_eligible(
+        &equations(&context, &["a*b-1"; 9]),
+        true
+    ));
+    assert!(native::lex_eligible(
+        &equations(
+            &context,
+            &["170141183460469231731687303715884105728*a+b", "a*b-1"]
+        ),
+        true
+    ));
+    assert!(!native::lex_eligible(
+        &equations(
+            &context,
+            &["340282366920938463463374607431768211456*a+b", "a*b-1"]
+        ),
+        true
+    ));
+    assert!(!native::lex_eligible(
+        &equations(
+            &context,
+            &["-340282366920938463463374607431768211456*a+b", "a*b-1"]
+        ),
+        true
+    ));
 }
 
 #[test]

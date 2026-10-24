@@ -35,6 +35,7 @@ impl fmt::Display for ExactAlgebraOperation {
 /// successful native result is authenticated before it leaves the boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExactAlgebraError {
+    Resource(symbolica::utils::resources::ResourceLimitError),
     VariableMapMismatch {
         part: CoefficientPolynomialPart,
     },
@@ -87,6 +88,7 @@ pub enum ExactAlgebraError {
 impl fmt::Display for ExactAlgebraError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resource(error) => error.fmt(formatter),
             Self::VariableMapMismatch { part } => {
                 write!(formatter, "coefficient {part} uses a foreign variable map")
             }
@@ -155,7 +157,14 @@ impl fmt::Display for ExactAlgebraError {
     }
 }
 
-impl std::error::Error for ExactAlgebraError {}
+impl std::error::Error for ExactAlgebraError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resource(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 /// Typed failures produced before constructing a Symbolica polynomial map.
 #[derive(Clone, Debug, PartialEq, Eq)]

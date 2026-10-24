@@ -126,7 +126,7 @@ impl TerminalProductCharts {
                     ..limits
                 },
             )
-            .map_err(failure)?;
+            .map_err(native_failure)?;
             merge_work(&mut prepared.statistics.work, plan.statistics())?;
             for chart in plan.charts().values() {
                 for component in chart.components() {

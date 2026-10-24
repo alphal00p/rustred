@@ -53,6 +53,7 @@ fn early_impossible_literal_avoids_late_only_boolean_explosion_for_the_same_cove
         affine_exclusions: &[],
     }));
     let limits = PredicateCoverLimits {
+        diagnostics_enabled: true,
         max_boolean_nodes: 4,
         ..Default::default()
     };

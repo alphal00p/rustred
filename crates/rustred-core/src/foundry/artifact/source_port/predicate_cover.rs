@@ -18,6 +18,7 @@
 //! remain unresolved and cause conservative incompleteness.
 
 use std::{fmt, sync::Arc};
+use symbolica::utils::resources::{self, ResourceLimitError};
 
 use crate::algebra::CoefficientPolynomial;
 use crate::foundry::completion::{
@@ -48,9 +49,23 @@ impl<'a> TraversalWork<'a> {
     }
 
     fn with_work_limit(sector: &'a [bool], atoms: &'a [Atom<'a>], max_work: usize) -> Self {
+        Self::with_policy(sector, atoms, max_work, true)
+    }
+
+    fn with_policy(
+        sector: &'a [bool],
+        atoms: &'a [Atom<'a>],
+        max_work: usize,
+        diagnostics: bool,
+    ) -> Self {
         Self {
             nodes: 0,
-            consistency: consistency::RestrictionCache::with_work_limit(sector, atoms, max_work),
+            consistency: consistency::RestrictionCache::with_policy(
+                sector,
+                atoms,
+                max_work,
+                diagnostics,
+            ),
             required_domain: None,
             required_degree: None,
             scoped_geometry: scope::GeometryWork::default(),
@@ -69,6 +84,7 @@ pub(in crate::foundry::artifact) struct PredicateCoveragePiece<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub(in crate::foundry::artifact) struct PredicateCoverLimits {
+    pub(in crate::foundry::artifact) diagnostics_enabled: bool,
     pub(in crate::foundry::artifact) geometry: CompletionGeometryLimits,
     pub(in crate::foundry::artifact) max_predicates: usize,
     pub(in crate::foundry::artifact) max_clauses: usize,
@@ -79,12 +95,22 @@ pub(in crate::foundry::artifact) struct PredicateCoverLimits {
 impl Default for PredicateCoverLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             geometry: CompletionGeometryLimits::default(),
             max_predicates: super::DEFAULT_PREDICATE_ATOMS,
             max_clauses: 65_536,
             max_boolean_nodes: 65_536,
             max_consistency_work: super::DEFAULT_PREDICATE_CONSISTENCY_WORK,
         }
+    }
+}
+
+#[cfg(test)]
+impl PredicateCoverLimits {
+    fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.geometry = self.geometry.with_diagnostics();
+        self
     }
 }
 
@@ -97,6 +123,7 @@ pub(in crate::foundry::artifact) struct PredicateCoverCertificate {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::foundry::artifact) enum PredicateCoverError {
+    Resources(ResourceLimitError),
     InvalidDomain(&'static str),
     Budget(&'static str),
     Geometry(String),
@@ -112,6 +139,7 @@ pub(in crate::foundry::artifact) enum PredicateCoverError {
 impl fmt::Display for PredicateCoverError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(f),
             Self::InvalidDomain(detail) => write!(f, "invalid predicate-cover domain: {detail}"),
             Self::Budget(resource) => write!(f, "predicate-cover budget exhausted: {resource}"),
             Self::Geometry(detail) => write!(f, "predicate-cover geometry: {detail}"),
@@ -127,7 +155,19 @@ impl fmt::Display for PredicateCoverError {
     }
 }
 
-impl std::error::Error for PredicateCoverError {}
+impl std::error::Error for PredicateCoverError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+impl From<ResourceLimitError> for PredicateCoverError {
+    fn from(error: ResourceLimitError) -> Self {
+        Self::Resources(error)
+    }
+}
 
 struct Atom<'a> {
     indices: &'a [usize],
@@ -229,14 +269,17 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover_up_to_degree_with_ar
     {
         return Err(PredicateCoverError::InvalidDomain("physical arity"));
     }
-    if sector.is_empty() || sector.len() > limits.geometry.max_arity {
+    if sector.is_empty()
+        || (limits.geometry.diagnostics_enabled && sector.len() > limits.geometry.max_arity)
+    {
         return Err(PredicateCoverError::InvalidDomain("sector arity"));
     }
-    if limits.geometry.max_requested_boxes == 0
-        || sector
-            .len()
-            .checked_mul(2)
-            .is_none_or(|count| count > limits.geometry.max_requested_box_coordinate_cells)
+    if limits.geometry.diagnostics_enabled
+        && (limits.geometry.max_requested_boxes == 0
+            || sector
+                .len()
+                .checked_mul(2)
+                .is_none_or(|count| count > limits.geometry.max_requested_box_coordinate_cells))
     {
         return Err(PredicateCoverError::Budget("degree coverage hull"));
     }
@@ -270,12 +313,10 @@ fn certify_predicate_cover_impl(
     required_degree: Option<EntryDegreeBound>,
     limits: PredicateCoverLimits,
 ) -> Result<PredicateCoverCertificate, PredicateCoverError> {
-    if limits.max_predicates > super::SourcePortLimits::MAX_PREDICATE_ATOMS {
-        return Err(PredicateCoverError::Budget(
-            "supported predicate atom policy",
-        ));
-    }
-    if sector.is_empty() || sector.len() > limits.geometry.max_arity {
+    resources::checkpoint()?;
+    if sector.is_empty()
+        || (limits.geometry.diagnostics_enabled && sector.len() > limits.geometry.max_arity)
+    {
         return Err(PredicateCoverError::InvalidDomain("sector arity"));
     }
     let required = required
@@ -285,6 +326,7 @@ fn certify_predicate_cover_impl(
     let mut constraints = Vec::new();
     let mut clauses = Vec::new();
     for owner in owners {
+        resources::checkpoint()?;
         let target = owner
             .affine_target
             .map(|domain| prepare_predicate(domain, sector, &mut atoms, &mut constraints, limits))
@@ -341,7 +383,12 @@ fn certify_predicate_cover_impl(
         )?;
     }
     let mut assignments = vec![None; atoms.len()];
-    let mut work = TraversalWork::with_work_limit(sector, &atoms, limits.max_consistency_work);
+    let mut work = TraversalWork::with_policy(
+        sector,
+        &atoms,
+        limits.max_consistency_work,
+        limits.diagnostics_enabled,
+    );
     work.required_degree = required_degree;
     let result = (|| {
         if let Some(required) = &required {
@@ -416,13 +463,14 @@ fn prepare_predicate<'a>(
     let face = LatticeBox::try_new(lower, upper).map_err(geometry)?;
     let mut required = Vec::new();
     for equation in domain.equations() {
+        resources::checkpoint()?;
         let atom = if let Some(index) = atoms
             .iter()
             .position(|atom| atom.indices == domain.indices() && atom.equation == equation)
         {
             index
         } else {
-            if atoms.len() >= limits.max_predicates {
+            if limits.diagnostics_enabled && atoms.len() >= limits.max_predicates {
                 return Err(PredicateCoverError::Budget("predicate atoms"));
             }
             atoms.push(Atom {
@@ -486,10 +534,56 @@ fn check_valuations(
     work: &mut TraversalWork<'_>,
     limits: PredicateCoverLimits,
 ) -> Result<(), PredicateCoverError> {
-    if work.nodes >= limits.max_boolean_nodes {
+    let mut frames = Vec::<(usize, bool)>::new();
+    loop {
+        if let Some(atom) = check_valuation(
+            sector,
+            atoms,
+            clauses,
+            constraints,
+            assignments,
+            work,
+            limits,
+        )? {
+            resources::check_allocation(std::mem::size_of::<(usize, bool)>() as u64)?;
+            frames
+                .try_reserve(1)
+                .map_err(|_| PredicateCoverError::Budget("Boolean traversal allocation"))?;
+            frames.push((atom, false));
+            assignments[atom] = Some(false);
+            continue;
+        }
+        loop {
+            match frames.pop() {
+                Some((atom, false)) => {
+                    frames.push((atom, true));
+                    assignments[atom] = Some(true);
+                    break;
+                }
+                Some((atom, true)) => assignments[atom] = None,
+                None => return Ok(()),
+            }
+        }
+    }
+}
+
+fn check_valuation(
+    sector: &[bool],
+    atoms: &[Atom<'_>],
+    clauses: &[Clause],
+    constraints: &[EqualityConstraint<'_>],
+    assignments: &mut [Option<bool>],
+    work: &mut TraversalWork<'_>,
+    limits: PredicateCoverLimits,
+) -> Result<Option<usize>, PredicateCoverError> {
+    resources::checkpoint()?;
+    if limits.diagnostics_enabled && work.nodes >= limits.max_boolean_nodes {
         return Err(PredicateCoverError::Budget("Boolean partition nodes"));
     }
-    work.nodes += 1;
+    work.nodes = work
+        .nodes
+        .checked_add(1)
+        .ok_or(PredicateCoverError::Budget("Boolean node count overflow"))?;
     let mut definite = Vec::new();
     let mut next_atom = None;
     for clause in clauses {
@@ -538,17 +632,29 @@ fn check_valuations(
         } else {
             piece
         };
-        if constraints.iter().any(|constraint| {
-            // All equalities AND the fixed face must hold before the
-            // authenticated domain's emptiness service applies. An equation
-            // being false, or merely intersecting the face, proves nothing.
-            constraint
+        let mut proved_empty = false;
+        for constraint in constraints {
+            // Every required equality and the full coordinate face must hold.
+            if constraint
                 .atoms
                 .iter()
                 .all(|&atom| assignments[atom] == Some(true))
                 && contains_box(&constraint.face, feasibility_box)
-                && constraint.domain.is_proved_empty_in_box(feasibility_box)
-        }) {
+                && constraint
+                    .domain
+                    .is_proved_empty_in_box(feasibility_box)
+                    .map_err(
+                        |error| match crate::reduction::resource_limit_error(&error) {
+                            Some(resource) => PredicateCoverError::Resources(resource.clone()),
+                            None => PredicateCoverError::Geometry(error.to_string()),
+                        },
+                    )?
+            {
+                proved_empty = true;
+                break;
+            }
+        }
+        if proved_empty {
             continue;
         }
         // Assigned literals already constrain the entire current branch.
@@ -557,13 +663,18 @@ fn check_valuations(
         if !work
             .consistency
             .contradicts(feasibility_box, assignments)
-            .map_err(|_| PredicateCoverError::Budget("native affine literal consistency"))?
+            .map_err(|error| match error {
+                consistency::WorkExhausted::Resources(error) => {
+                    PredicateCoverError::Resources(error)
+                }
+                _ => PredicateCoverError::Budget("native affine literal consistency"),
+            })?
         {
             possible.push(piece);
         }
     }
     if possible.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     let Some(atom) = next_atom else {
         return Err(PredicateCoverError::Uncovered {
@@ -578,28 +689,7 @@ fn check_valuations(
             ),
         });
     };
-    assignments[atom] = Some(false);
-    check_valuations(
-        sector,
-        atoms,
-        clauses,
-        constraints,
-        assignments,
-        work,
-        limits,
-    )?;
-    assignments[atom] = Some(true);
-    check_valuations(
-        sector,
-        atoms,
-        clauses,
-        constraints,
-        assignments,
-        work,
-        limits,
-    )?;
-    assignments[atom] = None;
-    Ok(())
+    Ok(Some(atom))
 }
 
 fn push_clause(
@@ -607,9 +697,10 @@ fn push_clause(
     clause: Clause,
     limits: PredicateCoverLimits,
 ) -> Result<(), PredicateCoverError> {
-    if output.len() >= limits.max_clauses {
+    if limits.diagnostics_enabled && output.len() >= limits.max_clauses {
         return Err(PredicateCoverError::Budget("owner clauses"));
     }
+    resources::checkpoint()?;
     output.push(clause);
     Ok(())
 }
@@ -673,6 +764,7 @@ fn contains_box(outer: &LatticeBox, inner: &LatticeBox) -> bool {
 
 fn geometry(error: CompletionGeometryError) -> PredicateCoverError {
     match error {
+        CompletionGeometryError::Resources(error) => PredicateCoverError::Resources(error),
         CompletionGeometryError::ResourceLimit { resource, .. }
         | CompletionGeometryError::ResourceCountOverflow { resource }
         | CompletionGeometryError::AllocationFailure { resource, .. } => {

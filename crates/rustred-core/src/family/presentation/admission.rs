@@ -31,6 +31,7 @@ pub(super) fn preflight_presentation_inputs(
         "presentation role and routing label bytes",
         label_bytes,
         limits.max_role_and_routing_label_bytes,
+        limits.diagnostics_enabled,
     )?;
 
     let mut coefficients = 0usize;
@@ -62,6 +63,7 @@ pub(super) fn preflight_presentation_inputs(
         "presentation coefficient inputs",
         coefficients,
         limits.max_coefficient_inputs,
+        limits.diagnostics_enabled,
     )?;
 
     let mut condition_inputs = coefficients;
@@ -75,6 +77,7 @@ pub(super) fn preflight_presentation_inputs(
         "presentation condition inputs",
         condition_inputs,
         limits.max_condition_inputs,
+        limits.diagnostics_enabled,
     )
 }
 
@@ -82,8 +85,12 @@ pub(super) fn check_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), FamilyPresentationError> {
-    if requested > limit {
+    symbolica::utils::resources::checkpoint().map_err(|error| {
+        FamilyPresentationError::ExactAlgebra(crate::algebra::ExactAlgebraError::Resource(error))
+    })?;
+    if diagnostics_enabled && requested > limit {
         Err(FamilyPresentationError::ResourceLimit {
             resource,
             requested,

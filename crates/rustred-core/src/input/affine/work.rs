@@ -59,16 +59,19 @@ impl ProjectionAllocationBudget {
             "aggregate projection groups",
             self.groups,
             limits.max_projection_groups,
+            limits.diagnostics_enabled,
         )?;
         check_limit(
             "aggregate projection denominator replication terms",
             self.denominator_replication_terms,
             limits.max_projection_denominator_replication_terms,
+            limits.diagnostics_enabled,
         )?;
         check_limit(
             "aggregate projection Gram operations",
             self.gram_operations,
             limits.max_projection_gram_operations,
+            limits.diagnostics_enabled,
         )
     }
 
@@ -98,21 +101,25 @@ impl ProjectionAllocationBudget {
             resource,
             self.polynomial_terms,
             limits.max_projected_polynomial_terms,
+            limits.diagnostics_enabled,
         )?;
         check_limit(
             "aggregate projected exponent entries",
             self.exponent_entries,
             limits.max_projected_exponent_entries,
+            limits.diagnostics_enabled,
         )?;
         check_limit(
             "aggregate projected integer bits",
             self.integer_bits,
             limits.max_projected_integer_bits,
+            limits.diagnostics_enabled,
         )?;
         check_limit(
             "aggregate projected retained bytes",
             self.retained_bytes,
             limits.max_projected_retained_bytes,
+            limits.diagnostics_enabled,
         )
     }
 }

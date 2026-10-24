@@ -55,8 +55,9 @@ fn native_field_power_preflights_u64_exponents_before_symbolica() {
 fn native_field_power_caps_constant_exponents_and_linear_work() {
     let context = CoefficientContext::new(Vec::<String>::new());
     let strict = SymbolicaCoefficientMatrixLimits {
+        diagnostics_enabled: true,
         max_exact_operations: 2,
-        ..SymbolicaCoefficientMatrixLimits::default()
+        ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
     };
     let field = CheckedCoefficientField::new(&context, strict, 1, 1, 2);
     let value = call_native("constant coefficient power", || {
@@ -94,8 +95,9 @@ fn native_field_power_caps_constant_exponents_and_linear_work() {
     let native_cap = CheckedCoefficientField::new(
         &context,
         SymbolicaCoefficientMatrixLimits {
+            diagnostics_enabled: true,
             max_exact_operations: usize::MAX,
-            ..SymbolicaCoefficientMatrixLimits::default()
+            ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
         },
         1,
         1,
@@ -117,14 +119,16 @@ fn native_field_power_enforces_conservative_term_work_before_symbolica() {
     let context = CoefficientContext::new(["x", "y"]);
     let base = context.coefficient_fixture("x+y");
     let exact = ExactAlgebraLimits {
+        diagnostics_enabled: true,
         max_term_operations: 36,
         ..ExactAlgebraLimits::default()
     };
     let field = CheckedCoefficientField::new(
         &context,
         SymbolicaCoefficientMatrixLimits {
+            diagnostics_enabled: true,
             exact_algebra: exact,
-            ..SymbolicaCoefficientMatrixLimits::default()
+            ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
         },
         1,
         1,
@@ -145,11 +149,13 @@ fn native_field_power_enforces_conservative_term_work_before_symbolica() {
     let rejected = CheckedCoefficientField::new(
         &context,
         SymbolicaCoefficientMatrixLimits {
+            diagnostics_enabled: true,
             exact_algebra: ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_term_operations: 35,
                 ..ExactAlgebraLimits::default()
             },
-            ..SymbolicaCoefficientMatrixLimits::default()
+            ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
         },
         1,
         1,
@@ -176,7 +182,7 @@ fn native_field_power_enforces_output_retained_bytes() {
     let base = context.integer(2);
     let baseline = CheckedCoefficientField::new(
         &context,
-        SymbolicaCoefficientMatrixLimits::default(),
+        SymbolicaCoefficientMatrixLimits::default().with_diagnostics(),
         1,
         1,
         64,
@@ -201,8 +207,9 @@ fn native_field_power_enforces_output_retained_bytes() {
     let rejected = CheckedCoefficientField::new(
         &context,
         SymbolicaCoefficientMatrixLimits {
+            diagnostics_enabled: true,
             max_output_retained_bytes: output_bytes - 1,
-            ..SymbolicaCoefficientMatrixLimits::default()
+            ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
         },
         1,
         1,
@@ -228,7 +235,7 @@ fn native_field_power_handles_zero_and_rational_coefficients() {
 
     let zero_to_zero = CheckedCoefficientField::new(
         &context,
-        SymbolicaCoefficientMatrixLimits::default(),
+        SymbolicaCoefficientMatrixLimits::default().with_diagnostics(),
         1,
         1,
         0,
@@ -244,7 +251,7 @@ fn native_field_power_handles_zero_and_rational_coefficients() {
 
     let zero_to_positive = CheckedCoefficientField::new(
         &context,
-        SymbolicaCoefficientMatrixLimits::default(),
+        SymbolicaCoefficientMatrixLimits::default().with_diagnostics(),
         1,
         1,
         3,
@@ -261,7 +268,7 @@ fn native_field_power_handles_zero_and_rational_coefficients() {
     let rational = context.coefficient_fixture("(x+y)/(1-x)");
     let rational_field = CheckedCoefficientField::new(
         &context,
-        SymbolicaCoefficientMatrixLimits::default(),
+        SymbolicaCoefficientMatrixLimits::default().with_diagnostics(),
         1,
         1,
         3,

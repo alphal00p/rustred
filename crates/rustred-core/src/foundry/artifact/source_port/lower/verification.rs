@@ -51,7 +51,7 @@ impl PreparedOriginalDomain {
         retained_conditions: Vec<IndexedPolynomial>,
         limits: ReplayLimits,
     ) -> Result<Self, SourcePortAuditError> {
-        if affine_exclusions.len() > limits.cell.max_guards {
+        if limits.cell.diagnostics_enabled && affine_exclusions.len() > limits.cell.max_guards {
             return Err(error(
                 "original parent exclusions exceed their guard budget",
             ));
@@ -91,11 +91,13 @@ impl PreparedOriginalDomain {
         }
         if !matches!(sources.construction(), SourceViewConstruction::Direct)
             || sources.context_fingerprint() != context.fingerprint()
-            || sources.len() > limits.cell.max_source_views
+            || (limits.cell.diagnostics_enabled && sources.len() > limits.cell.max_source_views)
             || contributions.is_empty()
-            || contributions.len() > limits.rule.max_source_combination_terms
-            || fixed.len() > limits.cell.max_fixed_restrictions
-            || retained_conditions.len() > limits.cell.max_guards
+            || (limits.rule.diagnostics_enabled
+                && contributions.len() > limits.rule.max_source_combination_terms)
+            || (limits.cell.diagnostics_enabled && fixed.len() > limits.cell.max_fixed_restrictions)
+            || (limits.cell.diagnostics_enabled
+                && retained_conditions.len() > limits.cell.max_guards)
         {
             return Err(error(
                 "original parent has incompatible source/context/shape or exceeds its input budget",
@@ -155,7 +157,7 @@ impl PreparedOriginalDomain {
                 restricted,
                 ParametricGuardOrigin::OriginalDomainCondition { condition_ordinal },
             )?;
-            if original.guards.len() > limits.cell.max_guards {
+            if limits.cell.diagnostics_enabled && original.guards.len() > limits.cell.max_guards {
                 return Err(error(
                     "original parent conditions exceed their guard budget",
                 ));
@@ -184,7 +186,8 @@ impl PreparedOriginalDomain {
         sector: &[bool],
     ) -> Result<bool, SourcePortAuditError> {
         if sector.len() != piece.arity()
-            || piece.arity() > self.limits.geometry.max_arity
+            || (self.limits.geometry.diagnostics_enabled
+                && piece.arity() > self.limits.geometry.max_arity)
             || self
                 .affine
                 .iter()
@@ -198,7 +201,10 @@ impl PreparedOriginalDomain {
         let rectangular_proof = self
             .affine
             .as_ref()
-            .is_some_and(|domain| domain.is_proved_empty_in_box(piece))
+            .map(|domain| domain.is_proved_empty_in_box(piece))
+            .transpose()
+            .map_err(error)?
+            .unwrap_or(false)
             || self
                 .affine_exclusions
                 .iter()
@@ -280,7 +286,9 @@ impl PreparedOriginalDomain {
         piece: &LatticeBox,
     ) -> Result<Vec<(usize, i64)>, SourcePortAuditError> {
         let arity = context.index_count();
-        if sector.len() != arity || piece.arity() != arity || arity > self.limits.geometry.max_arity
+        if sector.len() != arity
+            || piece.arity() != arity
+            || (self.limits.geometry.diagnostics_enabled && arity > self.limits.geometry.max_arity)
         {
             return Err(error(
                 "original-domain proof has incompatible sector/box arity",
@@ -346,7 +354,8 @@ impl PreparedOriginalDomain {
         }
         if context.fingerprint() != self.sources.context_fingerprint()
             || rhs.is_empty()
-            || rhs.len() > self.limits.cell.max_retained_terms
+            || (self.limits.cell.diagnostics_enabled
+                && rhs.len() > self.limits.cell.max_retained_terms)
         {
             return Err(error(
                 "original cell RHS/context is invalid or exceeds its budget",
@@ -374,7 +383,7 @@ impl PreparedOriginalDomain {
             )?;
             retained.push((shift, coefficient));
         }
-        if guards.len() > self.limits.cell.max_guards {
+        if self.limits.cell.diagnostics_enabled && guards.len() > self.limits.cell.max_guards {
             return Err(error(
                 "original cell regenerated conditions exceed their guard budget",
             ));
@@ -466,7 +475,8 @@ fn preflight_cell_storage(
     limits: ParametricRuleLimits,
 ) -> Result<(), SourcePortAuditError> {
     let check = |resource: &str, requested: usize, limit: usize| {
-        if requested > limit {
+        symbolica::utils::resources::checkpoint().map_err(SourcePortAuditError::Resources)?;
+        if limits.diagnostics_enabled && requested > limit {
             Err(error(format!(
                 "{resource} budget exceeded: requested {requested}, limit {limit}"
             )))

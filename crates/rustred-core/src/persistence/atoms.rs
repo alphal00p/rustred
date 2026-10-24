@@ -87,12 +87,13 @@ impl CoefficientTableBuilder {
     }
 
     pub fn intern(&mut self, coefficient: &Coefficient) -> Result<CoefficientId, BinaryIoError> {
+        super::resource_checkpoint()?;
         validate_coefficient_on_map(
             coefficient,
             coefficient.numerator.variables(),
             self.limits.exact_algebra,
         )
-        .map_err(|error| BinaryIoError::Native(error.to_string()))?;
+        .map_err(super::native_error)?;
         let mut atom = Atom::new();
         // Unlike Atom::num, to_num retains the RP variant and its map for zero.
         atom.to_num(NativeCoefficient::RationalPolynomial(coefficient.clone()));
@@ -108,7 +109,7 @@ impl CoefficientTableBuilder {
         }
 
         let count = checked_add(self.atoms.len(), 1)?;
-        check_limit(
+        self.limits.check_count(
             "coefficient table entries",
             count,
             self.limits.max_collection_entries,
@@ -129,6 +130,10 @@ impl CoefficientTableBuilder {
             total,
             self.limits.max_total_atom_bytes,
         )?;
+        super::resource_array::<Atom>(1)?;
+        super::resource_array::<(u64, Vec<CoefficientId>)>(1)?;
+        super::resource_array::<Arc<Vec<PolyVariable>>>(1)?;
+        super::resource_array::<CoefficientId>(1)?;
         self.atoms
             .try_reserve(1)
             .map_err(|_| BinaryIoError::Allocation {
@@ -176,6 +181,7 @@ impl CoefficientTableBuilder {
         // The retained variable maps provide this metadata without doing that
         // work once more for every unique coefficient.
         for variables in &self.variable_maps {
+            super::resource_checkpoint()?;
             for variable in variables.iter() {
                 match variable {
                     PolyVariable::Symbol(symbol) => {
@@ -193,8 +199,7 @@ impl CoefficientTableBuilder {
             }
         }
         let mut state = CappedWriter::new("Symbolica state bytes", self.limits.max_state_bytes);
-        State::export_partial(&mut state, symbols)
-            .map_err(|error| BinaryIoError::Native(error.to_string()))?;
+        State::export_partial(&mut state, symbols).map_err(super::native_io_error)?;
         let state = state.finish();
         check_limit(
             "coefficient program bytes",
@@ -210,7 +215,7 @@ impl CoefficientTableBuilder {
             write_length(&mut atoms, frame_bytes)?;
             let written =
                 bincode::encode_into_std_write(atom, &mut atoms, bincode::config::standard())
-                    .map_err(|error| BinaryIoError::Native(error.to_string()))?;
+                    .map_err(super::native_encode_error)?;
             if written != frame_bytes {
                 return Err(BinaryIoError::Invalid(
                     "native atom encoding length changed",
@@ -278,7 +283,7 @@ impl DecodedCoefficientTable {
         )?;
         let mut source = atoms;
         let count = read_length(&mut source)?;
-        check_limit(
+        limits.check_count(
             "coefficient table entries",
             count,
             limits.max_collection_entries,
@@ -294,17 +299,18 @@ impl DecodedCoefficientTable {
         }
 
         preflight_state_export(state)?;
+        super::resource_allocation(state.len())?;
         let state_map = catch_unwind(AssertUnwindSafe(|| {
-            let mut source = state;
-            let map = State::import(&mut source, None)
-                .map_err(|error| BinaryIoError::Native(error.to_string()))?;
-            if !source.is_empty() {
+            let mut source = super::structure::ResourceReader::new(state);
+            let map = State::import(&mut source, None).map_err(super::native_io_error)?;
+            if source.remaining() != 0 {
                 return Err(BinaryIoError::Invalid("trailing Symbolica state bytes"));
             }
             Ok(map)
         }))
         .map_err(|_| BinaryIoError::Native("native Symbolica state import panicked".into()))??;
         let mut coefficients = Vec::new();
+        super::resource_array::<Coefficient>(count)?;
         coefficients
             .try_reserve_exact(count)
             .map_err(|_| BinaryIoError::Allocation {
@@ -345,13 +351,14 @@ pub(super) fn decode_generated_frame(
     limits: BinaryIoLimits,
     normalize_unique: bool,
 ) -> Result<Coefficient, BinaryIoError> {
+    super::resource_allocation(frame.len())?;
     catch_unwind(AssertUnwindSafe(|| {
         let (atom, consumed): (Atom, usize) = bincode::decode_from_slice_with_context(
             frame,
             bincode::config::standard(),
             BorrowedStateMap(state_map),
         )
-        .map_err(|error| BinaryIoError::Native(error.to_string()))?;
+        .map_err(super::native_error)?;
         if consumed != frame.len() {
             return Err(BinaryIoError::Invalid("trailing native atom bytes"));
         }
@@ -364,6 +371,7 @@ pub(super) fn decode_generated_frame(
             ));
         };
         let coefficient = packed.deserialize();
+        super::resource_checkpoint()?;
         validate_coefficient_on_map(
             &coefficient,
             coefficient.numerator.variables(),
@@ -382,7 +390,7 @@ pub(super) fn decode_generated_frame(
                 normalized.numerator.variables(),
                 limits.exact_algebra,
             )
-            .map_err(|error| BinaryIoError::Native(error.to_string()))?;
+            .map_err(super::native_error)?;
             Ok(normalized)
         } else {
             Ok(coefficient)

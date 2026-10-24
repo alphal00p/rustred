@@ -182,6 +182,7 @@ fn applied_singleton_classification_respects_actual_work_event_caps_and_cancella
     let c = p.context.coefficient_context().clone();
     batch(&mut p).rules = vec![rule(0, vec![term(&c, [-1, 0, 0], c.integer(2))])];
     let limits = OwnerAppliedLimits {
+        diagnostics_enabled: true,
         max_native_operations: 2,
         max_events: 3,
         ..Default::default()
@@ -202,6 +203,7 @@ fn applied_singleton_classification_respects_actual_work_event_caps_and_cancella
     for (limits, expected) in [
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_native_operations: 1,
                 ..limits
             },
@@ -209,6 +211,7 @@ fn applied_singleton_classification_respects_actual_work_event_caps_and_cancella
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_events: 2,
                 ..limits
             },

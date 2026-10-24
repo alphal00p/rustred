@@ -51,7 +51,7 @@ impl LazyDecodedCoefficientTable {
         )?;
         let mut source = &atoms[..];
         let count = read_length(&mut source)?;
-        check_limit(
+        limits.check_count(
             "coefficient table entries",
             count,
             limits.max_collection_entries,
@@ -59,7 +59,16 @@ impl LazyDecodedCoefficientTable {
         if count > 0 {
             CoefficientId::try_from_index(count - 1)?;
         }
+        if count
+            > source.len()
+                / (super::native::LENGTH_BYTES + super::native::NATIVE_ATOM_HEADER_BYTES + 1)
+        {
+            return Err(BinaryIoError::Invalid(
+                "coefficient count exceeds remaining framing",
+            ));
+        }
         let mut frames = Vec::new();
+        super::resource_array::<Range<usize>>(count)?;
         frames
             .try_reserve_exact(count)
             .map_err(|_| BinaryIoError::Allocation {
@@ -99,6 +108,14 @@ impl LazyDecodedCoefficientTable {
     pub fn is_empty(&self) -> bool {
         self.frames.is_empty()
     }
+    pub(crate) fn index_owned_bytes(&self) -> Result<usize, BinaryIoError> {
+        self.frames
+            .capacity()
+            .checked_mul(std::mem::size_of::<Range<usize>>())
+            .ok_or(BinaryIoError::Invalid(
+                "coefficient frame index size overflow",
+            ))
+    }
     pub fn decoded_count(&self) -> Result<usize, BinaryIoError> {
         Ok(self
             .imported
@@ -131,12 +148,12 @@ impl LazyDecodedCoefficientTable {
             return Ok(value.clone());
         }
         if imported.state.is_none() {
+            super::resource_allocation(self.state.len())?;
             imported.state = Some(
                 catch_unwind(AssertUnwindSafe(|| {
-                    let mut source = &self.state[..];
-                    let map = State::import(&mut source, None)
-                        .map_err(|e| BinaryIoError::Native(e.to_string()))?;
-                    if !source.is_empty() {
+                    let mut source = super::structure::ResourceReader::new(&self.state);
+                    let map = State::import(&mut source, None).map_err(super::native_io_error)?;
+                    if source.remaining() != 0 {
                         return Err(BinaryIoError::Invalid("trailing Symbolica state bytes"));
                     }
                     Ok(map)
@@ -153,6 +170,7 @@ impl LazyDecodedCoefficientTable {
             false,
         )?);
         admit(&value)?;
+        super::resource_array::<(usize, Arc<Coefficient>)>(1)?;
         imported.coefficients.insert(id.index(), value.clone());
         Ok(value)
     }

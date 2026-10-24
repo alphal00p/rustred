@@ -7,7 +7,9 @@ use crate::algebra::Coefficient;
 use super::FeynmanPolynomialContext;
 use crate::family::symanzik::error::FeynmanPolynomialError;
 use crate::family::symanzik::model::FeynmanPolynomial;
-use crate::family::symanzik::work::{FeynmanWorkBudget, check_limit, checked_add, checked_mul};
+use crate::family::symanzik::work::{
+    FeynmanWorkBudget, check_limit, checkpoint, estimated_add, estimated_mul,
+};
 
 impl FeynmanPolynomialContext {
     pub(in crate::family::symanzik) fn add(
@@ -17,6 +19,7 @@ impl FeynmanPolynomialContext {
         work: &mut FeynmanWorkBudget,
     ) -> Result<FeynmanPolynomial, FeynmanPolynomialError> {
         self.admit_sum(left, right, work)?;
+        checkpoint()?;
         let raw = catch_unwind(AssertUnwindSafe(|| left.raw() + right.raw()))
             .map_err(|_| FeynmanPolynomialError::SymbolicaPanic)?;
         self.rebind_native_result(raw)
@@ -29,6 +32,7 @@ impl FeynmanPolynomialContext {
         work: &mut FeynmanWorkBudget,
     ) -> Result<FeynmanPolynomial, FeynmanPolynomialError> {
         self.admit_sum(left, right, work)?;
+        checkpoint()?;
         let raw = catch_unwind(AssertUnwindSafe(|| left.raw() - right.raw()))
             .map_err(|_| FeynmanPolynomialError::SymbolicaPanic)?;
         self.rebind_native_result(raw)
@@ -42,20 +46,23 @@ impl FeynmanPolynomialContext {
     ) -> Result<(), FeynmanPolynomialError> {
         self.authenticate(left)?;
         self.authenticate(right)?;
-        let term_slots = checked_add(
+        let term_slots = estimated_add(
             left.raw.nterms(),
             right.raw.nterms(),
             "prospective Symbolica polynomial sum terms",
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "prospective Symbolica polynomial sum terms",
             term_slots,
             self.limits.max_polynomial_terms,
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "Feynman polynomial additions",
             term_slots,
             self.limits.max_term_operations,
+            self.limits.diagnostics_enabled,
         )?;
         work.charge_term_operations(term_slots)?;
         self.check_exponent_entries(
@@ -77,21 +84,29 @@ impl FeynmanPolynomialContext {
             return Ok(self.zero());
         }
 
-        let products = checked_mul(
+        let products = estimated_mul(
             left.raw.nterms(),
             right.raw.nterms(),
             "prospective Symbolica polynomial term products",
+            self.limits.diagnostics_enabled,
         )?;
         check_limit(
             "prospective Symbolica polynomial product terms",
             products,
             self.limits.max_polynomial_terms,
+            self.limits.diagnostics_enabled,
         )?;
-        let operations = checked_mul(products, 2, "Feynman polynomial term operations")?;
+        let operations = estimated_mul(
+            products,
+            2,
+            "Feynman polynomial term operations",
+            self.limits.diagnostics_enabled,
+        )?;
         check_limit(
             "Feynman polynomial term operations",
             operations,
             self.limits.max_term_operations,
+            self.limits.diagnostics_enabled,
         )?;
         work.charge_term_operations(operations)?;
         self.check_exponent_entries(
@@ -104,6 +119,7 @@ impl FeynmanPolynomialContext {
         // coefficient-ring intermediates are not exposed for per-step census;
         // authenticated inputs and the prospective outer-ring bounds above
         // therefore precede the call, and the retained result is checked below.
+        checkpoint()?;
         let raw = catch_unwind(AssertUnwindSafe(|| left.raw() * right.raw()))
             .map_err(|_| FeynmanPolynomialError::SymbolicaPanic)?;
         self.rebind_native_result(raw)
@@ -120,11 +136,11 @@ impl FeynmanPolynomialContext {
                 .ok_or(FeynmanPolynomialError::ResourceCountOverflow {
                     resource: "prospective Feynman-parameter exponent",
                 })?;
-            if requested > u32::from(self.limits.max_parameter_exponent) {
+            if requested > u32::from(self.limits.parameter_exponent_limit()) {
                 return Err(FeynmanPolynomialError::ParameterExponentOverflow {
                     variable,
                     requested,
-                    limit: self.limits.max_parameter_exponent,
+                    limit: self.limits.parameter_exponent_limit(),
                 });
             }
         }
@@ -147,9 +163,11 @@ impl FeynmanPolynomialContext {
             "Feynman polynomial coefficient products",
             polynomial.raw.nterms(),
             self.limits.max_term_operations,
+            self.limits.diagnostics_enabled,
         )?;
         work.charge_term_operations(polynomial.raw.nterms())?;
 
+        checkpoint()?;
         let raw = catch_unwind(AssertUnwindSafe(|| {
             polynomial.raw.clone().mul_coeff(coefficient.clone())
         }))

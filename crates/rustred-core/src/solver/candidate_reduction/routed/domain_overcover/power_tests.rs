@@ -78,6 +78,7 @@ fn power_route_implied_rank_prunes_weighted_masks_and_charges_them() {
             None,
             powers,
             CandidateDomainRouteLimits {
+                diagnostics_enabled: true,
                 max_masks: 2,
                 ..Default::default()
             },

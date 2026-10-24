@@ -661,6 +661,7 @@ fn legacy_g2_result_is_protocol_fatal_not_coverage_or_retry() {
     let result = Resolver::new().finish(
         &job,
         Finished {
+            resource_failure: None,
             stats: NativeStats::ApplyG2(
                 Default::default(),
                 G2Scope {

@@ -127,6 +127,9 @@ pub(super) fn sampled_dual_budget_cause(
 
 fn translated_source_budget_cause(error: &TranslatedSourceError) -> Option<ProbeLocalBudgetCause> {
     match error {
+        // Shared execution failures retain their original cause and abort the
+        // enclosing scheduler, instead of resuming as a local work quota.
+        TranslatedSourceError::Resources(_) => None,
         TranslatedSourceError::ResourceCountOverflow { resource } => Some(count_overflow(resource)),
         TranslatedSourceError::ResourceLimit {
             resource,
@@ -180,6 +183,9 @@ fn identity_condition_budget_cause(
     error: &IdentityConditionError,
 ) -> Option<ProbeLocalBudgetCause> {
     match error {
+        // The enclosing scheduler propagates shared RAM/time failures. They
+        // must never become resumable, probe-local diagnostic quotas.
+        IdentityConditionError::Resources(_) => None,
         IdentityConditionError::ResourceLimit {
             resource,
             requested,
@@ -224,6 +230,8 @@ fn exact_algebra_budget_cause(error: &ExactAlgebraError) -> Option<ProbeLocalBud
     const EXPONENT_ARITHMETIC: &str = "exact algebra exponent arithmetic";
 
     match error {
+        // A shared request RAM/time failure must not be retried as a local probe quota.
+        ExactAlgebraError::Resource(_) => None,
         ExactAlgebraError::ResourceLimit {
             resource,
             requested,

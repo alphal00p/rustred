@@ -15,6 +15,7 @@ pub(super) fn verify_exact_source_replay(
     let mut budget = ReplayBudget {
         used: 0,
         limit: limits.max_replay_exact_operations,
+        diagnostics_enabled: limits.diagnostics_enabled,
     };
     let mut replayed: Vec<Option<IndexedCoefficient>> =
         try_vec("exact indexed replay accumulators", problem.columns.len())?;
@@ -100,6 +101,7 @@ pub(super) fn verify_exact_source_replay(
 }
 
 struct ReplayBudget {
+    diagnostics_enabled: bool,
     used: usize,
     limit: usize,
 }
@@ -107,6 +109,6 @@ struct ReplayBudget {
 impl ReplayBudget {
     fn charge(&mut self, resource: &'static str) -> Result<(), ParametricRuleError> {
         self.used = checked_add(resource, self.used, 1)?;
-        check_limit(resource, self.used, self.limit)
+        check_limit(self.diagnostics_enabled, resource, self.used, self.limit)
     }
 }

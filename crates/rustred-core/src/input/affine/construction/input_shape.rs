@@ -13,6 +13,7 @@ fn schedule_atom_views_with_depth<'a>(
     inspected: usize,
     node_limit: usize,
     allocation_resource: &'static str,
+    diagnostics_enabled: bool,
 ) -> Result<(), SymbolicaAffineDenominatorError> {
     let scheduled = inspected
         .checked_add(pending.len())
@@ -23,7 +24,12 @@ fn schedule_atom_views_with_depth<'a>(
     // `scheduled` is a census of every inspected or pending Atom, so this is
     // the public node-limit gate. Keep the traversal-stack label solely for
     // an allocator failure after that logical admission check.
-    check_limit("input Atom nodes", scheduled, node_limit)?;
+    check_limit(
+        "input Atom nodes",
+        scheduled,
+        node_limit,
+        diagnostics_enabled,
+    )?;
     pending.try_reserve(child_count).map_err(|_| {
         SymbolicaAffineDenominatorError::AllocationFailure {
             resource: allocation_resource,
@@ -56,8 +62,13 @@ pub(in crate::input::affine) fn checked_atom_shape(
                 .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
                     resource: "input Atom nodes",
                 })?;
-        check_limit("input Atom nodes", count, limits.max_input_nodes)?;
-        if depth > limits.max_nesting_depth {
+        check_limit(
+            "input Atom nodes",
+            count,
+            limits.max_input_nodes,
+            limits.diagnostics_enabled,
+        )?;
+        if limits.diagnostics_enabled && depth > limits.max_nesting_depth {
             return Err(SymbolicaAffineDenominatorError::ResourceLimit {
                 resource: "input Atom nesting depth",
                 requested: depth as u128,
@@ -80,6 +91,7 @@ pub(in crate::input::affine) fn checked_atom_shape(
                 count,
                 limits.max_input_nodes,
                 "input Atom traversal stack",
+                limits.diagnostics_enabled,
             )?,
             AtomView::Pow(power) => schedule_atom_views_with_depth(
                 &mut pending,
@@ -89,6 +101,7 @@ pub(in crate::input::affine) fn checked_atom_shape(
                 count,
                 limits.max_input_nodes,
                 "input Atom traversal stack",
+                limits.diagnostics_enabled,
             )?,
             AtomView::Mul(product) => schedule_atom_views_with_depth(
                 &mut pending,
@@ -98,6 +111,7 @@ pub(in crate::input::affine) fn checked_atom_shape(
                 count,
                 limits.max_input_nodes,
                 "input Atom traversal stack",
+                limits.diagnostics_enabled,
             )?,
             AtomView::Add(sum) => schedule_atom_views_with_depth(
                 &mut pending,
@@ -107,6 +121,7 @@ pub(in crate::input::affine) fn checked_atom_shape(
                 count,
                 limits.max_input_nodes,
                 "input Atom traversal stack",
+                limits.diagnostics_enabled,
             )?,
             AtomView::Num(_) | AtomView::Var(_) => {}
         }

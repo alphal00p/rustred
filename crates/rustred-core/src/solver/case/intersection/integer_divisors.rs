@@ -21,6 +21,7 @@ pub(super) fn visit(
     pending: usize,
     mut callback: impl FnMut(&Integer) -> Result<(), CaseIntersectionFailure>,
 ) -> Result<bool, CaseIntersectionFailure> {
+    super::engine::checkpoint()?;
     let magnitude = value.abs();
     if magnitude.is_zero() || u64::try_from(magnitude.clone()).is_err() {
         return Ok(false);
@@ -30,10 +31,10 @@ pub(super) fn visit(
     } else {
         spend(
             &mut stats.factorizations,
-            limits.max_factorizations,
+            limits.diagnostic_limit(limits.max_factorizations),
             CaseIntersectionBudget::Factorizations,
         )?;
-        stats.integer_factorizations += 1;
+        stats.integer_factorizations = stats.integer_factorizations.saturating_add(1);
         let start = Instant::now();
         let factors = magnitude.factor();
         stats.factorization_time += start.elapsed();
@@ -65,11 +66,12 @@ pub(super) fn visit(
         return Err(CaseIntersectionFailure::NativeAlgebra);
     }
     let visits = divisor_count.checked_mul(2).ok_or_else(budget_error)?;
-    if stats
-        .work_items
-        .checked_add(pending)
-        .and_then(|n| n.checked_add(visits))
-        .is_none_or(|n| n > limits.max_work_items)
+    if limits.diagnostics_enabled
+        && stats
+            .work_items
+            .checked_add(pending)
+            .and_then(|n| n.checked_add(visits))
+            .is_none_or(|n| n > limits.max_work_items)
     {
         return Err(budget_error());
     }
@@ -78,6 +80,7 @@ pub(super) fn visit(
         let previous = divisors.len();
         let mut power = Integer::one();
         for _ in 0..exponent {
+            super::engine::checkpoint()?;
             power *= prime;
             for position in 0..previous {
                 divisors.push(&divisors[position] * &power);
@@ -88,10 +91,10 @@ pub(super) fn visit(
         for divisor in [positive.clone(), -positive] {
             spend(
                 &mut stats.work_items,
-                limits.max_work_items,
+                limits.diagnostic_limit(limits.max_work_items),
                 CaseIntersectionBudget::WorkItems,
             )?;
-            stats.integer_divisors += 1;
+            stats.integer_divisors = stats.integer_divisors.saturating_add(1);
             callback(&divisor)?;
         }
     }

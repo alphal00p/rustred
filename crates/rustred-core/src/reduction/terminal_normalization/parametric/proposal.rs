@@ -35,7 +35,9 @@ pub(super) fn canonicalize(
         .flatten()
         .filter(|&&power| power != 0)
         .count();
-    if vertices > limits.max_graph_vertices || edges > limits.max_graph_edges {
+    if limits.diagnostics_enabled
+        && (vertices > limits.max_graph_vertices || edges > limits.max_graph_edges)
+    {
         return Ok(None);
     }
     let mut graph = Graph::new();

@@ -130,12 +130,18 @@ fn expand_native(
             actual: base.powers().len(),
         });
     }
-    admit_limit("multi-affine factors", factors.len(), limits.max_factors)?;
+    admit_limit(
+        "multi-affine factors",
+        factors.len(),
+        limits.max_factors,
+        limits.diagnostics_enabled,
+    )?;
     admit_product_limit(
         "multi-affine relation coefficient entries",
         factors.len(),
         arity,
         limits.max_relation_coefficient_entries,
+        limits.diagnostics_enabled,
     )?;
 
     let total_power = factors.iter().try_fold(0_u64, |total, factor| {
@@ -145,7 +151,7 @@ fn expand_native(
             },
         )
     })?;
-    if total_power > limits.max_total_power {
+    if limits.diagnostics_enabled && total_power > limits.max_total_power {
         return Err(MultiAffineNumeratorExpansionError::ResourceLimit {
             resource: "multi-affine total power",
             requested: usize::try_from(total_power).unwrap_or(usize::MAX),
@@ -168,6 +174,7 @@ fn expand_native(
         "multi-affine endpoints",
         projected_support,
         limits.max_endpoints,
+        limits.diagnostics_enabled,
     )?;
     preflight_endpoint_key_storage(projected_support, arity, limits)?;
 
@@ -209,7 +216,7 @@ fn expand_native(
             .map_err(|_| MultiAffineNumeratorExpansionError::NativePolynomialPanic)?;
         validate_polynomial(&next, limits)?;
         if next.nterms() > plan.prefix_support_bound
-            || next.nterms() > limits.max_native_polynomial_terms
+            || (limits.diagnostics_enabled && next.nterms() > limits.max_native_polynomial_terms)
         {
             return Err(
                 MultiAffineNumeratorExpansionError::NativePolynomialSupportExceeded {
@@ -316,20 +323,25 @@ fn preflight_factors(
             zero_product = true;
             continue;
         }
-        let support_bound = multiset_support(factor.power(), width)?;
+        let support_bound = match multiset_support(factor.power(), width) {
+            Ok(bound) => bound,
+            Err(error) if limits.diagnostics_enabled => return Err(error),
+            Err(_) => usize::MAX, // Saturated diagnostic estimate, not an allocation request.
+        };
         admit_limit(
             "multi-affine factor support",
             support_bound,
             limits.max_native_polynomial_terms,
+            limits.diagnostics_enabled,
         )?;
         let prior_support = projected_support;
         // Every pair may contribute native multiplication work, even when
         // many pairs collide into the same output monomial. Never replace
         // this operation bound with the smaller output-support envelope.
-        let multiply_operations = prior_support.checked_mul(support_bound).ok_or(
-            MultiAffineNumeratorExpansionError::ResourceCountOverflow {
-                resource: "multi-affine native polynomial operations",
-            },
+        let multiply_operations = estimate(
+            prior_support.checked_mul(support_bound),
+            "multi-affine native polynomial operations",
+            limits.diagnostics_enabled,
         )?;
         prefix.include(factor)?;
         projected_support = prefix.refine(multiply_operations);
@@ -337,31 +349,36 @@ fn preflight_factors(
             "multi-affine projected polynomial support",
             projected_support,
             limits.max_native_polynomial_terms,
+            limits.diagnostics_enabled,
         )?;
-        let power_operations = support_bound
-            .checked_mul(width)
-            .and_then(|value| value.checked_mul(native_power.max(1)))
-            .ok_or(MultiAffineNumeratorExpansionError::ResourceCountOverflow {
-                resource: "multi-affine native polynomial operations",
-            })?;
-        operation_bound = operation_bound
-            .checked_add(power_operations)
-            .and_then(|value| value.checked_add(multiply_operations))
-            .ok_or(MultiAffineNumeratorExpansionError::ResourceCountOverflow {
-                resource: "multi-affine native polynomial operations",
-            })?;
+        let power_operations = estimate(
+            support_bound
+                .checked_mul(width)
+                .and_then(|value| value.checked_mul(native_power.max(1))),
+            "multi-affine native polynomial operations",
+            limits.diagnostics_enabled,
+        )?;
+        operation_bound = estimate(
+            operation_bound
+                .checked_add(power_operations)
+                .and_then(|value| value.checked_add(multiply_operations)),
+            "multi-affine native polynomial operations",
+            limits.diagnostics_enabled,
+        )?;
         admit_limit(
             "multi-affine native polynomial operations",
             operation_bound,
             limits.max_native_polynomial_operations,
+            limits.diagnostics_enabled,
         )?;
-        let live_rows = prior_support
-            .checked_add(width)
-            .and_then(|value| value.checked_add(support_bound))
-            .and_then(|value| value.checked_add(projected_support))
-            .ok_or(MultiAffineNumeratorExpansionError::ResourceCountOverflow {
-                resource: "multi-affine native exponent rows",
-            })?;
+        let live_rows = estimate(
+            prior_support
+                .checked_add(width)
+                .and_then(|value| value.checked_add(support_bound))
+                .and_then(|value| value.checked_add(projected_support)),
+            "multi-affine native exponent rows",
+            limits.diagnostics_enabled,
+        )?;
         exponent_rows_peak = exponent_rows_peak.max(live_rows);
         plans.push(FactorPlan {
             ordinal,
@@ -375,6 +392,7 @@ fn preflight_factors(
         exponent_rows_peak,
         arity,
         limits.max_native_exponent_entries,
+        limits.diagnostics_enabled,
     )?;
     admit_live_coefficients(input_weight, limits)?;
     Ok((
@@ -429,6 +447,7 @@ fn materialize_endpoints(
         "multi-affine endpoints",
         polynomial.nterms(),
         limits.max_endpoints,
+        limits.diagnostics_enabled,
     )?;
     preflight_endpoint_key_storage(polynomial.nterms(), arity, limits)?;
     // Symbolica's sparse polynomial is already expanded, coalesced, and free
@@ -498,6 +517,7 @@ fn materialize_endpoints(
         "multi-affine endpoints",
         endpoints.len(),
         limits.max_endpoints,
+        limits.diagnostics_enabled,
     )?;
     preflight_endpoint_key_storage(endpoints.len(), arity, limits)?;
     Ok(endpoints.into_boxed_slice())
@@ -507,7 +527,9 @@ fn validate_polynomial(
     polynomial: &EndpointPolynomial,
     limits: MultiAffineNumeratorExpansionLimits,
 ) -> Result<(), MultiAffineNumeratorExpansionError> {
-    if polynomial.nterms() > limits.max_native_polynomial_terms {
+    symbolica::utils::resources::checkpoint()
+        .map_err(crate::algebra::ExactAlgebraError::Resource)?;
+    if limits.diagnostics_enabled && polynomial.nterms() > limits.max_native_polynomial_terms {
         return Err(
             MultiAffineNumeratorExpansionError::NativePolynomialSupportExceeded {
                 actual: polynomial.nterms(),
@@ -583,11 +605,13 @@ fn admit_live_coefficients(
         "multi-affine retained coefficient terms",
         weight.terms,
         limits.max_retained_coefficient_terms,
+        limits.diagnostics_enabled,
     )?;
     admit_limit(
         "multi-affine retained coefficient clone-owned bytes",
         weight.clone_owned_bytes,
         limits.max_retained_coefficient_clone_owned_bytes,
+        limits.diagnostics_enabled,
     )
 }
 
@@ -690,22 +714,25 @@ fn preflight_endpoint_key_storage(
         endpoint_count,
         arity,
         limits.max_endpoint_power_entries,
+        limits.diagnostics_enabled,
     )?;
-    let retained_bytes = endpoint_count
-        .checked_mul(arity)
-        .and_then(|entries| entries.checked_mul(size_of::<i64>()))
-        .and_then(|payload| {
-            endpoint_count
-                .checked_mul(size_of::<IntegralKey>())
-                .and_then(|owners| payload.checked_add(owners))
-        })
-        .ok_or(MultiAffineNumeratorExpansionError::ResourceCountOverflow {
-            resource: "multi-affine retained endpoint key bytes",
-        })?;
+    let retained_bytes = estimate(
+        endpoint_count
+            .checked_mul(arity)
+            .and_then(|entries| entries.checked_mul(size_of::<i64>()))
+            .and_then(|payload| {
+                endpoint_count
+                    .checked_mul(size_of::<IntegralKey>())
+                    .and_then(|owners| payload.checked_add(owners))
+            }),
+        "multi-affine retained endpoint key bytes",
+        limits.diagnostics_enabled,
+    )?;
     admit_limit(
         "multi-affine retained endpoint key bytes",
         retained_bytes,
         limits.max_retained_endpoint_key_bytes,
+        limits.diagnostics_enabled,
     )
 }
 
@@ -713,8 +740,11 @@ fn admit_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), MultiAffineNumeratorExpansionError> {
-    if requested <= limit {
+    symbolica::utils::resources::checkpoint()
+        .map_err(crate::algebra::ExactAlgebraError::Resource)?;
+    if !diagnostics_enabled || requested <= limit {
         Ok(())
     } else {
         Err(MultiAffineNumeratorExpansionError::ResourceLimit {
@@ -730,11 +760,10 @@ fn admit_product_limit(
     left: usize,
     right: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), MultiAffineNumeratorExpansionError> {
-    let requested = left
-        .checked_mul(right)
-        .ok_or(MultiAffineNumeratorExpansionError::ResourceCountOverflow { resource })?;
-    admit_limit(resource, requested, limit)
+    let requested = estimate(left.checked_mul(right), resource, diagnostics_enabled)?;
+    admit_limit(resource, requested, limit, diagnostics_enabled)
 }
 
 #[cfg(test)]
@@ -748,3 +777,19 @@ mod support_tests;
 #[cfg(test)]
 #[path = "resource_policy_tests.rs"]
 mod resource_policy_tests;
+
+/// Estimates do not allocate. Overflow remains an explicit diagnostic; ordinary
+/// execution saturates the census and relies on the shared RAM/time budget.
+fn estimate(
+    value: Option<usize>,
+    resource: &'static str,
+    diagnostics_enabled: bool,
+) -> Result<usize, MultiAffineNumeratorExpansionError> {
+    match value {
+        Some(value) => Ok(value),
+        None if diagnostics_enabled => {
+            Err(MultiAffineNumeratorExpansionError::ResourceCountOverflow { resource })
+        }
+        None => Ok(usize::MAX),
+    }
+}

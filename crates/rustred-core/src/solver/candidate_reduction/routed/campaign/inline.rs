@@ -77,30 +77,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         if let Some(limits) = census {
             shared.enable_census(limits);
         }
-        shared.limits.max_input_targets = shared.limits.max_input_targets.min(budget.max_nodes);
-        shared.limits.max_unique_nodes = shared.limits.max_unique_nodes.min(budget.max_nodes);
-        shared.limits.max_transport_calls = shared
-            .limits
-            .max_transport_calls
-            .min(budget.max_transport_calls);
-        shared.limits.max_transport_operations = shared
-            .limits
-            .max_transport_operations
-            .min(budget.max_transport_operations);
-        shared.limits.max_transport_endpoints = shared
-            .limits
-            .max_transport_endpoints
-            .min(budget.max_transport_endpoints);
-        shared.reduction.max_pending_frames =
-            shared.reduction.max_pending_frames.min(budget.max_nodes);
-        shared.reduction.max_rule_applications = shared
-            .reduction
-            .max_rule_applications
-            .min(budget.max_rule_applications);
-        shared.reduction.max_coalescing_additions = shared
-            .reduction
-            .max_coalescing_additions
-            .min(budget.max_coalescing_additions);
+        shared.apply_budget(budget);
         if let Err(error) = shared.prepare_with_entry_admission(self, targets, admission) {
             shared.fail(error);
         } else {

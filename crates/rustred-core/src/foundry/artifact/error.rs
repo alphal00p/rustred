@@ -12,6 +12,7 @@ use crate::sector::symmetry::{CanonicalizationError, permutation};
 /// Typed failure while generating or sealing a closing artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArtifactError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     CoefficientContext(CoefficientContextError),
     Family(IntegralFamilyError),
     Identity(ParametricIbpError),
@@ -87,6 +88,7 @@ pub enum ArtifactError {
 impl fmt::Display for ArtifactError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(formatter),
             Self::CoefficientContext(error) => error.fmt(formatter),
             Self::Family(error) => error.fmt(formatter),
             Self::Identity(error) => error.fmt(formatter),
@@ -181,7 +183,29 @@ impl fmt::Display for ArtifactError {
     }
 }
 
-impl std::error::Error for ArtifactError {}
+impl std::error::Error for ArtifactError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            Self::CoefficientContext(error) => Some(error),
+            Self::Family(error) => Some(error),
+            Self::Identity(error) => Some(error),
+            Self::ParametricRule(error) => Some(error),
+            Self::SectorSearch(error) => Some(error),
+            Self::RuleCell(error) => Some(error),
+            Self::Relation(error) => Some(error),
+            Self::TranslatedSource(error) => Some(error),
+            Self::Symmetry(error) => Some(error),
+            Self::SymmetryPermutation(error) => Some(error),
+            Self::Canonicalization(error) => Some(error),
+            Self::IndexedAlgebra(error) => Some(error),
+            Self::IntegralKey(error) => Some(error),
+            Self::Ordering(error) => Some(error),
+            Self::ZeroAnalysis(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 macro_rules! artifact_from {
     ($source:ty, $variant:ident) => {
@@ -338,7 +362,15 @@ impl fmt::Display for ArtifactPersistenceError {
     }
 }
 
-impl std::error::Error for ArtifactPersistenceError {}
+impl std::error::Error for ArtifactPersistenceError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::NativeTransport(error) => Some(error),
+            Self::Artifact(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<crate::persistence::BinaryIoError> for ArtifactPersistenceError {
     fn from(error: crate::persistence::BinaryIoError) -> Self {

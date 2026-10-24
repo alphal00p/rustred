@@ -25,6 +25,8 @@ use std::io::Read;
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::time::Instant;
+#[cfg(not(target_arch = "wasm32"))]
+use symbolica::utils::resources::ResourceBudget;
 
 /// Wall seconds of each restore phase, in execution order, for the
 /// `checkpoint_restored` report (`phase_seconds`). A phase that runs once per
@@ -95,15 +97,27 @@ pub(super) fn verify_files(dir: &Path, manifest: &Manifest) -> Result<f64, Strin
     let files = files.par_iter();
     #[cfg(target_arch = "wasm32")]
     let mut files = files.iter();
+    #[cfg(not(target_arch = "wasm32"))]
+    let resources = ResourceBudget::capture_current();
     files.try_for_each(|f| {
-        let path = section_path(dir, f.file)?;
-        if file_digest(&path)? != (f.bytes, f.blake3.to_owned()) {
-            return Err(format!(
-                "checkpoint state checksum or length mismatch: {}",
-                f.file
-            ));
+        let verify = || {
+            let path = section_path(dir, f.file)?;
+            if file_digest(&path)? != (f.bytes, f.blake3.to_owned()) {
+                return Err(format!(
+                    "checkpoint state checksum or length mismatch: {}",
+                    f.file
+                ));
+            }
+            Ok(())
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            resources.run_captured(verify)
         }
-        Ok(())
+        #[cfg(target_arch = "wasm32")]
+        {
+            verify()
+        }
     })?;
     Ok(started.elapsed().as_secs_f64())
 }
@@ -402,23 +416,35 @@ fn derive_accepted_events(sidecar: &Sidecar, native_records: usize) -> Result<us
     let parts = files.parts().par_iter();
     #[cfg(target_arch = "wasm32")]
     let parts = files.parts().iter();
+    #[cfg(not(target_arch = "wasm32"))]
+    let resources = ResourceBudget::capture_current();
     let contributions = parts.map(|part| {
-        let (mut natives, mut accepted) = (0usize, 0usize);
-        records::read_part(sidecar.directory(), part, &mut |line| {
-            let probe: Probe<'_> = serde_json::from_slice(line)
-                .map_err(|e| format!("invalid checkpoint record line: {e}"))?;
-            if probe.record_kind.as_deref() != Some("delegated_not_inspected") {
-                let events = probe
-                    .accepted_events
-                    .ok_or("ready checkpoint native record has no accepted-events count")?;
-                natives += 1;
-                accepted = accepted
-                    .checked_add(events)
-                    .ok_or("checkpoint accepted-events overflow")?;
-            }
-            Ok(())
-        })?;
-        Ok::<_, String>((natives, accepted))
+        let contribute = || {
+            let (mut natives, mut accepted) = (0usize, 0usize);
+            records::read_part(sidecar.directory(), part, &mut |line| {
+                let probe: Probe<'_> = serde_json::from_slice(line)
+                    .map_err(|e| format!("invalid checkpoint record line: {e}"))?;
+                if probe.record_kind.as_deref() != Some("delegated_not_inspected") {
+                    let events = probe
+                        .accepted_events
+                        .ok_or("ready checkpoint native record has no accepted-events count")?;
+                    natives += 1;
+                    accepted = accepted
+                        .checked_add(events)
+                        .ok_or("checkpoint accepted-events overflow")?;
+                }
+                Ok(())
+            })?;
+            Ok::<_, String>((natives, accepted))
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            resources.run_captured(contribute)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            contribute()
+        }
     });
     #[cfg(not(target_arch = "wasm32"))]
     let (natives, accepted) = contributions.try_reduce(
@@ -474,30 +500,42 @@ pub(super) fn validate_g2_cover<const N: usize>(
     let rows = log.rows.par_iter();
     #[cfg(target_arch = "wasm32")]
     let rows = log.rows.iter();
+    #[cfg(not(target_arch = "wasm32"))]
+    let resources = ResourceBudget::capture_current();
     let failures = rows
         .filter(|row| matches!(row.kind, kind::G2_RESIDUAL | kind::G2_FULL_COVER))
         .filter(|row| {
-            let q = domains[row.id as usize].expand();
-            let mut targets = Vec::with_capacity(row.anchors_len as usize + 1);
-            if row.kind == kind::G2_RESIDUAL {
-                let mut residual = q.clone();
-                residual.powers =
-                    super::super::g2::residual_powers(q.powers, row.band.0, row.band.1);
-                targets.push(g2_cell(&residual));
+            let validate = || {
+                let q = domains[row.id as usize].expand();
+                let mut targets = Vec::with_capacity(row.anchors_len as usize + 1);
+                if row.kind == kind::G2_RESIDUAL {
+                    let mut residual = q.clone();
+                    residual.powers =
+                        super::super::g2::residual_powers(q.powers, row.band.0, row.band.1);
+                    targets.push(g2_cell(&residual));
+                }
+                for anchor in log.anchors_of(row) {
+                    let Some(anchor_row) = by_id.get(anchor) else {
+                        return true;
+                    };
+                    let domain = domains[*anchor as usize].expand();
+                    targets.push(g2_cell(&lent_scope(&domain, anchor_row)));
+                }
+                let refs: Vec<&Cell> = targets.iter().collect();
+                let whole = g2_cell(&q);
+                let covered = whole
+                    .covered_by_union(&refs, 1 << 16)
+                    .or_else(|| whole.brute_force_covered_by_union(&refs, 1 << 20));
+                covered != Some(true)
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                resources.run_captured(validate)
             }
-            for anchor in log.anchors_of(row) {
-                let Some(anchor_row) = by_id.get(anchor) else {
-                    return true;
-                };
-                let domain = domains[*anchor as usize].expand();
-                targets.push(g2_cell(&lent_scope(&domain, anchor_row)));
+            #[cfg(target_arch = "wasm32")]
+            {
+                validate()
             }
-            let refs: Vec<&Cell> = targets.iter().collect();
-            let whole = g2_cell(&q);
-            let covered = whole
-                .covered_by_union(&refs, 1 << 16)
-                .or_else(|| whole.brute_force_covered_by_union(&refs, 1 << 20));
-            covered != Some(true)
         })
         .count();
     if failures != 0 {

@@ -60,6 +60,9 @@ fn io(detail: impl ToString) -> StorageError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct StorageLimits {
+    /// Explicit authoring diagnostics; ordinary saved-program provenance leaves
+    /// these disabled. This caller policy is never read from a stored generation.
+    pub diagnostics_enabled: bool,
     pub raw: RawCensusLimits,
     pub max_arity: usize,
     pub max_delta_records: usize,
@@ -174,6 +177,7 @@ impl From<StorageError> for GeneratedWorkError {
 impl StorageLimits {
     pub(super) fn directory_limits(self) -> GeneratedDirectoryLimits {
         GeneratedDirectoryLimits {
+            diagnostics_enabled: self.diagnostics_enabled,
             max_arity: self.max_arity,
             max_runs: self.max_runs,
             max_pages: self.max_pages,

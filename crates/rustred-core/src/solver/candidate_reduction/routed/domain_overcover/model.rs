@@ -4,6 +4,8 @@ use std::fmt;
 /// Per-call logical work/storage envelope, not native expansion usage or RSS.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CandidateDomainRouteLimits {
+    /// Enable optional work-count diagnostics; authored domains are unchanged.
+    pub diagnostics_enabled: bool,
     /// Candidate support masks examined, including literal/missing/zero entries.
     pub max_masks: usize,
     /// Cumulative logical lower/upper coordinate cells (2*N) for emitted domains.
@@ -13,6 +15,7 @@ pub struct CandidateDomainRouteLimits {
 impl Default for CandidateDomainRouteLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_masks: 65_536,
             max_coordinate_cells: 2_097_152,
         }
@@ -104,6 +107,7 @@ pub struct CandidateDomainRouteStats {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CandidateDomainRouteFailure {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     Cancelled,
     StoppedByConsumer,
     ResourceLimit {
@@ -135,4 +139,36 @@ impl fmt::Display for CandidateDomainRouteError {
         )
     }
 }
-impl std::error::Error for CandidateDomainRouteError {}
+impl std::error::Error for CandidateDomainRouteError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.failure)
+    }
+}
+
+impl CandidateDomainRouteLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
+    }
+    pub(super) const fn diagnostic_limit(self, limit: usize) -> Option<usize> {
+        if self.diagnostics_enabled {
+            Some(limit)
+        } else {
+            None
+        }
+    }
+}
+
+impl fmt::Display for CandidateDomainRouteFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for CandidateDomainRouteFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            _ => None,
+        }
+    }
+}

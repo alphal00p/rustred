@@ -136,7 +136,7 @@ impl Collector {
         })();
         state.finite = Some(finite);
         if let Err(error) = &result {
-            state.error = Some(AppError::new(error.kind(), error.to_string()));
+            state.error = Some(error.clone());
         }
         result
     }

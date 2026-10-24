@@ -11,6 +11,9 @@ pub(crate) const DEFAULT_PREDICATE_ATOMS: usize = 32;
 /// limit permits more exact verification work; it never omits a proof.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourcePortLimits {
+    /// Enforce operational count templates only for explicit diagnostics.
+    pub diagnostics_enabled: bool,
+    pub rule_cells: crate::foundry::cell::RuleCellLimits,
     pub rule_derivation: ParametricRuleLimits,
     /// Exact geometric work permitted during original-domain lowering and
     /// final complete-cover installation. This policy is independent of
@@ -20,35 +23,34 @@ pub struct SourcePortLimits {
     /// Native affine consistency work allowed per complete predicate-cover
     /// traversal, shared by all of its boxes and Boolean branches. Stored,
     /// replay-checked, and final installed covers are independent traversals.
-    /// Zero permits no native work; it does not mean unlimited work.
+    /// With diagnostics enabled, zero permits no native work.
     pub max_predicate_consistency_work: usize,
     /// Distinct affine atoms admitted per complete predicate-cover traversal.
-    /// Zero admits coordinate-only covers. The supported ceiling bounds the
-    /// depth of the exact Boolean traversal; it is not an authority shortcut.
+    /// With diagnostics enabled, zero admits coordinate-only covers. The
+    /// iterative Boolean traversal has no fixed atom-depth ceiling.
     pub max_predicate_atoms: usize,
 }
 
 impl SourcePortLimits {
-    /// Supported atom-policy ceiling for the bounded recursive cover walker.
-    /// Native affine consistency retains its independent equation/work caps.
-    pub const MAX_PREDICATE_ATOMS: usize = 256;
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.cover_replay = self.cover_replay.with_diagnostics();
+        self.rule_derivation = self.rule_derivation.with_diagnostics();
+        self.rule_cells = self.rule_cells.with_diagnostics();
+        self
+    }
 
-    /// Validate caller policy before beginning audit or publication work.
+    /// Validate the caller's shared resource scope before proof work.
     pub fn validate(&self) -> Result<(), super::SourcePortAuditError> {
-        if self.max_predicate_atoms > Self::MAX_PREDICATE_ATOMS {
-            return Err(super::SourcePortAuditError::UnsupportedResourcePolicy {
-                resource: "predicate atoms",
-                requested: self.max_predicate_atoms,
-                supported_max: Self::MAX_PREDICATE_ATOMS,
-            });
-        }
-        Ok(())
+        symbolica::utils::resources::checkpoint().map_err(super::SourcePortAuditError::Resources)
     }
 }
 
 impl Default for SourcePortLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
+            rule_cells: Default::default(),
             rule_derivation: ParametricRuleLimits::default(),
             cover_replay: ArtifactCoverReplayLimits::default(),
             max_predicate_consistency_work: DEFAULT_PREDICATE_CONSISTENCY_WORK,

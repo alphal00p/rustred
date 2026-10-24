@@ -42,6 +42,7 @@ fn seed() -> State<1> {
 }
 fn finished(error: Option<(&str, &'static str)>) -> Finished {
     Finished {
+        resource_failure: None,
         stats: NativeStats::Apply(Default::default()),
         error: error.map(|e| e.0.into()),
         error_kind: error.map_or("none", |e| e.1),

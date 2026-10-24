@@ -82,6 +82,7 @@ pub(super) fn discover_scalar_symbols(
             "scalar symbol inspections",
             stats.symbol_inspections,
             limits.max_symbol_inspections,
+            limits.diagnostics_enabled,
         )?;
         match atom {
             AtomView::Var(variable) => {
@@ -100,7 +101,12 @@ pub(super) fn discover_scalar_symbols(
                 }
                 if !output.iter().any(|candidate| candidate == &label) {
                     let requested = checked_add("inferred parameters", output.len(), 1)?;
-                    check_limit("inferred parameters", requested, limits.max_parameters)?;
+                    check_limit(
+                        "inferred parameters",
+                        requested,
+                        limits.max_parameters,
+                        limits.diagnostics_enabled,
+                    )?;
                     output
                         .try_reserve(1)
                         .map_err(|_| Error::AllocationFailure {
@@ -143,7 +149,12 @@ pub(super) fn rustred_identifier(raw: &str) -> Result<&str, Error> {
 }
 
 pub(super) fn validate_identifier_text(identifier: &str, limits: Limits) -> Result<(), Error> {
-    check_limit("identifier bytes", identifier.len(), limits.max_label_bytes)?;
+    check_limit(
+        "identifier bytes",
+        identifier.len(),
+        limits.max_label_bytes,
+        limits.diagnostics_enabled,
+    )?;
     if identifier.is_empty() || identifier.contains("::") || identifier.ends_with('_') {
         return Err(Error::InvalidLabelText {
             role: "Symbolica identifier",
@@ -317,7 +328,12 @@ pub(super) fn symbol_label(
             symbol: qualified.to_owned(),
         });
     }
-    check_limit("label bytes", label.len(), limits.max_label_bytes)?;
+    check_limit(
+        "label bytes",
+        label.len(),
+        limits.max_label_bytes,
+        limits.diagnostics_enabled,
+    )?;
     Ok(label.to_owned())
 }
 
@@ -326,7 +342,12 @@ pub(super) fn validate_label_text(
     role: &'static str,
     limits: Limits,
 ) -> Result<(), Error> {
-    check_limit("label bytes", label.len(), limits.max_label_bytes)?;
+    check_limit(
+        "label bytes",
+        label.len(),
+        limits.max_label_bytes,
+        limits.diagnostics_enabled,
+    )?;
     if label.is_empty() || label.contains("::") || label.ends_with('_') {
         return Err(Error::InvalidLabelText {
             role,
@@ -355,7 +376,7 @@ pub(super) fn validate_ordered_labels(
     maximum: usize,
     limits: Limits,
 ) -> Result<(), Error> {
-    check_limit(role, labels.len(), maximum)?;
+    check_limit(role, labels.len(), maximum, limits.diagnostics_enabled)?;
     for (ordinal, label) in labels.iter().enumerate() {
         validate_label_text(label, role, limits)?;
         if labels[..ordinal].iter().any(|candidate| candidate == label) {
@@ -387,6 +408,7 @@ pub(super) fn append_pending_atoms<'a>(
             "scalar-symbol traversal stack",
             requested,
             limits.max_atom_nodes,
+            limits.diagnostics_enabled,
         )?;
         pending
             .try_reserve(1)

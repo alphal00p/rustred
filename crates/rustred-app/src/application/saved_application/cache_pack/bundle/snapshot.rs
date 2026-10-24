@@ -200,12 +200,16 @@ fn unique_chunks(
     let bytes = count
         .checked_mul(std::mem::size_of::<&index::Chunk>())
         .ok_or_else(|| fail("snapshot chunk reference index overflow"))?;
-    if count > limits.max_chunks || bytes > limits.max_directory_owned_bytes {
+    resource_checkpoint()?;
+    if (limits.diagnostics_enabled && count > limits.max_chunks)
+        || bytes > limits.max_directory_owned_bytes
+    {
         return Err(AppError::limit(
             "snapshot chunk reference index exceeds allowance",
         ));
     }
     let mut chunks = Vec::new();
+    resource_allocation(bytes)?;
     chunks.try_reserve_exact(count).map_err(fail)?;
     chunks.extend(manifest.runs.iter().flatten());
     // Group present filters together before legacy omissions: otherwise a
@@ -232,33 +236,32 @@ fn copy_chunk(source: &Path, destination: &Path, chunk: &index::Chunk) -> Result
     if !opened.is_file() || opened.len() != chunk.bytes {
         return Err(fail("snapshot source changed before copy"));
     }
-    crate::application::atomic_file::write_file_atomically_with(destination, false, |output| {
-        let mut buffer = [0u8; TRANSFER_BYTES];
-        let mut remaining = chunk.bytes;
-        let mut hash = blake3::Hasher::new();
-        while remaining != 0 {
-            let read =
-                usize::try_from(remaining.min(buffer.len() as u64)).expect("bounded buffer size");
-            source_file
-                .read_exact(&mut buffer[..read])
-                .map_err(|error| error.to_string())?;
-            hash.update(&buffer[..read]);
-            output
-                .write_all(&buffer[..read])
-                .map_err(|error| error.to_string())?;
-            remaining -= read as u64;
-        }
-        if source_file
-            .read(&mut buffer[..1])
-            .map_err(|error| error.to_string())?
-            != 0
-            || hash.finalize().as_bytes() != &chunk.digest
-        {
-            return Err("snapshot chunk length or checksum mismatch".into());
-        }
-        Ok(())
-    })
-    .map_err(fail)
+    crate::application::atomic_file::write_file_atomically_with_resources(
+        destination,
+        false,
+        |output| {
+            let mut buffer = [0u8; TRANSFER_BYTES];
+            let mut remaining = chunk.bytes;
+            let mut hash = blake3::Hasher::new();
+            while remaining != 0 {
+                resource_checkpoint()?;
+                let read = usize::try_from(remaining.min(buffer.len() as u64))
+                    .expect("bounded buffer size");
+                source_file
+                    .read_exact(&mut buffer[..read])
+                    .map_err(io_error)?;
+                hash.update(&buffer[..read]);
+                output.write_all(&buffer[..read]).map_err(io_error)?;
+                remaining -= read as u64;
+            }
+            if source_file.read(&mut buffer[..1]).map_err(io_error)? != 0
+                || hash.finalize().as_bytes() != &chunk.digest
+            {
+                return Err(fail("snapshot chunk length or checksum mismatch"));
+            }
+            Ok(())
+        },
+    )
 }
 
 #[cfg(test)]

@@ -28,11 +28,7 @@ impl Default for CandidateProgramInspectionOptions {
 
 impl CandidateProgramInspectionOptions {
     pub fn from_json(text: &str) -> Result<Self, crate::AppError> {
-        if text.len() > crate::MAX_INPUT_BYTES {
-            return Err(crate::AppError::limit(
-                "inspection options exceed input budget",
-            ));
-        }
+        crate::application::validate_ingress(text)?;
         serde_json::from_str(text).map_err(|e| crate::AppError::input(e.to_string()))
     }
 }

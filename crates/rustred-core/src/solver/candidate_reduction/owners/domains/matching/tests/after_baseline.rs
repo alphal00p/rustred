@@ -86,6 +86,7 @@ fn optional_fixed_and_guard_boundaries_never_split_or_refine_baseline_piece() {
         }
         install(&mut p, vec![shortcut, rule(11)]);
         let limits = OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_bounded_refinement_cells: 100,
             refinement_axes: OwnerDomainRefinementAxes::FiniteAxes,
             ..Default::default()
@@ -256,6 +257,7 @@ fn optional_guard_budget_failure_and_cancellation_remain_typed_not_fallback_succ
             &[Some(0); 3],
             Some(0),
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_predicates: 0,
                 ..Default::default()
             },

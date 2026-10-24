@@ -61,6 +61,7 @@ fn prefix_support_exact_overlap_preserves_native_cancellation() {
         &base,
         &factors,
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_native_polynomial_terms: 10,
             max_endpoints: 10,
             ..Default::default()
@@ -94,6 +95,7 @@ fn prefix_support_homogeneous_constants_and_zero_power_incidence() {
         &base,
         &factors,
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_native_polynomial_terms: 6,
             max_endpoints: 6,
             ..Default::default()
@@ -120,6 +122,7 @@ fn prefix_support_keeps_pair_work_and_full_arity_peak_exponent_limits() {
     for (limits, resource, requested, limit) in [
         (
             MultiAffineNumeratorExpansionLimits {
+                diagnostics_enabled: true,
                 max_native_polynomial_operations: 35,
                 ..Default::default()
             },
@@ -129,6 +132,7 @@ fn prefix_support_keeps_pair_work_and_full_arity_peak_exponent_limits() {
         ),
         (
             MultiAffineNumeratorExpansionLimits {
+                diagnostics_enabled: true,
                 max_native_exponent_entries: 77,
                 ..Default::default()
             },
@@ -138,6 +142,7 @@ fn prefix_support_keeps_pair_work_and_full_arity_peak_exponent_limits() {
         ),
         (
             MultiAffineNumeratorExpansionLimits {
+                diagnostics_enabled: true,
                 max_native_polynomial_terms: 4,
                 ..Default::default()
             },
@@ -163,6 +168,7 @@ fn prefix_support_keeps_pair_work_and_full_arity_peak_exponent_limits() {
             6,
             4,
             MultiAffineNumeratorExpansionLimits {
+                diagnostics_enabled: true,
                 max_native_exponent_entries: 78,
                 ..Default::default()
             }

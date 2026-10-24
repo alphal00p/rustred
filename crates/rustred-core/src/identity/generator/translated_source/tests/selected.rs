@@ -171,7 +171,7 @@ fn selected_request_validation_and_raw_duplicate_budget_fail_typed() {
         })
     );
 
-    let mut raw_limited = TranslatedSourceLimits::default();
+    let mut raw_limited = TranslatedSourceLimits::default().with_diagnostics();
     raw_limited.max_requested_source_translations = 1;
     assert_eq!(
         generator.translate_selected_completed_source_rows(
@@ -186,7 +186,7 @@ fn selected_request_validation_and_raw_duplicate_budget_fail_typed() {
         })
     );
 
-    let mut canonical_limited = TranslatedSourceLimits::default();
+    let mut canonical_limited = TranslatedSourceLimits::default().with_diagnostics();
     canonical_limited.max_translated_sources = 1;
     assert_eq!(
         generator.translate_selected_completed_source_rows(
@@ -201,7 +201,7 @@ fn selected_request_validation_and_raw_duplicate_budget_fail_typed() {
         })
     );
 
-    let mut offset_limited = TranslatedSourceLimits::default();
+    let mut offset_limited = TranslatedSourceLimits::default().with_diagnostics();
     offset_limited.max_requested_offsets = 1;
     assert_eq!(
         generator.translate_selected_completed_source_rows(
@@ -262,7 +262,7 @@ fn selected_aggregate_caps_have_exact_and_one_below_boundaries_before_symbolic_w
     assert!(retained_condition_sources > 0);
     assert!(retained_coordinate_cells > 0);
 
-    let mut exact = TranslatedSourceLimits::default();
+    let mut exact = TranslatedSourceLimits::default().with_diagnostics();
     exact.max_requested_source_translations = requests.len();
     exact.max_requested_offsets = requests.len();
     exact.max_translated_sources = requests.len();

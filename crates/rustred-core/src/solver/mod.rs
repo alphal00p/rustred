@@ -140,6 +140,7 @@ pub struct FamilySolveSummary {
 /// Failure while preparing or executing a generic family solve.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FamilySolveError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     Source(String),
     Executor(String),
     Execution(String),
@@ -148,6 +149,7 @@ pub enum FamilySolveError {
 impl std::fmt::Display for FamilySolveError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(formatter),
             Self::Source(error) => write!(formatter, "source preparation failed: {error}"),
             Self::Executor(error) => write!(formatter, "sector executor failed: {error}"),
             Self::Execution(error) => write!(formatter, "family sector solve failed: {error}"),
@@ -155,7 +157,14 @@ impl std::fmt::Display for FamilySolveError {
     }
 }
 
-impl std::error::Error for FamilySolveError {}
+impl std::error::Error for FamilySolveError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 /// Solve an explicitly supplied sector manifest for any authenticated family.
 ///
@@ -172,6 +181,7 @@ pub fn solve_family<const N: usize>(
     config: SectorConfig<N>,
     options: SectorSolveOptions,
 ) -> Result<FamilySolveSummary, FamilySolveError> {
+    symbolica::utils::resources::checkpoint().map_err(FamilySolveError::Resources)?;
     if !crate::arity::fits_storage(family.denominator_count(), N)
         || sectors.iter().any(|sector| {
             sector[family.denominator_count()..]
@@ -188,8 +198,12 @@ pub fn solve_family<const N: usize>(
         return Ok(FamilySolveSummary::default());
     }
     let started = Instant::now();
-    let sources = SourceSystem::from_family(family)
-        .map_err(|error| FamilySolveError::Source(error.to_string()))?;
+    let sources = SourceSystem::from_family(family).map_err(|error| {
+        match crate::reduction::resource_limit_error(&error) {
+            Some(resource) => FamilySolveError::Resources(resource.clone()),
+            None => FamilySolveError::Source(error.to_string()),
+        }
+    })?;
     let executor = SectorExecutor::new(workers)
         .map_err(|error| FamilySolveError::Executor(error.to_string()))?;
     let completed = executor
@@ -199,7 +213,12 @@ pub fn solve_family<const N: usize>(
                 completed.solution.finite_residuals.len(),
             ))
         })
-        .map_err(|error| FamilySolveError::Execution(error.to_string()))?;
+        .map_err(
+            |error| match crate::reduction::resource_limit_error(&error) {
+                Some(resource) => FamilySolveError::Resources(resource.clone()),
+                None => FamilySolveError::Execution(error.to_string()),
+            },
+        )?;
     let (rules, finite_residuals) = completed.into_iter().fold(
         (0usize, 0usize),
         |(rules, residuals), (sector_rules, sector_residuals)| {
@@ -209,6 +228,7 @@ pub fn solve_family<const N: usize>(
             )
         },
     );
+    symbolica::utils::resources::checkpoint().map_err(FamilySolveError::Resources)?;
     Ok(FamilySolveSummary {
         sectors: sectors.len(),
         solved_sectors: sectors.len(),

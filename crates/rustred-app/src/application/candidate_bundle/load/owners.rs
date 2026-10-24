@@ -13,7 +13,7 @@ use rustred::solver::{
 
 use crate::application::AppError;
 
-use super::super::{CandidateBundleLimits, MAX_CANDIDATE_BUNDLE_BYTES, codec, policy};
+use super::super::{CandidateBundleLimits, codec, policy};
 use super::ingress::{IngressBudget, charge};
 
 /// One explicitly selected owner from one already published immutable bundle.
@@ -36,11 +36,18 @@ pub struct CandidateOwnerLoadLimits {
     pub max_zero_sector_visits: usize,
 }
 
+impl CandidateOwnerLoadLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.bundle = self.bundle.with_diagnostics();
+        self
+    }
+}
+
 impl Default for CandidateOwnerLoadLimits {
     fn default() -> Self {
         let bundle = CandidateBundleLimits::default();
         Self {
-            max_total_input_bytes: MAX_CANDIDATE_BUNDLE_BYTES,
+            max_total_input_bytes: usize::MAX,
             max_total_symbolica_state_bytes: bundle.binary_limits().max_state_bytes,
             max_zero_sector_visits: bundle.max_collection_entries,
             bundle,
@@ -116,14 +123,21 @@ pub(crate) fn load_generated_candidate_owners_with_preference_rule_subsets<const
     limits: CandidateOwnerLoadLimits,
     reduction_limits: ReductionLimits,
 ) -> Result<(Arc<IntegralFamily>, CandidateOwnerPrograms<N>), AppError> {
-    let entries = rule_subsets
-        .values()
-        .try_fold(0usize, |sum, ordinals| sum.checked_add(ordinals.len()))
-        .ok_or_else(|| AppError::limit("preferred rule subset count overflow"))?;
-    if rule_subsets.len() > preferences.len() || entries > limits.bundle.max_collection_entries {
-        return Err(AppError::limit(
-            "preferred rule subset metadata exceeds admission limit",
+    if rule_subsets.len() > preferences.len() {
+        return Err(AppError::input(
+            "preferred rule subset has no preferred owner",
         ));
+    }
+    if limits.bundle.diagnostics_enabled {
+        let entries = rule_subsets
+            .values()
+            .try_fold(0usize, |sum, ordinals| sum.checked_add(ordinals.len()))
+            .ok_or_else(|| AppError::limit("preferred rule subset count overflow"))?;
+        if entries > limits.bundle.max_collection_entries {
+            return Err(AppError::limit(
+                "preferred rule subset metadata exceeds admission limit",
+            ));
+        }
     }
     load_owner_programs(inputs, preferences, rule_subsets, limits, reduction_limits)
 }
@@ -241,7 +255,12 @@ pub(super) fn admit_owner_inputs<const N: usize>(
         });
     }
     let saved_policy = policy::parse(solver_policy.as_deref().expect("nonempty input"))?;
-    let zero_masks = needed_zero_masks(&roots, limits.max_zero_sector_visits)?;
+    let zero_masks = needed_zero_masks(
+        &roots,
+        limits
+            .bundle
+            .diagnostic_limit(limits.max_zero_sector_visits),
+    )?;
     Ok(OwnerAdmission {
         descriptors,
         zero_masks,
@@ -274,7 +293,7 @@ fn load_owner_programs<const N: usize>(
     let proofs = zero_proofs::<N>(&family, &zero_masks)?;
     let context = Arc::new(
         CandidateOwnerContext::try_new(Arc::clone(&family), scope, proofs, reduction_limits)
-            .map_err(|error| AppError::execution(error.to_string()))?,
+            .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Execution))?,
     );
     let mut decoded = Vec::new();
     decoded
@@ -322,33 +341,37 @@ fn load_owner_programs<const N: usize>(
             rule_subsets,
         )
     }
-    .map_err(|error| AppError::execution(error.to_string()))?;
+    .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Execution))?;
     Ok((family, programs))
 }
 
 fn needed_zero_masks<const N: usize>(
     roots: &BTreeSet<[bool; N]>,
-    maximum_visits: usize,
+    maximum_visits: Option<usize>,
 ) -> Result<BTreeSet<usize>, AppError> {
     let mut visits = 0;
     let mut masks = BTreeSet::new();
     for root in roots {
-        let root_visits = 1usize
-            .checked_shl(root.iter().filter(|&&active| active).count() as u32)
-            .ok_or_else(|| {
-                AppError::limit("selected owner zero-sector enumeration budget exceeded")
-            })?;
-        charge(
-            &mut visits,
-            root_visits,
-            maximum_visits,
-            "selected owner zero-sector enumeration budget exceeded",
-        )?;
+        symbolica::utils::resources::checkpoint().map_err(AppError::resource)?;
+        if let Some(maximum_visits) = maximum_visits {
+            let root_visits = 1usize
+                .checked_shl(root.iter().filter(|&&active| active).count() as u32)
+                .ok_or_else(|| {
+                    AppError::limit("selected owner zero-sector enumeration budget exceeded")
+                })?;
+            charge(
+                &mut visits,
+                root_visits,
+                maximum_visits,
+                "selected owner zero-sector enumeration budget exceeded",
+            )?;
+        }
         let bits = root.iter().enumerate().fold(0usize, |bits, (i, active)| {
             bits | (usize::from(*active) << i)
         });
         let mut subset = bits;
         loop {
+            symbolica::utils::resources::checkpoint().map_err(AppError::resource)?;
             masks.insert(subset);
             if subset == 0 {
                 break;
@@ -364,7 +387,7 @@ pub(super) fn zero_proofs<const N: usize>(
     masks: &BTreeSet<usize>,
 ) -> Result<Vec<zero::Certificate>, AppError> {
     let analyzer = zero::Analyzer::try_unrestricted(family)
-        .map_err(|error| AppError::execution(error.to_string()))?;
+        .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Execution))?;
     let mut proofs = Vec::new();
     for &bits in masks {
         let sector: [bool; N] = std::array::from_fn(|axis| bits & (1 << axis) != 0);
@@ -372,7 +395,7 @@ pub(super) fn zero_proofs<const N: usize>(
             .map_err(|error| AppError::input(error.to_string()))?;
         match analyzer
             .analyze(&mask)
-            .map_err(|error| AppError::execution(error.to_string()))?
+            .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Execution))?
         {
             zero::Decision::ProvedZero(proof) => proofs.push(proof),
             zero::Decision::Inconclusive(_) => {}
@@ -399,16 +422,16 @@ mod tests {
             [false, true, true, false],
             [true, true, false, false],
         ]);
-        assert!(needed_zero_masks(&roots, 7).is_err());
+        assert!(needed_zero_masks(&roots, Some(7)).is_err());
         assert_eq!(
-            needed_zero_masks(&roots, 8).unwrap(),
+            needed_zero_masks(&roots, Some(8)).unwrap(),
             BTreeSet::from([0, 1, 2, 3, 4, 6])
         );
         // Even an arity-16 family with a one-line root costs only two visits.
         let mut root = [false; 16];
         root[15] = true;
         assert_eq!(
-            needed_zero_masks(&BTreeSet::from([root]), 2).unwrap(),
+            needed_zero_masks(&BTreeSet::from([root]), Some(2)).unwrap(),
             BTreeSet::from([0, 1 << 15])
         );
     }

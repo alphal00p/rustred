@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
+use symbolica::utils::resources::ResourceBudget;
 
 mod source;
 
@@ -225,10 +226,11 @@ impl Engine {
             };
         };
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let resources = ResourceBudget::capture_current();
         pool.in_place_scope(|scope| {
             scope.spawn(|_| {
                 let result = catch_unwind(AssertUnwindSafe(|| {
-                    self.prepare(state, checked, &cancelled)
+                    resources.run_captured(|| self.prepare(state, checked, &cancelled))
                 }))
                 .unwrap_or_else(|_| {
                     Err(Error::Fatal(fatal("P2: preparation coordinator panicked")))
@@ -268,10 +270,13 @@ impl Engine {
         // refusal must not replace an already-produced canonical task error.
         let mut outputs = Vec::new();
         reserve(&mut outputs, slots.len())?;
+        let resources = ResourceBudget::capture_current();
         let run = |ordinal, item, control: &mut Checkpoint<'_>| {
             catch_unwind(AssertUnwindSafe(|| {
-                control().map_err(classify)?;
-                prepare(ordinal, item, control)
+                resources.run_captured(|| {
+                    control().map_err(classify)?;
+                    prepare(ordinal, item, control)
+                })
             }))
             .unwrap_or_else(|_| {
                 Err(Error::Fatal(fatal(format!(

@@ -69,6 +69,10 @@ impl<'a, const N: usize> Probe<'a, N> {
     }
 
     fn charge(&mut self, amount: Option<usize>) -> bool {
+        if !self.limits.diagnostics_enabled {
+            self.work = self.work.saturating_add(amount.unwrap_or(usize::MAX));
+            return !self.exhausted;
+        }
         let next = amount.and_then(|amount| self.work.checked_add(amount));
         if let Some(next) = next
             && !self.exhausted
@@ -87,6 +91,8 @@ impl<'a, const N: usize> Probe<'a, N> {
         system: &BaseCoefficientSystem,
     ) -> Result<bool, IndexedAlgebraError> {
         for equation in system.equations() {
+            symbolica::utils::resources::checkpoint()
+                .map_err(crate::algebra::ExactAlgebraError::Resource)?;
             if self.misses_polynomial(equation.index_polynomial().raw())? {
                 return Ok(true);
             }
@@ -103,6 +109,8 @@ impl<'a, const N: usize> Probe<'a, N> {
         &mut self,
         p: &CoefficientPolynomial,
     ) -> Result<bool, IndexedAlgebraError> {
+        symbolica::utils::resources::checkpoint()
+            .map_err(crate::algebra::ExactAlgebraError::Resource)?;
         if self.exhausted {
             return Ok(false);
         }
@@ -148,57 +156,64 @@ impl<'a, const N: usize> Probe<'a, N> {
         {
             return Ok(false);
         }
-        let max_bits = p
-            .coefficients
-            .iter()
-            .map(integer_magnitude_bits)
-            .max()
-            .unwrap_or(0);
-        let Some(bits) = usize::try_from(max_bits)
-            .ok()
-            .and_then(|b| b.checked_add(65)) // u64 endpoint plus active +1
-            .and_then(|b| b.checked_add(ceil_log2(p.nterms())))
-            .and_then(|b| b.checked_add(2))
-        else {
-            self.exhausted = true;
-            return Ok(false);
-        };
-        // Magnitude/work envelopes, not hidden GMP capacities or an RSS cap.
-        // This optional precheck has its own bounded allowance; it neither
-        // spends nor relaxes the unchanged native factor/replay allowance.
-        // The optional optimization falls through if its extra arithmetic
-        // cannot be admitted; no native operation has occurred for this row.
-        let Some(payload) = bits.checked_mul(8) else {
-            self.exhausted = true;
-            return Ok(false);
-        };
-        let Some(limbs) = bits
-            .checked_add(usize::BITS as usize - 1)
-            .map(|b| b / usize::BITS as usize)
-        else {
-            self.exhausted = true;
-            return Ok(false);
-        };
-        let Some(row_work) = limbs
-            .checked_mul(limbs)
-            .and_then(|v| v.checked_mul(8))
-            .and_then(|v| v.checked_mul(p.nterms()))
-        else {
-            self.exhausted = true;
-            return Ok(false);
-        };
-        if bits > algebra.max_specialization_integer_bits || payload > limits.max_total_integer_bits
-        {
-            self.exhausted = true;
-            return Ok(false);
-        }
-        if !self.charge(Some(row_work)) {
-            return Ok(false);
+        // These estimates control only explicitly enabled diagnostics. The
+        // endpoint proof itself needs no retained expansion or work quota.
+        if algebra.diagnostics_enabled || limits.diagnostics_enabled {
+            let max_bits = p
+                .coefficients
+                .iter()
+                .map(integer_magnitude_bits)
+                .max()
+                .unwrap_or(0);
+            let Some(bits) = usize::try_from(max_bits)
+                .ok()
+                .and_then(|b| b.checked_add(65)) // u64 endpoint plus active +1
+                .and_then(|b| b.checked_add(ceil_log2(p.nterms())))
+                .and_then(|b| b.checked_add(2))
+            else {
+                self.exhausted = true;
+                return Ok(false);
+            };
+            // Magnitude/work envelopes, not hidden GMP capacities or an RSS cap.
+            // This optional precheck has its own bounded allowance; it neither
+            // spends nor relaxes the unchanged native factor/replay allowance.
+            // The optional optimization falls through if its extra arithmetic
+            // cannot be admitted; no native operation has occurred for this row.
+            let Some(payload) = bits.checked_mul(8) else {
+                self.exhausted = true;
+                return Ok(false);
+            };
+            let Some(limbs) = bits
+                .checked_add(usize::BITS as usize - 1)
+                .map(|b| b / usize::BITS as usize)
+            else {
+                self.exhausted = true;
+                return Ok(false);
+            };
+            let Some(row_work) = limbs
+                .checked_mul(limbs)
+                .and_then(|v| v.checked_mul(8))
+                .and_then(|v| v.checked_mul(p.nterms()))
+            else {
+                self.exhausted = true;
+                return Ok(false);
+            };
+            if (algebra.diagnostics_enabled && bits > algebra.max_specialization_integer_bits)
+                || (limits.diagnostics_enabled && payload > limits.max_total_integer_bits)
+            {
+                self.exhausted = true;
+                return Ok(false);
+            }
+            if !self.charge(Some(row_work)) {
+                return Ok(false);
+            }
         }
         let excluded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut lower = Some(Integer::zero());
             let mut upper = Some(Integer::zero());
             for (powers, coefficient) in p.exponents_iter().zip(&p.coefficients) {
+                symbolica::utils::resources::checkpoint()
+                    .map_err(crate::algebra::ExactAlgebraError::Resource)?;
                 let Some(axis) = powers[base_count..].iter().position(|&v| v != 0) else {
                     if let Some(bound) = &mut lower {
                         *bound += coefficient;
@@ -245,13 +260,18 @@ impl<'a, const N: usize> Probe<'a, N> {
                     .zip(b)
                     .map(|(v, b)| v + coefficient * Integer::from(b));
             }
-            lower.is_some_and(|v| v > Integer::zero()) || upper.is_some_and(|v| v < Integer::zero())
+            Ok::<_, IndexedAlgebraError>(
+                lower.is_some_and(|v| v > Integer::zero())
+                    || upper.is_some_and(|v| v < Integer::zero()),
+            )
         }))
         .map_err(|_| {
             IndexedAlgebraError::Symbolica(
                 "Symbolica panicked during affine guard box endpoint arithmetic".to_owned(),
             )
-        })?;
+        })??;
+        symbolica::utils::resources::checkpoint()
+            .map_err(crate::algebra::ExactAlgebraError::Resource)?;
         Ok(excluded)
     }
 }

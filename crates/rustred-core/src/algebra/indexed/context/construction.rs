@@ -101,6 +101,7 @@ impl IndexedCoefficientContext {
             "indexed coefficient index variables",
             index_count,
             limits.max_index_variables,
+            limits.diagnostics_enabled,
         )?;
         let mut index_variables = Vec::new();
         index_variables
@@ -116,14 +117,22 @@ impl IndexedCoefficientContext {
                 requested: variable_count,
             }
         })?;
-        preflight_qualified_index_symbols(index_count, limits.max_native_symbol_name_bytes)?;
-        let base_fingerprint =
-            base_context_fingerprint_with_limit(base, limits.max_fingerprint_bytes)?;
+        preflight_qualified_index_symbols(
+            index_count,
+            limits.max_native_symbol_name_bytes,
+            limits.diagnostics_enabled,
+        )?;
+        let base_fingerprint = base_context_fingerprint_with_limit(
+            base,
+            limits.max_fingerprint_bytes,
+            limits.diagnostics_enabled,
+        )?;
         let fingerprint = Arc::new(indexed_context_fingerprint_segments_with_limit(
             &base_fingerprint,
             scope,
             index_count,
             limits.max_fingerprint_bytes,
+            limits.diagnostics_enabled,
         )?);
 
         // RustRed has overflow-checked the complete private-name workload and

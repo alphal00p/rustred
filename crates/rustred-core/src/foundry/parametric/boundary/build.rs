@@ -69,6 +69,7 @@ pub(crate) fn build_supplied_sector_monotone_admission(
         .collect();
 
     preflight_retained_thresholds(
+        limits.diagnostics_enabled,
         &domain,
         &shift_slices,
         limits.max_sector_monotone_thresholds,
@@ -113,6 +114,7 @@ pub(crate) fn build_supplied_sector_monotone_admission(
 }
 
 fn preflight_retained_thresholds(
+    diagnostics_enabled: bool,
     domain: &SectorMonotoneDomain,
     right_hand_side_shifts: &[&[i64]],
     limit: usize,
@@ -128,6 +130,7 @@ fn preflight_retained_thresholds(
         )?;
     }
     check_limit(
+        diagnostics_enabled,
         "sector-monotone active pinch thresholds",
         threshold_count,
         limit,
@@ -150,9 +153,9 @@ mod tests {
         .unwrap();
         let shift = [i64::MIN, -1];
         let shifts = [&shift[..]];
-        preflight_retained_thresholds(&domain, &shifts, 1).unwrap();
+        preflight_retained_thresholds(true, &domain, &shifts, 1).unwrap();
         assert_eq!(
-            preflight_retained_thresholds(&domain, &shifts, 0),
+            preflight_retained_thresholds(true, &domain, &shifts, 0),
             Err(ParametricRuleError::ResourceLimit {
                 resource: "sector-monotone active pinch thresholds",
                 requested: 1,

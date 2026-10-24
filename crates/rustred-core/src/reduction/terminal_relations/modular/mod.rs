@@ -274,6 +274,7 @@ impl TerminalRelationModularSession {
             "modular columns",
             self.image.columns.len(),
             maximum.unwrap_or(usize::MAX),
+            true,
         )?;
         self.session.set_max_columns(maximum)
     }
@@ -507,6 +508,7 @@ impl TerminalRelationModularSession {
             "terminal-modular-circuits-v1",
             self.session.family.denominator_count(),
             IndexedContextLimits {
+                diagnostics_enabled: false,
                 max_index_variables: usize::MAX,
                 max_fingerprint_bytes: usize::MAX,
                 max_native_symbol_name_bytes: usize::MAX,

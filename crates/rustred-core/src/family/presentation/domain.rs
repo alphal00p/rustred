@@ -211,6 +211,7 @@ impl ConditionAdmission {
             "presentation nonzero conditions",
             requested,
             self.limits.max_nonzero_conditions,
+            self.limits.diagnostics_enabled,
         )?;
         Ok(requested)
     }
@@ -225,6 +226,7 @@ impl ConditionAdmission {
             "presentation condition sources",
             requested,
             self.limits.max_condition_sources,
+            self.limits.diagnostics_enabled,
         )?;
         Ok(requested)
     }

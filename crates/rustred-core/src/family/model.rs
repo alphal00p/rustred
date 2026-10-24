@@ -63,6 +63,8 @@ impl CoefficientLocation {
 /// Resource policy for constructing and replaying one complete affine family.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IntegralFamilyLimits {
+    /// Enable optional diagnostic count ceilings; disabled for ordinary execution.
+    pub diagnostics_enabled: bool,
     pub exact_algebra: ExactAlgebraLimits,
     pub max_scalar_products: usize,
     /// Aggregate checked scalar operations admitted for one native Symbolica
@@ -98,6 +100,7 @@ pub struct IntegralFamilyLimits {
 impl Default for IntegralFamilyLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             exact_algebra: ExactAlgebraLimits::default(),
             max_scalar_products: 4_096,
             max_matrix_exact_operations: DEFAULT_MAX_EXACT_OPERATIONS,
@@ -328,5 +331,13 @@ impl IntegralFamily {
 
     pub fn domain(&self) -> &FamilyDomain {
         &self.domain
+    }
+}
+
+impl IntegralFamilyLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.exact_algebra = self.exact_algebra.with_diagnostics();
+        self
     }
 }

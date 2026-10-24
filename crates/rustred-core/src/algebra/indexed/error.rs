@@ -105,7 +105,14 @@ impl fmt::Display for IndexedAlgebraError {
     }
 }
 
-impl std::error::Error for IndexedAlgebraError {}
+impl std::error::Error for IndexedAlgebraError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ExactAlgebra(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<ExactAlgebraError> for IndexedAlgebraError {
     fn from(value: ExactAlgebraError) -> Self {

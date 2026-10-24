@@ -142,6 +142,7 @@ pub(in crate::foundry::artifact) fn install_source_port(
     candidate: ClosingArtifactCandidate,
 ) -> Result<ClosedArtifact, ArtifactError> {
     install_source_port_with_limits(
+        false,
         candidate,
         Default::default(),
         super::super::source_port::DEFAULT_PREDICATE_CONSISTENCY_WORK,
@@ -150,12 +151,14 @@ pub(in crate::foundry::artifact) fn install_source_port(
 }
 
 pub(in crate::foundry::artifact) fn install_source_port_with_limits(
+    diagnostics_enabled: bool,
     candidate: ClosingArtifactCandidate,
     geometry: CompletionGeometryLimits,
     max_predicate_consistency_work: usize,
     max_predicate_atoms: usize,
 ) -> Result<ClosedArtifact, ArtifactError> {
     install_source_port_impl(
+        diagnostics_enabled,
         candidate,
         None,
         geometry,
@@ -166,6 +169,7 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
 }
 
 pub(in crate::foundry::artifact) fn install_source_port_through_total_excess_with_limits(
+    diagnostics_enabled: bool,
     candidate: ClosingArtifactCandidate,
     entry: scope::EntryScope,
     degrees: Vec<(Mask, u64)>,
@@ -174,6 +178,7 @@ pub(in crate::foundry::artifact) fn install_source_port_through_total_excess_wit
     max_predicate_atoms: usize,
 ) -> Result<ClosedArtifact, ArtifactError> {
     install_source_port_through_total_excess_with_observer(
+        diagnostics_enabled,
         candidate,
         entry,
         degrees,
@@ -185,6 +190,7 @@ pub(in crate::foundry::artifact) fn install_source_port_through_total_excess_wit
 }
 
 pub(in crate::foundry::artifact) fn install_source_port_through_total_excess_with_observer(
+    diagnostics_enabled: bool,
     candidate: ClosingArtifactCandidate,
     entry: scope::EntryScope,
     degrees: Vec<(Mask, u64)>,
@@ -194,6 +200,7 @@ pub(in crate::foundry::artifact) fn install_source_port_through_total_excess_wit
     observe: &mut dyn FnMut(Option<&[bool]>, &SourcePortSuccessorSnapshot),
 ) -> Result<ClosedArtifact, ArtifactError> {
     install_source_port_impl(
+        diagnostics_enabled,
         candidate,
         Some(TotalExcessProposal { entry, degrees }),
         geometry,
@@ -204,6 +211,7 @@ pub(in crate::foundry::artifact) fn install_source_port_through_total_excess_wit
 }
 
 fn install_source_port_impl(
+    diagnostics_enabled: bool,
     candidate: ClosingArtifactCandidate,
     proposal: Option<TotalExcessProposal>,
     geometry: CompletionGeometryLimits,
@@ -212,7 +220,8 @@ fn install_source_port_impl(
     observe: &mut dyn FnMut(Option<&[bool]>, &SourcePortSuccessorSnapshot),
 ) -> Result<ClosedArtifact, ArtifactError> {
     let check = |resource: &'static str, requested: usize, limit: usize| {
-        if requested > limit {
+        symbolica::utils::resources::checkpoint().map_err(ArtifactError::Resources)?;
+        if geometry.diagnostics_enabled && requested > limit {
             Err(ArtifactError::ResourceLimit {
                 resource,
                 requested,
@@ -222,11 +231,6 @@ fn install_source_port_impl(
             Ok(())
         }
     };
-    check(
-        "supported predicate atom policy",
-        max_predicate_atoms,
-        super::super::source_port::SourcePortLimits::MAX_PREDICATE_ATOMS,
-    )?;
     check("combined cover arity", candidate.arity, geometry.max_arity)?;
     let requested =
         candidate
@@ -426,6 +430,7 @@ fn install_source_port_impl(
             return Err(ArtifactError::InvalidZeroTerminal);
         }
         let limits = PredicateCoverLimits {
+            diagnostics_enabled,
             geometry,
             max_predicates: max_predicate_atoms,
             max_consistency_work: max_predicate_consistency_work,
@@ -449,6 +454,7 @@ fn install_source_port_impl(
             }
         }
         .map_err(|issue| match issue {
+            PredicateCoverError::Resources(error) => ArtifactError::Resources(error),
             PredicateCoverError::Budget(resource) => {
                 ArtifactError::ResourceBudgetExhausted { resource }
             }
@@ -509,8 +515,15 @@ fn install_source_port_impl(
                         &indices,
                         &mut budget,
                         |child, required| {
-                            let destination = Mask::try_new(child.iter().copied())
-                                .map_err(|e| SourcePortAuditError::message(e.to_string()))?;
+                            let destination =
+                                Mask::try_new(child.iter().copied()).map_err(|e| {
+                                    match crate::reduction::resource_limit_error(&e) {
+                                        Some(resource) => {
+                                            SourcePortAuditError::Resources(resource.clone())
+                                        }
+                                        None => SourcePortAuditError::message(e.to_string()),
+                                    }
+                                })?;
                             if degrees
                                 .get(&destination)
                                 .is_some_and(|&bound| required <= bound)
@@ -605,6 +618,9 @@ fn actual_application_box(cell: &RuleCell) -> Result<LatticeBox, ArtifactError> 
         endpoints().map(|(_, hi)| Some(hi as u64)),
     )
     .map_err(|issue| match issue {
+        crate::foundry::completion::CompletionGeometryError::Resources(error) => {
+            ArtifactError::Resources(error)
+        }
         crate::foundry::completion::CompletionGeometryError::AllocationFailure { .. } => {
             ArtifactError::ResourceBudgetExhausted {
                 resource: "bounded actual-cell endpoint allocation",
@@ -618,6 +634,7 @@ fn actual_application_box(cell: &RuleCell) -> Result<LatticeBox, ArtifactError> 
 
 fn successor_error(issue: SourcePortAuditError) -> ArtifactError {
     match issue {
+        SourcePortAuditError::Resources(error) => ArtifactError::Resources(error),
         SourcePortAuditError::ResourceBudgetExhausted { resource } => {
             ArtifactError::ResourceBudgetExhausted { resource }
         }

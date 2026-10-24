@@ -106,6 +106,7 @@ fn normalized_gmp_integer_limit_has_exact_boundary() {
 #[test]
 fn gcd_normalization_densification_is_bounded_before_add_mul_and_div() {
     let base = compiler(&["a", "b"], &["k"], &[], &[]);
+    let base = base.test_with_limits(base.test_limits());
     let cases = [
         (
             BinaryOperation::Add,
@@ -182,6 +183,7 @@ fn gcd_normalization_densification_is_bounded_before_add_mul_and_div() {
 #[test]
 fn combined_integer_and_storage_envelopes_are_preoperation() {
     let base = compiler(&["a"], &["k"], &[], &[]);
+    let base = base.test_with_limits(base.test_limits());
     let expanded = base.compile_expression("(a+1)^256*k^2").unwrap();
     assert_eq!(
         expanded.affine_denominator().coefficients()[0]
@@ -323,6 +325,7 @@ fn combined_integer_and_storage_envelopes_are_preoperation() {
 #[test]
 fn projection_coordinate_and_gmp_denominator_storage_boundaries_are_exact() {
     let compiler = compiler(&["a"], &["k"], &[], &[]);
+    let compiler = compiler.test_with_limits(compiler.test_limits());
     let zero = compiler.test_coefficient_context().zero();
     let coordinate_baseline = multiply_census(
         coefficient_census(&zero).unwrap(),
@@ -496,4 +499,41 @@ fn retained_variable_maps_are_charged_once_per_distinct_arc() {
         retained_variable_map_arc_bytes([&first, &second]).unwrap(),
         one.checked_mul(2).unwrap()
     );
+}
+
+#[test]
+fn ordinary_affine_lowering_ignores_count_templates_and_propagates_ambient_time() {
+    let mut ordinary = compiler(&["a"], &["k"], &[], &[]);
+    ordinary.limits.max_input_nodes = 0;
+    ordinary.limits.max_arithmetic_operations = 0;
+    ordinary.limits.max_dense_degree_box_terms = 0;
+    let compiled = ordinary.compile_expression("(a+1)*k^2").unwrap();
+    assert_coefficients(&ordinary, &compiled, "0", &["a+1"]);
+    let diagnostic = ordinary.test_with_limits(ordinary.test_limits());
+    assert!(matches!(
+        diagnostic.compile_expression("(a+1)*k^2"),
+        Err(SymbolicaAffineDenominatorError::ResourceLimit { .. })
+    ));
+    let budget = symbolica::utils::resources::ResourceBudget::new(
+        symbolica::utils::resources::ResourceLimits {
+            max_elapsed: Some(std::time::Duration::ZERO),
+            ..Default::default()
+        },
+    );
+    assert!(matches!(
+        budget.run(|| ordinary.compile_expression("(a+1)*k^2")),
+        Err(SymbolicaAffineDenominatorError::ExactAlgebra(
+            ExactAlgebraError::Resource(
+                symbolica::utils::resources::ResourceLimitError::Elapsed { .. }
+            )
+        ))
+    ));
+}
+
+#[test]
+fn ordinary_large_exact_integer_does_not_require_retained_heap_accounting() {
+    let plain = compiler(&[], &["k"], &[], &[]);
+    let integer = "1606938044258990275541962092341162602522202993782792835301376";
+    let compiled = plain.compile_expression(&format!("{integer}*k^2")).unwrap();
+    assert_coefficients(&plain, &compiled, "0", &[integer]);
 }

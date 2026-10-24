@@ -81,7 +81,7 @@ impl CandidateRulePortfolio {
         &self,
         arity: usize,
         sectors: &[Vec<bool>],
-        limit: usize,
+        limit: Option<usize>,
         entries: &mut usize,
     ) -> Result<(), AppError> {
         let Self::BoundedPortfolio {
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn portfolio_descriptor_roundtrips_and_preserves_v1_default() {
         let value = descriptor();
-        value.validate(2, &[vec![true, true]], 100).unwrap();
+        value.validate(2, &[vec![true, true]], Some(100)).unwrap();
         let text = serde_json::to_string(&value).unwrap();
         assert_eq!(CandidateDiscoveryStrategy::from_json(&text).unwrap(), value);
         let toml = toml::to_string(&value).unwrap();
@@ -251,7 +251,7 @@ mod tests {
         encoded["rule_selection"]["trigger"]["thresholds"][0]["feature"] =
             "total-positive-shift-excursion".into();
         let value = CandidateDiscoveryStrategy::from_json(&encoded.to_string()).unwrap();
-        value.validate(2, &[vec![true, true]], 100).unwrap();
+        value.validate(2, &[vec![true, true]], Some(100)).unwrap();
         assert_eq!(serde_json::to_value(&value).unwrap(), encoded);
         assert_eq!(
             toml::from_str::<CandidateDiscoveryStrategy>(&toml::to_string(&value).unwrap())
@@ -301,7 +301,7 @@ mod tests {
             }
             cursor[path[path.len() - 1]] = replacement.clone();
             let rejected = CandidateDiscoveryStrategy::from_json(&value.to_string())
-                .and_then(|value| value.validate(2, &[vec![true, true]], 100));
+                .and_then(|value| value.validate(2, &[vec![true, true]], Some(100)));
             assert!(rejected.is_err(), "accepted invalid path {path:?}");
         }
         for field in ["quality", "trigger"] {
@@ -316,7 +316,7 @@ mod tests {
             assert!(
                 CandidateDiscoveryStrategy::from_json(&value.to_string())
                     .unwrap()
-                    .validate(2, &[vec![true, true]], 100)
+                    .validate(2, &[vec![true, true]], Some(100))
                     .is_err()
             );
         }
@@ -335,9 +335,9 @@ mod tests {
         let CandidateRulePortfolio::BoundedPortfolio { alternatives, .. } =
             value.rule_selection.as_mut().unwrap();
         *alternatives = vec![plan.clone(), plan];
-        value.validate(2, &[vec![true, true]], 12).unwrap();
-        assert!(value.validate(2, &[vec![true, true]], 11).is_err());
-        assert!(value.validate(2, &[vec![false, true]], 12).is_err());
+        value.validate(2, &[vec![true, true]], Some(12)).unwrap();
+        assert!(value.validate(2, &[vec![true, true]], Some(11)).is_err());
+        assert!(value.validate(2, &[vec![false, true]], Some(12)).is_err());
         let RuleSelectionPolicy::BoundedPortfolio { alternatives, .. } =
             value.rule_selection_for(&[true, true]).unwrap()
         else {

@@ -46,7 +46,7 @@ fn construct_tadpole(
         vec![InteriorBounds::new(2, 2)]
     };
     let interior = SectorInteriorDomain::try_new(rule.sector().clone(), bounds.clone()).unwrap();
-    let rhs = try_rhs_shifts(&rule, usize::MAX).unwrap();
+    let rhs = try_rhs_shifts(true, &rule, usize::MAX).unwrap();
     let application = SectorMonotoneDomain::try_new_for_rule(
         rule.sector().clone(),
         bounds,
@@ -136,7 +136,7 @@ fn anchor_directed_guard_split_rejects_combined_even_without_guards() {
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let mut rule = artifact.rules()[0].clone();
     rule.clear_nonzero_guards_for_test();
-    let rhs = try_rhs_shifts(&rule, usize::MAX).unwrap();
+    let rhs = try_rhs_shifts(true, &rule, usize::MAX).unwrap();
     let application = SectorMonotoneDomain::try_new_for_rule(
         rule.sector().clone(),
         rule.domain().bounds().iter().copied(),

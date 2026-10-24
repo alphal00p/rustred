@@ -552,18 +552,17 @@ fn workload_identity_is_fixed_but_runtime_budget_can_change_on_resume() {
     let output = scratch.0.join("pack");
     let mut backend = Backend::new(1);
     let workload = backend.workload(&[1, 2]);
-    let mut immediate = options();
-    immediate.time_limit = std::time::Duration::ZERO;
+    let immediate = options();
     let report = prepare_application_cache(
         &workload,
         &immediate,
         &output,
-        &AtomicBool::new(false),
+        &AtomicBool::new(true),
         &mut backend,
         |_| Ok(()),
     )
     .unwrap();
-    assert_eq!(report.status, CachePreparationStatus::TimeBudget);
+    assert_eq!(report.status, CachePreparationStatus::Cancelled);
     assert_eq!(backend.calls, 0);
     let different = backend.workload(&[1, 2, 3]);
     let error = prepare_application_cache(
@@ -597,6 +596,7 @@ fn observer_counts_are_durable_and_failed_checkpoint_never_announces_completion(
         let mut backend = Backend::new(1);
         let workload = backend.workload(&[1, 2, 3]);
         let mut selected = options();
+        selected.storage_limits.chunk.diagnostics_enabled = true;
         selected.storage_limits.chunk.max_records = 1;
         selected.batch_records = 1;
         let mut observed = Vec::new();
@@ -669,6 +669,7 @@ fn inconsistent_resolved_budgets_fail_before_configuration_or_io() {
     let mut zero_batch = options();
     zero_batch.batch_records = 0;
     let mut oversized_batch = options();
+    oversized_batch.storage_limits.chunk.diagnostics_enabled = true;
     oversized_batch.batch_records = oversized_batch.storage_limits.chunk.max_records + 1;
     for selected in [ram, disk, zero_batch, oversized_batch] {
         let error = prepare_application_cache(
@@ -745,4 +746,177 @@ fn smaller_batch_target_resumes_a_larger_existing_chunk() {
     assert_eq!(resumed.calls, 2);
     assert_eq!(resumed.admitted.get(), 67);
     assert_eq!(report.options["batch_records"], 64);
+}
+
+#[test]
+fn ordinary_preparation_ignores_count_templates_but_explicit_diagnostics_refuse() {
+    let scratch = Scratch::new();
+    let output = scratch.0.join("ordinary-counts");
+    let mut backend = Backend::new(2);
+    let workload = backend.workload(&[1, 2]);
+    let mut selected = options();
+    selected.max_roots = 0;
+    selected.storage_limits.max_namespaces = 0;
+    selected.storage_limits.max_chunks = 0;
+    selected.storage_limits.max_lookup_chunks = 0;
+    selected.storage_limits.chunk.max_records = 0;
+    selected.storage_limits.chunk.max_terms_per_record = 0;
+    selected.storage_limits.chunk.max_guards_per_record = 0;
+    selected.storage_limits.chunk.max_decoded_coefficient_terms = 0;
+    selected.batch_records = 1;
+    let report = prepare_application_cache(
+        &workload,
+        &selected,
+        &output,
+        &AtomicBool::new(false),
+        &mut backend,
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(
+        report.status,
+        CachePreparationStatus::Complete,
+        "{}",
+        report.to_document()
+    );
+    assert_eq!(report.completed_roots, 4);
+    assert_eq!(backend.calls, 4);
+
+    let mut diagnostic_backend = Backend::new(2);
+    let mut diagnostic = options();
+    diagnostic.diagnostics_enabled = true;
+    diagnostic.max_roots = 1;
+    let diagnostic_output = scratch.0.join("diagnostic-counts");
+    let error = prepare_application_cache(
+        &workload,
+        &diagnostic,
+        &diagnostic_output,
+        &AtomicBool::new(false),
+        &mut diagnostic_backend,
+        |_| Ok(()),
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), AppErrorKind::Limit);
+    assert!(error.resource_limit_error().is_none());
+    assert_eq!(diagnostic_backend.configured, 0);
+    assert!(!diagnostic_output.exists());
+}
+
+#[test]
+fn zero_job_time_budget_refuses_before_configuration_or_output() {
+    use symbolica::utils::resources::ResourceLimitError;
+    let scratch = Scratch::new();
+    let output = scratch.0.join("expired-before-setup");
+    let mut backend = Backend::new(1);
+    let workload = backend.workload(&[1]);
+    let mut selected = options();
+    selected.time_limit = std::time::Duration::ZERO;
+    let error = prepare_application_cache(
+        &workload,
+        &selected,
+        &output,
+        &AtomicBool::new(false),
+        &mut backend,
+        |_| Ok(()),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error.resource_limit_error(),
+        Some(ResourceLimitError::Elapsed { .. })
+    ));
+    assert_eq!(backend.configured, 0);
+    assert!(!output.exists());
+}
+
+#[test]
+fn resource_refusal_keeps_the_typed_allocation_cause_after_unwinding() {
+    use symbolica::utils::resources::{ResourceLimitError, checkpoint};
+    let scratch = Scratch::new();
+    let output = scratch.0.join("resource-cause");
+    let mut backend = Backend::new(1);
+    let workload = backend.workload(&[1]);
+    let cause = ResourceLimitError::Memory {
+        rss_bytes: 100,
+        additional_bytes: 20,
+        limit_bytes: 110,
+    };
+    let report = prepare_application_cache(
+        &workload,
+        &options(),
+        &output,
+        &AtomicBool::new(false),
+        &mut backend,
+        |_| Err(AppError::resource(cause.clone())),
+    )
+    .unwrap();
+    assert_eq!(report.status, CachePreparationStatus::ResourceRefusal);
+    assert_eq!(report.resource_failure, Some(cause.clone()));
+    assert_eq!(
+        report.failure.as_ref().unwrap().resource_limit_error(),
+        Some(&cause)
+    );
+    assert_eq!(report.completed_roots, 0);
+    assert_eq!(backend.calls, 0);
+    assert!(
+        checkpoint().is_ok(),
+        "cause survives even though the failed allocation was never made"
+    );
+}
+
+#[test]
+fn the_final_observer_remains_inside_the_job_resource_scope() {
+    use std::sync::{Arc, atomic::AtomicU64};
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+    let scratch = Scratch::new();
+    let output = scratch.0.join("final-observer-resource");
+    let mut backend = Backend::new(1);
+    let workload = backend.workload(&[1]);
+    let observed_rss = Arc::new(AtomicU64::new(0));
+    let monitor_rss = Arc::clone(&observed_rss);
+    let limit_bytes = 1_000_000_000;
+    let budget = ResourceBudget::with_memory_monitor(
+        ResourceLimits {
+            max_process_rss_bytes: Some(limit_bytes),
+            max_elapsed: None,
+        },
+        move || Ok(monitor_rss.load(Ordering::Relaxed)),
+    );
+    let report = budget
+        .run(|| {
+            prepare_application_cache(
+                &workload,
+                &options(),
+                &output,
+                &AtomicBool::new(false),
+                &mut backend,
+                |report| {
+                    if report.status == CachePreparationStatus::Complete {
+                        observed_rss.store(limit_bytes + 1, Ordering::Relaxed);
+                    }
+                    Ok(())
+                },
+            )
+        })
+        .unwrap();
+    assert_eq!(report.completed_roots, 1);
+    assert_eq!(report.status, CachePreparationStatus::ResourceRefusal);
+    assert!(matches!(report.resource_failure,
+        Some(ResourceLimitError::Memory { rss_bytes, limit_bytes: limit, .. })
+        if rss_bytes == limit_bytes + 1 && limit == limit_bytes));
+    assert!(
+        report
+            .failure
+            .as_ref()
+            .unwrap()
+            .resource_limit_error()
+            .is_some()
+    );
+    assert!(
+        report
+            .checkpoint_failure
+            .as_ref()
+            .unwrap()
+            .resource_limit_error()
+            .is_some()
+    );
 }

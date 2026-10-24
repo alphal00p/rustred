@@ -142,6 +142,7 @@ fn generated_rule_retains_sources_and_separate_application_proof() {
             &application,
             &[],
             RuleCellLimits {
+                diagnostics_enabled: true,
                 max_guards: guard_limit,
                 ..Default::default()
             },
@@ -153,7 +154,7 @@ fn generated_rule_retains_sources_and_separate_application_proof() {
         })
     );
     assert_eq!(
-        try_rhs_shifts(&rule, rule.right_hand_side().len() - 1),
+        try_rhs_shifts(true, &rule, rule.right_hand_side().len() - 1),
         Err(RuleCellError::ResourceLimit {
             resource: "rule RHS shifts",
             requested: rule.right_hand_side().len(),
@@ -161,7 +162,7 @@ fn generated_rule_retains_sources_and_separate_application_proof() {
         })
     );
     assert_eq!(
-        try_fixed_pairs(&[FixedIndexRestriction::new(0, 1)], 0),
+        try_fixed_pairs(true, &[FixedIndexRestriction::new(0, 1)], 0),
         Err(RuleCellError::ResourceLimit {
             resource: "fixed restrictions",
             requested: 1,
@@ -472,6 +473,7 @@ fn guard_domains_are_proved_exactly_or_rejected_before_cell_installation() {
             &[InteriorBounds::new(2, 4), InteriorBounds::new(1, 4)],
             Default::default(),
             crate::algebra::IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_input_terms: 0,
                 ..Default::default()
             },

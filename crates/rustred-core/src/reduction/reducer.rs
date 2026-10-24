@@ -32,47 +32,37 @@ impl ReductionLimits {
     /// Intersect a caller's remaining request budget with an immutable owner
     /// policy. Neither arithmetic nor retained-cache allowances are enlarged.
     pub fn bounded_by(self, other: Self) -> Self {
-        fn exact(
-            a: crate::algebra::ExactAlgebraLimits,
-            b: crate::algebra::ExactAlgebraLimits,
-        ) -> crate::algebra::ExactAlgebraLimits {
-            crate::algebra::ExactAlgebraLimits {
-                max_exponent: a.max_exponent.min(b.max_exponent),
-                max_polynomial_terms: a.max_polynomial_terms.min(b.max_polynomial_terms),
-                max_term_operations: a.max_term_operations.min(b.max_term_operations),
-            }
-        }
+        let diagnostic =
+            |a: usize, b: usize| match (self.diagnostics_enabled, other.diagnostics_enabled) {
+                (true, true) => a.min(b),
+                (false, true) => b,
+                _ => a,
+            };
         Self {
-            exact_algebra: exact(self.exact_algebra, other.exact_algebra),
-            indexed_algebra: crate::algebra::IndexedAlgebraLimits {
-                exact_algebra: exact(
-                    self.indexed_algebra.exact_algebra,
-                    other.indexed_algebra.exact_algebra,
-                ),
-                max_specialization_power_operations: self
-                    .indexed_algebra
-                    .max_specialization_power_operations
-                    .min(other.indexed_algebra.max_specialization_power_operations),
-                max_specialization_integer_bits: self
-                    .indexed_algebra
-                    .max_specialization_integer_bits
-                    .min(other.indexed_algebra.max_specialization_integer_bits),
-            },
-            max_rule_applications: self.max_rule_applications.min(other.max_rule_applications),
-            max_cached_integrals: self.max_cached_integrals.min(other.max_cached_integrals),
-            max_cached_coefficient_terms: self
-                .max_cached_coefficient_terms
-                .min(other.max_cached_coefficient_terms),
+            diagnostics_enabled: self.diagnostics_enabled || other.diagnostics_enabled,
+            exact_algebra: self.exact_algebra.bounded_by(other.exact_algebra),
+            indexed_algebra: self.indexed_algebra.bounded_by(other.indexed_algebra),
+            max_rule_applications: diagnostic(
+                self.max_rule_applications,
+                other.max_rule_applications,
+            ),
+            max_cached_integrals: diagnostic(self.max_cached_integrals, other.max_cached_integrals),
+            max_cached_coefficient_terms: diagnostic(
+                self.max_cached_coefficient_terms,
+                other.max_cached_coefficient_terms,
+            ),
             max_cached_coefficient_bytes: self
                 .max_cached_coefficient_bytes
                 .min(other.max_cached_coefficient_bytes),
-            max_pending_frames: self.max_pending_frames.min(other.max_pending_frames),
-            max_coalescing_additions: self
-                .max_coalescing_additions
-                .min(other.max_coalescing_additions),
-            max_factorization_terms: self
-                .max_factorization_terms
-                .min(other.max_factorization_terms),
+            max_pending_frames: diagnostic(self.max_pending_frames, other.max_pending_frames),
+            max_coalescing_additions: diagnostic(
+                self.max_coalescing_additions,
+                other.max_coalescing_additions,
+            ),
+            max_factorization_terms: diagnostic(
+                self.max_factorization_terms,
+                other.max_factorization_terms,
+            ),
         }
     }
 }
@@ -95,6 +85,12 @@ pub struct Reducer<'artifact> {
     statistics: ReductionStatistics,
     family_fingerprint: Arc<String>,
     dependency_reducers: Vec<Reducer<'artifact>>,
+}
+
+struct StagedCacheReset {
+    cache: BTreeMap<IntegralKey, MasterDecomposition>,
+    weight: CacheWeight,
+    dependencies: Vec<StagedCacheReset>,
 }
 
 impl Drop for Reducer<'_> {
@@ -195,20 +191,70 @@ impl<'artifact> Reducer<'artifact> {
     /// Drop all memoized nonterminal results while retaining the explicit
     /// artifact master terminals.
     pub fn clear_cache(&mut self) -> Result<(), ReductionError> {
-        for dependency in &mut self.dependency_reducers {
-            dependency.clear_cache()?;
+        let staged = self.stage_cache_reset()?;
+        symbolica::utils::resources::checkpoint()?;
+        self.commit_cache_reset(staged)
+    }
+
+    // Prepare all fallible work before changing any resident cache. Cleanup
+    // cannot turn an elapsed/RAM error into a half-seeded, invalid reducer.
+    fn stage_cache_reset(&self) -> Result<StagedCacheReset, ReductionError> {
+        symbolica::utils::resources::checkpoint()?;
+        let mut cache = BTreeMap::new();
+        let mut weight = CacheWeight::default();
+        let admission = SharedCacheBudget::default();
+        for master in self.artifact.masters() {
+            symbolica::utils::resources::checkpoint()?;
+            let value = MasterDecomposition::new(
+                self.family_fingerprint.clone(),
+                master.clone(),
+                BTreeMap::from([(master.clone(), self.artifact.coefficient_context().one())]),
+            );
+            let next = weight.checked_add(decomposition_cache_weight(&value)?)?;
+            admission.replace(
+                cache.len(),
+                weight,
+                cache.len().saturating_add(1),
+                next,
+                self.limits,
+            )?;
+            weight = next;
+            cache.insert(master.clone(), value);
+        }
+        let mut dependencies = Vec::new();
+        dependencies
+            .try_reserve_exact(self.dependency_reducers.len())
+            .map_err(|_| ReductionError::AllocationFailure {
+                resource: "staged dependency cache reset",
+                requested: self.dependency_reducers.len(),
+            })?;
+        for dependency in &self.dependency_reducers {
+            dependencies.push(dependency.stage_cache_reset()?);
+        }
+        Ok(StagedCacheReset {
+            cache,
+            weight,
+            dependencies,
+        })
+    }
+
+    // No resource polling after the first mutation: every replacement releases
+    // memoized nonterminals and retains the same immutable master identities.
+    fn commit_cache_reset(&mut self, staged: StagedCacheReset) -> Result<(), ReductionError> {
+        for (dependency, reset) in self.dependency_reducers.iter_mut().zip(staged.dependencies) {
+            dependency.commit_cache_reset(reset)?;
         }
         self.shared_cache.replace(
             self.cache.len(),
             self.cache_weight,
-            0,
-            CacheWeight::default(),
+            staged.cache.len(),
+            staged.weight,
             self.limits,
         )?;
-        self.cache.clear();
+        self.cache = staged.cache;
+        self.cache_weight = staged.weight;
         self.guarded_imports.clear();
-        self.cache_weight = CacheWeight::default();
-        self.seed_master_terminals()
+        Ok(())
     }
 
     /// Reduce at the artifact's unit common mass.
@@ -235,8 +281,12 @@ impl<'artifact> Reducer<'artifact> {
         self.shared_cache
             .replace(0, CacheWeight::default(), 0, CacheWeight::default(), limits)?;
         let retained = self.shared_cache.snapshot();
-        limits.max_cached_integrals -= retained.integrals;
-        limits.max_cached_coefficient_terms -= retained.coefficient_terms;
+        limits.max_cached_integrals = limits
+            .max_cached_integrals
+            .saturating_sub(retained.integrals);
+        limits.max_cached_coefficient_terms = limits
+            .max_cached_coefficient_terms
+            .saturating_sub(retained.coefficient_terms);
         limits.max_cached_coefficient_bytes -= retained.coefficient_bytes;
         Self::reduce_artifact_unit_mass_guarded(self.artifact, target, limits)
     }
@@ -445,6 +495,7 @@ impl<'artifact> Reducer<'artifact> {
         mut lookup: Option<&mut GuardedRootLookup<'_, E>>,
         mut capture: Option<&mut GuardedRootCapture<'_, E>>,
     ) -> Result<MasterDecomposition, E> {
+        symbolica::utils::resources::checkpoint().map_err(ReductionError::from)?;
         let node = self.prepare_guard_node(target, request)?;
         if let (Some(parent), Some(child), Some(graph)) = (
             request.capture_scope,
@@ -453,9 +504,10 @@ impl<'artifact> Reducer<'artifact> {
         ) {
             graph.add_child(parent, child)?;
         }
-        if let Some(cached) = self.cache.get(target).cloned() {
+        if let Some(cached) = self.cache.get(target) {
+            let result = self.clone_cached_result(cached)?;
             self.statistics.record_cache_hit();
-            return Ok(cached);
+            return Ok(result);
         }
 
         let pending_baseline = request.pending_frame_count();
@@ -533,7 +585,8 @@ impl<'artifact> Reducer<'artifact> {
                                         request,
                                     )?;
                                     request.record_rule_application(
-                                        self.limits.max_rule_applications,
+                                        self.limits
+                                            .diagnostic_limit(self.limits.max_rule_applications),
                                     )?;
                                     let routed = self.apply_factorization(
                                         &factorization.routed_target,
@@ -559,7 +612,10 @@ impl<'artifact> Reducer<'artifact> {
                                 Expansion::Rule(selected) => selected,
                             };
                             begin_expansion(&mut active, &key)?;
-                            request.record_rule_application(self.limits.max_rule_applications)?;
+                            request.record_rule_application(
+                                self.limits
+                                    .diagnostic_limit(self.limits.max_rule_applications),
+                            )?;
                             self.retain_selected_rule_guards(&selected, request)?;
                             let application = self.apply_selected_rule(&key, selected, request)?;
                             self.statistics.record_rule_application();
@@ -643,16 +699,28 @@ impl<'artifact> Reducer<'artifact> {
                 frame_result?;
             }
 
-            self.cache
+            let cached = self
+                .cache
                 .get(target)
-                .cloned()
                 .ok_or(ReductionError::ReducerInvariant {
                     detail: "the root expansion is absent after exhausting the work stack",
-                })
-                .map_err(Into::into)
+                })?;
+            self.clone_cached_result(cached).map_err(Into::into)
         })();
         request.restore_pending_frames(pending_baseline);
         result
+    }
+
+    fn clone_cached_result(
+        &self,
+        cached: &MasterDecomposition,
+    ) -> Result<MasterDecomposition, ReductionError> {
+        symbolica::utils::resources::checkpoint()?;
+        let bytes = decomposition_cache_weight(cached)?.coefficient_bytes;
+        symbolica::utils::resources::check_allocation(bytes as u64)?;
+        let result = cached.clone();
+        symbolica::utils::resources::checkpoint()?;
+        Ok(result)
     }
 
     fn import_guarded_root(
@@ -1099,7 +1167,8 @@ impl<'artifact> Reducer<'artifact> {
                 resource: "reduction work frames",
                 requested,
             })?;
-        request.retain_pending_frame(self.limits.max_pending_frames)?;
+        request
+            .retain_pending_frame(self.limits.diagnostic_limit(self.limits.max_pending_frames))?;
         stack.push(frame);
         Ok(())
     }
@@ -1199,13 +1268,8 @@ pub(crate) fn convolve_factor_expansion_in_request(
     request: &mut ReductionRequest,
     statistics: &mut ReductionStatistics,
 ) -> Result<BTreeMap<IntegralKey, Coefficient>, ReductionError> {
-    let requested = products.len().checked_mul(dependency_terms.len()).ok_or(
-        ReductionError::FactorizationTermLimit {
-            requested: usize::MAX,
-            limit: limits.max_factorization_terms,
-        },
-    )?;
-    if requested > limits.max_factorization_terms {
+    let requested = products.len().saturating_mul(dependency_terms.len());
+    if limits.diagnostics_enabled && requested > limits.max_factorization_terms {
         return Err(ReductionError::FactorizationTermLimit {
             requested,
             limit: limits.max_factorization_terms,
@@ -1382,26 +1446,27 @@ impl ReductionRequest {
         conditions.push(condition.clone());
         Ok(())
     }
-    pub(crate) fn record_rule_application(&mut self, limit: usize) -> Result<(), ReductionError> {
+    pub(crate) fn record_rule_application(
+        &mut self,
+        limit: Option<usize>,
+    ) -> Result<(), ReductionError> {
         self.record_rule_applications(1, limit)
     }
 
     pub(crate) fn record_rule_applications(
         &mut self,
         count: usize,
-        limit: usize,
+        limit: Option<usize>,
     ) -> Result<(), ReductionError> {
-        self.rule_applications = self.rule_applications.checked_add(count).ok_or(
-            ReductionError::RuleApplicationLimit {
-                requested: usize::MAX,
-                limit,
-            },
-        )?;
-        if self.rule_applications > limit {
-            return Err(ReductionError::RuleApplicationLimit {
-                requested: self.rule_applications,
-                limit,
-            });
+        symbolica::utils::resources::checkpoint()?;
+        self.rule_applications = self.rule_applications.saturating_add(count);
+        if let Some(limit) = limit {
+            if self.rule_applications > limit {
+                return Err(ReductionError::RuleApplicationLimit {
+                    requested: self.rule_applications,
+                    limit,
+                });
+            }
         }
         Ok(())
     }
@@ -1413,19 +1478,17 @@ impl ReductionRequest {
     pub(crate) fn record_coalescing_additions(
         &mut self,
         count: usize,
-        limit: usize,
+        limit: Option<usize>,
     ) -> Result<(), ReductionError> {
-        self.coalescing_additions = self.coalescing_additions.checked_add(count).ok_or(
-            ReductionError::CoalescingAdditionLimit {
-                requested: usize::MAX,
-                limit,
-            },
-        )?;
-        if self.coalescing_additions > limit {
-            return Err(ReductionError::CoalescingAdditionLimit {
-                requested: self.coalescing_additions,
-                limit,
-            });
+        symbolica::utils::resources::checkpoint()?;
+        self.coalescing_additions = self.coalescing_additions.saturating_add(count);
+        if let Some(limit) = limit {
+            if self.coalescing_additions > limit {
+                return Err(ReductionError::CoalescingAdditionLimit {
+                    requested: self.coalescing_additions,
+                    limit,
+                });
+            }
         }
         Ok(())
     }
@@ -1442,19 +1505,25 @@ impl ReductionRequest {
         limit.saturating_sub(self.pending_frames)
     }
 
-    pub(crate) fn retain_pending_frame(&mut self, limit: usize) -> Result<(), ReductionError> {
+    pub(crate) fn retain_pending_frame(
+        &mut self,
+        limit: Option<usize>,
+    ) -> Result<(), ReductionError> {
+        symbolica::utils::resources::checkpoint()?;
         self.pending_frames =
             self.pending_frames
                 .checked_add(1)
-                .ok_or(ReductionError::PendingFrameLimit {
+                .ok_or(ReductionError::AllocationFailure {
+                    resource: "pending reduction frames",
                     requested: usize::MAX,
-                    limit,
                 })?;
-        if self.pending_frames > limit {
-            return Err(ReductionError::PendingFrameLimit {
-                requested: self.pending_frames,
-                limit,
-            });
+        if let Some(limit) = limit {
+            if self.pending_frames > limit {
+                return Err(ReductionError::PendingFrameLimit {
+                    requested: self.pending_frames,
+                    limit,
+                });
+            }
         }
         Ok(())
     }
@@ -1539,8 +1608,9 @@ impl SharedCacheBudget {
                 Err(error) if super::cache_policy::is_cache_limit(&error) => {
                     // An owned replacement that cannot fit even alone cannot
                     // benefit from discarding unrelated completed results.
-                    if new_integrals > limits.max_cached_integrals
-                        || new_weight.coefficient_terms > limits.max_cached_coefficient_terms
+                    if (limits.diagnostics_enabled
+                        && (new_integrals > limits.max_cached_integrals
+                            || new_weight.coefficient_terms > limits.max_cached_coefficient_terms))
                         || new_weight.coefficient_bytes > limits.max_cached_coefficient_bytes
                     {
                         return Err(error);
@@ -1603,13 +1673,16 @@ impl SharedCacheBudget {
             && (new_integrals < old_integrals
                 || new_weight.coefficient_terms < old_weight.coefficient_terms
                 || new_weight.coefficient_bytes < old_weight.coefficient_bytes);
-        if !release_only && integrals > limits.max_cached_integrals {
+        if limits.diagnostics_enabled && !release_only && integrals > limits.max_cached_integrals {
             return Err(ReductionError::CacheLimit {
                 requested: integrals,
                 limit: limits.max_cached_integrals,
             });
         }
-        if !release_only && coefficient_terms > limits.max_cached_coefficient_terms {
+        if limits.diagnostics_enabled
+            && !release_only
+            && coefficient_terms > limits.max_cached_coefficient_terms
+        {
             return Err(ReductionError::CacheCoefficientTermLimit {
                 requested: coefficient_terms,
                 limit: limits.max_cached_coefficient_terms,
@@ -1678,6 +1751,7 @@ pub(crate) fn coefficient_cache_weight<'a>(
     coefficients
         .into_iter()
         .try_fold(CacheWeight::default(), |weight, coefficient| {
+            symbolica::utils::resources::checkpoint()?;
             let coefficient_terms = coefficient
                 .numerator
                 .nterms()
@@ -1762,7 +1836,10 @@ pub(crate) fn accumulate_master_in_request(
 ) -> Result<(), ReductionError> {
     accumulate_master_with(context, terms, master, contribution, limits, || {
         statistics.record_coalescing_additions(1);
-        request.record_coalescing_additions(1, limits.max_coalescing_additions)
+        request.record_coalescing_additions(
+            1,
+            limits.diagnostic_limit(limits.max_coalescing_additions),
+        )
     })
 }
 
@@ -1845,6 +1922,107 @@ fn pow_signed(
 mod guarded_provider_tests {
     use super::*;
     use crate::foundry::artifact::derive_two_loop_unit_mass_sunset;
+
+    #[test]
+    fn failed_budget_during_clear_preserves_the_previous_valid_cache() {
+        use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+        let artifact = crate::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap();
+        let mut reducer = Reducer::new(&artifact).unwrap();
+        let target = IntegralKey::try_new([2]).unwrap();
+        let expected = reducer.reduce_unit_mass(&target).unwrap();
+        let before = reducer.statistics();
+        let budget = ResourceBudget::new(ResourceLimits {
+            max_elapsed: Some(std::time::Duration::ZERO),
+            ..Default::default()
+        });
+        assert!(matches!(
+            budget.run(|| reducer.clear_cache()),
+            Err(ReductionError::Resources(
+                ResourceLimitError::Elapsed { .. }
+            ))
+        ));
+        assert_eq!(reducer.statistics(), before);
+        assert_eq!(reducer.reduce_unit_mass(&target).unwrap(), expected);
+        reducer.clear_cache().unwrap();
+        assert_eq!(
+            reducer.statistics().cached_integrals(),
+            artifact.masters().len()
+        );
+        assert_eq!(reducer.reduce_unit_mass(&target).unwrap(), expected);
+    }
+
+    #[test]
+    fn late_ram_refusal_before_clear_commit_keeps_every_resident_cache() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+        let artifact = crate::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap();
+        let mut reducer = Reducer::new(&artifact).unwrap();
+        let target = IntegralKey::try_new([2]).unwrap();
+        let expected = reducer.reduce_unit_mass(&target).unwrap();
+        let before = reducer.statistics();
+        // Measure only the staging phase with a deterministic injected monitor,
+        // then refuse the next poll: the public pre-commit boundary.
+        let observed = Arc::new(AtomicUsize::new(0));
+        let reads = observed.clone();
+        let probe = ResourceBudget::with_memory_monitor(
+            ResourceLimits {
+                max_process_rss_bytes: Some(1),
+                ..Default::default()
+            },
+            move || {
+                reads.fetch_add(1, Ordering::Relaxed);
+                Ok(0)
+            },
+        );
+        drop(probe.run(|| reducer.stage_cache_reset()).unwrap());
+        let staging_polls = observed.load(Ordering::Relaxed);
+        assert!(staging_polls > 0);
+        let observed = Arc::new(AtomicUsize::new(0));
+        let reads = observed.clone();
+        let budget = ResourceBudget::with_memory_monitor(
+            ResourceLimits {
+                max_process_rss_bytes: Some(1),
+                ..Default::default()
+            },
+            move || {
+                Ok(if reads.fetch_add(1, Ordering::Relaxed) < staging_polls {
+                    0
+                } else {
+                    2
+                })
+            },
+        );
+        assert!(matches!(
+            budget.run(|| reducer.clear_cache()),
+            Err(ReductionError::Resources(ResourceLimitError::Memory {
+                rss_bytes: 2,
+                ..
+            }))
+        ));
+        assert_eq!(observed.load(Ordering::Relaxed), staging_polls + 1);
+        assert_eq!(reducer.statistics(), before);
+        assert_eq!(reducer.reduce_unit_mass(&target).unwrap(), expected);
+    }
+
+    #[test]
+    fn cached_closed_master_still_obeys_the_current_elapsed_budget() {
+        use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+        let artifact = crate::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap();
+        let target = artifact.masters().iter().next().unwrap();
+        let mut reducer = Reducer::new(&artifact).unwrap();
+        let expected = reducer.reduce_unit_mass(target).unwrap();
+        let budget = ResourceBudget::new(ResourceLimits {
+            max_elapsed: Some(std::time::Duration::ZERO),
+            ..Default::default()
+        });
+        assert!(matches!(
+            budget.run(|| reducer.reduce_unit_mass(target)),
+            Err(ReductionError::Resources(
+                ResourceLimitError::Elapsed { .. }
+            ))
+        ));
+        assert_eq!(reducer.reduce_unit_mass(target).unwrap(), expected);
+    }
 
     #[test]
     fn imported_zero_terms_keep_all_stored_guards_and_release_their_lease() {
@@ -1995,6 +2173,7 @@ mod guarded_provider_tests {
         let artifact = crate::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap();
         let shared = Arc::new(SharedCacheBudget::default());
         let limits = ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_integrals: 1,
             ..Default::default()
         };
@@ -2133,6 +2312,7 @@ mod guarded_provider_tests {
         let seeded = receiver.statistics().cached_integrals();
         let target = artifact.masters().iter().next().unwrap();
         let limits = ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_integrals: seeded,
             ..Default::default()
         };
@@ -2181,6 +2361,7 @@ mod guarded_provider_tests {
             reducer.reduce_unit_mass_guarded(
                 &target,
                 ReductionLimits {
+                    diagnostics_enabled: true,
                     max_rule_applications: 0,
                     ..Default::default()
                 }
@@ -2193,15 +2374,18 @@ mod guarded_provider_tests {
     #[test]
     fn remaining_limits_never_enlarge_immutable_owner_policy() {
         let owner = ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 2,
             max_coalescing_additions: 3,
             exact_algebra: crate::algebra::ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_polynomial_terms: 7,
                 ..Default::default()
             },
             ..Default::default()
         };
         let request = ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 4,
             max_coalescing_additions: 1,
             ..Default::default()

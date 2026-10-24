@@ -201,7 +201,8 @@ pub(in crate::application::candidate_bundle) fn restore_case<const N: usize>(
     for (&axis, &value) in record.fixed_axes.iter().zip(&record.fixed_values) {
         fixed[axis] = Some(value);
     }
-    let face = CoordinateCase::new(fixed).map_err(|e| AppError::input(e.to_string()))?;
+    let face = CoordinateCase::new(fixed)
+        .map_err(|e| AppError::from_native(e, crate::AppErrorKind::Input))?;
     if !face.is_in_sector(sector) {
         return Err(AppError::input("candidate fixed face is outside sector"));
     }
@@ -214,7 +215,7 @@ pub(in crate::application::candidate_bundle) fn restore_case<const N: usize>(
         .map(|&id| polynomial(table, variables, id))
         .collect::<Result<Vec<_>, _>>()?;
     match AffineCase::from_coordinate(&face, &equations, indices, sector)
-        .map_err(|e| AppError::input(e.to_string()))?
+        .map_err(|e| AppError::from_native(e, crate::AppErrorKind::Input))?
     {
         AffineIntersection::Affine(case) if case.face().fixed() == &fixed => Ok(case.into()),
         _ => Err(AppError::input(

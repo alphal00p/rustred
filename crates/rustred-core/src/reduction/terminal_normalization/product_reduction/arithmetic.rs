@@ -9,20 +9,19 @@ use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 pub(super) fn charge(
     value: &mut usize,
     addition: usize,
-    limit: usize,
-    resource: &'static str,
+    limit: Option<usize>,
+    _resource: &'static str,
 ) -> Result<(), Error> {
-    let requested = value.checked_add(addition).ok_or(Error::ResourceLimit {
-        resource,
-        requested: usize::MAX,
-        limit,
-    })?;
-    if requested > limit {
-        return Err(Error::ResourceLimit {
-            resource,
-            requested,
-            limit,
-        });
+    symbolica::utils::resources::checkpoint().map_err(ReductionError::from)?;
+    let requested = value.saturating_add(addition);
+    if let Some(limit) = limit {
+        if requested > limit {
+            return Err(Error::ResourceLimit {
+                resource: _resource,
+                requested,
+                limit,
+            });
+        }
     }
     *value = requested;
     Ok(())
@@ -94,7 +93,7 @@ impl Conditions {
             charge(
                 &mut count,
                 1,
-                limits.max_nonzero_conditions,
+                limits.diagnostic_limit(limits.max_nonzero_conditions),
                 "nonzero conditions",
             )?;
             admit(&self.values, &value)?;
@@ -145,7 +144,12 @@ pub(super) fn accumulate_with_admission<K: Ord>(
     match output.entry(product) {
         Entry::Occupied(mut entry) => {
             stats.coalescing_additions = stats.coalescing_additions.saturating_add(1);
-            request.record_coalescing_additions(1, limits.reduction.max_coalescing_additions)?;
+            request.record_coalescing_additions(
+                1,
+                limits
+                    .reduction
+                    .diagnostic_limit(limits.reduction.max_coalescing_additions),
+            )?;
             let sum = context.try_add(entry.get(), &coefficient, limits.reduction.exact_algebra)?;
             if sum.is_zero() {
                 entry.remove();
@@ -159,7 +163,9 @@ pub(super) fn accumulate_with_admission<K: Ord>(
             entry.insert(coefficient);
         }
     }
-    if output.len() > limits.reduction.max_factorization_terms {
+    if limits.reduction.diagnostics_enabled
+        && output.len() > limits.reduction.max_factorization_terms
+    {
         return Err(ReductionError::FactorizationTermLimit {
             requested: output.len(),
             limit: limits.reduction.max_factorization_terms,
@@ -180,14 +186,9 @@ pub(super) fn convolve(
     request: &mut ReductionRequest,
     stats: &mut VacuumProductReductionStatistics,
 ) -> Result<Terms, Error> {
-    let requested =
-        left.len()
-            .checked_mul(right.len())
-            .ok_or(ReductionError::FactorizationTermLimit {
-                requested: usize::MAX,
-                limit: limits.reduction.max_factorization_terms,
-            })?;
-    if requested > limits.reduction.max_factorization_terms {
+    let requested = left.len().saturating_mul(right.len());
+    if limits.reduction.diagnostics_enabled && requested > limits.reduction.max_factorization_terms
+    {
         return Err(ReductionError::FactorizationTermLimit {
             requested,
             limit: limits.reduction.max_factorization_terms,
@@ -201,7 +202,7 @@ pub(super) fn convolve(
             charge(
                 &mut count,
                 b.len(),
-                limits.max_factors_per_product,
+                limits.diagnostic_limit(limits.max_factors_per_product),
                 "factors per product",
             )?;
             let mut factors = a.clone();

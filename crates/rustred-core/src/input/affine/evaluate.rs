@@ -68,7 +68,9 @@ impl<'a> CheckedEvaluator<'a> {
                     SymbolicaAffineDenominatorError::UnsupportedPower(atom.to_owned())
                 })?;
                 let absolute = exponent.unsigned_abs();
-                if absolute > u64::from(self.compiler.limits.max_abs_power) {
+                if self.compiler.limits.diagnostics_enabled
+                    && absolute > u64::from(self.compiler.limits.max_abs_power)
+                {
                     return Err(SymbolicaAffineDenominatorError::UnsupportedPower(
                         atom.to_owned(),
                     ));
@@ -139,18 +141,30 @@ impl<'a> CheckedEvaluator<'a> {
         base: &Coefficient,
         exponent: i64,
     ) -> Result<Coefficient, SymbolicaAffineDenominatorError> {
+        symbolica::utils::resources::checkpoint().map_err(|error| {
+            SymbolicaAffineDenominatorError::ExactAlgebra(
+                crate::algebra::ExactAlgebraError::Resource(error),
+            )
+        })?;
         let variables = self.compiler.combined.parameter_names().len();
-        let unit_census = planned_unit_coefficient_census(variables)?;
-        check_limit(
-            "combined power-result integer bits",
-            unit_census.integer_bits,
-            self.compiler.limits.max_coefficient_integer_bits,
-        )?;
-        check_limit(
-            "combined power-result retained bytes",
-            unit_census.retained_bytes,
-            self.compiler.limits.max_combined_retained_bytes,
-        )?;
+        let unit_census = if self.compiler.limits.diagnostics_enabled {
+            let census = planned_unit_coefficient_census(variables)?;
+            check_limit(
+                "combined power-result integer bits",
+                census.integer_bits,
+                self.compiler.limits.max_coefficient_integer_bits,
+                self.compiler.limits.diagnostics_enabled,
+            )?;
+            check_limit(
+                "combined power-result retained bytes",
+                census.retained_bytes,
+                self.compiler.limits.max_combined_retained_bytes,
+                self.compiler.limits.diagnostics_enabled,
+            )?;
+            Some(census)
+        } else {
+            None
+        };
         if exponent == 0 {
             return Ok(self.compiler.combined.one());
         }
@@ -161,21 +175,24 @@ impl<'a> CheckedEvaluator<'a> {
             self.compiler.limits.exact_algebra,
         )?;
 
-        let mut clone_census = unit_census;
-        clone_census.checked_add_assign(
-            planned_coefficient_clone_census(base, variables)?,
-            "combined power base-clone census",
-        )?;
-        check_limit(
-            "combined power base-clone integer bits",
-            clone_census.integer_bits,
-            self.compiler.limits.max_coefficient_integer_bits,
-        )?;
-        check_limit(
-            "combined power base-clone retained bytes",
-            clone_census.retained_bytes,
-            self.compiler.limits.max_combined_retained_bytes,
-        )?;
+        if let Some(mut clone_census) = unit_census {
+            clone_census.checked_add_assign(
+                planned_coefficient_clone_census(base, variables)?,
+                "combined power base-clone census",
+            )?;
+            check_limit(
+                "combined power base-clone integer bits",
+                clone_census.integer_bits,
+                self.compiler.limits.max_coefficient_integer_bits,
+                self.compiler.limits.diagnostics_enabled,
+            )?;
+            check_limit(
+                "combined power base-clone retained bytes",
+                clone_census.retained_bytes,
+                self.compiler.limits.max_combined_retained_bytes,
+                self.compiler.limits.diagnostics_enabled,
+            )?;
+        }
         let mut remaining = exponent.unsigned_abs();
         let mut result = self.compiler.combined.one();
         let mut factor = base.clone();
@@ -204,12 +221,19 @@ impl<'a> CheckedEvaluator<'a> {
     }
 
     fn charge_arithmetic(&mut self) -> Result<(), SymbolicaAffineDenominatorError> {
+        symbolica::utils::resources::checkpoint().map_err(|error| {
+            SymbolicaAffineDenominatorError::ExactAlgebra(
+                crate::algebra::ExactAlgebraError::Resource(error),
+            )
+        })?;
         self.arithmetic_operations = self.arithmetic_operations.checked_add(1).ok_or(
             SymbolicaAffineDenominatorError::ResourceCountOverflow {
                 resource: "expression arithmetic operations",
             },
         )?;
-        if self.arithmetic_operations > self.compiler.limits.max_arithmetic_operations {
+        if self.compiler.limits.diagnostics_enabled
+            && self.arithmetic_operations > self.compiler.limits.max_arithmetic_operations
+        {
             return Err(SymbolicaAffineDenominatorError::ResourceLimit {
                 resource: "expression arithmetic operations",
                 requested: u128::from(self.arithmetic_operations),

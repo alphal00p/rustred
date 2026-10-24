@@ -21,12 +21,13 @@ pub(super) fn validate_request_scope(request: &FamilyCandidatesRequest) -> Resul
                 "retain-rank-finite requires max_numerator_rank",
             ));
         }
-        if request.finite_case_limits.max_visited_points == 0
-            || request.finite_case_limits.max_retained_terminals == 0
+        if request.finite_case_limits.diagnostics_enabled
+            && (request.finite_case_limits.max_visited_points == 0
+                || request.finite_case_limits.max_retained_terminals == 0)
         {
             return Err(AppError::input("finite retention limits must be positive"));
         }
-    } else if request.finite_case_limits != FiniteCaseLimits::default() {
+    } else if request.finite_case_limits.diagnostics_enabled {
         return Err(AppError::input(
             "finite retention limits require retain-rank-finite",
         ));
@@ -104,6 +105,8 @@ pub(super) fn parse(policy: &str) -> Result<GenerationPolicy, AppError> {
                 .split_once("-terminals-")
                 .ok_or_else(|| AppError::schema("invalid finite retention limits"))?;
             let limits = FiniteCaseLimits {
+                // Stored work templates are provenance, never caller policy.
+                diagnostics_enabled: false,
                 max_visited_points: points
                     .parse::<usize>()
                     .map_err(|_| AppError::schema("invalid finite point limit"))?,
@@ -111,9 +114,6 @@ pub(super) fn parse(policy: &str) -> Result<GenerationPolicy, AppError> {
                     .parse::<usize>()
                     .map_err(|_| AppError::schema("invalid finite terminal limit"))?,
             };
-            if limits.max_visited_points == 0 || limits.max_retained_terminals == 0 {
-                return Err(AppError::schema("finite retention limits must be positive"));
-            }
             (values, FiniteCasePolicy::RetainRankFinite, limits)
         }
         None => (
@@ -159,12 +159,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn finite_diagnostics_are_runtime_policy_and_do_not_change_saved_tags() {
+        let mut request = FamilyCandidatesRequest::new("not parsed");
+        request.max_numerator_rank = Some(0);
+        request.finite_case_policy = FiniteCasePolicy::RetainRankFinite;
+        request.finite_case_limits.max_visited_points = 0;
+        request.finite_case_limits.max_retained_terminals = 0;
+        validate_request_scope(&request).unwrap();
+        let tag = encode_request(&request);
+        let decoded = parse(&tag).unwrap();
+        assert!(!decoded.finite_case_limits.diagnostics_enabled);
+        assert_eq!(decoded.finite_case_limits.max_visited_points, 0);
+        assert_eq!(decoded.finite_case_limits.max_retained_terminals, 0);
+        request.finite_case_limits.diagnostics_enabled = true;
+        assert!(validate_request_scope(&request).is_err());
+        assert_eq!(encode_request(&request), tag);
+    }
+
+    #[test]
     fn finite_retention_tags_bind_scope_policy_and_work_limits() {
         for rank in [0, 10, 20] {
             let mut request = FamilyCandidatesRequest::new("not parsed");
             request.max_numerator_rank = Some(rank);
             request.finite_case_policy = FiniteCasePolicy::RetainRankFinite;
             request.finite_case_limits = FiniteCaseLimits {
+                diagnostics_enabled: false,
                 max_visited_points: 101,
                 max_retained_terminals: 17,
             };
@@ -176,8 +195,8 @@ mod tests {
             assert_eq!(encode_configuration(decoded), tag);
             for malformed in [
                 tag.replace("points-101", "points-0101"),
-                tag.replace("points-101", "points-0"),
-                tag.replace("terminals-17", "terminals-0"),
+                tag.replace("points-101", "points-+0"),
+                tag.replace("terminals-17", "terminals-+0"),
                 tag.replace("terminals-17", "terminals-+17"),
                 tag.replace(&format!("-max-numerator-rank-{rank}"), ""),
                 tag.replace("retain-rank-finite", "retain-everything"),

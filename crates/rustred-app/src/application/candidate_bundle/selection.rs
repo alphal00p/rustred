@@ -30,7 +30,7 @@ pub(super) fn parse_masks(masks: &[String]) -> Result<Vec<Vec<bool>>, AppError> 
 pub(super) fn apply<const N: usize, F>(
     prepared: &mut Prepared<N, F>,
     selected: Option<&[Vec<bool>]>,
-    max_entries: usize,
+    max_entries: Option<usize>,
 ) -> Result<Option<Vec<Vec<bool>>>, AppError> {
     let selected = canonical_masks(
         &prepared.root[..prepared.sources.active_arity()],
@@ -59,7 +59,7 @@ pub(super) fn apply<const N: usize, F>(
 pub(super) fn canonical_masks(
     root: &[bool],
     selected: Option<&[Vec<bool>]>,
-    max_entries: usize,
+    max_entries: Option<usize>,
 ) -> Result<Option<Vec<Vec<bool>>>, AppError> {
     let Some(selected) = selected else {
         return Ok(None);
@@ -76,7 +76,7 @@ pub(super) fn canonical_masks(
         || selected
             .len()
             .checked_mul(arity + 1)
-            .is_none_or(|count| count > max_entries)
+            .is_none_or(|count| max_entries.is_some_and(|limit| count > limit))
     {
         return Err(AppError::limit(
             "selected_sectors exceeds its collection limit",

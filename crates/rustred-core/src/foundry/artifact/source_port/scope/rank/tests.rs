@@ -113,6 +113,7 @@ fn malformed_arity_is_rejected_before_a_scope_claim() {
             .is_err()
     );
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_arity: 1,
         ..Default::default()
     };
@@ -124,6 +125,7 @@ fn count_and_coordinate_limits_admit_the_exact_boundary_only() {
     // k=1, n=2, D=2: three offsets; 3*(2*n+k)+(k-1)=15
     // coordinates, including temporary offset storage.
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_requested_boxes: 3,
         max_requested_box_coordinate_cells: 15,
         max_split_operations: 43,
@@ -141,14 +143,17 @@ fn count_and_coordinate_limits_admit_the_exact_boundary_only() {
     );
     for limits in [
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_requested_boxes: 2,
             ..limits
         },
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_requested_box_coordinate_cells: 14,
             ..limits
         },
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_split_operations: 42,
             ..limits
         },
@@ -165,6 +170,7 @@ fn count_and_coordinate_limits_admit_the_exact_boundary_only() {
 #[test]
 fn multiple_sectors_share_one_quota_and_failed_preflight_cannot_reset_it() {
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_requested_boxes: 4,
         ..Default::default()
     };
@@ -178,10 +184,12 @@ fn multiple_sectors_share_one_quota_and_failed_preflight_cannot_reset_it() {
 
     for limits in [
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_requested_box_coordinate_cells: 29,
             ..Default::default()
         },
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_split_operations: 85,
             ..Default::default()
         },
@@ -212,12 +220,14 @@ fn extreme_simplex_counts_and_zero_allowances_fail_before_enumeration() {
         assert_eq!(budget.boxes, 0);
     }
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_requested_boxes: 0,
         ..Default::default()
     };
     assert!(RankScopeBudget::new(limits).slices(&[true], 0).is_err());
 
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_requested_boxes: usize::MAX,
         max_requested_box_coordinate_cells: usize::MAX,
         max_split_operations: usize::MAX,

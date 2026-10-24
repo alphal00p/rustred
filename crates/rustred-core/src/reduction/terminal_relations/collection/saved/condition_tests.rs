@@ -24,9 +24,9 @@ fn indexed_conditions_preserve_first_seen_order_and_exact_coefficients() {
     let mut expected = Vec::new();
     let mut actual = Vec::new();
     {
-        let mut union = CollectionConditions::new(&mut actual, usize::MAX).unwrap();
+        let mut union = CollectionConditions::new(&mut actual, usize::MAX, true).unwrap();
         for value in &input {
-            retain(&mut expected, value.clone(), usize::MAX).unwrap();
+            retain(&mut expected, value.clone(), usize::MAX, true).unwrap();
             union.retain(value).unwrap();
         }
     }
@@ -46,13 +46,13 @@ fn indexed_conditions_match_zero_and_budget_errors_without_partial_insertion() {
         let mut actual = Vec::new();
         let mut outcomes = Vec::new();
         {
-            let mut union = CollectionConditions::new(&mut actual, limit).unwrap();
+            let mut union = CollectionConditions::new(&mut actual, limit, true).unwrap();
             for value in &input {
                 outcomes.push(outcome(&union.retain(value)));
             }
         }
         for (value, actual_error) in input.iter().zip(outcomes) {
-            let expected_result = retain(&mut expected, value.clone(), limit);
+            let expected_result = retain(&mut expected, value.clone(), limit, true);
             assert_eq!(actual_error, outcome(&expected_result), "limit={limit}");
         }
         assert_eq!(actual, expected, "limit={limit}");
@@ -70,11 +70,11 @@ fn indexed_conditions_preserve_existing_prefix_and_duplicate_at_full_budget() {
     let mut actual = vec![b.clone(), a.clone(), b.clone()];
     let mut expected = actual.clone();
     {
-        let mut union = CollectionConditions::new(&mut actual, 2).unwrap();
+        let mut union = CollectionConditions::new(&mut actual, 2, true).unwrap();
         for value in [&a, &b, &context.one(), &c, &context.zero()] {
             assert_eq!(
                 outcome(&union.retain(value)),
-                outcome(&retain(&mut expected, value.clone(), 2))
+                outcome(&retain(&mut expected, value.clone(), 2, true))
             );
         }
     }
@@ -87,7 +87,7 @@ fn indexed_conditions_handle_zero_variable_context_and_empty_output() {
     let context = CoefficientContext::new(std::iter::empty::<&str>());
     let mut conditions = Vec::new();
     {
-        let mut union = CollectionConditions::new(&mut conditions, 0).unwrap();
+        let mut union = CollectionConditions::new(&mut conditions, 0, true).unwrap();
         for value in [context.one(), context.integer(-7)] {
             union.retain(&value).unwrap();
         }
@@ -129,7 +129,7 @@ fn composition_index_keeps_session_conditions_and_cold_payload_identical() {
         .into();
     let mut expected = Vec::new();
     for value in &source.conditions {
-        retain(&mut expected, value.clone(), usize::MAX).unwrap();
+        retain(&mut expected, value.clone(), usize::MAX, true).unwrap();
     }
     let plan = TerminalCollectionPlan::from_sessions(&[&source], Default::default()).unwrap();
     for key in source.raw_terminals() {

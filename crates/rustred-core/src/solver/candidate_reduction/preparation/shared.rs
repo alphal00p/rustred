@@ -10,6 +10,59 @@ use crate::solver::{Integral, IntegralOrder, SectorRule, SectorSolution, SourceS
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+fn invalid_input(error: impl std::error::Error + 'static) -> CandidateReductionError {
+    match crate::reduction::resource_limit_error(&error) {
+        Some(resource) => crate::reduction::ReductionError::Resources(resource.clone()).into(),
+        None => CandidateReductionError::InvalidInput(error.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod resource_tests {
+    use super::*;
+    use crate::algebra::CoefficientContext;
+    use crate::family::AffineDenominator;
+    use std::time::Duration;
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+
+    #[test]
+    fn owner_source_preparation_preserves_transient_resource_failures() {
+        let context = CoefficientContext::new(["d"]);
+        let family = IntegralFamily::new(
+            "owner-resource-test",
+            vec!["k".into()],
+            vec![],
+            context.clone(),
+            context.parameter("d").unwrap(),
+            vec![AffineDenominator::new(
+                context.integer(-1),
+                vec![context.one()],
+            )],
+            vec![],
+            vec![context.zero()],
+        )
+        .unwrap();
+        let budget = ResourceBudget::new(ResourceLimits {
+            max_elapsed: Some(Duration::ZERO),
+            ..Default::default()
+        });
+        let owner_error = budget
+            .run(|| prepare_family::<1>(&family, vec![], Default::default()))
+            .unwrap_err();
+        let source_error = budget
+            .run(|| SourceSystem::<1>::from_family(&family))
+            .unwrap_err();
+        for error in [&owner_error as &dyn std::error::Error, &source_error] {
+            assert!(matches!(
+                crate::reduction::resource_limit_error(error),
+                Some(ResourceLimitError::Elapsed { .. })
+            ));
+        }
+        let healthy = prepare_family::<1>(&family, vec![], Default::default()).unwrap();
+        assert_eq!(healthy.context.index_count(), 1);
+    }
+}
+
 #[cfg(test)]
 std::thread_local! { pub(in crate::solver::candidate_reduction) static PREPARATION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 
@@ -33,13 +86,16 @@ pub(in crate::solver::candidate_reduction) fn prepare_family<const N: usize>(
             family.denominator_count()
         )));
     }
-    SourcePortAudit::<N>::validate_install_family(family)
-        .map_err(|e| CandidateReductionError::UnsupportedFamily(e.to_string()))?;
-    let generator = ParametricIbpGenerator::try_new(family)
-        .map_err(|e| CandidateReductionError::InvalidInput(e.to_string()))?;
+    SourcePortAudit::<N>::validate_install_family(family).map_err(|error| {
+        match crate::reduction::resource_limit_error(&error) {
+            Some(resource) => crate::reduction::ReductionError::Resources(resource.clone()).into(),
+            None => CandidateReductionError::UnsupportedFamily(error.to_string()),
+        }
+    })?;
+    let generator = ParametricIbpGenerator::try_new(family).map_err(invalid_input)?;
     let context = generator.context().clone();
-    let sources = SourceSystem::<N>::from_family_with_capacity(family, true)
-        .map_err(|e| CandidateReductionError::InvalidInput(e.to_string()))?;
+    let sources =
+        SourceSystem::<N>::from_family_with_capacity(family, true).map_err(invalid_input)?;
     #[cfg(test)]
     PREPARATION_COUNT.with(|count| count.set(count.get() + 1));
     let source_conditions = sources

@@ -47,8 +47,9 @@ impl OriginalSourceCorpus {
                 "selected original sources have an incompatible index context",
             ));
         }
-        if replay.contributions.len() > translation_limits.max_requested_source_translations
-            || fixed.len() > cell_limits.max_fixed_restrictions
+        if (translation_limits.diagnostics_enabled
+            && replay.contributions.len() > translation_limits.max_requested_source_translations)
+            || (cell_limits.diagnostics_enabled && fixed.len() > cell_limits.max_fixed_restrictions)
         {
             return Err(error(
                 "selected original-source preparation exceeds its input budget",
@@ -101,7 +102,9 @@ impl OriginalSourceCorpus {
                     .map_err(error)?
             };
             if !denominator.raw().is_constant() && !weight_conditions.contains(&denominator) {
-                if weight_conditions.len() >= cell_limits.max_guards {
+                if cell_limits.diagnostics_enabled
+                    && weight_conditions.len() >= cell_limits.max_guards
+                {
                     return Err(error(
                         "selected original-source weight guards exceed their budget",
                     ));

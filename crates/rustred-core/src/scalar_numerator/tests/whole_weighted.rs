@@ -68,6 +68,7 @@ fn whole_denominator_powers_cancel_in_two_and_three_loops_before_output_cap() {
             head,
             labels.clone(),
             ScalarNumeratorLimits {
+                diagnostics_enabled: true,
                 max_lowered_terms: 1,
                 ..Default::default()
             },
@@ -164,6 +165,7 @@ fn numeric_affine_cancellation_precedes_power_support_admission() {
         head,
         vec![k],
         ScalarNumeratorLimits {
+            diagnostics_enabled: true,
             max_polynomial_terms: 1,
             max_lowered_terms: 1,
             ..Default::default()
@@ -230,6 +232,7 @@ fn collection_does_not_admit_a_genuinely_large_polynomial_or_erase_cancelled_pol
         head,
         vec![a.clone(), b.clone()],
         ScalarNumeratorLimits {
+            diagnostics_enabled: true,
             max_polynomial_terms: 4,
             ..Default::default()
         },

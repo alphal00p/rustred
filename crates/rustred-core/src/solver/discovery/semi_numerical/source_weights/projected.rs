@@ -118,7 +118,15 @@ impl fmt::Display for ProjectedSourceWeightError {
         }
     }
 }
-impl std::error::Error for ProjectedSourceWeightError {}
+impl std::error::Error for ProjectedSourceWeightError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Algebra(error) => Some(error),
+            Self::Native(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 impl From<IndexedAlgebraError> for ProjectedSourceWeightError {
     fn from(error: IndexedAlgebraError) -> Self {
         Self::Algebra(error)
@@ -300,6 +308,7 @@ pub fn reconstruct_projected_source_weights(
         active_variables: variables.active_len(),
     });
     let native_limits = Limits {
+        diagnostics_enabled: true,
         max_degree: limits.max_degree,
         max_probes: limits.max_probes,
         max_attempts: limits.max_attempts,

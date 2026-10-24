@@ -16,6 +16,8 @@ const K6_BOX_ENDPOINT_CELLS: usize = K6_ARITY * 2;
 /// one finite certified root at a time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ArtifactCoverReplayLimits {
+    /// Enforce count templates only for explicit diagnostics.
+    pub diagnostics_enabled: bool,
     pub max_arity: usize,
     pub max_requested_boxes: usize,
     pub max_requested_box_coordinate_cells: usize,
@@ -41,6 +43,7 @@ impl Default for ArtifactCoverReplayLimits {
             .checked_mul(K6_BOX_ENDPOINT_CELLS)
             .expect("registered K6 cover-coordinate ceiling fits usize");
         Self {
+            diagnostics_enabled: false,
             max_arity: 4_096,
             max_requested_boxes: requested_boxes,
             max_requested_box_coordinate_cells: coordinate_cells,
@@ -52,11 +55,17 @@ impl Default for ArtifactCoverReplayLimits {
 }
 
 impl ArtifactCoverReplayLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
+    }
+
     pub(crate) fn geometry(self) -> CompletionGeometryLimits {
         // BoxCover never consults the leading-ideal generator fields.  Keep
         // them closed instead of importing unrelated hidden defaults into the
         // public durable-load policy.
         CompletionGeometryLimits {
+            diagnostics_enabled: self.diagnostics_enabled,
             max_arity: self.max_arity,
             max_requested_generators: 0,
             max_requested_generator_coordinate_cells: 0,
@@ -75,6 +84,8 @@ impl ArtifactCoverReplayLimits {
 /// hostile-input parser; these limits do not bound every malicious inner count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ArtifactLoadLimits {
+    /// Enforce count templates only when explicitly requested for diagnostics.
+    pub diagnostics_enabled: bool,
     pub max_artifact_bytes: usize,
     pub max_string_bytes: usize,
     pub max_coefficient_bytes: usize,
@@ -105,14 +116,16 @@ pub struct ArtifactLoadLimits {
     /// This caller-owned allowance never comes from the artifact payload.
     pub max_predicate_consistency_work: usize,
     /// Caller-owned distinct affine atom allowance per source-port cover.
-    /// Defaults to 32; values above `SourcePortLimits::MAX_PREDICATE_ATOMS`
-    /// are rejected before decoding. This policy is never read from bytes.
+    /// The default template is 32, enforced only with diagnostics enabled.
+    /// This policy is never read from bytes and has no fixed atom ceiling.
     pub max_predicate_atoms: usize,
 }
 
 /// Resource policy for deterministic durable encoding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ArtifactEncodingLimits {
+    /// Enforce count templates only when explicitly requested for diagnostics.
+    pub diagnostics_enabled: bool,
     pub max_artifact_bytes: usize,
     pub max_string_bytes: usize,
     pub max_coefficient_bytes: usize,
@@ -127,11 +140,12 @@ pub struct ArtifactEncodingLimits {
 impl Default for ArtifactEncodingLimits {
     fn default() -> Self {
         Self {
-            max_artifact_bytes: 256 * 1024 * 1024,
-            max_string_bytes: 1024 * 1024,
-            max_coefficient_bytes: 16 * 1024 * 1024,
-            max_total_coefficient_bytes: 128 * 1024 * 1024,
-            max_total_witness_bytes: 128 * 1024 * 1024,
+            diagnostics_enabled: false,
+            max_artifact_bytes: usize::MAX,
+            max_string_bytes: usize::MAX,
+            max_coefficient_bytes: usize::MAX,
+            max_total_coefficient_bytes: usize::MAX,
+            max_total_witness_bytes: usize::MAX,
             max_collection_entries: 1_000_000,
         }
     }
@@ -140,11 +154,12 @@ impl Default for ArtifactEncodingLimits {
 impl Default for ArtifactLoadLimits {
     fn default() -> Self {
         Self {
-            max_artifact_bytes: 256 * 1024 * 1024,
-            max_string_bytes: 1024 * 1024,
-            max_coefficient_bytes: 16 * 1024 * 1024,
-            max_total_coefficient_bytes: 128 * 1024 * 1024,
-            max_total_witness_bytes: 128 * 1024 * 1024,
+            diagnostics_enabled: false,
+            max_artifact_bytes: usize::MAX,
+            max_string_bytes: usize::MAX,
+            max_coefficient_bytes: usize::MAX,
+            max_total_coefficient_bytes: usize::MAX,
+            max_total_witness_bytes: usize::MAX,
             max_collection_entries: 1_000_000,
             max_index_arity: 4_096,
             family: IntegralFamilyLimits::default(),
@@ -161,6 +176,39 @@ impl Default for ArtifactLoadLimits {
 }
 
 impl ArtifactLoadLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.cover_replay = self.cover_replay.with_diagnostics();
+        self.rule_derivation = self.rule_derivation.with_diagnostics();
+        self.rule_cells = self.rule_cells.with_diagnostics();
+        self.translated_sources = self.translated_sources.with_diagnostics();
+        self.family = self.family.with_diagnostics();
+        self.source_generation.relation_limits.identity_conditions = self
+            .source_generation
+            .relation_limits
+            .identity_conditions
+            .with_diagnostics();
+        self.source_generation.context_limits =
+            self.source_generation.context_limits.with_diagnostics();
+        self.source_generation.relation_limits.arithmetic = self
+            .source_generation
+            .relation_limits
+            .arithmetic
+            .with_diagnostics();
+        self
+    }
+
+    pub(super) fn check_count(
+        self,
+        resource: &'static str,
+        requested: usize,
+        limit: usize,
+    ) -> Result<(), super::super::error::ArtifactPersistenceError> {
+        self.native_io()
+            .check_count(resource, requested, limit)
+            .map_err(Into::into)
+    }
+
     pub(super) fn native_io(self) -> crate::persistence::BinaryIoLimits {
         crate::persistence::BinaryIoLimits {
             exact_algebra: self.family.exact_algebra,
@@ -169,6 +217,7 @@ impl ArtifactLoadLimits {
     }
     pub(super) fn replay_encoding(self) -> ArtifactEncodingLimits {
         ArtifactEncodingLimits {
+            diagnostics_enabled: self.diagnostics_enabled,
             max_artifact_bytes: self.max_artifact_bytes,
             max_string_bytes: self.max_string_bytes,
             max_coefficient_bytes: self.max_coefficient_bytes,
@@ -180,8 +229,25 @@ impl ArtifactLoadLimits {
 }
 
 impl ArtifactEncodingLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
+    }
+
+    pub(super) fn check_count(
+        self,
+        resource: &'static str,
+        requested: usize,
+        limit: usize,
+    ) -> Result<(), super::super::error::ArtifactPersistenceError> {
+        self.native_io()
+            .check_count(resource, requested, limit)
+            .map_err(Into::into)
+    }
+
     pub(super) fn native_io(self) -> crate::persistence::BinaryIoLimits {
         crate::persistence::BinaryIoLimits {
+            diagnostics_enabled: self.diagnostics_enabled,
             max_program_bytes: self.max_artifact_bytes,
             max_collection_entries: self.max_collection_entries,
             max_atom_bytes: self.max_coefficient_bytes,

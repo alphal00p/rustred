@@ -85,7 +85,7 @@ pub(super) fn validate(
     records: &ProgramRecord,
     limits: CandidateBundleLimits,
 ) -> Result<(), AppError> {
-    if records.rule_dispatch.len() > limits.max_collection_entries {
+    if limits.diagnostics_enabled && records.rule_dispatch.len() > limits.max_collection_entries {
         return Err(AppError::limit(
             "candidate dispatch table exceeds collection budget",
         ));

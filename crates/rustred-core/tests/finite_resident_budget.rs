@@ -28,6 +28,7 @@ fn metadata_rebind_checks_commit_peak_and_installs_successor_reservation() {
         program_identity: [2; 32],
     };
     let limits = GeneratedDirectoryLimits {
+        diagnostics_enabled: true,
         max_arity: 1,
         max_runs: usize::MAX,
         max_pages: usize::MAX,

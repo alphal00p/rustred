@@ -110,7 +110,7 @@ pub(super) fn canonical_factor(
     combinations(rows.len(), loops, &mut |selection| {
         charge(
             &mut stats.basis_candidates,
-            limits.max_basis_candidates,
+            limits.diagnostic_limit(limits.max_basis_candidates),
             "basis candidates",
         )?;
         let Some(transformed) = unimodular_transform(family, rows, selection)? else {
@@ -139,7 +139,7 @@ pub(super) fn canonical_factor(
             loop {
                 charge(
                     &mut stats.canonical_candidates,
-                    limits.max_canonical_candidates,
+                    limits.diagnostic_limit(limits.max_canonical_candidates),
                     "canonical candidates",
                 )?;
                 let mut proposed = integral

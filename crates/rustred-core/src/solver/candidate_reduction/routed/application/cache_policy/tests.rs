@@ -6,7 +6,9 @@ use crate::solver::{
 };
 use std::sync::Arc;
 
-fn application(limits: ReductionLimits) -> RoutedCandidateApplication<1> {
+fn application(mut limits: ReductionLimits) -> RoutedCandidateApplication<1> {
+    // These fixtures exercise explicitly bounded cache/eviction diagnostics.
+    limits.diagnostics_enabled = true;
     let family = Arc::new(crate::solver::tests::tadpole());
     let owners = programs(
         family.clone(),
@@ -658,6 +660,7 @@ fn guarded_cancellation_recomputes_after_eviction_and_keeps_original_poles() {
         None,
         vec![input([true], None, vec![three, two], &[[1]])],
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_integrals: 2,
             ..Default::default()
         },

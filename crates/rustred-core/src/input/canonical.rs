@@ -44,6 +44,7 @@ impl CanonicalScaffoldBase {
             "canonical clause arguments",
             clause_arguments,
             limits.max_clause_arguments,
+            limits.diagnostics_enabled,
         )?;
         Ok(CanonicalScaffoldCensus {
             nodes,
@@ -87,7 +88,12 @@ pub(super) fn canonical_scaffold_base(
         )?,
         gram,
     )?;
-    check_limit("canonical clauses", clause_count, limits.max_clauses)?;
+    check_limit(
+        "canonical clauses",
+        clause_count,
+        limits.max_clauses,
+        limits.diagnostics_enabled,
+    )?;
 
     let label_nodes = checked_add(
         "canonical label nodes",
@@ -186,7 +192,12 @@ pub(super) fn render_canonical(
         checked_add("canonical clauses", 6, prop_clauses)?,
         gram_count,
     )?;
-    check_limit("canonical clauses", clause_count, limits.max_clauses)?;
+    check_limit(
+        "canonical clauses",
+        clause_count,
+        limits.max_clauses,
+        limits.diagnostics_enabled,
+    )?;
     clauses
         .try_reserve_exact(clause_count)
         .map_err(|_| Error::AllocationFailure {

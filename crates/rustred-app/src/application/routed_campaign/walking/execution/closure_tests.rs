@@ -31,6 +31,7 @@ fn point(phase: Phase, value: u64) -> Domain<1> {
 }
 fn finished() -> Finished {
     Finished {
+        resource_failure: None,
         stats: NativeStats::Apply(Default::default()),
         error: None,
         error_kind: "none",
@@ -70,6 +71,7 @@ fn apply_route_exact_and_containment_reuse_all_block_source_roots() {
     state.commit(
         1,
         Finished {
+            resource_failure: None,
             stats: NativeStats::Route(Default::default()),
             ..finished()
         },
@@ -122,6 +124,7 @@ fn targeted_initial_reuse_and_job_local_cache_keep_transitive_edges() {
     state.commit(
         2,
         Finished {
+            resource_failure: None,
             stats: NativeStats::Route(Default::default()),
             ..finished()
         },
@@ -343,6 +346,7 @@ fn partial_initial_state() -> State<1> {
     state.commit(
         2,
         Finished {
+            resource_failure: None,
             stats: NativeStats::ApplyPartial(Default::default(), scope),
             ..finished()
         },

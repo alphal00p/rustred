@@ -67,7 +67,10 @@ struct RetainedRelationsRecord {
     binding: String,
     protected_outputs: Vec<Vec<i64>>,
 }
-fn binary(error: impl fmt::Display) -> TerminalRelationError {
+fn binary(error: impl fmt::Display + 'static) -> TerminalRelationError {
+    if let Some(error) = crate::persistence::resource_failure(&error) {
+        return TerminalRelationError::Resources(error);
+    }
     TerminalRelationError::Binary(error.to_string())
 }
 
@@ -75,7 +78,10 @@ fn decode_structure<T: bincode::Decode<()>>(
     bytes: &[u8],
     record: &'static str,
 ) -> Result<(T, usize), TerminalRelationError> {
-    bincode::decode_from_slice(bytes, bincode::config::standard()).map_err(|error| {
+    crate::persistence::decode_structure(bytes).map_err(|error| {
+        if let Some(error) = crate::persistence::resource_failure(&error) {
+            return TerminalRelationError::Resources(error);
+        }
         binary(format!(
             "{record} structural record ({} encoded bytes): {error}",
             bytes.len()
@@ -91,6 +97,7 @@ pub(super) fn encode(
         "source conditions",
         session.conditions.len(),
         limits.max_collection_entries,
+        limits.diagnostics_enabled,
     )?;
     let mut table = CoefficientTableBuilder::new(limits);
     let family = NativeFamilyRecord::from_family(&session.family, &mut table).map_err(binary)?;
@@ -123,11 +130,13 @@ pub(super) fn encode(
                 "assistance keys",
                 a.pending.len().saturating_add(a.queried.len()),
                 limits.max_collection_entries,
+                limits.diagnostics_enabled,
             )?;
             check(
                 "equation-provider binding bytes",
                 a.binding.len(),
                 limits.max_collection_entries,
+                limits.diagnostics_enabled,
             )?;
             Ok(AssistanceRecord {
                 binding: a.binding.clone(),
@@ -168,11 +177,13 @@ pub(super) fn encode(
                     "retained-relations binding bytes",
                     authority.binding.len(),
                     limits.max_collection_entries,
+                    limits.diagnostics_enabled,
                 )?;
                 check(
                     "retained-relations protected outputs",
                     authority.protected_outputs.len(),
                     limits.max_collection_entries,
+                    limits.diagnostics_enabled,
                 )?;
                 Ok(RetainedRelationsRecord {
                     binding: authority.binding.clone(),
@@ -234,15 +245,16 @@ pub(super) fn encode(
         completed_rebuild_rows: session.completed_rebuild_rows,
     };
     let mut records =
-        bincode::encode_to_vec(record, bincode::config::standard()).map_err(binary)?;
+        crate::persistence::encode_structure(&record, limits.max_program_bytes).map_err(binary)?;
     if let Some(assistance) = assistance {
         records.extend(
-            bincode::encode_to_vec(assistance, bincode::config::standard()).map_err(binary)?,
+            crate::persistence::encode_structure(&assistance, limits.max_program_bytes)
+                .map_err(binary)?,
         );
     }
     if let Some(retained_relations) = retained_relations {
         records.extend(
-            bincode::encode_to_vec(retained_relations, bincode::config::standard())
+            crate::persistence::encode_structure(&retained_relations, limits.max_program_bytes)
                 .map_err(binary)?,
         );
     }
@@ -250,6 +262,7 @@ pub(super) fn encode(
         "checkpoint structural bytes",
         records.len(),
         limits.max_program_bytes,
+        true,
     )?;
     let table = table.finish().map_err(binary)?;
     encode_program(
@@ -307,22 +320,32 @@ pub(super) fn decode(
                     .pending
                     .len()
                     .saturating_add(assistance_record.queried.len()),
-                io.max_collection_entries.min(
-                    limits
-                        .max_columns
-                        .saturating_add(limits.max_seeds)
-                        .saturating_add(limits.normalization.max_terminals),
-                ),
+                io.max_collection_entries,
+                io.diagnostics_enabled,
+            )?;
+            check(
+                "assistance keys",
+                assistance_record
+                    .pending
+                    .len()
+                    .saturating_add(assistance_record.queried.len()),
+                limits
+                    .max_columns
+                    .saturating_add(limits.max_seeds)
+                    .saturating_add(limits.normalization.max_terminals),
+                limits.diagnostics_enabled && limits.normalization.diagnostics_enabled,
             )?;
             check(
                 "equation-provider binding bytes",
                 assistance_record.binding.len(),
                 io.max_collection_entries,
+                io.diagnostics_enabled,
             )?;
             check(
                 "pending assistance rows",
                 assistance_record.equations.len(),
                 limits.max_rows,
+                limits.diagnostics_enabled,
             )?;
             let nonzeros = assistance_record
                 .equations
@@ -334,11 +357,17 @@ pub(super) fn decode(
                 .fold(0usize, |n, (_, conditions)| {
                     n.saturating_add(conditions.len())
                 });
-            check("pending assistance nonzeros", nonzeros, limits.max_nonzeros)?;
+            check(
+                "pending assistance nonzeros",
+                nonzeros,
+                limits.max_nonzeros,
+                limits.diagnostics_enabled,
+            )?;
             check(
                 "pending assistance conditions",
                 conditions,
                 limits.max_nonzeros,
+                limits.diagnostics_enabled,
             )?;
             (Some(assistance_record), used + extra)
         }
@@ -358,34 +387,59 @@ pub(super) fn decode(
                 "retained-relations binding bytes",
                 record.binding.len(),
                 io.max_collection_entries,
+                io.diagnostics_enabled,
             )?;
             check(
                 "retained-relations protected outputs",
                 record.protected_outputs.len(),
-                io.max_collection_entries
-                    .min(limits.normalization.max_terminals),
+                io.max_collection_entries,
+                io.diagnostics_enabled,
+            )?;
+            check(
+                "retained-relations protected outputs",
+                record.protected_outputs.len(),
+                limits.normalization.max_terminals,
+                limits.normalization.diagnostics_enabled,
             )?;
             Some(record)
         }
         _ => None,
     };
-    check("seeds", record.seeds.len(), limits.max_seeds)?;
-    check("columns", record.columns.len(), limits.max_columns)?;
+    check(
+        "seeds",
+        record.seeds.len(),
+        limits.max_seeds,
+        limits.diagnostics_enabled,
+    )?;
+    check(
+        "columns",
+        record.columns.len(),
+        limits.max_columns,
+        limits.diagnostics_enabled,
+    )?;
     check(
         "stored nonzeros",
         record.coefficients.len(),
         limits.max_nonzeros,
+        limits.diagnostics_enabled,
     )?;
     check(
         "independent rows",
         record.row_ptrs.len().saturating_sub(1),
         limits.max_rows,
+        limits.diagnostics_enabled,
     )?;
-    check("rebuild rows", record.rebuild.len(), limits.max_rows)?;
+    check(
+        "rebuild rows",
+        record.rebuild.len(),
+        limits.max_rows,
+        limits.diagnostics_enabled,
+    )?;
     check(
         "raw terminals",
         record.raw.len(),
         limits.normalization.max_terminals,
+        limits.normalization.diagnostics_enabled,
     )?;
     check(
         "generated alias keys",
@@ -393,17 +447,24 @@ pub(super) fn decode(
         limits
             .max_columns
             .saturating_add(limits.normalization.max_terminals),
+        limits.diagnostics_enabled && limits.normalization.diagnostics_enabled,
     )?;
     let rebuild_terms = record
         .rebuild
         .iter()
         .try_fold(0usize, |n, row| n.checked_add(row.len()))
         .ok_or_else(|| binary("rebuild nonzero count overflow"))?;
-    check("rebuild nonzeros", rebuild_terms, limits.max_nonzeros)?;
+    check(
+        "rebuild nonzeros",
+        rebuild_terms,
+        limits.max_nonzeros,
+        limits.diagnostics_enabled,
+    )?;
     check(
         "source conditions",
         record.conditions.len(),
         io.max_collection_entries,
+        io.diagnostics_enabled,
     )?;
     record
         .family

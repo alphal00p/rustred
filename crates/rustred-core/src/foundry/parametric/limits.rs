@@ -8,6 +8,8 @@ use crate::algebra::IndexedAlgebraLimits;
 /// algorithm, so this is not a hard process-RSS limit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParametricRuleLimits {
+    /// Enforce operational count/work templates only for explicit diagnostics.
+    pub diagnostics_enabled: bool,
     pub indexed_algebra: IndexedAlgebraLimits,
     pub max_source_rows: usize,
     pub max_shift_columns: usize,
@@ -83,6 +85,7 @@ pub struct ParametricRuleLimits {
 impl Default for ParametricRuleLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             indexed_algebra: IndexedAlgebraLimits::default(),
             max_source_rows: 65_536,
             max_shift_columns: 1_000_000,
@@ -110,6 +113,24 @@ impl Default for ParametricRuleLimits {
             max_concrete_replay_retained_coefficient_clone_owned_bytes: 1024 * 1024 * 1024,
             max_concrete_replay_integral_key_power_cells: 64_000_000,
             max_concrete_replay_exact_operations: 200_000_000,
+        }
+    }
+}
+
+impl ParametricRuleLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.indexed_algebra = self.indexed_algebra.with_diagnostics();
+        self
+    }
+
+    // Legacy native target-RREF interfaces take a concrete bound. Ordinary
+    // execution retains only their actual usize/column-representation bound.
+    pub(super) fn diagnostic_bound(self, template: usize) -> usize {
+        if self.diagnostics_enabled {
+            template
+        } else {
+            usize::MAX
         }
     }
 }

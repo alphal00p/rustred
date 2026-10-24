@@ -95,7 +95,12 @@ pub(in crate::reduction::terminal_normalization) fn prepare(
         .checked_add(1)
         .and_then(|n| n.checked_mul(max_columns))
         .ok_or(Error::InvalidWitness("projection cell count overflow"))?;
-    check("projection matrix cells", cells, limits.max_matrix_cells)?;
+    check(
+        "projection matrix cells",
+        cells,
+        limits.max_matrix_cells,
+        limits.diagnostics_enabled,
+    )?;
     if support.circuit.iter().any(|c| !c.is_zero() && c.abs() != 1) {
         return Ok(Err(Skip::NonUnitCircuit));
     }

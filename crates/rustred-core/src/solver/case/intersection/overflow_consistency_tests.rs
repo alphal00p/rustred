@@ -147,6 +147,7 @@ fn exhausted_native_budget_preserves_full_original_conjunction() {
             &[0, 1],
             &[true; 2],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_normalizations: 0,
                 ..Default::default()
             },

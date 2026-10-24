@@ -182,9 +182,7 @@ impl PyCandidateArtifact {
         bytes: &[u8],
         limits: CandidateBundleLimits,
     ) -> PyResult<Self> {
-        let cap = limits
-            .max_bundle_bytes
-            .min(rustred_app::MAX_CANDIDATE_BUNDLE_BYTES);
+        let cap = limits.max_bundle_bytes;
         if bytes.len() > cap {
             return Err(RustRedLimitError::new_err(format!(
                 "artifact exceeds native byte limit: {} > {cap}",
@@ -392,6 +390,9 @@ pub(crate) fn html_preview(value: &str, max_chars: usize) -> String {
 
 fn read_limits(values: [Option<PythonInteger>; 4]) -> PyResult<CandidateBundleLimits> {
     let mut limits = CandidateBundleLimits::default();
+    if values[1].is_some() {
+        limits = limits.with_diagnostics();
+    }
     for ((name, slot), value) in [
         ("bundle_max_bytes", &mut limits.max_bundle_bytes),
         ("bundle_max_entries", &mut limits.max_collection_entries),
@@ -492,12 +493,13 @@ mod tests {
             read_limits([None; 4]).unwrap(),
             CandidateBundleLimits::default()
         );
-        assert_eq!(
-            read_limits([None, Some(PythonInteger(10_000_000)), None, None])
-                .unwrap()
-                .max_collection_entries,
-            10_000_000
-        );
+        let explicit_count =
+            read_limits([None, Some(PythonInteger(10_000_000)), None, None]).unwrap();
+        assert_eq!(explicit_count.max_collection_entries, 10_000_000);
+        assert!(explicit_count.diagnostics_enabled);
+        let explicit_bytes = read_limits([Some(PythonInteger(1024)), None, None, None]).unwrap();
+        assert_eq!(explicit_bytes.max_bundle_bytes, 1024);
+        assert!(!explicit_bytes.diagnostics_enabled);
         for value in [0, -1, i128::MAX] {
             assert!(read_limits([Some(PythonInteger(value)), None, None, None]).is_err());
         }

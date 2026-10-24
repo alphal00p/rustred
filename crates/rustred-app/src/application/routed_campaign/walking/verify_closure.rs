@@ -1775,16 +1775,62 @@ fn reference<const N: usize>(ctx: &Ctx<'_, N>, id: usize) -> Reference<N> {
     }
 }
 
+fn reference_error_matches(
+    finished: &inspection::Finished,
+    historical_error: bool,
+) -> Result<bool, AppError> {
+    if let Some(resource) = finished.resource_failure() {
+        return Err(AppError::resource(resource.clone()));
+    }
+    Ok(finished.error.is_some() == historical_error)
+}
+
+#[cfg(test)]
+mod reference_resource_tests {
+    use super::*;
+    use rustred::algebra::{ExactAlgebraError, IndexedAlgebraError};
+    use rustred::solver::{OwnerAppliedError, OwnerAppliedFailure};
+    use symbolica::utils::resources::ResourceLimitError;
+
+    #[test]
+    fn original_resource_refusal_cannot_match_a_historical_error() {
+        let resource = ResourceLimitError::Memory {
+            rss_bytes: 100,
+            additional_bytes: 20,
+            limit_bytes: 110,
+        };
+        let native = OwnerAppliedError {
+            failure: OwnerAppliedFailure::Algebra(IndexedAlgebraError::ExactAlgebra(
+                ExactAlgebraError::Resource(resource.clone()),
+            )),
+            stats: Default::default(),
+            max_numerator_rank: None,
+            power_bounds: Default::default(),
+        };
+        let mut finished = inspection::Finished {
+            resource_failure: inspection::original_resource_failure(&native),
+            stats: inspection::NativeStats::Apply(Default::default()),
+            error: Some(inspection::debug(&native.failure)),
+            error_kind: "native_failure",
+            seconds: 0.0,
+        };
+        let error = reference_error_matches(&finished, true).unwrap_err();
+        assert_eq!(error.resource_limit_error(), Some(&resource));
+        finished.resource_failure = None;
+        assert!(reference_error_matches(&finished, true).unwrap());
+    }
+}
+
 fn reinspect<const N: usize>(
     ctx: &Ctx<'_, N>,
     id: usize,
     tally: &mut Tally,
     violations: &mut Violations,
     inventory: Option<&inventory::Collector>,
-) {
+) -> Result<(), AppError> {
     if let Some(&recipe) = ctx.loaded.finite_replay.get(&id) {
         finite_replay::reinspect(ctx, id, recipe, tally, violations, inventory);
-        return;
+        return Ok(());
     }
     let node = ctx.loaded.nodes[id];
     if node.kind == Kind::G2
@@ -1805,7 +1851,7 @@ fn reinspect<const N: usize>(
                 format!("G2' full cover {id} records events, frontiers or an error")
             });
         }
-        return;
+        return Ok(());
     }
     let domain = inspected_domain(ctx.loaded, id);
     let targets = targets_of(ctx, id);
@@ -1913,6 +1959,7 @@ fn reinspect<const N: usize>(
     } else {
         inspection::inspect_reference(ctx.reducer, &domain, request, ctx.cancellation, &mut emit)
     };
+    let error_matches = reference_error_matches(&finished, node.error)?;
     let failed = finished.error.is_some();
     local.inspected = 1;
     local.events = events;
@@ -1938,7 +1985,7 @@ fn reinspect<const N: usize>(
             format!("node {id}: reference emitted a reuse shortcut")
         });
     }
-    if failed != node.error {
+    if !error_matches {
         violations.add("error_parity", || {
             format!(
                 "node {id}: record error {} but reference error {:?}",
@@ -1959,7 +2006,7 @@ fn reinspect<const N: usize>(
             || (domain.phase == Phase::Apply && node.successors != Some(successors)));
     if !ctx.count_parity {
         tally.count_mismatches_under_disabled_levers += u64::from(counts_differ);
-        return;
+        return Ok(());
     }
     if !failed && node.events != Some(events) {
         violations.add("event_parity", || {
@@ -1979,6 +2026,7 @@ fn reinspect<const N: usize>(
             )
         });
     }
+    Ok(())
 }
 
 /// A domain contained in a node reached from a recorded target through
@@ -2023,7 +2071,7 @@ fn run_reinspection<const N: usize>(
     violations: &mut Violations,
     observer: &impl Fn(Value),
     inventory: Option<&inventory::Collector>,
-) -> Reinspection {
+) -> Result<Reinspection, AppError> {
     let started = Instant::now();
     let nodes = &ctx.loaded.nodes;
     let total = nodes.len();
@@ -2044,27 +2092,45 @@ fn run_reinspection<const N: usize>(
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
     let shared = Mutex::new((Tally::default(), Violations::new(options.max_violations)));
+    let failed = AtomicBool::new(false);
+    let resource_error = Mutex::new(None::<(usize, AppError)>);
+    let resources = symbolica::utils::resources::ResourceBudget::capture_current();
     std::thread::scope(|scope| {
         for _ in 0..options.threads.max(1) {
             scope.spawn(|| {
-                let mut tally = Tally::default();
-                let mut local = Violations::new(options.max_violations);
-                loop {
-                    let index = next.fetch_add(1, Ordering::Relaxed);
-                    if index >= selected.len() || ctx.cancellation.load(Ordering::Relaxed) {
-                        break;
+                resources.run_captured(|| {
+                    let mut tally = Tally::default();
+                    let mut local = Violations::new(options.max_violations);
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        if index >= selected.len()
+                            || ctx.cancellation.load(Ordering::Relaxed)
+                            || failed.load(Ordering::Acquire)
+                        {
+                            break;
+                        }
+                        if let Err(error) =
+                            reinspect(ctx, selected[index], &mut tally, &mut local, inventory)
+                        {
+                            let mut first = resource_error.lock().expect("verifier resource error");
+                            if first.as_ref().is_none_or(|(ordinal, _)| index < *ordinal) {
+                                *first = Some((index, error));
+                            }
+                            failed.store(true, Ordering::Release);
+                            break;
+                        }
+                        done.fetch_add(1, Ordering::Relaxed);
                     }
-                    reinspect(ctx, selected[index], &mut tally, &mut local, inventory);
-                    done.fetch_add(1, Ordering::Relaxed);
-                }
-                let mut guard = shared.lock().expect("verifier tally");
-                guard.0.add(&tally);
-                guard.1.merge(local);
+                    let mut guard = shared.lock().expect("verifier tally");
+                    guard.0.add(&tally);
+                    guard.1.merge(local);
+                });
             });
         }
         let mut last = Instant::now();
         while done.load(Ordering::Relaxed) < selected.len()
             && !ctx.cancellation.load(Ordering::Relaxed)
+            && !failed.load(Ordering::Acquire)
         {
             std::thread::sleep(Duration::from_millis(200));
             if last.elapsed() >= Duration::from_secs(10) {
@@ -2076,6 +2142,12 @@ fn run_reinspection<const N: usize>(
             }
         }
     });
+    if let Some((_, error)) = resource_error
+        .into_inner()
+        .expect("verifier resource error")
+    {
+        return Err(error);
+    }
     let (tally, worker_violations) = shared.into_inner().expect("verifier tally");
     violations.merge(worker_violations);
     if tally.inspected != selected.len() as u64 {
@@ -2087,13 +2159,13 @@ fn run_reinspection<const N: usize>(
             )
         });
     }
-    Reinspection {
+    Ok(Reinspection {
         candidates: candidates.len(),
         selected,
         tally,
         reinspected,
         seconds: started.elapsed().as_secs_f64(),
-    }
+    })
 }
 
 /// Binds `path` to the loaded generation; see `result_binding`.
@@ -2863,7 +2935,7 @@ fn verify<const N: usize>(
         failing: failing.map(|id| (id, &failing_request)),
         count_parity,
     };
-    let reinspection = run_reinspection(&ctx, options, &mut violations, observer, inventory);
+    let reinspection = run_reinspection(&ctx, options, &mut violations, observer, inventory)?;
     let complete = reinspection.selected.len() == reinspection.candidates
         && reinspection.tally.inspected == reinspection.candidates as u64;
     // Roots, cones and certification.

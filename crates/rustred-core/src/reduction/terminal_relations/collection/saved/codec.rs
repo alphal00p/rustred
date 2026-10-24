@@ -231,7 +231,10 @@ mod compatibility_tests {
         assert!(!error.to_string().contains("structural record"));
     }
 }
-fn binary(e: impl std::fmt::Display) -> VacuumCollectionError {
+fn binary(e: impl std::fmt::Display + 'static) -> VacuumCollectionError {
+    if let Some(error) = crate::persistence::resource_failure(&e) {
+        return VacuumCollectionError::Resources(error);
+    }
     VacuumCollectionError::Binary(e.to_string())
 }
 
@@ -239,7 +242,10 @@ fn decode_structure<T: bincode::Decode<()>>(
     bytes: &[u8],
     record: &'static str,
 ) -> Result<(T, usize)> {
-    bincode::decode_from_slice(bytes, bincode::config::standard()).map_err(|error| {
+    crate::persistence::decode_structure(bytes).map_err(|error| {
+        if let Some(error) = crate::persistence::resource_failure(&error) {
+            return VacuumCollectionError::Resources(error);
+        }
         binary(format!(
             "{record} structural record ({} encoded bytes): {error}",
             bytes.len()
@@ -351,6 +357,7 @@ fn record_with_intern<'a>(
         "collection records",
         plan.raw.len(),
         io.max_collection_entries,
+        io.diagnostics_enabled,
     )?;
     let ids: BTreeMap<_, _> = plan
         .families
@@ -467,7 +474,12 @@ fn record_with_intern<'a>(
             terms = terms
                 .saturating_add(row.terms().len())
                 .saturating_add(row.nonzero_conditions().len());
-            check("collection entries", terms, io.max_collection_entries)?;
+            check(
+                "collection entries",
+                terms,
+                io.max_collection_entries,
+                io.diagnostics_enabled,
+            )?;
             maps.push((
                 (ids[family.as_str()], key.powers().to_vec()),
                 table.row(row.terms(), &ids)?,
@@ -555,11 +567,13 @@ pub(super) fn encode(plan: &TerminalCollectionPlan, io: BinaryIoLimits) -> Resul
 }
 
 fn encode_record(record: Record, table: Intern<'_>, io: BinaryIoLimits) -> Result<Vec<u8>> {
-    let records = bincode::encode_to_vec(record, bincode::config::standard()).map_err(binary)?;
+    let records =
+        crate::persistence::encode_structure(&record, io.max_program_bytes).map_err(binary)?;
     check(
         "collection structural bytes",
         records.len(),
         io.max_program_bytes,
+        true,
     )?;
     let table = table.native.finish().map_err(binary)?;
     encode_program(
@@ -604,6 +618,7 @@ pub(super) fn decode(
         "collection structural bytes",
         bytes.len(),
         io.max_program_bytes,
+        true,
     )?;
     let (schema, _): (u32, usize) = decode_structure(bytes, "collection schema")?;
     let (stored, used) = if schema == 1 {
@@ -634,6 +649,7 @@ pub(super) fn decode(
         "collection families",
         stored.families.len(),
         limits.diagonal.aliases.max_families,
+        limits.diagonal.aliases.diagnostics_enabled,
     )?;
     if stored.families.len() != sessions.len() {
         return Err(binary("collection session family inventory differs"));
@@ -646,11 +662,13 @@ pub(super) fn decode(
             .aliases
             .max_families
             .saturating_mul(limits.max_proof_layers),
+        limits.diagonal.aliases.diagnostics_enabled && limits.diagnostics_enabled,
     )?;
     check(
         "collection proof layers",
         stored.layer_ends.len(),
         limits.max_proof_layers,
+        limits.diagnostics_enabled,
     )?;
     let layer_ends = stored
         .layer_ends
@@ -677,6 +695,7 @@ pub(super) fn decode(
             "proof family inventories",
             proof.inputs.len(),
             limits.diagonal.aliases.max_families,
+            limits.diagonal.aliases.diagnostics_enabled,
         )?;
         let mut inputs = Vec::new();
         let mut total = 0usize;
@@ -686,6 +705,7 @@ pub(super) fn decode(
                 "proof input keys",
                 total,
                 limits.diagonal.aliases.max_terminals,
+                limits.diagonal.aliases.diagnostics_enabled,
             )?;
             let family = owner(*index)?;
             let mut inventory = BTreeSet::new();
@@ -717,6 +737,7 @@ pub(super) fn decode(
         "finite feedback layers",
         stored.feedbacks.len(),
         limits.max_proof_layers,
+        limits.diagnostics_enabled,
     )?;
     let all_families: BTreeMap<_, _> = families
         .iter()
@@ -748,11 +769,13 @@ pub(super) fn decode(
                 "finite feedback source rows",
                 total_rows,
                 limits.finite_feedback.max_source_rows,
+                limits.finite_feedback.diagnostics_enabled,
             )?;
             check(
                 "finite feedback source guards",
                 guards.len(),
                 limits.finite_feedback.max_conditions,
+                limits.finite_feedback.diagnostics_enabled,
             )?;
             let conditions = guards
                 .iter()
@@ -765,6 +788,7 @@ pub(super) fn decode(
                     "finite feedback source terms",
                     total_terms,
                     limits.finite_feedback.max_source_terms,
+                    limits.finite_feedback.diagnostics_enabled,
                 )?;
                 let mut terms = BTreeMap::new();
                 for (powers, id) in row {
@@ -783,6 +807,7 @@ pub(super) fn decode(
                 "finite feedback ordered columns",
                 column_order.len(),
                 limits.finite_feedback.max_columns,
+                limits.finite_feedback.diagnostics_enabled,
             )?;
             let columns = column_order
                 .iter()
@@ -815,6 +840,7 @@ pub(super) fn decode(
             "finite feedback targets",
             feedback.inputs.len(),
             limits.finite_feedback.max_columns,
+            limits.finite_feedback.diagnostics_enabled,
         )?;
         let mut inputs = BTreeSet::new();
         for (id, powers) in &feedback.inputs {

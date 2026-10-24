@@ -133,7 +133,7 @@ fn direct_refinement_checks_negative_a_zero_k_and_pending_work_overflow() {
     let error = super::refine(
         &polynomial(&context, "x*y-1"),
         &[0, 1],
-        Default::default(),
+        CaseIntersectionLimits::default().with_diagnostics(),
         &mut Default::default(),
         usize::MAX,
     )
@@ -247,6 +247,7 @@ fn work_and_factor_budgets_fail_atomically_before_a_partial_union() {
     for (limits, expected) in [
         (
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 12,
                 ..Default::default()
             },
@@ -254,6 +255,7 @@ fn work_and_factor_budgets_fail_atomically_before_a_partial_union() {
         ),
         (
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_factorizations: 1,
                 ..Default::default()
             },
@@ -275,6 +277,7 @@ fn work_and_factor_budgets_fail_atomically_before_a_partial_union() {
             &[0, 1],
             &[true; 2],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 13,
                 ..Default::default()
             },

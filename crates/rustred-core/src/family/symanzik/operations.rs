@@ -7,7 +7,7 @@ use symbolica::prelude::*;
 use super::context::FeynmanPolynomialContext;
 use super::error::FeynmanPolynomialError;
 use super::model::{FeynmanPolynomial, FeynmanPolynomialRing};
-use super::work::{FeynmanWorkBudget, check_limit, checked_add, checked_mul};
+use super::work::{FeynmanWorkBudget, check_limit, checked_add, checked_mul, checkpoint};
 
 pub(super) fn checked_determinant(
     context: &FeynmanPolynomialContext,
@@ -29,8 +29,11 @@ pub(super) fn checked_determinant(
         "Symbolica determinant matrix entries",
         matrix_entries,
         context.limits.max_determinant_matrix_entries,
+        context.limits.diagnostics_enabled,
     )?;
-    work.charge_determinant_ring_operations(determinant_ring_operations(size)?)?;
+    if context.limits.diagnostics_enabled {
+        work.charge_determinant_ring_operations(determinant_ring_operations(size)?)?;
+    }
 
     let native_size =
         u32::try_from(size).map_err(|_| FeynmanPolynomialError::ResourceCountOverflow {
@@ -66,6 +69,7 @@ pub(super) fn checked_determinant(
             detail: "Symbolica rejected a preflighted determinant matrix".to_owned(),
         }
     })?;
+    checkpoint()?;
     let raw = catch_unwind(AssertUnwindSafe(|| native.det()))
         .map_err(|_| FeynmanPolynomialError::SymbolicaPanic)?
         .map_err(
@@ -146,6 +150,7 @@ pub(super) fn checked_symbolica_neg(
     context.authenticate(polynomial)?;
     work.charge_term_operations(polynomial.raw.nterms())?;
     let ring = FeynmanPolynomialRing::from_poly(&context.template);
+    checkpoint()?;
     let raw = catch_unwind(AssertUnwindSafe(|| ring.neg(polynomial.raw())))
         .map_err(|_| FeynmanPolynomialError::SymbolicaPanic)?;
     context.rebind_native_result(raw)
@@ -166,6 +171,7 @@ pub(super) fn checked_adjugate(
         "adjugate minors",
         minors,
         context.limits.max_adjugate_minors,
+        context.limits.diagnostics_enabled,
     )?;
     let mut adjugate = vec![vec![context.zero(); size]; size];
     for row in 0..size {

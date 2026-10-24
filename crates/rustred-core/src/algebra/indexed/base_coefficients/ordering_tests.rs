@@ -49,6 +49,7 @@ fn guard_cost_ordering_later_cheap_native_equation_avoids_unneeded_factor_refusa
     let c = context();
     let system = fixture(&c);
     let limits = IndexedGuardLimits {
+        diagnostics_enabled: true,
         max_gcd_factor_work: 5000,
         ..Default::default()
     };
@@ -73,6 +74,7 @@ fn guard_cost_ordering_keeps_actual_admission_failure() {
         c.integer_zero_locus_domain_resolution(
             &system,
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_gcd_factor_work: 0,
                 ..Default::default()
             },

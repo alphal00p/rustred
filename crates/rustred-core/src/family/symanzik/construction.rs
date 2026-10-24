@@ -8,7 +8,7 @@ use super::context::FeynmanPolynomialContext;
 use super::error::FeynmanPolynomialError;
 use super::model::{FeynmanPolynomial, FeynmanPolynomialLimits};
 use super::operations::{checked_adjugate, checked_determinant, verify_homogeneous};
-use super::work::{FeynmanWorkBudget, checked_add, checked_mul};
+use super::work::{FeynmanWorkBudget, estimated_add, estimated_mul};
 
 /// Authenticated generic Symanzik data for one complete affine family.
 #[derive(Debug)]
@@ -36,15 +36,17 @@ impl SymanzikPolynomials {
         let mut work = FeynmanWorkBudget::new(limits);
         let loops = family.loop_count();
         let externals = family.external_count();
-        let assembly_columns = checked_add(
+        let assembly_columns = estimated_add(
             family.denominator_count(),
             1,
             "Feynman polynomial assembly entries",
+            limits.diagnostics_enabled,
         )?;
-        let assembly_entries = checked_mul(
+        let assembly_entries = estimated_mul(
             family.denominator_count(),
             assembly_columns,
             "Feynman polynomial assembly entries",
+            limits.diagnostics_enabled,
         )?;
         work.charge_term_operations(assembly_entries)?;
         let mut a = vec![vec![context.zero(); loops]; loops];
@@ -112,12 +114,17 @@ impl SymanzikPolynomials {
         } else {
             let adjugate = checked_adjugate(&context, &a, &mut work)?;
             let mut momentum_square = context.zero();
-            let loop_external_entries =
-                checked_mul(loops, externals, "Feynman Gram-contraction entries")?;
-            let gram_contraction_entries = checked_mul(
+            let loop_external_entries = estimated_mul(
+                loops,
+                externals,
+                "Feynman Gram-contraction entries",
+                limits.diagnostics_enabled,
+            )?;
+            let gram_contraction_entries = estimated_mul(
                 loop_external_entries,
                 loop_external_entries,
                 "Feynman Gram-contraction entries",
+                limits.diagnostics_enabled,
             )?;
             work.charge_term_operations(gram_contraction_entries)?;
             for loop_left in 0..loops {

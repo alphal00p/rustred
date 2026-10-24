@@ -21,6 +21,7 @@ use crate::family::{IntegralFamily, IntegralKey};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VacuumProductLimits {
+    pub diagnostics_enabled: bool,
     pub max_terminals: usize,
     pub max_lower_families: usize,
     /// Shared over structural basis searches and all lower-factor charts.
@@ -31,10 +32,25 @@ pub struct VacuumProductLimits {
 impl Default for VacuumProductLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_terminals: 100_000,
             max_lower_families: 1024,
             max_basis_candidates: 100_000,
             max_canonical_candidates: 2_000_000,
+        }
+    }
+}
+
+impl VacuumProductLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
+    }
+    pub(crate) const fn diagnostic_limit(self, limit: usize) -> Option<usize> {
+        if self.diagnostics_enabled {
+            Some(limit)
+        } else {
+            None
         }
     }
 }
@@ -93,6 +109,7 @@ impl VacuumProductPlan {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VacuumProductError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     InvalidInput(String),
     ExactAlgebra(String),
     ResourceLimit {
@@ -104,6 +121,7 @@ pub enum VacuumProductError {
 impl fmt::Display for VacuumProductError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(f),
             Self::InvalidInput(message) => write!(f, "invalid vacuum product: {message}"),
             Self::ExactAlgebra(message) => write!(f, "vacuum product exact algebra: {message}"),
             Self::ResourceLimit {
@@ -117,23 +135,36 @@ impl fmt::Display for VacuumProductError {
         }
     }
 }
-impl std::error::Error for VacuumProductError {}
+impl std::error::Error for VacuumProductError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
-fn algebra(error: impl fmt::Display) -> VacuumProductError {
-    VacuumProductError::ExactAlgebra(error.to_string())
+fn algebra(error: impl std::error::Error + 'static) -> VacuumProductError {
+    match crate::reduction::resource_limit_error(&error) {
+        Some(resource) => VacuumProductError::Resources(resource.clone()),
+        None => VacuumProductError::ExactAlgebra(error.to_string()),
+    }
 }
 fn charge(
     count: &mut usize,
-    limit: usize,
+    limit: Option<usize>,
     resource: &'static str,
 ) -> Result<(), VacuumProductError> {
-    let requested = count.checked_add(1).unwrap_or(usize::MAX);
-    if requested > limit {
-        return Err(VacuumProductError::ResourceLimit {
-            resource,
-            requested,
-            limit,
-        });
+    symbolica::utils::resources::checkpoint().map_err(VacuumProductError::Resources)?;
+    let requested = count.saturating_add(1);
+    if let Some(limit) = limit {
+        if requested > limit {
+            return Err(VacuumProductError::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            });
+        }
     }
     *count = requested;
     Ok(())

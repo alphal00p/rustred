@@ -2,7 +2,7 @@
 use super::*;
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial};
 use crate::solver::candidate_reduction::owners::domains::{
-    OwnerAppliedFailure, OwnerAppliedProblemKind,
+    OwnerAppliedFailure, OwnerAppliedLimits, OwnerAppliedProblemKind,
 };
 use crate::solver::candidate_reduction::{
     model::{PreparedRule, PreparedTerm},
@@ -468,7 +468,7 @@ fn guarded_scratch_inventory_events_and_cancellation_are_bounded() {
     let c = p.context.coefficient_context().clone();
     let r = rule(&p, 1, c.integer(1), [-1, 0, 0]);
     batch(&mut p).rules = vec![r];
-    let limits = OwnerGuardedLimits::default();
+    let limits = OwnerGuardedLimits::default().with_diagnostics();
     for kind in 0..4 {
         let mut cap = limits;
         match kind {
@@ -606,4 +606,37 @@ fn guarded_preparation_retains_arc_case_without_forging_selection() {
         )
         .unwrap_err();
     assert_eq!(error.failure, OwnerGuardedFailure::UnknownCandidate);
+}
+
+#[test]
+fn guarded_inspection_disabled_scratch_caps_do_not_underflow() {
+    let mut p = fixture();
+    let c = p.context.coefficient_context().clone();
+    let prepared = rule(&p, 1, c.integer(1), [-1, 0, 0]);
+    batch(&mut p).rules = vec![prepared];
+    let limits = OwnerGuardedLimits {
+        applied: OwnerAppliedLimits {
+            max_scratch_boxes: 0,
+            max_scratch_coordinate_cells: 0,
+            ..Default::default()
+        },
+        max_predicates: 0,
+        max_predicate_terms: 0,
+        max_events: 0,
+        ..Default::default()
+    };
+    let (observed, result) = collect(&p, [1, 1, 0], [Some(1), Some(1), Some(0)], Some(11), limits);
+    assert!(result.is_ok());
+    assert_eq!(observed.admitted, 1);
+    assert!(
+        collect(
+            &p,
+            [1, 1, 0],
+            [Some(1), Some(1), Some(0)],
+            Some(11),
+            limits.with_diagnostics()
+        )
+        .1
+        .is_err()
+    );
 }

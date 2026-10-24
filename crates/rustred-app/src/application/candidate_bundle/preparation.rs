@@ -8,17 +8,18 @@ use rayon::prelude::*;
 use rustred::family::IntegralFamily;
 use rustred::sector::{Mask, zero};
 use rustred::solver::SourceSystem;
+use symbolica::utils::resources::{ResourceBudget, checkpoint};
 
 use crate::application::input::prepare_input;
 use crate::application::lowering::lower_project;
-use crate::application::{AppError, InputFormat, MAX_INPUT_BYTES};
+use crate::application::{AppError, InputFormat};
+
+fn zero_error(error: zero::Error) -> AppError {
+    AppError::from_native(error, crate::AppErrorKind::Execution)
+}
 
 pub(super) fn family(source: &str, format: InputFormat) -> Result<IntegralFamily, AppError> {
-    if source.len() > MAX_INPUT_BYTES {
-        return Err(AppError::limit(
-            "candidate family source exceeds input limit",
-        ));
-    }
+    crate::application::validate_ingress(source)?;
     let (_, _, _, lowered) = lower_project(prepare_input(source, format)?)?.into_parts();
     let family = lowered.into_family();
     validate_arity(family.denominator_count())?;
@@ -145,8 +146,7 @@ fn prepare_inner<const N: usize, F: Borrow<IntegralFamily>>(
         .ok_or_else(|| AppError::input("candidate root exceeds storage capacity"))?;
     validate_permutation(arity, permutation)?;
     let permutation = permutation.map(|p| std::array::from_fn(|i| p.get(i).copied().unwrap_or(i)));
-    let analyzer = zero::Analyzer::try_unrestricted(family.borrow())
-        .map_err(|error| AppError::execution(error.to_string()))?;
+    let analyzer = zero::Analyzer::try_unrestricted(family.borrow()).map_err(zero_error)?;
     let mut zeros: Vec<[bool; N]> = Vec::new();
     let mut sectors: Vec<[bool; N]> = Vec::new();
     let axes: Vec<_> = (0..arity).filter(|&i| !root_only || root[i]).collect();
@@ -155,16 +155,14 @@ fn prepare_inner<const N: usize, F: Borrow<IntegralFamily>>(
         .and_then(|bits| 1usize.checked_shl(bits))
         .ok_or_else(|| AppError::limit("zero-sector census mask count overflows platform"))?;
     let analyze = |bits| -> Result<([bool; N], bool), AppError> {
+        checkpoint().map_err(AppError::resource)?;
         let mut sector = [false; N];
         for (bit, &axis) in axes.iter().enumerate() {
             sector[axis] = bits & (1usize << bit) != 0;
         }
         let mask = Mask::try_new(sector[..arity].iter().copied())
             .map_err(|e| AppError::execution(e.to_string()))?;
-        let zero = match analyzer
-            .analyze(&mask)
-            .map_err(|e| AppError::execution(e.to_string()))?
-        {
+        let zero = match analyzer.analyze(&mask).map_err(zero_error)? {
             zero::Decision::ProvedZero(_) => true,
             zero::Decision::Inconclusive(_) => false,
             zero::Decision::Excluded(_) => {
@@ -189,7 +187,13 @@ fn prepare_inner<const N: usize, F: Borrow<IntegralFamily>>(
         Ok::<_, AppError>(())
     };
     if parallel {
-        let decisions: Vec<_> = (0..count).into_par_iter().map(analyze).collect();
+        // An installed coordinator's TLS scopes do not follow Rayon's jobs.
+        // Capture at dispatch so reused pools see this invocation's budgets.
+        let resources = ResourceBudget::capture_current();
+        let decisions: Vec<_> = (0..count)
+            .into_par_iter()
+            .map(|bits| resources.run_captured(|| analyze(bits)))
+            .collect();
         for decision in decisions {
             retain(decision)?;
         }
@@ -201,7 +205,7 @@ fn prepare_inner<const N: usize, F: Borrow<IntegralFamily>>(
     drop(analyzer);
     sectors.sort_unstable();
     let sources = SourceSystem::from_family_with_capacity(family.borrow(), true)
-        .map_err(|e| AppError::execution(e.to_string()))?;
+        .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Execution))?;
     Ok(Prepared {
         family,
         root,

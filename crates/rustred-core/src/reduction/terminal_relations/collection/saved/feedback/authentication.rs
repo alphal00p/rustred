@@ -54,6 +54,7 @@ pub(in crate::reduction::terminal_relations::collection::saved) fn authenticate(
                 "feedback authentication columns",
                 support.len(),
                 limits.finite_feedback.max_columns,
+                limits.finite_feedback.diagnostics_enabled,
             )?;
             let offsets: BTreeMap<_, _> = support
                 .into_iter()
@@ -72,6 +73,7 @@ pub(in crate::reduction::terminal_relations::collection::saved) fn authenticate(
                         "feedback authentication nonzeros",
                         reducer.u().nvalues().saturating_add(offsets.len()),
                         limits.finite_feedback.max_reducer_nonzeros,
+                        limits.finite_feedback.diagnostics_enabled,
                     )?;
                     let mut entries: Vec<_> =
                         row.iter().map(|(k, v)| (offsets[k], v.clone())).collect();

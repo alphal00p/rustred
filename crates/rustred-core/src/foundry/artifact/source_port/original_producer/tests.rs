@@ -283,12 +283,14 @@ fn foreign_coefficient_context_and_geometry_budgets_fail_closed() {
     wrong.contributions[0].weight = foreign.one();
     assert!(check_original_source_combination(&f, wrong, Default::default()).is_err());
     let mut limits = OriginalSourceCombinationLimits::default();
+    limits.geometry.diagnostics_enabled = true;
     limits.geometry.max_requested_boxes = 0;
     assert!(matches!(
         check_original_source_combination(&f, request.clone(), limits),
         Err(SourcePortAuditError::ResourceBudgetExhausted { .. })
     ));
     let mut limits = OriginalSourceCombinationLimits::default();
+    limits.rule = limits.rule.with_diagnostics();
     limits.rule.max_source_combination_terms = 0;
     assert!(matches!(
         check_original_source_combination(&f, request, limits),

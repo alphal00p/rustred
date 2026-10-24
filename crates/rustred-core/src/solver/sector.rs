@@ -291,7 +291,18 @@ impl<const N: usize> fmt::Display for SectorSolveError<N> {
     }
 }
 
-impl<const N: usize> std::error::Error for SectorSolveError<N> {}
+impl<const N: usize> std::error::Error for SectorSolveError<N> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Search { source, .. } | Self::Numeric(source) => Some(source),
+            Self::Geometry { source, .. } => Some(source),
+            Self::Intersection(source) => Some(source.as_ref()),
+            Self::Exceptions { source, .. } => Some(source),
+            Self::FiniteRetention { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
 
 impl<const N: usize> SectorSolver<'_, N> {
     pub fn solve_sector(

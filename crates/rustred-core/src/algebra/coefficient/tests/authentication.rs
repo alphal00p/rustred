@@ -105,3 +105,24 @@ fn exact_authentication_rejects_every_backend_representation_of_numeric_zero() {
         assert!(!context.contains(&malformed));
     }
 }
+
+#[test]
+fn membership_predicate_does_not_turn_an_expired_budget_into_invalid_data() {
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimits};
+    let context = CoefficientContext::new(["pure_membership_parameter"]);
+    let valid = context.parameter("pure_membership_parameter").unwrap();
+    let mut malformed = valid.clone();
+    malformed.numerator.exponents.push(0);
+    let budget = ResourceBudget::new(ResourceLimits {
+        max_elapsed: Some(std::time::Duration::ZERO),
+        ..Default::default()
+    });
+    budget.run(|| {
+        assert!(context.contains(&valid));
+        assert!(!context.contains(&malformed));
+        assert!(matches!(
+            context.validate_with_limits(&valid, Default::default()),
+            Err(ExactAlgebraError::Resource(_))
+        ));
+    });
+}

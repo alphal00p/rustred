@@ -8,8 +8,12 @@ pub(in crate::solver::candidate_reduction::owners::domains) fn copy_box(
     lower: &[u64],
     upper: &[Option<u64>],
 ) -> Result<LatticeBox, OwnerAppliedFailure> {
-    LatticeBox::try_new(lower.iter().copied(), upper.iter().copied())
-        .map_err(|e| OwnerAppliedFailure::Geometry(e.to_string()))
+    LatticeBox::try_new(lower.iter().copied(), upper.iter().copied()).map_err(|e| {
+        match crate::reduction::resource_limit_error(&e) {
+            Some(error) => OwnerAppliedFailure::Resources(error.clone()),
+            None => OwnerAppliedFailure::Geometry(e.to_string()),
+        }
+    })
 }
 
 pub(super) fn sign_cells<const N: usize>(
@@ -43,13 +47,28 @@ pub(super) fn sign_cells<const N: usize>(
         owner,
         shift,
         CompletionGeometryLimits {
+            diagnostics_enabled: budget.limits.diagnostics_enabled,
+            max_arity: N,
+            max_requested_boxes: 1,
+            max_requested_box_coordinate_cells: N.checked_mul(2).ok_or(
+                OwnerAppliedFailure::CountOverflow {
+                    resource: "sign source coordinates",
+                },
+            )?,
             max_uncovered_boxes: count,
-            max_uncovered_box_coordinate_cells: budget.limits.max_scratch_coordinate_cells,
+            max_uncovered_box_coordinate_cells: if budget.limits.diagnostics_enabled {
+                budget.limits.max_scratch_coordinate_cells
+            } else {
+                cells
+            },
             max_split_operations: count - 1,
             ..Default::default()
         },
     )
-    .map_err(|e| OwnerAppliedFailure::Geometry(e.to_string()))
+    .map_err(|e| match crate::reduction::resource_limit_error(&e) {
+        Some(error) => OwnerAppliedFailure::Resources(error.clone()),
+        None => OwnerAppliedFailure::Geometry(e.to_string()),
+    })
 }
 
 /// Streaming mixed-radix product over only finite sign-changing coordinates.
@@ -143,9 +162,12 @@ impl<'a> Boundaries<'a> {
             self.values[pos] = self.source.lower()[axis];
         }
         self.exhausted = carry;
-        LatticeBox::try_new(lower, upper)
-            .map(Some)
-            .map_err(|e| OwnerAppliedFailure::Geometry(e.to_string()))
+        LatticeBox::try_new(lower, upper).map(Some).map_err(|e| {
+            match crate::reduction::resource_limit_error(&e) {
+                Some(error) => OwnerAppliedFailure::Resources(error.clone()),
+                None => OwnerAppliedFailure::Geometry(e.to_string()),
+            }
+        })
     }
 }
 
@@ -190,8 +212,12 @@ pub(super) fn normalize<const N: usize>(
     let cell = if cell.lower() == projected.lower && cell.upper() == projected.upper {
         cell
     } else {
-        LatticeBox::try_new(projected.lower, projected.upper)
-            .map_err(|e| OwnerAppliedFailure::Geometry(e.to_string()))?
+        LatticeBox::try_new(projected.lower, projected.upper).map_err(|e| {
+            match crate::reduction::resource_limit_error(&e) {
+                Some(error) => OwnerAppliedFailure::Resources(error.clone()),
+                None => OwnerAppliedFailure::Geometry(e.to_string()),
+            }
+        })?
     };
     Ok(Some((cell, projected.effective_rank)))
 }

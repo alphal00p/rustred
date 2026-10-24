@@ -88,6 +88,7 @@ fn rational_normalization_can_densify_beyond_input_pair_counts() {
                 &geometric_numerator,
                 &reciprocal_linear,
                 ExactAlgebraLimits {
+                    diagnostics_enabled: true,
                     max_polynomial_terms: 2,
                     ..ExactAlgebraLimits::default()
                 },
@@ -98,6 +99,7 @@ fn rational_normalization_can_densify_beyond_input_pair_counts() {
                 &geometric_numerator,
                 &linear,
                 ExactAlgebraLimits {
+                    diagnostics_enabled: true,
                     max_polynomial_terms: 2,
                     ..ExactAlgebraLimits::default()
                 },
@@ -108,6 +110,7 @@ fn rational_normalization_can_densify_beyond_input_pair_counts() {
                 &left,
                 &right,
                 ExactAlgebraLimits {
+                    diagnostics_enabled: true,
                     max_polynomial_terms: 3,
                     ..ExactAlgebraLimits::default()
                 },
@@ -143,6 +146,7 @@ fn shared_denominator_gcd_reduces_sum_preflight_support() {
     assert!(old_cartesian_numerator > limit);
 
     let limits = ExactAlgebraLimits {
+        diagnostics_enabled: true,
         max_polynomial_terms: 64,
         max_term_operations: limit,
         ..ExactAlgebraLimits::default()
@@ -169,6 +173,7 @@ fn shared_denominator_gcd_reduces_sum_preflight_support() {
 fn old_safe_unequal_denominator_sum_stays_on_cheap_preflight() {
     let (context, left, right) = shared_denominator_fixture();
     let limits = ExactAlgebraLimits {
+        diagnostics_enabled: true,
         max_polynomial_terms: 128,
         max_term_operations: 128,
         ..ExactAlgebraLimits::default()
@@ -204,6 +209,7 @@ fn shared_high_degree_factor_can_trigger_and_pass_gcd_fallback() {
     let left = context.coefficient_fixture("1/((x^4+1)*(x+1))");
     let right = context.coefficient_fixture("2/((x^4+1)*(x+2))");
     let limits = ExactAlgebraLimits {
+        diagnostics_enabled: true,
         max_exponent: 6,
         max_polynomial_terms: 128,
         max_term_operations: 128,
@@ -237,6 +243,7 @@ fn gcd_fallback_covers_both_symbolica_denominator_product_orientations() {
     let larger = context.coefficient_fixture("(y^3+y^2+y+1)/((x+1)*(x^2+x+1))");
     let smaller = context.coefficient_fixture("(2*y^3+3*y^2+5*y+7)/((x+1)*(x+2))");
     let limits = ExactAlgebraLimits {
+        diagnostics_enabled: true,
         max_polynomial_terms: 64,
         max_term_operations: 20,
         ..ExactAlgebraLimits::default()
@@ -288,6 +295,7 @@ fn coprime_denominators_preserve_cartesian_sum_rejection() {
             &left,
             &right,
             ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_polynomial_terms: 64,
                 max_term_operations: 20,
                 ..ExactAlgebraLimits::default()
@@ -310,6 +318,7 @@ fn denominator_gcd_work_cap_rejects_sum_transactionally() {
     let left_before = left.clone();
     let right_before = right.clone();
     let limits = ExactAlgebraLimits {
+        diagnostics_enabled: true,
         max_polynomial_terms: 64,
         max_term_operations: 15,
         ..ExactAlgebraLimits::default()
@@ -338,6 +347,7 @@ fn gcd_reduced_sum_matches_direct_symbolica_arithmetic() {
     let expected_addition = &left + &right;
     let expected_subtraction = &left - &right;
     let limits = ExactAlgebraLimits {
+        diagnostics_enabled: true,
         max_polynomial_terms: 64,
         max_term_operations: 20,
         ..ExactAlgebraLimits::default()
@@ -351,4 +361,51 @@ fn gcd_reduced_sum_matches_direct_symbolica_arithmetic() {
         context.try_sub(&left, &right, limits).unwrap(),
         expected_subtraction
     );
+}
+
+#[test]
+fn diagnostic_exact_caps_require_explicit_opt_in() {
+    let context = CoefficientContext::new(["runtime_diagnostic_x"]);
+    let value = context.coefficient_fixture("runtime_diagnostic_x+1");
+    let policy = ExactAlgebraLimits {
+        max_polynomial_terms: 1,
+        max_term_operations: 1,
+        max_exponent: 0,
+        ..Default::default()
+    };
+    assert_eq!(
+        context
+            .try_mul(&value, &value, policy)
+            .unwrap()
+            .numerator
+            .nterms(),
+        3
+    );
+    assert!(
+        context
+            .try_mul(&value, &value, policy.with_diagnostics())
+            .is_err()
+    );
+}
+
+#[test]
+fn checked_exact_arithmetic_preserves_shared_ram_budget_failure() {
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+    let context = CoefficientContext::new(["runtime_budget_x"]);
+    let value = context.parameter("runtime_budget_x").unwrap();
+    let budget = ResourceBudget::with_memory_monitor(
+        ResourceLimits {
+            max_process_rss_bytes: Some(10),
+            ..Default::default()
+        },
+        || Ok(11),
+    );
+    assert!(matches!(
+        budget.run(|| context.try_add(&value, &value, Default::default())),
+        Err(ExactAlgebraError::Resource(ResourceLimitError::Memory {
+            rss_bytes: 11,
+            limit_bytes: 10,
+            ..
+        }))
+    ));
 }

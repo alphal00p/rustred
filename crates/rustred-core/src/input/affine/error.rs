@@ -261,7 +261,17 @@ impl fmt::Display for SymbolicaAffineDenominatorError {
     }
 }
 
-impl StdError for SymbolicaAffineDenominatorError {}
+impl StdError for SymbolicaAffineDenominatorError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        match self {
+            Self::CoefficientContext(error) => Some(error),
+            Self::ExactAlgebra(error) | Self::InvalidExternalGramCoefficient { error, .. } => {
+                Some(error)
+            }
+            _ => None,
+        }
+    }
+}
 
 impl From<CoefficientContextError> for SymbolicaAffineDenominatorError {
     fn from(value: CoefficientContextError) -> Self {

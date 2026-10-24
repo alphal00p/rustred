@@ -32,6 +32,7 @@ pub(in crate::algebra::matrix) fn authenticate_output_coefficient(
         "coefficient matrix output retained bytes",
         prospective,
         limits.max_output_retained_bytes,
+        limits.diagnostics_enabled,
     )?;
     state.stats.output_retained_bytes = prospective;
     state.stats.authenticated_entries = checked_add(
@@ -56,13 +57,16 @@ where
         let columns = matrix.ncols();
         context
             .validate_with_limits(coefficient, limits.exact_algebra)
-            .map_err(
-                |error| SymbolicaCoefficientMatrixError::InvalidCoefficient {
+            .map_err(|error| match error {
+                error @ crate::algebra::ExactAlgebraError::Resource(_) => {
+                    SymbolicaCoefficientMatrixError::ExactAlgebra(error)
+                }
+                error => SymbolicaCoefficientMatrixError::InvalidCoefficient {
                     row: offset / columns,
                     column: offset % columns,
                     error,
                 },
-            )?;
+            })?;
         retained_bytes = checked_add(
             "coefficient matrix output retained bytes",
             retained_bytes,
@@ -84,6 +88,7 @@ where
         "coefficient matrix output retained bytes",
         prospective_bytes,
         limits.max_output_retained_bytes,
+        limits.diagnostics_enabled,
     )?;
     state.stats.output_retained_bytes = prospective_bytes;
     state.stats.authenticated_entries = checked_add(

@@ -85,16 +85,19 @@ pub fn compile(
         "transport map entries",
         entries,
         limits.max_relation_coefficient_entries,
+        limits.diagnostics_enabled,
     )?;
     admit(
         "transport source axes",
         arity,
         limits.max_endpoint_power_entries,
+        limits.diagnostics_enabled,
     )?;
     admit(
         "transport target axes",
         target_arity,
         limits.max_endpoint_power_entries,
+        limits.diagnostics_enabled,
     )?;
     let mut active_target = reserved(arity, "transport active map")?;
     active_target.resize(arity, None);
@@ -191,8 +194,16 @@ pub fn compile(
     })
 }
 
-pub(super) fn admit(resource: &'static str, requested: usize, limit: usize) -> Result<(), Error> {
-    if requested > limit {
+pub(super) fn admit(
+    resource: &'static str,
+    requested: usize,
+    limit: usize,
+    diagnostics_enabled: bool,
+) -> Result<(), Error> {
+    symbolica::utils::resources::checkpoint()
+        .map_err(crate::algebra::ExactAlgebraError::Resource)
+        .map_err(ExpansionError::ExactAlgebra)?;
+    if diagnostics_enabled && requested > limit {
         Err(ExpansionError::ResourceLimit {
             resource,
             requested,

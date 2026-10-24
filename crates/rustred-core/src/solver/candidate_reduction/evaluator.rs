@@ -327,7 +327,7 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
         if !self.applicable_with_conditions(rule, target, &mut nonzero)? {
             return Ok(None);
         }
-        request.record_rule_application(self.limits.max_rule_applications)?;
+        request.record_rule_application(self.limits.diagnostic_limit(self.limits.max_rule_applications))?;
         let mut terms = BTreeMap::from([(target.clone(), self.context.base().one())]);
         for term in &rule.rhs {
             let Some((child, coefficient)) =

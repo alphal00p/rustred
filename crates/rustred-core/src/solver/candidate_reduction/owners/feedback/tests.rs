@@ -159,6 +159,111 @@ fn real(programs: &Arc<CandidateOwnerPrograms<1>>) -> BoundOwnerOverlay<1> {
 }
 
 #[test]
+fn ordinary_owner_attempt_ignores_zero_count_template_without_changing_finite_scope() {
+    let base = tadpole(vec![], &[], Default::default());
+    let bound = search(&base, [true]);
+    let cases = vec![CoordinateCase::new([Some(2)]).unwrap().into()];
+    let scope = OwnerDomainScope {
+        max_numerator_rank: Some(0),
+        finite_case_policy: FiniteCasePolicy::RetainRankFinite,
+    };
+    let limits = OwnerDomainAttemptLimits {
+        max_requested_cases: 0,
+        ..Default::default()
+    };
+    let expected = bound
+        .solve_domains_with_observer(cases.clone(), scope, Default::default(), |_| {})
+        .unwrap();
+    let ordinary = bound
+        .solve_domains_with_observer(cases.clone(), scope, limits, |_| {})
+        .unwrap();
+    assert_eq!(ordinary.requested_cases(), expected.requested_cases());
+    assert_eq!(ordinary.scope(), scope);
+    assert_eq!(ordinary.rule_count(), 0);
+    assert_eq!(
+        ordinary.solution.finite_residuals,
+        vec![Integral::numeric([2]).unwrap()]
+    );
+    assert_eq!(
+        ordinary.solution.finite_residuals,
+        expected.solution.finite_residuals
+    );
+    let mut events = 0;
+    let error = bound
+        .solve_domains_with_observer(cases, scope, limits.with_diagnostics(), |_| events += 1)
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        OwnerFeedbackError::ResourceLimit {
+            resource: "requested domains",
+            requested: 1,
+            limit: 0
+        }
+    ));
+    assert_eq!(events, 0);
+    assert_eq!(base.overlays(&[true]).count(), 0);
+    assert_eq!(base.terminal_count(), 0);
+}
+
+#[test]
+fn owner_attempt_preserves_nested_resource_cause_and_allows_healthy_reuse() {
+    use std::sync::atomic::Ordering;
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+
+    const LIMIT: u64 = 1024 * 1024 * 1024;
+    let base = tadpole(vec![], &[], Default::default());
+    let bound = search(&base, [true]);
+    let cases = vec![CoordinateCase::new([Some(2)]).unwrap().into()];
+    let scope = OwnerDomainScope {
+        max_numerator_rank: Some(0),
+        finite_case_policy: FiniteCasePolicy::RetainRankFinite,
+    };
+    let started = Arc::new(AtomicBool::new(false));
+    let monitor_started = Arc::clone(&started);
+    let error = ResourceBudget::with_memory_monitor(
+        ResourceLimits {
+            max_process_rss_bytes: Some(LIMIT),
+            ..Default::default()
+        },
+        move || {
+            Ok(if monitor_started.load(Ordering::Relaxed) {
+                LIMIT + 1
+            } else {
+                0
+            })
+        },
+    )
+    .run(|| {
+        bound.solve_domains_with_observer(cases.clone(), scope, Default::default(), |event| {
+            if matches!(event, SectorEvent::CaseStarted { .. }) {
+                started.store(true, Ordering::Relaxed);
+            }
+        })
+    })
+    .unwrap_err();
+    assert!(started.load(Ordering::Relaxed));
+    assert!(matches!(
+        &error,
+        OwnerFeedbackError::Search(error)
+            if matches!(error.as_ref(), SectorSolveError::FiniteRetention { .. })
+    ));
+    assert!(matches!(crate::reduction::resource_limit_error(&error),
+        Some(ResourceLimitError::Memory { rss_bytes, additional_bytes: 0, limit_bytes })
+            if *rss_bytes == LIMIT + 1 && *limit_bytes == LIMIT));
+    assert_eq!(base.overlays(&[true]).count(), 0);
+    assert_eq!(base.terminal_count(), 0);
+    let healthy = bound
+        .solve_domains_with_observer(cases, scope, Default::default(), |_| {})
+        .unwrap();
+    assert_eq!(healthy.scope(), scope);
+    assert_eq!(healthy.rule_count(), 0);
+    assert_eq!(
+        healthy.solution.finite_residuals,
+        vec![Integral::numeric([2]).unwrap()]
+    );
+}
+
+#[test]
 fn bound_overlay_replay_regenerates_sources_without_install_or_terminal_authority() {
     let base = tadpole(vec![], &[], Default::default());
     let result = real(&base);
@@ -547,6 +652,7 @@ fn later_large_coalescing_reservation_does_not_change_base_budget_behavior() {
         vec![rule(&family, [2], &[([1], 1)])],
         &[[1]],
         ReductionLimits {
+            diagnostics_enabled: true,
             max_coalescing_additions: 0,
             ..Default::default()
         },
@@ -816,6 +922,7 @@ fn source_limits_invalid_inputs_and_symbolic_terminals_fail_closed() {
                 vec![Case::generic()],
                 scope(10),
                 OwnerDomainAttemptLimits {
+                    diagnostics_enabled: true,
                     max_requested_cases: 0,
                     ..Default::default()
                 },

@@ -13,7 +13,7 @@ pub use codec::{
     FRAME_LIMIT, GeneratedWorkPageRecord, PAGE_MAGIC, ValidatedWorkPage, decode_metadata_frame,
     decode_metadata_frame_with_allocation_limit, encode_metadata_frame,
     encode_metadata_frame_repeatable, metadata_decode_allowance, validate_page_record,
-    work_payload_bytes,
+    validate_page_record_with_diagnostics, work_payload_bytes,
 };
 pub use directory::{
     GeneratedDirectoryLimits, GeneratedDirectoryStatistics, GeneratedLookup, GeneratedPageProvider,
@@ -40,13 +40,18 @@ pub enum GeneratedWorkErrorKind {
 pub struct GeneratedWorkError {
     pub kind: GeneratedWorkErrorKind,
     detail: String,
+    resource_limit: Option<symbolica::utils::resources::ResourceLimitError>,
 }
 impl GeneratedWorkError {
     pub fn new(kind: GeneratedWorkErrorKind, detail: impl ToString) -> Self {
         Self {
             kind,
             detail: detail.to_string(),
+            resource_limit: None,
         }
+    }
+    pub fn resource_limit(&self) -> Option<&symbolica::utils::resources::ResourceLimitError> {
+        self.resource_limit.as_ref()
     }
 }
 impl fmt::Display for GeneratedWorkError {
@@ -54,7 +59,48 @@ impl fmt::Display for GeneratedWorkError {
         write!(f, "generated Work {:?}: {}", self.kind, self.detail)
     }
 }
-impl std::error::Error for GeneratedWorkError {}
+impl std::error::Error for GeneratedWorkError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.resource_limit.as_ref().map(|error| error as _)
+    }
+}
+impl From<symbolica::utils::resources::ResourceLimitError> for GeneratedWorkError {
+    fn from(error: symbolica::utils::resources::ResourceLimitError) -> Self {
+        Self {
+            kind: GeneratedWorkErrorKind::Resource,
+            detail: error.to_string(),
+            resource_limit: Some(error),
+        }
+    }
+}
+fn checkpoint() -> GeneratedWorkResult<()> {
+    symbolica::utils::resources::checkpoint().map_err(GeneratedWorkError::from)
+}
+fn allocation(bytes: usize) -> GeneratedWorkResult<()> {
+    let bytes = u64::try_from(bytes).map_err(|_| resource("allocation bytes exceed u64"))?;
+    symbolica::utils::resources::check_allocation(bytes).map_err(GeneratedWorkError::from)
+}
+fn binary_resource(error: super::BinaryIoError) -> GeneratedWorkError {
+    match error {
+        super::BinaryIoError::Resource(error) => error.into(),
+        error => resource(error),
+    }
+}
+fn io_resource(error: std::io::Error) -> GeneratedWorkError {
+    if let Some(inner) = error
+        .get_ref()
+        .and_then(|error| error.downcast_ref::<GeneratedWorkError>())
+    {
+        return inner.clone();
+    }
+    binary_resource(super::native_io_error(error))
+}
+fn encode_resource(error: bincode::error::EncodeError) -> GeneratedWorkError {
+    match error {
+        bincode::error::EncodeError::Io { inner, .. } => io_resource(inner),
+        error => resource(error),
+    }
+}
 pub type GeneratedWorkResult<T> = Result<T, GeneratedWorkError>;
 fn corrupt(detail: impl ToString) -> GeneratedWorkError {
     GeneratedWorkError::new(GeneratedWorkErrorKind::Corrupt, detail)

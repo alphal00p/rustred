@@ -26,8 +26,9 @@ pub(crate) enum RootUse {
     Descendant,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GuardedCacheBackingErrorKind {
+    Resource(symbolica::utils::resources::ResourceLimitError),
     Invalid,
     Limit,
     Io,
@@ -38,12 +39,27 @@ pub struct GuardedCacheBackingError {
     pub kind: GuardedCacheBackingErrorKind,
     pub message: String,
 }
+impl GuardedCacheBackingError {
+    pub fn resource(error: symbolica::utils::resources::ResourceLimitError) -> Self {
+        Self {
+            message: error.to_string(),
+            kind: GuardedCacheBackingErrorKind::Resource(error),
+        }
+    }
+}
 impl fmt::Display for GuardedCacheBackingError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.message)
     }
 }
-impl std::error::Error for GuardedCacheBackingError {}
+impl std::error::Error for GuardedCacheBackingError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.kind {
+            GuardedCacheBackingErrorKind::Resource(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 /// Optional caller-owned native backing. Errors are never interpreted as
 /// misses. The adapter owns persistence, checkpoint cadence and I/O bounds;
@@ -76,7 +92,13 @@ impl From<ReductionError> for GuardedCacheError {
 }
 impl From<GuardedCacheBackingError> for GuardedCacheError {
     fn from(error: GuardedCacheBackingError) -> Self {
-        Self::Backing(error)
+        match error {
+            GuardedCacheBackingError {
+                kind: GuardedCacheBackingErrorKind::Resource(error),
+                ..
+            } => Self::Reduction(ReductionError::Resources(error)),
+            error => Self::Backing(error),
+        }
     }
 }
 impl fmt::Display for GuardedCacheError {
@@ -89,7 +111,15 @@ impl fmt::Display for GuardedCacheError {
         }
     }
 }
-impl std::error::Error for GuardedCacheError {}
+impl std::error::Error for GuardedCacheError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Reduction(error) => Some(error),
+            Self::Backing(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GuardedRootSource {

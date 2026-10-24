@@ -143,15 +143,15 @@ fn unaffected_chart_retains_all_input_degree_and_work_admission() {
             .unwrap(),
     );
     assert!(!chart.affects_polynomial(value.raw()).unwrap());
-    let mut term_limit = RuleCellLimits::default();
+    let mut term_limit = RuleCellLimits::default().with_diagnostics();
     term_limit.guard_algebra.max_input_terms = 1;
-    let mut bit_limit = RuleCellLimits::default();
+    let mut bit_limit = RuleCellLimits::default().with_diagnostics();
     bit_limit.guard_algebra.max_total_integer_bits = 0;
-    let mut degree_limit = RuleCellLimits::default();
+    let mut degree_limit = RuleCellLimits::default().with_diagnostics();
     degree_limit.guard_algebra.max_factor_total_degree = 1;
-    let mut work_limit = RuleCellLimits::default();
+    let mut work_limit = RuleCellLimits::default().with_diagnostics();
     work_limit.guard_algebra.max_exact_hyperplane_replay_work = 0;
-    let mut operation_limit = RuleCellLimits::default();
+    let mut operation_limit = RuleCellLimits::default().with_diagnostics();
     operation_limit
         .guard_algebra
         .max_exact_hyperplane_replay_substitutions = 0;
@@ -174,7 +174,7 @@ fn unaffected_chart_retains_all_input_degree_and_work_admission() {
             "{expected}"
         );
     }
-    let mut limits = RuleCellLimits::default();
+    let mut limits = RuleCellLimits::default().with_diagnostics();
     limits.guard_algebra.max_exact_hyperplane_replay_terms = 3;
     let mut work = Work::default();
     restrict(
@@ -224,9 +224,9 @@ fn affected_pivots_and_fixed_coordinates_keep_prospective_limits() {
     for axis in [0, 2] {
         let value = polynomial(&context, &context.index(axis).unwrap());
         assert!(chart.affects_polynomial(value.raw()).unwrap());
-        let mut terms = RuleCellLimits::default();
+        let mut terms = RuleCellLimits::default().with_diagnostics();
         terms.guard_algebra.max_input_terms = 1;
-        let mut bits = RuleCellLimits::default();
+        let mut bits = RuleCellLimits::default().with_diagnostics();
         bits.guard_algebra.max_total_integer_bits = 8;
         for (limits, expected) in [
             (terms, "prospective term budget"),
@@ -495,15 +495,15 @@ fn singleton_specialization_keeps_genuine_zeros_and_full_precharges() {
         )
         .unwrap()
     );
-    let mut work_limit = RuleCellLimits::default();
+    let mut work_limit = RuleCellLimits::default().with_diagnostics();
     work_limit.guard_algebra.max_exact_hyperplane_replay_work = 3;
-    let mut term_limit = RuleCellLimits::default();
+    let mut term_limit = RuleCellLimits::default().with_diagnostics();
     term_limit.guard_algebra.max_exact_hyperplane_replay_terms = 3;
-    let mut count_limit = RuleCellLimits::default();
+    let mut count_limit = RuleCellLimits::default().with_diagnostics();
     count_limit
         .guard_algebra
         .max_exact_hyperplane_replay_substitutions = 1;
-    let mut bit_limit = RuleCellLimits::default();
+    let mut bit_limit = RuleCellLimits::default().with_diagnostics();
     bit_limit.indexed_algebra.max_specialization_integer_bits = 0;
     for limits in [work_limit, term_limit, count_limit, bit_limit] {
         assert!(

@@ -29,7 +29,7 @@ impl RestrictionCache<'_> {
             true_count,
             false_count,
         };
-        if shape.rows > MAX_EQUATIONS {
+        if self.budget.enforce_diagnostics && shape.rows > MAX_EQUATIONS {
             return Err(self.local_exhaustion(LocalCap::Equations, Some(shape.rows), shape));
         }
         let first = assignments.iter().position(Option::is_some).unwrap();
@@ -77,15 +77,18 @@ impl RestrictionCache<'_> {
             .checked_add(1)
             .and_then(|rows| rows.checked_mul(shape.columns))
             .and_then(|n| n.checked_mul(count));
-        if matrix_cells.is_none_or(|n| n > MAX_MATRIX_CELLS) {
+        if matrix_cells.is_none_or(|n| self.budget.enforce_diagnostics && n > MAX_MATRIX_CELLS) {
             return Err(self.local_exhaustion(LocalCap::MatrixCells, matrix_cells, shape));
         }
         let polynomial_cells = input_cells.and_then(|n| n.checked_mul(count));
-        if polynomial_cells.is_none_or(|n| n > MAX_POLYNOMIAL_CELLS) {
+        if polynomial_cells
+            .is_none_or(|n| self.budget.enforce_diagnostics && n > MAX_POLYNOMIAL_CELLS)
+        {
             return Err(self.local_exhaustion(LocalCap::PolynomialCells, polynomial_cells, shape));
         }
         add(&mut self.statistics.finite_axis_refinements, 1);
         for offset in 0..count {
+            symbolica::utils::resources::checkpoint()?;
             // Cardinality was checked above. Offset never reaches count, so
             // an interval ending at u64::MAX has no overflowing final step.
             let value = cell.lower()[axis] + offset as u64;
@@ -99,7 +102,12 @@ impl RestrictionCache<'_> {
                     .enumerate()
                     .map(|(i, &n)| if i == axis { Some(value) } else { n }),
             )
-            .map_err(|_| self.local_exhaustion(LocalCap::Allocation, None, shape))?;
+            .map_err(
+                |error| match crate::reduction::resource_limit_error(&error) {
+                    Some(resource) => WorkExhausted::Resources(resource.clone()),
+                    None => self.local_exhaustion(LocalCap::Allocation, None, shape),
+                },
+            )?;
             add(&mut self.statistics.finite_axis_faces, 1);
             if !self.contradicts_without_refinement(&child, assignments)? {
                 return Ok(false);

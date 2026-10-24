@@ -2,7 +2,7 @@ use symbolica::domains::rational::RationalField;
 use symbolica::prelude::{Integer, Matrix, Q, Rational, Ring, RingOps, Z};
 
 use super::admission::{
-    RightKernelError, check_integer_bits, try_vec, try_zero_bools, try_zero_rationals,
+    RightKernelError, check_integer_bits, checkpoint, try_vec, try_zero_bools, try_zero_rationals,
 };
 
 pub(super) fn deterministic_rref_kernel(
@@ -41,8 +41,11 @@ pub(super) fn normalize_with_primitive_part(
     rational_kernel: Vec<Rational>,
     columns: usize,
     max_integer_bits: usize,
+    diagnostics_enabled: bool,
 ) -> Result<Vec<Integer>, RightKernelError> {
+    checkpoint()?;
     let rational_kernel = Matrix::new_vec(rational_kernel, Q).primitive_part();
+    checkpoint()?;
     if rational_kernel.nrows() != columns || rational_kernel.ncols() != 1 {
         return Err(RightKernelError::NativeShape);
     }
@@ -56,6 +59,7 @@ pub(super) fn normalize_with_primitive_part(
             &integer,
             "certificate kernel integer bits",
             max_integer_bits,
+            diagnostics_enabled,
         )?;
         integers.push(integer);
     }
@@ -90,7 +94,9 @@ pub(in crate::algebra::matrix) fn verify_with_native_product(
     let matrix = Matrix::from_linear(integer_entries, rows as u32, columns as u32, Z)
         .map_err(|_| RightKernelError::NativeShape)?;
     let kernel_matrix = Matrix::new_vec(kernel, Z);
+    checkpoint()?;
     let product = &matrix * &kernel_matrix;
+    checkpoint()?;
     if !product.is_zero() {
         return Err(RightKernelError::ReplayFailure);
     }

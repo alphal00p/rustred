@@ -47,7 +47,7 @@ impl AffineApplicationDomain {
             };
             transient.is_proved_empty_in_box(cell)
         }))
-        .map_err(|_| AffineGeometryError::NativeAlgebra)
+        .map_err(|_| AffineGeometryError::NativeAlgebra)?
     }
 
     pub(crate) fn prepare_restriction(

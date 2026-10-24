@@ -9,13 +9,14 @@ use crate::solver::candidate_reduction::power_domain::DomainPowerBounds;
 fn charge(
     value: &mut usize,
     count: usize,
-    limit: usize,
+    limit: Option<usize>,
     resource: &'static str,
 ) -> Result<(), OwnerGuardedFailure> {
-    let requested = value
-        .checked_add(count)
-        .ok_or(OwnerGuardedFailure::CountOverflow { resource })?;
-    if requested > limit {
+    symbolica::utils::resources::checkpoint().map_err(OwnerGuardedFailure::Resources)?;
+    let requested = value.saturating_add(count);
+    if let Some(limit) = limit
+        && requested > limit
+    {
         return Err(OwnerGuardedFailure::ResourceLimit {
             resource,
             requested,
@@ -26,6 +27,7 @@ fn charge(
     Ok(())
 }
 fn cancelled(cancel: &AtomicBool) -> Result<(), OwnerGuardedFailure> {
+    symbolica::utils::resources::checkpoint().map_err(OwnerGuardedFailure::Resources)?;
     if cancel.load(Ordering::Acquire) {
         Err(OwnerGuardedFailure::Cancelled)
     } else {
@@ -40,12 +42,17 @@ fn emit<const N: usize>(
     visit: &mut impl FnMut(OwnerGuardedEvent<'_, N>) -> ControlFlow<()>,
 ) -> Result<(), OwnerGuardedFailure> {
     cancelled(cancel)?;
-    charge(&mut stats.events, 1, limits.max_events, "guarded events")?;
+    charge(
+        &mut stats.events,
+        1,
+        limits.diagnostic_limit(limits.max_events),
+        "guarded events",
+    )?;
     if matches!(event, OwnerGuardedEvent::Residual { .. }) {
-        charge(&mut stats.residuals, 1, usize::MAX, "guarded residuals")?;
+        charge(&mut stats.residuals, 1, None, "guarded residuals")?;
     }
     if matches!(event, OwnerGuardedEvent::Successor(_)) {
-        charge(&mut stats.successors, 1, usize::MAX, "guarded successors")?;
+        charge(&mut stats.successors, 1, None, "guarded successors")?;
     }
     if visit(event).is_break() {
         return Err(OwnerGuardedFailure::StoppedByConsumer);
@@ -163,8 +170,10 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 "guarded coordinates",
             )
             .map_err(OwnerGuardedFailure::Applied)?;
-            work.limits.max_scratch_boxes -= 5;
-            work.limits.max_scratch_coordinate_cells -= outer_coordinates;
+            if work.limits.diagnostics_enabled {
+                work.limits.max_scratch_boxes -= 5;
+                work.limits.max_scratch_coordinate_cells -= outer_coordinates;
+            }
             let mut lo = lower.to_vec();
             let mut hi = upper.to_vec();
             for (axis, value) in rule.fixed.iter().enumerate() {
@@ -233,13 +242,13 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 charge(
                     &mut predicates,
                     1,
-                    limits.max_predicates,
+                    limits.diagnostic_limit(limits.max_predicates),
                     "guarded predicates",
                 )?;
                 charge(
                     &mut terms,
                     p.raw().nterms(),
-                    limits.max_predicate_terms,
+                    limits.diagnostic_limit(limits.max_predicate_terms),
                     "guarded predicate terms",
                 )?;
                 stats.predicates = predicates;

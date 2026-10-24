@@ -145,6 +145,7 @@ pub(super) fn finished<const N: usize>(
         }
     };
     Some(inspection::Finished {
+        resource_failure: None,
         stats,
         error,
         error_kind,

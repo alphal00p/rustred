@@ -144,33 +144,43 @@ pub fn check_original_source_combination(
             "original combination cells require a supported support-primary order",
         ));
     }
-    check(n, limits.geometry.max_arity, "original combination arity")?;
+    check(
+        limits.geometry.diagnostics_enabled,
+        n,
+        limits.geometry.max_arity,
+        "original combination arity",
+    )?;
     request
         .ordering
         .compare(&vec![0; n], &vec![0; n])
         .map_err(error)?;
     check_boxes(1, n, limits)?;
     check(
+        limits.cell.diagnostics_enabled,
         request.fixed.len(),
         limits.cell.max_fixed_restrictions,
         "original fixed restrictions",
     )?;
     check(
+        limits.rule.diagnostics_enabled,
         request.contributions.len(),
         limits.rule.max_source_combination_terms,
         "original contributions",
     )?;
     check(
+        limits.cell.diagnostics_enabled,
         request.contributions.len(),
         limits.cell.max_source_views,
         "original source views",
     )?;
     check(
+        limits.cell.diagnostics_enabled,
         request.rhs.len(),
         limits.cell.max_retained_terms,
         "original RHS terms",
     )?;
     check(
+        limits.cell.diagnostics_enabled,
         request.retained_conditions.len(),
         limits.cell.max_guards,
         "original retained conditions",
@@ -209,6 +219,7 @@ pub fn check_original_source_combination(
     let context = generator.context();
     let batch = generator.prepare_ordinary_ibp().map_err(error)?;
     check(
+        limits.rule.diagnostics_enabled,
         batch.len(),
         limits.rule.max_source_rows,
         "regenerated ordinary rows",
@@ -295,6 +306,7 @@ pub fn check_original_source_combination(
             )
             .map_err(error)?;
         check(
+            limits.cell.diagnostics_enabled,
             conditions
                 .len()
                 .checked_add(1)
@@ -345,6 +357,7 @@ pub fn check_original_source_combination(
                 )
                 .ok_or_else(|| error("original sign partition work overflow"))?;
             check(
+                limits.geometry.diagnostics_enabled,
                 partition_work,
                 limits.geometry.max_split_operations,
                 "original sign partition work",
@@ -413,11 +426,13 @@ fn validate_root_successor(
 }
 
 fn check(
+    diagnostics_enabled: bool,
     requested: usize,
     limit: usize,
     resource: &'static str,
 ) -> Result<(), SourcePortAuditError> {
-    if requested > limit {
+    symbolica::utils::resources::checkpoint().map_err(SourcePortAuditError::Resources)?;
+    if diagnostics_enabled && requested > limit {
         Err(SourcePortAuditError::ResourceBudgetExhausted { resource })
     } else {
         Ok(())
@@ -430,6 +445,7 @@ fn check_boxes(
     limits: OriginalSourceCombinationLimits,
 ) -> Result<(), SourcePortAuditError> {
     check(
+        limits.geometry.diagnostics_enabled,
         count,
         limits.geometry.max_requested_boxes,
         "original sign cells",
@@ -439,6 +455,7 @@ fn check_boxes(
         .and_then(|v| v.checked_mul(2))
         .ok_or_else(|| error("original sign cell coordinate count overflow"))?;
     check(
+        limits.geometry.diagnostics_enabled,
         coordinates,
         limits.geometry.max_requested_box_coordinate_cells,
         "original sign cell coordinates",

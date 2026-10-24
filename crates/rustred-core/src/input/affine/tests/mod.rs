@@ -44,12 +44,14 @@ impl SymbolicaAffineDenominatorCompiler {
             symbol_positions: self.symbol_positions.clone(),
             scalar_product: self.scalar_product,
             coordinates: self.coordinates.clone(),
-            limits,
+            limits: limits.with_diagnostics(),
         }
     }
 
     fn test_clone(&self) -> Self {
-        self.test_with_limits(self.limits)
+        let mut cloned = self.test_with_limits(self.limits);
+        cloned.limits = self.limits;
+        cloned
     }
 
     const fn test_limits(&self) -> SymbolicaAffineDenominatorLimits {

@@ -136,8 +136,12 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
     let boundary_limit = proof_limits
         .cell
         .max_guards
-        .min(proof_limits.rule.max_rule_guards)
-        .min(bundle_limits.max_collection_entries);
+        .min(proof_limits.rule.max_rule_guards);
+    let boundary_limit = if bundle_limits.diagnostics_enabled {
+        boundary_limit.min(bundle_limits.max_collection_entries)
+    } else {
+        boundary_limit
+    };
     let (face, boundary_cuts) = representable_case::<N>(&proposal, &sector, boundary_limit)?;
     let fixed: Vec<_> = proposal
         .fixed

@@ -27,7 +27,9 @@ fn tadpole(limits: ReductionLimits) -> RoutedCandidateReducer<1> {
         )],
         limits,
     );
-    RoutedCandidateReducer::try_new(owners, [], Default::default()).unwrap()
+    let mut trace = RoutedCandidateLimits::default();
+    trace.expansion.exact_algebra = limits.exact_algebra;
+    RoutedCandidateReducer::try_new(owners, [], trace).unwrap()
 }
 
 fn partial_routed_fixture(limits: ReductionLimits) -> RoutedCandidateReducer<1> {
@@ -147,6 +149,7 @@ fn partial_routed_missing_owner_is_retained_and_cancelled_inputs_keep_guards() {
 #[test]
 fn partial_routed_policy_does_not_hide_malformed_keys_or_operational_limits() {
     let routed = partial_routed_fixture(ReductionLimits {
+        diagnostics_enabled: true,
         max_rule_applications: 0,
         ..Default::default()
     });
@@ -818,6 +821,133 @@ fn missing_owner_missing_rule_and_non_descending_edge_fail_closed() {
 }
 
 #[test]
+fn normal_reduction_ignores_work_count_diagnostics_but_records_work() {
+    let routed = tadpole(ReductionLimits {
+        max_rule_applications: 0,
+        max_cached_integrals: 0,
+        max_cached_coefficient_terms: 0,
+        max_pending_frames: 0,
+        max_coalescing_additions: 0,
+        max_factorization_terms: 0,
+        ..Default::default()
+    });
+    let c = routed.programs.context.family().coefficient_context();
+    let mut application = routed.application();
+    let actual = application
+        .reduce_linear_combination([(key([3]), c.one())])
+        .unwrap();
+    assert_eq!(actual.terms(), &BTreeMap::from([(key([1]), c.integer(-4))]));
+    assert_eq!(actual.statistics().work.rule_applications(), 2);
+    assert!(actual.statistics().work.coalescing_additions() > 0);
+    assert!(application.cache_statistics().cached_integrals() > 0);
+}
+
+#[test]
+fn ordinary_routing_can_cross_the_previous_transport_count_ceiling() {
+    let routed = weighted::<3>();
+    let mut application = routed.application();
+    let mut statistics = CandidateRoutedApplicationStatistics {
+        transport_calls: 100_000,
+        ..Default::default()
+    };
+    let actual = application
+        .route_entry_in_request(&key([1, 0, -1]), &mut statistics, UnresolvedPolicy::Reject)
+        .unwrap();
+    assert_eq!(statistics.transport_calls, 100_001);
+    assert_eq!(actual.terms().len(), 3);
+    application.limits.diagnostics_enabled = true;
+    statistics.transport_calls = 100_000;
+    assert!(matches!(
+        application.route_entry_in_request(
+            &key([1, 0, -1]),
+            &mut statistics,
+            UnresolvedPolicy::Reject,
+        ),
+        Err(CandidateRoutedError::ResourceLimit {
+            resource: "transport calls",
+            requested: 100_001,
+            limit: 100_000,
+        })
+    ));
+}
+
+#[test]
+fn scoped_elapsed_budget_stops_a_cached_request_and_releases_the_scope() {
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimits};
+    let routed = tadpole(Default::default());
+    let c = routed.programs.context.family().coefficient_context();
+    let mut application = routed.application();
+    let expected = application
+        .reduce_linear_combination([(key([3]), c.one())])
+        .unwrap();
+    let budget = ResourceBudget::new(ResourceLimits {
+        max_elapsed: Some(Duration::ZERO),
+        ..Default::default()
+    });
+    let error = budget
+        .run(|| application.reduce_linear_combination([(key([3]), c.one())]))
+        .unwrap_err();
+    let mut cause: &(dyn std::error::Error + 'static) = &error;
+    loop {
+        if let Some(resource) =
+            cause.downcast_ref::<symbolica::utils::resources::ResourceLimitError>()
+        {
+            assert!(matches!(
+                resource,
+                symbolica::utils::resources::ResourceLimitError::Elapsed { .. }
+            ));
+            break;
+        }
+        cause = cause
+            .source()
+            .expect("typed resource cause must survive native wrappers");
+    }
+    let actual = application
+        .reduce_linear_combination([(key([3]), c.one())])
+        .unwrap();
+    assert_eq!(actual.terms(), expected.terms());
+    assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+}
+
+#[test]
+fn scoped_ram_headroom_failure_keeps_the_original_typed_cause() {
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+    let routed = tadpole(Default::default());
+    let c = routed.programs.context.family().coefficient_context();
+    let mut application = routed.application();
+    // RSS is below the limit; an imminent native allocation consumes headroom.
+    // Rechecking RSS after unwinding would lose this original failure.
+    let budget = ResourceBudget::with_memory_monitor(
+        ResourceLimits {
+            max_process_rss_bytes: Some(1),
+            ..Default::default()
+        },
+        || Ok(0),
+    );
+    let error = budget
+        .run(|| application.reduce_linear_combination([(key([3]), c.one())]))
+        .unwrap_err();
+    let mut cause: &(dyn std::error::Error + 'static) = &error;
+    loop {
+        if let Some(resource) = cause.downcast_ref::<ResourceLimitError>() {
+            assert!(
+                matches!(resource, ResourceLimitError::Memory { rss_bytes: 0, additional_bytes, limit_bytes: 1 } if *additional_bytes > 1)
+            );
+            break;
+        }
+        cause = cause
+            .source()
+            .expect("typed allocation headroom failure must survive wrappers");
+    }
+    assert_eq!(application.cache_statistics().cached_integrals(), 0);
+    assert!(
+        application
+            .reduce_linear_combination([(key([3]), c.one())])
+            .is_ok()
+    );
+}
+
+#[test]
 fn shared_request_and_retained_cache_limits_are_enforced() {
     for limits in [
         ReductionLimits {
@@ -845,7 +975,7 @@ fn shared_request_and_retained_cache_limits_are_enforced() {
             ..Default::default()
         },
     ] {
-        let routed = tadpole(limits);
+        let routed = tadpole(limits.with_diagnostics());
         let c = routed.programs.context.family().coefficient_context();
         assert!(
             routed
@@ -1071,6 +1201,7 @@ fn routed_batch_admits_each_endpoint_before_cancellation_and_shares_caps() {
         ),
         Err(CandidateRoutedError::EntryAdmission(_))
     ));
+    routed.limits.diagnostics_enabled = true;
     routed.limits.max_transport_calls = 1;
     assert!(matches!(
         routed
@@ -1223,6 +1354,7 @@ fn certified_zero_source_does_not_bypass_arity_or_resource_limits() {
             CandidateReductionError::Application(ReductionError::WrongArity { .. })
         ))
     ));
+    application.limits.diagnostics_enabled = true;
     application.limits.max_input_targets = 0;
     assert!(matches!(
         application.route_entry_to_owner(&key([0, 0, 0])),

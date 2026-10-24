@@ -361,6 +361,7 @@ fn route_overcover_budget_cancel_and_consumer_stop_preserve_prefix() {
     for (limits, resource, expected) in [
         (
             CandidateDomainRouteLimits {
+                diagnostics_enabled: true,
                 max_masks: 0,
                 ..Default::default()
             },
@@ -369,6 +370,7 @@ fn route_overcover_budget_cancel_and_consumer_stop_preserve_prefix() {
         ),
         (
             CandidateDomainRouteLimits {
+                diagnostics_enabled: true,
                 max_masks: 2,
                 ..Default::default()
             },
@@ -377,6 +379,7 @@ fn route_overcover_budget_cancel_and_consumer_stop_preserve_prefix() {
         ),
         (
             CandidateDomainRouteLimits {
+                diagnostics_enabled: true,
                 max_coordinate_cells: 5,
                 ..Default::default()
             },
@@ -385,6 +388,7 @@ fn route_overcover_budget_cancel_and_consumer_stop_preserve_prefix() {
         ),
         (
             CandidateDomainRouteLimits {
+                diagnostics_enabled: true,
                 max_coordinate_cells: 6,
                 ..Default::default()
             },
@@ -613,4 +617,55 @@ fn route_overcover_tightened_zero_rank_reentry_retains_source_condition_obligati
         }]
     );
     assert_eq!(stats.zero_sectors, 1);
+}
+
+#[test]
+fn route_metadata_count_limits_require_explicit_diagnostics() {
+    let reducer = fixture();
+    let expected = collect(&reducer, TARGET, Some(11)).0;
+    let limits = CandidateDomainRouteLimits {
+        max_masks: 0,
+        max_coordinate_cells: 0,
+        ..Default::default()
+    };
+    let mut observed = Vec::new();
+    reducer
+        .visit_domain_route_overcover(TARGET, Some(11), limits, &AtomicBool::new(false), |event| {
+            observed.push(event);
+            ControlFlow::Continue(())
+        })
+        .unwrap();
+    assert_eq!(observed, expected);
+    assert!(matches!(
+        reducer.visit_domain_route_overcover(
+            TARGET,
+            Some(11),
+            limits.with_diagnostics(),
+            &AtomicBool::new(false),
+            |_| ControlFlow::Continue(())
+        ),
+        Err(CandidateDomainRouteError {
+            failure: CandidateDomainRouteFailure::ResourceLimit { .. },
+            ..
+        })
+    ));
+    let budget = symbolica::utils::resources::ResourceBudget::new(
+        symbolica::utils::resources::ResourceLimits {
+            max_elapsed: Some(std::time::Duration::ZERO),
+            ..Default::default()
+        },
+    );
+    assert!(matches!(
+        budget.run(|| reducer.visit_domain_route_overcover(
+            TARGET,
+            Some(11),
+            limits,
+            &AtomicBool::new(false),
+            |_| ControlFlow::Continue(())
+        )),
+        Err(CandidateDomainRouteError {
+            failure: CandidateDomainRouteFailure::Resources(_),
+            ..
+        })
+    ));
 }

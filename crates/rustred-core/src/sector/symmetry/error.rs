@@ -169,7 +169,15 @@ impl fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ExactAlgebra(error) => Some(error),
+            Self::Family(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<ExactAlgebraError> for Error {
     fn from(value: ExactAlgebraError) -> Self {

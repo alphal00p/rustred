@@ -57,7 +57,7 @@ fn original_domain_durable_k1_roundtrip_uses_existing_reducer_and_no_anchor() {
 fn original_domain_cold_load_honors_final_admission_and_cover_limits() {
     let artifact = installed_k1();
     let bytes = artifact.encode_durable().unwrap();
-    let mut cover = ArtifactLoadLimits::default();
+    let mut cover = ArtifactLoadLimits::default().with_diagnostics();
     cover.cover_replay.max_requested_boxes = 1; // Rule cell plus explicit master require two.
     assert_eq!(
         ClosedArtifact::decode_durable_with_limits(&bytes, cover).unwrap_err(),
@@ -67,7 +67,7 @@ fn original_domain_cold_load_honors_final_admission_and_cover_limits() {
             limit: 1
         }
     );
-    let mut admission = ArtifactLoadLimits::default();
+    let mut admission = ArtifactLoadLimits::default().with_diagnostics();
     admission.rule_derivation.max_ordering_key_coordinate_cells = 6;
     ClosedArtifact::decode_durable_with_limits(&bytes, admission).unwrap();
     admission.rule_derivation.max_ordering_key_coordinate_cells = 0;
@@ -75,7 +75,7 @@ fn original_domain_cold_load_honors_final_admission_and_cover_limits() {
         matches!(ClosedArtifact::decode_durable_with_limits(&bytes, admission),
         Err(ArtifactPersistenceError::OriginalDomainReplay { detail }) if detail.contains("ordering") || detail.contains("coordinate"))
     );
-    let mut endpoints = ArtifactLoadLimits::default();
+    let mut endpoints = ArtifactLoadLimits::default().with_diagnostics();
     endpoints.rule_derivation.max_domain_bound_endpoint_cells = 14;
     ClosedArtifact::decode_durable_with_limits(&bytes, endpoints).unwrap();
     endpoints.rule_derivation.max_domain_bound_endpoint_cells = 13;
@@ -83,7 +83,7 @@ fn original_domain_cold_load_honors_final_admission_and_cover_limits() {
         matches!(ClosedArtifact::decode_durable_with_limits(&bytes, endpoints),
         Err(ArtifactPersistenceError::OriginalDomainReplay { detail }) if detail.contains("combined domain bound endpoint cells"))
     );
-    let mut origins = ArtifactLoadLimits::default();
+    let mut origins = ArtifactLoadLimits::default().with_diagnostics();
     let guards = artifact.rule_cells()[0].rule().nonzero_guards();
     assert_eq!(
         guards.len(),

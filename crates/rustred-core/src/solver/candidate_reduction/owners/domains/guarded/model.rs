@@ -14,6 +14,8 @@ use std::fmt;
 /// limits admit the borrowed predicate inventory before native restriction.
 #[derive(Clone, Copy, Debug)]
 pub struct OwnerGuardedLimits {
+    /// Enable optional work-count diagnostics; authored domains are unchanged.
+    pub diagnostics_enabled: bool,
     pub applied: OwnerAppliedLimits,
     pub max_predicates: usize,
     pub max_predicate_terms: usize,
@@ -22,6 +24,7 @@ pub struct OwnerGuardedLimits {
 impl Default for OwnerGuardedLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             applied: Default::default(),
             max_predicates: 100_000,
             max_predicate_terms: 4_000_000,
@@ -190,6 +193,7 @@ pub enum OwnerGuardedEvent<'a, const N: usize> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OwnerGuardedFailure {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     /// This optional lazy pullback API has not admitted correlated source
     /// domains yet. Never silently widen them to a box/rank query.
     UnsupportedPowerBounds(crate::solver::candidate_reduction::power_domain::DomainPowerBounds),
@@ -222,4 +226,37 @@ impl fmt::Display for OwnerGuardedError {
         )
     }
 }
-impl std::error::Error for OwnerGuardedError {}
+impl std::error::Error for OwnerGuardedError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.failure)
+    }
+}
+impl fmt::Display for OwnerGuardedFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for OwnerGuardedFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            Self::Applied(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl OwnerGuardedLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.applied = self.applied.with_diagnostics();
+        self
+    }
+    pub(super) const fn diagnostic_limit(self, limit: usize) -> Option<usize> {
+        if self.diagnostics_enabled {
+            Some(limit)
+        } else {
+            None
+        }
+    }
+}

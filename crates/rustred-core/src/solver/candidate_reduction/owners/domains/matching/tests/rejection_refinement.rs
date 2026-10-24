@@ -4,11 +4,13 @@ use super::*;
 
 fn limits(faces: usize) -> OwnerDomainMatchLimits {
     let mut limits = OwnerDomainMatchLimits {
+        diagnostics_enabled: true,
         max_bounded_refinement_cells: faces,
         ..Default::default()
     };
     // Original bilinear/affine two-variable support costs128. The broad later
     // quadratic costs2592; its specialized univariate lane fits this cap.
+    limits.guard_algebra.diagnostics_enabled = true;
     limits.guard_algebra.max_gcd_factor_work = 1000;
     limits
 }
@@ -232,6 +234,7 @@ fn rejection_refinement_no_full_split_preserves_original_unknown_and_geometry() 
         (rank, policy)
     }) {
         // Keep the same native allowance for every non-admissible split.
+        policy.guard_algebra.diagnostics_enabled = true;
         policy.guard_algebra.max_gcd_factor_work = 1000;
         let (stats, pieces) = refined(&p, [0; 3], [None; 3], rank, policy);
         assert_eq!(pieces.len(), 1);
@@ -278,6 +281,7 @@ fn rejection_refinement_global_input_and_same_and_errors_remain_strict() {
     assert_eq!(error.stats.predicates, 2);
     assert_eq!(error.stats.refinement_cells, 0);
     let mut policy = limits(3);
+    policy.guard_algebra.diagnostics_enabled = true;
     policy.guard_algebra.max_input_terms = 2; // original two-term guard fits; later three-term pole does not
     let error = refuse(&p, Some(2), policy);
     assert_eq!(

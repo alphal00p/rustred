@@ -39,7 +39,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 key,
                 Self::entry_admission(&self.entry_domain, self.options.entry_coverage_policy),
             )
-            .map_err(failure)
+            .map_err(native_failure)
     }
 
     /// `artifact_digest` is the consumer's authenticated semantic digest of the
@@ -56,7 +56,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
     ) -> Result<(), AppError> {
         self.application
             .validate_completed_cache_record(binding, record)
-            .map_err(failure)
+            .map_err(native_failure)
     }
 
     /// Apply with optional native backing and bounded completed-node capture.
@@ -77,7 +77,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 backing,
                 capture,
             )
-            .map_err(failure)?;
+            .map_err(native_failure)?;
         self.apply_terminal_substitutions(reduced)
     }
 
@@ -99,7 +99,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 backing,
                 capture,
             )
-            .map_err(failure)?;
+            .map_err(native_failure)?;
         self.apply_terminal_substitutions(reduced)
     }
 
@@ -110,7 +110,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
     ) -> Result<Option<ApplicationCacheRecord>, AppError> {
         self.application
             .completed_cache_record(binding, key)
-            .map_err(failure)
+            .map_err(native_failure)
     }
 
     /// Stream resident completed nodes, filtering unresolved records. This does not copy unloaded
@@ -122,7 +122,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
     ) -> Result<usize, AppError> {
         self.application
             .export_completed(binding, backing)
-            .map_err(failure)
+            .map_err(native_failure)
     }
     pub fn export_completed_with_statistics(
         &self,
@@ -131,6 +131,6 @@ impl<const N: usize> PreparedSavedApplication<N> {
     ) -> Result<rustred::solver::CandidateRoutedCacheExportStatistics, AppError> {
         self.application
             .export_completed_with_statistics(binding, backing)
-            .map_err(failure)
+            .map_err(native_failure)
     }
 }

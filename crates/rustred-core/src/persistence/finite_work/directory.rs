@@ -7,6 +7,7 @@ use std::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GeneratedDirectoryLimits {
+    pub diagnostics_enabled: bool,
     pub max_arity: usize,
     pub max_runs: usize,
     pub max_pages: usize,
@@ -16,6 +17,12 @@ pub struct GeneratedDirectoryLimits {
     pub max_referenced_bytes: u64,
     pub max_lookup_pages: usize,
     pub max_lookup_bytes: u64,
+}
+impl GeneratedDirectoryLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
+    }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GeneratedDirectoryStatistics {
@@ -93,6 +100,7 @@ impl TrustedGeneratedWorkDirectory {
         key.validate(self.execution.physical_arity as usize)?;
         let mut outcome = GeneratedLookup::default();
         for run in self.runs.iter() {
+            checkpoint()?;
             let index = run.partition_point(|page| &page.last < key);
             let Some(expected) = run.get(index).filter(|page| &page.first <= key) else {
                 continue;
@@ -101,7 +109,9 @@ impl TrustedGeneratedWorkDirectory {
                 .candidate_pages
                 .checked_add(1)
                 .ok_or_else(|| resource("lookup page count overflow"))?;
-            if outcome.candidate_pages > self.limits.max_lookup_pages {
+            if self.limits.diagnostics_enabled
+                && outcome.candidate_pages > self.limits.max_lookup_pages
+            {
                 return Err(resource("finite lookup page allowance"));
             }
             let remaining = self
@@ -170,14 +180,15 @@ pub fn validate_directory(
     limits: GeneratedDirectoryLimits,
 ) -> GeneratedWorkResult<GeneratedDirectoryStatistics> {
     let arity = execution.physical_arity as usize;
+    checkpoint()?;
     if arity == 0
-        || arity > limits.max_arity
-        || limits.max_page_records == 0
+        || (limits.diagnostics_enabled
+            && (arity > limits.max_arity || limits.max_page_records == 0))
         || limits.max_page_bytes == 0
     {
         return Err(resource("finite directory framing/arity policy"));
     }
-    if runs.len() > limits.max_runs {
+    if limits.diagnostics_enabled && runs.len() > limits.max_runs {
         return Err(resource("finite run directory"));
     }
     let mut result = GeneratedDirectoryStatistics::default();
@@ -197,10 +208,13 @@ pub fn validate_directory(
         .map(|data| limits.max_directory_payload_bytes.saturating_sub(data))
         .unwrap_or(0);
     let generous_hash_bound = page_count.checked_mul(64).and_then(|n| n.checked_add(128));
-    let mut hash_digests = if page_count <= limits.max_pages
+    let mut hash_digests = if (!limits.diagnostics_enabled || page_count <= limits.max_pages)
         && generous_hash_bound.is_some_and(|n| n <= scratch_grant)
     {
         let mut index = hashbrown::HashSet::with_hasher(RandomState::new());
+        allocation(
+            generous_hash_bound.ok_or_else(|| resource("digest index allocation overflow"))?,
+        )?;
         // Public hashbrown allocation accounting guards the estimate too.
         // A failed optional contiguous allocation retains the old tree path.
         if index.try_reserve(page_count).is_ok()
@@ -215,15 +229,17 @@ pub fn validate_directory(
     };
     let mut tree_digests = BTreeSet::new();
     for run in runs {
+        checkpoint()?;
         if run.is_empty() {
             return Err(corrupt("empty finite run"));
         }
         add(&mut result.payload_bytes, run_slots_payload(run)?)?;
         let mut previous = None;
         for page in run {
+            checkpoint()?;
             page.first.validate(arity)?;
             page.last.validate(arity)?;
-            if page.records > limits.max_page_records as u64
+            if (limits.diagnostics_enabled && page.records > limits.max_page_records as u64)
                 || page.object.bytes > limits.max_page_bytes as u64
             {
                 return Err(resource("finite page record/byte allowance"));
@@ -240,7 +256,7 @@ pub fn validate_directory(
                 .pages
                 .checked_add(1)
                 .ok_or_else(|| resource("finite page count overflow"))?;
-            if result.pages > limits.max_pages {
+            if limits.diagnostics_enabled && result.pages > limits.max_pages {
                 return Err(resource("finite page count allowance"));
             }
             let new_digest = if let Some(digests) = &mut hash_digests {
@@ -341,6 +357,7 @@ mod digest_index_tests {
     }
     fn limits(bytes: usize) -> GeneratedDirectoryLimits {
         GeneratedDirectoryLimits {
+            diagnostics_enabled: true,
             max_arity: 2,
             max_runs: 1000,
             max_pages: 1000,

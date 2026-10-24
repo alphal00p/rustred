@@ -36,6 +36,7 @@ fn frame() -> ProbeFrame {
 
 fn limits(images: usize, values: usize) -> Limits {
     Limits {
+        diagnostics_enabled: true,
         max_degree: 8,
         max_probes: 2000,
         max_attempts: 3,

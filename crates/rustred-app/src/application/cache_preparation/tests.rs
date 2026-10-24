@@ -22,13 +22,14 @@ fn key(powers: &[i64]) -> IntegralKey {
 }
 
 #[test]
-fn preparation_defaults_are_decimal_and_do_not_change_evaluation() {
+fn preparation_defaults_leave_byte_budgets_unbounded_and_do_not_change_evaluation() {
     let options = CachePreparationOptions::default();
     assert_eq!(
         options.cache_policy,
         CandidateRoutedCachePolicy::EvictLeastRecentlyUsed
     );
     assert_eq!(options.time_limit_seconds, 36_000);
+    assert!(!options.diagnostics_enabled);
     assert_eq!(options.max_roots, 1_000_000);
     assert_eq!(options.batch_records, 64);
     assert_eq!(
@@ -39,24 +40,16 @@ fn preparation_defaults_are_decimal_and_do_not_change_evaluation() {
         CandidateRoutedCachePolicy::default(),
         CandidateRoutedCachePolicy::FailOnLimit
     );
-    for (loops, disk) in [
-        (1, 1_000_000_000_u64),
-        (2, 1_000_000_000),
-        (3, 1_000_000_000),
-        (4, 16_000_000_000),
-        (5, 32_000_000_000),
-    ] {
-        // Disk defaults remain representable even on32-bit targets. RAM is
-        // explicitly tiny here; platform-dependent defaults are checked below.
+    for loops in [1, 2, 3, 4, 5, 6] {
         let selected = CachePreparationOptions {
             ram_bytes: Some(17),
             ..options.clone()
         }
         .resolve(loops, Default::default())
         .unwrap();
-        assert_eq!(selected.disk_bytes, disk);
+        assert_eq!(selected.disk_bytes, u64::MAX);
         assert_eq!(selected.ram_bytes, 17);
-        assert_eq!(selected.storage_limits.max_disk_bytes, disk);
+        assert_eq!(selected.storage_limits.max_disk_bytes, u64::MAX);
         assert_eq!(selected.batch_records, 64);
         assert_eq!(selected.to_document()["batch_records"], 64);
     }
@@ -66,7 +59,7 @@ fn preparation_defaults_are_decimal_and_do_not_change_evaluation() {
     }
     .resolve(5, CachePreparationCapabilities::validated_lazy_storage())
     .unwrap();
-    assert_eq!(lazy.disk_bytes, 128_000_000_000_u64);
+    assert_eq!(lazy.disk_bytes, u64::MAX);
     assert_eq!(lazy.to_document()["ram_is_process_rss"], false);
 }
 
@@ -74,7 +67,7 @@ fn preparation_defaults_are_decimal_and_do_not_change_evaluation() {
 fn preparation_batch_target_is_independent_of_chunk_safety_limits() {
     let limits = SavedApplicationCachePackLimits::default();
     assert_eq!(limits.chunk.max_records, 4096);
-    for batch_records in [1, 64, 128, 4096] {
+    for batch_records in [1, 64, 128, 4096, limits.chunk.max_records + 1] {
         let selected = CachePreparationOptions {
             batch_records,
             ..Default::default()
@@ -85,52 +78,45 @@ fn preparation_batch_target_is_independent_of_chunk_safety_limits() {
         assert_eq!(selected.storage_limits.chunk, limits.chunk);
         assert_eq!(selected.to_document()["batch_records"], batch_records);
     }
-    for batch_records in [0, limits.chunk.max_records + 1] {
-        assert_eq!(
-            CachePreparationOptions {
-                batch_records,
-                ..Default::default()
-            }
-            .resolve(1, Default::default())
-            .unwrap_err()
-            .kind(),
-            AppErrorKind::Input
-        );
-    }
+    assert_eq!(
+        CachePreparationOptions {
+            batch_records: 0,
+            ..Default::default()
+        }
+        .resolve(1, Default::default())
+        .unwrap_err()
+        .kind(),
+        AppErrorKind::Input
+    );
+    let mut diagnostic = limits;
+    diagnostic.chunk.diagnostics_enabled = true;
+    assert_eq!(
+        CachePreparationOptions {
+            batch_records: limits.chunk.max_records + 1,
+            ..Default::default()
+        }
+        .with_storage_limits(diagnostic)
+        .resolve(1, Default::default())
+        .unwrap_err()
+        .kind(),
+        AppErrorKind::Input
+    );
 }
 
 #[test]
 fn preparation_ram_defaults_and_overrides_are_checked() {
     let options = CachePreparationOptions::default();
-    assert_eq!(
-        options.resolve(1, Default::default()).unwrap().ram_bytes,
-        1_000_000_000
-    );
-    #[cfg(target_pointer_width = "64")]
-    {
-        assert_eq!(
-            options.resolve(4, Default::default()).unwrap().ram_bytes,
-            16_000_000_000
-        );
+    for loops in [1, 4, 5, 6] {
         assert_eq!(
             options
-                .resolve(5, CachePreparationCapabilities::validated_lazy_storage())
+                .resolve(loops, Default::default())
                 .unwrap()
                 .ram_bytes,
-            32_000_000_000
+            usize::MAX as u64
         );
     }
-    #[cfg(target_pointer_width = "32")]
-    assert_eq!(
-        options.resolve(5, Default::default()).unwrap_err().kind(),
-        AppErrorKind::Limit
-    );
     assert_eq!(
         options.resolve(0, Default::default()).unwrap_err().kind(),
-        AppErrorKind::Input
-    );
-    assert_eq!(
-        options.resolve(6, Default::default()).unwrap_err().kind(),
         AppErrorKind::Input
     );
     let beyond_default_table = CachePreparationOptions {
@@ -140,7 +126,7 @@ fn preparation_ram_defaults_and_overrides_are_checked() {
     .resolve(6, Default::default())
     .unwrap();
     assert_eq!(beyond_default_table.disk_bytes, 23);
-    assert_eq!(beyond_default_table.ram_bytes, 23);
+    assert_eq!(beyond_default_table.ram_bytes, usize::MAX as u64);
     for invalid in [
         CachePreparationOptions {
             disk_bytes: Some(0),
@@ -151,6 +137,7 @@ fn preparation_ram_defaults_and_overrides_are_checked() {
             ..Default::default()
         },
         CachePreparationOptions {
+            diagnostics_enabled: true,
             max_roots: 0,
             ..Default::default()
         },
@@ -610,4 +597,72 @@ fn primer_validates_all_namespaces_and_masks_before_counting_and_balances_famili
         .kind(),
         AppErrorKind::Limit
     );
+}
+
+#[test]
+fn uncapped_workload_keeps_every_namespace_and_exact_duplicate_provenance() {
+    let bindings = (0..129)
+        .map(|index| {
+            let mut binding = binding(2);
+            binding.family_fingerprint = format!("uncapped-preparation-family-{index}");
+            binding
+        })
+        .collect::<Vec<_>>();
+    let workload = CachePreparationWorkload::explicit_with_diagnostic_limit(
+        bindings,
+        [(128, key(&[1, 2])), (128, key(&[1, 2])), (0, key(&[2, 1]))],
+        None,
+    )
+    .unwrap();
+    assert_eq!(workload.bindings().len(), 129);
+    assert_eq!(workload.targets().len(), 2);
+    assert_eq!(workload.targets()[1].namespace(), 128);
+    assert_eq!(workload.targets()[1].source_occurrences(), 2);
+    let capped = CachePreparationWorkload::explicit_with_diagnostic_limit(
+        workload.bindings().to_vec(),
+        [(128, key(&[1, 2])), (0, key(&[2, 1]))],
+        Some(1),
+    )
+    .unwrap_err();
+    assert_eq!(capped.kind(), AppErrorKind::Limit);
+    assert!(capped.resource_limit_error().is_none());
+}
+
+#[test]
+fn uncapped_workload_preflights_owned_targets_after_the_input_iterator_finishes() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    };
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+    let limit_bytes = 10_000_000;
+    let observed_rss = Arc::new(AtomicU64::new(0));
+    let monitor_rss = Arc::clone(&observed_rss);
+    let iterator_rss = Arc::clone(&observed_rss);
+    let budget = ResourceBudget::with_memory_monitor(
+        ResourceLimits {
+            max_process_rss_bytes: Some(limit_bytes),
+            max_elapsed: None,
+        },
+        move || Ok(monitor_rss.load(Ordering::Relaxed)),
+    );
+    let error = budget
+        .run(|| {
+            let requests =
+                std::iter::once((0, key(&[1, 2]))).chain(std::iter::from_fn(move || {
+                    // Input ownership is now complete. RSS alone remains admissible,
+                    // but only one byte of headroom remains for the output buffers.
+                    iterator_rss.store(limit_bytes - 1, Ordering::Relaxed);
+                    None::<(usize, IntegralKey)>
+                }));
+            CachePreparationWorkload::explicit_with_diagnostic_limit(
+                vec![binding(2)],
+                requests,
+                None,
+            )
+        })
+        .unwrap_err();
+    assert!(matches!(error.resource_limit_error(),
+        Some(ResourceLimitError::Memory { rss_bytes, additional_bytes, limit_bytes: limit })
+        if *rss_bytes == limit_bytes - 1 && *additional_bytes > 1 && *limit == limit_bytes));
 }

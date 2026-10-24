@@ -98,11 +98,7 @@ impl CandidateDiscoveryStrategy {
     /// row counts are checked against each prepared basis before that sector's
     /// solve; independent sectors may already have completed and checkpointed.
     pub fn from_json(text: &str) -> Result<Self, AppError> {
-        if text.len() > crate::MAX_INPUT_BYTES {
-            return Err(AppError::limit(
-                "discovery strategy exceeds input byte limit",
-            ));
-        }
+        crate::application::validate_ingress(text)?;
         serde_json::from_str(text)
             .map_err(|e| AppError::input(format!("invalid discovery strategy: {e}")))
     }
@@ -111,7 +107,7 @@ impl CandidateDiscoveryStrategy {
         &self,
         arity: usize,
         sectors: &[Vec<bool>],
-        limit: usize,
+        limit: Option<usize>,
     ) -> Result<(), AppError> {
         if !matches!(
             (self.version, self.rule_selection.is_some()),
@@ -126,7 +122,7 @@ impl CandidateDiscoveryStrategy {
                 validate_weights(weights, arity)?
             }
             CandidateSectorPriority::Materialized { ordinals } => {
-                if ordinals.len() > limit {
+                if limit.is_some_and(|limit| ordinals.len() > limit) {
                     return Err(AppError::limit("sector plan exceeds collection limit"));
                 }
                 SectorVisitOrder::new(ordinals.clone(), sectors.len()).map_err(strategy_error)?;
@@ -205,7 +201,7 @@ impl CandidateSourcePriority {
         &self,
         arity: usize,
         sectors: &[Vec<bool>],
-        limit: usize,
+        limit: Option<usize>,
         entries: &mut usize,
     ) -> Result<(), AppError> {
         match self {
@@ -230,7 +226,7 @@ impl CandidateSourcePriority {
                         .checked_add(plan.sector.len())
                         .and_then(|n| n.checked_add(plan.ordinals.len()))
                         .ok_or_else(|| AppError::limit("source plan count overflow"))?;
-                    if *entries > limit {
+                    if limit.is_some_and(|limit| *entries > limit) {
                         return Err(AppError::limit("source plans exceed collection limit"));
                     }
                     // Exact row count is checked against the newly prepared
@@ -320,7 +316,7 @@ mod tests {
             ..Default::default()
         };
         let sectors = vec![vec![false, true], vec![true, false]];
-        strategy.validate(2, &sectors, 100).unwrap();
+        strategy.validate(2, &sectors, Some(100)).unwrap();
         let json = serde_json::to_string(&strategy).unwrap();
         assert_eq!(
             CandidateDiscoveryStrategy::from_json(&json).unwrap(),
@@ -341,7 +337,7 @@ mod tests {
         );
         let mut wrong = strategy;
         wrong.version = 99;
-        assert!(wrong.validate(2, &sectors, 100).is_err());
+        assert!(wrong.validate(2, &sectors, Some(100)).is_err());
     }
 
     #[test]
@@ -358,7 +354,7 @@ mod tests {
             vec![true, false],
             vec![true, true],
         ];
-        strategy.validate(2, &sectors, 100).unwrap();
+        strategy.validate(2, &sectors, Some(100)).unwrap();
         // Full IDs 1 and 2 were saved; pending positions are now 0 and 1.
         let pending = [(0, [false, false]), (3, [true, true])];
         assert_eq!(strategy.pending_order(&pending).unwrap().ordinals(), [1, 0]);
@@ -379,13 +375,13 @@ mod tests {
             },
             ..Default::default()
         };
-        strategy.validate(2, &sectors, 100).unwrap();
-        assert!(strategy.validate(2, &sectors, 3).is_err());
+        strategy.validate(2, &sectors, Some(100)).unwrap();
+        assert!(strategy.validate(2, &sectors, Some(3)).is_err());
         let CandidateSourcePriority::Materialized { sectors: plans } = &mut strategy.rows else {
             unreachable!()
         };
         plans[0].ordinals = vec![0, 0];
-        assert!(strategy.validate(2, &sectors, 100).is_err());
-        assert!(strategy.validate(2, &sectors[..1], 100).is_err());
+        assert!(strategy.validate(2, &sectors, Some(100)).is_err());
+        assert!(strategy.validate(2, &sectors[..1], Some(100)).is_err());
     }
 }

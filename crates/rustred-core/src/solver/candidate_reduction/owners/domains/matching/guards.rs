@@ -44,7 +44,7 @@ pub(super) fn resolve<const N: usize>(
     charge(
         &mut budget.stats.predicates,
         1,
-        budget.limits.max_predicates,
+        budget.limits.diagnostic_limit(budget.limits.max_predicates),
         "predicates",
     )?;
     budget.cells::<N>(1)?; // bounded fixed-index scratch

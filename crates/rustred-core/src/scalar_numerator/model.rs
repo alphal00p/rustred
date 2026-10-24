@@ -5,9 +5,11 @@ use symbolica::atom::Atom;
 use crate::algebra::{Coefficient, ExactAlgebraLimits};
 use crate::family::IntegralKey;
 
-/// Resource policy for polynomial scalar-product lowering.
+/// Optional diagnostic thresholds for polynomial scalar-product lowering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScalarNumeratorLimits {
+    /// Enforce count/work thresholds only for an explicitly requested diagnostic.
+    pub diagnostics_enabled: bool,
     pub exact_algebra: ExactAlgebraLimits,
     pub max_input_nodes: usize,
     pub max_momentum_label_nodes: usize,
@@ -32,6 +34,7 @@ pub struct ScalarNumeratorLimits {
 impl Default for ScalarNumeratorLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             exact_algebra: ExactAlgebraLimits::default(),
             max_input_nodes: 1_000_000,
             max_momentum_label_nodes: 100_000,
@@ -128,5 +131,14 @@ impl WeightedScalarNumeratorLowering {
     /// These may contain arbitrary caller scalar spectators, not only d.
     pub fn nonzero_conditions(&self) -> &[Atom] {
         &self.nonzero_conditions
+    }
+}
+
+impl ScalarNumeratorLimits {
+    /// Explicitly enable diagnostic count/work thresholds.
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.exact_algebra = self.exact_algebra.with_diagnostics();
+        self
     }
 }

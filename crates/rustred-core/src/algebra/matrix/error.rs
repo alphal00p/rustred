@@ -176,4 +176,11 @@ impl fmt::Display for SymbolicaCoefficientMatrixError {
     }
 }
 
-impl std::error::Error for SymbolicaCoefficientMatrixError {}
+impl std::error::Error for SymbolicaCoefficientMatrixError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidCoefficient { error, .. } | Self::ExactAlgebra(error) => Some(error),
+            _ => None,
+        }
+    }
+}

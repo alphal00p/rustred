@@ -631,8 +631,11 @@ class CandidateApiTests(GeneratedProgramAssertions):
             rustred.inspect_closing_artifact(generated.bundle)
         certified = rustred.certify_candidates(generated.bundle)
         self.assertEqual(certified.status, "generated-durable")
+        ordinary_resources = tomllib.loads(certified.to_toml()).get("publication_resources", {})
+        for key in ("max_domain_bound_endpoint_cells", "max_predicate_consistency_work", "max_predicate_atoms"):
+            self.assertNotIn(key, ordinary_resources)
         self.assertEqual(
-            certified.schema, "rustred.candidate-certification-output.toml.v1"
+            certified.schema, "rustred.candidate-certification-output.toml.v2"
         )
         self.assertProgramEqual(certified.artifact, rustred.family_close(UNIT_MASS_PROJECT_K1).artifact)
         reduced = rustred.reduce_with_closing_artifact(certified.artifact, [3])

@@ -21,6 +21,8 @@ pub enum OwnerDomainRefinementAxes {
 /// including temporary BoxCover storage, not a measured byte count.
 #[derive(Clone, Copy, Debug)]
 pub struct OwnerDomainMatchLimits {
+    /// Enable optional work-count diagnostics; authored domains are unchanged.
+    pub diagnostics_enabled: bool,
     pub max_rules: usize,
     pub max_terminal_checks: usize,
     pub max_predicates: usize,
@@ -42,6 +44,7 @@ pub struct OwnerDomainMatchLimits {
 impl Default for OwnerDomainMatchLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_rules: 100_000,
             max_terminal_checks: 1_000_000,
             max_predicates: 100_000,
@@ -181,6 +184,7 @@ impl<const N: usize> OwnerDomainMatchPiece<N> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OwnerDomainMatchFailure {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     UnknownOwner,
     InvalidInput(String),
     Cancelled,
@@ -245,4 +249,38 @@ impl fmt::Display for OwnerDomainMatchError {
         Ok(())
     }
 }
-impl std::error::Error for OwnerDomainMatchError {}
+impl std::error::Error for OwnerDomainMatchError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.failure)
+    }
+}
+impl fmt::Display for OwnerDomainMatchFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for OwnerDomainMatchFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            Self::Algebra(error) => Some(error),
+            Self::PowerDomain(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl OwnerDomainMatchLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.guard_algebra = self.guard_algebra.with_diagnostics();
+        self
+    }
+    pub(super) const fn diagnostic_limit(self, limit: usize) -> Option<usize> {
+        if self.diagnostics_enabled {
+            Some(limit)
+        } else {
+            None
+        }
+    }
+}

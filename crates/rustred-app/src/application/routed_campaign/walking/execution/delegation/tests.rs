@@ -31,6 +31,7 @@ fn initial(policy: SchedulingPolicy) -> State<1> {
 }
 fn finish() -> Finished {
     Finished {
+        resource_failure: None,
         stats: NativeStats::Apply(Default::default()),
         error: None,
         error_kind: "native",

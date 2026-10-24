@@ -294,6 +294,7 @@ fn retained_hard_error_and_mixed_box_resource_refusal_never_enable_fallback() {
     let mut p = fixture(Some(&[2]), 3, false);
     let mut emitted = Vec::new();
     let limits = OwnerDomainMatchLimits {
+        diagnostics_enabled: true,
         max_rules: 0,
         ..Default::default()
     };

@@ -6,6 +6,7 @@ use crate::sector;
 /// Typed failures while sealing or applying an exact symmetry action.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
+    Resource(symbolica::utils::resources::ResourceLimitError),
     EmptyGenerators,
     WrongGeneratorArity {
         generator: usize,
@@ -57,6 +58,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resource(error) => error.fmt(formatter),
             Self::EmptyGenerators => formatter.write_str(
                 "a canonical symmetry action needs at least one authenticated permutation",
             ),
@@ -127,7 +129,16 @@ impl fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resource(error) => Some(error),
+            Self::Ordering(error) => Some(error),
+            Self::IntegralKey(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<sector::Error> for Error {
     fn from(value: sector::Error) -> Self {

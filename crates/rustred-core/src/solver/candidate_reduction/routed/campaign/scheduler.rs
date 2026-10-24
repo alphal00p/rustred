@@ -47,14 +47,17 @@ struct ProbedBatch<const N: usize>(Vec<ProbedWork<N>>);
 pub(super) fn limit(
     value: usize,
     addition: usize,
-    maximum: usize,
+    maximum: Option<usize>,
     resource: &'static str,
 ) -> Result<usize, Failure> {
-    let requested = value
-        .checked_add(addition)
-        .ok_or_else(|| resource_error(resource, usize::MAX, maximum))?;
-    if requested > maximum {
-        return Err(resource_error(resource, requested, maximum));
+    symbolica::utils::resources::checkpoint()
+        .map_err(crate::reduction::ReductionError::from)
+        .map_err(CandidateRoutedError::from)?;
+    let requested = value.saturating_add(addition);
+    if let Some(maximum) = maximum {
+        if requested > maximum {
+            return Err(resource_error(resource, requested, maximum));
+        }
     }
     Ok(requested)
 }
@@ -101,6 +104,7 @@ pub(super) struct Shared<'a, const N: usize> {
     reservation_changed: Condvar,
     progress: Condvar,
     start: Instant,
+    pub(super) resources: symbolica::utils::resources::ResourceBudget,
     workers: usize,
     cancellation: &'a AtomicBool,
     pub(super) limits: super::super::RoutedCandidateLimits,
@@ -144,6 +148,7 @@ impl<'a, const N: usize> Shared<'a, N> {
             reservation_changed: Condvar::new(),
             progress: Condvar::new(),
             start: Instant::now(),
+            resources: symbolica::utils::resources::ResourceBudget::capture_current(),
             workers,
             cancellation,
             limits: reducer.limits,
@@ -155,29 +160,29 @@ impl<'a, const N: usize> Shared<'a, N> {
         self.completed_baseline = baseline;
     }
     pub(super) fn apply_budget(&mut self, budget: CandidateRoutedWorkBudget) {
-        self.limits.max_input_targets = self.limits.max_input_targets.min(budget.max_nodes);
-        self.limits.max_unique_nodes = self.limits.max_unique_nodes.min(budget.max_nodes);
-        self.limits.max_transport_calls = self
-            .limits
-            .max_transport_calls
-            .min(budget.max_transport_calls);
-        self.limits.max_transport_operations = self
-            .limits
-            .max_transport_operations
-            .min(budget.max_transport_operations);
-        self.limits.max_transport_endpoints = self
-            .limits
-            .max_transport_endpoints
-            .min(budget.max_transport_endpoints);
-        self.reduction.max_pending_frames = self.reduction.max_pending_frames.min(budget.max_nodes);
-        self.reduction.max_rule_applications = self
-            .reduction
-            .max_rule_applications
-            .min(budget.max_rule_applications);
-        self.reduction.max_coalescing_additions = self
-            .reduction
-            .max_coalescing_additions
-            .min(budget.max_coalescing_additions);
+        let old = self.limits;
+        let count = |a: usize, b: usize| if old.diagnostics_enabled { a.min(b) } else { b };
+        self.limits.max_input_targets = count(old.max_input_targets, budget.max_nodes);
+        self.limits.max_unique_nodes = count(old.max_unique_nodes, budget.max_nodes);
+        self.limits.max_transport_calls =
+            count(old.max_transport_calls, budget.max_transport_calls);
+        self.limits.max_transport_operations = count(
+            old.max_transport_operations,
+            budget.max_transport_operations,
+        );
+        self.limits.max_transport_endpoints =
+            count(old.max_transport_endpoints, budget.max_transport_endpoints);
+        self.limits.diagnostics_enabled = true;
+        let old = self.reduction;
+        let count = |a: usize, b: usize| if old.diagnostics_enabled { a.min(b) } else { b };
+        self.reduction.max_pending_frames = count(old.max_pending_frames, budget.max_nodes);
+        self.reduction.max_rule_applications =
+            count(old.max_rule_applications, budget.max_rule_applications);
+        self.reduction.max_coalescing_additions = count(
+            old.max_coalescing_additions,
+            budget.max_coalescing_additions,
+        );
+        self.reduction.diagnostics_enabled = true;
     }
     pub(super) fn enable_census(&mut self, limits: CandidateRoutedTraceCensusLimits) {
         self.census_limits = Some(limits);
@@ -214,6 +219,16 @@ impl<'a, const N: usize> Shared<'a, N> {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
     fn check_locked(&self, state: &mut State<N>) -> Result<(), Failure> {
+        if state.failure.is_none() {
+            if let Err(error) = self.resources.checkpoint() {
+                state.failure = Some(
+                    CandidateRoutedError::from(crate::reduction::ReductionError::from(error))
+                        .into(),
+                );
+                self.wake_all();
+                self.progress.notify_one();
+            }
+        }
         if self.cancellation.load(Ordering::Acquire) && state.failure.is_none() {
             state.failure = Some(Failure::Cancelled);
             self.wake_all();
@@ -230,10 +245,7 @@ impl<'a, const N: usize> Shared<'a, N> {
     /// Cheap cancellation checks while staging a bounded batch outside the
     /// mutex. Peer failures are checked at each chunk and each locked admission.
     pub(super) fn check_cancellation(&self) -> Result<(), Failure> {
-        if self.cancellation.load(Ordering::Acquire) {
-            self.check()?;
-        }
-        Ok(())
+        self.check()
     }
     pub(super) fn publication_capacity(&self) -> usize {
         PUBLICATION_BATCH_SIZE
@@ -301,7 +313,7 @@ impl<'a, const N: usize> Shared<'a, N> {
                 state.trace.input_targets = limit(
                     state.trace.input_targets,
                     1,
-                    self.limits.max_input_targets,
+                    self.limits.diagnostic_limit(self.limits.max_input_targets),
                     "input targets",
                 )?;
             }
@@ -311,19 +323,20 @@ impl<'a, const N: usize> Shared<'a, N> {
                 limit(
                     entries.len(),
                     1,
-                    self.limits.max_unique_nodes,
+                    self.limits.diagnostic_limit(self.limits.max_unique_nodes),
                     "initial operational nodes",
                 )?;
                 limit(
                     entries.len(),
                     1,
-                    self.reduction.max_pending_frames,
+                    self.reduction
+                        .diagnostic_limit(self.reduction.max_pending_frames),
                     "initial pending nodes",
                 )?;
                 entries.insert(target);
             } else {
                 let mut state = self.lock();
-                state.dedup = limit(state.dedup, 1, usize::MAX, "deduplication counter")?;
+                state.dedup = limit(state.dedup, 1, None, "deduplication counter")?;
             }
         }
         self.lock().trace.requested_targets = entries.len();
@@ -390,7 +403,7 @@ impl<'a, const N: usize> Shared<'a, N> {
         state.baseline_hits = limit(
             state.baseline_hits,
             1,
-            usize::MAX,
+            None,
             "completed baseline hit counter",
         )?;
         Ok(())
@@ -405,7 +418,7 @@ impl<'a, const N: usize> Shared<'a, N> {
         limit(
             0,
             nodes.len(),
-            self.publication_capacity(),
+            Some(self.publication_capacity()),
             "publication batch",
         )?;
         let mut batch = Vec::with_capacity(nodes.len());
@@ -468,7 +481,7 @@ impl<'a, const N: usize> Shared<'a, N> {
                     Ok(false)
                 }
                 ProbedWork::KnownPresent => {
-                    state.dedup = limit(state.dedup, 1, usize::MAX, "deduplication counter")?;
+                    state.dedup = limit(state.dedup, 1, None, "deduplication counter")?;
                     Ok(false)
                 }
                 ProbedWork::NeedsCommit { node, shard } => {
@@ -529,20 +542,21 @@ impl<'a, const N: usize> Shared<'a, N> {
         // Recheck absent hints: another batch or an earlier slot can now own it.
         let mut shard = self.membership.lock_shard(shard_index);
         if shard.contains(&node) {
-            state.dedup = limit(state.dedup, 1, usize::MAX, "deduplication counter")?;
+            state.dedup = limit(state.dedup, 1, None, "deduplication counter")?;
             return Ok(false);
         }
         let scheduled = limit(
             state.scheduled,
             1,
-            self.limits.max_unique_nodes,
+            self.limits.diagnostic_limit(self.limits.max_unique_nodes),
             "operational nodes",
         )?;
         // Pending includes executing nodes and queued work, not DFS leave frames.
         limit(
             state.queue.len() + state.active.len(),
             1,
-            self.reduction.max_pending_frames,
+            self.reduction
+                .diagnostic_limit(self.reduction.max_pending_frames),
             "pending nodes",
         )?;
         let new_physical = shard.insert(&node);
@@ -647,7 +661,8 @@ impl<'a, const N: usize> Shared<'a, N> {
         state.trace.transport_calls = limit(
             state.trace.transport_calls,
             1,
-            self.limits.max_transport_calls,
+            self.limits
+                .diagnostic_limit(self.limits.max_transport_calls),
             "transport calls",
         )?;
         Ok(())
@@ -661,29 +676,31 @@ impl<'a, const N: usize> Shared<'a, N> {
         let mut state = self.lock();
         // The callback is before native expansion. Atomic admission of both
         // work dimensions; one failed dimension consumes neither allowance.
-        let add = |old: usize, amount: usize, maximum: usize, resource| {
-            let requested = old
-                .checked_add(amount)
-                .ok_or(ExpansionError::ResourceCountOverflow { resource })?;
-            if requested > maximum {
-                return Err(ExpansionError::ResourceLimit {
-                    resource,
-                    requested,
-                    limit: maximum,
-                });
+        let add = |old: usize, amount: usize, maximum: Option<usize>, resource| {
+            let requested = old.saturating_add(amount);
+            if let Some(maximum) = maximum {
+                if requested > maximum {
+                    return Err(ExpansionError::ResourceLimit {
+                        resource,
+                        requested,
+                        limit: maximum,
+                    });
+                }
             }
             Ok(requested)
         };
         let ops = add(
             state.trace.transport_operations,
             operations,
-            self.limits.max_transport_operations,
+            self.limits
+                .diagnostic_limit(self.limits.max_transport_operations),
             "aggregate routed operations",
         )?;
         let ends = add(
             state.trace.transport_endpoints,
             endpoints,
-            self.limits.max_transport_endpoints,
+            self.limits
+                .diagnostic_limit(self.limits.max_transport_endpoints),
             "aggregate routed endpoints",
         )?;
         state.trace.transport_operations = ops;
@@ -696,19 +713,25 @@ impl<'a, const N: usize> Shared<'a, N> {
         state.rule_attempts = limit(
             state.rule_attempts,
             1,
-            self.reduction.max_rule_applications,
+            self.reduction
+                .diagnostic_limit(self.reduction.max_rule_applications),
             "rule attempts",
         )?;
         Ok(())
     }
     pub(super) fn reserve_apply(&self, bound: usize) -> Result<(), Failure> {
         let mut state = self.lock();
+        self.check_locked(&mut state)?;
+        if !self.reduction.diagnostics_enabled {
+            return Ok(());
+        }
         loop {
             self.check_locked(&mut state)?;
             let needed = limit(
                 state.coalescing,
                 bound,
-                self.reduction.max_coalescing_additions,
+                self.reduction
+                    .diagnostic_limit(self.reduction.max_coalescing_additions),
                 "conservative coalescing reservation",
             )?;
             if state.reserved_coalescing <= self.reduction.max_coalescing_additions - needed {
@@ -731,7 +754,9 @@ impl<'a, const N: usize> Shared<'a, N> {
         successful: bool,
     ) -> Result<(), Failure> {
         let mut state = self.lock();
-        state.reserved_coalescing -= bound;
+        if self.reduction.diagnostics_enabled {
+            state.reserved_coalescing -= bound;
+        }
         let result = if actual > bound {
             Err(CandidateRoutedError::InvalidInput(
                 "coalescing exceeded its duplicate-shift bound".into(),
@@ -741,7 +766,8 @@ impl<'a, const N: usize> Shared<'a, N> {
             limit(
                 state.coalescing,
                 actual,
-                self.reduction.max_coalescing_additions,
+                self.reduction
+                    .diagnostic_limit(self.reduction.max_coalescing_additions),
                 "coalescing additions",
             )
             .map(|coalescing| {

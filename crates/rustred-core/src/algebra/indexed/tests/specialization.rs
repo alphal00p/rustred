@@ -115,7 +115,9 @@ fn specialization_limits_accept_exact_boundaries_and_reject_one_below() {
     let n = context.index(0).unwrap();
     let n_squared = context.mul(&n, &n).unwrap();
     let exact = IndexedAlgebraLimits {
+        diagnostics_enabled: true,
         exact_algebra: ExactAlgebraLimits {
+            diagnostics_enabled: true,
             max_polynomial_terms: 1,
             max_term_operations: 1,
             ..ExactAlgebraLimits::default()
@@ -170,7 +172,9 @@ fn specialization_bounds_the_full_u16_exponent_range() {
     highest_power.raw.numerator.exponents[0] = u16::MAX;
 
     let exact = IndexedAlgebraLimits {
+        diagnostics_enabled: true,
         exact_algebra: ExactAlgebraLimits {
+            diagnostics_enabled: true,
             max_polynomial_terms: 1,
             max_term_operations: 1,
             ..ExactAlgebraLimits::default()

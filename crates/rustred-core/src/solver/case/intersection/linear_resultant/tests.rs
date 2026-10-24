@@ -242,6 +242,7 @@ fn compact_overflow_and_shared_work_algebra_factor_limits_are_atomic() {
     for (limits, kind) in [
         (
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 3,
                 ..Default::default()
             },
@@ -249,6 +250,7 @@ fn compact_overflow_and_shared_work_algebra_factor_limits_are_atomic() {
         ),
         (
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_normalizations: 0,
                 ..Default::default()
             },
@@ -256,6 +258,7 @@ fn compact_overflow_and_shared_work_algebra_factor_limits_are_atomic() {
         ),
         (
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_factorizations: 1,
                 ..Default::default()
             },
@@ -273,7 +276,7 @@ fn compact_overflow_and_shared_work_algebra_factor_limits_are_atomic() {
     let error = super::refine(
         &equation,
         &[0, 1],
-        Default::default(),
+        CaseIntersectionLimits::default().with_diagnostics(),
         &mut Default::default(),
         usize::MAX,
     )
@@ -306,6 +309,7 @@ fn compact_overflow_and_shared_work_algebra_factor_limits_are_atomic() {
         &polynomial(&context, "x*y+y^100+1"),
         &[0, 1],
         CaseIntersectionLimits {
+            diagnostics_enabled: true,
             max_work_items: 10,
             ..Default::default()
         },

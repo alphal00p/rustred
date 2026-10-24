@@ -74,6 +74,47 @@ fn rows(result: &VacuumProductProjection) -> BTreeMap<Vec<Vec<i64>>, Coefficient
 }
 
 #[test]
+fn chart_scalar_resource_refusal_keeps_its_cause_and_allows_a_healthy_request() {
+    use std::time::Duration;
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+
+    let source = family(4);
+    let target = key([2, 3, 4, 5, 1, -1, 0, 1, 0, 0]);
+    let plan = VacuumProductChartPlan::prepare(
+        &source,
+        &BTreeSet::from([target.clone()]),
+        Default::default(),
+    )
+    .unwrap();
+    let chart = &plan.charts()[&target];
+    let (head, labels) = labels(4);
+    let project = || {
+        chart.project(
+            head,
+            labels.clone(),
+            Default::default(),
+            |_| -> Result<VacuumTensorProjection, String> {
+                panic!("component-local numerator must not call the tensor projector")
+            },
+        )
+    };
+    let expected = project().unwrap();
+    let error = ResourceBudget::new(ResourceLimits {
+        max_elapsed: Some(Duration::ZERO),
+        ..Default::default()
+    })
+    .run(project)
+    .unwrap_err();
+    assert!(matches!(
+        crate::reduction::resource_limit_error(&error),
+        Some(ResourceLimitError::Elapsed { .. })
+    ));
+    let actual = project().unwrap();
+    assert_eq!(rows(&actual), rows(&expected));
+    assert_eq!(actual.nonzero_conditions, expected.nonzero_conditions);
+}
+
+#[test]
 fn local_numerator_chart_preserves_every_transport_endpoint_without_tensor_callback() {
     let source = family(4);
     let target = key([2, 3, 4, 5, 1, -1, 0, 1, 0, 0]);

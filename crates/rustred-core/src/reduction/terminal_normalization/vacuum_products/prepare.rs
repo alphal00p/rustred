@@ -20,7 +20,7 @@ impl VacuumProductPlan {
         terminals: &BTreeSet<IntegralKey>,
         limits: VacuumProductLimits,
     ) -> Result<Self, Error> {
-        if terminals.len() > limits.max_terminals {
+        if limits.diagnostics_enabled && terminals.len() > limits.max_terminals {
             return Err(Error::ResourceLimit {
                 resource: "terminals",
                 requested: terminals.len(),
@@ -97,7 +97,11 @@ impl VacuumProductPlan {
             for block in &chart.blocks {
                 if !plan.families.contains_key(block.family.fingerprint()) {
                     let mut count = plan.families.len();
-                    charge(&mut count, limits.max_lower_families, "lower families")?;
+                    charge(
+                        &mut count,
+                        limits.diagnostic_limit(limits.max_lower_families),
+                        "lower families",
+                    )?;
                     plan.families
                         .insert(block.family.fingerprint().to_owned(), block.family.clone());
                 }
@@ -156,7 +160,7 @@ pub(super) fn discover(
     combinations(rows.len(), loops, &mut |selection| {
         charge(
             &mut stats.basis_candidates,
-            limits.max_basis_candidates,
+            limits.diagnostic_limit(limits.max_basis_candidates),
             "basis candidates",
         )?;
         if let Some(value) = unimodular_transform(family, rows, selection)? {

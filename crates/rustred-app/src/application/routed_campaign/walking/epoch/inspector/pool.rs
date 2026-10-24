@@ -6,6 +6,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::Duration;
+use symbolica::utils::resources::ResourceBudget;
 
 const MAX_BATCH: usize = 4096;
 mod memory;
@@ -106,7 +107,7 @@ impl Activity {
 }
 
 struct Queue {
-    jobs: VecDeque<(usize, Vec<u8>)>,
+    jobs: VecDeque<(usize, Vec<u8>, ResourceBudget)>,
     status: Vec<Status>,
     occupied: Vec<bool>,
     generations: Vec<u64>,
@@ -319,6 +320,7 @@ impl Pool<'_> {
             .occupied
             .try_reserve(jobs.len())
             .map_err(|_| SubmitError::Allocation("epoch inspector slot allocation"))?;
+        let resources = ResourceBudget::capture_current();
         self.remaining = jobs.len();
         self.receipts.resize(jobs.len(), 0);
         for (index, job) in jobs.into_iter().enumerate() {
@@ -331,7 +333,7 @@ impl Pool<'_> {
                 returned: false,
             });
             guard.occupied.push(true);
-            guard.jobs.push_back((index, job.bytes));
+            guard.jobs.push_back((index, job.bytes, resources.clone()));
         }
         drop(guard);
         self.ready.notify_all();
@@ -398,6 +400,7 @@ impl Pool<'_> {
         self.receipts
             .try_reserve(jobs.len())
             .map_err(|_| SubmitError::Allocation("epoch result receipt allocation"))?;
+        let resources = ResourceBudget::capture_current();
         self.remaining += jobs.len();
         for job in jobs {
             guard.next_generation += 1;
@@ -421,7 +424,7 @@ impl Pool<'_> {
                 self.receipts.push(0);
                 index
             };
-            guard.jobs.push_back((index, job.bytes));
+            guard.jobs.push_back((index, job.bytes, resources.clone()));
         }
         drop(guard);
         // Active workers keep pulling from the shared queue. Wake only enough
@@ -681,13 +684,14 @@ pub(in super::super) fn with_authorized_pool<R>(
                                 if guard.shutdown {
                                     break None;
                                 }
-                                if let Some((index, bytes)) = guard.jobs.pop_front() {
+                                if let Some((index, bytes, resources)) = guard.jobs.pop_front() {
                                     guard.status[index].started = true;
                                     break Some((
                                         index,
                                         guard.status[index].key,
                                         guard.generations[index],
                                         bytes,
+                                        resources,
                                     ));
                                 }
                                 guard = match ready.wait(guard) {
@@ -696,7 +700,7 @@ pub(in super::super) fn with_authorized_pool<R>(
                                 };
                             }
                         };
-                        let Some((index, key, generation, bytes)) = next else {
+                        let Some((index, key, generation, bytes, resources)) = next else {
                             return;
                         };
                         if sender
@@ -705,8 +709,10 @@ pub(in super::super) fn with_authorized_pool<R>(
                         {
                             return;
                         }
-                        let result = catch_unwind(AssertUnwindSafe(|| job(&bytes, stop)))
-                            .unwrap_or_default();
+                        let result = catch_unwind(AssertUnwindSafe(|| {
+                            resources.run_captured(|| job(&bytes, stop))
+                        }))
+                        .unwrap_or_default();
                         let result = result_memory.wrap(result);
                         let Ok(mut guard) = queue.lock() else { return };
                         if !guard.shutdown {

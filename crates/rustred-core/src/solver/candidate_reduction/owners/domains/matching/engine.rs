@@ -170,6 +170,7 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
     Matcher<'a, '_, N, F>
 {
     fn cancelled(&self) -> Result<(), OwnerDomainMatchFailure> {
+        symbolica::utils::resources::checkpoint().map_err(OwnerDomainMatchFailure::Resources)?;
         if self.cancel.load(Ordering::Acquire) {
             Err(OwnerDomainMatchFailure::Cancelled)
         } else {
@@ -188,7 +189,7 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
             charge(
                 &mut self.budget.stats.rank_empty_cells,
                 1,
-                usize::MAX,
+                None,
                 "rank empty cells",
             )?;
             return Ok(None);
@@ -210,7 +211,7 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
             charge(
                 &mut self.budget.stats.correlation_empty_cells,
                 1,
-                usize::MAX,
+                None,
                 "correlation empty cells",
             )?;
             return Ok(None);
@@ -307,7 +308,9 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
         charge(
             &mut self.budget.stats.pieces,
             1,
-            self.budget.limits.max_pieces,
+            self.budget
+                .limits
+                .diagnostic_limit(self.budget.limits.max_pieces),
             "pieces",
         )?;
         let rank = self.effective_rank(&cell)?;
@@ -419,7 +422,9 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                 charge(
                     &mut self.budget.stats.terminal_checks,
                     1,
-                    self.budget.limits.max_terminal_checks,
+                    self.budget
+                        .limits
+                        .diagnostic_limit(self.budget.limits.max_terminal_checks),
                     "terminal checks",
                 )?;
                 let next = Phase::Terminals {
@@ -470,7 +475,9 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                 charge(
                     &mut self.budget.stats.terminal_checks,
                     1,
-                    self.budget.limits.max_terminal_checks,
+                    self.budget
+                        .limits
+                        .diagnostic_limit(self.budget.limits.max_terminal_checks),
                     "finite boundary checks",
                 )?;
                 let fixed = key.powers().iter().enumerate().map(|(i, &n)| {
@@ -539,7 +546,9 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                         charge(
                             &mut self.budget.stats.rules,
                             1,
-                            self.budget.limits.max_rules,
+                            self.budget
+                                .limits
+                                .diagnostic_limit(self.budget.limits.max_rules),
                             "rules",
                         )?;
                         let fixed = rule.fixed.iter().enumerate().filter_map(|(i, n)| {
@@ -922,19 +931,23 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
             limits: self.budget.limits,
             stats: self.budget.stats,
         };
-        if prospective.cells::<N>(width).is_err() {
-            return self.unresolved_or_failure(cell, identity, failure);
+        match prospective.cells::<N>(width) {
+            Ok(()) => {}
+            Err(error @ OwnerDomainMatchFailure::Resources(_)) => {
+                return self.fail_predicate(cell, identity, error);
+            }
+            Err(_) => return self.unresolved_or_failure(cell, identity, failure),
         }
         charge(
             &mut prospective.stats.refinement_cells,
             width,
-            prospective.limits.max_bounded_refinement_cells,
+            Some(prospective.limits.max_bounded_refinement_cells),
             "bounded refinement cells",
         )?;
         charge(
             &mut prospective.stats.refinement_steps,
             1,
-            usize::MAX,
+            None,
             "bounded refinement steps",
         )?;
         self.cancelled()?;

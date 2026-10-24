@@ -10,9 +10,11 @@ pub const DEFAULT_MAX_GENERATORS: usize = 4_096;
 pub const DEFAULT_MAX_GROUP_ORDER: usize = 1_000_000;
 pub const DEFAULT_MAX_GROUP_ENTRIES: usize = 16_000_000;
 
-/// Bounds for sealing and applying one finite denominator-permutation action.
+/// Optional diagnostic bounds for one finite denominator-permutation action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CanonicalizationLimits {
+    /// Count ceilings require explicit opt-in; ambient RAM/time checks remain active.
+    pub diagnostics_enabled: bool,
     pub max_generators: usize,
     pub max_group_order: usize,
     /// Aggregate denominator slots retained by the derived group.
@@ -22,10 +24,18 @@ pub struct CanonicalizationLimits {
 impl Default for CanonicalizationLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_generators: DEFAULT_MAX_GENERATORS,
             max_group_order: DEFAULT_MAX_GROUP_ORDER,
             max_group_entries: DEFAULT_MAX_GROUP_ENTRIES,
         }
+    }
+}
+
+impl CanonicalizationLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
     }
 }
 

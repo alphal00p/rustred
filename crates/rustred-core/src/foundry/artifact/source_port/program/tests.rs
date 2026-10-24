@@ -76,7 +76,7 @@ fn source_port_rule_policy_survives_retention_and_matches_cold_loading() {
     );
     // Producer and cold-loader policies use the same explicit cover budget;
     // neither silently substitutes the generic geometry default.
-    let mut cover_limited = SourcePortLimits::default();
+    let mut cover_limited = SourcePortLimits::default().with_diagnostics();
     cover_limited.cover_replay.max_requested_boxes = 1;
     let (audit, solution) = solved_tadpole();
     let program = audit
@@ -93,7 +93,7 @@ fn source_port_rule_policy_survives_retention_and_matches_cold_loading() {
     );
     let cold_limits = ArtifactLoadLimits {
         cover_replay: cover_limited.cover_replay,
-        ..Default::default()
+        ..ArtifactLoadLimits::default().with_diagnostics()
     };
     assert!(
         ClosedArtifact::decode_durable_with_limits(&baseline, cold_limits)
@@ -103,7 +103,7 @@ fn source_port_rule_policy_survives_retention_and_matches_cold_loading() {
     );
     for endpoints in [13, 14, 16_384] {
         let (audit, solution) = solved_tadpole();
-        let mut limits = SourcePortLimits::default();
+        let mut limits = SourcePortLimits::default().with_diagnostics();
         limits.rule_derivation.max_domain_bound_endpoint_cells = endpoints;
         // This coordinate-only proof needs no affine native consistency work.
         limits.max_predicate_consistency_work = 0;
@@ -151,37 +151,28 @@ fn source_port_rule_policy_survives_retention_and_matches_cold_loading() {
 }
 
 #[test]
-fn unsupported_atom_policy_fails_before_producer_iteration_and_cold_input_decode() {
-    use crate::foundry::artifact::{ArtifactLoadLimits, ArtifactPersistenceError, ClosedArtifact};
+fn large_atom_policies_preserve_producer_and_cold_replay() {
+    use crate::foundry::artifact::{ArtifactLoadLimits, ClosedArtifact};
     for value in [257, usize::MAX] {
         let (audit, solution) = solved_tadpole();
-        let audit = audit.with_limits(SourcePortLimits {
+        let limits = SourcePortLimits {
             max_predicate_atoms: value,
-            ..Default::default()
-        });
-        assert!(matches!(
-            audit.audit_sector([true], None, &solution),
-            Err(SourcePortAuditError::UnsupportedResourcePolicy {
-                resource: "predicate atoms", requested, supported_max: 256,
-            }) if requested == value
-        ));
-        let never_read =
-            std::iter::once_with(|| -> ([bool; 1], Option<[usize; 1]>, SectorSolution<1>) {
-                panic!("invalid policy must not consume sectors")
-            });
-        assert!(matches!(
-            audit.retain_program(tadpole(), never_read),
-            Err(SourcePortAuditError::UnsupportedResourcePolicy { .. })
-        ));
-        assert!(matches!(
-            ClosedArtifact::decode_durable_with_limits(b"not an artifact", ArtifactLoadLimits {
+            ..SourcePortLimits::default().with_diagnostics()
+        };
+        let artifact = audit
+            .with_limits(limits)
+            .install_complete(tadpole(), [([true], None, solution)])
+            .unwrap();
+        let bytes = artifact.encode_durable().unwrap();
+        let decoded = ClosedArtifact::decode_durable_with_limits(
+            &bytes,
+            ArtifactLoadLimits {
                 max_predicate_atoms: value,
-                ..Default::default()
-            }),
-            Err(ArtifactPersistenceError::ResourceLimit {
-                resource: "supported predicate atom policy", requested, limit: 256,
-            }) if requested == value
-        ));
+                ..ArtifactLoadLimits::default().with_diagnostics()
+            },
+        )
+        .unwrap();
+        assert_eq!(decoded.encode_durable().unwrap(), bytes);
     }
 }
 
@@ -552,4 +543,319 @@ fn canonical_unit_mass_k6_retains_the_complete_generated_program() {
         rules,
         terminals
     );
+}
+
+#[test]
+fn ordinary_zero_child_templates_preserve_installed_and_cold_replayed_bytes() {
+    use crate::foundry::artifact::{ArtifactLoadLimits, ClosedArtifact};
+    let (audit, solution) = solved_tadpole();
+    let baseline = audit
+        .install_complete(tadpole(), [([true], None, solution)])
+        .unwrap()
+        .encode_durable()
+        .unwrap();
+    let mut limits = SourcePortLimits::default();
+    limits.max_predicate_atoms = 0;
+    limits.max_predicate_consistency_work = 0;
+    limits.rule_derivation.max_source_rows = 0;
+    limits.rule_derivation.max_shift_columns = 0;
+    limits.rule_derivation.max_augmented_columns = 0;
+    limits.rule_derivation.max_input_nonzero_entries = 0;
+    limits.rule_derivation.max_index_coordinate_cells = 0;
+    limits.rule_derivation.max_ordering_key_coordinate_cells = 0;
+    limits.rule_derivation.max_domain_bound_endpoint_cells = 0;
+    limits.rule_derivation.max_sector_monotone_thresholds = 0;
+    limits.rule_derivation.max_sector_mask_cells = 0;
+    limits.rule_derivation.max_guard_provenance_index_cells = 0;
+    limits
+        .rule_derivation
+        .max_native_decomposition_nonzero_entries = 0;
+    limits
+        .rule_derivation
+        .max_back_substitution_output_nonzero_entries = 0;
+    limits
+        .rule_derivation
+        .max_back_substitution_live_nonzero_entries = 0;
+    limits.rule_derivation.max_rule_guards = 0;
+    limits.rule_derivation.max_guard_origins = 0;
+    limits.rule_derivation.max_guard_provenance_sources = 0;
+    limits.rule_derivation.max_elimination_pivots = 0;
+    limits
+        .rule_derivation
+        .max_elimination_pivot_dependency_entries = 0;
+    limits.rule_derivation.max_source_combination_terms = 0;
+    limits.rule_derivation.max_replay_exact_operations = 0;
+    limits.rule_derivation.max_concrete_replay_terms = 0;
+    limits.rule_derivation.max_concrete_replay_integral_keys = 0;
+    limits
+        .rule_derivation
+        .max_concrete_replay_retained_coefficient_terms = 0;
+    limits
+        .rule_derivation
+        .max_concrete_replay_retained_coefficient_clone_owned_bytes = 0;
+    limits
+        .rule_derivation
+        .max_concrete_replay_integral_key_power_cells = 0;
+    limits.rule_derivation.max_concrete_replay_exact_operations = 0;
+    limits.rule_cells.max_source_views = 0;
+    limits.rule_cells.max_fixed_restrictions = 0;
+    limits.rule_cells.max_pruned_terms = 0;
+    limits.rule_cells.max_retained_terms = 0;
+    limits.rule_cells.max_guards = 0;
+    limits.rule_cells.max_guard_split_coordinate_cells = 0;
+    limits.rule_cells.max_projected_source_terms = 0;
+    limits.rule_cells.max_projection_group_routes = 0;
+    limits.rule_cells.max_projection_zero_sectors = 0;
+    limits.cover_replay.max_arity = 0;
+    limits.cover_replay.max_requested_boxes = 0;
+    limits.cover_replay.max_requested_box_coordinate_cells = 0;
+    limits.cover_replay.max_uncovered_boxes = 0;
+    limits.cover_replay.max_uncovered_box_coordinate_cells = 0;
+    limits.cover_replay.max_split_operations = 0;
+    limits.rule_cells.relation.identity_conditions.max_sources = 0;
+    let (audit, solution) = solved_tadpole();
+    let ordinary = audit
+        .with_limits(limits)
+        .install_complete(tadpole(), [([true], None, solution)])
+        .unwrap();
+    assert_eq!(ordinary.encode_durable().unwrap(), baseline);
+    let cold = ArtifactLoadLimits {
+        cover_replay: limits.cover_replay,
+        rule_derivation: limits.rule_derivation,
+        rule_cells: limits.rule_cells,
+        max_predicate_atoms: 0,
+        max_predicate_consistency_work: 0,
+        ..Default::default()
+    };
+    assert_eq!(
+        ClosedArtifact::decode_durable_with_limits(&baseline, cold)
+            .unwrap()
+            .encode_durable()
+            .unwrap(),
+        baseline
+    );
+    assert!(
+        ClosedArtifact::decode_durable_with_limits(&baseline, cold.with_diagnostics()).is_err()
+    );
+    let budget = symbolica::utils::resources::ResourceBudget::with_memory_monitor(
+        symbolica::utils::resources::ResourceLimits {
+            max_process_rss_bytes: Some(1),
+            ..Default::default()
+        },
+        || Ok(2),
+    );
+    let failure = budget
+        .run(|| ClosedArtifact::decode_durable_with_limits(&baseline, cold))
+        .unwrap_err();
+    assert!(crate::reduction::resource_limit_error(&failure).is_some());
+    assert!(ClosedArtifact::decode_durable_with_limits(&baseline, cold).is_ok());
+}
+
+#[test]
+fn each_ordinary_rule_template_preserves_installed_and_cold_replayed_bytes() {
+    use crate::foundry::artifact::{ArtifactLoadLimits, ClosedArtifact};
+    use crate::foundry::parametric::ParametricRuleLimits;
+    let (audit, solution) = solved_tadpole();
+    let baseline = audit
+        .install_complete(tadpole(), [([true], None, solution)])
+        .unwrap()
+        .encode_durable()
+        .unwrap();
+    // Isolate each dormant template so one refusal cannot mask another.
+    let cases: &[(&str, fn(&mut ParametricRuleLimits))] = &[
+        ("max_source_rows", |limits| limits.max_source_rows = 0),
+        ("max_shift_columns", |limits| limits.max_shift_columns = 0),
+        ("max_augmented_columns", |limits| {
+            limits.max_augmented_columns = 0
+        }),
+        ("max_input_nonzero_entries", |limits| {
+            limits.max_input_nonzero_entries = 0
+        }),
+        ("max_index_coordinate_cells", |limits| {
+            limits.max_index_coordinate_cells = 0
+        }),
+        ("max_ordering_key_coordinate_cells", |limits| {
+            limits.max_ordering_key_coordinate_cells = 0
+        }),
+        ("max_domain_bound_endpoint_cells", |limits| {
+            limits.max_domain_bound_endpoint_cells = 0
+        }),
+        ("max_sector_monotone_thresholds", |limits| {
+            limits.max_sector_monotone_thresholds = 0
+        }),
+        ("max_sector_mask_cells", |limits| {
+            limits.max_sector_mask_cells = 0
+        }),
+        ("max_guard_provenance_index_cells", |limits| {
+            limits.max_guard_provenance_index_cells = 0
+        }),
+        ("max_native_decomposition_nonzero_entries", |limits| {
+            limits.max_native_decomposition_nonzero_entries = 0
+        }),
+        ("max_back_substitution_output_nonzero_entries", |limits| {
+            limits.max_back_substitution_output_nonzero_entries = 0
+        }),
+        ("max_back_substitution_live_nonzero_entries", |limits| {
+            limits.max_back_substitution_live_nonzero_entries = 0
+        }),
+        ("max_rule_guards", |limits| limits.max_rule_guards = 0),
+        ("max_guard_origins", |limits| limits.max_guard_origins = 0),
+        ("max_guard_provenance_sources", |limits| {
+            limits.max_guard_provenance_sources = 0
+        }),
+        ("max_elimination_pivots", |limits| {
+            limits.max_elimination_pivots = 0
+        }),
+        ("max_elimination_pivot_dependency_entries", |limits| {
+            limits.max_elimination_pivot_dependency_entries = 0
+        }),
+        ("max_source_combination_terms", |limits| {
+            limits.max_source_combination_terms = 0
+        }),
+        ("max_replay_exact_operations", |limits| {
+            limits.max_replay_exact_operations = 0
+        }),
+        ("max_concrete_replay_terms", |limits| {
+            limits.max_concrete_replay_terms = 0
+        }),
+        ("max_concrete_replay_integral_keys", |limits| {
+            limits.max_concrete_replay_integral_keys = 0
+        }),
+        ("max_concrete_replay_retained_coefficient_terms", |limits| {
+            limits.max_concrete_replay_retained_coefficient_terms = 0
+        }),
+        (
+            "max_concrete_replay_retained_coefficient_clone_owned_bytes",
+            |limits| limits.max_concrete_replay_retained_coefficient_clone_owned_bytes = 0,
+        ),
+        ("max_concrete_replay_integral_key_power_cells", |limits| {
+            limits.max_concrete_replay_integral_key_power_cells = 0
+        }),
+        ("max_concrete_replay_exact_operations", |limits| {
+            limits.max_concrete_replay_exact_operations = 0
+        }),
+    ];
+    let mut failures = Vec::new();
+    for &(name, set_zero) in cases {
+        let mut limits = SourcePortLimits::default();
+        set_zero(&mut limits.rule_derivation);
+        let (audit, solution) = solved_tadpole();
+        match audit
+            .with_limits(limits)
+            .install_complete(tadpole(), [([true], None, solution)])
+        {
+            Ok(artifact) => assert_eq!(
+                artifact.encode_durable().unwrap(),
+                baseline,
+                "producer {name}"
+            ),
+            Err(error) => failures.push(format!("producer {name}: {error}")),
+        }
+        let cold = ArtifactLoadLimits {
+            rule_derivation: limits.rule_derivation,
+            ..Default::default()
+        };
+        match ClosedArtifact::decode_durable_with_limits(&baseline, cold) {
+            Ok(artifact) => assert_eq!(
+                artifact.encode_durable().unwrap(),
+                baseline,
+                "cold replay {name}"
+            ),
+            Err(error) => failures.push(format!("cold replay {name}: {error}")),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn each_ordinary_cell_and_cover_template_preserves_installed_and_cold_replayed_bytes() {
+    use crate::foundry::artifact::{ArtifactLoadLimits, ClosedArtifact};
+    let (audit, solution) = solved_tadpole();
+    let baseline = audit
+        .install_complete(tadpole(), [([true], None, solution)])
+        .unwrap()
+        .encode_durable()
+        .unwrap();
+    // Keep each child template independent; collect refusals without weakening
+    // the exact installed/cold byte comparisons or mandatory proof checks.
+    let cases: &[(&str, fn(&mut SourcePortLimits))] = &[
+        ("rule_cells.max_source_views", |limits| {
+            limits.rule_cells.max_source_views = 0
+        }),
+        ("rule_cells.max_fixed_restrictions", |limits| {
+            limits.rule_cells.max_fixed_restrictions = 0
+        }),
+        ("rule_cells.max_pruned_terms", |limits| {
+            limits.rule_cells.max_pruned_terms = 0
+        }),
+        ("rule_cells.max_retained_terms", |limits| {
+            limits.rule_cells.max_retained_terms = 0
+        }),
+        ("rule_cells.max_guards", |limits| {
+            limits.rule_cells.max_guards = 0
+        }),
+        ("rule_cells.max_guard_split_coordinate_cells", |limits| {
+            limits.rule_cells.max_guard_split_coordinate_cells = 0
+        }),
+        ("rule_cells.max_projected_source_terms", |limits| {
+            limits.rule_cells.max_projected_source_terms = 0
+        }),
+        ("rule_cells.max_projection_group_routes", |limits| {
+            limits.rule_cells.max_projection_group_routes = 0
+        }),
+        ("rule_cells.max_projection_zero_sectors", |limits| {
+            limits.rule_cells.max_projection_zero_sectors = 0
+        }),
+        ("cover_replay.max_arity", |limits| {
+            limits.cover_replay.max_arity = 0
+        }),
+        ("cover_replay.max_requested_boxes", |limits| {
+            limits.cover_replay.max_requested_boxes = 0
+        }),
+        (
+            "cover_replay.max_requested_box_coordinate_cells",
+            |limits| limits.cover_replay.max_requested_box_coordinate_cells = 0,
+        ),
+        ("cover_replay.max_uncovered_boxes", |limits| {
+            limits.cover_replay.max_uncovered_boxes = 0
+        }),
+        (
+            "cover_replay.max_uncovered_box_coordinate_cells",
+            |limits| limits.cover_replay.max_uncovered_box_coordinate_cells = 0,
+        ),
+        ("cover_replay.max_split_operations", |limits| {
+            limits.cover_replay.max_split_operations = 0
+        }),
+    ];
+    let mut failures = Vec::new();
+    for &(name, set_zero) in cases {
+        let mut limits = SourcePortLimits::default();
+        set_zero(&mut limits);
+        let (audit, solution) = solved_tadpole();
+        match audit
+            .with_limits(limits)
+            .install_complete(tadpole(), [([true], None, solution)])
+        {
+            Ok(artifact) => assert_eq!(
+                artifact.encode_durable().unwrap(),
+                baseline,
+                "producer {name}"
+            ),
+            Err(error) => failures.push(format!("producer {name}: {error}")),
+        }
+        let cold = ArtifactLoadLimits {
+            rule_cells: limits.rule_cells,
+            cover_replay: limits.cover_replay,
+            ..Default::default()
+        };
+        match ClosedArtifact::decode_durable_with_limits(&baseline, cold) {
+            Ok(artifact) => assert_eq!(
+                artifact.encode_durable().unwrap(),
+                baseline,
+                "cold replay {name}"
+            ),
+            Err(error) => failures.push(format!("cold replay {name}: {error}")),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

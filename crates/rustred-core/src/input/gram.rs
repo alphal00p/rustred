@@ -25,11 +25,17 @@ pub(super) fn build_external_gram(
             resource: "external Gram entries",
         })?
         / 2;
-    check_limit("external Gram entries", expected, limits.max_gram_entries)?;
+    check_limit(
+        "external Gram entries",
+        expected,
+        limits.max_gram_entries,
+        limits.diagnostics_enabled,
+    )?;
     check_limit(
         "supplied external Gram entries",
         entries.len(),
         limits.max_gram_entries,
+        limits.diagnostics_enabled,
     )?;
     let mut supplied = Vec::<((usize, usize), Atom)>::new();
     supplied

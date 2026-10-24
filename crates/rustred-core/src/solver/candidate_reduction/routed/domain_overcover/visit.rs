@@ -9,6 +9,7 @@ use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 fn cancelled(cancel: &AtomicBool) -> Result<(), CandidateDomainRouteFailure> {
+    symbolica::utils::resources::checkpoint().map_err(CandidateDomainRouteFailure::Resources)?;
     if cancel.load(Ordering::Acquire) {
         Err(CandidateDomainRouteFailure::Cancelled)
     } else {
@@ -18,13 +19,14 @@ fn cancelled(cancel: &AtomicBool) -> Result<(), CandidateDomainRouteFailure> {
 fn admit(
     current: usize,
     addition: usize,
-    limit: usize,
+    limit: Option<usize>,
     resource: &'static str,
 ) -> Result<usize, CandidateDomainRouteFailure> {
-    let requested = current
-        .checked_add(addition)
-        .ok_or(CandidateDomainRouteFailure::CountOverflow { resource })?;
-    if requested > limit {
+    symbolica::utils::resources::checkpoint().map_err(CandidateDomainRouteFailure::Resources)?;
+    let requested = current.saturating_add(addition);
+    if let Some(limit) = limit
+        && requested > limit
+    {
         Err(CandidateDomainRouteFailure::ResourceLimit {
             resource,
             requested,
@@ -428,8 +430,13 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 stats,
             )?;
         } else {
-            stats.masks_examined = admit(stats.masks_examined, 1, limits.max_masks, "route masks")?;
-            stats.masks_pruned += 1;
+            stats.masks_examined = admit(
+                stats.masks_examined,
+                1,
+                limits.diagnostic_limit(limits.max_masks),
+                "route masks",
+            )?;
+            stats.masks_pruned = stats.masks_pruned.saturating_add(1);
         }
 
         // Prepared::compile admits a unit active-row bijection and only affine
@@ -487,7 +494,12 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 cancelled(cancellation)?;
                 // Charge every examined complete subset, including impossible
                 // support/weighted pinches. Preflight before scanning its coordinates.
-                let masks = admit(stats.masks_examined, 1, limits.max_masks, "route masks")?;
+                let masks = admit(
+                    stats.masks_examined,
+                    1,
+                    limits.diagnostic_limit(limits.max_masks),
+                    "route masks",
+                )?;
                 let mut sector = root;
                 let mut pinched_rank = actual_rank;
                 let mut possible = true;
@@ -532,7 +544,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                             stats.joint_support_masks_pruned = admit(
                                 stats.joint_support_masks_pruned,
                                 1,
-                                usize::MAX,
+                                None,
                                 "joint support masks pruned",
                             )?;
                         }
@@ -603,11 +615,11 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                         )?;
                     } else {
                         stats.masks_examined = masks;
-                        stats.masks_pruned += 1;
+                        stats.masks_pruned = stats.masks_pruned.saturating_add(1);
                     }
                 } else {
                     stats.masks_examined = masks;
-                    stats.masks_pruned += 1;
+                    stats.masks_pruned = stats.masks_pruned.saturating_add(1);
                 }
                 let Some(index) = (0..removed)
                     .rev()
@@ -633,7 +645,12 @@ fn emit<const N: usize>(
     stats: &mut CandidateDomainRouteStats,
 ) -> Result<(), CandidateDomainRouteFailure> {
     cancelled(cancellation)?;
-    let masks = admit(stats.masks_examined, 1, limits.max_masks, "route masks")?;
+    let masks = admit(
+        stats.masks_examined,
+        1,
+        limits.diagnostic_limit(limits.max_masks),
+        "route masks",
+    )?;
     let domain = matches!(
         event,
         CandidateDomainRouteEvent::Apply { .. } | CandidateDomainRouteEvent::Route { .. }
@@ -649,17 +666,25 @@ fn emit<const N: usize>(
     let cells = admit(
         stats.coordinate_cells,
         entries,
-        limits.max_coordinate_cells,
+        limits.diagnostic_limit(limits.max_coordinate_cells),
         "route coordinate cells",
     )?;
     stats.masks_examined = masks;
     stats.coordinate_cells = cells;
-    stats.events += 1;
+    stats.events = stats.events.saturating_add(1);
     match event {
-        CandidateDomainRouteEvent::Apply { .. } => stats.apply_domains += 1,
-        CandidateDomainRouteEvent::Route { .. } => stats.route_domains += 1,
-        CandidateDomainRouteEvent::MissingRoute { .. } => stats.missing_routes += 1,
-        CandidateDomainRouteEvent::ZeroSector { .. } => stats.zero_sectors += 1,
+        CandidateDomainRouteEvent::Apply { .. } => {
+            stats.apply_domains = stats.apply_domains.saturating_add(1)
+        }
+        CandidateDomainRouteEvent::Route { .. } => {
+            stats.route_domains = stats.route_domains.saturating_add(1)
+        }
+        CandidateDomainRouteEvent::MissingRoute { .. } => {
+            stats.missing_routes = stats.missing_routes.saturating_add(1)
+        }
+        CandidateDomainRouteEvent::ZeroSector { .. } => {
+            stats.zero_sectors = stats.zero_sectors.saturating_add(1)
+        }
     }
     if visit(event).is_break() {
         return Err(CandidateDomainRouteFailure::StoppedByConsumer);

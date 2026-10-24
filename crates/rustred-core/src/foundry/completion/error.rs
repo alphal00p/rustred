@@ -3,6 +3,7 @@ use std::fmt;
 /// Typed failures in finite sector-lattice geometry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CompletionGeometryError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     EmptyCoordinateSpace,
     WrongArity {
         object: &'static str,
@@ -50,6 +51,7 @@ pub(crate) enum CompletionGeometryError {
 impl fmt::Display for CompletionGeometryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(formatter),
             Self::EmptyCoordinateSpace => {
                 formatter.write_str("completion geometry requires at least one coordinate")
             }
@@ -122,4 +124,16 @@ impl fmt::Display for CompletionGeometryError {
     }
 }
 
-impl std::error::Error for CompletionGeometryError {}
+impl std::error::Error for CompletionGeometryError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+impl From<symbolica::utils::resources::ResourceLimitError> for CompletionGeometryError {
+    fn from(error: symbolica::utils::resources::ResourceLimitError) -> Self {
+        Self::Resources(error)
+    }
+}

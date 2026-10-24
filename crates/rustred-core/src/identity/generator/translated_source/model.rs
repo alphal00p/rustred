@@ -12,7 +12,7 @@ use super::super::scope::IbpSourceLayout;
 
 /// One exact displacement in a family's ordered integral-index lattice.
 ///
-/// Construction is fallible and bounded; clones share the retained component
+/// Construction is fallible; clones share the retained component
 /// buffer. Compatibility with a concrete family is checked when a sealed
 /// source batch is translated.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

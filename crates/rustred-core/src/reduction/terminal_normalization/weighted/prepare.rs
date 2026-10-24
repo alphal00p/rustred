@@ -25,7 +25,12 @@ pub(super) fn prepare(
     ordering: OrderingPolicy,
     limits: TerminalNormalizationLimits,
 ) -> Result<TerminalNormalizationPlan, Error> {
-    check("raw terminals", raw.len(), limits.max_terminals)?;
+    check(
+        "raw terminals",
+        raw.len(),
+        limits.max_terminals,
+        limits.diagnostics_enabled,
+    )?;
     let aliases = TerminalAliasPlan::vacuum_parametric_equivalences(
         family,
         raw,
@@ -92,11 +97,17 @@ pub(super) fn prepare(
                     "support count",
                     supports.len().saturating_add(1),
                     limits.max_supports,
+                    limits.diagnostics_enabled,
                 )?;
                 let cells = active_count
                     .checked_mul(family.loop_count())
                     .ok_or(Error::InvalidWitness("momentum matrix size overflow"))?;
-                check("momentum matrix cells", cells, limits.max_matrix_cells)?;
+                check(
+                    "momentum matrix cells",
+                    cells,
+                    limits.max_matrix_cells,
+                    limits.diagnostics_enabled,
+                )?;
                 let prepared = match proposal::support(
                     family,
                     &slots,
@@ -141,9 +152,15 @@ pub(super) fn prepare(
             "projected output terms",
             raw_output_count,
             limits.max_output_terms,
+            limits.diagnostics_enabled,
         )?;
         union.extend(witness.unbound_terms.keys().cloned());
-        check("output union keys", union.len(), limits.max_terminals)?;
+        check(
+            "output union keys",
+            union.len(),
+            limits.max_terminals,
+            limits.diagnostics_enabled,
+        )?;
     }
     let positive_aliases = if witnesses.is_empty() {
         aliases.clone()
@@ -270,6 +287,7 @@ pub(super) fn prepare(
             "normalized output terms",
             output_count,
             limits.max_output_terms,
+            limits.diagnostics_enabled,
         )?;
         for (key, c) in row {
             context

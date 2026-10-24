@@ -46,8 +46,12 @@ pub(in crate::algebra::matrix) fn call_native<T>(
     operation: &'static str,
     callback: impl FnOnce() -> T,
 ) -> Result<T, SymbolicaCoefficientMatrixError> {
+    crate::algebra::matrix::admission::checkpoint()?;
     match catch_unwind(AssertUnwindSafe(callback)) {
-        Ok(value) => Ok(value),
+        Ok(value) => {
+            crate::algebra::matrix::admission::checkpoint()?;
+            Ok(value)
+        }
         Err(payload) => match payload.downcast::<CheckedFieldAbort>() {
             Ok(abort) => Err(abort.0),
             Err(_) => Err(SymbolicaCoefficientMatrixError::NativePanic { operation }),

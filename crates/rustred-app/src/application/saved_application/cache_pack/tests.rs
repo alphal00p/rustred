@@ -320,6 +320,7 @@ fn uncertain_post_install_write_requires_rescan_before_any_further_append() {
     let scratch = scratch();
     let path = scratch.0.join("pack");
     let limits = SavedApplicationCachePackLimits {
+        diagnostics_enabled: true,
         max_chunks: 2,
         ..Default::default()
     };
@@ -512,6 +513,7 @@ fn disjoint_batches_coalesce_in_both_directions_and_holes_without_changing_prece
     let scratch = scratch();
     let path = scratch.0.join("coalesced");
     let limits = SavedApplicationCachePackLimits {
+        diagnostics_enabled: true,
         max_runs: 1,
         ..Default::default()
     };
@@ -591,14 +593,17 @@ fn overlapping_run_misses_charge_cumulative_read_and_decode_before_next_operatio
     let decoded_two = newest.decoded_bytes + second.decoded_bytes + 2;
     for tight in [
         SavedApplicationCachePackLimits {
+            diagnostics_enabled: true,
             max_lookup_chunks: 1,
             ..limits
         },
         SavedApplicationCachePackLimits {
+            diagnostics_enabled: true,
             max_lookup_encoded_bytes: encoded_two - 1,
             ..limits
         },
         SavedApplicationCachePackLimits {
+            diagnostics_enabled: true,
             max_lookup_decoded_bytes: decoded_two - 1,
             ..limits
         },
@@ -629,14 +634,17 @@ fn overlapping_run_misses_charge_cumulative_read_and_decode_before_next_operatio
     assert_eq!(reader.statistics().misses, 1);
     for tight in [
         SavedApplicationCachePackLimits {
+            diagnostics_enabled: true,
             max_lookup_chunks: 0,
             ..limits
         },
         SavedApplicationCachePackLimits {
+            diagnostics_enabled: true,
             max_lookup_encoded_bytes: 0,
             ..limits
         },
         SavedApplicationCachePackLimits {
+            diagnostics_enabled: true,
             max_lookup_decoded_bytes: 0,
             ..limits
         },
@@ -721,6 +729,7 @@ fn refresh_uses_only_committed_bounded_indexes_and_preserves_lookup_counters() {
         &path,
         &binding(1),
         SavedApplicationCachePackLimits {
+            diagnostics_enabled: true,
             max_chunks: 1,
             ..limits
         },

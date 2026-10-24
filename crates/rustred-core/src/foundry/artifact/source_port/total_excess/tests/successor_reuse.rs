@@ -55,7 +55,7 @@ fn singleton_preflight_keeps_shape_arity_and_per_query_limits() {
                 .is_err()
         );
     }
-    let mut limits = CompletionGeometryLimits::default();
+    let mut limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_arity = 2;
     assert!(
         EnvelopeBudget::new(limits)
@@ -66,6 +66,7 @@ fn singleton_preflight_keeps_shape_arity_and_per_query_limits() {
         [(0, 6, [true, false, false]), (1, 5, [false, true, false])]
     {
         let limits = CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_uncovered_boxes: boxes,
             max_uncovered_box_coordinate_cells: coordinates,
             ..Default::default()
@@ -90,6 +91,7 @@ fn singleton_preflight_keeps_shape_arity_and_per_query_limits() {
 fn singleton_accounting_boundaries_are_cumulative_and_failure_is_not_consumption() {
     let source = LatticeBox::try_new([0; 3], [None; 3]).unwrap();
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_requested_boxes: 1,
         max_requested_box_coordinate_cells: 18,
         max_split_operations: 21,
@@ -117,14 +119,17 @@ fn singleton_accounting_boundaries_are_cumulative_and_failure_is_not_consumption
     }
     for limits in [
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_requested_boxes: 0,
             ..limits
         },
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_requested_box_coordinate_cells: 17,
             ..limits
         },
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_split_operations: 20,
             ..limits
         },
@@ -141,6 +146,7 @@ fn singleton_accounting_boundaries_are_cumulative_and_failure_is_not_consumption
 #[test]
 fn budget_overflow_and_observation_overflow_never_wrap_or_reset_proof_usage() {
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_requested_boxes: usize::MAX,
         max_requested_box_coordinate_cells: usize::MAX,
         max_split_operations: usize::MAX,
@@ -318,7 +324,7 @@ fn retained_observer_distinguishes_local_report_from_completed_successors() {
     assert!(!snapshots[0].failed);
     assert!(snapshots[0].traversal_complete);
     let (audit, solution) = solved_tadpole();
-    let mut limits = super::super::super::SourcePortLimits::default();
+    let mut limits = super::super::super::SourcePortLimits::default().with_diagnostics();
     limits.cover_replay.max_requested_boxes = 0;
     let mut failed = None;
     assert!(

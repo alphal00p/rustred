@@ -289,18 +289,22 @@ fn normalization_reuse_preserves_scratch_boundary_cancel_and_overflow_prefixes()
         for limits in [
             defaults,
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_boundary_cells: 0,
                 ..defaults
             },
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_boundary_cells: 1,
                 ..defaults
             },
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_scratch_boxes: 12,
                 ..defaults
             },
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_scratch_coordinate_cells: 1,
                 ..defaults
             },

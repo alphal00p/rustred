@@ -492,9 +492,15 @@ impl<P: NativeCacheProgram> CachePreparationBackend for NativeCachePreparationBa
 }
 
 pub(super) fn reduction_error(error: ReductionError) -> AppError {
+    if let ReductionError::Resources(error) = error {
+        return AppError::resource(error);
+    }
     crate::application::closing::map_reduction_error("guarded native cache", error)
 }
 pub(super) fn backing_error(error: AppError) -> GuardedCacheBackingError {
+    if let Some(resource) = error.resource_limit_error() {
+        return GuardedCacheBackingError::resource(resource.clone());
+    }
     GuardedCacheBackingError {
         kind: match error.kind() {
             AppErrorKind::Limit | AppErrorKind::OutputLimit => GuardedCacheBackingErrorKind::Limit,
@@ -512,13 +518,19 @@ pub(super) fn guarded_error(error: GuardedCacheError) -> AppError {
         GuardedCacheError::BindingMismatch | GuardedCacheError::InvalidRecord(_) => {
             AppError::input(error.to_string())
         }
-        GuardedCacheError::Backing(error) => AppError::new(
-            match error.kind {
-                GuardedCacheBackingErrorKind::Invalid => AppErrorKind::Input,
-                GuardedCacheBackingErrorKind::Limit => AppErrorKind::Limit,
-                GuardedCacheBackingErrorKind::Io => AppErrorKind::Execution,
-            },
-            error.to_string(),
-        ),
+        GuardedCacheError::Backing(error) => {
+            if let GuardedCacheBackingErrorKind::Resource(resource) = &error.kind {
+                return AppError::resource(resource.clone());
+            }
+            AppError::new(
+                match &error.kind {
+                    GuardedCacheBackingErrorKind::Invalid => AppErrorKind::Input,
+                    GuardedCacheBackingErrorKind::Limit => AppErrorKind::Limit,
+                    GuardedCacheBackingErrorKind::Io => AppErrorKind::Execution,
+                    GuardedCacheBackingErrorKind::Resource(_) => unreachable!(),
+                },
+                error.to_string(),
+            )
+        }
     }
 }

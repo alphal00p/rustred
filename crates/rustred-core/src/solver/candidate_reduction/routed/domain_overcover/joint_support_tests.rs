@@ -305,6 +305,7 @@ fn joint_support_budget_consumer_stop_and_cancellation_preserve_prefixes() {
                 Some(10),
                 Default::default(),
                 CandidateDomainRouteLimits {
+                    diagnostics_enabled: true,
                     max_masks: limit,
                     ..Default::default()
                 },

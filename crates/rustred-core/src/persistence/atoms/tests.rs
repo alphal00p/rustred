@@ -169,6 +169,7 @@ fn malformed_framing_is_rejected_before_native_import() {
 fn record_count_and_byte_limits_are_enforced() {
     let encoded = encoded_one();
     let mut limits = BinaryIoLimits::default();
+    limits.diagnostics_enabled = true;
     limits.max_collection_entries = 0;
     assert!(matches!(
         DecodedCoefficientTable::import_generated(&encoded.state, &encoded.atoms, limits),

@@ -86,6 +86,7 @@ impl<'context> CheckedCoefficientField<'context> {
     }
 
     fn charge_operation(&self, operation: AtomicOperation) {
+        self.checkpoint();
         let result = {
             let mut state = self.state.borrow_mut();
             let requested = state.stats.exact_operations.checked_add(1).ok_or(
@@ -94,7 +95,10 @@ impl<'context> CheckedCoefficientField<'context> {
                 },
             );
             match requested {
-                Ok(requested) if requested <= self.limits.max_exact_operations => {
+                Ok(requested)
+                    if !self.limits.diagnostics_enabled
+                        || requested <= self.limits.max_exact_operations =>
+                {
                     let operation_requested = match operation {
                         AtomicOperation::Add => state.stats.additions.checked_add(1),
                         AtomicOperation::Subtract => state.stats.subtractions.checked_add(1),
@@ -136,6 +140,7 @@ impl<'context> CheckedCoefficientField<'context> {
         &self,
         select: impl FnOnce(&mut SymbolicaCoefficientMatrixStats) -> &mut usize,
     ) {
+        self.checkpoint();
         let error = {
             let mut state = self.state.borrow_mut();
             let counter = select(&mut state.stats);
@@ -151,6 +156,12 @@ impl<'context> CheckedCoefficientField<'context> {
         };
         if let Some(error) = error {
             abort_checked_field(error);
+        }
+    }
+
+    fn checkpoint(&self) {
+        if let Err(error) = symbolica::utils::resources::checkpoint() {
+            abort_checked_field(ExactAlgebraError::Resource(error));
         }
     }
 

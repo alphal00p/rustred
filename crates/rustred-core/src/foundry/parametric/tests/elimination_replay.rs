@@ -87,6 +87,7 @@ fn indexed_elimination_retains_the_full_recursive_pivot_chain() {
     assert_eq!(replay.shift_columns_checked(), 7);
 
     let one_below = ParametricRuleLimits {
+        diagnostics_enabled: true,
         max_elimination_pivot_dependency_entries: 2,
         ..limits
     };

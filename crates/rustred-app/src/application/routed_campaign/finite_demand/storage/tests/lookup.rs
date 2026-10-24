@@ -188,6 +188,18 @@ fn finite_store_exhausts_overlapping_runs_before_absence_and_refuses_read_grants
         ErrorKind::Resource
     );
     assert_eq!(limited.statistics().unwrap().absent, 0);
+    // Ordinary saved provenance can reach the same directory adapter. Its
+    // numeric work templates must not silently become runtime ceilings.
+    let ordinary = generation
+        .reader(StorageLimits {
+            diagnostics_enabled: false,
+            max_runs: 0,
+            max_lookup_pages: 0,
+            ..limits()
+        })
+        .unwrap();
+    assert_eq!(ordinary.lookup(&key(1)).unwrap(), Lookup::Present);
+    assert_eq!(ordinary.lookup(&key(99)).unwrap(), Lookup::Absent);
     let bytes = generation
         .reader(StorageLimits {
             max_lookup_bytes: 0,

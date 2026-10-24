@@ -149,7 +149,12 @@ impl SourceViewBatch {
         if selection.is_empty() {
             return Err(RuleCellError::EmptySourceSelection);
         }
-        check_limit("source views", selection.len(), limits.max_source_views)?;
+        check_limit(
+            limits.diagnostics_enabled,
+            "source views",
+            selection.len(),
+            limits.max_source_views,
+        )?;
         let arity = context.index_count();
         if domain.arity() != arity {
             return Err(RuleCellError::ProjectionDomainArity {
@@ -164,6 +169,7 @@ impl SourceViewBatch {
             });
         }
         check_limit(
+            limits.diagnostics_enabled,
             "projection zero sectors",
             zero_sectors.len(),
             limits.max_projection_zero_sectors,
@@ -201,6 +207,7 @@ impl SourceViewBatch {
                 })
         })?;
         check_limit(
+            limits.diagnostics_enabled,
             "projected source terms",
             selected_term_count,
             limits.max_projected_source_terms,
@@ -525,6 +532,7 @@ fn canonical_fixed_restrictions(
                     resource: "projection fixed restrictions",
                 })?;
         check_limit(
+            limits.diagnostics_enabled,
             "projection fixed restrictions",
             requested,
             limits.max_fixed_restrictions,
@@ -586,6 +594,7 @@ fn residual_stabilizers(
                     resource: "projection stabilizer routes",
                 })?;
         check_limit(
+            limits.diagnostics_enabled,
             "projection stabilizer routes",
             requested,
             limits.max_projection_group_routes,
@@ -692,11 +701,13 @@ fn try_vec<T>(len: usize, resource: &'static str) -> Result<Vec<T>, RuleCellErro
 }
 
 fn check_limit(
+    diagnostics_enabled: bool,
     resource: &'static str,
     requested: usize,
     limit: usize,
 ) -> Result<(), RuleCellError> {
-    if requested > limit {
+    symbolica::utils::resources::checkpoint()?;
+    if diagnostics_enabled && requested > limit {
         Err(RuleCellError::ResourceLimit {
             resource,
             requested,

@@ -111,7 +111,11 @@ fn runtime_order_descriptor_is_bounded_strict_and_versioned() {
     ] {
         assert!(CandidateIntegralOrder::from_json(&bad).is_err(), "{bad}");
     }
-    assert!(CandidateIntegralOrder::from_json(&" ".repeat(crate::MAX_INPUT_BYTES + 1)).is_err());
+    assert_eq!(crate::MAX_INPUT_BYTES, usize::MAX);
+    let padded = format!("{}{text}", " ".repeat(16 * 1024 * 1024 + 1));
+    let padded_program = CandidateIntegralOrder::from_json(&padded).unwrap();
+    assert_eq!(padded_program.arity(), program.arity());
+    assert!(padded_program.has_total_excess_primary());
 }
 
 #[test]

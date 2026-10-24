@@ -107,7 +107,9 @@ fn generate_request(
 ) -> Result<CandidateBundleResult, AppError> {
     let started = Instant::now();
     check_cancel(cancellation.as_ref())?;
-    request.exact_backend.solver_backend()?;
+    request
+        .exact_backend
+        .solver_backend(request.bundle_limits.diagnostics_enabled)?;
     if request.n_cores == 0 {
         return Err(AppError::input(
             "candidate generation n_cores must be positive",
@@ -185,7 +187,9 @@ fn generate<const N: usize>(
     let selected_sectors = super::selection::apply(
         &mut prepared,
         request.selected_sectors.as_deref(),
-        request.bundle_limits.max_collection_entries,
+        request
+            .bundle_limits
+            .diagnostic_limit(request.bundle_limits.max_collection_entries),
     )?;
     if let Some(strategy) = &request.discovery_strategy {
         strategy.validate(
@@ -195,7 +199,9 @@ fn generate<const N: usize>(
                 .iter()
                 .map(|s| s[..prepared.family.denominator_count()].to_vec())
                 .collect::<Vec<_>>(),
-            request.bundle_limits.max_collection_entries,
+            request
+                .bundle_limits
+                .diagnostic_limit(request.bundle_limits.max_collection_entries),
         )?;
     }
     // Preserve the existing default timing boundary (pool construction belongs
@@ -312,7 +318,9 @@ fn generate<const N: usize>(
                     .collect::<Result<Vec<_>, _>>()
             })
             .transpose()?;
-        let symbolic_exact_backend = request.exact_backend.solver_backend()?;
+        let symbolic_exact_backend = request
+            .exact_backend
+            .solver_backend(request.bundle_limits.diagnostics_enabled)?;
         executor
             .map_configured_with_error_observer(
                 &prepared.sources,

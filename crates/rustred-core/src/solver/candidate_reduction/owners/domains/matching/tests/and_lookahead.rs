@@ -233,6 +233,7 @@ fn excluded_and_lookahead_handles_conservative_plane_interiors_without_claiming_
 fn excluded_and_lookahead_without_witness_preserves_original_bounded_refinement() {
     let mut p = coupled_refinement_fixture(2);
     let limits = OwnerDomainMatchLimits {
+        diagnostics_enabled: true,
         max_bounded_refinement_cells: 3,
         ..Default::default()
     };
@@ -282,6 +283,7 @@ fn excluded_and_lookahead_cumulative_predicate_and_geometry_caps_identify_later_
     for (limits, resource, increment) in [
         (
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_predicates: 1,
                 ..Default::default()
             },
@@ -290,6 +292,7 @@ fn excluded_and_lookahead_cumulative_predicate_and_geometry_caps_identify_later_
         ),
         (
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_cells: baseline.cells,
                 ..Default::default()
             },
@@ -298,6 +301,7 @@ fn excluded_and_lookahead_cumulative_predicate_and_geometry_caps_identify_later_
         ),
         (
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_coordinate_cells: baseline.coordinate_cells,
                 ..Default::default()
             },
@@ -341,9 +345,12 @@ fn excluded_and_lookahead_native_refusals_are_strict_and_never_trigger_initial_l
         };
         install(&mut p, atoms);
         let mut limits = OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_bounded_refinement_cells: 100,
             ..Default::default()
         };
+        limits = limits.with_diagnostics();
+        limits.guard_algebra.diagnostics_enabled = true;
         limits.guard_algebra.max_univariate_degree = 1;
         let error = refusal(&p, limits);
         assert_eq!(

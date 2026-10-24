@@ -19,22 +19,29 @@ pub(crate) fn determinant_of_coefficient_matrix(
 ) -> Result<(Coefficient, SymbolicaCoefficientMatrixStats), SymbolicaCoefficientMatrixError> {
     let shape = inspect_rows(rows)?;
     let size = require_square(shape)?;
-    let operations = determinant_operation_bound(size)?;
+    let operations = if limits.diagnostics_enabled {
+        determinant_operation_bound(size)?
+    } else {
+        0
+    };
     check_limit(
         "Symbolica coefficient matrix exact operations",
         operations,
         limits.max_exact_operations,
+        limits.diagnostics_enabled,
     )?;
     let determinant_live = checked_mul("live Symbolica matrix entries", shape.entries, 2)?;
     check_limit(
         "single Symbolica matrix entries",
         shape.entries,
         limits.max_single_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "live Symbolica matrix entries",
         determinant_live,
         limits.max_live_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
     let field =
         CheckedCoefficientField::new(context, limits, shape.entries, determinant_live, operations);

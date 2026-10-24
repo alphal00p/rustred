@@ -28,7 +28,7 @@ impl BoxCover {
         if arity == 0 {
             return Err(CompletionGeometryError::EmptyCoordinateSpace);
         }
-        check_limit("completion coordinate arity", arity, limits.max_arity)?;
+        limits.check_count("completion coordinate arity", arity, limits.max_arity)?;
 
         let mut requested = Vec::new();
         let mut requested_coordinate_cells = 0usize;
@@ -42,7 +42,7 @@ impl BoxCover {
             }
             let requested_count =
                 checked_add("requested structural cover boxes", requested.len(), 1)?;
-            check_limit(
+            limits.check_count(
                 "requested structural cover boxes",
                 requested_count,
                 limits.max_requested_boxes,
@@ -54,7 +54,7 @@ impl BoxCover {
                 requested_coordinate_cells,
                 endpoint_cells,
             )?;
-            check_limit(
+            limits.check_count(
                 "requested structural-cover coordinate cells",
                 requested_coordinate_cells,
                 limits.max_requested_box_coordinate_cells,
@@ -173,7 +173,7 @@ impl LeadingIdeal {
         if arity == 0 {
             return Err(CompletionGeometryError::EmptyCoordinateSpace);
         }
-        check_limit("completion coordinate arity", arity, limits.max_arity)?;
+        limits.check_count("completion coordinate arity", arity, limits.max_arity)?;
 
         let mut requested = Vec::new();
         let mut requested_coordinate_cells = 0usize;
@@ -187,7 +187,7 @@ impl LeadingIdeal {
                 });
             }
             let requested_count = checked_add("requested leading-ideal generators", ordinal, 1)?;
-            check_limit(
+            limits.check_count(
                 "requested leading-ideal generators",
                 requested_count,
                 limits.max_requested_generators,
@@ -197,7 +197,7 @@ impl LeadingIdeal {
                 requested_coordinate_cells,
                 arity,
             )?;
-            check_limit(
+            limits.check_count(
                 "requested leading-generator coordinate cells",
                 requested_coordinate_cells,
                 limits.max_requested_generator_coordinate_cells,
@@ -223,7 +223,7 @@ impl LeadingIdeal {
             }
             minimal.retain(|existing| !componentwise_le(&generator, existing));
             let retained = checked_add("minimal leading-ideal generators", minimal.len(), 1)?;
-            check_limit(
+            limits.check_count(
                 "minimal leading-ideal generators",
                 retained,
                 limits.max_minimal_generators,
@@ -400,7 +400,7 @@ fn charge_split_work(
     limits: CompletionGeometryLimits,
 ) -> Result<(), CompletionGeometryError> {
     *split_operations = checked_add(resource, *split_operations, 1)?;
-    check_limit(resource, *split_operations, limits.max_split_operations)
+    limits.check_count(resource, *split_operations, limits.max_split_operations)
 }
 
 fn min_upper(left: Option<u64>, right: Option<u64>) -> Option<u64> {
@@ -436,6 +436,7 @@ fn reserve_box_push(
     limits: CompletionGeometryLimits,
 ) -> Result<(), CompletionGeometryError> {
     let requested = checked_add("uncovered lattice boxes", output.len(), 1)?;
+    symbolica::utils::resources::check_allocation(std::mem::size_of::<LatticeBox>() as u64)?;
     preflight_box_push(output.len(), arity, limits)?;
     output
         .try_reserve_exact(1)
@@ -452,14 +453,14 @@ fn preflight_box_push(
     limits: CompletionGeometryLimits,
 ) -> Result<(), CompletionGeometryError> {
     let requested = checked_add("uncovered lattice boxes", retained, 1)?;
-    check_limit(
+    limits.check_count(
         "uncovered lattice boxes",
         requested,
         limits.max_uncovered_boxes,
     )?;
     let endpoints = checked_mul("uncovered-box coordinate cells", requested, arity)?;
     let coordinate_cells = checked_mul("uncovered-box coordinate cells", endpoints, 2)?;
-    check_limit(
+    limits.check_count(
         "uncovered-box coordinate cells",
         coordinate_cells,
         limits.max_uncovered_box_coordinate_cells,
@@ -473,22 +474,6 @@ fn componentwise_le(left: &LatticePoint, right: &LatticePoint) -> bool {
             .iter()
             .zip(right.coordinates())
             .all(|(&left, &right)| left <= right)
-}
-
-fn check_limit(
-    resource: &'static str,
-    requested: usize,
-    limit: usize,
-) -> Result<(), CompletionGeometryError> {
-    if requested <= limit {
-        Ok(())
-    } else {
-        Err(CompletionGeometryError::ResourceLimit {
-            resource,
-            requested,
-            limit,
-        })
-    }
 }
 
 fn checked_add(

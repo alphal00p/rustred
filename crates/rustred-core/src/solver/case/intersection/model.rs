@@ -6,11 +6,13 @@ use crate::algebra::CoefficientPolynomial;
 
 use super::super::{AffineGeometryError, Case};
 
-/// Cold exceptional-geometry work limits. Native calls are checked before and
-/// after execution; these limits do not interrupt a running native algorithm or
-/// promise a hard bound on its temporary memory.
+/// Optional exceptional-geometry work diagnostics, disabled by default.
+/// Ambient RAM/time scopes govern ordinary execution. Native calls are checked
+/// before and after execution; cooperative checks do not preempt native algebra.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CaseIntersectionLimits {
+    /// Enforce the optional count thresholds only when explicitly enabled.
+    pub diagnostics_enabled: bool,
     pub max_work_items: usize,
     pub max_terms_per_conjunction: usize,
     pub max_normalizations: usize,
@@ -20,10 +22,27 @@ pub struct CaseIntersectionLimits {
 impl Default for CaseIntersectionLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_work_items: 4096,
             max_terms_per_conjunction: 100_000,
             max_normalizations: 1024,
             max_factorizations: 4096,
+        }
+    }
+}
+
+impl CaseIntersectionLimits {
+    /// Explicitly opt into work-count diagnostics.
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
+    }
+
+    pub(super) const fn diagnostic_limit(self, limit: usize) -> Option<usize> {
+        if self.diagnostics_enabled {
+            Some(limit)
+        } else {
+            None
         }
     }
 }
@@ -75,6 +94,7 @@ pub struct CaseIntersectionResult<const N: usize> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CaseIntersectionFailure {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     InvalidInput(&'static str),
     Admission(AffineGeometryError),
     NativeAlgebra,
@@ -108,6 +128,7 @@ impl<const N: usize> fmt::Display for CaseIntersectionError<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "incomplete exact case intersection: ")?;
         match &self.failure {
+            CaseIntersectionFailure::Resources(error) => error.fmt(f),
             CaseIntersectionFailure::InvalidInput(message) => f.write_str(message),
             CaseIntersectionFailure::Admission(error) => error.fmt(f),
             CaseIntersectionFailure::NativeAlgebra => f.write_str("native algebra failed"),
@@ -123,4 +144,12 @@ impl<const N: usize> fmt::Display for CaseIntersectionError<N> {
     }
 }
 
-impl<const N: usize> std::error::Error for CaseIntersectionError<N> {}
+impl<const N: usize> std::error::Error for CaseIntersectionError<N> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.failure {
+            CaseIntersectionFailure::Resources(error) => Some(error),
+            CaseIntersectionFailure::Admission(error) => Some(error),
+            _ => None,
+        }
+    }
+}

@@ -85,6 +85,7 @@ pub(super) fn refine<const N: usize>(
     stats: &mut CaseIntersectionStats,
     pending: usize,
 ) -> Result<Option<Vec<Vec<CoefficientPolynomial>>>, CaseIntersectionFailure> {
+    super::engine::checkpoint()?;
     let Some(Bilinear { x, y, a, b, c, d }) = authenticate(equation, indices) else {
         return Ok(None);
     };

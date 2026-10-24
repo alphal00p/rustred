@@ -10,6 +10,7 @@ use super::super::{CampaignError, SourceDiscoveryError};
 /// successful report instead of aborting sibling probes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ProbeLocalSchedulerError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     EmptyProbeSchedule,
     WrongSourceLayout {
         actual: &'static str,
@@ -68,6 +69,7 @@ pub(crate) enum ProbeLocalSchedulerError {
 impl fmt::Display for ProbeLocalSchedulerError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(formatter),
             Self::EmptyProbeSchedule => {
                 formatter.write_str("probe-local obstruction schedule is empty")
             }
@@ -168,6 +170,7 @@ impl fmt::Display for ProbeLocalSchedulerError {
 impl std::error::Error for ProbeLocalSchedulerError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::Resources(error) => Some(error),
             Self::Stratum(error) => Some(error),
             Self::Shift(error) | Self::SourceTranslation(error) => Some(error),
             Self::SourceModule(error) => Some(error),

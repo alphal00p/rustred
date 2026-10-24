@@ -67,6 +67,7 @@ pub(super) fn compose_maps(
     };
     let verification = limits.verification;
     let native = SymbolicaCoefficientMatrixLimits {
+        diagnostics_enabled: verification.diagnostics_enabled,
         exact_algebra: verification.exact_algebra,
         max_single_matrix_entries: verification.max_symbolica_single_matrix_entries,
         max_live_matrix_entries: verification.max_symbolica_live_matrix_entries,
@@ -214,6 +215,7 @@ impl TerminalSectorSymmetryRoute {
             ));
         }
         let matrix_limits = SymbolicaCoefficientMatrixLimits {
+            diagnostics_enabled: limits.verification.diagnostics_enabled,
             exact_algebra: limits.verification.exact_algebra,
             max_single_matrix_entries: limits.verification.max_symbolica_single_matrix_entries,
             max_live_matrix_entries: limits.verification.max_symbolica_live_matrix_entries,

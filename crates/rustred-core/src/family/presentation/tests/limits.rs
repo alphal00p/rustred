@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn presentation_limits_have_exact_and_one_below_boundaries() {
     let exact = FamilyPresentationLimits {
+        diagnostics_enabled: true,
         max_role_and_routing_label_bytes: 11,
         max_coefficient_inputs: 4,
         max_condition_inputs: 5,
@@ -17,6 +18,7 @@ fn presentation_limits_have_exact_and_one_below_boundaries() {
     for (limits, resource, requested, limit) in [
         (
             FamilyPresentationLimits {
+                diagnostics_enabled: true,
                 max_role_and_routing_label_bytes: 10,
                 ..exact
             },
@@ -26,6 +28,7 @@ fn presentation_limits_have_exact_and_one_below_boundaries() {
         ),
         (
             FamilyPresentationLimits {
+                diagnostics_enabled: true,
                 max_coefficient_inputs: 3,
                 ..exact
             },
@@ -35,6 +38,7 @@ fn presentation_limits_have_exact_and_one_below_boundaries() {
         ),
         (
             FamilyPresentationLimits {
+                diagnostics_enabled: true,
                 max_condition_inputs: 4,
                 ..exact
             },
@@ -44,6 +48,7 @@ fn presentation_limits_have_exact_and_one_below_boundaries() {
         ),
         (
             FamilyPresentationLimits {
+                diagnostics_enabled: true,
                 max_nonzero_conditions: 0,
                 ..exact
             },
@@ -53,6 +58,7 @@ fn presentation_limits_have_exact_and_one_below_boundaries() {
         ),
         (
             FamilyPresentationLimits {
+                diagnostics_enabled: true,
                 max_condition_sources: 0,
                 ..exact
             },

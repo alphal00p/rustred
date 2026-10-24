@@ -57,18 +57,22 @@ fn trace_support_transport_input_and_virtual_limits_preserve_atomic_errors() {
     }
     for limits in [
         ExpansionLimits {
+            diagnostics_enabled: true,
             max_endpoints: 1,
             ..Default::default()
         },
         ExpansionLimits {
+            diagnostics_enabled: true,
             max_retained_coefficient_terms: 1,
             ..Default::default()
         },
         ExpansionLimits {
+            diagnostics_enabled: true,
             max_retained_coefficient_clone_owned_bytes: 1,
             ..Default::default()
         },
         ExpansionLimits {
+            diagnostics_enabled: true,
             max_retained_endpoint_key_bytes: 1,
             ..Default::default()
         },

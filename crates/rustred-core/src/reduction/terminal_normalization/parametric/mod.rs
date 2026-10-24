@@ -121,7 +121,9 @@ impl TerminalAliasPlan {
         if raw.is_empty() {
             return Ok(plan);
         }
-        if limits.max_supports == 0 || limits.max_canonicalizations == 0 {
+        if limits.diagnostics_enabled
+            && (limits.max_supports == 0 || limits.max_canonicalizations == 0)
+        {
             plan.statistics
                 .skipped
                 .insert(Skip::ParametricPreparationLimit, raw.len());
@@ -173,7 +175,7 @@ impl TerminalAliasPlan {
                 continue;
             }
             if !supports.contains_key(&slots) {
-                if supports.len() >= limits.max_supports {
+                if limits.diagnostics_enabled && supports.len() >= limits.max_supports {
                     plan.statistics.skip(Skip::ParametricPreparationLimit);
                     continue;
                 }
@@ -196,7 +198,9 @@ impl TerminalAliasPlan {
                 }
             };
             plan.statistics.eligible_parametric += 1;
-            if plan.statistics.parametric_canonicalizations >= limits.max_canonicalizations {
+            if limits.diagnostics_enabled
+                && plan.statistics.parametric_canonicalizations >= limits.max_canonicalizations
+            {
                 plan.statistics.skip(Skip::ParametricPreparationLimit);
                 continue;
             }

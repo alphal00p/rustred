@@ -25,6 +25,7 @@ fn checked_matrix(
         "native matrix nonzeros",
         matrix.nvalues(),
         limits.max_reducer_nonzeros,
+        limits.diagnostics_enabled,
     )?;
     let mut terms = 0usize;
     for value in matrix.values() {
@@ -38,6 +39,7 @@ fn checked_matrix(
             "native coefficient terms",
             terms,
             limits.max_coefficient_terms,
+            limits.diagnostics_enabled,
         )?;
     }
     Ok(())
@@ -148,6 +150,7 @@ pub(super) fn finish_rows(
                 .saturating_add(reducer.l().nvalues())
                 .saturating_add((width as usize).saturating_mul(2)),
             limits.max_reducer_nonzeros,
+            limits.diagnostics_enabled,
         )?;
         let mut entries: Vec<_> = native_row(&sources, row)
             .map(|(i, v)| (i, v.clone()))
@@ -169,16 +172,19 @@ pub(super) fn finish_rows(
             &mut p.conditions,
             scale.numerator.clone().into(),
             limits.max_conditions,
+            limits.diagnostics_enabled,
         )?;
         retain(
             &mut p.conditions,
             scale.denominator.clone().into(),
             limits.max_conditions,
+            limits.diagnostics_enabled,
         )?;
         check(
             "reducer nonzeros",
             reducer.u().nvalues().saturating_add(reducer.l().nvalues()),
             limits.max_reducer_nonzeros,
+            limits.diagnostics_enabled,
         )?;
     }
     // The inputs crossed the checked coefficient boundary once; Symbolica's
@@ -211,6 +217,7 @@ pub(super) fn finish_rows(
             "prospective back substitution nonzeros",
             (reducer.u().nrows() as usize).saturating_mul(width as usize),
             limits.max_reducer_nonzeros,
+            limits.diagnostics_enabled,
         )?;
     }
     reducer.back_substitute();
@@ -287,12 +294,14 @@ pub(super) fn finish_rows(
             "source replay operations",
             replay_operations,
             limits.max_replay_operations,
+            limits.diagnostics_enabled,
         )?;
     }
     check(
         "prospective source replay nonzeros",
         replay_operations,
         limits.max_reducer_nonzeros,
+        limits.diagnostics_enabled,
     )?;
     if !equations.is_empty() {
         let replay = &weights * &sources;
@@ -339,6 +348,7 @@ pub(super) fn finish_rows(
             "flat reduction terms",
             flat_terms,
             limits.max_flat_map_terms,
+            limits.diagnostics_enabled,
         )?;
         reductions
             .get_mut(key.family_fingerprint())

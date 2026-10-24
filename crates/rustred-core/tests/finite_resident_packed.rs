@@ -85,6 +85,7 @@ fn fixture(
         [3; 32],
         Arc::new(references),
         GeneratedDirectoryLimits {
+            diagnostics_enabled: true,
             max_arity: usize::MAX,
             max_runs: usize::MAX,
             max_pages: usize::MAX,

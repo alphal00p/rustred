@@ -10,6 +10,7 @@ use crate::reduction::terminal_relations::{TerminalEquation, TerminalRelationErr
 /// the separate per-family and collection scopes documented by its limits.
 #[derive(Clone, Copy, Debug)]
 pub struct VacuumDiagonalCollectionLimits {
+    pub diagnostics_enabled: bool,
     pub max_corner_seeds: usize,
     pub max_source_rows: usize,
     pub max_source_terms: usize,
@@ -27,6 +28,7 @@ pub struct VacuumDiagonalCollectionLimits {
 impl Default for VacuumDiagonalCollectionLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_corner_seeds: 128,
             max_source_rows: 2048,
             max_source_terms: 200_000,
@@ -44,6 +46,7 @@ impl Default for VacuumDiagonalCollectionLimits {
 
 #[derive(Debug)]
 pub enum VacuumCollectionError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     Cancelled,
     Alias(VacuumFamilyAliasError),
     Source(TerminalRelationError),
@@ -69,6 +72,7 @@ pub enum VacuumCollectionError {
 impl std::fmt::Display for VacuumCollectionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(f),
             Self::Cancelled => {
                 f.write_str("finite terminal feedback cancelled at a complete row boundary")
             }
@@ -286,5 +290,14 @@ impl VacuumDiagonalCollectionPlan {
                 .ok_or(VacuumCollectionError::ArithmeticOverflow)?,
         )
         .map_err(|_| VacuumCollectionError::ArithmeticOverflow)
+    }
+}
+
+impl VacuumDiagonalCollectionLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.aliases = self.aliases.with_diagnostics();
+        self.algebra = self.algebra.with_diagnostics();
+        self
     }
 }

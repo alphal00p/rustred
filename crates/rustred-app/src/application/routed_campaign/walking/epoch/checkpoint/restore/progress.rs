@@ -4,6 +4,7 @@ use std::io;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
+use symbolica::utils::resources::ResourceBudget;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Update {
@@ -121,38 +122,42 @@ impl Control<'_> {
         let cancelled = AtomicBool::new(false);
         let first_failure = AtomicUsize::new(total);
         let failure = Mutex::new(None::<(usize, io::Error)>);
+        let resources = ResourceBudget::capture_current();
         std::thread::scope(|scope| {
             let mut handles = Vec::with_capacity(workers);
             for _ in 0..workers {
                 let handle = std::thread::Builder::new()
                     .name("epoch-restore".into())
                     .spawn_scoped(scope, || {
-                        let _panic = WorkerPanic(&cancelled);
-                        loop {
-                            // Small dynamic chunks balance differing exact cover costs.
-                            let start = next.fetch_add(32, Ordering::Relaxed);
-                            let end = start.saturating_add(32).min(total);
-                            if start >= end {
-                                break;
-                            }
-                            for index in start..end {
-                                if cancelled.load(Ordering::Acquire)
-                                    || index >= first_failure.load(Ordering::Acquire)
-                                {
-                                    return;
+                        resources.run_captured(|| {
+                            let _panic = WorkerPanic(&cancelled);
+                            loop {
+                                // Small dynamic chunks balance differing exact cover costs.
+                                let start = next.fetch_add(32, Ordering::Relaxed);
+                                let end = start.saturating_add(32).min(total);
+                                if start >= end {
+                                    break;
                                 }
-                                let result = validate(index);
-                                completed.fetch_add(1, Ordering::Relaxed);
-                                if let Err(error) = result {
-                                    let mut failure = failure.lock().unwrap();
-                                    if failure.as_ref().is_none_or(|(first, _)| index < *first) {
-                                        *failure = Some((index, error));
-                                        first_failure.store(index, Ordering::Release);
+                                for index in start..end {
+                                    if cancelled.load(Ordering::Acquire)
+                                        || index >= first_failure.load(Ordering::Acquire)
+                                    {
+                                        return;
                                     }
-                                    return;
+                                    let result = validate(index);
+                                    completed.fetch_add(1, Ordering::Relaxed);
+                                    if let Err(error) = result {
+                                        let mut failure = failure.lock().unwrap();
+                                        if failure.as_ref().is_none_or(|(first, _)| index < *first)
+                                        {
+                                            *failure = Some((index, error));
+                                            first_failure.store(index, Ordering::Release);
+                                        }
+                                        return;
+                                    }
                                 }
                             }
-                        }
+                        })
                     });
                 match handle {
                     Ok(handle) => handles.push(handle),

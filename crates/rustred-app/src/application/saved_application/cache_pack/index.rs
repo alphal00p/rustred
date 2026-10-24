@@ -10,12 +10,12 @@ use rustred::persistence::application_cache::{ApplicationCacheBinding, Applicati
 use super::*;
 use crate::AppError;
 
+mod frame;
 pub(super) mod key_filter;
 mod legacy;
 
 const MAGIC: &[u8; 16] = b"RR-CACHE-PACK-03";
 pub(super) const MANIFEST: &str = "cache.rrindex";
-pub(super) const MAX_FRAME: usize = 64 * 1024 * 1024;
 
 #[cfg(test)]
 pub(super) fn encode_legacy_for_test(manifest: &Manifest) -> Vec<u8> {
@@ -74,11 +74,12 @@ pub(super) fn validate(
     expected: &ApplicationCacheBinding,
     limits: SavedApplicationCachePackLimits,
 ) -> Result<SavedApplicationCachePackStatistics, AppError> {
-    expected.validate(limits.chunk).map_err(fail)?;
+    expected.validate(limits.chunk).map_err(binary_error)?;
     if manifest.binding != *expected {
         return Err(fail("artifact, family, arity or cache layer mismatch"));
     }
-    if manifest.runs.len() > limits.max_runs {
+    resource_checkpoint()?;
+    if limits.diagnostics_enabled && manifest.runs.len() > limits.max_runs {
         return Err(AppError::limit("cache run directory exceeds allowance"));
     }
     let mut result = SavedApplicationCachePackStatistics::default();
@@ -93,6 +94,7 @@ pub(super) fn validate(
                 .saturating_mul(size_of::<Vec<Chunk>>()),
         );
     for run in &manifest.runs {
+        resource_checkpoint()?;
         if run.is_empty() {
             return Err(fail("empty immutable cache run"));
         }
@@ -101,6 +103,7 @@ pub(super) fn validate(
             .saturating_add(run.capacity().saturating_mul(size_of::<Chunk>()));
         let mut previous = None;
         for chunk in run {
+            resource_checkpoint()?;
             chunk
                 .first
                 .validate(expected.physical_arity)
@@ -109,7 +112,7 @@ pub(super) fn validate(
             if chunk.first > chunk.last
                 || previous.is_some_and(|key| key >= &chunk.first)
                 || chunk.records == 0
-                || chunk.records > limits.chunk.max_records
+                || (limits.chunk.diagnostics_enabled && chunk.records > limits.chunk.max_records)
             {
                 return Err(fail("invalid, overlapping or unordered cache chunk range"));
             }
@@ -156,7 +159,7 @@ pub(super) fn validate(
                 .saturating_add(chunk.last.owned_heap_bytes());
         }
     }
-    if result.chunks > limits.max_chunks
+    if (limits.diagnostics_enabled && result.chunks > limits.max_chunks)
         || result.referenced_chunk_bytes > limits.max_disk_bytes
         || result.directory_owned_bytes > limits.max_directory_owned_bytes
     {
@@ -164,6 +167,7 @@ pub(super) fn validate(
             "cache pack directory or referenced disk allowance exceeded",
         ));
     }
+    resource_checkpoint()?;
     Ok(result)
 }
 
@@ -172,20 +176,20 @@ pub(super) fn encode(
     limits: SavedApplicationCachePackLimits,
 ) -> Result<Vec<u8>, AppError> {
     validate(manifest, &manifest.binding, limits)?;
-    if limits.max_manifest_bytes > MAX_FRAME {
-        return Err(fail("manifest allowance exceeds supported bounded frame"));
-    }
     let mut output = BoundedBytes::new(limits.max_manifest_bytes.saturating_sub(32));
-    output.write_all(MAGIC).map_err(fail)?;
+    output.write_all(MAGIC).map_err(io_error)?;
     // Structural framing only; no algebra values are present in this index.
     bincode::encode_into_std_write(manifest, &mut output, bincode::config::standard())
-        .map_err(fail)?;
+        .map_err(encode_error)?;
     let mut bytes = output.finish();
     let digest = blake3::hash(&bytes);
+    resource_allocation(32usize.saturating_sub(bytes.capacity() - bytes.len()))?;
+    bytes.try_reserve_exact(32).map_err(fail)?;
     bytes.extend_from_slice(digest.as_bytes());
     if bytes.len() > limits.max_manifest_bytes {
         return Err(AppError::limit("cache manifest byte allowance exceeded"));
     }
+    resource_checkpoint()?;
     Ok(bytes)
 }
 
@@ -194,8 +198,9 @@ pub(super) fn decode(
     expected: &ApplicationCacheBinding,
     limits: SavedApplicationCachePackLimits,
 ) -> Result<(Manifest, SavedApplicationCachePackStatistics), AppError> {
-    if limits.max_manifest_bytes > MAX_FRAME
-        || bytes.len() > limits.max_manifest_bytes
+    resource_checkpoint()?;
+    expected.validate(limits.chunk).map_err(binary_error)?;
+    if bytes.len() > limits.max_manifest_bytes
         || bytes.len() < MAGIC.len() + 32
         || !(bytes.starts_with(MAGIC) || bytes.starts_with(legacy::MAGIC))
     {
@@ -205,15 +210,8 @@ pub(super) fn decode(
     if blake3::hash(&bytes[..end]).as_bytes() != &bytes[end..] {
         return Err(fail("cache manifest digest mismatch"));
     }
-    let (manifest, consumed): (Manifest, usize) = if bytes.starts_with(MAGIC) {
-        bincode::decode_from_slice(
-            &bytes[MAGIC.len()..end],
-            bincode::config::standard().with_limit::<MAX_FRAME>(),
-        )
-        .map_err(fail)?
-    } else {
-        legacy::decode(&bytes[MAGIC.len()..end])?
-    };
+    let (manifest, consumed) =
+        frame::decode(&bytes[MAGIC.len()..end], expected, bytes.starts_with(MAGIC))?;
     if consumed != end - MAGIC.len() {
         return Err(fail("trailing cache manifest bytes"));
     }
@@ -230,12 +228,14 @@ pub(super) fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, AppErro
     let mut file = File::open(path).map_err(fail)?;
     let length = usize::try_from(metadata.len()).map_err(fail)?;
     let mut bytes = Vec::new();
+    resource_allocation(length)?;
     bytes.try_reserve_exact(length).map_err(fail)?;
     bytes.resize(length, 0);
     file.read_exact(&mut bytes).map_err(fail)?;
     if file.read(&mut [0u8; 1]).map_err(fail)? != 0 {
         return Err(fail("cache file changed or exceeded its read allowance"));
     }
+    resource_checkpoint()?;
     Ok(bytes)
 }
 
@@ -271,10 +271,12 @@ impl Write for BoundedBytes {
             let capacity = requested
                 .max(self.0.capacity().saturating_mul(2))
                 .min(self.1);
+            resource_allocation(capacity - self.0.capacity()).map_err(io::Error::other)?;
             self.0
                 .try_reserve_exact(capacity - self.0.len())
                 .map_err(io::Error::other)?;
         }
+        resource_checkpoint().map_err(io::Error::other)?;
         self.0.extend_from_slice(bytes);
         Ok(bytes.len())
     }

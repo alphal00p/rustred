@@ -1,4 +1,6 @@
 //! Optional exact metadata for one immutable reader snapshot, never algebra.
+use super::super::{resource_allocation, resource_checkpoint};
+use crate::AppError;
 use rustred::persistence::application_cache::ApplicationCacheKey;
 use std::mem::size_of;
 
@@ -34,15 +36,16 @@ impl KeyIndex {
         slot: Slot,
         keys: impl ExactSizeIterator<Item = &'a ApplicationCacheKey> + Clone,
         allowance: usize,
-    ) {
+    ) -> Result<(), AppError> {
+        resource_checkpoint()?;
         if allowance <= self.owned_bytes() {
-            return;
+            return Ok(());
         }
         let Err(position) = self.entries.binary_search_by_key(&slot, |entry| entry.slot) else {
-            return;
+            return Ok(());
         };
         let Some(next_len) = self.entries.len().checked_add(1) else {
-            return;
+            return Ok(());
         };
         let minimum_slots = self.entries.capacity().max(next_len);
         let Some(minimum) = keys
@@ -60,16 +63,20 @@ impl KeyIndex {
                     .and_then(|slots| bytes.checked_add(slots))
             })
         else {
-            return;
+            return Ok(());
         };
         if minimum > allowance {
-            return;
+            return Ok(());
         }
+        resource_allocation(minimum.saturating_sub(self.owned_bytes()))?;
         let mut owned = Vec::new();
         if owned.try_reserve_exact(keys.len()).is_err() {
-            return;
+            return Ok(());
         }
-        owned.extend(keys.cloned());
+        for key in keys {
+            resource_checkpoint()?;
+            owned.push(key.clone());
+        }
         let Some(key_bytes) = owned
             .capacity()
             .checked_mul(size_of::<ApplicationCacheKey>())
@@ -80,14 +87,14 @@ impl KeyIndex {
             })
             .and_then(|bytes| bytes.checked_add(self.key_bytes))
         else {
-            return;
+            return Ok(());
         };
         let Some(metadata_allowance) = allowance.checked_sub(key_bytes) else {
-            return;
+            return Ok(());
         };
         let maximum_slots = metadata_allowance / size_of::<Entry>();
         if maximum_slots < minimum_slots {
-            return;
+            return Ok(());
         }
         if next_len > self.entries.capacity() {
             let capacity = self
@@ -99,9 +106,14 @@ impl KeyIndex {
                 .min(maximum_slots);
             // Allocate before moving anything so an unexpectedly larger Vec
             // capacity or allocation refusal cannot inflate the retained census.
+            resource_allocation(
+                capacity
+                    .checked_mul(size_of::<Entry>())
+                    .ok_or_else(|| AppError::limit("key-index allocation size overflow"))?,
+            )?;
             let mut grown = Vec::new();
             if grown.try_reserve_exact(capacity).is_err() || grown.capacity() > maximum_slots {
-                return;
+                return Ok(());
             }
             grown.append(&mut self.entries);
             self.entries = grown;
@@ -109,6 +121,7 @@ impl KeyIndex {
         self.entries.insert(position, Entry { slot, keys: owned });
         self.key_bytes = key_bytes;
         debug_assert!(self.owned_bytes() <= allowance);
+        Ok(())
     }
 }
 

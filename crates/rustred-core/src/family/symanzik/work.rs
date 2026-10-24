@@ -26,6 +26,9 @@ impl FeynmanWorkBudget {
         &mut self,
         requested: usize,
     ) -> Result<(), FeynmanPolynomialError> {
+        if !self.limits.diagnostics_enabled {
+            return checkpoint();
+        }
         self.term_operations = checked_add(
             self.term_operations,
             requested,
@@ -35,6 +38,7 @@ impl FeynmanWorkBudget {
             "aggregate Feynman polynomial operations",
             self.term_operations,
             self.limits.max_term_operations,
+            self.limits.diagnostics_enabled,
         )
     }
 
@@ -42,6 +46,9 @@ impl FeynmanWorkBudget {
         &mut self,
         requested: usize,
     ) -> Result<(), FeynmanPolynomialError> {
+        if !self.limits.diagnostics_enabled {
+            return checkpoint();
+        }
         self.determinant_ring_operations = checked_add(
             self.determinant_ring_operations,
             requested,
@@ -51,6 +58,7 @@ impl FeynmanWorkBudget {
             "aggregate Symbolica determinant ring operations",
             self.determinant_ring_operations,
             self.limits.max_determinant_ring_operations,
+            self.limits.diagnostics_enabled,
         )
     }
 }
@@ -59,8 +67,10 @@ pub(super) fn check_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), FeynmanPolynomialError> {
-    if requested > limit {
+    checkpoint()?;
+    if diagnostics_enabled && requested > limit {
         Err(FeynmanPolynomialError::ResourceLimit {
             resource,
             requested,
@@ -69,6 +79,12 @@ pub(super) fn check_limit(
     } else {
         Ok(())
     }
+}
+
+pub(super) fn checkpoint() -> Result<(), FeynmanPolynomialError> {
+    symbolica::utils::resources::checkpoint()
+        .map_err(crate::algebra::ExactAlgebraError::Resource)
+        .map_err(FeynmanPolynomialError::ExactAlgebra)
 }
 
 pub(super) fn checked_add(
@@ -87,4 +103,30 @@ pub(super) fn checked_mul(
 ) -> Result<usize, FeynmanPolynomialError> {
     left.checked_mul(right)
         .ok_or(FeynmanPolynomialError::ResourceCountOverflow { resource })
+}
+
+pub(super) fn estimated_add(
+    left: usize,
+    right: usize,
+    resource: &'static str,
+    diagnostics_enabled: bool,
+) -> Result<usize, FeynmanPolynomialError> {
+    if diagnostics_enabled {
+        checked_add(left, right, resource)
+    } else {
+        Ok(left.saturating_add(right))
+    }
+}
+
+pub(super) fn estimated_mul(
+    left: usize,
+    right: usize,
+    resource: &'static str,
+    diagnostics_enabled: bool,
+) -> Result<usize, FeynmanPolynomialError> {
+    if diagnostics_enabled {
+        checked_mul(left, right, resource)
+    } else {
+        Ok(left.saturating_mul(right))
+    }
 }

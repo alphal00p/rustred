@@ -278,17 +278,19 @@ fn bounded_retention_checks_family_and_caller_limits_before_consuming_input() {
             .to_string()
             .contains("family differs from original sources")
     );
-    let (audit, _) = solved_tadpole();
+    let (audit, solution) = solved_tadpole();
     let audit = audit.with_limits(SourcePortLimits {
         max_predicate_atoms: 257,
-        ..Default::default()
+        ..SourcePortLimits::default().with_diagnostics()
     });
-    assert!(matches!(
-        retain(audit, tadpole(), never_read(), 2),
-        Err(SourcePortAuditError::UnsupportedResourcePolicy { .. })
-    ));
+    // Large explicit atom grants are valid; binding and actual scope budgets
+    // still reject before consuming input in the controls around this one.
+    retain(audit, tadpole(), [([true], None, solution)], 2)
+        .unwrap()
+        .install()
+        .unwrap();
     let (audit, _) = solved_tadpole();
-    let mut limits = SourcePortLimits::default();
+    let mut limits = SourcePortLimits::default().with_diagnostics();
     limits.cover_replay.max_requested_boxes = 0;
     assert!(matches!(
         retain(audit.with_limits(limits), tadpole(), never_read(), 2),
@@ -454,6 +456,7 @@ fn bounded_real_k3_installs_larger_successor_envelope_without_widening_entry() {
     .collect();
     assert!(matches!(
         install_source_port_through_total_excess_with_limits(
+            true,
             candidate,
             entry,
             degrees,

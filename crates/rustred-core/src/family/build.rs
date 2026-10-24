@@ -64,6 +64,7 @@ impl IntegralFamily {
             "family fingerprint bytes",
             name.len(),
             limits.max_fingerprint_bytes,
+            limits.diagnostics_enabled,
         )?;
         let loops = loop_momenta.len();
         let externals = external_momenta.len();
@@ -72,6 +73,7 @@ impl IntegralFamily {
             "family scalar products",
             scalar_products,
             limits.max_scalar_products,
+            limits.diagnostics_enabled,
         )?;
         let augmented_columns =
             scalar_products
@@ -88,17 +90,20 @@ impl IntegralFamily {
             "augmented family matrix entries",
             matrix_entries,
             limits.max_matrix_entries,
+            limits.diagnostics_enabled,
         )?;
         let derivative_cache = checked_derivative_cache_census(scalar_products, loops, externals)?;
         check_family_limit(
             "family derivative contractions",
             derivative_cache.contractions,
             limits.max_derivative_contractions,
+            limits.diagnostics_enabled,
         )?;
         check_family_limit(
             "family derivative contraction coefficient cells",
             derivative_cache.coefficient_cells,
             limits.max_derivative_contraction_coefficient_cells,
+            limits.diagnostics_enabled,
         )?;
         if loops == 0 {
             return Err(IntegralFamilyError::NoLoopMomenta);
@@ -109,6 +114,7 @@ impl IntegralFamily {
             &external_momenta,
             coefficients.parameter_names(),
             limits.max_fingerprint_bytes,
+            limits.diagnostics_enabled,
         )?;
         let name = retain_family_name(name)?;
         validate_momentum_labels(&loop_momenta, &external_momenta)?;
@@ -370,6 +376,9 @@ fn validate_and_retain_input_denominator(
     conditions: &mut Vec<FamilyNonZeroCondition>,
 ) -> Result<(), IntegralFamilyError> {
     if let Err(error) = context.validate_with_limits(coefficient, limits) {
+        if matches!(&error, ExactAlgebraError::Resource(_)) {
+            return Err(IntegralFamilyError::ExactAlgebra(error));
+        }
         if matches!(error, ExactAlgebraError::VariableMapMismatch { .. }) {
             return Err(IntegralFamilyError::ForeignCoefficientContext { location });
         }

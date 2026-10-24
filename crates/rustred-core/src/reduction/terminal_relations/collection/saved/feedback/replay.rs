@@ -58,6 +58,7 @@ pub(super) fn inherited_rows(
                     &mut conditions,
                     value.clone(),
                     limits.diagonal.max_conditions,
+                    limits.diagonal.diagnostics_enabled,
                 )?;
             }
         }
@@ -98,6 +99,7 @@ pub(super) fn inherited_rows(
                 &mut conditions,
                 value.clone(),
                 limits.diagonal.max_conditions,
+                limits.diagonal.diagnostics_enabled,
             )?;
         }
     }
@@ -166,6 +168,7 @@ impl FiniteFeedback {
                     &mut conditions,
                     value.clone(),
                     limits.diagonal.max_conditions,
+                    limits.diagonal.diagnostics_enabled,
                 )?;
             }
             for row in &source.rows {
@@ -186,11 +189,13 @@ impl FiniteFeedback {
             "finite feedback source rows",
             rows.len(),
             limits.diagonal.max_source_rows,
+            limits.diagonal.diagnostics_enabled,
         )?;
         check(
             "finite feedback source terms",
             rows.iter().map(BTreeMap::len).sum(),
             limits.diagonal.max_source_terms,
+            limits.diagonal.diagnostics_enabled,
         )?;
         let mut support = raw.clone();
         support.extend(rows.iter().flat_map(|r| r.keys()).cloned());
@@ -198,6 +203,7 @@ impl FiniteFeedback {
             "finite feedback support",
             support.len(),
             limits.diagonal.max_columns,
+            limits.diagonal.diagnostics_enabled,
         )?;
         let inventories: Vec<_> = families
             .iter()
@@ -245,6 +251,7 @@ impl FiniteFeedback {
                     &mut conditions,
                     value.denominator.clone().into(),
                     limits.diagonal.max_conditions,
+                    limits.diagonal.diagnostics_enabled,
                 )?;
                 accumulate(
                     &mut aliased,

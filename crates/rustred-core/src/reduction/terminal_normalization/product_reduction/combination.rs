@@ -91,7 +91,7 @@ pub(super) fn reduce_with_cache_census(
         super::arithmetic::charge(
             &mut input_count,
             1,
-            limits.max_factorization_terms,
+            limits.diagnostic_limit(limits.max_factorization_terms),
             "factor combination inputs",
         )?;
         validate_key(&family, &key)?;
@@ -169,11 +169,11 @@ pub(super) fn reduce_with_cache_census(
         let retained_keys = retained_keys.saturating_add(native_cache.integrals);
         algebra.record_rule_applications(
             result.work.rule_applications,
-            limits.max_rule_applications,
+            limits.diagnostic_limit(limits.max_rule_applications),
         )?;
         algebra.record_coalescing_additions(
             result.work.coalescing_additions,
-            limits.max_coalescing_additions,
+            limits.diagnostic_limit(limits.max_coalescing_additions),
         )?;
         statistics.rule_applications = statistics
             .rule_applications
@@ -182,7 +182,7 @@ pub(super) fn reduce_with_cache_census(
             .coalescing_additions
             .saturating_add(result.work.coalescing_additions);
         cache_hits = cache_hits.saturating_add(result.work.cache_hits);
-        if result.terms.len() > limits.max_factorization_terms {
+        if limits.diagnostics_enabled && result.terms.len() > limits.max_factorization_terms {
             return Err(Error::ResourceLimit {
                 resource: "factor combination result rows",
                 requested: result.terms.len(),
@@ -390,7 +390,15 @@ pub(super) fn transported_terms(
     }
     let mapped = transport
         .transport(source, expansion_limits)
-        .map_err(|error| Error::InvalidInput(format!("factor transport failed: {error}")))?;
+        .map_err(|error| {
+            if let Some(resource) = crate::reduction::resource_limit_error(&error) {
+                Error::Reduction(crate::reduction::ReductionError::Resources(
+                    resource.clone(),
+                ))
+            } else {
+                Error::InvalidInput(format!("factor transport failed: {error}"))
+            }
+        })?;
     let mapped_weight =
         coefficient_cache_weight(mapped.terms().iter().map(|term| term.coefficient()))?;
     // The native transport currently exposes borrowed endpoints. Admit its

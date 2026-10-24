@@ -369,6 +369,7 @@ fn exact_and_aggregate_allocation_work_budgets_are_charged_before_calls() {
         boxes: &boxes,
     }];
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_requested_boxes: 8,
         max_requested_box_coordinate_cells: 17,
         max_split_operations: 20,
@@ -396,14 +397,17 @@ fn exact_and_aggregate_allocation_work_budgets_are_charged_before_calls() {
     assert!(prepared.contains(&source, &[true], &[0]).is_err());
     for limits in [
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_requested_boxes: 4,
             ..Default::default()
         },
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_requested_box_coordinate_cells: 9,
             ..Default::default()
         },
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_split_operations: 10,
             ..Default::default()
         },
@@ -421,6 +425,7 @@ fn geometry_failure_consumes_the_unknown_partial_work_allowance() {
         boxes: &boxes,
     }];
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_split_operations: 10,
         ..Default::default()
     };
@@ -478,6 +483,7 @@ fn inconclusive_queries_share_the_uncovered_output_allowance() {
             boxes: &[],
         }],
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_uncovered_boxes: 1,
             max_uncovered_box_coordinate_cells: 2,
             ..Default::default()
@@ -505,12 +511,14 @@ fn prospective_sign_product_and_late_input_caps_fail_without_truncation() {
         Err(ArtifactError::ResourceCountOverflow { .. })
     ));
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_uncovered_boxes: 1,
         ..Default::default()
     };
     assert!(query(limits, &cell([0], [None]), &[true], &[-1], &[]).is_err());
     let boxes = [cell([0], [None]), cell([0], [None])];
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_requested_boxes: 2,
         ..Default::default()
     };

@@ -28,6 +28,7 @@ fn coordinate_simplex_is_complete_deterministic_and_deduplicated() {
     let case = face([Some(1), None, None]);
     let mut retained = Retention::default();
     let limits = FiniteCaseLimits {
+        diagnostics_enabled: true,
         max_retained_terminals: 6,
         ..Default::default()
     };
@@ -54,6 +55,131 @@ fn coordinate_simplex_is_complete_deterministic_and_deduplicated() {
         retained.into_points(),
         expected.into_iter().collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn ordinary_finite_retention_ignores_zero_count_templates_without_changing_rank_scope() {
+    let case = face([Some(1), None, None]);
+    let limits = FiniteCaseLimits {
+        diagnostics_enabled: false,
+        max_visited_points: 0,
+        max_retained_terminals: 0,
+    };
+    let mut expected = Retention::default();
+    expected
+        .retain_case(
+            &case,
+            &[0, 1, 2],
+            &[true, false, false],
+            2,
+            Default::default(),
+        )
+        .unwrap();
+    let mut ordinary = Retention::default();
+    ordinary
+        .retain_case(&case, &[0, 1, 2], &[true, false, false], 2, limits)
+        .unwrap();
+    assert_eq!(ordinary.points, expected.points);
+    assert_eq!(ordinary.points.len(), 6);
+    assert_eq!(ordinary.visited, 6);
+    assert!(
+        ordinary
+            .retain_case(
+                &case,
+                &[0, 1, 2],
+                &[true, false, false],
+                2,
+                limits.with_diagnostics()
+            )
+            .is_err()
+    );
+    assert_eq!(ordinary.points, expected.points);
+    assert_eq!(ordinary.visited, 6);
+
+    ordinary.visited = usize::MAX;
+    ordinary
+        .retain_case(&case, &[0, 1, 2], &[true, false, false], 2, limits)
+        .unwrap();
+    assert_eq!(ordinary.visited, usize::MAX);
+    assert_eq!(ordinary.points, expected.points);
+}
+
+#[test]
+fn finite_resource_refusal_preserves_the_original_cause_and_uncommitted_query() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use std::time::Duration;
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimits};
+
+    const LIMIT: u64 = 1024 * 1024 * 1024;
+    let case = face([Some(1), None, None]);
+    let retain = |retained: &mut Retention<3>| {
+        retained.retain_case(
+            &case,
+            &[0, 1, 2],
+            &[true, false, false],
+            2,
+            Default::default(),
+        )
+    };
+    let mut expected = Retention::default();
+    retain(&mut expected).unwrap();
+    let polls = Arc::new(AtomicUsize::new(0));
+    let probe_polls = Arc::clone(&polls);
+    ResourceBudget::with_memory_monitor(
+        ResourceLimits {
+            max_process_rss_bytes: Some(LIMIT),
+            ..Default::default()
+        },
+        move || {
+            probe_polls.fetch_add(1, Ordering::Relaxed);
+            Ok(0)
+        },
+    )
+    .run(|| retain(&mut Retention::default()))
+    .unwrap();
+    let checks = polls.load(Ordering::Relaxed);
+    assert!(checks > 6);
+
+    let refusal_polls = AtomicUsize::new(0);
+    let mut retained = Retention::default();
+    let error = ResourceBudget::with_memory_monitor(
+        ResourceLimits {
+            max_process_rss_bytes: Some(LIMIT),
+            ..Default::default()
+        },
+        move || {
+            Ok(
+                if refusal_polls.fetch_add(1, Ordering::Relaxed) + 1 >= checks {
+                    LIMIT + 1
+                } else {
+                    0
+                },
+            )
+        },
+    )
+    .run(|| retain(&mut retained))
+    .unwrap_err();
+    assert!(matches!(crate::reduction::resource_limit_error(&error),
+        Some(ResourceLimitError::Memory { rss_bytes, additional_bytes: 0, limit_bytes })
+            if *rss_bytes == LIMIT + 1 && *limit_bytes == LIMIT));
+    assert!(retained.points.is_empty());
+    assert_eq!(retained.visited, 0);
+    assert!(matches!(
+        ResourceBudget::new(ResourceLimits {
+            max_elapsed: Some(Duration::ZERO),
+            ..Default::default()
+        })
+        .run(|| retain(&mut retained)),
+        Err(FiniteRetentionError::Resources(
+            ResourceLimitError::Elapsed { .. }
+        ))
+    ));
+    retain(&mut retained).unwrap();
+    assert_eq!(retained.points, expected.points);
+    assert_eq!(retained.visited, expected.visited);
 }
 
 #[test]
@@ -123,10 +249,12 @@ fn point_and_terminal_budget_errors_commit_no_partial_case() {
     let case = face([Some(1), None, None]);
     for limits in [
         FiniteCaseLimits {
+            diagnostics_enabled: true,
             max_visited_points: 6,
             ..Default::default()
         },
         FiniteCaseLimits {
+            diagnostics_enabled: true,
             max_retained_terminals: 2,
             ..Default::default()
         },

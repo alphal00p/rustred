@@ -81,6 +81,7 @@ pub(in crate::input) fn validate_expression_token_tree(
                 "position-sensitive Token validation stack",
                 requested,
                 limits.max_atom_nodes,
+                limits.diagnostics_enabled,
             )?;
             pending
                 .try_reserve(1)
@@ -112,8 +113,18 @@ pub(in crate::input) fn validate_and_authenticate_token_tree(
     let mut nodes = 0usize;
     while let Some((current, depth)) = pending.pop() {
         nodes = checked_add("raw Token nodes", nodes, 1)?;
-        check_limit("raw Token nodes", nodes, limits.max_atom_nodes)?;
-        check_limit("raw Token nesting depth", depth, limits.max_nesting_depth)?;
+        check_limit(
+            "raw Token nodes",
+            nodes,
+            limits.max_atom_nodes,
+            limits.diagnostics_enabled,
+        )?;
+        check_limit(
+            "raw Token nesting depth",
+            depth,
+            limits.max_nesting_depth,
+            limits.diagnostics_enabled,
+        )?;
         let children: &[Token] = match current {
             Token::Number(number, imaginary) => {
                 let Some(digits) = raw_integer_digits(number) else {
@@ -130,6 +141,7 @@ pub(in crate::input) fn validate_and_authenticate_token_tree(
                     "raw integer digits",
                     digits.len(),
                     limits.max_raw_integer_digits,
+                    limits.diagnostics_enabled,
                 )?;
                 continue;
             }
@@ -163,16 +175,20 @@ pub(in crate::input) fn validate_and_authenticate_token_tree(
                                 children[1]
                             ),
                         })?;
-                    let magnitude = exponent.unsigned_abs();
-                    let requested =
-                        usize::try_from(magnitude).map_err(|_| Error::ResourceCountOverflow {
-                            resource: "raw absolute power",
+                    if limits.diagnostics_enabled {
+                        let magnitude = exponent.unsigned_abs();
+                        let requested = usize::try_from(magnitude).map_err(|_| {
+                            Error::ResourceCountOverflow {
+                                resource: "raw absolute power",
+                            }
                         })?;
-                    check_limit(
-                        "raw absolute power",
-                        requested,
-                        limits.max_abs_power as usize,
-                    )?;
+                        check_limit(
+                            "raw absolute power",
+                            requested,
+                            limits.max_abs_power as usize,
+                            limits.diagnostics_enabled,
+                        )?;
+                    }
                 }
                 children
             }
@@ -219,10 +235,16 @@ pub(in crate::input) fn validate_and_authenticate_token_tree(
             "raw Token nesting depth",
             child_depth,
             limits.max_nesting_depth,
+            limits.diagnostics_enabled,
         )?;
         for child in children {
             let requested = checked_add("raw Token census stack", pending.len(), 1)?;
-            check_limit("raw Token census stack", requested, limits.max_atom_nodes)?;
+            check_limit(
+                "raw Token census stack",
+                requested,
+                limits.max_atom_nodes,
+                limits.diagnostics_enabled,
+            )?;
             pending
                 .try_reserve(1)
                 .map_err(|_| Error::AllocationFailure {
@@ -246,7 +268,12 @@ pub(in crate::input) fn validate_compact_token_grammar(
     if clauses.is_empty() {
         return Err(Error::WrongRoot);
     }
-    check_limit("I clauses", clauses.len(), limits.max_clauses)?;
+    check_limit(
+        "I clauses",
+        clauses.len(),
+        limits.max_clauses,
+        limits.diagnostics_enabled,
+    )?;
     for (ordinal, clause) in clauses.iter().enumerate() {
         let (head, arguments) = raw_function_parts(clause)?;
         let kind = ClauseKind::from_head(head).ok_or_else(|| Error::UnsupportedToken {

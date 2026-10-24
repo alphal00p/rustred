@@ -51,6 +51,7 @@ fn admit_support(
         "multi-affine endpoints",
         polynomial.nterms(),
         limits.max_endpoints,
+        limits.diagnostics_enabled,
     )?;
     preflight_endpoint_key_storage(polynomial.nterms(), arity, limits)?;
     // Check layout before indexing/chunking public native buffers. IntegralKey

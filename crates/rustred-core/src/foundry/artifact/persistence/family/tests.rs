@@ -52,7 +52,7 @@ fn complete_vacuum_structure_obeys_family_matrix_budget() {
     let mut writer = Writer::new(Default::default());
     super::super::encode_family(&mut writer, &family).unwrap();
     let bytes = writer.finish();
-    let mut limits = super::super::limits::ArtifactLoadLimits::default();
+    let mut limits = super::super::limits::ArtifactLoadLimits::default().with_diagnostics();
     limits.family.max_matrix_entries = 35;
     let mut reader = Reader::root(&bytes, limits).unwrap();
     assert!(matches!(

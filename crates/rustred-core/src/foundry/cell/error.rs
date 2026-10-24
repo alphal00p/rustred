@@ -7,6 +7,7 @@ use crate::sector;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuleCellError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     UnsupportedReplayEvidence,
     EmptySourceSelection,
     SourceOrdinalOutOfRange {
@@ -103,6 +104,7 @@ pub enum RuleCellError {
 impl fmt::Display for RuleCellError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(formatter),
             Self::UnsupportedReplayEvidence => formatter
                 .write_str("this rule-cell constructor requires anchored exact replay evidence"),
             Self::EmptySourceSelection => formatter.write_str("a rule cell needs source views"),
@@ -233,7 +235,19 @@ impl fmt::Display for RuleCellError {
     }
 }
 
-impl std::error::Error for RuleCellError {}
+impl std::error::Error for RuleCellError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            Self::IndexedAlgebra(error) => Some(error),
+            Self::IdentityCondition(error) => Some(error),
+            Self::Relation(error) => Some(error),
+            Self::IntegralKey(error) => Some(error),
+            Self::Sector(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<IndexedAlgebraError> for RuleCellError {
     fn from(value: IndexedAlgebraError) -> Self {
@@ -258,5 +272,11 @@ impl From<ParametricRelationError> for RuleCellError {
 impl From<sector::Error> for RuleCellError {
     fn from(value: sector::Error) -> Self {
         Self::Sector(value)
+    }
+}
+
+impl From<symbolica::utils::resources::ResourceLimitError> for RuleCellError {
+    fn from(error: symbolica::utils::resources::ResourceLimitError) -> Self {
+        Self::Resources(error)
     }
 }

@@ -237,6 +237,7 @@ fn root_free_proofs_preserve_all_existing_budgets() {
         (
             vec!["a^2+1"],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 0,
                 ..Default::default()
             },
@@ -245,6 +246,7 @@ fn root_free_proofs_preserve_all_existing_budgets() {
         (
             vec!["a^2+1"],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_factorizations: 0,
                 ..Default::default()
             },
@@ -253,6 +255,7 @@ fn root_free_proofs_preserve_all_existing_budgets() {
         (
             vec!["a^2+1", "b^2+1"],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_normalizations: 0,
                 ..Default::default()
             },
@@ -261,6 +264,7 @@ fn root_free_proofs_preserve_all_existing_budgets() {
         (
             vec!["a^2+1"],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_terms_per_conjunction: 1,
                 ..Default::default()
             },
@@ -271,6 +275,7 @@ fn root_free_proofs_preserve_all_existing_budgets() {
             // root-free terms. Charge them before the filter removes them.
             vec!["a^4-1"],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_terms_per_conjunction: 4,
                 ..Default::default()
             },

@@ -572,6 +572,7 @@ fn helper_panic_propagates_only_after_backpressured_native_worker_is_joined() {
                 }
                 returned.store(true, Ordering::Release);
                 Finished {
+                    resource_failure: None,
                     stats: NativeStats::Apply(Default::default()),
                     error: None,
                     error_kind: "none",

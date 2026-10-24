@@ -108,10 +108,11 @@ fn matrix_resource_limits_are_preflighted_exactly() {
         &context,
         &matrix,
         SymbolicaCoefficientMatrixLimits {
+            diagnostics_enabled: true,
             max_single_matrix_entries: 8,
             max_live_matrix_entries: 16,
             max_exact_operations: 45,
-            ..SymbolicaCoefficientMatrixLimits::default()
+            ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
         },
     )
     .unwrap();
@@ -122,8 +123,9 @@ fn matrix_resource_limits_are_preflighted_exactly() {
     for (limits, resource, requested, limit) in [
         (
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_single_matrix_entries: 7,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
             "single Symbolica matrix entries",
             8,
@@ -131,8 +133,9 @@ fn matrix_resource_limits_are_preflighted_exactly() {
         ),
         (
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_live_matrix_entries: 15,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
             "live Symbolica matrix entries",
             16,
@@ -140,8 +143,9 @@ fn matrix_resource_limits_are_preflighted_exactly() {
         ),
         (
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_exact_operations: 44,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
             "Symbolica coefficient matrix exact operations",
             45,
@@ -170,8 +174,9 @@ fn exact_operation_envelopes_pin_every_native_inverse_branch() {
             &context,
             &matrix,
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_exact_operations: expected_operations,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
         )
         .unwrap();
@@ -182,8 +187,9 @@ fn exact_operation_envelopes_pin_every_native_inverse_branch() {
                 &context,
                 &matrix,
                 SymbolicaCoefficientMatrixLimits {
+                    diagnostics_enabled: true,
                     max_exact_operations: expected_operations - 1,
-                    ..SymbolicaCoefficientMatrixLimits::default()
+                    ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
                 },
             ),
             Err(SymbolicaCoefficientMatrixError::ResourceLimit {
@@ -214,9 +220,10 @@ fn retained_byte_limits_have_exact_and_one_below_boundaries() {
         &context,
         &matrix,
         SymbolicaCoefficientMatrixLimits {
+            diagnostics_enabled: true,
             max_input_retained_bytes: input_bytes,
             max_output_retained_bytes: output_bytes,
-            ..SymbolicaCoefficientMatrixLimits::default()
+            ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
         },
     )
     .unwrap();
@@ -226,8 +233,9 @@ fn retained_byte_limits_have_exact_and_one_below_boundaries() {
             &context,
             &matrix,
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_input_retained_bytes: input_bytes - 1,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
         ),
         Err(SymbolicaCoefficientMatrixError::ResourceLimit {
@@ -241,8 +249,9 @@ fn retained_byte_limits_have_exact_and_one_below_boundaries() {
             &context,
             &matrix,
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_output_retained_bytes: output_bytes - 1,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
         ),
         Err(SymbolicaCoefficientMatrixError::ResourceLimit {

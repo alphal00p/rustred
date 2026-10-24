@@ -47,6 +47,9 @@ fn support_transitions_partition_every_mask_relation_without_new_overflow_path()
     budget.successor(&OWNER, &[true; 3], true).unwrap();
     assert_eq!(partition(budget.stats), [0, 0, usize::MAX]);
     let before = budget.stats;
+    budget.successor(&OWNER, &[true; 3], true).unwrap();
+    assert_eq!(budget.stats, before);
+    budget.limits.diagnostics_enabled = true;
     assert_eq!(
         budget.successor(&OWNER, &[true; 3], true),
         Err(OwnerAppliedFailure::CountOverflow {
@@ -185,6 +188,7 @@ fn support_transitions_partition_attempts_on_event_limit_consumer_stop_and_cance
         let mut delivered = 0;
         let mut finished = 0;
         let limits = OwnerAppliedLimits {
+            diagnostics_enabled: true,
             max_events: if mode == 0 { 1 } else { usize::MAX },
             ..Default::default()
         };

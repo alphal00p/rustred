@@ -24,13 +24,14 @@ where
         for (column, coefficient) in values.as_ref().iter().enumerate() {
             context
                 .validate_with_limits(coefficient, limits)
-                .map_err(
-                    |error| SymbolicaCoefficientMatrixError::InvalidCoefficient {
-                        row,
-                        column,
-                        error,
-                    },
-                )?;
+                .map_err(|error| match error {
+                    error @ crate::algebra::ExactAlgebraError::Resource(_) => {
+                        SymbolicaCoefficientMatrixError::ExactAlgebra(error)
+                    }
+                    error => {
+                        SymbolicaCoefficientMatrixError::InvalidCoefficient { row, column, error }
+                    }
+                })?;
         }
     }
     Ok(())
@@ -84,6 +85,7 @@ where
             "coefficient matrix input retained bytes",
             prospective_bytes,
             field.limits.max_input_retained_bytes,
+            field.limits.diagnostics_enabled,
         )?;
         state.stats.input_retained_bytes = prospective_bytes;
         state.stats.input_entries = checked_add(

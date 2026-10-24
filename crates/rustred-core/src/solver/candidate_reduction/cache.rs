@@ -58,7 +58,20 @@ impl CachedTerms {
         limits: ReductionLimits,
     ) -> Result<BTreeMap<IntegralKey, Coefficient>, CandidateReductionError> {
         match self {
-            Self::Sparse(terms) => Ok(terms.clone()),
+            Self::Sparse(terms) => {
+                let weight = coefficient_cache_weight(terms.values())?;
+                let bytes = u64::try_from(weight.coefficient_bytes).map_err(|_| {
+                    ReductionError::AllocationFailure {
+                        resource: "cached coefficient clone bytes",
+                        requested: weight.coefficient_bytes,
+                    }
+                })?;
+                symbolica::utils::resources::check_allocation(bytes)
+                    .map_err(ReductionError::from)?;
+                let cloned = terms.clone();
+                symbolica::utils::resources::checkpoint().map_err(ReductionError::from)?;
+                Ok(cloned)
+            }
             Self::Factorized(terms) => terms
                 .iter()
                 .map(|(key, coefficient)| {
@@ -88,14 +101,18 @@ impl CachedTerms {
             .chain(factorized.into_iter().flat_map(|terms| terms.keys()))
     }
 
-    pub fn weight(&self) -> Result<CacheWeight, CandidateReductionError> {
+    pub fn weight(
+        &self,
+        diagnostics_enabled: bool,
+    ) -> Result<CacheWeight, CandidateReductionError> {
         match self {
             Self::Sparse(terms) => Ok(coefficient_cache_weight(terms.values())?),
             Self::Factorized(terms) => {
                 terms
                     .values()
                     .try_fold(CacheWeight::default(), |sum, value| {
-                        let (coefficient_terms, coefficient_bytes) = value.cache_weight()?;
+                        let (coefficient_terms, coefficient_bytes) =
+                            value.cache_weight(diagnostics_enabled)?;
                         Ok(sum.checked_add(CacheWeight {
                             coefficient_terms,
                             coefficient_bytes,
@@ -192,8 +209,10 @@ pub(super) fn combine_values<'a>(
                             // Match the ordinary applier's rejected-attempt work
                             // accounting and request-wide coalescing boundary.
                             statistics.record_coalescing_additions(1);
-                            request
-                                .record_coalescing_additions(1, limits.max_coalescing_additions)?;
+                            request.record_coalescing_additions(
+                                1,
+                                limits.diagnostic_limit(limits.max_coalescing_additions),
+                            )?;
                             let sum = entry.get().try_add(
                                 &contribution,
                                 context,

@@ -381,6 +381,7 @@ fn one_cumulative_budget_covers_preparation_entry_checks_and_rule_images() {
     );
     let full = [cell([0], [None])];
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_split_operations: 256,
         ..Default::default()
     };
@@ -410,6 +411,7 @@ fn one_cumulative_budget_covers_preparation_entry_checks_and_rule_images() {
         ));
     }
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_split_operations: 0,
         ..Default::default()
     };

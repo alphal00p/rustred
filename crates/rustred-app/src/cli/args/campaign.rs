@@ -424,6 +424,7 @@ fn parse_reduce(arguments: impl Iterator<Item = OsString>) -> Result<Command, Ar
         artifact: artifact.ok_or(ArgError::MissingRequiredOption("--artifact"))?,
         resources,
         target_powers: powers.ok_or(ArgError::MissingRequiredOption("--powers"))?,
+        diagnostics_enabled: max_rule_applications.is_some(),
         max_rule_applications: max_rule_applications
             .unwrap_or(crate::MAX_CLOSING_RULE_APPLICATIONS),
         output: output.unwrap_or(StreamPath::Stdio),

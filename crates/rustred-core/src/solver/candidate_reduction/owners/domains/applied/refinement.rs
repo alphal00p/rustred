@@ -71,44 +71,46 @@ impl<'a> Cells<'a> {
         // Boundaries::next already charged the original cell. Reuse that one
         // charge and prospectively admit every extra singleton before emitting
         // any. Actual incremental charges are committed as children are visited.
-        let requested = budget
-            .stats
-            .boundary_cells
-            .checked_add(cardinality - 1)
-            .ok_or(OwnerAppliedFailure::CountOverflow {
-                resource: "boundary cells",
-            })?;
-        budget.check(
-            requested,
-            budget.limits.max_boundary_cells,
-            "boundary cells",
-        )?;
-        // The original cell remains borrowed while one child is alive. Keep
-        // the original sign-partition high-water allowance (count + 12), plus
-        // that extra child, even if some sign cells have already been consumed.
-        // No collection proportional to refinement cardinality is allocated.
-        let scratch_boxes =
-            sign_cell_count
-                .checked_add(13)
+        if budget.limits.diagnostics_enabled {
+            let requested = budget
+                .stats
+                .boundary_cells
+                .checked_add(cardinality - 1)
                 .ok_or(OwnerAppliedFailure::CountOverflow {
-                    resource: "scratch boxes",
+                    resource: "boundary cells",
                 })?;
-        budget.check(
-            scratch_boxes,
-            budget.limits.max_scratch_boxes,
-            "scratch boxes",
-        )?;
-        let coordinates = N
-            .checked_mul(2)
-            .and_then(|n| n.checked_mul(scratch_boxes))
-            .ok_or(OwnerAppliedFailure::CountOverflow {
-                resource: "scratch coordinate cells",
-            })?;
-        budget.check(
-            coordinates,
-            budget.limits.max_scratch_coordinate_cells,
-            "scratch coordinate cells",
-        )?;
+            budget.check(
+                requested,
+                budget.limits.max_boundary_cells,
+                "boundary cells",
+            )?;
+            // The original cell remains borrowed while one child is alive. Keep
+            // the original sign-partition high-water allowance (count + 12), plus
+            // that extra child, even if some sign cells have already been consumed.
+            // No collection proportional to refinement cardinality is allocated.
+            let scratch_boxes =
+                sign_cell_count
+                    .checked_add(13)
+                    .ok_or(OwnerAppliedFailure::CountOverflow {
+                        resource: "scratch boxes",
+                    })?;
+            budget.check(
+                scratch_boxes,
+                budget.limits.max_scratch_boxes,
+                "scratch boxes",
+            )?;
+            let coordinates = N
+                .checked_mul(2)
+                .and_then(|n| n.checked_mul(scratch_boxes))
+                .ok_or(OwnerAppliedFailure::CountOverflow {
+                    resource: "scratch coordinate cells",
+                })?;
+            budget.check(
+                coordinates,
+                budget.limits.max_scratch_coordinate_cells,
+                "scratch coordinate cells",
+            )?;
+        }
         budget.refinement_step()?;
         Ok(Some(Self {
             source,

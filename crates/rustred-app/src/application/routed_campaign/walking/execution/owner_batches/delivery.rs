@@ -1,6 +1,7 @@
 //! Source accounting stays with the publisher; geometry goes to its destination.
 use super::*;
 use rayon::prelude::*;
+use symbolica::utils::resources::ResourceBudget;
 
 struct Incoming<const N: usize> {
     ordinal: usize,
@@ -243,51 +244,61 @@ pub(super) fn deliver<const N: usize>(
         .parallel_admission_batches
         .checked_add(1)
         .ok_or("parallel batch counter overflow")?;
+    let resources = ResourceBudget::capture_current();
     let outcomes = pool.expect("fast path admission pool").install(|| {
-        batches
-            .into_par_iter()
-            .map(|(key, bucket, rows)| {
-                let start = Instant::now();
-                let before = bucket.state.queue.domains.len();
-                let checks = bucket.state.queue.containment_checks;
-                let mut cross = 0usize;
-                let mut error = None;
-                for row in rows {
-                    if cancellation.load(Ordering::Acquire) {
-                        error = Some((row.ordinal, "cancelled".to_owned()));
-                        break;
-                    }
-                    let Some(next_incoming) = bucket.incoming_requests.checked_add(1) else {
-                        error = Some((row.ordinal, "incoming counter overflow".into()));
-                        break;
-                    };
-                    let crosses = usize::from(row.source != key);
-                    let Some(next_cross) = bucket.cross_owner_requests.checked_add(crosses) else {
-                        error = Some((row.ordinal, "cross-owner counter overflow".into()));
-                        break;
-                    };
-                    let Some(next_batch_cross) = cross.checked_add(crosses) else {
-                        error = Some((row.ordinal, "batch cross-owner counter overflow".into()));
-                        break;
-                    };
-                    let result = bucket.state.queue.admit(row.domain);
-                    bucket.incoming_requests = next_incoming;
-                    bucket.cross_owner_requests = next_cross;
-                    cross = next_batch_cross;
-                    if let Err(reason) = result {
-                        error = Some((row.ordinal, reason.to_owned()));
-                        break;
-                    }
-                }
-                bucket.admission_seconds += start.elapsed().as_secs_f64();
-                (
-                    bucket.state.queue.domains.len() - before,
-                    bucket.state.queue.containment_checks - checks,
-                    cross,
-                    error,
-                )
-            })
-            .collect::<Vec<_>>()
+        resources.run_captured(|| {
+            batches
+                .into_par_iter()
+                .map(|(key, bucket, rows)| {
+                    resources.run_captured(|| {
+                        let start = Instant::now();
+                        let before = bucket.state.queue.domains.len();
+                        let checks = bucket.state.queue.containment_checks;
+                        let mut cross = 0usize;
+                        let mut error = None;
+                        for row in rows {
+                            if cancellation.load(Ordering::Acquire) {
+                                error = Some((row.ordinal, "cancelled".to_owned()));
+                                break;
+                            }
+                            let Some(next_incoming) = bucket.incoming_requests.checked_add(1)
+                            else {
+                                error = Some((row.ordinal, "incoming counter overflow".into()));
+                                break;
+                            };
+                            let crosses = usize::from(row.source != key);
+                            let Some(next_cross) = bucket.cross_owner_requests.checked_add(crosses)
+                            else {
+                                error = Some((row.ordinal, "cross-owner counter overflow".into()));
+                                break;
+                            };
+                            let Some(next_batch_cross) = cross.checked_add(crosses) else {
+                                error = Some((
+                                    row.ordinal,
+                                    "batch cross-owner counter overflow".into(),
+                                ));
+                                break;
+                            };
+                            let result = bucket.state.queue.admit(row.domain);
+                            bucket.incoming_requests = next_incoming;
+                            bucket.cross_owner_requests = next_cross;
+                            cross = next_batch_cross;
+                            if let Err(reason) = result {
+                                error = Some((row.ordinal, reason.to_owned()));
+                                break;
+                            }
+                        }
+                        bucket.admission_seconds += start.elapsed().as_secs_f64();
+                        (
+                            bucket.state.queue.domains.len() - before,
+                            bucket.state.queue.containment_checks - checks,
+                            cross,
+                            error,
+                        )
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
     });
     let mut first_error = None;
     for (domains, checks, cross, error) in outcomes {

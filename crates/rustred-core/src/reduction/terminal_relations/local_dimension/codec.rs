@@ -244,7 +244,7 @@ fn decode_claims(
         .section(SectionTag::PROGRAM)
         .expect("checked section");
     let (record, consumed): (Record, usize) =
-        bincode::decode_from_slice(payload, bincode::config::standard()).map_err(native)?;
+        crate::persistence::decode_structure(payload).map_err(native)?;
     if consumed != payload.len() || record.schema != SCHEMA || record.recipe != RECIPE {
         return Err(invalid("unsupported or trailing local dimension records"));
     }
@@ -576,8 +576,8 @@ fn invalid(message: &'static str) -> BinaryIoError {
     BinaryIoError::Invalid(message)
 }
 
-fn native(error: impl std::fmt::Display) -> BinaryIoError {
-    BinaryIoError::Native(error.to_string())
+fn native(error: impl std::fmt::Display + 'static) -> BinaryIoError {
+    crate::persistence::native_error(error)
 }
 
 fn grant(
@@ -585,15 +585,7 @@ fn grant(
     requested: usize,
     io: BinaryIoLimits,
 ) -> Result<(), BinaryIoError> {
-    if requested > io.max_collection_entries {
-        Err(BinaryIoError::Limit {
-            resource,
-            requested,
-            limit: io.max_collection_entries,
-        })
-    } else {
-        Ok(())
-    }
+    io.check_count(resource, requested, io.max_collection_entries)
 }
 
 fn index(id: CoefficientId) -> Result<u32, BinaryIoError> {
@@ -617,7 +609,8 @@ fn encode_record(
     table: EncodedCoefficientTable,
     io: BinaryIoLimits,
 ) -> Result<Vec<u8>, BinaryIoError> {
-    let program = bincode::encode_to_vec(record, bincode::config::standard()).map_err(native)?;
+    let program =
+        crate::persistence::encode_structure(&record, io.max_program_bytes).map_err(native)?;
     encode_program(
         BinaryProgramKind::TerminalNormalization,
         &[

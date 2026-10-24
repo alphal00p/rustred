@@ -626,6 +626,7 @@ fn inspection_limits(
     let max_raw_page_records = storage::RawCensusLimits::max_records_for_native_frame(arity)
         .map_err(super::super::backend::storage_error)?;
     Ok(storage::StorageLimits {
+        diagnostics_enabled: true,
         raw: storage::RawCensusLimits {
             max_page_records: max_raw_page_records,
             max_page_bytes: FRAME,

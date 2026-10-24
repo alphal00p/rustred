@@ -50,6 +50,21 @@ fn failure(error: impl std::fmt::Display) -> CandidateRoutedError {
     CandidateRoutedError::InvalidInput(format!("persistent routed cache: {error}"))
 }
 
+fn typed_failure(error: impl std::error::Error + 'static) -> CandidateRoutedError {
+    let mut source: &(dyn std::error::Error + 'static) = &error;
+    loop {
+        if let Some(resource) =
+            source.downcast_ref::<symbolica::utils::resources::ResourceLimitError>()
+        {
+            return crate::reduction::ReductionError::Resources(resource.clone()).into();
+        }
+        match source.source() {
+            Some(next) => source = next,
+            None => return failure(error),
+        }
+    }
+}
+
 fn cache_key<const N: usize>(node: &Node<N>, arity: usize) -> ApplicationCacheKey {
     match node {
         Node::Route(key) => ApplicationCacheKey::route(key),
@@ -222,8 +237,8 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         record
             .key
             .validate(binding.physical_arity)
-            .map_err(failure)?;
-        let target = record.key.integral().map_err(failure)?;
+            .map_err(typed_failure)?;
+        let target = record.key.integral().map_err(typed_failure)?;
         for condition in self.target_conditions(&target)? {
             if !record.nonzero_conditions.contains(&condition) {
                 return Err(failure("record omits an active native source condition"));
@@ -260,7 +275,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             }
             context
                 .validate_with_limits(coefficient, self.context.limits.exact_algebra)
-                .map_err(failure)?;
+                .map_err(typed_failure)?;
         }
         for guard in &record.nonzero_conditions {
             if guard.is_zero() {
@@ -268,7 +283,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             }
             context
                 .validate_with_limits(guard, self.context.limits.exact_algebra)
-                .map_err(failure)?;
+                .map_err(typed_failure)?;
         }
         Ok(())
     }
@@ -301,14 +316,14 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         }
         stats.lookups = stats.lookups.saturating_add(1);
         let context = self.context.shared.context.base();
-        let Some(record) = backing.lookup(&key, context).map_err(failure)? else {
+        let Some(record) = backing.lookup(&key, context).map_err(typed_failure)? else {
             stats.misses = stats.misses.saturating_add(1);
             return Ok(false);
         };
         if record.key != key {
             return Err(failure("lookup returned a different key"));
         }
-        record.key.validate(arity).map_err(failure)?;
+        record.key.validate(arity).map_err(typed_failure)?;
         for (terminal, coefficient) in &record.terms {
             if terminal.powers().len() != arity
                 || coefficient.is_zero()
@@ -318,7 +333,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             }
             context
                 .validate_with_limits(coefficient, self.context.limits.exact_algebra)
-                .map_err(failure)?;
+                .map_err(typed_failure)?;
         }
         for guard in &record.nonzero_conditions {
             if guard.is_zero() {
@@ -326,7 +341,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             }
             context
                 .validate_with_limits(guard, self.context.limits.exact_algebra)
-                .map_err(failure)?;
+                .map_err(typed_failure)?;
             if !conditions.contains(guard) {
                 conditions.push(guard.clone());
             }
@@ -355,7 +370,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         };
         let context = self.context.shared.context.base();
         let key = cache_key(node, self.family().denominator_count());
-        if !capture.wants(&key, context).map_err(failure)? {
+        if !capture.wants(&key, context).map_err(typed_failure)? {
             stats.skipped_records = stats.skipped_records.saturating_add(1);
             return Ok(());
         }
@@ -392,7 +407,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             terms,
             nonzero_conditions: entry.conditions.clone(),
         };
-        capture.store_completed(&record, context).map_err(failure)?;
+        capture
+            .store_completed(&record, context)
+            .map_err(typed_failure)?;
         stats.captured_records = stats.captured_records.saturating_add(1);
         Ok(())
     }
@@ -405,8 +422,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         key: &ApplicationCacheKey,
     ) -> Result<Option<ApplicationCacheRecord>, CandidateRoutedError> {
         self.validate_persistent_binding(binding, None, false)?;
-        key.validate(binding.physical_arity).map_err(failure)?;
-        let integral = key.integral().map_err(failure)?;
+        key.validate(binding.physical_arity)
+            .map_err(typed_failure)?;
+        let integral = key.integral().map_err(typed_failure)?;
         let node = match key.stage() {
             crate::persistence::application_cache::ApplicationCacheStage::Route => {
                 Node::Route(integral)
@@ -475,7 +493,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 terms: entry.terms.materialize(context, self.context.limits)?,
                 nonzero_conditions: entry.conditions.clone(),
             };
-            backing.store_completed(&record, context).map_err(failure)?;
+            backing
+                .store_completed(&record, context)
+                .map_err(typed_failure)?;
             statistics.exported_records = statistics.exported_records.saturating_add(1);
         }
         Ok(statistics)

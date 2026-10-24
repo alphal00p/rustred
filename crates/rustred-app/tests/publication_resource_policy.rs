@@ -42,6 +42,7 @@ fn request_constructors_take_resource_defaults_from_core() {
 fn publication_and_cold_load_report_independent_policies_without_changing_payload() {
     let baseline = family_close(FamilyCloseRequest::new(K1)).unwrap();
     let mut chosen = FamilyCloseRequest::new(K1);
+    chosen.publication_limits = chosen.publication_limits.with_diagnostics();
     chosen
         .publication_limits
         .rule_derivation
@@ -71,20 +72,24 @@ fn publication_and_cold_load_report_independent_policies_without_changing_payloa
     let default_inspection =
         closing_artifact_inspect(ClosingArtifactInspectRequest::new(chosen.artifact())).unwrap();
     let defaults = ArtifactLoadLimits::default();
-    assert_eq!(
-        report(default_inspection.to_toml())["load_resources"]["max_predicate_atoms"].as_str(),
-        Some("32")
-    );
-    assert_eq!(
-        report(default_inspection.to_toml())["load_resources"]["max_predicate_consistency_work"]
-            .as_str(),
-        Some(defaults.max_predicate_consistency_work.to_string().as_str())
-    );
-    let mut limits = defaults;
+    let default_report = report(default_inspection.to_toml());
+    for key in [
+        "max_predicate_atoms",
+        "max_predicate_consistency_work",
+        "max_domain_bound_endpoint_cells",
+    ] {
+        assert!(default_report["load_resources"].get(key).is_none());
+        assert!(
+            report(baseline.to_toml())["publication_resources"]
+                .get(key)
+                .is_none()
+        );
+    }
+    let mut limits = defaults.with_diagnostics();
     limits.rule_derivation.max_domain_bound_endpoint_cells = usize::MAX;
     limits.max_predicate_consistency_work = usize::MAX;
-    limits.max_predicate_atoms = SourcePortLimits::MAX_PREDICATE_ATOMS;
-    // Increasing other caller limits cannot change the app's ingress ceiling.
+    limits.max_predicate_atoms = 256;
+    // Byte admission is explicit and independent of the proof-count policy.
     limits.max_artifact_bytes = usize::MAX;
     let inspected = closing_artifact_inspect(ClosingArtifactInspectRequest {
         artifact: chosen.artifact().to_vec(),
@@ -116,6 +121,8 @@ fn publication_and_cold_load_report_independent_policies_without_changing_payloa
     assert_eq!(reduced.terms().len(), 1);
     assert_eq!(reduced.terms()[0].master_powers(), &[1]);
     let mut no_consistency_work = FamilyCloseRequest::new(K1);
+    no_consistency_work.publication_limits =
+        no_consistency_work.publication_limits.with_diagnostics();
     no_consistency_work
         .publication_limits
         .max_predicate_consistency_work = 0;
@@ -130,6 +137,7 @@ fn publication_and_cold_load_report_independent_policies_without_changing_payloa
         .unwrap()
     );
     let mut zero_load = ClosingArtifactInspectRequest::new(zero.artifact());
+    zero_load.load_limits = zero_load.load_limits.with_diagnostics();
     zero_load.load_limits.max_predicate_consistency_work = 0;
     zero_load.load_limits.max_predicate_atoms = 0;
     let zero_report = closing_artifact_inspect(zero_load).unwrap();
@@ -144,16 +152,37 @@ fn publication_and_cold_load_report_independent_policies_without_changing_payloa
 }
 
 #[test]
-fn unsupported_atom_policies_fail_early_on_all_application_entry_points() {
+fn large_atom_grants_are_accepted_and_invalid_payloads_still_fail() {
     for atoms in [257, usize::MAX] {
-        let mut generation = FamilyCloseRequest::new("not a project");
+        let mut generation = FamilyCloseRequest::new(K1);
+        generation.publication_limits = generation.publication_limits.with_diagnostics();
         generation.publication_limits.max_predicate_atoms = atoms;
+        let generated = family_close(generation).unwrap();
         let limits = ArtifactLoadLimits {
             max_predicate_atoms: atoms,
-            ..Default::default()
+            ..ArtifactLoadLimits::default().with_diagnostics()
         };
+        let inspected = closing_artifact_inspect(ClosingArtifactInspectRequest {
+            artifact: generated.artifact().to_vec(),
+            load_limits: limits,
+        })
+        .unwrap();
+        assert_eq!(
+            report(inspected.to_toml())["load_resources"]["max_predicate_atoms"].as_str(),
+            Some(atoms.to_string().as_str())
+        );
+        let reduced = closing_artifact_reduce(ClosingArtifactReduceRequest {
+            load_limits: limits,
+            ..ClosingArtifactReduceRequest::new(generated.artifact(), vec![3])
+        })
+        .unwrap();
+        assert_eq!(reduced.terms().len(), 1);
+        assert_eq!(reduced.terms()[0].master_powers(), &[1]);
+        let mut malformed = FamilyCloseRequest::new("not a project");
+        malformed.publication_limits = malformed.publication_limits.with_diagnostics();
+        malformed.publication_limits.max_predicate_atoms = atoms;
         for error in [
-            family_close(generation).unwrap_err(),
+            family_close(malformed).unwrap_err(),
             closing_artifact_inspect(ClosingArtifactInspectRequest {
                 artifact: b"not an artifact".to_vec(),
                 load_limits: limits,
@@ -165,9 +194,8 @@ fn unsupported_atom_policies_fail_early_on_all_application_entry_points() {
             })
             .unwrap_err(),
         ] {
-            assert_eq!(error.kind(), AppErrorKind::Limit);
-            assert!(error.message().contains("supported"));
-            assert!(error.message().contains("256"));
+            assert_eq!(error.kind(), AppErrorKind::Input);
+            assert!(!error.message().contains("supported predicate atom policy"));
         }
     }
 }
@@ -176,6 +204,7 @@ fn unsupported_atom_policies_fail_early_on_all_application_entry_points() {
 fn restrictive_endpoint_and_byte_limits_fail_without_artifact_selected_policy() {
     let generated = family_close(FamilyCloseRequest::new(K1)).unwrap();
     let mut publication = FamilyCloseRequest::new(K1);
+    publication.publication_limits = publication.publication_limits.with_diagnostics();
     publication
         .publication_limits
         .rule_derivation
@@ -183,7 +212,7 @@ fn restrictive_endpoint_and_byte_limits_fail_without_artifact_selected_policy() 
     let error = family_close(publication).unwrap_err();
     assert!(error.message().contains("requested"));
     assert!(error.message().contains("limit 0"));
-    let mut limits = ArtifactLoadLimits::default();
+    let mut limits = ArtifactLoadLimits::default().with_diagnostics();
     limits.rule_derivation.max_domain_bound_endpoint_cells = 0;
     for error in [
         closing_artifact_inspect(ClosingArtifactInspectRequest {

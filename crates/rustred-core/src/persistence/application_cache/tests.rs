@@ -117,11 +117,12 @@ fn wrong_binding_context_keys_and_truncation_are_not_cache_hits() {
 }
 
 #[test]
-fn current_decode_census_and_collection_limits_are_enforced() {
+fn diagnostic_counts_and_explicit_coefficient_byte_limits_are_enforced() {
     let (context, records) = fixture();
     let limits = ApplicationCacheIoLimits::default();
     let encoded = encode_application_cache_chunk(&binding(), &records, &context, limits).unwrap();
     let tight = ApplicationCacheIoLimits {
+        diagnostics_enabled: true,
         max_records: 1,
         ..limits
     };
@@ -133,6 +134,7 @@ fn current_decode_census_and_collection_limits_are_enforced() {
     let inspected = ApplicationCacheChunk::inspect(&encoded, &binding(), tight).unwrap();
     assert!(inspected.decode_record(&records[1].key, &context).is_err());
     let tight = ApplicationCacheIoLimits {
+        diagnostics_enabled: true,
         max_guards_per_record: 2,
         ..limits
     };
@@ -222,6 +224,7 @@ fn shared_decoded_census_limits_unique_coefficients_across_records() {
         nonzero_conditions: vec![],
     });
     let limits = ApplicationCacheIoLimits {
+        diagnostics_enabled: true,
         max_decoded_coefficient_terms: budget.coefficient_terms,
         ..Default::default()
     };
@@ -253,4 +256,139 @@ fn shared_decoded_census_limits_unique_coefficients_across_records() {
         chunk.decode_record(&records[0].key, &context).unwrap(),
         Some(records[0].clone())
     );
+}
+
+#[test]
+fn normal_chunks_can_exceed_the_retained_record_diagnostic_template() {
+    let context = CoefficientContext::new(["normal_cache_d"]);
+    let limits = ApplicationCacheIoLimits::default();
+    assert!(!limits.diagnostics_enabled);
+    assert_eq!(limits.max_records, 4096);
+    assert_eq!(limits.max_index_owned_bytes, usize::MAX);
+    assert_eq!(limits.max_decoded_coefficient_bytes, usize::MAX);
+    let records = (1..=4097)
+        .map(|i| ApplicationCacheRecord {
+            key: ApplicationCacheKey::route(&key(&[i, 1])),
+            terms: BTreeMap::new(),
+            nonzero_conditions: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+    let encoded = encode_application_cache_chunk(&binding(), &records, &context, limits).unwrap();
+    let inspected = ApplicationCacheChunk::inspect(&encoded, &binding(), limits).unwrap();
+    assert_eq!(inspected.keys().count(), records.len());
+    let diagnostic = ApplicationCacheIoLimits {
+        diagnostics_enabled: true,
+        ..limits
+    };
+    assert!(matches!(
+        encode_application_cache_chunk(&binding(), &records, &context, diagnostic),
+        Err(BinaryIoError::Limit {
+            resource: "cache records",
+            ..
+        })
+    ));
+    assert!(matches!(
+        ApplicationCacheChunk::inspect(&encoded, &binding(), diagnostic),
+        Err(BinaryIoError::Limit {
+            resource: "cache records",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn customized_count_templates_are_inactive_without_diagnostics() {
+    let (context, records) = fixture();
+    let limits = ApplicationCacheIoLimits {
+        max_arity: 0,
+        max_identity_bytes: 0,
+        max_records: 0,
+        max_terms_per_record: 0,
+        max_guards_per_record: 0,
+        max_decoded_coefficient_terms: 0,
+        ..Default::default()
+    };
+    let encoded = encode_application_cache_chunk(&binding(), &records, &context, limits).unwrap();
+    let inspected = ApplicationCacheChunk::inspect(&encoded, &binding(), limits).unwrap();
+    for record in &records {
+        assert_eq!(
+            inspected.decode_record(&record.key, &context).unwrap(),
+            Some(record.clone())
+        );
+    }
+    let wrong_arity = ApplicationCacheBinding {
+        physical_arity: 3,
+        ..binding()
+    };
+    assert!(ApplicationCacheChunk::inspect(&encoded, &wrong_arity, limits).is_err());
+    assert!(matches!(
+        binding().validate(ApplicationCacheIoLimits {
+            diagnostics_enabled: true,
+            ..limits
+        }),
+        Err(BinaryIoError::Limit {
+            resource: "cache arity",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn malformed_record_counts_fail_framing_before_index_allocation() {
+    let context = CoefficientContext::new(["malformed_cache_d"]);
+    let binding = binding();
+    let limits = ApplicationCacheIoLimits::default();
+    let mut encoded = encode_application_cache_chunk(&binding, &[], &context, limits).unwrap();
+    let count_offset = 16 + 32 + 8 + binding.family_fingerprint.len() + 8 + binding.layer.len() + 8;
+    encoded[count_offset..count_offset + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+    assert!(matches!(
+        ApplicationCacheChunk::inspect(&encoded, &binding, limits),
+        Err(BinaryIoError::Invalid("truncated cache row directory"))
+            | Err(BinaryIoError::Invalid("length exceeds usize"))
+    ));
+}
+
+#[test]
+fn native_coefficient_census_resource_errors_remain_typed() {
+    let resource = symbolica::utils::resources::ResourceLimitError::Memory {
+        rss_bytes: 40,
+        additional_bytes: 3,
+        limit_bytes: 42,
+    };
+    let error = reduction_error(crate::reduction::ReductionError::Resources(
+        resource.clone(),
+    ));
+    assert_eq!(error, BinaryIoError::Resource(resource.clone()));
+    assert_eq!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .downcast_ref::<symbolica::utils::resources::ResourceLimitError>(),
+        Some(&resource)
+    );
+}
+
+#[test]
+fn resource_checked_transport_clone_preserves_payload_and_typed_memory_refusal() {
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+
+    let (_, records) = fixture();
+    for record in &records {
+        assert_eq!(record.try_clone_with_resources().unwrap(), *record);
+    }
+    let budget = ResourceBudget::with_memory_monitor(
+        ResourceLimits {
+            max_process_rss_bytes: Some(110),
+            ..Default::default()
+        },
+        || Ok(100),
+    );
+    assert!(matches!(
+        budget.run(|| records[1].try_clone_with_resources()),
+        Err(BinaryIoError::Resource(ResourceLimitError::Memory {
+            rss_bytes: 100,
+            additional_bytes: 16,
+            limit_bytes: 110,
+        }))
+    ));
+    assert_eq!(records[1].try_clone_with_resources().unwrap(), records[1]);
 }

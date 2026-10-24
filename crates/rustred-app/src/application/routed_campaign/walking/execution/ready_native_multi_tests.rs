@@ -152,6 +152,7 @@ impl Script {
 
 fn stopped(error: &str, kind: &'static str) -> Finished {
     Finished {
+        resource_failure: None,
         stats: NativeStats::Apply(Default::default()),
         error: Some(error.into()),
         error_kind: kind,

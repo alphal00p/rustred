@@ -9,7 +9,7 @@ use serde::{
     de::{self, MapAccess, Visitor},
 };
 
-use crate::{AppError, CandidateOwnerLoadLimits, MAX_CANDIDATE_BUNDLE_BYTES};
+use crate::{AppError, CandidateOwnerLoadLimits};
 
 pub(super) const MAX_STEERING_BYTES: usize = 16 * 1024 * 1024;
 pub(super) const MAX_ROUTES: usize = 100_000;
@@ -37,7 +37,7 @@ fn unique_limits<'de, D: Deserializer<'de>>(
     impl<'de> Visitor<'de> for Limits {
         type Value = BTreeMap<String, usize>;
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            f.write_str("unique positive integer load limits")
+            f.write_str("unique nonnegative integer load limits")
         }
         fn visit_map<M: MapAccess<'de>>(self, mut access: M) -> Result<Self::Value, M::Error> {
             let mut result = BTreeMap::new();
@@ -141,6 +141,15 @@ impl Selection {
         text: &str,
         max_bytes: usize,
     ) -> Result<(Self, usize, CandidateOwnerLoadLimits), AppError> {
+        Self::parse_with_diagnostics(text, max_bytes, false)
+    }
+
+    /// Runtime caller policy, never read from authenticated selection metadata.
+    pub fn parse_with_diagnostics(
+        text: &str,
+        max_bytes: usize,
+        diagnostics_enabled: bool,
+    ) -> Result<(Self, usize, CandidateOwnerLoadLimits), AppError> {
         if text.len() > max_bytes {
             return Err(AppError::limit(
                 "owner selection exceeds its byte allowance",
@@ -148,7 +157,10 @@ impl Selection {
         }
         let selection: Self =
             serde_json::from_str(text).map_err(|e| AppError::input(e.to_string()))?;
-        let limits = selection.limits()?;
+        let mut limits = selection.limits()?;
+        if diagnostics_enabled {
+            limits = limits.with_diagnostics();
+        }
         let n = selection
             .owners
             .first()
@@ -158,13 +170,14 @@ impl Selection {
         if !(1..=16).contains(&n) {
             return Err(AppError::input("owner arity outside supported 1..=16"));
         }
-        if selection
-            .owners
-            .len()
-            .checked_add(selection.domain_rule_overlays.len())
-            .and_then(|count| count.checked_add(selection.preferred_owner_programs.len()))
-            .is_none_or(|count| count > limits.bundle.max_collection_entries)
-            || selection.initial_frontier_routes.len() > MAX_ROUTES
+        if limits.bundle.diagnostics_enabled
+            && (selection
+                .owners
+                .len()
+                .checked_add(selection.domain_rule_overlays.len())
+                .and_then(|count| count.checked_add(selection.preferred_owner_programs.len()))
+                .is_none_or(|count| count > limits.bundle.max_collection_entries)
+                || selection.initial_frontier_routes.len() > MAX_ROUTES)
         {
             return Err(AppError::limit(
                 "owner or route count exceeds admission limit",
@@ -240,7 +253,9 @@ impl Selection {
                 subset_entries = subset_entries
                     .checked_add(ordinals.len())
                     .ok_or_else(|| AppError::limit("preferred rule subset count overflow"))?;
-                if subset_entries > limits.bundle.max_collection_entries {
+                if limits.bundle.diagnostics_enabled
+                    && subset_entries > limits.bundle.max_collection_entries
+                {
                     return Err(AppError::limit(
                         "preferred rule subset metadata exceeds admission limit",
                     ));
@@ -287,8 +302,13 @@ impl Selection {
     fn limits(&self) -> Result<CandidateOwnerLoadLimits, AppError> {
         let mut limits = CandidateOwnerLoadLimits::default();
         for (name, &value) in &self.load_limits {
-            if value == 0 {
-                return Err(AppError::input("load limits must be positive"));
+            if value == 0
+                && !matches!(
+                    name.as_str(),
+                    "max_collection_entries" | "max_zero_sector_visits"
+                )
+            {
+                return Err(AppError::input("load byte limits must be positive"));
             }
             match name.as_str() {
                 "max_bundle_bytes" => limits.bundle.max_bundle_bytes = value,
@@ -300,11 +320,6 @@ impl Selection {
                 "max_coefficient_bytes" => limits.bundle.max_coefficient_bytes = value,
                 _ => return Err(AppError::input(format!("unknown load limit: {name}"))),
             }
-        }
-        if limits.bundle.max_bundle_bytes > MAX_CANDIDATE_BUNDLE_BYTES {
-            return Err(AppError::limit(
-                "per-owner bundle exceeds the 1 GiB hard ceiling",
-            ));
         }
         Ok(limits)
     }
@@ -318,6 +333,35 @@ mod overlay_tests {
     fn selection() -> serde_json::Value {
         json!({"family_fingerprint":"fixture", "owners":[{"path":"owner.rrbin",
             "bytes":100,"mask":"1"}], "initial_frontier_routes":[]})
+    }
+
+    #[test]
+    fn unbounded_and_larger_byte_grants_accept_tiny_owners_and_counts_are_opt_in() {
+        let mut value = selection();
+        assert_eq!(
+            Selection::parse(&value.to_string())
+                .unwrap()
+                .2
+                .bundle
+                .max_bundle_bytes,
+            usize::MAX
+        );
+        value["load_limits"] =
+            json!({"max_bundle_bytes":2u64*1024*1024*1024,"max_collection_entries":0});
+        let (_, _, limits) = Selection::parse(&value.to_string()).unwrap();
+        assert_eq!(limits.bundle.max_bundle_bytes, 2usize * 1024 * 1024 * 1024);
+        assert!(!limits.bundle.diagnostics_enabled);
+        assert!(
+            Selection::parse_with_diagnostics(&value.to_string(), MAX_STEERING_BYTES, true)
+                .is_err()
+        );
+        value["load_limits"] = json!({"max_bundle_bytes":99});
+        assert!(
+            Selection::parse(&value.to_string())
+                .unwrap_err()
+                .message()
+                .contains("ingress")
+        );
     }
 
     #[test]
@@ -385,7 +429,10 @@ mod overlay_tests {
         input["load_limits"]["max_total_input_bytes"] = 179.into();
         assert!(Selection::parse(&input.to_string()).is_err());
         input["load_limits"] = json!({"max_collection_entries":3});
-        assert!(Selection::parse(&input.to_string()).is_err());
+        assert!(
+            Selection::parse_with_diagnostics(&input.to_string(), MAX_STEERING_BYTES, true)
+                .is_err()
+        );
         input["load_limits"] = json!({});
         input["preferred_owner_programs"][0]["bytes"] = 0.into();
         assert!(
@@ -432,7 +479,7 @@ mod overlay_tests {
         input["preferred_owner_programs"][0]["rule_ordinals"] = json!([0, 1, 2]);
         input["load_limits"] = json!({"max_collection_entries":2});
         assert!(
-            Selection::parse(&input.to_string())
+            Selection::parse_with_diagnostics(&input.to_string(), MAX_STEERING_BYTES, true)
                 .unwrap_err()
                 .message()
                 .contains("subset")
@@ -481,7 +528,10 @@ mod overlay_tests {
         input["load_limits"] = json!({"max_total_input_bytes":110});
         assert!(Selection::parse(&input.to_string()).is_ok());
         input["load_limits"] = json!({"max_collection_entries":1});
-        assert!(Selection::parse(&input.to_string()).is_err());
+        assert!(
+            Selection::parse_with_diagnostics(&input.to_string(), MAX_STEERING_BYTES, true)
+                .is_err()
+        );
         input["load_limits"] = json!({});
         input["domain_rule_overlays"][0]["bytes"] = 0.into();
         assert!(

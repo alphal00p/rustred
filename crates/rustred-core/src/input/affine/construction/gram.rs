@@ -21,6 +21,7 @@ pub(in crate::input::affine) fn validate_external_gram(
         "external Gram entries",
         expected_entries,
         limits.max_external_gram_entries,
+        limits.diagnostics_enabled,
     )?;
     if gram.len() != expected {
         return Err(SymbolicaAffineDenominatorError::WrongExternalGramRowCount {
@@ -47,55 +48,63 @@ pub(in crate::input::affine) fn validate_external_gram(
         for (column, coefficient) in entries.iter().enumerate() {
             coefficients
                 .validate_with_limits(coefficient, limits.exact_algebra)
-                .map_err(|error| {
-                    SymbolicaAffineDenominatorError::InvalidExternalGramCoefficient {
+                .map_err(|error| match error {
+                    error @ crate::algebra::ExactAlgebraError::Resource(_) => {
+                        SymbolicaAffineDenominatorError::ExactAlgebra(error)
+                    }
+                    error => SymbolicaAffineDenominatorError::InvalidExternalGramCoefficient {
                         row,
                         column,
                         error,
-                    }
+                    },
                 })?;
-            let coefficient_terms = coefficient
-                .numerator
-                .nterms()
-                .checked_add(coefficient.denominator.nterms())
-                .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                    resource: "external Gram polynomial terms",
-                })?;
-            polynomial_terms = polynomial_terms.checked_add(coefficient_terms).ok_or(
-                SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                    resource: "external Gram polynomial terms",
-                },
-            )?;
-            check_limit(
-                "external Gram polynomial terms",
-                polynomial_terms,
-                limits.max_external_gram_polynomial_terms,
-            )?;
-            let coefficient_exponents = coefficient_terms
-                .checked_mul(coefficients.parameter_names().len())
-                .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                    resource: "external Gram exponent entries",
-                })?;
-            exponent_entries = exponent_entries.checked_add(coefficient_exponents).ok_or(
-                SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                    resource: "external Gram exponent entries",
-                },
-            )?;
-            check_limit(
-                "external Gram exponent entries",
-                exponent_entries,
-                limits.max_external_gram_exponent_entries,
-            )?;
-            integer_bits = integer_bits
-                .checked_add(coefficient_census(coefficient)?.integer_bits)
-                .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                    resource: "external Gram integer bits",
-                })?;
-            check_limit(
-                "external Gram integer bits",
-                integer_bits,
-                limits.max_external_gram_integer_bits,
-            )?;
+            if limits.diagnostics_enabled {
+                let coefficient_terms = coefficient
+                    .numerator
+                    .nterms()
+                    .checked_add(coefficient.denominator.nterms())
+                    .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                        resource: "external Gram polynomial terms",
+                    })?;
+                polynomial_terms = polynomial_terms.checked_add(coefficient_terms).ok_or(
+                    SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                        resource: "external Gram polynomial terms",
+                    },
+                )?;
+                check_limit(
+                    "external Gram polynomial terms",
+                    polynomial_terms,
+                    limits.max_external_gram_polynomial_terms,
+                    limits.diagnostics_enabled,
+                )?;
+                let coefficient_exponents = coefficient_terms
+                    .checked_mul(coefficients.parameter_names().len())
+                    .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                        resource: "external Gram exponent entries",
+                    })?;
+                exponent_entries = exponent_entries.checked_add(coefficient_exponents).ok_or(
+                    SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                        resource: "external Gram exponent entries",
+                    },
+                )?;
+                check_limit(
+                    "external Gram exponent entries",
+                    exponent_entries,
+                    limits.max_external_gram_exponent_entries,
+                    limits.diagnostics_enabled,
+                )?;
+                integer_bits = integer_bits
+                    .checked_add(coefficient_census(coefficient)?.integer_bits)
+                    .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                        resource: "external Gram integer bits",
+                    })?;
+                check_limit(
+                    "external Gram integer bits",
+                    integer_bits,
+                    limits.max_external_gram_integer_bits,
+                    limits.diagnostics_enabled,
+                )?;
+            }
             if gram[column][row] != *coefficient {
                 return Err(SymbolicaAffineDenominatorError::AsymmetricExternalGram {
                     row,

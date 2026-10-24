@@ -3,9 +3,11 @@ use crate::family::symanzik::FeynmanPolynomialLimits;
 
 use super::error::Error;
 
-/// Checked construction and exact-rank budgets.
+/// Optional diagnostic construction and exact-rank count thresholds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Limits {
+    /// Count/work ceilings require explicit opt-in; ambient RAM/time checks remain active.
+    pub diagnostics_enabled: bool,
     pub feynman: FeynmanPolynomialLimits,
     pub max_rank_rows: usize,
     pub max_rank_columns: usize,
@@ -20,6 +22,7 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             feynman: FeynmanPolynomialLimits::default(),
             max_rank_rows: 4_000_000,
             max_rank_columns: 4_097,
@@ -34,8 +37,15 @@ impl Default for Limits {
 }
 
 impl Limits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.feynman = self.feynman.with_diagnostics();
+        self
+    }
+
     pub(super) fn right_kernel(self) -> RightKernelLimits {
         RightKernelLimits {
+            diagnostics_enabled: self.diagnostics_enabled,
             max_rows: self.max_rank_rows,
             max_columns: self.max_rank_columns,
             max_entries: self.max_rank_entries,
@@ -51,8 +61,10 @@ pub(super) fn check_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), Error> {
-    if requested > limit {
+    checkpoint()?;
+    if diagnostics_enabled && requested > limit {
         Err(Error::ResourceLimit {
             resource,
             requested,
@@ -61,6 +73,12 @@ pub(super) fn check_limit(
     } else {
         Ok(())
     }
+}
+
+pub(super) fn checkpoint() -> Result<(), Error> {
+    symbolica::utils::resources::checkpoint()
+        .map_err(crate::algebra::ExactAlgebraError::Resource)
+        .map_err(Error::ExactAlgebra)
 }
 
 pub(super) fn checked_add(

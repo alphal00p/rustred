@@ -21,10 +21,15 @@ fn native_rank(
     fixed: &[Option<i16>],
     equations: &[CoefficientPolynomial],
     indices: &[usize],
-) -> Result<Option<usize>, ()> {
+) -> Result<Option<usize>, WorkExhausted> {
     canonical_equalities(fixed, equations, indices)
         .map(|result| result.map(|(matrix, _)| matrix.nrows()))
-        .map_err(|_| ())
+        .map_err(
+            |error| match crate::reduction::resource_limit_error(&error) {
+                Some(resource) => WorkExhausted::Resources(resource.clone()),
+                None => WorkExhausted::NativeUnavailable,
+            },
+        )
 }
 
 impl RestrictionCache<'_> {
@@ -47,7 +52,11 @@ impl RestrictionCache<'_> {
         mut native: F,
     ) -> Result<bool, WorkExhausted>
     where
-        F: FnMut(&[Option<i16>], &[CoefficientPolynomial], &[usize]) -> Result<Option<usize>, ()>,
+        F: FnMut(
+            &[Option<i16>],
+            &[CoefficientPolynomial],
+            &[usize],
+        ) -> Result<Option<usize>, WorkExhausted>,
     {
         add(&mut self.statistics.implication_calls, 1);
         if unresolved.len() < 2 {
@@ -65,7 +74,7 @@ impl RestrictionCache<'_> {
             rows: unresolved.len(),
         };
         // All original support, context, and size admissions precede lookup.
-        if unresolved.len() > MAX_EQUATIONS {
+        if self.budget.enforce_diagnostics && unresolved.len() > MAX_EQUATIONS {
             return Err(self.local_exhaustion(LocalCap::Equations, Some(unresolved.len()), shape));
         }
         let Some(template) = self.atoms.get(unresolved[0].0) else {
@@ -98,14 +107,31 @@ impl RestrictionCache<'_> {
                 return Err(self.local_exhaustion(LocalCap::PolynomialCells, None, shape));
             }
         }
-        if input_cells.is_none_or(|cells| cells > MAX_POLYNOMIAL_CELLS) {
+        if input_cells
+            .is_none_or(|cells| self.budget.enforce_diagnostics && cells > MAX_POLYNOMIAL_CELLS)
+        {
             return Err(self.local_exhaustion(LocalCap::PolynomialCells, input_cells, shape));
         }
         let maximum_rows = shape.true_count.checked_add(1);
         let matrix_cells = maximum_rows.and_then(|rows| rows.checked_mul(shape.columns));
-        if matrix_cells.is_none_or(|cells| cells > MAX_MATRIX_CELLS) {
+        if matrix_cells
+            .is_none_or(|cells| self.budget.enforce_diagnostics && cells > MAX_MATRIX_CELLS)
+        {
             return Err(self.local_exhaustion(LocalCap::MatrixCells, matrix_cells, shape));
         }
+        let allocation = matrix_cells
+            .unwrap()
+            .checked_mul(std::mem::size_of::<symbolica::prelude::Rational>())
+            .and_then(|bytes| {
+                bytes.checked_add(
+                    input_cells
+                        .unwrap()
+                        .checked_mul(std::mem::size_of::<u16>())?,
+                )
+            })
+            .and_then(|bytes| u64::try_from(bytes).ok())
+            .ok_or_else(|| self.local_exhaustion(LocalCap::Allocation, None, shape))?;
+        symbolica::utils::resources::check_allocation(allocation)?;
         let singleton_count = (0..cell.arity())
             .filter(|&axis| cell.upper()[axis] == Some(cell.lower()[axis]))
             .count();
@@ -138,7 +164,8 @@ impl RestrictionCache<'_> {
                             BaseOutcome::Inconsistent
                         }
                         Ok(Some(rank)) => BaseOutcome::Rank(rank),
-                        Err(()) => {
+                        Err(error @ WorkExhausted::Resources(_)) => return Err(error),
+                        Err(_) => {
                             add(&mut self.statistics.native_errors, 1);
                             return Ok(false);
                         }
@@ -197,7 +224,8 @@ impl RestrictionCache<'_> {
                                 ExtensionOutcome::NoContradictionProved
                             }
                             Ok(Some(_)) => ExtensionOutcome::NoContradictionProved,
-                            Err(()) => {
+                            Err(error @ WorkExhausted::Resources(_)) => return Err(error),
+                            Err(_) => {
                                 add(&mut self.statistics.native_errors, 1);
                                 return Ok(false);
                             }

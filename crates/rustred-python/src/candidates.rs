@@ -4,14 +4,14 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict};
 use rustred_app::{
     CandidateCertificationRequest, CandidateCheckpointOptions, FamilyCandidatesRequest,
-    FiniteCasePolicy, MAX_CANDIDATE_BUNDLE_BYTES,
+    FiniteCasePolicy,
 };
 use std::path::PathBuf;
 
 use crate::{
     PyClosingArtifactGenerationResult, PythonInteger, RustRedInputError, RustRedLimitError,
-    apply_resource_limits, bounded_owned_input, execute, map_app_error, map_coordinator_error,
-    nonnegative_usize, parse_input_format, positive_core_count,
+    apply_resource_limits, execute, map_app_error, map_coordinator_error, nonnegative_usize,
+    parse_input_format, positive_core_count,
 };
 
 #[pyclass(frozen, module = "rustred", name = "CandidateBundleResult")]
@@ -217,8 +217,7 @@ fn candidate_generation_request(
             Ok(options)
         })
         .transpose()?;
-    let mut request =
-        FamilyCandidatesRequest::new(bounded_owned_input("candidate family input", source)?);
+    let mut request = FamilyCandidatesRequest::new(source.to_owned());
     request.selected_sectors = selected_sectors
         .as_deref()
         .map(FamilyCandidatesRequest::parse_selected_sectors)
@@ -235,6 +234,19 @@ fn candidate_generation_request(
     request.input_format = parse_input_format(input_format)?;
     request.exact_backend = exact_backend.parse().map_err(map_app_error)?;
     request.finite_case_policy = finite_case_policy;
+    if case_max_work_items.is_some()
+        || case_max_terms_per_conjunction.is_some()
+        || case_max_normalizations.is_some()
+        || case_max_factorizations.is_some()
+    {
+        request.case_intersection_limits = request.case_intersection_limits.with_diagnostics();
+    }
+    if bundle_max_entries.is_some() {
+        request.bundle_limits = request.bundle_limits.with_diagnostics();
+    }
+    if finite_max_visited_points.is_some() || finite_max_retained_terminals.is_some() {
+        request.finite_case_limits.diagnostics_enabled = true;
+    }
     for (name, value, slot) in [
         (
             "case_max_work_items",
@@ -296,11 +308,6 @@ fn candidate_generation_request(
             }
             *slot = limit;
         }
-    }
-    if request.bundle_limits.max_bundle_bytes > MAX_CANDIDATE_BUNDLE_BYTES {
-        return Err(RustRedInputError::new_err(
-            "bundle_max_bytes exceeds the hard 1073741824-byte (1 GiB) candidate limit",
-        ));
     }
     request.checkpoint = checkpoint;
     request.numerical_depth = u32::try_from(numerical_depth.0).map_err(|_| {
@@ -380,22 +387,17 @@ fn certify_candidates(
     max_total_excess_degree: Option<PythonInteger>,
 ) -> PyResult<PyClosingArtifactGenerationResult> {
     let mut limits = rustred_app::SourcePortLimits::default();
-    apply_resource_limits(
+    if apply_resource_limits(
         max_domain_bound_endpoint_cells,
         max_predicate_consistency_work,
         max_predicate_atoms,
         &mut limits.rule_derivation.max_domain_bound_endpoint_cells,
         &mut limits.max_predicate_consistency_work,
         &mut limits.max_predicate_atoms,
-    )?;
-    let bytes = bundle.as_bytes();
-    if bytes.len() > rustred_app::MAX_CLOSING_ARTIFACT_BYTES {
-        return Err(RustRedLimitError::new_err(format!(
-            "candidate bundle has {} bytes, exceeding the {}-byte application limit",
-            bytes.len(),
-            rustred_app::MAX_CLOSING_ARTIFACT_BYTES,
-        )));
+    )? {
+        limits = limits.with_diagnostics();
     }
+    let bytes = bundle.as_bytes();
     let mut request = CandidateCertificationRequest::new(bytes.to_vec());
     request.publication_limits = limits;
     request.max_negative_index_degree = max_negative_index_degree
@@ -443,11 +445,6 @@ fn inspect_candidate_program(
 ) -> PyResult<String> {
     let options = options_json
         .map(|text| {
-            if text.len() > rustred_app::MAX_INPUT_BYTES {
-                return Err(RustRedLimitError::new_err(
-                    "inspection options exceed input budget",
-                ));
-            }
             rustred_app::CandidateProgramInspectionOptions::from_json(text).map_err(map_app_error)
         })
         .transpose()?

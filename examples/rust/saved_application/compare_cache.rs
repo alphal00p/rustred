@@ -37,6 +37,8 @@ pub(super) fn run<const N: usize>(args: &[String], arity: usize) -> Result<()> {
         "{}",
         json!({
             "event":"cache_comparison_begin", "case":case,
+            "diagnostics_enabled":common.reduction_limits.diagnostics_enabled
+                || common.trace_limits.diagnostics_enabled || common.binary_limits.diagnostics_enabled,
             "reference_options":format!("{reference_options:?}"),
             "bounded_options":format!("{bounded_options:?}"),
             "timing_convention":"separate preparation and first/warm applications; one process, serial handles",

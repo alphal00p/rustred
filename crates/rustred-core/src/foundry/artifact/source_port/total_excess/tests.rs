@@ -61,7 +61,7 @@ fn degree_audit_keeps_full_original_source_replay() {
 
 #[test]
 fn total_excess_geometry_budget_is_cumulative_and_never_reset() {
-    let mut limits = CompletionGeometryLimits::default();
+    let mut limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_requested_boxes = 7;
     let mut budget = EnvelopeBudget::new(limits);
     let cell = LatticeBox::try_new([0], [None]).unwrap();
@@ -76,7 +76,7 @@ fn total_excess_geometry_budget_is_cumulative_and_never_reset() {
     assert!(budget.partition(&cell, &[true], &[-1]).is_err());
     assert!(budget.partition(&cell, &[true], &[-1]).is_err());
     let (audit, solution) = solved_tadpole();
-    let mut limits = super::super::SourcePortLimits::default();
+    let mut limits = super::super::SourcePortLimits::default().with_diagnostics();
     limits.cover_replay.max_requested_boxes = 0;
     assert!(matches!(
         audit

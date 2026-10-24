@@ -64,6 +64,7 @@ fn ordinary_sources(
         family,
         ParametricIbpConfig {
             context_limits: IndexedContextLimits {
+                diagnostics_enabled: false,
                 max_index_variables: usize::MAX,
                 max_fingerprint_bytes: usize::MAX,
                 max_native_symbol_name_bytes: usize::MAX,
@@ -71,6 +72,7 @@ fn ordinary_sources(
             relation_limits: RelationLimits {
                 arithmetic: indexed_limits(options),
                 identity_conditions: IdentityConditionLimits {
+                    diagnostics_enabled: false,
                     max_sources: usize::MAX,
                 },
             },

@@ -205,10 +205,21 @@ impl FiniteEntryDomain {
     /// returns an error, never a truncated count. Symbolica owns binomials and
     /// arbitrary-precision integer arithmetic.
     pub fn target_count(&self, max_positive_layers: usize) -> Result<Integer, AppError> {
+        self.target_count_with_diagnostic_limit(Some(max_positive_layers))
+    }
+
+    /// Count the complete finite domain, optionally checking a caller-selected
+    /// diagnostic work allowance. Ambient job resource budgets apply in either
+    /// mode and never truncate the returned exact count.
+    pub fn target_count_with_diagnostic_limit(
+        &self,
+        max_positive_layers: Option<usize>,
+    ) -> Result<Integer, AppError> {
         let mut count = Integer::from(0);
         let inactive = self.support.len() - self.active;
         for (layer, positive) in self.positive_totals().enumerate() {
-            if layer >= max_positive_layers {
+            symbolica::utils::resources::checkpoint().map_err(AppError::resource)?;
+            if max_positive_layers.is_some_and(|limit| layer >= limit) {
                 return Err(AppError::limit(
                     "entry count exceeds positive-layer allowance",
                 ));

@@ -36,7 +36,10 @@ pub(super) fn encode(
     plans::encode(writer, artifact)
 }
 
-fn replay_error(error: impl std::fmt::Display) -> ArtifactPersistenceError {
+fn replay_error(error: impl std::error::Error + 'static) -> ArtifactPersistenceError {
+    if let Some(resource) = crate::reduction::resource_limit_error(&error) {
+        return ArtifactError::Resources(resource.clone()).into();
+    }
     ArtifactPersistenceError::OriginalDomainReplay {
         detail: error.to_string(),
     }
@@ -77,11 +80,13 @@ pub(super) fn decode<'input>(
             field: "complete ordinary source count",
         });
     }
-    check_limit(
-        "complete ordinary source rows",
-        expected_rows,
-        limits.rule_derivation.max_source_rows,
-    )?;
+    if limits.rule_derivation.diagnostics_enabled {
+        check_limit(
+            "complete ordinary source rows",
+            expected_rows,
+            limits.rule_derivation.max_source_rows,
+        )?;
+    }
     let generator = ParametricIbpGenerator::try_new_with_config(&family, limits.source_generation)
         .map_err(ArtifactError::from)?;
     if generator.context().fingerprint() != expected_context_fingerprint {
@@ -242,6 +247,7 @@ pub(super) fn decode<'input>(
             EntryDegreeBound::MaxTotalExcessDegree(scope.entry_degree),
         )?;
         install_source_port_through_total_excess_with_limits(
+            limits.diagnostics_enabled,
             candidate,
             entry,
             scope.degrees,
@@ -251,6 +257,7 @@ pub(super) fn decode<'input>(
         )?
     } else {
         install_source_port_with_limits(
+            limits.diagnostics_enabled,
             candidate,
             limits.cover_replay.geometry(),
             limits.max_predicate_consistency_work,

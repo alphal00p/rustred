@@ -92,6 +92,7 @@ impl Collector {
                 "condition sources",
                 requested,
                 self.limits.max_condition_sources,
+                self.limits.diagnostics_enabled,
             )?;
             existing.sources.insert(source);
             self.source_count = requested;
@@ -103,12 +104,14 @@ impl Collector {
             "nonzero conditions",
             condition_count,
             self.limits.max_nonzero_conditions,
+            self.limits.diagnostics_enabled,
         )?;
         let source_count = checked_add(self.source_count, 1, "symmetry condition sources")?;
         check_limit(
             "condition sources",
             source_count,
             self.limits.max_condition_sources,
+            self.limits.diagnostics_enabled,
         )?;
         self.conditions.push(NonZeroCondition {
             polynomial,

@@ -12,6 +12,7 @@ impl LatticePoint {
     ) -> Result<Self, CompletionGeometryError> {
         let mut retained = Vec::new();
         for coordinate in coordinates {
+            symbolica::utils::resources::check_allocation(std::mem::size_of::<u64>() as u64)?;
             let requested = retained.len().checked_add(1).ok_or(
                 CompletionGeometryError::ResourceCountOverflow {
                     resource: "lattice-point coordinates",
@@ -125,6 +126,7 @@ impl LatticeBox {
         lower: Vec<u64>,
         upper: Vec<Option<u64>>,
     ) -> Result<Self, CompletionGeometryError> {
+        symbolica::utils::resources::checkpoint()?;
         if lower.is_empty() {
             return Err(CompletionGeometryError::EmptyCoordinateSpace);
         }
@@ -357,6 +359,11 @@ pub(super) fn try_vec<T>(
     resource: &'static str,
     capacity: usize,
 ) -> Result<Vec<T>, CompletionGeometryError> {
+    let bytes = capacity
+        .checked_mul(std::mem::size_of::<T>())
+        .and_then(|bytes| u64::try_from(bytes).ok())
+        .ok_or(CompletionGeometryError::ResourceCountOverflow { resource })?;
+    symbolica::utils::resources::check_allocation(bytes)?;
     let mut retained = Vec::new();
     retained.try_reserve_exact(capacity).map_err(|_| {
         CompletionGeometryError::AllocationFailure {

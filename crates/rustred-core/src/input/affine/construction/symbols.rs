@@ -27,7 +27,12 @@ pub(in crate::input::affine) fn validate_declared_labels(
             if label.is_empty() {
                 return Err(SymbolicaAffineDenominatorError::EmptyLabel { role, position });
             }
-            check_limit("label bytes", label.len(), limits.max_label_bytes)?;
+            check_limit(
+                "label bytes",
+                label.len(),
+                limits.max_label_bytes,
+                limits.diagnostics_enabled,
+            )?;
             total_label_bytes = total_label_bytes.checked_add(label.len()).ok_or(
                 SymbolicaAffineDenominatorError::ResourceCountOverflow {
                     resource: "total label bytes",
@@ -37,6 +42,7 @@ pub(in crate::input::affine) fn validate_declared_labels(
                 "total label bytes",
                 total_label_bytes,
                 limits.max_total_label_bytes,
+                limits.diagnostics_enabled,
             )?;
             if label == "sp" || label == SCALAR_PRODUCT_NAME {
                 return Err(SymbolicaAffineDenominatorError::ReservedLabel(

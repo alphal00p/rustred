@@ -61,7 +61,10 @@ fn framing_rejects_truncation_trailing_data_duplicate_sections_and_bad_ids() {
 
 #[test]
 fn framing_checks_lengths_and_counts_before_reserving() {
-    let limits = BinaryIoLimits::default();
+    let limits = BinaryIoLimits {
+        diagnostics_enabled: true,
+        ..Default::default()
+    };
     let bytes = encode_program(BinaryProgramKind::Candidates, &[], limits).unwrap();
     let mut bad = bytes.clone();
     bad[16..20].copy_from_slice(&u32::MAX.to_le_bytes());

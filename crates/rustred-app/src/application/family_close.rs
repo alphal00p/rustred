@@ -13,12 +13,12 @@ use rustred::foundry::artifact::{
 use rustred::solver::{SectorConfig, SectorExecutor, SectorSolveOptions};
 use serde::Serialize;
 
+use super::InputFormat;
 use super::candidate_bundle::preparation;
 use super::error::AppError;
 use super::input::prepare_input;
 use super::lowering::lower_project;
 use super::resource_policy::ResourcePolicyOutput;
-use super::{InputFormat, MAX_CLOSING_ARTIFACT_BYTES, MAX_INPUT_BYTES};
 
 pub(super) mod progress;
 mod scope;
@@ -27,7 +27,7 @@ use progress::{
     Observer, emit, generation_failure, generation_stage, installation_event, sector_mask,
 };
 
-pub const FAMILY_CLOSE_SCHEMA: &str = "rustred.family-close-output.toml.v4";
+pub const FAMILY_CLOSE_SCHEMA: &str = "rustred.family-close-output.toml.v5";
 
 /// Request a sector-complete closing artifact for an external family.
 ///
@@ -161,11 +161,7 @@ fn family_close_impl(
         .publication_limits
         .validate()
         .map_err(publication_error)?;
-    if request.source.len() > MAX_INPUT_BYTES {
-        return Err(AppError::limit(format!(
-            "family close input exceeds the application ceiling {MAX_INPUT_BYTES} bytes"
-        )));
-    }
+    super::validate_ingress(&request.source)?;
     if request.n_cores == 0 {
         return Err(AppError::input("family close n_cores must be positive"));
     }
@@ -205,12 +201,7 @@ fn family_close_impl(
     let bytes = installed
         .artifact
         .encode_durable()
-        .map_err(|error| AppError::serialization(error.to_string()))?;
-    if bytes.len() > MAX_CLOSING_ARTIFACT_BYTES {
-        return Err(AppError::output_limit(format!(
-            "generated artifact exceeds the application ceiling {MAX_CLOSING_ARTIFACT_BYTES} bytes"
-        )));
-    }
+        .map_err(|error| AppError::from_native(error, super::AppErrorKind::Serialization))?;
     let elapsed = start.elapsed();
     let report = Report {
         schema: FAMILY_CLOSE_SCHEMA,
@@ -235,14 +226,7 @@ fn family_close_impl(
         installation_us: (installed.installed_at - installed.generated_at).as_micros(),
         encoding_us: (elapsed - installed.installed_at).as_micros(),
         total_us: elapsed.as_micros(),
-        publication_resources: ResourcePolicyOutput::new(
-            request
-                .publication_limits
-                .rule_derivation
-                .max_domain_bound_endpoint_cells,
-            request.publication_limits.max_predicate_consistency_work,
-            request.publication_limits.max_predicate_atoms,
-        ),
+        publication_resources: ResourcePolicyOutput::from(request.publication_limits),
     };
     let report_toml = toml::to_string_pretty(&report)
         .map_err(|error| AppError::serialization(error.to_string()))?;
@@ -293,6 +277,9 @@ fn close<const N: usize>(
     observe: Observer<'_>,
 ) -> Result<Installed, AppError> {
     SourcePortAudit::<N>::validate_install_family(&family).map_err(|error| {
+        if let Some(resource) = AppError::resource_cause(&error) {
+            return AppError::resource(resource);
+        }
         AppError::input(format!(
             "family close requires an unshifted unit-mass vacuum, denominator constant terms -1, \
              and d as its sole scalar parameter: {error}"
@@ -314,7 +301,7 @@ fn close<const N: usize>(
     };
     let scoped_zero_sectors = zeros.iter().filter(|sector| admits(sector)).count();
     let audit = SourcePortAudit::try_new_with_root_sector(&family, zeros.clone(), root_sector)
-        .map_err(|error| AppError::execution(error.to_string()))?
+        .map_err(|error| AppError::from_native(error, super::AppErrorKind::Execution))?
         .with_limits(request.publication_limits);
     let executor = SectorExecutor::new(request.n_cores)
         .map_err(|error| AppError::execution(error.to_string()))?;
@@ -359,7 +346,7 @@ fn close<const N: usize>(
                 Ok::<_, std::io::Error>((done.sector, permutation, done.solution))
             },
         )
-        .map_err(|error| AppError::execution(error.to_string()))?;
+        .map_err(|error| AppError::from_native(error, super::AppErrorKind::Execution))?;
     let generated_at = start.elapsed();
     let generated_rules = solved
         .iter()
@@ -383,6 +370,9 @@ fn close<const N: usize>(
 }
 
 fn publication_error(error: SourcePortAuditError) -> AppError {
+    if let Some(resource) = AppError::resource_cause(&error) {
+        return AppError::resource(resource);
+    }
     match error {
         SourcePortAuditError::ResourceBudgetExhausted { .. }
         | SourcePortAuditError::UnsupportedResourcePolicy { .. } => {
@@ -396,6 +386,18 @@ fn publication_error(error: SourcePortAuditError) -> AppError {
 mod tests {
     use super::*;
     use crate::{ClosingArtifactReduceRequest, closing_artifact_reduce};
+
+    #[test]
+    fn source_port_resource_refusal_keeps_the_original_cause() {
+        let cause = symbolica::utils::resources::ResourceLimitError::Memory {
+            rss_bytes: 100,
+            additional_bytes: 20,
+            limit_bytes: 110,
+        };
+        let mapped = publication_error(SourcePortAuditError::Resources(cause.clone()));
+        assert_eq!(mapped.resource_limit_error(), Some(&cause));
+        assert_eq!(mapped.kind(), crate::AppErrorKind::Limit);
+    }
 
     const K1: &str = r#"
 schema = "rustred.project.toml.v1"
@@ -411,6 +413,53 @@ expression = "q^2-1"
 powers = [1]
 numerator = "1"
 "#;
+
+    #[test]
+    fn public_family_close_keeps_worker_resource_refusal_and_can_retry() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+
+        let prepared = Arc::new(AtomicBool::new(false));
+        let monitor = prepared.clone();
+        let budget = ResourceBudget::with_memory_monitor(
+            ResourceLimits {
+                max_process_rss_bytes: Some(1 << 30),
+                ..Default::default()
+            },
+            move || {
+                Ok(if monitor.load(Ordering::SeqCst) {
+                    1 << 31
+                } else {
+                    0
+                })
+            },
+        );
+        let signal = prepared.clone();
+        let error = budget
+            .run(|| {
+                family_close_with_progress(FamilyCloseRequest::new(K1), move |event| {
+                    if matches!(event, FamilyCloseProgress::Prepared { .. }) {
+                        signal.store(true, Ordering::SeqCst);
+                    }
+                })
+            })
+            .unwrap_err();
+        assert!(prepared.load(Ordering::SeqCst));
+        assert!(matches!(
+            error.resource_limit_error(),
+            Some(ResourceLimitError::Memory { rss_bytes, limit_bytes, .. })
+                if *rss_bytes == 1 << 31 && *limit_bytes == 1 << 30
+        ));
+        assert!(
+            !family_close(FamilyCloseRequest::new(K1))
+                .unwrap()
+                .artifact()
+                .is_empty()
+        );
+    }
 
     const K3: &str = r#"
 schema = "rustred.project.toml.v1"
@@ -454,6 +503,7 @@ numerator = "1"
         let baseline = family_close(FamilyCloseRequest::new(K1)).unwrap();
         let mut request = FamilyCloseRequest::new(K1);
         assert_eq!(request.publication_limits, SourcePortLimits::default());
+        request.publication_limits = request.publication_limits.with_diagnostics();
         request
             .publication_limits
             .rule_derivation
@@ -480,14 +530,10 @@ numerator = "1"
             );
         }
         let defaults: toml::Value = toml::from_str(baseline.to_toml()).unwrap();
-        assert_eq!(
-            defaults["publication_resources"]["max_predicate_consistency_work"].as_str(),
-            Some(
-                SourcePortLimits::default()
-                    .max_predicate_consistency_work
-                    .to_string()
-                    .as_str()
-            )
+        assert!(
+            defaults["publication_resources"]
+                .get("max_predicate_consistency_work")
+                .is_none()
         );
         let error = publication_error(SourcePortAuditError::ResourceBudgetExhausted {
             resource: "native affine literal consistency",
@@ -500,6 +546,7 @@ numerator = "1"
         );
         assert!(!error.message().contains("requested"));
         let mut restricted = FamilyCloseRequest::new(K1);
+        restricted.publication_limits = restricted.publication_limits.with_diagnostics();
         restricted
             .publication_limits
             .rule_derivation

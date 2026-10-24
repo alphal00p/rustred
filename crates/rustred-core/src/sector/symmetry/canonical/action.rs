@@ -33,6 +33,7 @@ impl Canonicalizer {
         generators: impl IntoIterator<Item = Verified>,
         limits: CanonicalizationLimits,
     ) -> Result<Self, Error> {
+        checkpoint()?;
         let mut retained = Vec::new();
         let mut expected_arity = None;
         let mut expected_family_fingerprint: Option<Arc<String>> = None;
@@ -40,7 +41,12 @@ impl Canonicalizer {
             let requested = ordinal.checked_add(1).ok_or(Error::ResourceCountOverflow {
                 resource: "generator count",
             })?;
-            check_limit("generator count", requested, limits.max_generators)?;
+            check_limit(
+                "generator count",
+                requested,
+                limits.max_generators,
+                limits.diagnostics_enabled,
+            )?;
             let (family_fingerprint, entries) = generator.into_parts();
             if let Some(expected) = &expected_family_fingerprint {
                 if expected.as_str() != family_fingerprint.as_str() {
@@ -160,6 +166,7 @@ impl Canonicalizer {
         let source_complexity = self.ordering.complexity_key(source.powers())?;
         let mut images: BTreeMap<ComplexityKey, OrbitImage> = BTreeMap::new();
         for (group_element, mapping) in self.group.iter().enumerate() {
+            checkpoint()?;
             let integral = transport_key(mapping, source)?;
             let complexity = self.ordering.complexity_key(integral.powers())?;
             match images.entry(complexity.clone()) {
@@ -313,6 +320,7 @@ fn derive_group(
 
     let mut cursor = 0usize;
     while cursor < discovered.len() {
+        checkpoint()?;
         let current = discovered[cursor].clone();
         for generator in generators {
             let composition = compose(&current, generator)?;
@@ -348,6 +356,7 @@ fn derive_group(
 /// If `left` is applied first and `right` second, target `j` ultimately reads
 /// source `left[right[j]]`.
 fn compose(left: &[usize], right: &[usize]) -> Result<Vec<usize>, Error> {
+    checkpoint()?;
     let mut composition = Vec::new();
     composition
         .try_reserve_exact(left.len())
@@ -380,17 +389,33 @@ fn admit_group_size(
     arity: usize,
     limits: CanonicalizationLimits,
 ) -> Result<(), Error> {
-    check_limit("group order", order, limits.max_group_order)?;
+    check_limit(
+        "group order",
+        order,
+        limits.max_group_order,
+        limits.diagnostics_enabled,
+    )?;
     let entries = order
         .checked_mul(arity)
         .ok_or(Error::ResourceCountOverflow {
             resource: "group entries",
         })?;
-    check_limit("group entries", entries, limits.max_group_entries)
+    check_limit(
+        "group entries",
+        entries,
+        limits.max_group_entries,
+        limits.diagnostics_enabled,
+    )
 }
 
-fn check_limit(resource: &'static str, requested: usize, limit: usize) -> Result<(), Error> {
-    if requested > limit {
+fn check_limit(
+    resource: &'static str,
+    requested: usize,
+    limit: usize,
+    diagnostics_enabled: bool,
+) -> Result<(), Error> {
+    checkpoint()?;
+    if diagnostics_enabled && requested > limit {
         Err(Error::ResourceLimit {
             resource,
             requested,
@@ -399,4 +424,8 @@ fn check_limit(resource: &'static str, requested: usize, limit: usize) -> Result
     } else {
         Ok(())
     }
+}
+
+pub(super) fn checkpoint() -> Result<(), Error> {
+    symbolica::utils::resources::checkpoint().map_err(Error::Resource)
 }

@@ -211,6 +211,7 @@ fn complete_checkpoint_loader_rejects_identity_changes_without_writing() {
     }
     let before = files(&path);
     let mut counts = request.clone();
+    counts.bundle_limits.diagnostics_enabled = true;
     counts.bundle_limits.max_collection_entries = 150_000;
     let error = load_generated_candidate_checkpoint::<3>(&counts, Default::default()).unwrap_err();
     assert_eq!(error.kind(), AppErrorKind::Limit);
@@ -333,6 +334,7 @@ fn complete_checkpoint_loader_preflights_aggregate_budgets_before_native_import(
     .unwrap();
     let before = files(&path);
     let mut structural = request.clone();
+    structural.bundle_limits.diagnostics_enabled = true;
     structural.bundle_limits.max_collection_entries = 200;
     let error =
         load_generated_candidate_checkpoint::<3>(&structural, Default::default()).unwrap_err();

@@ -76,19 +76,28 @@ impl SymbolicaAffineDenominatorCompiler {
                             },
                         )?;
                     } else {
-                        let requested = projection_work
-                            .groups
-                            .checked_add(external_counts.len())
-                            .and_then(|value| value.checked_add(1))
-                            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                                resource: "aggregate projection groups",
-                            })?;
-                        check_limit(
-                            "aggregate projection groups",
-                            requested,
-                            self.limits.max_projection_groups,
-                        )?;
-                        projection_work.charge(
+                        symbolica::utils::resources::checkpoint().map_err(|error| {
+                            SymbolicaAffineDenominatorError::ExactAlgebra(
+                                crate::algebra::ExactAlgebraError::Resource(error),
+                            )
+                        })?;
+                        if self.limits.diagnostics_enabled {
+                            let requested = projection_work
+                                .groups
+                                .checked_add(external_counts.len())
+                                .and_then(|value| value.checked_add(1))
+                                .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                                    resource: "aggregate projection groups",
+                                })?;
+                            check_limit(
+                                "aggregate projection groups",
+                                requested,
+                                self.limits.max_projection_groups,
+                                self.limits.diagnostics_enabled,
+                            )?;
+                        }
+                        if self.limits.diagnostics_enabled {
+                            projection_work.charge(
                             CoefficientCensus {
                                 retained_bytes: std::mem::size_of::<((usize, usize), usize)>()
                                     .checked_add(64)
@@ -102,6 +111,7 @@ impl SymbolicaAffineDenominatorCompiler {
                             self.limits,
                             "aggregate explicit scalar-product group metadata terms",
                         )?;
+                        }
                         // `BTreeMap::insert` is the first allocation for this
                         // unique group and happens only after admission.
                         external_counts.insert(pair, 1);
@@ -128,77 +138,90 @@ impl SymbolicaAffineDenominatorCompiler {
         }
 
         let groups = external_counts.len();
-        let denominator_terms = coefficient.denominator.nterms();
-        let denominator_replication_terms = groups.checked_mul(denominator_terms).ok_or(
-            SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "explicit scalar-product denominator replication terms",
-            },
-        )?;
-        let gram_operations = groups.checked_mul(2).ok_or(
-            SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "explicit scalar-product Gram operations",
-            },
-        )?;
-        projection_work.charge_structure(
-            groups,
-            denominator_replication_terms,
-            gram_operations,
-            self.limits,
-        )?;
-        projection_work.charge(
-            planned_polynomial_clone_census(&coefficient.denominator, base_count)?,
-            self.limits,
-            "aggregate explicit scalar-product denominator terms",
-        )?;
+        if self.limits.diagnostics_enabled {
+            let denominator_terms = coefficient.denominator.nterms();
+            let denominator_replication_terms = groups.checked_mul(denominator_terms).ok_or(
+                SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                    resource: "explicit scalar-product denominator replication terms",
+                },
+            )?;
+            let gram_operations = groups.checked_mul(2).ok_or(
+                SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                    resource: "explicit scalar-product Gram operations",
+                },
+            )?;
+            projection_work.charge_structure(
+                groups,
+                denominator_replication_terms,
+                gram_operations,
+                self.limits,
+            )?;
+        }
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                planned_polynomial_clone_census(&coefficient.denominator, base_count)?,
+                self.limits,
+                "aggregate explicit scalar-product denominator terms",
+            )?;
+        }
         let denominator = project_polynomial_prefix(
             &coefficient.denominator,
             &self.coefficients.template().denominator,
             base_count,
             self.limits.max_projected_exponent_entries,
+            self.limits.diagnostics_enabled,
         )?;
-        projection_work.charge(
-            multiply_census(
-                polynomial_census(&denominator)?,
-                groups,
-                "explicit scalar-product denominator replication census",
-            )?,
-            self.limits,
-            "aggregate explicit scalar-product denominator replication terms",
-        )?;
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                multiply_census(
+                    polynomial_census(&denominator)?,
+                    groups,
+                    "explicit scalar-product denominator replication census",
+                )?,
+                self.limits,
+                "aggregate explicit scalar-product denominator replication terms",
+            )?;
+        }
         // Both allocations below are charged with the complete source support;
         // this safely overbounds the disjoint external/residual partition.
-        projection_work.charge(
-            planned_polynomial_clone_census(&coefficient.numerator, base_count)?,
-            self.limits,
-            "aggregate explicit scalar-product external group terms",
-        )?;
-        projection_work.charge(
-            planned_polynomial_clone_census(
-                &coefficient.numerator,
-                self.combined.parameter_names().len(),
-            )?,
-            self.limits,
-            "aggregate explicit scalar-product residual terms",
-        )?;
-        let external_group_metadata_bytes = groups
-            .checked_mul(
-                std::mem::size_of::<((usize, usize), CoefficientPolynomial)>()
-                    .checked_add(64)
-                    .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                        resource: "explicit scalar-product group metadata bytes",
-                    })?,
-            )
-            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "explicit scalar-product group metadata bytes",
-            })?;
-        projection_work.charge(
-            CoefficientCensus {
-                retained_bytes: external_group_metadata_bytes,
-                ..CoefficientCensus::default()
-            },
-            self.limits,
-            "aggregate explicit scalar-product group metadata terms",
-        )?;
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                planned_polynomial_clone_census(&coefficient.numerator, base_count)?,
+                self.limits,
+                "aggregate explicit scalar-product external group terms",
+            )?;
+        }
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                planned_polynomial_clone_census(
+                    &coefficient.numerator,
+                    self.combined.parameter_names().len(),
+                )?,
+                self.limits,
+                "aggregate explicit scalar-product residual terms",
+            )?;
+        }
+        if self.limits.diagnostics_enabled {
+            let external_group_metadata_bytes = groups
+                .checked_mul(
+                    std::mem::size_of::<((usize, usize), CoefficientPolynomial)>()
+                        .checked_add(64)
+                        .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                            resource: "explicit scalar-product group metadata bytes",
+                        })?,
+                )
+                .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                    resource: "explicit scalar-product group metadata bytes",
+                })?;
+            projection_work.charge(
+                CoefficientCensus {
+                    retained_bytes: external_group_metadata_bytes,
+                    ..CoefficientCensus::default()
+                },
+                self.limits,
+                "aggregate explicit scalar-product group metadata terms",
+            )?;
+        }
 
         let mut external_groups = BTreeMap::<(usize, usize), CoefficientPolynomial>::new();
         for (pair, count) in external_counts {
@@ -252,33 +275,39 @@ impl SymbolicaAffineDenominatorCompiler {
             self.combined.zero()
         } else {
             let numerator: Coefficient = residual_numerator.into();
-            projection_work.charge(
-                planned_polynomial_clone_census(
-                    &coefficient.denominator,
-                    self.combined.parameter_names().len(),
-                )?,
-                self.limits,
-                "aggregate explicit scalar-product residual denominator terms",
-            )?;
+            if self.limits.diagnostics_enabled {
+                projection_work.charge(
+                    planned_polynomial_clone_census(
+                        &coefficient.denominator,
+                        self.combined.parameter_names().len(),
+                    )?,
+                    self.limits,
+                    "aggregate explicit scalar-product residual denominator terms",
+                )?;
+            }
             let denominator_coefficient: Coefficient = coefficient.denominator.clone().into();
-            projection_work.charge(
-                exact_operation_allocation_envelope(
-                    &numerator,
-                    &denominator_coefficient,
-                    BinaryOperation::Divide,
-                    self.combined.parameter_names().len(),
-                )?
-                .census,
-                self.limits,
-                "aggregate explicit scalar-product residual division terms",
-            )?;
+            if self.limits.diagnostics_enabled {
+                projection_work.charge(
+                    exact_operation_allocation_envelope(
+                        &numerator,
+                        &denominator_coefficient,
+                        BinaryOperation::Divide,
+                        self.combined.parameter_names().len(),
+                    )?
+                    .census,
+                    self.limits,
+                    "aggregate explicit scalar-product residual division terms",
+                )?;
+            }
             self.checked_div(&numerator, &denominator_coefficient, work)?
         };
-        projection_work.charge(
-            planned_coefficient_clone_census(self.coefficients.template(), self.base_count())?,
-            self.limits,
-            "aggregate explicit scalar-product accumulator terms",
-        )?;
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                planned_coefficient_clone_census(self.coefficients.template(), self.base_count())?,
+                self.limits,
+                "aggregate explicit scalar-product accumulator terms",
+            )?;
+        }
         let external_zero = self.coefficients.zero();
         let mut external_constant = external_zero;
         for ((left, right), numerator) in external_groups {
@@ -302,17 +331,19 @@ impl SymbolicaAffineDenominatorCompiler {
             )?;
         }
         let lifted = self.lift_base_coefficient(&external_constant, projection_work)?;
-        projection_work.charge(
-            exact_operation_allocation_envelope(
-                &residual,
-                &lifted,
-                BinaryOperation::Add,
-                self.combined.parameter_names().len(),
-            )?
-            .census,
-            self.limits,
-            "aggregate explicit scalar-product lifted addition terms",
-        )?;
+        if self.limits.diagnostics_enabled {
+            projection_work.charge(
+                exact_operation_allocation_envelope(
+                    &residual,
+                    &lifted,
+                    BinaryOperation::Add,
+                    self.combined.parameter_names().len(),
+                )?
+                .census,
+                self.limits,
+                "aggregate explicit scalar-product lifted addition terms",
+            )?;
+        }
         residual = self.checked_add(&residual, &lifted, work)?;
         Ok(residual)
     }

@@ -75,6 +75,7 @@ impl<S: BuildHasher> GuardIndex<S> {
             .try_reserve_exact(output.len())
             .map_err(|_| allocation(output.len()))?;
         for (index, value) in output.iter().enumerate() {
+            symbolica::utils::resources::checkpoint()?;
             let hash = hasher.hash_one(value);
             previous.push(heads.insert(hash, index).unwrap_or(END));
         }
@@ -94,10 +95,12 @@ impl<S: BuildHasher> GuardIndex<S> {
         condition: &Coefficient,
         mut admit: impl FnMut(&Coefficient) -> Result<(), ReductionError>,
     ) -> Result<usize, ReductionError> {
+        symbolica::utils::resources::checkpoint()?;
         let hash = self.hasher.hash_one(condition);
         let head = self.heads.get(&hash).copied().unwrap_or(END);
         let mut index = head;
         while index != END {
+            symbolica::utils::resources::checkpoint()?;
             if output[index] == *condition {
                 return Ok(index);
             }

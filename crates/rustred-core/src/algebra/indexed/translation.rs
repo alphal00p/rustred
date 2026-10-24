@@ -8,7 +8,7 @@ use crate::algebra::{Coefficient, CoefficientPolynomial, validate_polynomial_on_
 use super::context::IndexedCoefficientContext;
 use super::error::IndexedAlgebraError;
 use super::limits::{
-    IndexedAlgebraLimits, ceil_log2, check_limit, checked_indexed_add, checked_indexed_mul,
+    IndexedAlgebraLimits, ceil_log2, check_limit, estimated_indexed_add, estimated_indexed_mul,
     integer_magnitude_bits, verify_polynomial_execution_envelope,
 };
 use super::value::{IndexedCoefficient, IndexedPolynomial};
@@ -165,22 +165,25 @@ impl IndexedCoefficientContext {
                 }
                 let exponent = usize::from(exponents[base_count + position]);
                 if exponent != 0 {
-                    power_operation_bound = checked_indexed_add(
+                    power_operation_bound = estimated_indexed_add(
                         "parametric translation power operations",
                         power_operation_bound,
                         term_bound,
+                        limits.diagnostics_enabled || limits.exact_algebra.diagnostics_enabled,
                     )?;
                 }
-                term_bound = checked_indexed_mul(
+                term_bound = estimated_indexed_mul(
                     "parametric translation output terms",
                     term_bound,
                     exponent + 1,
+                    limits.diagnostics_enabled || limits.exact_algebra.diagnostics_enabled,
                 )?;
             }
-            output_term_bound = checked_indexed_add(
+            output_term_bound = estimated_indexed_add(
                 "parametric translation output terms",
                 output_term_bound,
                 term_bound,
+                limits.diagnostics_enabled || limits.exact_algebra.diagnostics_enabled,
             )?;
             let mut requested = integer_magnitude_bits(coefficient);
             for (position, offset) in shift.iter().enumerate() {
@@ -218,6 +221,7 @@ impl IndexedCoefficientContext {
                 "parametric translation integer bits",
                 requested,
                 limits.max_specialization_integer_bits,
+                limits.diagnostics_enabled,
             )?;
             largest_contribution_bits = largest_contribution_bits.max(requested);
         }
@@ -225,11 +229,13 @@ impl IndexedCoefficientContext {
             "parametric translation output terms",
             output_term_bound,
             limits.exact_algebra.max_polynomial_terms,
+            limits.exact_algebra.diagnostics_enabled,
         )?;
         check_limit(
             "parametric translation power operations",
             power_operation_bound,
             limits.max_specialization_power_operations,
+            limits.diagnostics_enabled,
         )?;
 
         // Expanding (n+a)^e produces coefficients containing binomial(e,k)
@@ -246,11 +252,13 @@ impl IndexedCoefficientContext {
             "parametric translation integer bits",
             collected_bits,
             limits.max_specialization_integer_bits,
+            limits.diagnostics_enabled,
         )?;
-        let output_exponent_entry_bound = checked_indexed_mul(
+        let output_exponent_entry_bound = estimated_indexed_mul(
             "parametric translation output exponent entries",
             output_term_bound,
             self.variables.len(),
+            limits.diagnostics_enabled || limits.exact_algebra.diagnostics_enabled,
         )?;
         Ok(TranslationPreflight {
             output_term_bound,

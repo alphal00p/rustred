@@ -141,11 +141,13 @@ fn decode_affine_domain(
         indices.push(index);
     }
     let equation_count = reader.count("affine equations")?;
-    check_limit(
-        "affine equations",
-        equation_count,
-        reader.limits().rule_cells.max_guards,
-    )?;
+    if reader.limits().rule_cells.diagnostics_enabled {
+        check_limit(
+            "affine equations",
+            equation_count,
+            reader.limits().rule_cells.max_guards,
+        )?;
+    }
     if equation_count == 0 {
         return Err(invalid("empty affine equations"));
     }
@@ -169,7 +171,7 @@ fn decode_affine_domain(
             .ok_or(ArtifactPersistenceError::ResourceCountOverflow {
                 resource: "affine primitive matrix entries",
             })?;
-    check_limit(
+    reader.limits().check_count(
         "affine primitive matrix entries",
         entries,
         reader.limits().max_collection_entries,
@@ -308,7 +310,7 @@ pub(super) fn encode(
     let mut buckets: BTreeMap<ParentKey, Vec<usize>> = BTreeMap::new();
     let mut parents: Vec<(&RuleCell, ParentKey)> = Vec::new();
     let mut cells = Vec::with_capacity(artifact.rule_cells().len());
-    check_limit(
+    writer.limits().check_count(
         "combined cells",
         artifact.rule_cells().len(),
         writer.limits().max_collection_entries,
@@ -471,11 +473,13 @@ pub(super) fn decode_with_scope(
     let mut aggregate_requests = 0usize;
     for _ in 0..parent_count {
         let count = reader.count("combined fixed target coordinates")?;
-        check_limit(
-            "combined fixed target coordinates",
-            count,
-            reader.limits().rule_cells.max_fixed_restrictions,
-        )?;
+        if reader.limits().rule_cells.diagnostics_enabled {
+            check_limit(
+                "combined fixed target coordinates",
+                count,
+                reader.limits().rule_cells.max_fixed_restrictions,
+            )?;
+        }
         let mut fixed: Vec<FixedIndexRestriction> =
             try_vec(count, "combined fixed target coordinates")?;
         for _ in 0..count {
@@ -492,11 +496,13 @@ pub(super) fn decode_with_scope(
             _ => return Err(invalid("affine-domain presence tag")),
         };
         let count = reader.count("affine exclusions")?;
-        check_limit(
-            "affine exclusions",
-            count,
-            reader.limits().rule_cells.max_guards,
-        )?;
+        if reader.limits().rule_cells.diagnostics_enabled {
+            check_limit(
+                "affine exclusions",
+                count,
+                reader.limits().rule_cells.max_guards,
+            )?;
+        }
         let mut affine_exclusions = try_vec(count, "affine exclusions")?;
         for _ in 0..count {
             affine_exclusions.push(decode_affine_domain(reader, context, arity)?);
@@ -510,19 +516,23 @@ pub(super) fn decode_with_scope(
                 resource: "aggregate combined source requests",
             },
         )?;
-        check_limit(
-            "aggregate combined source requests",
-            aggregate_requests,
-            reader
-                .limits()
-                .translated_sources
-                .max_requested_source_translations,
-        )?;
-        check_limit(
-            "combined source weights",
-            count,
-            reader.limits().rule_derivation.max_source_combination_terms,
-        )?;
+        if reader.limits().translated_sources.diagnostics_enabled {
+            check_limit(
+                "aggregate combined source requests",
+                aggregate_requests,
+                reader
+                    .limits()
+                    .translated_sources
+                    .max_requested_source_translations,
+            )?;
+        }
+        if reader.limits().rule_derivation.diagnostics_enabled {
+            check_limit(
+                "combined source weights",
+                count,
+                reader.limits().rule_derivation.max_source_combination_terms,
+            )?;
+        }
         let mut requests: Vec<(TranslatedSourceRequest, IndexedCoefficient)> =
             try_vec(count, "combined original source requests")?;
         for _ in 0..count {
@@ -551,11 +561,13 @@ pub(super) fn decode_with_scope(
             requests.push((request, weight));
         }
         let count = reader.count("combined retained conditions")?;
-        check_limit(
-            "combined retained conditions",
-            count,
-            reader.limits().rule_cells.max_guards,
-        )?;
+        if reader.limits().rule_cells.diagnostics_enabled {
+            check_limit(
+                "combined retained conditions",
+                count,
+                reader.limits().rule_cells.max_guards,
+            )?;
+        }
         let mut conditions = try_vec(count, "combined retained conditions")?;
         for _ in 0..count {
             conditions.push(decode_indexed_polynomial(
@@ -577,22 +589,26 @@ pub(super) fn decode_with_scope(
         return Err(invalid("empty combined source parents with cells"));
     }
     let geometry = reader.limits().cover_replay;
-    check_limit(
-        "combined mathematical boxes",
-        count,
-        geometry.max_requested_boxes,
-    )?;
+    if geometry.diagnostics_enabled {
+        check_limit(
+            "combined mathematical boxes",
+            count,
+            geometry.max_requested_boxes,
+        )?;
+    }
     let coordinate_cells = count
         .checked_mul(arity)
         .and_then(|value| value.checked_mul(2))
         .ok_or(ArtifactPersistenceError::ResourceCountOverflow {
             resource: "combined box coordinate cells",
         })?;
-    check_limit(
-        "combined box coordinate cells",
-        coordinate_cells,
-        geometry.max_requested_box_coordinate_cells,
-    )?;
+    if geometry.diagnostics_enabled {
+        check_limit(
+            "combined box coordinate cells",
+            coordinate_cells,
+            geometry.max_requested_box_coordinate_cells,
+        )?;
+    }
     let mut cells = try_vec(count, "combined cells")?;
     let mut used = try_vec(parent_count, "combined parent references")?;
     used.resize(parent_count, false);
@@ -641,11 +657,13 @@ pub(super) fn decode_with_scope(
         }
         let application = decode_box(reader, arity)?;
         let term_count = reader.count("combined RHS terms")?;
-        check_limit(
-            "combined RHS terms",
-            term_count,
-            reader.limits().rule_cells.max_retained_terms,
-        )?;
+        if reader.limits().rule_cells.diagnostics_enabled {
+            check_limit(
+                "combined RHS terms",
+                term_count,
+                reader.limits().rule_cells.max_retained_terms,
+            )?;
+        }
         let mut rhs = try_vec(term_count, "combined RHS terms")?;
         for _ in 0..term_count {
             let shift = decode_i64_vec(reader, "combined RHS shift")?;

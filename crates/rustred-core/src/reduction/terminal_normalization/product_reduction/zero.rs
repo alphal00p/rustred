@@ -52,7 +52,7 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
         charge(
             &mut statistics.zero_analyses,
             1,
-            self.limits.max_zero_analyses,
+            self.limits.diagnostic_limit(self.limits.max_zero_analyses),
             "zero analyses",
         )?;
         let mut limits = self.limits.zero;

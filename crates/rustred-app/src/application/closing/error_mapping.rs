@@ -8,11 +8,17 @@ use rustred::sector;
 use super::super::error::{AppError, AppErrorKind};
 
 pub(super) fn map_artifact_load_error(error: ArtifactPersistenceError) -> AppError {
+    if let Some(resource) = AppError::resource_cause(&error) {
+        return AppError::resource(resource);
+    }
     let kind = artifact_persistence_error_kind(&error, ArtifactCodecOperation::Load);
     AppError::new(kind, format!("invalid closing artifact: {error}"))
 }
 
 pub(super) fn map_artifact_encoding_error(error: ArtifactPersistenceError) -> AppError {
+    if let Some(resource) = AppError::resource_cause(&error) {
+        return AppError::resource(resource);
+    }
     let kind = artifact_persistence_error_kind(&error, ArtifactCodecOperation::Encode);
     AppError::new(kind, format!("cannot encode closing artifact: {error}"))
 }
@@ -79,7 +85,8 @@ fn trusted_artifact_encoding_error_kind(error: &ArtifactError) -> AppErrorKind {
 fn artifact_validation_error_kind(error: &ArtifactError) -> AppErrorKind {
     match error {
         ArtifactError::UnsupportedSchema { .. } => AppErrorKind::Schema,
-        ArtifactError::ResourceCountOverflow { .. }
+        ArtifactError::Resources(_)
+        | ArtifactError::ResourceCountOverflow { .. }
         | ArtifactError::ResourceBudgetExhausted { .. }
         | ArtifactError::ResourceLimit { .. }
         | ArtifactError::AllocationFailure { .. } => AppErrorKind::Limit,
@@ -153,13 +160,32 @@ pub(in crate::application) fn map_reduction_error(
     context: &'static str,
     error: ReductionError,
 ) -> AppError {
+    if let Some(resource) = resource_limit_error(&error) {
+        return AppError::resource(resource.clone());
+    }
     let kind = reduction_error_kind(&error);
     AppError::new(kind, format!("{context}: {error}"))
 }
 
+/// Preserve the native resource payload through nested native error wrappers;
+/// an allocation refusal may no longer be observable after stack unwinding.
+fn resource_limit_error<'a>(
+    error: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a symbolica::utils::resources::ResourceLimitError> {
+    let mut current = Some(error);
+    while let Some(error) = current {
+        if let Some(resource) = error.downcast_ref() {
+            return Some(resource);
+        }
+        current = error.source();
+    }
+    None
+}
+
 fn reduction_error_kind(error: &ReductionError) -> AppErrorKind {
     match error {
-        ReductionError::RuleApplicationLimit { .. }
+        ReductionError::Resources(_)
+        | ReductionError::RuleApplicationLimit { .. }
         | ReductionError::CoalescingAdditionLimit { .. }
         | ReductionError::AllocationFailure { .. }
         | ReductionError::CacheLimit { .. }
@@ -221,7 +247,8 @@ fn zero_analysis_error_is_limit(error: &rustred::sector::zero::Error) -> bool {
 fn exact_algebra_error_is_limit(error: &ExactAlgebraError) -> bool {
     matches!(
         error,
-        ExactAlgebraError::ExponentLimit { .. }
+        ExactAlgebraError::Resource(_)
+            | ExactAlgebraError::ExponentLimit { .. }
             | ExactAlgebraError::ExponentArithmeticOverflow { .. }
             | ExactAlgebraError::ResourceLimit { .. }
             | ExactAlgebraError::ResourceCountOverflow { .. }
@@ -318,7 +345,8 @@ fn identity_condition_error_is_limit(error: &rustred::identity::IdentityConditio
     use rustred::identity::IdentityConditionError;
 
     match error {
-        IdentityConditionError::ResourceLimit { .. }
+        IdentityConditionError::Resources(_)
+        | IdentityConditionError::ResourceLimit { .. }
         | IdentityConditionError::ResourceCountOverflow { .. } => true,
         IdentityConditionError::Coefficient(error) => indexed_algebra_error_is_limit(error),
         IdentityConditionError::MissingSource => false,
@@ -370,7 +398,8 @@ fn parametric_rule_error_kind(
     use rustred::foundry::parametric::ParametricRuleError;
 
     match error {
-        ParametricRuleError::ResourceCountOverflow { .. }
+        ParametricRuleError::Resources(_)
+        | ParametricRuleError::ResourceCountOverflow { .. }
         | ParametricRuleError::ResourceLimit { .. }
         | ParametricRuleError::AllocationFailure { .. } => AppErrorKind::Limit,
         ParametricRuleError::IndexedAlgebra(error) => untrusted_indexed_algebra_error_kind(error),
@@ -617,6 +646,47 @@ mod tests {
         ];
         for error in resource_errors {
             assert_eq!(reduction_error_kind(&error), AppErrorKind::Limit);
+        }
+    }
+
+    #[test]
+    fn nested_resource_causes_survive_application_mapping() {
+        use symbolica::utils::resources::ResourceLimitError;
+        let cause = ResourceLimitError::Memory {
+            rss_bytes: 100,
+            additional_bytes: 20,
+            limit_bytes: 110,
+        };
+        for error in [
+            ReductionError::Resources(cause.clone()),
+            ReductionError::ExactAlgebra(ExactAlgebraError::Resource(cause.clone())),
+            ReductionError::IndexedAlgebra(IndexedAlgebraError::ExactAlgebra(
+                ExactAlgebraError::Resource(cause.clone()),
+            )),
+        ] {
+            let mapped = map_reduction_error("resource test", error);
+            assert_eq!(mapped.kind(), AppErrorKind::Limit);
+            assert_eq!(mapped.resource_limit_error(), Some(&cause));
+        }
+        for map in [map_artifact_load_error, map_artifact_encoding_error] {
+            for error in [
+                ArtifactPersistenceError::NativeTransport(
+                    rustred::persistence::BinaryIoError::Resource(cause.clone()),
+                ),
+                ArtifactPersistenceError::Artifact(ArtifactError::Resources(cause.clone())),
+                ArtifactPersistenceError::Artifact(ArtifactError::ParametricRule(
+                    rustred::foundry::parametric::ParametricRuleError::Resources(cause.clone()),
+                )),
+                ArtifactPersistenceError::Artifact(ArtifactError::Identity(
+                    rustred::identity::ParametricIbpError::IdentityCondition(
+                        rustred::identity::IdentityConditionError::Resources(cause.clone()),
+                    ),
+                )),
+            ] {
+                let mapped = map(error);
+                assert_eq!(mapped.resource_limit_error(), Some(&cause));
+                assert_eq!(mapped.kind(), AppErrorKind::Limit);
+            }
         }
     }
 

@@ -1,13 +1,15 @@
-//! Bounded sparse translation of explicitly selected completed source rows.
+//! Sparse translation of explicitly selected completed source rows.
+
+use symbolica::utils::resources;
 
 use super::super::model::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use super::construction::{
-    check_limit, checked_add, checked_sum, retained_condition_source_entry_bound_for,
+    allocation_for, checked_add, checked_sum, retained_condition_source_entry_bound_for,
     retained_coordinate_cell_bound_for, translate_source,
 };
 use super::error::TranslatedSourceError;
 use super::limits::TranslatedSourceLimits;
-use super::model::{SelectedTranslatedSourceBatch, TranslatedSourceRequest};
+use super::model::{SelectedTranslatedSourceBatch, TranslatedSource, TranslatedSourceRequest};
 
 const REQUESTED_TRANSLATIONS: &str = "requested selected source translations";
 const CANONICAL_REQUESTS: &str = "canonical selected source translations";
@@ -25,14 +27,15 @@ impl ParametricIbpGenerator<'_> {
     /// Requests may arrive in any order. Before symbolic work they are sorted
     /// offset-major and source-chronology-minor, then exact duplicate pairs
     /// are removed. The returned requests and sources are one-to-one in that
-    /// canonical order. Every aggregate allocation and retained exact payload
-    /// is bounded before the first relation is translated.
+    /// canonical order. Requested allocation headroom and any explicitly enabled
+    /// aggregate diagnostics are checked before the first relation is translated.
     pub fn translate_selected_completed_source_rows(
         &self,
         completed: &CompletedIbpSourceRows,
         requests: impl IntoIterator<Item = TranslatedSourceRequest>,
         limits: TranslatedSourceLimits,
     ) -> Result<SelectedTranslatedSourceBatch, TranslatedSourceError> {
+        resources::checkpoint()?;
         self.validate_completed_scope(completed)?;
         if completed.relations.is_empty() {
             return Err(TranslatedSourceError::EmptySourceRows);
@@ -45,7 +48,7 @@ impl ParametricIbpGenerator<'_> {
         for request in requests {
             let request_ordinal = requested_count;
             requested_count = checked_add(REQUESTED_TRANSLATIONS, requested_count, 1)?;
-            check_limit(
+            limits.check_limit(
                 REQUESTED_TRANSLATIONS,
                 requested_count,
                 limits.max_requested_source_translations,
@@ -64,6 +67,7 @@ impl ParametricIbpGenerator<'_> {
                     source_count,
                 });
             }
+            allocation_for::<TranslatedSourceRequest>(1, CANONICAL_REQUESTS)?;
             canonical_requests.try_reserve(1).map_err(|_| {
                 TranslatedSourceError::AllocationFailure {
                     resource: CANONICAL_REQUESTS,
@@ -75,17 +79,19 @@ impl ParametricIbpGenerator<'_> {
         if canonical_requests.is_empty() {
             return Err(TranslatedSourceError::EmptySourceRequests);
         }
+        resources::checkpoint()?;
         canonical_requests.sort_unstable();
         canonical_requests.dedup();
+        resources::checkpoint()?;
 
         let translated_source_count = canonical_requests.len();
-        check_limit(
+        limits.check_limit(
             TRANSLATED_SOURCES,
             translated_source_count,
             limits.max_translated_sources,
         )?;
         let canonical_offset_count = count_canonical_offsets(&canonical_requests)?;
-        check_limit(
+        limits.check_limit(
             CANONICAL_OFFSETS,
             canonical_offset_count,
             limits.max_requested_offsets,
@@ -97,7 +103,7 @@ impl ParametricIbpGenerator<'_> {
                 .iter()
                 .map(|request| completed.relations[request.source_ordinal()].terms().len()),
         )?;
-        check_limit(
+        limits.check_limit(
             TRANSLATED_TERMS,
             translated_terms,
             limits.max_translated_term_entries,
@@ -110,7 +116,7 @@ impl ParametricIbpGenerator<'_> {
                     .len()
             }),
         )?;
-        check_limit(
+        limits.check_limit(
             TRANSLATED_CONDITIONS,
             translated_conditions,
             limits.max_translated_condition_entries,
@@ -123,7 +129,7 @@ impl ParametricIbpGenerator<'_> {
                     request.offset(),
                 )
             }))?;
-        check_limit(
+        limits.check_limit(
             RETAINED_CONDITION_SOURCES,
             retained_condition_sources,
             limits.max_retained_condition_source_entries,
@@ -141,13 +147,14 @@ impl ParametricIbpGenerator<'_> {
                 )
             }),
         )?;
-        check_limit(
+        limits.check_limit(
             RETAINED_COORDINATE_CELLS,
             retained_coordinate_cells,
             limits.max_retained_index_coordinate_cells,
         )?;
 
         let mut translated = Vec::new();
+        allocation_for::<TranslatedSource>(translated_source_count, TRANSLATED_SOURCES)?;
         translated
             .try_reserve_exact(translated_source_count)
             .map_err(|_| TranslatedSourceError::AllocationFailure {
@@ -155,6 +162,7 @@ impl ParametricIbpGenerator<'_> {
                 requested: translated_source_count,
             })?;
         for (canonical_request_ordinal, request) in canonical_requests.iter().enumerate() {
+            resources::checkpoint()?;
             let source_ordinal = request.source_ordinal();
             translated.push(
                 translate_source(
@@ -170,8 +178,10 @@ impl ParametricIbpGenerator<'_> {
                     error,
                 })?,
             );
+            resources::checkpoint()?;
         }
 
+        resources::checkpoint()?;
         Ok(SelectedTranslatedSourceBatch {
             family_fingerprint: self.source_scope.family_fingerprint.clone(),
             context_fingerprint: self.source_scope.context_fingerprint.clone(),
@@ -189,6 +199,7 @@ fn count_canonical_offsets(
     let mut count = 0usize;
     let mut previous = None;
     for request in requests {
+        resources::checkpoint()?;
         if previous.is_none_or(|offset| offset != request.offset()) {
             count = checked_add(CANONICAL_OFFSETS, count, 1)?;
             previous = Some(request.offset());

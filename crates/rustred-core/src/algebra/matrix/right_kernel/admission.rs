@@ -4,6 +4,7 @@ use symbolica::prelude::{Integer, Matrix, Rational};
 /// Exact-work budgets for one dense rational right-kernel query.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RightKernelLimits {
+    pub(crate) diagnostics_enabled: bool,
     pub(crate) max_rows: usize,
     pub(crate) max_columns: usize,
     pub(crate) max_entries: usize,
@@ -16,6 +17,7 @@ pub(crate) struct RightKernelLimits {
 /// Typed failures at the private Symbolica right-kernel boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RightKernelError {
+    Resource(symbolica::utils::resources::ResourceLimitError),
     ZeroColumns,
     Shape {
         rows: usize,
@@ -57,7 +59,12 @@ pub(super) fn preflight_rref_bits(
     rows: usize,
     columns: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<usize, RightKernelError> {
+    checkpoint()?;
+    if !diagnostics_enabled {
+        return Ok(0);
+    }
     let rank_dimension = rows.min(columns);
     let maximum_entry = entries.iter().copied().max().unwrap_or(1);
     let entry_bits = usize::try_from(u16::BITS - maximum_entry.leading_zeros())
@@ -80,18 +87,38 @@ pub(super) fn preflight_rref_bits(
         2,
         "RREF integer bit bound",
     )?;
-    check_limit("RREF integer bits", temporary_bits, limit)?;
+    check_limit(
+        "RREF integer bits",
+        temporary_bits,
+        limit,
+        diagnostics_enabled,
+    )?;
     Ok(minor_bits)
 }
 
 pub(super) fn validate_rational_matrix_bits(
     matrix: &Matrix<RationalField>,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), RightKernelError> {
+    checkpoint()?;
+    if !diagnostics_enabled {
+        return Ok(());
+    }
     for row in matrix.row_iter() {
         for value in row {
-            check_integer_bits(value.numerator_ref(), "RREF integer bits", limit)?;
-            check_integer_bits(value.denominator_ref(), "RREF integer bits", limit)?;
+            check_integer_bits(
+                value.numerator_ref(),
+                "RREF integer bits",
+                limit,
+                diagnostics_enabled,
+            )?;
+            check_integer_bits(
+                value.denominator_ref(),
+                "RREF integer bits",
+                limit,
+                diagnostics_enabled,
+            )?;
         }
     }
     Ok(())
@@ -101,8 +128,18 @@ pub(super) fn check_integer_bits(
     integer: &Integer,
     resource: &'static str,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), RightKernelError> {
-    check_limit(resource, integer_bit_length(integer)?, limit)
+    checkpoint()?;
+    if !diagnostics_enabled {
+        return Ok(());
+    }
+    check_limit(
+        resource,
+        integer_bit_length(integer)?,
+        limit,
+        diagnostics_enabled,
+    )
 }
 
 fn integer_bit_length(integer: &Integer) -> Result<usize, RightKernelError> {
@@ -130,8 +167,10 @@ pub(super) fn check_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), RightKernelError> {
-    if requested > limit {
+    checkpoint()?;
+    if diagnostics_enabled && requested > limit {
         Err(RightKernelError::ResourceLimit {
             resource,
             requested,
@@ -140,6 +179,10 @@ pub(super) fn check_limit(
     } else {
         Ok(())
     }
+}
+
+pub(super) fn checkpoint() -> Result<(), RightKernelError> {
+    symbolica::utils::resources::checkpoint().map_err(RightKernelError::Resource)
 }
 
 fn checked_add(
@@ -164,6 +207,7 @@ pub(super) fn try_vec<T>(
     capacity: usize,
     resource: &'static str,
 ) -> Result<Vec<T>, RightKernelError> {
+    checkpoint()?;
     let mut values = Vec::new();
     values
         .try_reserve_exact(capacity)

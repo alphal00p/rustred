@@ -283,7 +283,15 @@ impl fmt::Display for CandidateReductionError {
         }
     }
 }
-impl std::error::Error for CandidateReductionError {}
+impl std::error::Error for CandidateReductionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Algebra(error) => Some(error),
+            Self::Application(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 impl From<IndexedAlgebraError> for CandidateReductionError {
     fn from(e: IndexedAlgebraError) -> Self {
         Self::Algebra(e)

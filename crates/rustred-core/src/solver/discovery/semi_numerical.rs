@@ -19,7 +19,8 @@ use symbolica::domains::finite_field::{
 #[cfg(test)]
 use symbolica::domains::{Field, Ring};
 use symbolica::poly::reconstruction::{
-    ReconstructionMethod, ReconstructionOptions, reconstruct_rational_function_over_q,
+    ReconstructionError, ReconstructionMethod, ReconstructionOptions,
+    reconstruct_rational_function_over_q_fallible,
 };
 #[cfg(test)]
 use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
@@ -60,6 +61,7 @@ pub(super) fn materialize<const N: usize>(
     order: &IntegralOrder<N>,
     target_column: usize,
     variables: &FrameVariables,
+    diagnostics_enabled: bool,
     max_degree: u16,
     max_probes: usize,
     max_attempts: usize,
@@ -72,6 +74,7 @@ pub(super) fn materialize<const N: usize>(
         order,
         target_column,
         variables,
+        diagnostics_enabled,
         max_degree,
         max_probes,
         max_attempts,
@@ -91,6 +94,7 @@ fn materialize_with_support<const N: usize>(
     order: &IntegralOrder<N>,
     target_column: usize,
     variables: &FrameVariables,
+    diagnostics_enabled: bool,
     max_degree: u16,
     max_probes: usize,
     max_attempts: usize,
@@ -111,13 +115,18 @@ fn materialize_with_support<const N: usize>(
     }
     let reconstruction_variables = variables.active_variables();
     let options = ReconstructionOptions {
-        max_degree,
+        diagnostics_enabled,
+        max_degree: if diagnostics_enabled {
+            max_degree
+        } else {
+            ReconstructionOptions::default().max_degree
+        },
         max_probes,
         max_attempts,
         verification_points: 3,
         ..Default::default()
     };
-    if max_primes < 2 {
+    if diagnostics_enabled && max_primes < 2 {
         return Err(MaterializationError::SemiNumericalReconstruction(
             "max_primes must be at least two for an independent verification image".into(),
         ));
@@ -167,6 +176,8 @@ fn materialize_with_support<const N: usize>(
     for &column in &candidate_columns {
         let integral = &columns[column];
         let mut black_box = |field: &Zp64, point: &[Fp]| {
+            symbolica::utils::resources::checkpoint()
+                .map_err(ReconstructionError::ResourceLimit)?;
             let key = (
                 field.get_prime(),
                 point.iter().map(|value| *value.inner()).collect::<Vec<_>>(),
@@ -174,33 +185,48 @@ fn materialize_with_support<const N: usize>(
             let image = cache
                 .entry(key)
                 .or_insert_with(|| frame.target_row(target_column, field, point));
+            symbolica::utils::resources::checkpoint()
+                .map_err(ReconstructionError::ResourceLimit)?;
             let Some(image) = image.as_ref() else {
-                return None;
+                return Ok(None);
             };
             if let Some(expected) = generic_pivots.as_ref() {
                 if expected != &image.pivots {
-                    return None;
+                    return Ok(None);
                 }
             } else {
                 generic_pivots = Some(image.pivots.clone());
             }
-            Some(
+            Ok(Some(
                 image
                     .row
                     .iter()
                     .find(|(id, _)| *id as usize == column)
                     .map_or_else(|| field.to_element(0), |(_, value)| *value),
-            )
+            ))
         };
-        let reconstruction = reconstruct_rational_function_over_q(
+        let reconstruction = reconstruct_rational_function_over_q_fallible(
             reconstruction_variables.clone(),
             &mut black_box,
             ReconstructionMethod::Automatic,
             &options,
-            max_primes,
+            if diagnostics_enabled { max_primes } else { 2 },
         );
         let (reconstructed, stats) = match reconstruction {
             Ok(value) => value,
+            Err(ReconstructionError::ResourceLimit(error)) => {
+                return Err(MaterializationError::Resources(error));
+            }
+            Err(error @ ReconstructionError::OracleFailure(_)) => {
+                return Err(reconstruction_error(
+                    error,
+                    column,
+                    target_column,
+                    rows.len(),
+                    columns.len(),
+                    reconstruction_variables.len(),
+                ));
+            }
             Err(error) => {
                 if exact_support.is_none() {
                     exact_support = Some(exact_replay(
@@ -213,6 +239,7 @@ fn materialize_with_support<const N: usize>(
                         &mut observe,
                     )
                     .map_err(|replay| {
+                        if matches!(&replay, MaterializationError::Resources(_)) { return replay; }
                         MaterializationError::SemiNumericalReconstruction(format!(
                             "exact support replay failed after Symbolica reconstruction miss: {replay}"
                         ))
@@ -244,6 +271,9 @@ fn materialize_with_support<const N: usize>(
         let restored = variables
             .restore_coefficient(&reconstructed)
             .map_err(|error| {
+                if matches!(&error, MaterializationError::Resources(_)) {
+                    return error;
+                }
                 MaterializationError::SemiNumericalReconstruction(error.to_string())
             })?;
         if !restored.is_zero() {
@@ -275,6 +305,9 @@ fn materialize_with_support<const N: usize>(
             &mut observe,
         )
         .map_err(|error| {
+            if matches!(&error, MaterializationError::Resources(_)) {
+                return error;
+            }
             MaterializationError::SemiNumericalReconstruction(format!(
                 "exact characteristic-zero replay failed after reconstruction: {error}"
             ))
@@ -296,6 +329,7 @@ fn materialize_with_support<const N: usize>(
                 order,
                 target_column,
                 variables,
+                diagnostics_enabled,
                 max_degree,
                 max_probes,
                 max_attempts,
@@ -529,6 +563,7 @@ mod tests {
             &order,
             0,
             &variables,
+            true,
             4,
             2000,
             3,
@@ -652,6 +687,7 @@ mod tests {
             &order,
             0,
             &variables,
+            true,
             0,
             10,
             1,
@@ -894,6 +930,7 @@ mod tests {
             &order,
             0,
             &variables,
+            true,
             4,
             2000,
             3,

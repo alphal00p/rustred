@@ -9,7 +9,7 @@ pub const CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v
 pub(super) const DISPATCH_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v3";
 pub(super) const LEGACY_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v1";
 pub const FAMILY_CANDIDATES_SCHEMA: &str = "rustred.family-candidates-output.toml.v1";
-pub const CANDIDATE_CERTIFICATION_SCHEMA: &str = "rustred.candidate-certification-output.toml.v1";
+pub const CANDIDATE_CERTIFICATION_SCHEMA: &str = "rustred.candidate-certification-output.toml.v2";
 /// Default allowance for candidate ingress/output policies; callers may enlarge it.
 /// Candidates retain discovery source traces and may exceed closed-artifact
 /// sizes. Defaults remain unchanged; callers must opt into the larger budget.
@@ -81,13 +81,19 @@ impl CandidateExactBackend {
         }
     }
 
-    pub(super) fn solver_backend(self) -> Result<SymbolicExactBackend, crate::AppError> {
+    pub(super) fn solver_backend(
+        self,
+        diagnostics_enabled: bool,
+    ) -> Result<SymbolicExactBackend, crate::AppError> {
+        #[cfg(not(feature = "reconstruction"))]
+        let _ = diagnostics_enabled;
         Ok(match self {
             Self::Sparse => SymbolicExactBackend::Sparse,
             Self::SparseFactorized => SymbolicExactBackend::SparseFactorized,
             Self::SparseTargetOnlyFactorized => SymbolicExactBackend::SparseTargetOnlyFactorized,
             #[cfg(feature = "reconstruction")]
             Self::SemiNumerical => SymbolicExactBackend::SemiNumerical {
+                diagnostics_enabled,
                 max_degree: 128,
                 max_probes: 200_000,
                 max_attempts: 4,
@@ -119,7 +125,7 @@ impl std::str::FromStr for CandidateExactBackend {
         match value {
             "sparse" => Ok(Self::Sparse),
             "semi-numerical" => {
-                Self::SemiNumerical.solver_backend()?;
+                Self::SemiNumerical.solver_backend(false)?;
                 Ok(Self::SemiNumerical)
             }
             "sparse-factorized" => Ok(Self::SparseFactorized),
@@ -137,6 +143,8 @@ impl std::str::FromStr for CandidateExactBackend {
 /// allocation inside Symbolica. Native payloads require trusted provenance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CandidateBundleLimits {
+    /// Count templates are opt-in diagnostics, not ordinary ingress ceilings.
+    pub diagnostics_enabled: bool,
     pub max_bundle_bytes: usize,
     pub max_collection_entries: usize,
     pub max_coefficient_bytes: usize,
@@ -145,25 +153,47 @@ pub struct CandidateBundleLimits {
 }
 
 impl CandidateBundleLimits {
-    pub(super) fn bundle_byte_limit(self) -> usize {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.exact_algebra = self.exact_algebra.with_diagnostics();
+        self
+    }
+
+    pub(super) fn diagnostic_limit(self, limit: usize) -> Option<usize> {
+        self.diagnostics_enabled.then_some(limit)
+    }
+
+    pub(crate) fn bundle_byte_limit(self) -> usize {
         self.max_bundle_bytes
     }
 
     pub(super) fn binary_limits(self) -> rustred::persistence::BinaryIoLimits {
-        rustred::persistence::BinaryIoLimits {
+        let limits = rustred::persistence::BinaryIoLimits {
+            diagnostics_enabled: self.diagnostics_enabled,
             max_program_bytes: self.bundle_byte_limit(),
             max_collection_entries: self.max_collection_entries,
             max_atom_bytes: self.max_coefficient_bytes,
             max_total_atom_bytes: self.max_total_coefficient_bytes,
             exact_algebra: self.exact_algebra,
             ..Default::default()
+        };
+        if self.diagnostics_enabled {
+            limits.with_diagnostics()
+        } else {
+            limits
         }
     }
 
     pub(super) fn family_limits(self) -> rustred::family::IntegralFamilyLimits {
-        rustred::family::IntegralFamilyLimits {
+        let limits = rustred::family::IntegralFamilyLimits {
+            diagnostics_enabled: self.diagnostics_enabled,
             exact_algebra: self.exact_algebra,
             ..Default::default()
+        };
+        if self.diagnostics_enabled {
+            limits.with_diagnostics()
+        } else {
+            limits
         }
     }
 }
@@ -172,10 +202,11 @@ impl Default for CandidateBundleLimits {
     fn default() -> Self {
         let core = ArtifactLoadLimits::default();
         Self {
-            max_bundle_bytes: core.max_artifact_bytes,
+            diagnostics_enabled: false,
+            max_bundle_bytes: usize::MAX,
             max_collection_entries: core.max_collection_entries,
-            max_coefficient_bytes: core.max_coefficient_bytes,
-            max_total_coefficient_bytes: core.max_total_coefficient_bytes,
+            max_coefficient_bytes: usize::MAX,
+            max_total_coefficient_bytes: usize::MAX,
             exact_algebra: core.family.exact_algebra,
         }
     }

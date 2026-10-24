@@ -25,30 +25,7 @@ pub fn normalize_from_native_family(
     options: Option<&Bound<'_, PyDict>>,
 ) -> PyResult<PyTerminalNormalization> {
     artifact.inner.check_process().map_err(map_app_error)?;
-    let mut limits = CandidateTerminalNormalizationLimits::default();
-    if let Some(options) = options {
-        for (key, value) in options.iter() {
-            let key: String = key.extract()?;
-            let value = value.extract::<PythonInteger>()?;
-            let value = nonnegative_usize(&key, value.0)?;
-            if value == 0 {
-                return Err(RustRedInputError::new_err(format!(
-                    "{key} must be positive"
-                )));
-            }
-            match key.as_str() {
-                "max_terminals" => limits.max_terminals = value,
-                "max_supports" => limits.max_supports = value,
-                "max_matrix_cells" => limits.max_matrix_cells = value,
-                "max_output_terms" => limits.max_output_terms = value,
-                _ => {
-                    return Err(RustRedInputError::new_err(format!(
-                        "unknown normalization option {key}"
-                    )));
-                }
-            }
-        }
-    }
+    let limits = normalization_limits(options)?;
     let artifact = artifact.inner.clone();
     let result = py
         .detach(move || execute(move || artifact.normalize_terminals(&family, limits)))
@@ -57,6 +34,73 @@ pub fn normalize_from_native_family(
     Ok(PyTerminalNormalization {
         inner: Arc::new(result),
     })
+}
+
+/// Only an explicit count selects the native diagnostic profile.
+fn normalization_limits(
+    options: Option<&Bound<'_, PyDict>>,
+) -> PyResult<CandidateTerminalNormalizationLimits> {
+    let mut limits = CandidateTerminalNormalizationLimits::default();
+    if let Some(options) = options {
+        for (key, value) in options.iter() {
+            let key: String = key.extract()?;
+            let slot = match key.as_str() {
+                "max_terminals" => &mut limits.max_terminals,
+                "max_supports" => &mut limits.max_supports,
+                "max_matrix_cells" => &mut limits.max_matrix_cells,
+                "max_output_terms" => &mut limits.max_output_terms,
+                _ => {
+                    return Err(RustRedInputError::new_err(format!(
+                        "unknown normalization option {key}"
+                    )));
+                }
+            };
+            let Some(value) = value.extract::<Option<PythonInteger>>()? else {
+                continue;
+            };
+            let value = nonnegative_usize(&key, value.0)?;
+            if value == 0 {
+                return Err(RustRedInputError::new_err(format!(
+                    "{key} must be positive"
+                )));
+            }
+            *slot = value;
+            limits = limits.with_diagnostics();
+        }
+    }
+    Ok(limits)
+}
+
+#[cfg(test)]
+mod resource_policy_tests {
+    use super::*;
+
+    #[test]
+    fn normalization_diagnostics_require_an_explicit_count() {
+        Python::initialize();
+        Python::attach(|py| {
+            let ordinary = normalization_limits(None).unwrap();
+            assert!(!ordinary.diagnostics_enabled);
+            let defaults = CandidateTerminalNormalizationLimits::default();
+            assert_eq!(ordinary.max_output_terms, defaults.max_output_terms);
+            assert_eq!(ordinary.max_terminals, defaults.max_terminals);
+            let options = PyDict::new(py);
+            options.set_item("max_output_terms", py.None()).unwrap();
+            assert!(
+                !normalization_limits(Some(&options))
+                    .unwrap()
+                    .diagnostics_enabled
+            );
+            options.set_item("max_output_terms", 7).unwrap();
+            let explicit = normalization_limits(Some(&options)).unwrap();
+            assert!(explicit.diagnostics_enabled);
+            assert_eq!(explicit.max_output_terms, 7);
+            for invalid in [0, -1] {
+                options.set_item("max_output_terms", invalid).unwrap();
+                assert!(normalization_limits(Some(&options)).is_err());
+            }
+        });
+    }
 }
 
 #[pymethods]

@@ -89,7 +89,7 @@ fn native_matrix(
 
 #[test]
 fn empty_determinant_is_the_authenticated_multiplicative_identity() {
-    let limits = FeynmanPolynomialLimits::default();
+    let limits = FeynmanPolynomialLimits::default().with_diagnostics();
     let context = matrix_context("feynman-native-empty-determinant", limits);
     let mut work = FeynmanWorkBudget::new(limits);
     let determinant = checked_determinant(&context, &[], &mut work).unwrap();
@@ -101,7 +101,7 @@ fn empty_determinant_is_the_authenticated_multiplicative_identity() {
 
 #[test]
 fn native_small_determinants_have_exact_structural_call_counts() {
-    let limits = FeynmanPolynomialLimits::default();
+    let limits = FeynmanPolynomialLimits::default().with_diagnostics();
     let context = matrix_context("feynman-native-small-counts", limits);
     let zero = context.zero();
 
@@ -125,7 +125,7 @@ fn native_small_determinants_have_exact_structural_call_counts() {
 
 #[test]
 fn ragged_determinant_is_rejected_before_native_construction() {
-    let limits = FeynmanPolynomialLimits::default();
+    let limits = FeynmanPolynomialLimits::default().with_diagnostics();
     let context = matrix_context("feynman-native-ragged", limits);
     let matrix = vec![
         vec![variable(&context, 0), variable(&context, 1)],
@@ -143,7 +143,7 @@ fn ragged_determinant_is_rejected_before_native_construction() {
 
 #[test]
 fn symbolica_four_by_four_determinant_retains_symbolic_terms() {
-    let limits = FeynmanPolynomialLimits::default();
+    let limits = FeynmanPolynomialLimits::default().with_diagnostics();
     let context = matrix_context("feynman-native-symbolic-four", limits);
     let matrix = symbolic_tridiagonal_four(&context);
     let mut work = FeynmanWorkBudget::new(limits);
@@ -267,7 +267,7 @@ fn native_constant_four_by_four_retains_the_authenticated_variable_map() {
 
 #[test]
 fn one_by_one_adjugate_uses_the_empty_native_cofactor() {
-    let limits = FeynmanPolynomialLimits::default();
+    let limits = FeynmanPolynomialLimits::default().with_diagnostics();
     let context = matrix_context("feynman-native-one-adjugate", limits);
     let matrix = vec![vec![variable(&context, 0)]];
     let mut work = FeynmanWorkBudget::new(limits);
@@ -279,7 +279,7 @@ fn one_by_one_adjugate_uses_the_empty_native_cofactor() {
 
 #[test]
 fn asymmetric_adjugate_replays_a_times_adjugate_with_symbolica_matrix_multiplication() {
-    let limits = FeynmanPolynomialLimits::default();
+    let limits = FeynmanPolynomialLimits::default().with_diagnostics();
     let context = matrix_context("feynman-native-asymmetric-adjugate", limits);
     let zero = context.zero();
     let one = integer(&context, 1);
@@ -311,7 +311,7 @@ fn asymmetric_adjugate_replays_a_times_adjugate_with_symbolica_matrix_multiplica
 fn native_four_by_four_resource_preflight_has_exact_boundaries() {
     let below_operations = FeynmanPolynomialLimits {
         max_determinant_ring_operations: 55,
-        ..FeynmanPolynomialLimits::default()
+        ..FeynmanPolynomialLimits::default().with_diagnostics()
     };
     let context = matrix_context("feynman-native-four-below-operations", below_operations);
     let matrix = symbolic_tridiagonal_four(&context);
@@ -328,7 +328,7 @@ fn native_four_by_four_resource_preflight_has_exact_boundaries() {
     let exact = FeynmanPolynomialLimits {
         max_determinant_matrix_entries: 16,
         max_determinant_ring_operations: 56,
-        ..FeynmanPolynomialLimits::default()
+        ..FeynmanPolynomialLimits::default().with_diagnostics()
     };
     let context = matrix_context("feynman-native-four-exact", exact);
     let matrix = symbolic_tridiagonal_four(&context);
@@ -339,7 +339,7 @@ fn native_four_by_four_resource_preflight_has_exact_boundaries() {
     let below_entries = FeynmanPolynomialLimits {
         max_determinant_matrix_entries: 15,
         max_determinant_ring_operations: 56,
-        ..FeynmanPolynomialLimits::default()
+        ..FeynmanPolynomialLimits::default().with_diagnostics()
     };
     let context = matrix_context("feynman-native-four-below-entries", below_entries);
     let matrix = symbolic_tridiagonal_four(&context);
@@ -445,7 +445,7 @@ fn native_outer_arithmetic_and_gradient_retain_the_context_map() {
 fn native_product_exponent_overflow_is_rejected_before_symbolica() {
     let limits = FeynmanPolynomialLimits {
         max_parameter_exponent: 1,
-        ..FeynmanPolynomialLimits::default()
+        ..FeynmanPolynomialLimits::default().with_diagnostics()
     };
     let context = matrix_context("feynman-native-product-exponent-limit", limits);
     let x0 = variable(&context, 0);
@@ -462,15 +462,98 @@ fn native_product_exponent_overflow_is_rejected_before_symbolica() {
 }
 
 #[test]
+fn count_thresholds_require_diagnostic_opt_in() {
+    let limits = FeynmanPolynomialLimits {
+        max_parameters: 0,
+        max_parameter_exponent: 0,
+        max_polynomial_terms: 0,
+        max_exponent_entries: 0,
+        max_term_operations: 0,
+        max_determinant_matrix_entries: 0,
+        max_determinant_ring_operations: 0,
+        max_adjugate_minors: 0,
+        ..FeynmanPolynomialLimits::default()
+    };
+    let family = matrix_family("feynman-default-disabled-thresholds");
+    let context = FeynmanPolynomialContext::try_new(&family, limits).unwrap();
+    let x0 = variable(&context, 0);
+    let mut work = FeynmanWorkBudget::new(limits);
+    let square = context.mul(&x0, &x0, &mut work).unwrap();
+    context.try_gradient(&square).unwrap();
+    let matrix = vec![vec![square]];
+    checked_determinant(&context, &matrix, &mut work).unwrap();
+    checked_adjugate(&context, &matrix, &mut work).unwrap();
+
+    let enabled = limits.with_diagnostics();
+    assert!(enabled.diagnostics_enabled);
+    assert!(enabled.exact_algebra.diagnostics_enabled);
+    assert!(matches!(
+        FeynmanPolynomialContext::try_new(&family, enabled),
+        Err(FeynmanPolynomialError::ResourceLimit {
+            resource: "Feynman parameters",
+            requested: 5,
+            limit: 0,
+        })
+    ));
+}
+
+#[test]
+fn native_u16_exponent_boundary_remains_enforced_without_diagnostics() {
+    let limits = FeynmanPolynomialLimits::default();
+    let context = matrix_context("feynman-native-u16-exponent-limit", limits);
+    let mut exponents = vec![0; context.parameter_count()];
+    exponents[0] = u16::MAX;
+    let maximum = context
+        .rebind_native_result(
+            context
+                .template
+                .monomial(context.coefficients.one(), exponents),
+        )
+        .unwrap();
+    let x0 = variable(&context, 0);
+    let mut work = FeynmanWorkBudget::new(limits);
+    assert_eq!(
+        context.mul(&maximum, &x0, &mut work),
+        Err(FeynmanPolynomialError::ParameterExponentOverflow {
+            variable: 0,
+            requested: u32::from(u16::MAX) + 1,
+            limit: u16::MAX,
+        })
+    );
+}
+
+#[test]
+fn ambient_resource_budget_is_typed_and_applies_with_diagnostics_disabled() {
+    use crate::algebra::ExactAlgebraError;
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+
+    let family = matrix_family("feynman-ambient-resource-budget");
+    let budget = ResourceBudget::with_memory_monitor(
+        ResourceLimits {
+            max_process_rss_bytes: Some(1),
+            ..ResourceLimits::default()
+        },
+        || Ok(2),
+    );
+    assert!(matches!(
+        budget
+            .run(|| FeynmanPolynomialContext::try_new(&family, FeynmanPolynomialLimits::default())),
+        Err(FeynmanPolynomialError::ExactAlgebra(
+            ExactAlgebraError::Resource(ResourceLimitError::Memory { .. })
+        ))
+    ));
+}
+
+#[test]
 fn native_coefficient_swell_is_rejected_by_post_authentication() {
     use crate::algebra::{ExactAlgebraError, ExactAlgebraLimits};
 
     let limits = FeynmanPolynomialLimits {
         exact_algebra: ExactAlgebraLimits {
             max_polynomial_terms: 2,
-            ..ExactAlgebraLimits::default()
+            ..ExactAlgebraLimits::default().with_diagnostics()
         },
-        ..FeynmanPolynomialLimits::default()
+        ..FeynmanPolynomialLimits::default().with_diagnostics()
     };
     let context = matrix_context("feynman-native-coefficient-post-check", limits);
     let one_plus_d = context.coefficients.coefficient_fixture("1+d");

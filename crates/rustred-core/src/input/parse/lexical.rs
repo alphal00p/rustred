@@ -20,7 +20,12 @@ pub(super) fn preflight_raw_source(source: &str, limits: Limits) -> Result<(), E
     let mut lexical_run = RawLexicalRun::None;
     for character in source.chars() {
         units = checked_add("raw parser units", units, 1)?;
-        check_limit("raw parser units", units, limits.max_raw_parser_units)?;
+        check_limit(
+            "raw parser units",
+            units,
+            limits.max_raw_parser_units,
+            limits.diagnostics_enabled,
+        )?;
 
         if quoted {
             if escaped {
@@ -76,6 +81,7 @@ pub(super) fn preflight_raw_source(source: &str, limits: Limits) -> Result<(), E
                     "raw integer digits",
                     integer_digits,
                     limits.max_raw_integer_digits,
+                    limits.diagnostics_enabled,
                 )?;
             } else {
                 integer_digits = 0;
@@ -104,6 +110,7 @@ pub(super) fn preflight_raw_source(source: &str, limits: Limits) -> Result<(), E
                         "raw parser nesting depth",
                         checked_add("raw parser nesting depth", depth, prefix_operator_depth)?,
                         limits.max_nesting_depth,
+                        limits.diagnostics_enabled,
                     )?;
                     expecting_operand = true;
                 }
@@ -135,6 +142,7 @@ pub(super) fn preflight_raw_source(source: &str, limits: Limits) -> Result<(), E
                         "raw parser nesting depth",
                         checked_add("raw parser nesting depth", depth, prefix_operator_depth)?,
                         limits.max_nesting_depth,
+                        limits.diagnostics_enabled,
                     )?;
                     expecting_operand = true;
                 }
@@ -203,6 +211,7 @@ pub(super) fn preflight_raw_source(source: &str, limits: Limits) -> Result<(), E
         "raw parser nesting depth",
         conservative_depth,
         limits.max_nesting_depth,
+        limits.diagnostics_enabled,
     )?;
     Ok(())
 }
@@ -220,5 +229,10 @@ pub(super) fn charge_raw_lexical_units(
     limits: Limits,
 ) -> Result<(), Error> {
     *total = checked_add("raw lexical tokens", *total, amount)?;
-    check_limit("raw lexical tokens", *total, limits.max_atom_nodes)
+    check_limit(
+        "raw lexical tokens",
+        *total,
+        limits.max_atom_nodes,
+        limits.diagnostics_enabled,
+    )
 }

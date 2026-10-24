@@ -212,7 +212,7 @@ fn shared_native_work_and_local_admission_caps_fail_explicitly() {
     cache.budget.remaining = 1;
     assert_eq!(
         cache.contradicts(&cell, &[Some(true), Some(false)]),
-        Err(WorkExhausted)
+        Err(WorkExhausted::Diagnostic)
     );
     let mut cache = RestrictionCache::new(&[false; 3], &atoms);
     assert_eq!(
@@ -221,7 +221,7 @@ fn shared_native_work_and_local_admission_caps_fail_explicitly() {
             &[Some(true), Some(false)],
             &vec![(0, true); MAX_EQUATIONS + 1],
         ),
-        Err(WorkExhausted)
+        Err(WorkExhausted::Diagnostic)
     );
     let before = cache.budget.remaining;
     assert_eq!(
@@ -296,6 +296,7 @@ fn equivalent_predicate_partition_closes_but_a_real_missing_point_still_fails() 
                 &owners(&face),
                 &[],
                 PredicateCoverLimits {
+                    diagnostics_enabled: true,
                     max_consistency_work,
                     ..Default::default()
                 },
@@ -311,6 +312,7 @@ fn equivalent_predicate_partition_closes_but_a_real_missing_point_still_fails() 
             &owners(&face),
             &[],
             PredicateCoverLimits {
+                diagnostics_enabled: true,
                 max_consistency_work: 8_388_608,
                 ..Default::default()
             },
@@ -333,6 +335,7 @@ fn equivalent_predicate_partition_closes_but_a_real_missing_point_still_fails() 
             &owners(&missing),
             &[],
             PredicateCoverLimits {
+                diagnostics_enabled: true,
                 max_consistency_work: 8_388_608,
                 ..Default::default()
             },
@@ -348,5 +351,51 @@ fn equivalent_predicate_partition_closes_but_a_real_missing_point_still_fails() 
             PredicateCoverLimits::default()
         )
         .is_ok()
+    );
+}
+
+#[test]
+fn ordinary_consistency_ignores_count_templates_and_preserves_native_resource_retry() {
+    let context = CoefficientContext::new(["d", "a", "b", "c"]);
+    let equations = (1..=40)
+        .map(|factor| {
+            context
+                .coefficient_fixture(&format!("{factor}*a-{factor}*b"))
+                .numerator
+        })
+        .collect::<Vec<_>>();
+    let atoms = equations
+        .iter()
+        .map(|equation| Atom {
+            indices: &[1, 2, 3],
+            equation,
+        })
+        .collect::<Vec<_>>();
+    let cell = LatticeBox::try_new([0; 3], [None; 3]).unwrap();
+    let mut assignments = vec![Some(true); atoms.len()];
+    *assignments.last_mut().unwrap() = Some(false);
+    let unresolved = assignments
+        .iter()
+        .enumerate()
+        .map(|(i, value)| (i, value.unwrap()))
+        .collect::<Vec<_>>();
+    let mut cache = RestrictionCache::with_policy(&[false; 3], &atoms, 0, false);
+    let expected = symbolica::utils::resources::ResourceLimitError::Memory {
+        rss_bytes: 2,
+        additional_bytes: 0,
+        limit_bytes: 1,
+    };
+    assert_eq!(
+        cache.contradicts_implications_using(&cell, &assignments, &unresolved, |_, _, _| Err(
+            WorkExhausted::Resources(expected.clone())
+        )),
+        Err(WorkExhausted::Resources(expected))
+    );
+    assert!(cache.implications.is_empty());
+    assert_eq!(cache.contradicts(&cell, &assignments), Ok(true));
+    let mut diagnostic = RestrictionCache::with_policy(&[false; 3], &atoms, 0, true);
+    assert_eq!(
+        diagnostic.contradicts(&cell, &assignments),
+        Err(WorkExhausted::Diagnostic)
     );
 }

@@ -185,6 +185,7 @@ fn factor_guard_box_optional_allowance_is_shared_across_equations_and_factors() 
     let owner = [true, true, false];
     // Three terms in four variables: scan27 + exact Integer work96 =123.
     let limits = IndexedGuardLimits {
+        diagnostics_enabled: true,
         max_gcd_factor_work: 123,
         ..Default::default()
     };
@@ -226,6 +227,7 @@ fn factor_guard_box_admission_failure_is_not_optional_denominator_fallback() {
             [None, None, Some(0)],
             Some(0),
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_gcd_factor_work: 0,
                 ..Default::default()
             }

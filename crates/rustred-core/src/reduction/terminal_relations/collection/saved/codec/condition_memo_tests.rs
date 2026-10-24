@@ -79,6 +79,7 @@ fn equal_fresh_allocations_and_different_slice_lengths_have_distinct_memo_entrie
 #[test]
 fn empty_conditions_do_not_consume_memo_or_coefficient_grants() {
     let io = BinaryIoLimits {
+        diagnostics_enabled: true,
         max_collection_entries: 0,
         ..Default::default()
     };
@@ -121,6 +122,7 @@ fn failed_guard_fill_preserves_caller_limits_and_never_caches_a_partial_result()
     let context = CoefficientContext::new(["d"]);
     let values = ["d-4", "d-3", "d-2"].map(|value| context.coefficient_fixture(value));
     let io = BinaryIoLimits {
+        diagnostics_enabled: true,
         max_collection_entries: 2,
         ..Default::default()
     };
@@ -180,10 +182,12 @@ fn memoized_collection_matches_uncached_limit_failures_and_cold_roundtrip() {
     let structural_bytes = envelope.section(SectionTag::PROGRAM).unwrap().len();
     for limited in [
         BinaryIoLimits {
+            diagnostics_enabled: true,
             max_collection_entries: 0,
             ..io
         },
         BinaryIoLimits {
+            diagnostics_enabled: true,
             max_collection_entries: 4,
             ..io
         },

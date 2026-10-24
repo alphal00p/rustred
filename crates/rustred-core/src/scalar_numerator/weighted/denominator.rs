@@ -66,10 +66,14 @@ fn product(
     admit: bool,
 ) -> Result<Shape, Error> {
     let degree = checked_add("weighted denominator degree", a.degree, b.degree)?;
+    if degree > i32::MAX as usize - 1 {
+        return Err(Error::ScalarProductExponentOverflow);
+    }
     check_limit(
         "weighted scalar-product degree",
         degree,
         limits.max_scalar_product_degree.min(i32::MAX as usize - 1),
+        limits.diagnostics_enabled,
     )?;
     let variables = a
         .variables
@@ -95,6 +99,7 @@ fn product(
             "weighted denominator polynomial terms",
             terms,
             limits.max_polynomial_terms,
+            limits.diagnostics_enabled,
         )?;
     }
     Ok(Shape {
@@ -105,13 +110,15 @@ fn product(
     })
 }
 
-fn shape(
+fn shape_node(
     atom: AtomView<'_>,
     prepared: &PreparedScalarProducts,
     comparisons: &mut ExactComparisonBudget,
     work: &mut Work,
     admit: bool,
+    children: Vec<Shape>,
 ) -> Result<Shape, Error> {
+    let mut children = children.into_iter();
     work.charge(1)?;
     match atom {
         AtomView::Num(_) => {
@@ -151,11 +158,12 @@ fn shape(
                     "weighted denominator input terms",
                     sum.get_nargs(),
                     prepared.limits.max_input_terms,
+                    prepared.limits.diagnostics_enabled,
                 )?;
             }
             let mut result = Shape::constant(true);
-            for term in sum.iter() {
-                let next = shape(term, prepared, comparisons, work, admit)?;
+            for _term in sum.iter() {
+                let next = children.next().expect("completed denominator child");
                 result.degree = result.degree.max(next.degree);
                 result.real_rational_coefficients &= next.real_rational_coefficients;
                 result.variables.extend(next.variables);
@@ -171,6 +179,7 @@ fn shape(
                         "weighted denominator polynomial terms",
                         result.terms,
                         prepared.limits.max_polynomial_terms,
+                        prepared.limits.diagnostics_enabled,
                     )?;
                 }
             }
@@ -181,12 +190,13 @@ fn shape(
                 "weighted scalar factors per term",
                 mul.get_nargs(),
                 prepared.limits.max_factors_per_term,
+                prepared.limits.diagnostics_enabled,
             )?;
             let mut result = Shape::constant(false);
-            for factor in mul.iter() {
+            for _factor in mul.iter() {
                 result = product(
                     result,
-                    shape(factor, prepared, comparisons, work, admit)?,
+                    children.next().expect("completed denominator child"),
                     prepared.limits,
                     work,
                     admit,
@@ -195,8 +205,8 @@ fn shape(
             Ok(result)
         }
         AtomView::Pow(power) => {
-            let base = shape(power.get_base(), prepared, comparisons, work, admit)?;
-            let exponent_shape = shape(power.get_exp(), prepared, comparisons, work, admit)?;
+            let base = children.next().expect("completed denominator base");
+            let exponent_shape = children.next().expect("completed denominator exponent");
             if !exponent_shape.variables.is_empty() {
                 return Err(Error::NonPolynomialScalarProducts {
                     detail: "loop scalar product in an exponent".into(),
@@ -223,6 +233,9 @@ fn shape(
                 .and_then(|value| usize::try_from(value).ok())
                 .ok_or(Error::ScalarProductExponentOverflow)?;
             let degree = checked_mul("weighted denominator power degree", base.degree, magnitude)?;
+            if degree > i32::MAX as usize - 1 {
+                return Err(Error::ScalarProductExponentOverflow);
+            }
             check_limit(
                 "weighted scalar-product degree",
                 degree,
@@ -230,6 +243,7 @@ fn shape(
                     .limits
                     .max_scalar_product_degree
                     .min(i32::MAX as usize - 1),
+                prepared.limits.diagnostics_enabled,
             )?;
             if !admit {
                 return Ok(Shape {
@@ -278,11 +292,13 @@ pub(super) fn translate(
         "scalar-numerator input terms",
         input_terms,
         prepared.limits.max_input_terms,
+        prepared.limits.diagnostics_enabled,
     )?;
     check_limit(
         "scalar-numerator factors per term",
         1,
         prepared.limits.max_factors_per_term,
+        prepared.limits.diagnostics_enabled,
     )?;
     #[cfg(test)]
     work.set_diagnostic_phase("source grammar");
@@ -341,7 +357,13 @@ pub(super) fn translate(
     )?;
     #[cfg(test)]
     work.set_diagnostic_phase("denominator polynomial admission");
-    let admitted = shape(translated.as_view(), prepared, comparisons, work, true)?;
+    let admitted = shape(
+        translated.as_view(),
+        prepared,
+        comparisons,
+        work,
+        prepared.limits.diagnostics_enabled,
+    )?;
     Ok(Translated {
         atom: translated,
         real_rational_coefficients: admitted.real_rational_coefficients,
@@ -365,4 +387,23 @@ pub(super) fn validate_coefficient(
         }
     }
     Ok(())
+}
+
+fn shape(
+    atom: AtomView<'_>,
+    prepared: &PreparedScalarProducts,
+    comparisons: &mut ExactComparisonBudget,
+    work: &mut Work,
+    admit: bool,
+) -> Result<Shape, Error> {
+    crate::scalar_numerator::syntax::fold_expression(
+        atom,
+        |part| match part {
+            AtomView::Mul(product) => product.iter().collect(),
+            AtomView::Add(sum) => sum.iter().collect(),
+            AtomView::Pow(power) => vec![power.get_base(), power.get_exp()],
+            _ => Vec::new(),
+        },
+        |part, children| shape_node(part, prepared, comparisons, work, admit, children),
+    )
 }

@@ -127,7 +127,7 @@ fn empty_and_unit_leading_ideals_have_exact_extreme_complements() {
 
 #[test]
 fn resource_limits_fail_before_retaining_the_excess_box_or_generator() {
-    let mut limits = CompletionGeometryLimits::default();
+    let mut limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_requested_generator_coordinate_cells = 3;
     assert_eq!(
         LeadingIdeal::try_new(2, [point([1, 0]), point([0, 1])], limits),
@@ -138,7 +138,7 @@ fn resource_limits_fail_before_retaining_the_excess_box_or_generator() {
         })
     );
 
-    let mut limits = CompletionGeometryLimits::default();
+    let mut limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_uncovered_boxes = 1;
     let ideal = LeadingIdeal::try_new(2, [point([1, 1])], limits).unwrap();
     assert_eq!(
@@ -219,7 +219,7 @@ fn arbitrary_box_construction_and_cover_limits_fail_closed() {
         })
     );
 
-    let mut limits = CompletionGeometryLimits::default();
+    let mut limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_requested_boxes = 1;
     assert_eq!(
         BoxCover::try_new(
@@ -239,7 +239,7 @@ fn arbitrary_box_construction_and_cover_limits_fail_closed() {
     limits.max_requested_box_coordinate_cells = 4;
     assert!(BoxCover::try_new(2, [lattice_box([0, 0], [Some(0), Some(0)])], limits,).is_ok());
 
-    let mut limits = CompletionGeometryLimits::default();
+    let mut limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_requested_box_coordinate_cells = 3;
     assert_eq!(
         BoxCover::try_new(2, [lattice_box([0, 0], [Some(0), Some(0)])], limits,),
@@ -250,7 +250,7 @@ fn arbitrary_box_construction_and_cover_limits_fail_closed() {
         })
     );
 
-    let mut limits = CompletionGeometryLimits::default();
+    let mut limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_uncovered_boxes = 0;
     let empty_cover = BoxCover::try_new(2, [], limits).unwrap();
     assert_eq!(
@@ -271,7 +271,7 @@ fn arbitrary_box_construction_and_cover_limits_fail_closed() {
         })
     );
 
-    let mut limits = CompletionGeometryLimits::default();
+    let mut limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_uncovered_box_coordinate_cells = 3;
     let empty_cover = BoxCover::try_new(2, [], limits).unwrap();
     assert_eq!(
@@ -295,7 +295,7 @@ fn arbitrary_box_construction_and_cover_limits_fail_closed() {
 
     // Fast-path intersection probes are still part of the pairwise
     // cover-by-partition work and must consume the same hard work budget.
-    let mut limits = CompletionGeometryLimits::default();
+    let mut limits = CompletionGeometryLimits::default().with_diagnostics();
     limits.max_split_operations = 0;
     let disjoint = BoxCover::try_new(1, [lattice_box([2], [Some(2)])], limits).unwrap();
     assert_eq!(
@@ -320,6 +320,7 @@ fn arbitrary_box_construction_and_cover_limits_fail_closed() {
 #[test]
 fn immutable_box_cover_query_allowances_only_tighten_stored_limits() {
     let limits = CompletionGeometryLimits {
+        diagnostics_enabled: true,
         max_uncovered_boxes: 1,
         max_uncovered_box_coordinate_cells: 2,
         max_split_operations: 1,
@@ -348,14 +349,17 @@ fn immutable_box_cover_query_allowances_only_tighten_stored_limits() {
     assert_eq!(cover.boxes().as_ptr(), pointer);
     for stored in [
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_uncovered_boxes: 0,
             ..limits
         },
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_uncovered_box_coordinate_cells: 1,
             ..limits
         },
         CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_split_operations: 0,
             ..limits
         },

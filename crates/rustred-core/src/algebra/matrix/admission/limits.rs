@@ -8,9 +8,10 @@ pub(crate) const DEFAULT_MAX_EXACT_OPERATIONS: usize = 100_000_000;
 pub(crate) const DEFAULT_MAX_INPUT_RETAINED_BYTES: usize = 1024 * 1024 * 1024;
 pub(crate) const DEFAULT_MAX_OUTPUT_RETAINED_BYTES: usize = 1024 * 1024 * 1024;
 
-/// Admission policy for one bounded Symbolica coefficient or matrix session.
+/// Optional diagnostic ceilings for one Symbolica coefficient or matrix session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SymbolicaCoefficientMatrixLimits {
+    pub(crate) diagnostics_enabled: bool,
     pub(crate) exact_algebra: ExactAlgebraLimits,
     /// Largest individual native matrix payload. General inversion needs the
     /// augmented `n x 2n` matrix here.
@@ -39,6 +40,7 @@ impl SymbolicaCoefficientMatrixLimits {
         max_output_retained_bytes: usize,
     ) -> Self {
         Self {
+            diagnostics_enabled: false,
             exact_algebra,
             max_single_matrix_entries: max_augmented_entries,
             max_live_matrix_entries: max_augmented_entries.saturating_mul(2),
@@ -52,6 +54,7 @@ impl SymbolicaCoefficientMatrixLimits {
 impl Default for SymbolicaCoefficientMatrixLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             exact_algebra: ExactAlgebraLimits::default(),
             max_single_matrix_entries: DEFAULT_MAX_SINGLE_MATRIX_ENTRIES,
             max_live_matrix_entries: DEFAULT_MAX_LIVE_MATRIX_ENTRIES,
@@ -59,6 +62,14 @@ impl Default for SymbolicaCoefficientMatrixLimits {
             max_input_retained_bytes: DEFAULT_MAX_INPUT_RETAINED_BYTES,
             max_output_retained_bytes: DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
         }
+    }
+}
+
+impl SymbolicaCoefficientMatrixLimits {
+    pub(crate) fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.exact_algebra = self.exact_algebra.with_diagnostics();
+        self
     }
 }
 

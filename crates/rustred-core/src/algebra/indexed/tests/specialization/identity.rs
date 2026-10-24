@@ -82,7 +82,9 @@ fn empty_fixed_specialization_keeps_tighter_resource_refusals() {
     let index = context.index(0).unwrap();
     let square = context.mul(&index, &index).unwrap();
     let exact = IndexedAlgebraLimits {
+        diagnostics_enabled: true,
         exact_algebra: ExactAlgebraLimits {
+            diagnostics_enabled: true,
             max_exponent: 2,
             max_polynomial_terms: 1,
             max_term_operations: 1,
@@ -144,6 +146,7 @@ fn empty_fixed_specialization_keeps_tighter_resource_refusals() {
         // Even though identity no longer performs a GCD, retain the existing
         // normalization envelope and its resource contract for rational values.
         let normalization_limit = IndexedAlgebraLimits {
+            diagnostics_enabled: true,
             max_specialization_integer_bits: 3,
             ..Default::default()
         };

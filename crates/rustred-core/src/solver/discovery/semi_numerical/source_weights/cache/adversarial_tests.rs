@@ -14,6 +14,7 @@ use super::{CacheKey, Fp, ImageCache, Slot};
 
 fn limits(images: usize, values: usize) -> Limits {
     Limits {
+        diagnostics_enabled: true,
         max_degree: 8,
         max_probes: 2000,
         max_attempts: 3,
@@ -306,6 +307,7 @@ fn one_image_cache_preserves_complete_exact_materializer_output() {
     assert_eq!(expected, row(&context, &[(2, "1"), (1, "(b+3)/(a+1)")]));
     for max_cached_images in [1, 1024] {
         let (actual, events) = run(SymbolicExactBackend::SemiNumericalSourceWeights {
+            diagnostics_enabled: true,
             max_degree: 8,
             max_probes: 2000,
             max_attempts: 3,

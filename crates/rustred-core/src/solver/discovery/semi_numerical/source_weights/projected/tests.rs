@@ -513,7 +513,7 @@ fn a_false_first_scout_hit_can_abort_native_reconstruction_without_a_retry_quota
 
     // The scout deliberately sees the exceptional zero first and freezes that
     // chronology. A later generic reconstruction probe must propagate the
-    // permanent full-F-rank witness out of Symbolica's Option-valued oracle,
+    // permanent full-F-rank witness out of Symbolica's fallible oracle,
     // rather than responding None until a hidden fixed retry limit expires.
     let mut policy = limits();
     policy.max_probes = usize::MAX;

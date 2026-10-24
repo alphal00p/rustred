@@ -121,7 +121,9 @@ fn degree_cover_retains_affine_exceptions() {
 #[test]
 fn degree_probe_is_budgeted_and_does_not_skip_invalid_owners() {
     let limits = PredicateCoverLimits {
+        diagnostics_enabled: true,
         geometry: CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_split_operations: 0,
             ..Default::default()
         },

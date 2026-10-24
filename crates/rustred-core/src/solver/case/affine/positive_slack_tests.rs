@@ -73,6 +73,7 @@ fn captured_narrowed_parent_is_empty_before_any_resultant_work() {
         ],
     );
     let limits = CaseIntersectionLimits {
+        diagnostics_enabled: true,
         max_work_items: 8192,
         ..Default::default()
     };

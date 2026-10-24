@@ -45,7 +45,12 @@ impl TerminalRelationSession {
             }
         };
         checkpoint()?;
-        check("authorized equations", equations.len(), limits.max_rows)?;
+        check(
+            "authorized equations",
+            equations.len(),
+            limits.max_rows,
+            limits.diagnostics_enabled,
+        )?;
         let context = family.coefficient_context();
         let mut keys = BTreeSet::new();
         let mut conditions = Vec::new();
@@ -61,6 +66,7 @@ impl TerminalRelationSession {
                 "authorized equation nonzeros",
                 input_nonzeros,
                 limits.max_nonzeros,
+                limits.diagnostics_enabled,
             )?;
             for (key, value) in &equation.terms {
                 if key.powers().len() != family.denominator_count() {
@@ -98,6 +104,7 @@ impl TerminalRelationSession {
             "authorized equation columns",
             keys.len(),
             limits.max_columns,
+            limits.diagnostics_enabled,
         )?;
         let mut columns: Vec<_> = keys.into_iter().collect();
         elimination::sort_keys(&mut columns);
@@ -122,6 +129,7 @@ impl TerminalRelationSession {
                 "authorized basis rows",
                 reducer.u().nrows() as usize + 1,
                 limits.max_rows,
+                limits.diagnostics_enabled,
             )?;
             let retained = reducer
                 .u()
@@ -140,6 +148,7 @@ impl TerminalRelationSession {
                 "authorized basis stored nonzeros",
                 retained,
                 limits.max_nonzeros,
+                limits.diagnostics_enabled,
             )?;
             let mut terms: Vec<_> = equation
                 .terms
@@ -230,6 +239,7 @@ fn retain(
             "authorized basis nonzero conditions",
             conditions.len() + 1,
             limits.max_nonzeros,
+            limits.diagnostics_enabled,
         )?;
         conditions.push(value);
     }

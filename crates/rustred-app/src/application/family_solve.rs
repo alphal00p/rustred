@@ -11,10 +11,10 @@ use serde::Serialize;
 
 use rustred::solver::{SectorConfig, SectorSolveOptions, solve_family};
 
+use super::InputFormat;
 use super::error::AppError;
 use super::input::prepare_input;
 use super::lowering::lower_project;
-use super::{InputFormat, MAX_INPUT_BYTES};
 
 pub const FAMILY_SOLVE_SCHEMA: &str = "rustred.family-solve-output.toml.v1";
 const MAX_ENUMERATED_SECTORS: usize = 1 << 16;
@@ -80,13 +80,7 @@ impl FamilySolveResult {
 }
 
 pub fn family_solve(request: FamilySolveRequest) -> Result<FamilySolveResult, AppError> {
-    if request.source.len() > MAX_INPUT_BYTES {
-        return Err(AppError::limit(format!(
-            "family solve input has {} bytes, exceeding the application ceiling {}",
-            request.source.len(),
-            MAX_INPUT_BYTES
-        )));
-    }
+    super::validate_ingress(&request.source)?;
     if request.n_cores == 0 {
         return Err(AppError::input("family solve n_cores must be positive"));
     }

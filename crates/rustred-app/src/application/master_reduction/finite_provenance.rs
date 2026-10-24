@@ -49,6 +49,7 @@ fn limits(policy: Option<&crate::FiniteDemandPolicy>) -> Result<Limits, AppError
 }
 fn default_storage_limits() -> StorageLimits {
     StorageLimits {
+        diagnostics_enabled: false,
         raw: RawCensusLimits {
             max_page_records: 8192,
             max_page_bytes: 8 << 20,

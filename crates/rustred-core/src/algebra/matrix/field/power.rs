@@ -97,6 +97,12 @@ fn polynomial_power_admission(
     part: CoefficientPolynomialPart,
     limits: ExactAlgebraLimits,
 ) -> Result<PolynomialPowerAdmission, ExactAlgebraError> {
+    if !limits.diagnostics_enabled {
+        return Ok(PolynomialPowerAdmission {
+            output_terms: 0,
+            max_term_operations: 0,
+        });
+    }
     if exponent == 0 {
         return Ok(PolynomialPowerAdmission {
             output_terms: 1,
@@ -224,7 +230,8 @@ impl CheckedCoefficientField<'_> {
             );
             match (exact_operations, multiplications) {
                 (Ok(exact_operations), Ok(multiplications))
-                    if exact_operations <= self.limits.max_exact_operations =>
+                    if !self.limits.diagnostics_enabled
+                        || exact_operations <= self.limits.max_exact_operations =>
                 {
                     state.stats.exact_operations = exact_operations;
                     state.stats.multiplications = multiplications;
@@ -272,11 +279,13 @@ impl CheckedCoefficientField<'_> {
                 polynomial_power_resource(CoefficientPolynomialPart::Numerator, true),
                 numerator_terms,
                 admission.numerator.output_terms,
+                self.limits.exact_algebra.diagnostics_enabled,
             )?;
             check_limit(
                 polynomial_power_resource(CoefficientPolynomialPart::Denominator, true),
                 denominator_terms,
                 admission.denominator.output_terms,
+                self.limits.exact_algebra.diagnostics_enabled,
             )?;
             let retained_bytes = coefficient_retained_bytes(&value)?;
             let mut state = self.state.borrow_mut();
@@ -289,6 +298,7 @@ impl CheckedCoefficientField<'_> {
                 "coefficient matrix output retained bytes",
                 output_retained_bytes,
                 self.limits.max_output_retained_bytes,
+                self.limits.diagnostics_enabled,
             )?;
             let authenticated_entries = checked_add(
                 "authenticated Symbolica matrix entries",

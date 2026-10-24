@@ -85,7 +85,10 @@ fn input_denominator_source_limit_is_enforced_by_real_term_insertion() {
     };
     let mut relation = Builder::new("family".to_owned(), row_id, &context);
     let limits = RelationLimits {
-        identity_conditions: IdentityConditionLimits { max_sources: 1 },
+        identity_conditions: IdentityConditionLimits {
+            diagnostics_enabled: true,
+            max_sources: 1,
+        },
         ..RelationLimits::default()
     };
     assert!(matches!(
@@ -227,7 +230,9 @@ fn checked_condition_insertion_still_enforces_current_arithmetic_limits() {
     );
     let limits = RelationLimits {
         arithmetic: IndexedAlgebraLimits {
+            diagnostics_enabled: true,
             exact_algebra: ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_polynomial_terms: 1,
                 ..ExactAlgebraLimits::default()
             },
@@ -348,7 +353,9 @@ fn scaled_relation_readmits_source_conditions_under_current_limits() {
     );
     let strict = RelationLimits {
         arithmetic: IndexedAlgebraLimits {
+            diagnostics_enabled: true,
             exact_algebra: ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_polynomial_terms: 1,
                 ..ExactAlgebraLimits::default()
             },
@@ -374,7 +381,10 @@ fn scaled_relation_readmits_source_conditions_under_current_limits() {
     );
 
     let source_limited = RelationLimits {
-        identity_conditions: IdentityConditionLimits { max_sources: 2 },
+        identity_conditions: IdentityConditionLimits {
+            diagnostics_enabled: true,
+            max_sources: 2,
+        },
         ..RelationLimits::default()
     };
     let before_source_rejection = borrowed_condition_deep_clone_counts();
@@ -413,7 +423,10 @@ fn scaled_relation_readmits_source_conditions_under_current_limits() {
         )
         .unwrap();
     let merge_limited = RelationLimits {
-        identity_conditions: IdentityConditionLimits { max_sources: 3 },
+        identity_conditions: IdentityConditionLimits {
+            diagnostics_enabled: true,
+            max_sources: 3,
+        },
         ..RelationLimits::default()
     };
     let before_merge_rejection = borrowed_condition_deep_clone_counts();
@@ -442,7 +455,9 @@ fn scaled_relation_readmits_source_conditions_under_current_limits() {
 fn real_relation_condition_source_limit_precedes_polynomial_translation() {
     let (context, condition) = actual_input_denominator_condition("translation-source-order");
     let arithmetic_limits = IndexedAlgebraLimits {
+        diagnostics_enabled: true,
         exact_algebra: ExactAlgebraLimits {
+            diagnostics_enabled: true,
             max_polynomial_terms: 0,
             ..ExactAlgebraLimits::default()
         },
@@ -453,7 +468,10 @@ fn real_relation_condition_source_limit_precedes_polynomial_translation() {
             &context,
             &[1],
             arithmetic_limits,
-            IdentityConditionLimits { max_sources: 2 },
+            IdentityConditionLimits {
+                diagnostics_enabled: true,
+                max_sources: 2
+            },
         ),
         Err(IdentityConditionError::ResourceLimit {
             resource: "identity condition sources",
@@ -471,7 +489,10 @@ fn real_relation_condition_index_arity_precedes_source_preflight() {
             &context,
             &[],
             IndexedAlgebraLimits::default(),
-            IdentityConditionLimits { max_sources: 2 },
+            IdentityConditionLimits {
+                diagnostics_enabled: true,
+                max_sources: 2
+            },
         ),
         Err(IdentityConditionError::Coefficient(
             IndexedAlgebraError::WrongIndexArity {

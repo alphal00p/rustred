@@ -8,6 +8,7 @@ use crate::sector;
 /// parametric recurrence.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParametricRuleError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     EmptySourceRows,
     WrongAnchorArity {
         expected: usize,
@@ -91,6 +92,7 @@ pub enum ParametricRuleError {
 impl fmt::Display for ParametricRuleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(formatter),
             Self::EmptySourceRows => {
                 formatter.write_str("parametric elimination needs at least one source row")
             }
@@ -210,7 +212,22 @@ impl fmt::Display for ParametricRuleError {
     }
 }
 
-impl std::error::Error for ParametricRuleError {}
+impl std::error::Error for ParametricRuleError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            Self::IndexedAlgebra(error) => Some(error),
+            Self::IntegralKey(error) => Some(error),
+            Self::Ordering(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+impl From<symbolica::utils::resources::ResourceLimitError> for ParametricRuleError {
+    fn from(error: symbolica::utils::resources::ResourceLimitError) -> Self {
+        Self::Resources(error)
+    }
+}
 
 impl From<IndexedAlgebraError> for ParametricRuleError {
     fn from(value: IndexedAlgebraError) -> Self {

@@ -5,10 +5,16 @@ use rustred::{
     persistence::application_cache::{ApplicationCacheBinding, ApplicationCacheIoLimits},
     solver::RootRegionInput,
 };
-use symbolica::{combinatorics::CombinationIterator, domains::integer::Integer};
+use symbolica::{
+    combinatorics::CombinationIterator,
+    domains::integer::Integer,
+    utils::resources::{check_allocation, checkpoint},
+};
+
+use super::{binary_error, resource_error};
 
 use crate::{
-    AppError, EntryPowerBudget, FiniteEntryDomain, SavedApplicationWitnessKind,
+    AppError, AppErrorKind, EntryPowerBudget, FiniteEntryDomain, SavedApplicationWitnessKind,
     saved_application_boundary_witnesses,
 };
 
@@ -53,15 +59,14 @@ impl CachePreparationPrimerBudget {
 }
 
 fn validate_bindings(bindings: &[ApplicationCacheBinding]) -> Result<(), AppError> {
-    if bindings.is_empty() || bindings.len() > 128 {
-        return Err(AppError::input(
-            "cache workload requires 1..=128 exact namespaces",
-        ));
+    if bindings.is_empty() {
+        return Err(AppError::input("cache workload requires exact namespaces"));
     }
     for (index, binding) in bindings.iter().enumerate() {
+        checkpoint().map_err(resource_error)?;
         binding
             .validate(ApplicationCacheIoLimits::default())
-            .map_err(|error| AppError::input(error.to_string()))?;
+            .map_err(|error| binary_error(error, AppErrorKind::Input))?;
         if bindings[..index].contains(binding) {
             return Err(AppError::input("duplicate cache workload namespace"));
         }
@@ -119,6 +124,17 @@ impl CachePreparationWorkload {
         budget: CachePreparationPrimerBudget,
         max_requests: usize,
     ) -> Result<Self, AppError> {
+        Self::parent_pinches_with_diagnostic_limit(bindings, parents, budget, Some(max_requests))
+    }
+
+    /// Enumerate the full selected finite primer unless an explicit diagnostic
+    /// request allowance is supplied. Byte/RSS and elapsed budgets are separate.
+    pub fn parent_pinches_with_diagnostic_limit(
+        bindings: Vec<ApplicationCacheBinding>,
+        parents: &[(usize, Vec<bool>)],
+        budget: CachePreparationPrimerBudget,
+        max_requests: Option<usize>,
+    ) -> Result<Self, AppError> {
         validate_bindings(&bindings)?;
         // Check every declaration before potentially expensive preflight work,
         // including mixed namespaces and a malformed later parent.
@@ -137,9 +153,10 @@ impl CachePreparationWorkload {
             budget.for_support(0)?,
         )?;
         let mut count = Integer::from(0);
-        let cap = Integer::from(max_requests);
+        let cap = max_requests.map(Integer::from);
         let mut groups = Vec::new();
         for (namespace, parent) in parents {
+            checkpoint().map_err(resource_error)?;
             let physical = parent.iter().filter(|&&present| present).count();
             for active in 0..=physical {
                 let selected = budget.for_support(active)?;
@@ -147,12 +164,13 @@ impl CachePreparationWorkload {
                 // physical lines and auxiliaries. No coefficient algebra is used.
                 let representative = (0..parent.len()).map(|axis| axis < active).collect();
                 let domain = FiniteEntryDomain::new(representative, selected)?;
-                let per_support = domain.target_count(max_requests.max(1))?;
+                let per_support =
+                    domain.target_count_with_diagnostic_limit(max_requests.map(|n| n.max(1)))?;
                 if per_support == Integer::from(0) {
                     continue;
                 }
                 count += per_support * Integer::binom(physical as i64, active as i64);
-                if count > cap {
+                if cap.as_ref().is_some_and(|cap| &count > cap) {
                     return Err(AppError::limit(
                         "cache primer exceeds its request allowance",
                     ));
@@ -176,11 +194,14 @@ impl CachePreparationWorkload {
                     support[physical[index]] = true;
                 }
                 for target in FiniteEntryDomain::new(support, selected)?.targets() {
-                    if requests.len() >= max_requests {
+                    checkpoint().map_err(resource_error)?;
+                    if max_requests.is_some_and(|limit| requests.len() >= limit) {
                         return Err(AppError::limit(
                             "cache primer exceeds its request allowance",
                         ));
                     }
+                    check_allocation(std::mem::size_of::<(usize, IntegralKey)>() as u64)
+                        .map_err(resource_error)?;
                     requests
                         .try_reserve(1)
                         .map_err(|_| AppError::limit("cannot allocate cache primer requests"))?;
@@ -202,7 +223,7 @@ impl CachePreparationWorkload {
                 "native cache primer count/enumeration mismatch",
             ));
         }
-        Self::explicit(bindings, requests, max_requests)
+        Self::explicit_with_diagnostic_limit(bindings, requests, max_requests)
     }
 
     /// Enumerate caller-selected finite power budgets with the existing native
@@ -213,24 +234,37 @@ impl CachePreparationWorkload {
         domains: &[(usize, FiniteEntryDomain)],
         max_requests: usize,
     ) -> Result<Self, AppError> {
-        if domains.len() > max_requests {
+        Self::finite_entry_domains_with_diagnostic_limit(bindings, domains, Some(max_requests))
+    }
+
+    /// Construct the complete finite domain workload, with optional diagnostic
+    /// request counting and the ambient resource policy.
+    pub fn finite_entry_domains_with_diagnostic_limit(
+        bindings: Vec<ApplicationCacheBinding>,
+        domains: &[(usize, FiniteEntryDomain)],
+        max_requests: Option<usize>,
+    ) -> Result<Self, AppError> {
+        if max_requests.is_some_and(|limit| domains.len() > limit) {
             return Err(AppError::limit("cache workload domain allowance exceeded"));
         }
         let mut requests = Vec::new();
         for (namespace, domain) in domains {
             for target in domain.targets() {
-                if requests.len() >= max_requests {
+                checkpoint().map_err(resource_error)?;
+                if max_requests.is_some_and(|limit| requests.len() >= limit) {
                     return Err(AppError::limit(
                         "cache workload exceeds its request allowance",
                     ));
                 }
+                check_allocation(std::mem::size_of::<(usize, IntegralKey)>() as u64)
+                    .map_err(resource_error)?;
                 requests
                     .try_reserve(1)
                     .map_err(|_| AppError::limit("cannot allocate cache workload requests"))?;
                 requests.push((*namespace, target?));
             }
         }
-        Self::explicit(bindings, requests, max_requests)
+        Self::explicit_with_diagnostic_limit(bindings, requests, max_requests)
     }
 
     pub fn explicit(
@@ -238,10 +272,21 @@ impl CachePreparationWorkload {
         requests: impl IntoIterator<Item = (usize, IntegralKey)>,
         max_requests: usize,
     ) -> Result<Self, AppError> {
+        Self::explicit_with_diagnostic_limit(bindings, requests, Some(max_requests))
+    }
+
+    /// Deduplicate all supplied roots; the optional request limit is an opt-in
+    /// diagnostic, independent of cache capacity or job resource budgets.
+    pub fn explicit_with_diagnostic_limit(
+        bindings: Vec<ApplicationCacheBinding>,
+        requests: impl IntoIterator<Item = (usize, IntegralKey)>,
+        max_requests: Option<usize>,
+    ) -> Result<Self, AppError> {
         validate_bindings(&bindings)?;
         let mut roots = BTreeMap::<(usize, IntegralKey), u64>::new();
         for (ordinal, (namespace, integral)) in requests.into_iter().enumerate() {
-            if ordinal >= max_requests {
+            checkpoint().map_err(resource_error)?;
+            if max_requests.is_some_and(|limit| ordinal >= limit) {
                 return Err(AppError::limit(
                     "cache workload exceeds its request allowance",
                 ));
@@ -260,24 +305,35 @@ impl CachePreparationWorkload {
                 .checked_add(1)
                 .ok_or_else(|| AppError::limit("cache workload occurrence count overflow"))?;
         }
-        let targets = roots
-            .into_iter()
-            .map(
-                |((namespace, integral), source_occurrences)| CachePreparationTarget {
-                    namespace,
-                    integral,
-                    source_occurrences,
-                },
-            )
-            .collect::<Vec<_>>();
+        let target_bytes = roots
+            .len()
+            .checked_mul(std::mem::size_of::<CachePreparationTarget>())
+            .ok_or_else(|| {
+                AppError::limit("cache workload target allocation byte count overflow")
+            })?;
+        check_allocation(target_bytes as u64).map_err(resource_error)?;
+        let mut targets = Vec::new();
+        targets
+            .try_reserve_exact(roots.len())
+            .map_err(|_| AppError::limit("cannot allocate cache workload targets"))?;
+        for ((namespace, integral), source_occurrences) in roots {
+            checkpoint().map_err(resource_error)?;
+            targets.push(CachePreparationTarget {
+                namespace,
+                integral,
+                source_occurrences,
+            });
+        }
         let mut hash = blake3::Hasher::new();
         hash.update(b"rustred.cache-preparation-workload.v1\0");
         // Only metadata is serialized here; algebra bytes belong to the cache
         // codec. Full native keys, not their hashes, control deduplication.
-        let namespaces = bincode::encode_to_vec(&bindings, bincode::config::standard())
+        // Stream the identical binding encoding into its digest instead of
+        // retaining another complete metadata buffer during construction.
+        bincode::encode_into_std_write(&bindings, &mut hash, bincode::config::standard())
             .map_err(|error| AppError::serialization(error.to_string()))?;
-        hash.update(&namespaces);
         for target in &targets {
+            checkpoint().map_err(resource_error)?;
             hash.update(
                 &u64::try_from(target.namespace)
                     .map_err(|_| AppError::limit("namespace index overflow"))?
@@ -285,12 +341,28 @@ impl CachePreparationWorkload {
             );
             hash.update(&target.source_occurrences.to_le_bytes());
             for power in target.integral.powers() {
+                checkpoint().map_err(resource_error)?;
                 hash.update(&power.to_le_bytes());
             }
         }
+        // Vec-to-Arc conversion temporarily retains both element buffers.
+        // Preflight the known new data bytes and observe the resulting RSS;
+        // Arc's opaque allocator bookkeeping is covered by that checkpoint.
+        let binding_bytes = bindings
+            .len()
+            .checked_mul(std::mem::size_of::<ApplicationCacheBinding>())
+            .ok_or_else(|| {
+                AppError::limit("cache workload binding allocation byte count overflow")
+            })?;
+        check_allocation(binding_bytes as u64).map_err(resource_error)?;
+        let bindings = bindings.into();
+        checkpoint().map_err(resource_error)?;
+        check_allocation(target_bytes as u64).map_err(resource_error)?;
+        let targets = targets.into();
+        checkpoint().map_err(resource_error)?;
         Ok(Self {
-            bindings: bindings.into(),
-            targets: targets.into(),
+            bindings,
+            targets,
             digest: *hash.finalize().as_bytes(),
         })
     }
@@ -302,6 +374,15 @@ impl CachePreparationWorkload {
         regions: &[RootRegionInput<N>],
         max_roots: usize,
     ) -> Result<Self, AppError> {
+        Self::saved_entry_boundaries_with_diagnostic_limit(binding, regions, Some(max_roots))
+    }
+
+    /// Reuse all native boundary proposals; an optional root count is diagnostic.
+    pub fn saved_entry_boundaries_with_diagnostic_limit<const N: usize>(
+        binding: ApplicationCacheBinding,
+        regions: &[RootRegionInput<N>],
+        max_roots: Option<usize>,
+    ) -> Result<Self, AppError> {
         let mut requests = Vec::new();
         let allowance = regions
             .len()
@@ -309,15 +390,20 @@ impl CachePreparationWorkload {
             .ok_or_else(|| AppError::limit("cache boundary request count overflow"))?;
         // The native sampler produces at most three records per region. The
         // caller-selected root cap also bounds provenance-only duplicates.
-        if allowance > max_roots.saturating_mul(3) {
+        if max_roots.is_some_and(|limit| allowance > limit.saturating_mul(3)) {
             return Err(AppError::limit(
                 "cache boundary regions exceed the workload allowance",
             ));
         }
+        let reserve_bytes = allowance
+            .checked_mul(std::mem::size_of::<(usize, IntegralKey)>())
+            .ok_or_else(|| AppError::limit("cache boundary allocation byte count overflow"))?;
+        check_allocation(reserve_bytes as u64).map_err(resource_error)?;
         requests
             .try_reserve_exact(allowance)
             .map_err(|_| AppError::limit("cannot allocate cache boundary requests"))?;
         for region in regions {
+            checkpoint().map_err(resource_error)?;
             for witness in saved_application_boundary_witnesses(region)? {
                 match witness.kind {
                     SavedApplicationWitnessKind::Representative
@@ -327,8 +413,8 @@ impl CachePreparationWorkload {
                 requests.push((0, witness.integral));
             }
         }
-        let result = Self::explicit(vec![binding], requests, allowance)?;
-        if result.targets.len() > max_roots {
+        let result = Self::explicit_with_diagnostic_limit(vec![binding], requests, None)?;
+        if max_roots.is_some_and(|limit| result.targets.len() > limit) {
             return Err(AppError::limit("cache workload exceeds its root allowance"));
         }
         Ok(result)

@@ -66,7 +66,10 @@ impl<'a> ImageCache<'a> {
         field: &Zp64,
         point: &[Fp],
     ) -> Result<Option<&WeightImage>, MaterializationError> {
-        if self.limits.max_cached_images == 0 || self.limits.max_cached_values == 0 {
+        symbolica::utils::resources::checkpoint().map_err(MaterializationError::Resources)?;
+        if self.limits.diagnostics_enabled
+            && (self.limits.max_cached_images == 0 || self.limits.max_cached_values == 0)
+        {
             return Err(invalid("cache budgets must be positive"));
         }
         // On theoretical counter exhaustion drop memoized data, not the frozen
@@ -101,7 +104,7 @@ impl<'a> ImageCache<'a> {
                 .len()
                 .checked_add(3)
                 .ok_or_else(|| invalid("cache key accounting overflow"))?;
-            if key_slots > self.limits.max_cached_values {
+            if self.limits.diagnostics_enabled && key_slots > self.limits.max_cached_values {
                 return Err(invalid("single probe key exceeds cached-value capacity"));
             }
             let source_limit = self
@@ -111,7 +114,9 @@ impl<'a> ImageCache<'a> {
             let image = probe_prefix(
                 self.frame,
                 self.target,
-                self.limits.max_weight_slots,
+                self.limits
+                    .diagnostics_enabled
+                    .then_some(self.limits.max_weight_slots),
                 source_limit,
                 field,
                 point,
@@ -133,12 +138,15 @@ impl<'a> ImageCache<'a> {
             };
             let charged_slots = key_slots
                 .checked_add(slots)
-                .filter(|sum| *sum <= self.limits.max_cached_values)
+                .filter(|sum| {
+                    !self.limits.diagnostics_enabled || *sum <= self.limits.max_cached_values
+                })
                 .ok_or_else(|| invalid("single native image exceeds cached-value capacity"))?;
             // Subtraction is safe after the single-image admission above. Check
             // capacity without overflowing a prospective aggregate sum.
-            while self.images.len() >= self.limits.max_cached_images
-                || self.scalar_slots > self.limits.max_cached_values - charged_slots
+            while self.limits.diagnostics_enabled
+                && (self.images.len() >= self.limits.max_cached_images
+                    || self.scalar_slots > self.limits.max_cached_values - charged_slots)
             {
                 let (_, evicted_key) = self
                     .recency
@@ -198,11 +206,6 @@ impl<'a> ImageCache<'a> {
 
     pub(super) fn check_failure(&mut self) -> Result<(), MaterializationError> {
         self.failure.take().map_or(Ok(()), Err)
-    }
-
-    #[cfg(panic = "unwind")]
-    pub(super) fn has_failure(&self) -> bool {
-        self.failure.is_some()
     }
 }
 

@@ -87,6 +87,7 @@ fn affine_fast_path_still_spends_work_and_checks_term_budgets() {
     for (limits, expected) in [
         (
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 0,
                 ..Default::default()
             },
@@ -94,6 +95,7 @@ fn affine_fast_path_still_spends_work_and_checks_term_budgets() {
         ),
         (
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_terms_per_conjunction: 2,
                 ..Default::default()
             },

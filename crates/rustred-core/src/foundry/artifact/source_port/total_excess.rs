@@ -168,7 +168,7 @@ impl<const N: usize> SourcePortAudit<N> {
             });
             return Err(issue);
         }
-        if N == 0 || N > geometry.max_arity {
+        if N == 0 || (geometry.diagnostics_enabled && N > geometry.max_arity) {
             return Err(error("total-excess envelope has unsupported arity"));
         }
         let mut inputs = BTreeMap::new();
@@ -452,7 +452,11 @@ pub(in crate::foundry::artifact) fn visit_successor_degrees(
             // These exact domain proofs can remove fictitious activating
             // branches of rectangular prefilters, without discarding any
             // unresolved affine predicate or excluding a sampled point.
-            if affine.is_some_and(|domain| domain.is_proved_empty_in_box(piece))
+            if affine
+                .map(|domain| domain.is_proved_empty_in_box(piece))
+                .transpose()
+                .map_err(error)?
+                .unwrap_or(false)
                 || affine_exclusions
                     .iter()
                     .any(|domain| domain.is_proved_to_contain_box(piece))
@@ -680,6 +684,7 @@ impl EnvelopeBudget {
         &mut self,
         increment: [Option<usize>; 3],
     ) -> Result<(), SourcePortAuditError> {
+        symbolica::utils::resources::checkpoint().map_err(SourcePortAuditError::Resources)?;
         let consumed = [self.boxes, self.coordinates, self.work];
         let attempted = std::array::from_fn(|axis| {
             increment[axis].and_then(|value| consumed[axis].checked_add(value))
@@ -707,8 +712,10 @@ impl EnvelopeBudget {
     ) -> bool {
         let maximum = [limits.boxes, limits.coordinate_cells, limits.work];
         let overflow = attempted.map(|value| value.is_none());
-        let exceeded =
-            std::array::from_fn(|axis| attempted[axis].is_some_and(|value| value > maximum[axis]));
+        let exceeded = std::array::from_fn(|axis| {
+            attempted[axis]
+                .is_some_and(|value| self.limits.diagnostics_enabled && value > maximum[axis])
+        });
         if overflow.iter().any(|&value| value) || exceeded.iter().any(|&value| value) {
             self.observation.arithmetic_overflow |= overflow.iter().any(|&value| value);
             self.observation.failed_attempt = Some(SourcePortSuccessorAttempt {
@@ -735,7 +742,7 @@ impl EnvelopeBudget {
             increment(&mut self.observation.partition_requests, 1);
         // partition_count itself does not authenticate shape and can index
         // source endpoints. No borrowed fast path may bypass these checks.
-        geometry::validate_sign_partition_shape(source, sector, shift, self.limits.max_arity)?;
+        geometry::validate_sign_partition_shape(source, sector, shift, self.limits)?;
         let count =
             super::scope::successor::partition_count(source, sector, shift).map_err(|issue| {
                 self.observation.arithmetic_overflow = true;

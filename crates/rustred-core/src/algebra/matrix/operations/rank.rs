@@ -28,6 +28,7 @@ pub(crate) fn rank_of_coefficient_matrix(
         "single Symbolica matrix entries",
         shape.entries,
         limits.max_single_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
     // The only native matrix is destructively reduced in place. The borrowed
     // RustRed rows remain caller-owned and are charged independently as input.
@@ -35,6 +36,7 @@ pub(crate) fn rank_of_coefficient_matrix(
         "live Symbolica matrix entries",
         shape.entries,
         limits.max_live_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
 
     let field = CheckedCoefficientField::new(
@@ -42,7 +44,11 @@ pub(crate) fn rank_of_coefficient_matrix(
         limits,
         shape.entries,
         shape.entries,
-        limits.max_exact_operations,
+        if limits.diagnostics_enabled {
+            limits.max_exact_operations
+        } else {
+            0
+        },
     );
     let state = field.state.clone();
     let max_column = shape.columns_u32;

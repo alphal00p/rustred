@@ -29,7 +29,7 @@ pub(super) fn probe_image(
     probe_prefix(
         frame,
         target_column,
-        max_weight_slots,
+        Some(max_weight_slots),
         frame.rows().len(),
         field,
         point,
@@ -39,7 +39,7 @@ pub(super) fn probe_image(
 pub(super) fn probe_prefix(
     frame: &ProbeFrame,
     target_column: usize,
-    max_weight_slots: usize,
+    max_weight_slots: Option<usize>,
     source_limit: usize,
     field: &Zp64,
     point: &[Fp],
@@ -59,12 +59,15 @@ pub(super) fn probe_prefix(
     let mut values = Vec::new();
     let mut ids = Vec::new();
     for (source, row) in frame.rows().iter().take(source_limit).enumerate() {
+        symbolica::utils::resources::checkpoint().map_err(MaterializationError::Resources)?;
         let prefix_len = source
             .checked_add(1)
             .ok_or_else(|| invalid("source prefix overflow"))?;
-        if prefix_len > max_weight_slots {
+        if let Some(limit) = max_weight_slots
+            && prefix_len > limit
+        {
             return Err(invalid(format!(
-                "source-weight slot budget exceeded: {prefix_len} > {max_weight_slots}",
+                "source-weight slot budget exceeded: {prefix_len} > {limit}",
             )));
         }
         values.clear();

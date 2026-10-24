@@ -42,13 +42,14 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
 fn charge(
     value: &mut usize,
     addition: usize,
-    limit: usize,
+    limit: Option<usize>,
     resource: &'static str,
 ) -> Result<(), OwnerSuccessorFailure> {
-    let requested = value
-        .checked_add(addition)
-        .ok_or(OwnerSuccessorFailure::CountOverflow { resource })?;
-    if requested > limit {
+    symbolica::utils::resources::checkpoint().map_err(OwnerSuccessorFailure::Resources)?;
+    let requested = value.saturating_add(addition);
+    if let Some(limit) = limit
+        && requested > limit
+    {
         return Err(OwnerSuccessorFailure::ResourceLimit {
             resource,
             requested,
@@ -60,6 +61,7 @@ fn charge(
 }
 
 fn cancelled(cancellation: &AtomicBool) -> Result<(), OwnerSuccessorFailure> {
+    symbolica::utils::resources::checkpoint().map_err(OwnerSuccessorFailure::Resources)?;
     if cancellation.load(Ordering::Acquire) {
         Err(OwnerSuccessorFailure::Cancelled)
     } else {
@@ -83,7 +85,9 @@ fn scan<'a, const N: usize>(
         .ok_or(OwnerSuccessorFailure::UnknownOwner)?;
     check(
         N,
-        CompletionGeometryLimits::default().max_arity,
+        limits
+            .diagnostics_enabled
+            .then_some(CompletionGeometryLimits::default().max_arity),
         "index arity",
     )?;
     let cells = N
@@ -91,16 +95,25 @@ fn scan<'a, const N: usize>(
         .ok_or(OwnerSuccessorFailure::CountOverflow {
             resource: "source coordinate cells",
         })?;
-    check(1, limits.max_scratch_boxes, "scratch boxes")?;
+    check(
+        1,
+        limits.diagnostic_limit(limits.max_scratch_boxes),
+        "scratch boxes",
+    )?;
     check(
         cells,
-        limits.max_scratch_coordinate_cells,
+        limits.diagnostic_limit(limits.max_scratch_coordinate_cells),
         "source coordinate cells",
     )?;
     for (batch, prepared) in owner.batches.iter().enumerate() {
         for rule in &prepared.rules {
             cancelled(cancellation)?;
-            charge(&mut stats.rules, 1, limits.max_rules, "rules")?;
+            charge(
+                &mut stats.rules,
+                1,
+                limits.diagnostic_limit(limits.max_rules),
+                "rules",
+            )?;
             let lower: [u64; N] = std::array::from_fn(|axis| {
                 rule.fixed[axis].map_or(0, |n| {
                     if sector[axis] {
@@ -123,18 +136,27 @@ fn scan<'a, const N: usize>(
                 charge(
                     &mut stats.rank_empty_prefilters,
                     1,
-                    usize::MAX,
+                    None,
                     "rank-empty prefilters",
                 )?;
                 continue;
             }
-            let source = LatticeBox::try_new(lower, upper)
-                .map_err(|e| OwnerSuccessorFailure::Geometry(e.to_string()))?;
+            let source = LatticeBox::try_new(lower, upper).map_err(|e| {
+                match crate::reduction::resource_limit_error(&e) {
+                    Some(error) => OwnerSuccessorFailure::Resources(error.clone()),
+                    None => OwnerSuccessorFailure::Geometry(e.to_string()),
+                }
+            })?;
             for (term_ordinal, term) in rule.rhs.iter().enumerate() {
                 cancelled(cancellation)?;
-                charge(&mut stats.terms, 1, limits.max_terms, "terms")?;
+                charge(
+                    &mut stats.terms,
+                    1,
+                    limits.diagnostic_limit(limits.max_terms),
+                    "terms",
+                )?;
                 if term.coefficient.raw().is_zero() {
-                    charge(&mut stats.exact_zero_terms, 1, usize::MAX, "zero terms")?;
+                    charge(&mut stats.exact_zero_terms, 1, None, "zero terms")?;
                     continue;
                 }
                 let remaining_splits = limits
@@ -144,14 +166,22 @@ fn scan<'a, const N: usize>(
                 // the whole scratch envelope BEFORE the existing splitter, which
                 // checks its staged output only at the end of each axis.
                 let piece_count = partition_size(&source, &sector, &term.shift)?;
-                check(piece_count - 1, remaining_splits, "sign splits")?;
+                check(
+                    piece_count - 1,
+                    limits.diagnostic_limit(remaining_splits),
+                    "sign splits",
+                )?;
                 let scratch_boxes =
                     piece_count
                         .checked_add(4)
                         .ok_or(OwnerSuccessorFailure::CountOverflow {
                             resource: "scratch boxes",
                         })?;
-                check(scratch_boxes, limits.max_scratch_boxes, "scratch boxes")?;
+                check(
+                    scratch_boxes,
+                    limits.diagnostic_limit(limits.max_scratch_boxes),
+                    "scratch boxes",
+                )?;
                 let scratch_cells = scratch_boxes.checked_mul(cells).ok_or(
                     OwnerSuccessorFailure::CountOverflow {
                         resource: "scratch coordinate cells",
@@ -159,7 +189,7 @@ fn scan<'a, const N: usize>(
                 )?;
                 check(
                     scratch_cells,
-                    limits.max_scratch_coordinate_cells,
+                    limits.diagnostic_limit(limits.max_scratch_coordinate_cells),
                     "scratch coordinate cells",
                 )?;
                 let pieces = sign_partition_with_limits(
@@ -167,17 +197,32 @@ fn scan<'a, const N: usize>(
                     &sector,
                     &term.shift,
                     CompletionGeometryLimits {
+                        diagnostics_enabled: limits.diagnostics_enabled,
+                        max_arity: N,
+                        max_requested_boxes: 1,
+                        max_requested_box_coordinate_cells: cells,
                         max_uncovered_boxes: piece_count,
-                        max_uncovered_box_coordinate_cells: limits.max_scratch_coordinate_cells,
-                        max_split_operations: remaining_splits,
+                        max_uncovered_box_coordinate_cells: if limits.diagnostics_enabled {
+                            limits.max_scratch_coordinate_cells
+                        } else {
+                            scratch_cells
+                        },
+                        max_split_operations: if limits.diagnostics_enabled {
+                            remaining_splits
+                        } else {
+                            piece_count - 1
+                        },
                         ..Default::default()
                     },
                 )
-                .map_err(|e| OwnerSuccessorFailure::Geometry(e.to_string()))?;
+                .map_err(|e| match crate::reduction::resource_limit_error(&e) {
+                    Some(error) => OwnerSuccessorFailure::Resources(error.clone()),
+                    None => OwnerSuccessorFailure::Geometry(e.to_string()),
+                })?;
                 charge(
                     &mut stats.split_operations,
                     pieces.len().saturating_sub(1),
-                    limits.max_split_operations,
+                    limits.diagnostic_limit(limits.max_split_operations),
                     "sign splits",
                 )?;
                 for source_box in pieces {
@@ -188,7 +233,7 @@ fn scan<'a, const N: usize>(
                         charge(
                             &mut stats.rank_empty_prefilters,
                             1,
-                            usize::MAX,
+                            None,
                             "rank-empty prefilters",
                         )?;
                         continue;
@@ -222,7 +267,7 @@ fn scan<'a, const N: usize>(
                     charge(
                         &mut stats.regions,
                         1,
-                        limits.max_regions,
+                        limits.diagnostic_limit(limits.max_regions),
                         "successor regions",
                     )?;
                     let descriptor = OwnerSuccessorRegion {
@@ -257,10 +302,13 @@ fn scan<'a, const N: usize>(
 
 fn check(
     requested: usize,
-    limit: usize,
+    limit: Option<usize>,
     resource: &'static str,
 ) -> Result<(), OwnerSuccessorFailure> {
-    if requested > limit {
+    symbolica::utils::resources::checkpoint().map_err(OwnerSuccessorFailure::Resources)?;
+    if let Some(limit) = limit
+        && requested > limit
+    {
         Err(OwnerSuccessorFailure::ResourceLimit {
             resource,
             requested,

@@ -517,7 +517,7 @@ fn generated_native_values_remain_bound_to_exact_limits_and_context() {
     // Serialize a valid generated native Atom, not a deliberately malformed
     // upstream binary payload: native import has a trusted-provenance contract.
     let huge_power = replace_native_value(&encoded, id, &dimension.pow(65));
-    let mut strict = ArtifactLoadLimits::default();
+    let mut strict = ArtifactLoadLimits::default().with_diagnostics();
     strict.family.exact_algebra.max_exponent = 64;
     let error = ClosedArtifact::decode_durable_with_limits(&huge_power, strict).unwrap_err();
     assert!(error.to_string().contains("65"), "{error}");
@@ -570,8 +570,17 @@ fn one_loop_algorithm_shape_is_rejected_before_family_construction_and_replay() 
     let denominator_coefficient_count = family.start + 6 * 8;
     excessive_denominator_shape[denominator_coefficient_count..denominator_coefficient_count + 8]
         .copy_from_slice(&u64::MAX.to_le_bytes());
+    assert_eq!(
+        ClosedArtifact::decode_durable(&excessive_denominator_shape).unwrap_err(),
+        ArtifactPersistenceError::SemanticMismatch {
+            field: "one-loop denominator shape",
+        }
+    );
     assert!(matches!(
-        ClosedArtifact::decode_durable(&excessive_denominator_shape),
+        ClosedArtifact::decode_durable_with_limits(
+            &excessive_denominator_shape,
+            ArtifactLoadLimits::default().with_diagnostics(),
+        ),
         Err(ArtifactPersistenceError::ResourceLimit {
             resource: "denominator coefficients",
             ..
@@ -584,7 +593,7 @@ fn durable_load_threads_explicit_family_source_and_rule_policies() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let encoded = artifact.encode_durable().unwrap();
 
-    let mut family_limited = ArtifactLoadLimits::default();
+    let mut family_limited = ArtifactLoadLimits::default().with_diagnostics();
     family_limited.family.max_scalar_products = 0;
     // The structural preflight rejects this before family construction or
     // source replay, retaining the caller's exact family limit. Native table
@@ -598,7 +607,7 @@ fn durable_load_threads_explicit_family_source_and_rule_policies() {
         }
     );
 
-    let mut source_limited = ArtifactLoadLimits::default();
+    let mut source_limited = ArtifactLoadLimits::default().with_diagnostics();
     source_limited
         .source_generation
         .context_limits
@@ -610,7 +619,7 @@ fn durable_load_threads_explicit_family_source_and_rule_policies() {
         )))
     ));
 
-    let mut relation_limited = ArtifactLoadLimits::default();
+    let mut relation_limited = ArtifactLoadLimits::default().with_diagnostics();
     relation_limited
         .source_generation
         .relation_limits
@@ -624,7 +633,7 @@ fn durable_load_threads_explicit_family_source_and_rule_policies() {
         )))
     ));
 
-    let mut rule_limited = ArtifactLoadLimits::default();
+    let mut rule_limited = ArtifactLoadLimits::default().with_diagnostics();
     rule_limited.rule_derivation.max_source_rows = 0;
     assert!(matches!(
         ClosedArtifact::decode_durable_with_limits(&encoded, rule_limited),

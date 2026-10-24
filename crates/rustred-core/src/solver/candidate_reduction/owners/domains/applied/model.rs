@@ -28,6 +28,8 @@ pub enum OwnerAppliedCellRefinement {
 /// operation admitted independently, not an aggregate native-byte allowance.
 #[derive(Clone, Copy, Debug)]
 pub struct OwnerAppliedLimits {
+    /// Enable optional work-count diagnostics; authored domains are unchanged.
+    pub diagnostics_enabled: bool,
     pub matching: OwnerDomainMatchLimits,
     pub cell_refinement: OwnerAppliedCellRefinement,
     pub max_term_visits: usize,
@@ -43,6 +45,7 @@ pub struct OwnerAppliedLimits {
 impl Default for OwnerAppliedLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             matching: Default::default(),
             cell_refinement: OwnerAppliedCellRefinement::Off,
             max_term_visits: 1_000_000,
@@ -194,6 +197,7 @@ pub enum OwnerAppliedEvent<'a, const N: usize> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OwnerAppliedFailure {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     Matching(super::super::OwnerDomainMatchFailure),
     Cancelled,
     StoppedByConsumer,
@@ -230,4 +234,40 @@ impl fmt::Display for OwnerAppliedError {
         )
     }
 }
-impl std::error::Error for OwnerAppliedError {}
+impl std::error::Error for OwnerAppliedError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.failure)
+    }
+}
+impl fmt::Display for OwnerAppliedFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for OwnerAppliedFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resources(error) => Some(error),
+            Self::Matching(error) => Some(error),
+            Self::Algebra(error) => Some(error),
+            Self::AffineRestriction(error) => Some(error),
+            Self::PowerDomain(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl OwnerAppliedLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.matching = self.matching.with_diagnostics();
+        self
+    }
+    pub(super) const fn diagnostic_limit(self, limit: usize) -> Option<usize> {
+        if self.diagnostics_enabled {
+            Some(limit)
+        } else {
+            None
+        }
+    }
+}

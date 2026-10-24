@@ -39,7 +39,8 @@ pub fn inspect_generated_candidate_bundle(
         .ok_or_else(|| AppError::schema("truncated coefficient count"))?;
     let unique_coefficients = usize::try_from(u64::from_le_bytes(count_bytes.try_into().unwrap()))
         .map_err(|_| AppError::limit("coefficient count exceeds host width"))?;
-    if unique_coefficients > input_limits.max_collection_entries {
+    if input_limits.diagnostics_enabled && unique_coefficients > input_limits.max_collection_entries
+    {
         return Err(AppError::limit("coefficient count exceeds input limit"));
     }
     let policy = super::policy::parse(&record.solver_policy)?;
@@ -101,7 +102,7 @@ pub fn load_generated_candidate_bundle<const N: usize>(
     let prepared =
         preparation::prepare::<N>(family, &bundle.root_sector, bundle.permutation.as_deref())?;
     let context = ParametricIbpGenerator::try_new(&prepared.family)
-        .map_err(|error| AppError::execution(error.to_string()))?
+        .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Execution))?
         .context()
         .clone();
     let solutions = codec::solutions::<N>(
@@ -157,7 +158,7 @@ fn finish_reducer<const N: usize>(
     // Preparation keeps a compact zero-mask census. The experimental reducer
     // takes native proof owners, not caller-asserted zero masks.
     let analyzer = zero::Analyzer::try_unrestricted(&prepared.family)
-        .map_err(|error| AppError::execution(error.to_string()))?;
+        .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Execution))?;
     let mut certificates = Vec::with_capacity(prepared.zeros.len());
     for sector in prepared.zeros.iter() {
         let mask = Mask::try_new(
@@ -168,7 +169,7 @@ fn finish_reducer<const N: usize>(
         .map_err(|error| AppError::input(error.to_string()))?;
         match analyzer
             .analyze(&mask)
-            .map_err(|error| AppError::execution(error.to_string()))?
+            .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Execution))?
         {
             zero::Decision::ProvedZero(certificate) => certificates.push(certificate),
             _ => {
@@ -188,7 +189,7 @@ fn finish_reducer<const N: usize>(
         reduction_limits,
         max_numerator_rank,
     )
-    .map_err(|error| AppError::execution(error.to_string()))?;
+    .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Execution))?;
     Ok((prepared.family, reducer))
 }
 

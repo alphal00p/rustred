@@ -2,7 +2,7 @@
 use super::{
     OwnerDomainWalkRequest,
     initial_orthants::InitialOrthants,
-    inspection::{Effect, Event, Finished, NativeStats, debug},
+    inspection::{Effect, Event, Finished, NativeStats, debug, original_resource_failure},
     mask, power_bounds_json,
     queue::{Domain, Phase},
 };
@@ -51,7 +51,7 @@ pub(super) fn inspect<const N: usize>(
     let conditions = reducer.domain_routing_requires_source_conditions();
     let result = reducer.visit_power_bounded_domain_route_overcover_with_options(
         domain.owner, &domain.lower, &domain.upper, domain.rank, domain.powers,
-        CandidateDomainRouteLimits { max_masks: request.max_route_masks,
+        CandidateDomainRouteLimits { diagnostics_enabled: false, max_masks: request.max_route_masks,
             max_coordinate_cells: request.max_route_masks.saturating_mul(N).saturating_mul(2) },
         CandidateDomainRouteOptions {
             joint_source_support_pruning: request.route_joint_source_support_pruning,
@@ -86,19 +86,22 @@ pub(super) fn inspect<const N: usize>(
             };
             emit(Event::one(effect))
         });
-    let (stats, error, error_kind) = match result {
-        Ok(s) => (s, None, "none"),
+    let (stats, error, error_kind, resource_failure) = match result {
+        Ok(s) => (s, None, "none", None),
         Err(e) => {
+            let resource_failure = original_resource_failure(&e);
             use rustred::solver::CandidateDomainRouteFailure as F;
             let kind = match &e.failure {
+                F::Resources(_) => "resources",
                 F::Cancelled => "cancelled",
                 F::StoppedByConsumer => "consumer_stop",
                 _ => "native_failure",
             };
-            (e.stats, Some(debug(&e.failure)), kind)
+            (e.stats, Some(debug(&e.failure)), kind, resource_failure)
         }
     };
     Finished {
+        resource_failure,
         stats: NativeStats::Route(stats),
         error,
         error_kind,

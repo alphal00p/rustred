@@ -108,6 +108,7 @@ impl DiscoveryImage {
                 "modular columns",
                 self.columns.len().saturating_add(new.len()),
                 session.limits.max_columns,
+                session.limits.diagnostics_enabled,
             )?;
             let width = self
                 .columns

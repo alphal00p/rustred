@@ -24,6 +24,8 @@ impl Default for LoweringLimits {
 /// Aggregate parser and normalization limits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Limits {
+    /// Enable optional diagnostic count ceilings; disabled for ordinary execution.
+    pub diagnostics_enabled: bool,
     pub max_input_bytes: usize,
     pub max_raw_parser_units: usize,
     pub max_raw_integer_digits: usize,
@@ -52,7 +54,8 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            max_input_bytes: 4 * 1024 * 1024,
+            diagnostics_enabled: false,
+            max_input_bytes: usize::MAX,
             max_raw_parser_units: 1_000_000,
             max_raw_integer_digits: 1_000_000,
             max_abs_power: 256,
@@ -112,8 +115,10 @@ pub(super) fn check_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), Error> {
-    if requested > limit {
+    symbolica::utils::resources::checkpoint().map_err(Error::Resource)?;
+    if diagnostics_enabled && requested > limit {
         Err(Error::ResourceLimit {
             resource,
             requested,
@@ -121,5 +126,19 @@ pub(super) fn check_limit(
         })
     } else {
         Ok(())
+    }
+}
+
+impl Limits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
+    }
+}
+impl LoweringLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.affine_denominator = self.affine_denominator.with_diagnostics();
+        self.integral_family = self.integral_family.with_diagnostics();
+        self
     }
 }

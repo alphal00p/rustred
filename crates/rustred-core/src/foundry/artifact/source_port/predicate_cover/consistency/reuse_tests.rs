@@ -284,7 +284,7 @@ fn warmed_base_cannot_bypass_the_unresolved_equation_admission_cap() {
     unresolved[0] = (0, true);
     assert_eq!(
         cache.contradicts_implications(&cell, &assignment, &unresolved),
-        Err(WorkExhausted)
+        Err(WorkExhausted::Diagnostic)
     );
     assert_eq!(cache.statistics.base_hits, 0);
     assert_eq!(
@@ -337,7 +337,7 @@ fn shared_memory_caps_fall_back_without_evicting_any_classification_or_scalar_en
         cache.budget.remaining = 0;
         assert_eq!(
             cache.contradicts(&cell, &[Some(true), Some(false)]),
-            Err(WorkExhausted)
+            Err(WorkExhausted::Diagnostic)
         );
         assert!(cache.implications.is_empty());
     }
@@ -398,7 +398,7 @@ fn each_exhaustion_stage_records_only_accepted_work_and_completed_outcomes() {
         cache.budget.remaining = accepted + requested - 1;
         assert_eq!(
             cache.contradicts(&cell, &[Some(true), Some(false)]),
-            Err(WorkExhausted)
+            Err(WorkExhausted::Diagnostic)
         );
         assert_eq!(cache.budget.remaining, 0);
         assert_eq!(cache.statistics.native_work, accepted);
@@ -461,7 +461,7 @@ fn native_errors_and_panics_are_uncached_and_keep_false_ordinal_short_circuit_or
                             if panic {
                                 panic!("injected native failure");
                             }
-                            return Err(());
+                            return Err(WorkExhausted::NativeUnavailable);
                         }
                         native_rank(fixed, equations, indices)
                     }
@@ -483,7 +483,7 @@ fn native_errors_and_panics_are_uncached_and_keep_false_ordinal_short_circuit_or
             );
             assert_eq!(
                 cache.contradicts_implications_using(&cell, &assignment, &unresolved, |_, _, _| {
-                    Err(())
+                    Err(WorkExhausted::NativeUnavailable)
                 }),
                 Ok(false)
             );

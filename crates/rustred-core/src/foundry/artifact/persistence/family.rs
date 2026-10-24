@@ -59,24 +59,28 @@ pub(super) fn decode(
     {
         return Err(invalid());
     }
-    check_limit("artifact arity", arity, reader.limits().max_index_arity)?;
-    check_limit(
-        "family scalar products",
-        coordinates,
-        reader.limits().family.max_scalar_products,
-    )?;
+    reader
+        .limits()
+        .check_count("artifact arity", arity, reader.limits().max_index_arity)?;
     let matrix_entries =
         arity
             .checked_mul(coordinates)
             .ok_or(ArtifactPersistenceError::ResourceCountOverflow {
                 resource: "family matrix entries",
             })?;
-    check_limit(
-        "family matrix entries",
-        matrix_entries,
-        reader.limits().family.max_matrix_entries,
-    )?;
-    check_limit(
+    if reader.limits().family.diagnostics_enabled {
+        check_limit(
+            "family scalar products",
+            coordinates,
+            reader.limits().family.max_scalar_products,
+        )?;
+        check_limit(
+            "family matrix entries",
+            matrix_entries,
+            reader.limits().family.max_matrix_entries,
+        )?;
+    }
+    reader.limits().check_count(
         "family coefficient cells",
         matrix_entries,
         reader.limits().max_collection_entries,

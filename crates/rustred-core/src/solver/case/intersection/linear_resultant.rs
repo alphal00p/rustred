@@ -60,6 +60,7 @@ pub(super) fn refine<const N: usize>(
     stats: &mut CaseIntersectionStats,
     pending: usize,
 ) -> Result<Option<Vec<Vec<CoefficientPolynomial>>>, CaseIntersectionFailure> {
+    super::engine::checkpoint()?;
     let Some(Equation { x, y, p, q }) = authenticate(source, indices) else {
         return Ok(None);
     };
@@ -67,11 +68,12 @@ pub(super) fn refine<const N: usize>(
     // bound that preparation before calling native algebra, without introducing
     // a topology-, loop- or rank-specific polynomial-degree cutoff.
     let preparation = usize::from(q.degree(y)) + 1;
-    if stats
-        .work_items
-        .checked_add(pending)
-        .and_then(|n| n.checked_add(preparation))
-        .is_none_or(|n| n > limits.max_work_items)
+    if limits.diagnostics_enabled
+        && stats
+            .work_items
+            .checked_add(pending)
+            .and_then(|n| n.checked_add(preparation))
+            .is_none_or(|n| n > limits.max_work_items)
     {
         return Err(CaseIntersectionFailure::Budget {
             kind: CaseIntersectionBudget::WorkItems,
@@ -80,11 +82,11 @@ pub(super) fn refine<const N: usize>(
     }
     spend(
         &mut stats.normalizations,
-        limits.max_normalizations,
+        limits.diagnostic_limit(limits.max_normalizations),
         CaseIntersectionBudget::Normalizations,
     )?;
-    stats.work_items += preparation;
-    stats.integer_resultants += 1;
+    stats.work_items = stats.work_items.saturating_add(preparation);
+    stats.integer_resultants = stats.integer_resultants.saturating_add(1);
     let start = Instant::now();
     // Support is authenticated in ORIGINAL free index variables. Native
     // Symbolica recognizes the linear operand and uses its own exact fast path.
@@ -92,6 +94,7 @@ pub(super) fn refine<const N: usize>(
         .to_univariate_from_univariate(y)
         .resultant(&q.to_univariate_from_univariate(y));
     stats.normalization_time += start.elapsed();
+    super::engine::checkpoint()?;
     // A zero resultant may describe infinite factor faces/curves. Never turn
     // that into a finite list; ordinary factoring already had its opportunity.
     if resultant.is_zero() {

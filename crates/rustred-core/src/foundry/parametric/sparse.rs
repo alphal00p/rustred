@@ -182,6 +182,7 @@ fn reduce_rows_with_selection(
             },
         )?;
         check_limit(
+            limits.diagnostics_enabled,
             "parametric elimination pivot dependencies",
             dependency_capacity,
             limits.max_elimination_pivots,
@@ -202,6 +203,7 @@ fn reduce_rows_with_selection(
         pivot_dependencies.dedup();
         pivot_dependencies.push(metadata.len());
         check_limit(
+            limits.diagnostics_enabled,
             "parametric elimination pivots",
             pivot_dependencies.len(),
             limits.max_elimination_pivots,
@@ -212,6 +214,7 @@ fn reduce_rows_with_selection(
             pivot_dependencies.len(),
         )?;
         check_limit(
+            limits.diagnostics_enabled,
             "aggregate parametric elimination pivot dependencies",
             retained_pivot_dependency_entries,
             limits.max_elimination_pivot_dependency_entries,
@@ -231,6 +234,7 @@ fn reduce_rows_with_selection(
             reducer.l().nvalues(),
         )?;
         check_limit(
+            limits.diagnostics_enabled,
             "Symbolica indexed sparse U/L nonzero entries",
             decomposition_nonzeros,
             limits.max_native_decomposition_nonzero_entries,
@@ -285,13 +289,15 @@ fn reduce_rows_with_selection(
                         &metadata,
                         forward_row,
                         shift_columns,
-                        limits.max_elimination_pivots,
+                        limits.diagnostic_bound(limits.max_elimination_pivots),
                     )
                     .map_err(map_target_rref_error)?,
                 );
                 let target_limits = BackSubstitutionLimits {
-                    max_output_nonzero_entries: limits.max_back_substitution_output_nonzero_entries,
-                    max_live_nonzero_entries: limits.max_back_substitution_live_nonzero_entries,
+                    max_output_nonzero_entries: limits
+                        .diagnostic_bound(limits.max_back_substitution_output_nonzero_entries),
+                    max_live_nonzero_entries: limits
+                        .diagnostic_bound(limits.max_back_substitution_live_nonzero_entries),
                 };
                 let (admission, physical_u, physical_pivots) =
                     target_rref::admit_back_substitution(
@@ -317,6 +323,7 @@ fn reduce_rows_with_selection(
                 )
                 .map_err(map_target_rref_error)?;
                 check_limit(
+                    limits.diagnostics_enabled,
                     "Symbolica indexed sparse U/L nonzero entries",
                     output_nonzeros,
                     limits.max_native_decomposition_nonzero_entries,
@@ -407,6 +414,7 @@ fn reduce_rows_with_selection(
         }
     }
     check_limit(
+        limits.diagnostics_enabled,
         "indexed source-row combination terms",
         source_combination.len(),
         limits.max_source_combination_terms,
@@ -473,8 +481,11 @@ fn call_native<T>(
     operation: &'static str,
     callback: impl FnOnce() -> T,
 ) -> Result<T, ParametricRuleError> {
-    catch_unwind(AssertUnwindSafe(callback))
-        .map_err(|_| ParametricRuleError::NativePanic { operation })
+    symbolica::utils::resources::checkpoint()?;
+    let value = catch_unwind(AssertUnwindSafe(callback))
+        .map_err(|_| ParametricRuleError::NativePanic { operation })?;
+    symbolica::utils::resources::checkpoint()?;
+    Ok(value)
 }
 
 fn map_target_rref_error(error: TargetRrefError) -> ParametricRuleError {

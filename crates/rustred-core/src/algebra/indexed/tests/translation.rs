@@ -46,7 +46,9 @@ fn absent_index_shift_is_an_exact_noop_for_coefficients_and_polynomials() {
     let n0 = context.index(0).unwrap();
     let n0_squared = context.mul(&n0, &n0).unwrap();
     let exact = IndexedAlgebraLimits {
+        diagnostics_enabled: true,
         exact_algebra: ExactAlgebraLimits {
+            diagnostics_enabled: true,
             max_polynomial_terms: 1,
             ..ExactAlgebraLimits::default()
         },
@@ -79,7 +81,9 @@ fn translation_limits_accept_exact_boundaries_and_reject_one_below() {
     let n = context.index(0).unwrap();
     let n_squared = context.mul(&n, &n).unwrap();
     let exact = IndexedAlgebraLimits {
+        diagnostics_enabled: true,
         exact_algebra: ExactAlgebraLimits {
+            diagnostics_enabled: true,
             max_polynomial_terms: 3,
             ..ExactAlgebraLimits::default()
         },
@@ -129,7 +133,9 @@ fn translation_bounds_i64_min_without_signed_overflow() {
     let context = IndexedCoefficientContext::try_new(&base, "i64-min-translation", 1).unwrap();
     let index = context.index(0).unwrap();
     let exact = IndexedAlgebraLimits {
+        diagnostics_enabled: true,
         exact_algebra: ExactAlgebraLimits {
+            diagnostics_enabled: true,
             max_polynomial_terms: 2,
             ..ExactAlgebraLimits::default()
         },

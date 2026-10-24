@@ -134,10 +134,13 @@ pub(super) fn run<const N: usize>(
     let done = AtomicUsize::new(0);
     let exited = AtomicUsize::new(0);
     let failed = AtomicBool::new(false);
+    let resource_error = Mutex::new(None::<(usize, AppError)>);
     let workers = options.threads.max(1).min(jobs.len().max(1));
+    let resources = symbolica::utils::resources::ResourceBudget::capture_current();
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| {
+                resources.run_captured(|| {
                 let mut state = collector.local();
                 loop {
                     if cancellation.load(Ordering::Relaxed) || failed.load(Ordering::Relaxed) { break; }
@@ -157,26 +160,37 @@ pub(super) fn run<const N: usize>(
                             &mut |event| { events += event.count as u64; ControlFlow::Continue(()) },
                         );
                         let node = loaded.nodes[id];
-                        if cancellation.load(Ordering::Relaxed) { Ok(()) }
-                        else if node.error != finished.error.is_some() || node.events != Some(events) {
-                            Err(AppError::execution(format!("failed Apply record {id} classification prefix replay differs from its saved event/error boundary")))
-                        } else { Ok(()) }
+                        reference_error_matches(&finished, node.error).and_then(|error_matches| {
+                            if cancellation.load(Ordering::Relaxed) { Ok(()) }
+                            else if !error_matches || node.events != Some(events) {
+                                Err(AppError::execution(format!("failed Apply record {id} classification prefix replay differs from its saved event/error boundary")))
+                            } else { Ok(()) }
+                        })
                     } else {
                         reducer.programs().visit_power_bounded_owner_domain_matches(
                             domain.owner, &domain.lower, &domain.upper, domain.rank,
                             domain.powers, request.matching.match_limits, cancellation,
                             |piece| record(&piece),
-                        ).map(|_| ()).map_err(|error| AppError::execution(format!("native inventory matching failed: {error:?}")))
+                        ).map(|_| ()).map_err(|error| AppError::from_native(error, crate::AppErrorKind::Execution))
                     };
                     if let Err(error) = outcome {
                         if !cancellation.load(Ordering::Relaxed) && state.error.is_none() { state.error = Some(error); }
                     }
-                    if state.error.is_some() { failed.store(true, Ordering::Relaxed); break; }
+                    if let Some(error) = &state.error {
+                        if error.resource_limit_error().is_some() {
+                            let mut first = resource_error.lock().expect("inventory resource error");
+                            if first.as_ref().is_none_or(|(ordinal, _)| index < *ordinal) {
+                                *first = Some((index, error.clone()));
+                            }
+                        }
+                        failed.store(true, Ordering::Relaxed); break;
+                    }
                     if cancellation.load(Ordering::Relaxed) { break; }
                     done.fetch_add(1, Ordering::Relaxed);
                 }
                 collector.merge(state);
                 exited.fetch_add(1, Ordering::Release);
+                });
             });
         }
         let mut last = Instant::now();
@@ -191,6 +205,12 @@ pub(super) fn run<const N: usize>(
             }
         }
     });
+    if let Some((_, error)) = resource_error
+        .into_inner()
+        .expect("inventory resource error")
+    {
+        return Err(error);
+    }
     result.completed = done.load(Ordering::Relaxed);
     result.complete = result.completed == jobs.len()
         && !cancellation.load(Ordering::Relaxed)

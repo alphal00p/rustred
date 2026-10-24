@@ -26,6 +26,7 @@ fn proportional_family_limits_and_identity_strings_precede_label_sets() {
         Vec::new(),
         Vec::new(),
         IntegralFamilyLimits {
+            diagnostics_enabled: true,
             max_scalar_products: 0,
             ..IntegralFamilyLimits::default()
         },
@@ -50,6 +51,7 @@ fn proportional_family_limits_and_identity_strings_precede_label_sets() {
         Vec::new(),
         Vec::new(),
         IntegralFamilyLimits {
+            diagnostics_enabled: true,
             max_fingerprint_bytes: 4,
             ..IntegralFamilyLimits::default()
         },
@@ -74,6 +76,7 @@ fn proportional_family_limits_and_identity_strings_precede_label_sets() {
         Vec::new(),
         Vec::new(),
         IntegralFamilyLimits {
+            diagnostics_enabled: true,
             max_fingerprint_bytes: 4,
             ..IntegralFamilyLimits::default()
         },
@@ -102,6 +105,7 @@ fn proportional_family_limits_and_identity_strings_precede_label_sets() {
         Vec::new(),
         Vec::new(),
         IntegralFamilyLimits {
+            diagnostics_enabled: true,
             max_fingerprint_bytes: 4,
             ..IntegralFamilyLimits::default()
         },
@@ -177,4 +181,49 @@ fn coordinates_are_loop_loop_then_loop_external() {
         5
     );
     family.verify_exact_replay().unwrap();
+}
+
+#[test]
+fn ordinary_family_construction_ignores_diagnostic_count_templates() {
+    let context = CoefficientContext::new(["d"]);
+    let limits = IntegralFamilyLimits {
+        max_scalar_products: 0,
+        max_matrix_entries: 0,
+        max_matrix_exact_operations: 0,
+        max_fingerprint_bytes: 0,
+        ..IntegralFamilyLimits::default()
+    };
+    let make = |limits| {
+        IntegralFamily::new_with_limits(
+            "normal",
+            vec!["k".into()],
+            Vec::new(),
+            context.clone(),
+            context.parameter("d").unwrap(),
+            identity_denominators(&context, 1),
+            Vec::new(),
+            vec![context.zero()],
+            limits,
+        )
+    };
+    let ordinary = make(limits).unwrap();
+    assert_eq!(ordinary.coordinates().len(), 1);
+    assert!(matches!(
+        make(limits.with_diagnostics()),
+        Err(IntegralFamilyError::ResourceLimit { .. })
+    ));
+    let budget = symbolica::utils::resources::ResourceBudget::new(
+        symbolica::utils::resources::ResourceLimits {
+            max_elapsed: Some(std::time::Duration::ZERO),
+            ..Default::default()
+        },
+    );
+    assert!(matches!(
+        budget.run(|| make(limits)),
+        Err(IntegralFamilyError::ExactAlgebra(
+            ExactAlgebraError::Resource(
+                symbolica::utils::resources::ResourceLimitError::Elapsed { .. }
+            )
+        ))
+    ));
 }

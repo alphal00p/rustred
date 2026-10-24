@@ -167,12 +167,12 @@ fn malformed_maps_stay_unknown_and_budget_exhaustion_is_explicit() {
     budget.budget.remaining = 1;
     assert_eq!(
         budget.contradicts(&cell, &[Some(false)]),
-        Err(WorkExhausted)
+        Err(WorkExhausted::Diagnostic)
     );
     assert_eq!(budget.budget.remaining, 0);
     assert_eq!(
         budget.contradicts(&cell, &[Some(false)]),
-        Err(WorkExhausted)
+        Err(WorkExhausted::Diagnostic)
     );
     assert!(
         !RestrictionCache::new(&[false; 3], &atoms)
@@ -278,4 +278,31 @@ fn whole_cover_discharges_false_atom_on_face_but_keeps_a_genuine_missing_point()
         certify_predicate_cover(&sector, &owners, &terminal, PredicateCoverLimits::default())
             .is_ok()
     );
+}
+
+#[test]
+fn work_estimate_overflow_is_observational_without_diagnostics() {
+    let mut ordinary = RestrictionCache::with_policy(&[false], &[], 0, false);
+    assert_eq!(
+        ordinary.charge_native(Stage::BaseReduction, None, Shape::default()),
+        Ok(usize::MAX)
+    );
+    assert_eq!(ordinary.statistics.native_work, usize::MAX);
+    assert!(ordinary.statistics.exhaustion.is_none());
+    let mut diagnostic = RestrictionCache::with_policy(&[false], &[], usize::MAX, true);
+    assert_eq!(
+        diagnostic.charge_native(Stage::BaseReduction, None, Shape::default()),
+        Err(WorkExhausted::Diagnostic)
+    );
+    let exhausted = symbolica::utils::resources::ResourceBudget::with_memory_monitor(
+        symbolica::utils::resources::ResourceLimits {
+            max_process_rss_bytes: Some(1),
+            ..Default::default()
+        },
+        || Ok(2),
+    );
+    assert!(matches!(
+        exhausted.run(|| ordinary.charge_native(Stage::BaseReduction, None, Shape::default())),
+        Err(WorkExhausted::Resources(_))
+    ));
 }

@@ -77,6 +77,7 @@ fn generated_postprocess_telemetry_preserves_exact_delta_and_resident_adoption()
 }
 fn limits() -> GeneratedDirectoryLimits {
     GeneratedDirectoryLimits {
+        diagnostics_enabled: true,
         max_arity: 16,
         max_runs: 16,
         max_pages: 100,

@@ -316,6 +316,7 @@ fn application_cell_refinement_never_resets_finite_work_or_falls_back_after_a_pr
     for (limits, resource, expected_edges) in [
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_boundary_cells: 1,
                 ..refined(2)
             },
@@ -324,6 +325,7 @@ fn application_cell_refinement_never_resets_finite_work_or_falls_back_after_a_pr
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_term_visits: 1,
                 ..refined(2)
             },
@@ -332,6 +334,7 @@ fn application_cell_refinement_never_resets_finite_work_or_falls_back_after_a_pr
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_native_operations: 2,
                 ..refined(2)
             },
@@ -340,6 +343,7 @@ fn application_cell_refinement_never_resets_finite_work_or_falls_back_after_a_pr
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_events: 2,
                 ..refined(2)
             },

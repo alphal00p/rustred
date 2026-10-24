@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 use symbolica::prelude::Integer;
 
-use crate::algebra::{Coefficient, CoefficientContext, CoefficientPolynomial};
+use crate::algebra::{Coefficient, CoefficientContext, CoefficientPolynomial, ExactAlgebraError};
 
 use super::error::{IntegralFamilyError, check_family_limit};
 #[cfg(test)]
@@ -51,14 +51,25 @@ pub(super) fn preflight_family_identity_strings(
     external_momenta: &[String],
     parameters: &[String],
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), IntegralFamilyError> {
-    check_family_limit("family fingerprint bytes", name.len(), limit)?;
+    check_family_limit(
+        "family fingerprint bytes",
+        name.len(),
+        limit,
+        diagnostics_enabled,
+    )?;
     for value in loop_momenta
         .iter()
         .chain(external_momenta)
         .chain(parameters)
     {
-        check_family_limit("family fingerprint string bytes", value.len(), limit)?;
+        check_family_limit(
+            "family fingerprint string bytes",
+            value.len(),
+            limit,
+            diagnostics_enabled,
+        )?;
     }
     Ok(())
 }
@@ -91,6 +102,13 @@ pub(super) fn build_family_fingerprint(
     )?;
     let stats = census.finish();
 
+    let additional_bytes = u64::try_from(stats.encoded_bytes).map_err(|_| {
+        IntegralFamilyError::ResourceCountOverflow {
+            resource: "family fingerprint allocation bytes",
+        }
+    })?;
+    symbolica::utils::resources::check_allocation(additional_bytes)
+        .map_err(|error| IntegralFamilyError::ExactAlgebra(ExactAlgebraError::Resource(error)))?;
     let mut writer = FamilyFingerprintWriter::try_new(stats.encoded_bytes)?;
     encode_family_fingerprint(
         &mut writer,
@@ -104,6 +122,8 @@ pub(super) fn build_family_fingerprint(
         power_shifts,
     )?;
     let fingerprint = writer.finish()?;
+    symbolica::utils::resources::checkpoint()
+        .map_err(|error| IntegralFamilyError::ExactAlgebra(ExactAlgebraError::Resource(error)))?;
     Ok(fingerprint)
 }
 
@@ -304,6 +324,7 @@ impl FamilyFingerprintCensus {
             self.stats.encoded_bytes,
             additional,
             self.limits.max_fingerprint_bytes,
+            self.limits.diagnostics_enabled,
         )?;
         self.add_work(additional)
     }
@@ -314,6 +335,7 @@ impl FamilyFingerprintCensus {
             self.stats.encoding_work,
             additional,
             self.limits.max_fingerprint_encoding_work,
+            self.limits.diagnostics_enabled,
         )?;
         Ok(())
     }
@@ -334,6 +356,7 @@ impl FamilyFingerprintSink for FamilyFingerprintCensus {
             self.stats.polynomial_terms,
             1,
             self.limits.max_fingerprint_polynomial_terms,
+            self.limits.diagnostics_enabled,
         )?;
         self.add_work(1)
     }
@@ -344,6 +367,7 @@ impl FamilyFingerprintSink for FamilyFingerprintCensus {
             self.stats.exponent_entries,
             1,
             self.limits.max_fingerprint_exponent_entries,
+            self.limits.diagnostics_enabled,
         )?;
         self.add_work(1)?;
         self.add_bytes(decimal_digits_usize(usize::from(value)))
@@ -356,6 +380,7 @@ impl FamilyFingerprintSink for FamilyFingerprintCensus {
             self.stats.integer_bits,
             bits,
             self.limits.max_fingerprint_integer_bits,
+            self.limits.diagnostics_enabled,
         )?;
         self.add_work(bits)?;
         let hexadecimal_digits = if bits == 0 {
@@ -491,10 +516,11 @@ fn checked_bounded_fingerprint_add(
     current: usize,
     additional: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<usize, IntegralFamilyError> {
     let requested = current
         .checked_add(additional)
         .ok_or(IntegralFamilyError::ResourceCountOverflow { resource })?;
-    check_family_limit(resource, requested, limit)?;
+    check_family_limit(resource, requested, limit, diagnostics_enabled)?;
     Ok(requested)
 }

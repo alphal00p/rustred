@@ -58,14 +58,14 @@ pub(super) fn prepare_required(
     boxes: &[LatticeBox],
     limits: CompletionGeometryLimits,
 ) -> Result<BoxCover, PredicateCoverError> {
-    if boxes.len() > limits.max_requested_boxes {
+    if limits.diagnostics_enabled && boxes.len() > limits.max_requested_boxes {
         return Err(PredicateCoverError::Budget("requested coverage boxes"));
     }
     if boxes
         .len()
         .checked_mul(arity)
         .and_then(|v| v.checked_mul(2))
-        .is_none_or(|v| v > limits.max_requested_box_coordinate_cells)
+        .is_none_or(|v| limits.diagnostics_enabled && v > limits.max_requested_box_coordinate_cells)
     {
         return Err(PredicateCoverError::Budget(
             "requested coverage coordinate cells",
@@ -74,6 +74,15 @@ pub(super) fn prepare_required(
     if boxes.iter().any(|domain| domain.arity() != arity) {
         return Err(PredicateCoverError::InvalidDomain("requested box arity"));
     }
+    resources::check_allocation(
+        boxes
+            .len()
+            .checked_mul(std::mem::size_of::<LatticeBox>())
+            .and_then(|bytes| u64::try_from(bytes).ok())
+            .ok_or(PredicateCoverError::Budget(
+                "requested coverage allocation overflow",
+            ))?,
+    )?;
     let mut copied = Vec::new();
     copied
         .try_reserve_exact(boxes.len())
@@ -103,6 +112,7 @@ impl GeometryWork {
         arity: usize,
         limits: CompletionGeometryLimits,
     ) -> Result<(), PredicateCoverError> {
+        resources::checkpoint()?;
         let coordinate_work = arity
             .checked_mul(3)
             .ok_or(PredicateCoverError::Budget("degree coverage work"))?;
@@ -110,7 +120,7 @@ impl GeometryWork {
             .splits
             .checked_add(coordinate_work)
             .ok_or(PredicateCoverError::Budget("degree coverage work"))?;
-        if next > limits.max_split_operations {
+        if limits.diagnostics_enabled && next > limits.max_split_operations {
             return Err(PredicateCoverError::Budget("degree coverage work"));
         }
         self.splits = next;
@@ -121,6 +131,10 @@ impl GeometryWork {
         &self,
         mut limits: CompletionGeometryLimits,
     ) -> Result<CompletionGeometryLimits, PredicateCoverError> {
+        resources::checkpoint()?;
+        if !limits.diagnostics_enabled {
+            return Ok(limits);
+        }
         let subtract = |limit: usize, used| {
             limit
                 .checked_sub(used)

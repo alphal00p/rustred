@@ -11,6 +11,7 @@ use crate::family::IntegralFamilyError;
 /// Typed failures while lowering normalized syntax to an exact family.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LoweringError {
+    Resource(symbolica::utils::resources::ResourceLimitError),
     CoefficientContext(CoefficientContextError),
     AffineDenominator(SymbolicaAffineDenominatorError),
     IntegralFamily(IntegralFamilyError),
@@ -29,6 +30,7 @@ pub enum LoweringError {
 impl fmt::Display for LoweringError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resource(error) => error.fmt(formatter),
             Self::CoefficientContext(error) => {
                 write!(formatter, "invalid coefficient context: {error}")
             }
@@ -55,7 +57,17 @@ impl fmt::Display for LoweringError {
     }
 }
 
-impl std::error::Error for LoweringError {}
+impl std::error::Error for LoweringError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resource(error) => Some(error),
+            Self::CoefficientContext(error) => Some(error),
+            Self::AffineDenominator(error) => Some(error),
+            Self::IntegralFamily(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<CoefficientContextError> for LoweringError {
     fn from(error: CoefficientContextError) -> Self {
@@ -78,6 +90,7 @@ impl From<IntegralFamilyError> for LoweringError {
 /// Typed syntax and normalization failures.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
+    Resource(symbolica::utils::resources::ResourceLimitError),
     ResourceLimit {
         resource: &'static str,
         requested: usize,
@@ -189,6 +202,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resource(error) => error.fmt(formatter),
             Self::ResourceLimit {
                 resource,
                 requested,
@@ -346,4 +360,23 @@ impl fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resource(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<symbolica::utils::resources::ResourceLimitError> for LoweringError {
+    fn from(error: symbolica::utils::resources::ResourceLimitError) -> Self {
+        Self::Resource(error)
+    }
+}
+
+impl From<symbolica::utils::resources::ResourceLimitError> for Error {
+    fn from(error: symbolica::utils::resources::ResourceLimitError) -> Self {
+        Self::Resource(error)
+    }
+}

@@ -96,8 +96,9 @@ fn native_rank_handles_row_swaps_zero_leading_columns_and_deficiency() {
         &context,
         &zero,
         SymbolicaCoefficientMatrixLimits {
+            diagnostics_enabled: true,
             max_exact_operations: 0,
-            ..SymbolicaCoefficientMatrixLimits::default()
+            ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
         },
     )
     .unwrap();
@@ -178,12 +179,13 @@ fn native_rank_limits_cover_entries_live_bytes_and_exact_operations() {
         &context,
         &matrix,
         SymbolicaCoefficientMatrixLimits {
+            diagnostics_enabled: true,
             max_single_matrix_entries: 1,
             max_live_matrix_entries: 1,
             max_exact_operations: 1,
             max_input_retained_bytes: input_bytes,
             max_output_retained_bytes: output_bytes,
-            ..SymbolicaCoefficientMatrixLimits::default()
+            ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
         },
     )
     .unwrap();
@@ -196,29 +198,33 @@ fn native_rank_limits_cover_entries_live_bytes_and_exact_operations() {
     for (limits, resource) in [
         (
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_single_matrix_entries: 0,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
             "single Symbolica matrix entries",
         ),
         (
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_live_matrix_entries: 0,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
             "live Symbolica matrix entries",
         ),
         (
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_input_retained_bytes: input_bytes - 1,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
             "coefficient matrix input retained bytes",
         ),
         (
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_output_retained_bytes: output_bytes - 1,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
             "coefficient matrix output retained bytes",
         ),
@@ -237,8 +243,9 @@ fn native_rank_limits_cover_entries_live_bytes_and_exact_operations() {
             &context,
             &matrix,
             SymbolicaCoefficientMatrixLimits {
+                diagnostics_enabled: true,
                 max_exact_operations: 0,
-                ..SymbolicaCoefficientMatrixLimits::default()
+                ..SymbolicaCoefficientMatrixLimits::default().with_diagnostics()
             },
         ),
         Err(SymbolicaCoefficientMatrixError::ExactAlgebra(

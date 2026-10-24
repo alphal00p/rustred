@@ -37,6 +37,7 @@ fn generated_source_conditions_keep_full_parametric_provenance() {
         .sum::<usize>();
     assert_eq!(provenance_cells, 3);
     let exact_limits = ParametricRuleLimits {
+        diagnostics_enabled: true,
         max_guard_provenance_index_cells: provenance_cells,
         ..ParametricRuleLimits::default()
     };
@@ -61,6 +62,7 @@ fn generated_source_conditions_keep_full_parametric_provenance() {
                 .any(|origin| matches!(origin, ParametricGuardOrigin::SourceCondition { .. }))
     }));
     let one_below = ParametricRuleLimits {
+        diagnostics_enabled: true,
         max_guard_provenance_index_cells: provenance_cells - 1,
         ..exact_limits
     };

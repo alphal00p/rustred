@@ -75,7 +75,7 @@ pub(super) fn denominator_shape(value: &Native) -> Result<Shape, ExactAlgebraErr
     let terms = match (sparse, degree_box) {
         (Some(a), Some(b)) => a.min(b),
         (Some(a), None) | (None, Some(a)) => a,
-        (None, None) => return Err(overflow()),
+        (None, None) => usize::MAX,
     };
     Ok(Shape { terms, degrees })
 }
@@ -86,12 +86,12 @@ fn admit_degrees(
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
     for (variable, &requested) in shape.degrees.iter().enumerate() {
-        if requested > u64::from(limits.max_exponent) {
+        if requested > u64::from(limits.exponent_limit()) {
             return Err(ExactAlgebraError::ExponentLimit {
                 operation,
                 variable,
                 requested,
-                limit: limits.max_exponent,
+                limit: limits.exponent_limit(),
             });
         }
     }
@@ -139,6 +139,7 @@ pub(super) fn validate(
         "factorized expanded denominator term envelope",
         denominator.terms,
         limits.max_polynomial_terms,
+        limits.diagnostics_enabled,
     )
 }
 
@@ -148,20 +149,25 @@ fn product(
     operation: ExactAlgebraOperation,
     limits: ExactAlgebraLimits,
 ) -> Result<usize, ExactAlgebraError> {
-    let pairs = left.terms.checked_mul(right.terms).ok_or_else(overflow)?;
+    let pairs = if limits.diagnostics_enabled {
+        left.terms.checked_mul(right.terms).ok_or_else(overflow)?
+    } else {
+        left.terms.saturating_mul(right.terms)
+    };
     check_exact_resource_limit(
         "factorized native product term-pair envelope",
         pairs,
         limits.max_term_operations,
+        limits.diagnostics_enabled,
     )?;
     for (variable, (&a, &b)) in left.degrees.iter().zip(&right.degrees).enumerate() {
         let requested = a.checked_add(b).ok_or_else(overflow)?;
-        if requested > u64::from(limits.max_exponent) {
+        if requested > u64::from(limits.exponent_limit()) {
             return Err(ExactAlgebraError::ExponentLimit {
                 operation,
                 variable,
                 requested,
-                limit: limits.max_exponent,
+                limit: limits.exponent_limit(),
             });
         }
     }
@@ -195,6 +201,7 @@ fn operand_resources(
             "authenticated polynomial terms",
             polynomial.nterms(),
             limits.max_polynomial_terms,
+            limits.diagnostics_enabled,
         )?;
     }
     let numerator = polynomial_shape(&value.numerator);
@@ -205,6 +212,7 @@ fn operand_resources(
         "factorized expanded denominator term envelope",
         denominator.terms,
         limits.max_polynomial_terms,
+        limits.diagnostics_enabled,
     )?;
     Ok(OperandResources {
         numerator,
@@ -240,22 +248,32 @@ pub(super) fn preflight(
         // Equality is used only to tighten a resource bound, never as proof of
         // rational-function equality. Both variable maps were authenticated.
         if left.denominators == right.denominators {
-            let terms = left_num
-                .terms
-                .checked_add(right_num.terms)
-                .ok_or_else(overflow)?;
+            let terms = if limits.diagnostics_enabled {
+                left_num
+                    .terms
+                    .checked_add(right_num.terms)
+                    .ok_or_else(overflow)?
+            } else {
+                left_num.terms.saturating_add(right_num.terms)
+            };
             check_exact_resource_limit(
                 "factorized equal-denominator sum terms",
                 terms,
                 limits.max_term_operations,
+                limits.diagnostics_enabled,
             )?;
         } else {
             let a = product(left_num, right_den, operation, limits)?;
             let b = product(right_num, left_den, operation, limits)?;
             check_exact_resource_limit(
                 "factorized sum term envelope",
-                a.checked_add(b).ok_or_else(overflow)?,
+                if limits.diagnostics_enabled {
+                    a.checked_add(b).ok_or_else(overflow)?
+                } else {
+                    a.saturating_add(b)
+                },
                 limits.max_term_operations,
+                limits.diagnostics_enabled,
             )?;
             product(left_den, right_den, operation, limits)?;
         }
@@ -286,7 +304,12 @@ pub(super) fn preflight_materialization(
     // pair envelope is deliberately conservative; CAS scratch is not bounded.
     check_exact_resource_limit(
         "factorized native product term-pair envelope",
-        shape.terms.checked_mul(shape.terms).ok_or_else(overflow)?,
+        if limits.diagnostics_enabled {
+            shape.terms.checked_mul(shape.terms).ok_or_else(overflow)?
+        } else {
+            shape.terms.saturating_mul(shape.terms)
+        },
         limits.max_term_operations,
+        limits.diagnostics_enabled,
     )
 }

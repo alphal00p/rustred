@@ -427,9 +427,10 @@ fn fixed_input_admission_and_tiny_limits_fail_without_partial_output() {
     ));
     assert!(matches!(
         p.transport(&key([1, 1, i64::MIN]), Default::default()),
-        Err(Error::Expansion(ExpansionError::ResourceLimit { .. }))
+        Err(Error::Expansion(ExpansionError::NativeExponentLimit { .. }))
     ));
     let tiny = ExpansionLimits {
+        diagnostics_enabled: true,
         max_endpoints: 1,
         ..Default::default()
     };
@@ -438,6 +439,7 @@ fn fixed_input_admission_and_tiny_limits_fail_without_partial_output() {
         Err(Error::Expansion(ExpansionError::ResourceLimit { .. }))
     ));
     let tiny = ExpansionLimits {
+        diagnostics_enabled: true,
         max_factors: 0,
         ..Default::default()
     };
@@ -550,6 +552,7 @@ fn compiled_map_storage_and_total_rank_overflow_are_bounded() {
     );
     let root = Mask::try_new([true, true, false]).unwrap();
     let tiny = ExpansionLimits {
+        diagnostics_enabled: true,
         max_relation_coefficient_entries: 1,
         ..Default::default()
     };
@@ -571,6 +574,7 @@ fn selected_rows_are_cumulatively_admitted_before_coefficient_cloning() {
     let (source, target) = fixture();
     let p = prepared(&source, target, [true, true, false]);
     let limits = ExpansionLimits {
+        diagnostics_enabled: true,
         max_retained_coefficient_terms: 8,
         ..Default::default()
     };
@@ -578,6 +582,7 @@ fn selected_rows_are_cumulatively_admitted_before_coefficient_cloning() {
         matches!(p.transport(&key([-1, -1, -1]), limits), Err(Error::Expansion(ExpansionError::ResourceLimit { resource: "multi-affine retained coefficient terms", requested, limit: 8 })) if requested > 8)
     );
     let limits = ExpansionLimits {
+        diagnostics_enabled: true,
         max_retained_coefficient_clone_owned_bytes: 1,
         ..Default::default()
     };
@@ -590,6 +595,7 @@ fn selected_rows_are_cumulatively_admitted_before_coefficient_cloning() {
     ));
     // Rows which are not numerators are shared, not cloned or charged as ingress.
     let limits = ExpansionLimits {
+        diagnostics_enabled: true,
         max_retained_coefficient_terms: 4,
         ..Default::default()
     };

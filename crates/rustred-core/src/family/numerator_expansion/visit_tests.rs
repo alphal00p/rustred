@@ -167,10 +167,12 @@ fn trace_support_late_virtual_output_limits_fail_before_any_key() {
         .unwrap();
     for limits in [
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_retained_coefficient_terms: all.terms - 1,
             ..Default::default()
         },
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_retained_coefficient_clone_owned_bytes: all.clone_owned_bytes - 1,
             ..Default::default()
         },
@@ -204,26 +206,32 @@ fn trace_support_preflight_errors_match_full_output_without_callbacks() {
     let factors = [factor(&family, "1", &[(0, "1"), (2, "-1")], 3)];
     for limits in [
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_endpoints: 2,
             ..Default::default()
         },
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_endpoint_power_entries: 10,
             ..Default::default()
         },
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_retained_endpoint_key_bytes: 1,
             ..Default::default()
         },
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_native_polynomial_operations: 1,
             ..Default::default()
         },
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_native_exponent_entries: 1,
             ..Default::default()
         },
         MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_factors: 0,
             ..Default::default()
         },
@@ -250,6 +258,7 @@ fn trace_support_preflight_errors_match_full_output_without_callbacks() {
     );
     let limits = MultiAffineNumeratorExpansionLimits {
         exact_algebra: crate::algebra::ExactAlgebraLimits {
+            diagnostics_enabled: true,
             max_polynomial_terms: 0,
             ..Default::default()
         },
@@ -266,6 +275,7 @@ fn trace_support_tiny_constant_virtual_caps_match_every_boundary() {
     let (family, base) = fixture();
     for cap in 0..=8 {
         let limits = MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_retained_coefficient_terms: cap,
             ..Default::default()
         };
@@ -278,6 +288,7 @@ fn trace_support_tiny_constant_virtual_caps_match_every_boundary() {
     let threshold = coefficient_weight(&one).unwrap().clone_owned_bytes * 2;
     for cap in [threshold - 1, threshold, threshold + 1] {
         let limits = MultiAffineNumeratorExpansionLimits {
+            diagnostics_enabled: true,
             max_retained_coefficient_clone_owned_bytes: cap,
             ..Default::default()
         };

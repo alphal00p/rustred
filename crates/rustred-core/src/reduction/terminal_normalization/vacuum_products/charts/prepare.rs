@@ -25,7 +25,7 @@ impl VacuumProductChartPlan {
         terminals: &BTreeSet<IntegralKey>,
         limits: VacuumProductChartLimits,
     ) -> Result<Self, Error> {
-        if terminals.len() > limits.products.max_terminals {
+        if limits.products.diagnostics_enabled && terminals.len() > limits.products.max_terminals {
             return Err(Error::ResourceLimit {
                 resource: "chart terminals",
                 requested: terminals.len(),
@@ -109,7 +109,9 @@ impl VacuumProductChartPlan {
                     let mut count = lower_families.len();
                     charge(
                         &mut count,
-                        limits.products.max_lower_families,
+                        limits
+                            .products
+                            .diagnostic_limit(limits.products.max_lower_families),
                         "chart lower families",
                     )?;
                     lower_families.insert(block.family.fingerprint().to_owned());
@@ -238,12 +240,16 @@ fn make_chart(
             parent,
             &combined,
             MomentumMap::new(
-                CoefficientMatrix::try_new_with_max_entries(
-                    loops,
-                    loops,
-                    momentum.into_iter().flatten(),
-                    limits.verification.max_matrix_entries,
-                )
+                if limits.verification.diagnostics_enabled {
+                    CoefficientMatrix::try_new_with_max_entries(
+                        loops,
+                        loops,
+                        momentum.into_iter().flatten(),
+                        limits.verification.max_matrix_entries,
+                    )
+                } else {
+                    CoefficientMatrix::try_new(loops, loops, momentum.into_iter().flatten())
+                }
                 .map_err(algebra)?,
                 CoefficientMatrix::try_new(loops, 0, []).map_err(algebra)?,
                 CoefficientMatrix::try_new(0, 0, []).map_err(algebra)?,

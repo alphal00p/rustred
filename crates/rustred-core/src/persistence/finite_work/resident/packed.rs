@@ -110,6 +110,7 @@ impl PackedWork {
     /// cancellation are explicit errors. No data are inserted into membership.
     pub fn reserve(&mut self, additional: usize, cancel: &AtomicBool) -> GeneratedWorkResult<bool> {
         check(cancel)?;
+        allocation(self.growth_payload(additional)?)?;
         if self
             .table
             .try_reserve(additional, |slot| slot.hash)
@@ -194,6 +195,7 @@ impl PowersArena {
     }
     fn reserve(&mut self, additional: usize, cancel: &AtomicBool) -> GeneratedWorkResult<bool> {
         let required = self.needed_chunks(additional)?;
+        allocation(self.growth_payload(additional)?)?;
         if self
             .chunks
             .try_reserve_exact(required.saturating_sub(self.chunks.len()))

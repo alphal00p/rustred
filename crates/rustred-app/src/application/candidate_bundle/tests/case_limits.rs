@@ -4,6 +4,7 @@ use rustred::family::IntegralKey;
 
 fn enlarged() -> CaseIntersectionLimits {
     CaseIntersectionLimits {
+        diagnostics_enabled: true,
         max_work_items: 16_384,
         max_terms_per_conjunction: 400_000,
         max_normalizations: 4096,

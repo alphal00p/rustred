@@ -45,6 +45,7 @@ fn finished(events: usize, error: Option<&str>) -> Finished {
     let mut stats = rustred::solver::OwnerAppliedStats::default();
     stats.events = events;
     Finished {
+        resource_failure: None,
         stats: NativeStats::Apply(stats),
         error: error.map(str::to_owned),
         error_kind: if error.is_some() {

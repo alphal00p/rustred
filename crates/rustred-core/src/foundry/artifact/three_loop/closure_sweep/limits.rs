@@ -25,6 +25,7 @@ const K6_ROOT_ROUTE_UPPER: usize = K6_ROOT_OWNER_REGIONS * (K6_GROUP_ORDER + 1);
 pub(super) fn frame_limits() -> PhysicalFrameLimits {
     PhysicalFrameLimits {
         translated_sources: TranslatedSourceLimits {
+            diagnostics_enabled: true,
             max_requested_offsets: MAX_OFFSETS,
             max_translated_sources: MAX_FRAME_ROWS,
             max_translated_term_entries: MAX_FRAME_ENTRIES,
@@ -153,6 +154,7 @@ pub(super) fn owner_cover_limits() -> ExactCircuitOwnerCoverLimits {
         max_finite_complement_coordinate_cells: 65_536 * 6,
         max_point_owner_probes: 4_194_304,
         geometry: CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_arity: 6,
             max_requested_generators: MAX_OWNER_INPUTS,
             max_requested_generator_coordinate_cells: MAX_OWNER_INPUTS * 6,

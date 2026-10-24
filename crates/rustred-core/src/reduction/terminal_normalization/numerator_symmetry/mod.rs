@@ -47,6 +47,7 @@ impl Default for TerminalNumeratorSymmetryLimits {
         Self {
             expansion: integral_transport::ExpansionLimits::unbounded_resources(),
             verification: symmetry::Limits {
+                diagnostics_enabled: false,
                 exact_algebra: ExactAlgebraLimits::unbounded_resources(),
                 max_matrix_entries: usize::MAX,
                 max_exact_operations: usize::MAX,

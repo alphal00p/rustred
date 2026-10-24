@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 
 use crate::algebra::{
     ExactAlgebraLimits, IndexedCoefficientContext, validate_coefficient_on_map,
-    validate_polynomial_on_map,
+    validate_coefficient_structure_on_map, validate_polynomial_on_map,
 };
 
 use super::super::error::IndexedAlgebraError;
@@ -73,8 +73,14 @@ impl IndexedCoefficientContext {
     }
 
     pub fn contains(&self, value: &IndexedCoefficient) -> bool {
-        self.authenticate_coefficient_with_limits(value, ExactAlgebraLimits::default())
-            .is_ok()
+        if self.bind_sealed(value).is_err() {
+            return false;
+        }
+        #[cfg(test)]
+        self.authentication_counters
+            .full_operand_scans
+            .fetch_add(1, Ordering::Relaxed);
+        validate_coefficient_structure_on_map(&value.raw, &self.variables).is_ok()
     }
 
     pub fn validate_polynomial_with_limits(

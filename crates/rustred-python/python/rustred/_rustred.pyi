@@ -269,7 +269,7 @@ def reduce_with_closing_artifact(
     artifact: bytes,
     target_powers: list[int],
     *,
-    max_rule_applications: int = 1_000_000,
+    max_rule_applications: int | None = None,
     max_domain_bound_endpoint_cells: int | None = None,
     max_predicate_consistency_work: int | None = None,
     max_predicate_atoms: int | None = None,

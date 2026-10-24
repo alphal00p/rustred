@@ -37,6 +37,7 @@ fn check_many_atoms(
         &owners,
         &[],
         PredicateCoverLimits {
+            diagnostics_enabled: true,
             max_predicates: limit,
             ..Default::default()
         },
@@ -45,11 +46,7 @@ fn check_many_atoms(
 
 #[test]
 fn dynamic_atom_ids_cross_word_boundaries_without_changing_cover_semantics() {
-    for count in [
-        33,
-        65,
-        super::super::super::SourcePortLimits::MAX_PREDICATE_ATOMS,
-    ] {
+    for count in [33, 65, 512] {
         assert!(matches!(
             check_many_atoms(count, 32, true),
             Err(PredicateCoverError::Budget("predicate atoms"))
@@ -72,12 +69,12 @@ fn larger_atom_allowance_does_not_certify_a_genuine_unbounded_hole() {
 }
 
 #[test]
-fn supported_ceiling_traverses_all_256_atoms_on_the_normal_test_stack() {
+fn iterative_traversal_handles_512_atoms_on_the_normal_test_stack() {
     // Every false child is contradicted by a=b=0 on the remaining face. The
-    // true path visits all 256 atoms before reporting the actual free-c hole:
+    // true path visits all 512 atoms before reporting the actual free-c hole:
     // linear-size pruning, no giant-stack workaround or exponential census.
     assert!(matches!(
-        check_many_atoms(256, 256, false),
+        check_many_atoms(512, 512, false),
         Err(PredicateCoverError::Uncovered {
             unbounded_boxes: 1,
             ..
@@ -86,39 +83,70 @@ fn supported_ceiling_traverses_all_256_atoms_on_the_normal_test_stack() {
 }
 
 #[test]
-fn unsupported_policy_rejected_even_for_coordinate_only_covers() {
+fn ordinary_zero_templates_and_large_diagnostic_atom_allowances_are_supported() {
     let boxes = [full::<1>()];
     let owners = [PredicateCoveragePiece {
         boxes: &boxes,
         affine_target: None,
         affine_exclusions: &[],
     }];
+    let zero = PredicateCoverLimits {
+        max_predicates: 0,
+        max_clauses: 0,
+        max_boolean_nodes: 0,
+        max_consistency_work: 0,
+        geometry: CompletionGeometryLimits {
+            max_arity: 0,
+            max_requested_boxes: 0,
+            max_requested_box_coordinate_cells: 0,
+            max_uncovered_boxes: 0,
+            max_uncovered_box_coordinate_cells: 0,
+            max_split_operations: 0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert!(certify_predicate_cover(&[true], &owners, &[], zero).is_ok());
+    assert!(certify_predicate_cover(&[true], &owners, &[], zero.with_diagnostics()).is_err());
     for max_predicates in [257, usize::MAX] {
-        assert!(matches!(
+        assert!(
             certify_predicate_cover(
                 &[true],
                 &owners,
                 &[],
                 PredicateCoverLimits {
                     max_predicates,
-                    ..Default::default()
-                },
-            ),
-            Err(PredicateCoverError::Budget(
-                "supported predicate atom policy"
-            ))
-        ));
+                    ..PredicateCoverLimits::default().with_diagnostics()
+                }
+            )
+            .is_ok()
+        );
     }
-    assert!(
-        certify_predicate_cover(
-            &[true],
-            &owners,
-            &[],
-            PredicateCoverLimits {
-                max_predicates: 0,
-                ..Default::default()
-            },
-        )
-        .is_ok()
+}
+
+#[test]
+fn shared_resource_refusal_is_typed_and_next_cover_remains_healthy() {
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+    let boxes = [full::<1>()];
+    let owners = [PredicateCoveragePiece {
+        boxes: &boxes,
+        affine_target: None,
+        affine_exclusions: &[],
+    }];
+    let budget = ResourceBudget::with_memory_monitor(
+        ResourceLimits {
+            max_process_rss_bytes: Some(1),
+            ..Default::default()
+        },
+        || Ok(2),
     );
+    let error = budget
+        .run(|| certify_predicate_cover(&[true], &owners, &[], Default::default()))
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        PredicateCoverError::Resources(ResourceLimitError::Memory { .. })
+    ));
+    assert!(crate::reduction::resource_limit_error(&error).is_some());
+    assert!(certify_predicate_cover(&[true], &owners, &[], Default::default()).is_ok());
 }

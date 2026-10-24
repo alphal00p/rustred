@@ -262,6 +262,7 @@ fn manifest_rejects_invalid_masks_order_roots_and_bounded_collections() {
     );
     assert!(CheckpointManifest::for_request(&request, "fp", &[true; 3], masks()).is_err());
     request.nonpositive_indices.clear();
+    request.bundle_limits.diagnostics_enabled = true;
     request.bundle_limits.max_collection_entries = 18; // 4*3 + 4 + 3 = 19.
     assert_eq!(
         CheckpointManifest::for_request(&request, "fp", &[true; 3], masks())
@@ -269,6 +270,7 @@ fn manifest_rejects_invalid_masks_order_roots_and_bounded_collections() {
             .kind(),
         AppErrorKind::Limit
     );
+    request.bundle_limits.diagnostics_enabled = true;
     request.bundle_limits.max_collection_entries = 19;
     let manifest = manifest(&request);
     let bytes = manifest.encode(usize::MAX).unwrap();

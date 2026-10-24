@@ -69,7 +69,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     resource: "routed dependency references",
                 })?;
         } else {
-            if pins.nodes.len() >= self.limits.max_unique_nodes {
+            if self.limits.diagnostics_enabled && pins.nodes.len() >= self.limits.max_unique_nodes {
                 return Err(CandidateRoutedError::ResourceLimit {
                     resource: "pinned operational nodes",
                     requested: pins.nodes.len().saturating_add(1),
@@ -171,7 +171,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         stats: &mut CandidateRoutedCacheStatistics,
     ) -> Result<(), CandidateRoutedError> {
         let weight = terms
-            .weight()?
+            .weight(self.context.limits.diagnostics_enabled)?
             .checked_add(coefficient_cache_weight(&conditions)?)?;
         let evict = self.eviction_enabled();
         // Do not evict useful entries for a result that cannot fit even alone.

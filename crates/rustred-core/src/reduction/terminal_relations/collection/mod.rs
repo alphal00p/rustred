@@ -32,8 +32,14 @@ use crate::reduction::terminal_normalization::{VacuumFamilyAliasPlan, VacuumInte
 type Row = BTreeMap<VacuumIntegralKey, Coefficient>;
 type Result<T> = std::result::Result<T, VacuumCollectionError>;
 
-fn check(resource: &'static str, requested: usize, limit: usize) -> Result<()> {
-    if requested > limit {
+fn check(
+    resource: &'static str,
+    requested: usize,
+    limit: usize,
+    diagnostics_enabled: bool,
+) -> Result<()> {
+    symbolica::utils::resources::checkpoint().map_err(VacuumCollectionError::Resources)?;
+    if diagnostics_enabled && requested > limit {
         Err(VacuumCollectionError::Limit {
             resource,
             requested,
@@ -46,7 +52,12 @@ fn check(resource: &'static str, requested: usize, limit: usize) -> Result<()> {
 fn algebra(error: impl std::fmt::Display) -> VacuumCollectionError {
     VacuumCollectionError::Algebra(error.to_string())
 }
-fn retain(conditions: &mut Vec<Coefficient>, value: Coefficient, limit: usize) -> Result<()> {
+fn retain(
+    conditions: &mut Vec<Coefficient>,
+    value: Coefficient,
+    limit: usize,
+    diagnostics_enabled: bool,
+) -> Result<()> {
     if value.is_zero() {
         return Err(VacuumCollectionError::VanishingCondition);
     }
@@ -55,6 +66,7 @@ fn retain(conditions: &mut Vec<Coefficient>, value: Coefficient, limit: usize) -
             "nonzero conditions",
             conditions.len().saturating_add(1),
             limit,
+            diagnostics_enabled,
         )?;
         conditions.push(value);
     }

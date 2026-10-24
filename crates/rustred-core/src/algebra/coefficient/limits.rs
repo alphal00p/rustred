@@ -5,13 +5,15 @@
 /// caller-controlled formula degrees before constructing coefficients.
 pub const SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT: u16 = u16::MAX;
 
-/// Resource limits for exact rational-polynomial arithmetic.
+/// Optional diagnostic thresholds for exact rational-polynomial arithmetic.
 ///
-/// These limits are checked before entering Symbolica operations that add
+/// With diagnostics enabled, thresholds are checked before operations that add
 /// polynomial exponents. This is essential because Symbolica deliberately
 /// panics when its `u16` exponent representation overflows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExactAlgebraLimits {
+    /// Enforce count/work thresholds only for an explicitly requested diagnostic.
+    pub diagnostics_enabled: bool,
     /// Largest exponent admitted by RustRed's checked representation boundary.
     pub max_exponent: u16,
     /// Largest authenticated retained sparse part.
@@ -35,6 +37,7 @@ impl ExactAlgebraLimits {
     /// remain enforced. External RAM controls are still the caller's duty.
     pub const fn unbounded_resources() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_exponent: SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
             max_polynomial_terms: usize::MAX,
             max_term_operations: usize::MAX,
@@ -45,9 +48,41 @@ impl ExactAlgebraLimits {
 impl Default for ExactAlgebraLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_exponent: SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
             max_polynomial_terms: 4_000_000,
             max_term_operations: 16_000_000,
+        }
+    }
+}
+
+impl ExactAlgebraLimits {
+    /// Explicitly enable diagnostic count/work thresholds.
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self
+    }
+    pub(crate) const fn exponent_limit(self) -> u16 {
+        if self.diagnostics_enabled {
+            self.max_exponent
+        } else {
+            u16::MAX
+        }
+    }
+}
+
+impl ExactAlgebraLimits {
+    pub(crate) fn bounded_by(self, outer: Self) -> Self {
+        match (self.diagnostics_enabled, outer.diagnostics_enabled) {
+            (true, false) => self,
+            (false, true) => outer,
+            (false, false) => self,
+            (true, true) => Self {
+                diagnostics_enabled: true,
+                max_exponent: self.max_exponent.min(outer.max_exponent),
+                max_polynomial_terms: self.max_polynomial_terms.min(outer.max_polynomial_terms),
+                max_term_operations: self.max_term_operations.min(outer.max_term_operations),
+            },
         }
     }
 }

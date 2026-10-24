@@ -22,13 +22,15 @@ impl HasStateMap for BorrowedStateMap<'_> {
 // Symbolica's Atom encoder writes one format byte and a fixed u64 length on
 // every target. RustRed uses the same fixed framing, independently of usize.
 pub(super) fn write_length(writer: &mut impl Write, value: usize) -> Result<(), BinaryIoError> {
+    super::resource_checkpoint()?;
     let value = u64::try_from(value).map_err(|_| BinaryIoError::Invalid("length exceeds u64"))?;
     writer
         .write_all(&value.to_le_bytes())
-        .map_err(|error| BinaryIoError::Native(error.to_string()))
+        .map_err(super::native_io_error)
 }
 
 pub(super) fn read_length(source: &mut &[u8]) -> Result<usize, BinaryIoError> {
+    super::resource_checkpoint()?;
     let bytes = source
         .get(..LENGTH_BYTES)
         .ok_or(BinaryIoError::Invalid("truncated length"))?;

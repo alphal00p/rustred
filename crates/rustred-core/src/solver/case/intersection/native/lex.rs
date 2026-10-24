@@ -1,11 +1,14 @@
 //! Admission for the cold native elimination-order fallback.
 //!
-//! These topology-independent input caps limit exposure to expensive Lex F4;
-//! they are not a hard bound on time or memory inside a native invocation.
+//! Optional diagnostic input thresholds for the native Lex F4 fallback.
+//! Ordinary execution uses the shared RAM/time context instead.
 
 use crate::algebra::CoefficientPolynomial;
 
-pub(super) fn eligible(equations: &[CoefficientPolynomial]) -> bool {
+pub(super) fn eligible(equations: &[CoefficientPolynomial], diagnostics_enabled: bool) -> bool {
+    if !diagnostics_enabled {
+        return equations.len() >= 2;
+    }
     if !(2..=8).contains(&equations.len()) {
         return false;
     }

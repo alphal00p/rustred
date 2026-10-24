@@ -102,6 +102,360 @@ fn complete_external(generator: &ParametricIbpGenerator<'_>) -> CompletedIbpSour
     batch.complete(rows).unwrap()
 }
 
+#[derive(Clone, Copy, Debug)]
+enum ZeroTemplateDiagnostic {
+    Aggregate(&'static str),
+    Indexed,
+    Exact,
+    Condition,
+}
+
+fn zero_template_coefficient_error(error: ParametricRelationError) -> IndexedAlgebraError {
+    match error {
+        ParametricRelationError::Coefficient(error)
+        | ParametricRelationError::IdentityCondition(IdentityConditionError::Coefficient(error)) => {
+            error
+        }
+        other => panic!("expected native coefficient diagnostic, got {other:?}"),
+    }
+}
+
+fn assert_zero_template_diagnostic(error: TranslatedSourceError, expected: ZeroTemplateDiagnostic) {
+    match (expected, error) {
+        (
+            ZeroTemplateDiagnostic::Aggregate(expected),
+            TranslatedSourceError::ResourceLimit {
+                resource,
+                requested,
+                limit: 0,
+            },
+        ) => {
+            assert_eq!(resource, expected);
+            assert!(requested > 0);
+        }
+        (
+            ZeroTemplateDiagnostic::Indexed,
+            TranslatedSourceError::RelationTranslation { error, .. }
+            | TranslatedSourceError::RequestTranslation { error, .. },
+        ) => assert!(matches!(zero_template_coefficient_error(error),
+            IndexedAlgebraError::ResourceLimit { requested, limit: 0, .. } if requested > 0)),
+        (
+            ZeroTemplateDiagnostic::Exact,
+            TranslatedSourceError::RelationTranslation { error, .. }
+            | TranslatedSourceError::RequestTranslation { error, .. },
+        ) => assert!(matches!(zero_template_coefficient_error(error),
+            IndexedAlgebraError::ExactAlgebra(ExactAlgebraError::ResourceLimit { requested, limit: 0, .. }) if requested > 0)),
+        (
+            ZeroTemplateDiagnostic::Condition,
+            TranslatedSourceError::RelationTranslation { error, .. }
+            | TranslatedSourceError::RequestTranslation { error, .. },
+        ) => assert!(matches!(error,
+            ParametricRelationError::IdentityCondition(IdentityConditionError::ResourceLimit { resource: "identity condition sources", requested, limit: 0 }) if requested > 0)),
+        (expected, actual) => {
+            panic!("expected {expected:?} zero-template diagnostic, got {actual:?}")
+        }
+    }
+}
+
+fn assert_independent_zero_translation_template(
+    set_zero: fn(&mut TranslatedSourceLimits),
+    rectangular_diagnostic: Option<ZeroTemplateDiagnostic>,
+    selected_diagnostic: ZeroTemplateDiagnostic,
+) {
+    let family = guarded_tadpole("translated-source-independent-zero-template");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let offsets = [
+        IntegralShift::try_new([-1]).unwrap(),
+        IntegralShift::try_new([0]).unwrap(),
+    ];
+    let requests = offsets
+        .iter()
+        .map(|offset| TranslatedSourceRequest::new(0, offset.clone()))
+        .collect::<Vec<_>>();
+    let mut limits = TranslatedSourceLimits::default();
+    set_zero(&mut limits);
+    let expected = generator
+        .translate_completed_source_rows(&completed, offsets.clone(), Default::default())
+        .unwrap();
+    assert!(!expected.sources()[0].nonzero_conditions().is_empty());
+    let ordinary = generator
+        .translate_completed_source_rows(&completed, offsets.clone(), limits)
+        .unwrap();
+    assert_eq!(ordinary, expected);
+    let expected_selected = generator
+        .translate_selected_completed_source_rows(&completed, requests.clone(), Default::default())
+        .unwrap();
+    let ordinary_selected = generator
+        .translate_selected_completed_source_rows(&completed, requests.clone(), limits)
+        .unwrap();
+    assert_eq!(ordinary_selected, expected_selected);
+    assert_eq!(ordinary_selected.sources(), ordinary.sources());
+    let diagnostic =
+        generator.translate_completed_source_rows(&completed, offsets, limits.with_diagnostics());
+    if let Some(expected_diagnostic) = rectangular_diagnostic {
+        assert_zero_template_diagnostic(diagnostic.unwrap_err(), expected_diagnostic);
+    } else {
+        // This template controls selected requests; rectangular translation has none.
+        assert_eq!(diagnostic.unwrap(), expected);
+    }
+    assert_zero_template_diagnostic(
+        generator
+            .translate_selected_completed_source_rows(
+                &completed,
+                requests,
+                limits.with_diagnostics(),
+            )
+            .unwrap_err(),
+        selected_diagnostic,
+    );
+}
+
+macro_rules! independent_zero_translation_template {
+    ($name:ident, $set_zero:expr, $rectangular:expr, $selected:expr) => {
+        #[test]
+        fn $name() {
+            assert_independent_zero_translation_template($set_zero, $rectangular, $selected);
+        }
+    };
+}
+
+independent_zero_translation_template!(
+    ordinary_zero_requested_offsets_preserves_translation,
+    |limits| limits.max_requested_offsets = 0,
+    Some(ZeroTemplateDiagnostic::Aggregate(
+        "requested translated-source offsets"
+    )),
+    ZeroTemplateDiagnostic::Aggregate("canonical selected translation offsets")
+);
+independent_zero_translation_template!(
+    ordinary_zero_selected_requests_preserves_translation,
+    |limits| limits.max_requested_source_translations = 0,
+    None,
+    ZeroTemplateDiagnostic::Aggregate("requested selected source translations")
+);
+independent_zero_translation_template!(
+    ordinary_zero_translated_sources_preserves_translation,
+    |limits| limits.max_translated_sources = 0,
+    Some(ZeroTemplateDiagnostic::Aggregate("translated source rows")),
+    ZeroTemplateDiagnostic::Aggregate("translated source rows")
+);
+independent_zero_translation_template!(
+    ordinary_zero_translated_terms_preserves_translation,
+    |limits| limits.max_translated_term_entries = 0,
+    Some(ZeroTemplateDiagnostic::Aggregate(
+        "translated source term entries"
+    )),
+    ZeroTemplateDiagnostic::Aggregate("translated source term entries")
+);
+independent_zero_translation_template!(
+    ordinary_zero_translated_conditions_preserves_translation,
+    |limits| limits.max_translated_condition_entries = 0,
+    Some(ZeroTemplateDiagnostic::Aggregate(
+        "translated source condition entries"
+    )),
+    ZeroTemplateDiagnostic::Aggregate("translated source condition entries")
+);
+independent_zero_translation_template!(
+    ordinary_zero_condition_provenance_preserves_translation,
+    |limits| limits.max_retained_condition_source_entries = 0,
+    Some(ZeroTemplateDiagnostic::Aggregate(
+        "translated-source retained condition-source entries"
+    )),
+    ZeroTemplateDiagnostic::Aggregate("translated-source retained condition-source entries")
+);
+independent_zero_translation_template!(
+    ordinary_zero_coordinate_cells_preserves_translation,
+    |limits| limits.max_retained_index_coordinate_cells = 0,
+    Some(ZeroTemplateDiagnostic::Aggregate(
+        "translated-source retained index-coordinate cells"
+    )),
+    ZeroTemplateDiagnostic::Aggregate("translated-source retained index-coordinate cells")
+);
+independent_zero_translation_template!(
+    ordinary_zero_indexed_translation_work_preserves_translation,
+    |limits| limits.relation.arithmetic.max_specialization_integer_bits = 0,
+    Some(ZeroTemplateDiagnostic::Indexed),
+    ZeroTemplateDiagnostic::Indexed
+);
+independent_zero_translation_template!(
+    ordinary_zero_exact_term_template_preserves_translation,
+    |limits| limits
+        .relation
+        .arithmetic
+        .exact_algebra
+        .max_polynomial_terms = 0,
+    Some(ZeroTemplateDiagnostic::Exact),
+    ZeroTemplateDiagnostic::Exact
+);
+independent_zero_translation_template!(
+    ordinary_zero_condition_sources_preserves_translation,
+    |limits| limits.relation.identity_conditions.max_sources = 0,
+    Some(ZeroTemplateDiagnostic::Condition),
+    ZeroTemplateDiagnostic::Condition
+);
+
+#[test]
+fn ordinary_zero_translation_templates_preserve_sources_guards_and_selected_parity() {
+    let family = guarded_tadpole("translated-source-zero-templates");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let offsets = [
+        IntegralShift::try_new([-1]).unwrap(),
+        IntegralShift::try_new([0]).unwrap(),
+    ];
+    let mut limits = TranslatedSourceLimits {
+        diagnostics_enabled: false,
+        max_requested_offsets: 0,
+        max_requested_source_translations: 0,
+        max_translated_sources: 0,
+        max_translated_term_entries: 0,
+        max_translated_condition_entries: 0,
+        max_retained_condition_source_entries: 0,
+        max_retained_index_coordinate_cells: 0,
+        ..Default::default()
+    };
+    limits.relation.arithmetic.max_specialization_integer_bits = 0;
+    limits
+        .relation
+        .arithmetic
+        .exact_algebra
+        .max_polynomial_terms = 0;
+    limits.relation.identity_conditions.max_sources = 0;
+    let expected = generator
+        .translate_completed_source_rows(&completed, offsets.clone(), Default::default())
+        .unwrap();
+    assert!(!expected.sources()[0].nonzero_conditions().is_empty());
+    let ordinary = generator
+        .translate_completed_source_rows(&completed, offsets.clone(), limits)
+        .unwrap();
+    assert_eq!(ordinary, expected);
+    let requests = offsets
+        .iter()
+        .map(|offset| TranslatedSourceRequest::new(0, offset.clone()))
+        .collect::<Vec<_>>();
+    let selected = generator
+        .translate_selected_completed_source_rows(&completed, requests.clone(), limits)
+        .unwrap();
+    let expected_selected = generator
+        .translate_selected_completed_source_rows(&completed, requests.clone(), Default::default())
+        .unwrap();
+    assert_eq!(selected, expected_selected);
+    assert_eq!(selected.sources(), ordinary.sources());
+    assert!(matches!(
+        generator.translate_completed_source_rows(&completed, offsets, limits.with_diagnostics()),
+        Err(TranslatedSourceError::ResourceLimit {
+            resource: "requested translated-source offsets",
+            requested: 1,
+            limit: 0,
+        })
+    ));
+    assert!(matches!(
+        generator.translate_selected_completed_source_rows(
+            &completed,
+            requests,
+            limits.with_diagnostics()
+        ),
+        Err(TranslatedSourceError::ResourceLimit {
+            resource: "requested selected source translations",
+            requested: 1,
+            limit: 0,
+        })
+    ));
+
+    let shift = IntegralShift::try_new(vec![0; 4_097]).unwrap();
+    assert_eq!(shift.len(), 4_097);
+    assert_eq!(
+        IntegralShift::try_new_with_component_limit(vec![0; 4_097], 4_096),
+        Err(TranslatedSourceError::ResourceLimit {
+            resource: "integral-shift components",
+            requested: 4_097,
+            limit: 4_096,
+        })
+    );
+}
+
+#[test]
+fn translated_source_resource_refusal_preserves_original_cause_and_healthy_reuse() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+    use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+
+    const LIMIT: u64 = 1024 * 1024 * 1024;
+    let family = guarded_tadpole("translated-source-resource-reuse");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let offsets = [
+        IntegralShift::try_new([-1]).unwrap(),
+        IntegralShift::try_new([0]).unwrap(),
+    ];
+    let build = || {
+        generator.translate_completed_source_rows(&completed, offsets.clone(), Default::default())
+    };
+    let expected = build().unwrap();
+    let polls = Arc::new(AtomicUsize::new(0));
+    let monitor_polls = Arc::clone(&polls);
+    ResourceBudget::with_memory_monitor(
+        ResourceLimits {
+            max_process_rss_bytes: Some(LIMIT),
+            ..Default::default()
+        },
+        move || {
+            monitor_polls.fetch_add(1, Ordering::Relaxed);
+            Ok(0)
+        },
+    )
+    .run(build)
+    .unwrap();
+    let checks = polls.load(Ordering::Relaxed);
+    assert!(checks > offsets.len());
+    let refusal_polls = AtomicUsize::new(0);
+    let error = ResourceBudget::with_memory_monitor(
+        ResourceLimits {
+            max_process_rss_bytes: Some(LIMIT),
+            ..Default::default()
+        },
+        move || {
+            Ok(
+                if refusal_polls.fetch_add(1, Ordering::Relaxed) + 1 >= checks {
+                    LIMIT + 1
+                } else {
+                    0
+                },
+            )
+        },
+    )
+    .run(build)
+    .unwrap_err();
+    assert!(matches!(crate::reduction::resource_limit_error(&error),
+        Some(ResourceLimitError::Memory { rss_bytes, additional_bytes: 0, limit_bytes })
+            if *rss_bytes == LIMIT + 1 && *limit_bytes == LIMIT));
+    assert_eq!(build().unwrap(), expected);
+
+    let selected_build = || {
+        generator.translate_selected_completed_source_rows(
+            &completed,
+            offsets
+                .iter()
+                .map(|offset| TranslatedSourceRequest::new(0, offset.clone())),
+            Default::default(),
+        )
+    };
+    let expected_selected = selected_build().unwrap();
+    let error = ResourceBudget::new(ResourceLimits {
+        max_elapsed: Some(Duration::ZERO),
+        ..Default::default()
+    })
+    .run(selected_build)
+    .unwrap_err();
+    assert!(matches!(
+        crate::reduction::resource_limit_error(&error),
+        Some(ResourceLimitError::Elapsed { .. })
+    ));
+    assert_eq!(selected_build().unwrap(), expected_selected);
+    assert_eq!(expected_selected.sources(), expected.sources());
+}
+
 #[test]
 fn rectangular_and_selected_batches_preserve_their_sealed_source_layout() {
     let family = one_loop_one_external("translated-source-layout-seal");
@@ -329,7 +683,7 @@ fn aggregate_condition_source_limit_has_exact_boundary_and_checked_overflow() {
         .sum::<usize>();
     assert_eq!(zero_requested, existing);
 
-    let mut zero_exact = TranslatedSourceLimits::default();
+    let mut zero_exact = TranslatedSourceLimits::default().with_diagnostics();
     zero_exact.max_retained_condition_source_entries = zero_requested;
     generator
         .translate_completed_source_rows(&completed, [offsets[0].clone()], zero_exact)
@@ -349,7 +703,7 @@ fn aggregate_condition_source_limit_has_exact_boundary_and_checked_overflow() {
     let requested = retained_condition_source_entry_bound(&completed, &offsets).unwrap();
     assert!(requested > 0);
 
-    let mut exact = TranslatedSourceLimits::default();
+    let mut exact = TranslatedSourceLimits::default().with_diagnostics();
     exact.max_retained_condition_source_entries = requested;
     let translated = generator
         .translate_completed_source_rows(&completed, offsets.clone(), exact)
@@ -393,7 +747,7 @@ fn zero_translation_reapplies_current_relation_limits_once() {
         .len();
     assert!(condition_sources > 0);
 
-    let mut condition_limited = TranslatedSourceLimits::default();
+    let mut condition_limited = TranslatedSourceLimits::default().with_diagnostics();
     condition_limited.relation.identity_conditions.max_sources = condition_sources - 1;
     assert!(matches!(
         generator.translate_completed_source_rows(
@@ -414,7 +768,7 @@ fn zero_translation_reapplies_current_relation_limits_once() {
         }) if requested == condition_sources && limit == condition_sources - 1
     ));
 
-    let mut algebra_limited = TranslatedSourceLimits::default();
+    let mut algebra_limited = TranslatedSourceLimits::default().with_diagnostics();
     algebra_limited
         .relation
         .arithmetic
@@ -531,7 +885,7 @@ fn construction_and_batch_bounds_fail_with_exact_typed_errors() {
         })
     );
 
-    let mut limits = TranslatedSourceLimits::default();
+    let mut limits = TranslatedSourceLimits::default().with_diagnostics();
     limits.max_requested_offsets = 1;
     assert_eq!(
         generator.translate_completed_source_rows(
@@ -549,7 +903,7 @@ fn construction_and_batch_bounds_fail_with_exact_typed_errors() {
         })
     );
 
-    let mut limits = TranslatedSourceLimits::default();
+    let mut limits = TranslatedSourceLimits::default().with_diagnostics();
     limits.max_translated_sources = 3;
     assert_eq!(
         generator.translate_completed_source_rows(
@@ -564,7 +918,7 @@ fn construction_and_batch_bounds_fail_with_exact_typed_errors() {
         })
     );
 
-    let mut limits = TranslatedSourceLimits::default();
+    let mut limits = TranslatedSourceLimits::default().with_diagnostics();
     limits.max_retained_index_coordinate_cells = 0;
     assert!(matches!(
         generator.translate_completed_source_rows(
@@ -598,7 +952,7 @@ fn index_overflow_and_symbolic_work_fail_through_typed_translation_context() {
         })
     ));
 
-    let mut limits = TranslatedSourceLimits::default();
+    let mut limits = TranslatedSourceLimits::default().with_diagnostics();
     limits.relation.arithmetic.max_specialization_integer_bits = 0;
     assert!(matches!(
         generator.translate_completed_source_rows(

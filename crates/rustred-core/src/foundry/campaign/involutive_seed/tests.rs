@@ -1394,6 +1394,7 @@ fn k6_release_baseline_profile(max_normal_form_divisor_visits: usize) -> Involut
             involutive,
         },
         geometry: CompletionGeometryLimits {
+            diagnostics_enabled: true,
             max_arity: 6,
             max_requested_generators: 128,
             max_requested_generator_coordinate_cells: 768,

@@ -244,8 +244,14 @@ fn misses_target(
             .base_coefficient_system(&restricted, limits.indexed_algebra, limits.guard_algebra)
             .map_err(error)?;
     }
-    let resolution = context
-        .integer_zero_locus_domain_resolution(&system, limits.guard_algebra, |axis, root| {
+    let mut callback_error = None;
+    let resolution = context.integer_zero_locus_domain_resolution(
+        &system,
+        limits.guard_algebra,
+        |axis, root| {
+            if callback_error.is_some() {
+                return true;
+            }
             let local = if sector[axis] {
                 root - &Integer::one()
             } else {
@@ -268,12 +274,30 @@ fn misses_target(
             let mut upper = piece.upper().to_vec();
             lower[axis] = local;
             upper[axis] = Some(local);
-            let Ok(face) = LatticeBox::try_new(lower, upper) else {
-                return true;
+            let face = match LatticeBox::try_new(lower, upper) {
+                Ok(face) => face,
+                Err(cause) => {
+                    if let Some(resource) = crate::reduction::resource_limit_error(&cause) {
+                        callback_error = Some(SourcePortAuditError::Resources(resource.clone()));
+                    }
+                    return true;
+                }
             };
-            !target.is_proved_empty_in_box(&face)
-        })
-        .map_err(error)?;
+            match target.is_proved_empty_in_box(&face) {
+                Ok(empty) => !empty,
+                Err(cause) => {
+                    callback_error = Some(error(cause));
+                    true
+                }
+            }
+        },
+    );
+    // The native callback only computes local roots/resolution data. No guard,
+    // rule or shared cache is published before this captured error is checked.
+    if let Some(error) = callback_error {
+        return Err(error);
+    }
+    let resolution = resolution.map_err(error)?;
     Ok(matches!(
         resolution,
         IntegerZeroLocusDomainResolution::MissesDomain

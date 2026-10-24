@@ -290,7 +290,10 @@ pub(super) fn prove_descent<const N: usize>(
             }
             if affine_domain
                 .as_ref()
-                .is_some_and(|domain| domain.is_proved_empty_in_box(piece))
+                .map(|domain| domain.is_proved_empty_in_box(piece))
+                .transpose()
+                .map_err(error)?
+                .unwrap_or(false)
             {
                 return Ok(true);
             }
@@ -457,7 +460,10 @@ fn uniformly_zero_contribution<const N: usize>(
             // equation-derived emptiness proof used by strict descent.
             if affine_domain
                 .as_ref()
-                .is_some_and(|domain| domain.is_proved_empty_in_box(piece))
+                .map(|domain| domain.is_proved_empty_in_box(piece))
+                .transpose()
+                .map_err(error)?
+                .unwrap_or(false)
             {
                 return Ok(true);
             }
@@ -546,7 +552,7 @@ pub(super) fn uniformly_zero_wide_with_limits<Z: AsRef<[bool]>, T>(
     Ok(true)
 }
 
-fn coefficient_vanishes(
+pub(super) fn coefficient_vanishes(
     coefficient: &Coefficient,
     cell: &LatticeBox,
     sector: &[bool],
@@ -604,6 +610,7 @@ fn coefficient_vanishes_in_affine_domain(
     let mut numerator = coefficient.numerator.clone();
     let mut denominator = coefficient.denominator.clone();
     for axis in 0..sector.len() {
+        symbolica::utils::resources::checkpoint().map_err(SourcePortAuditError::Resources)?;
         if cell.upper()[axis] == Some(cell.lower()[axis]) {
             let local = Integer::from(cell.lower()[axis]);
             let value = if sector[axis] {
@@ -618,6 +625,7 @@ fn coefficient_vanishes_in_affine_domain(
     let mut finite_axes = Vec::new();
     let mut leaves = 1_u64;
     for axis in 0..sector.len() {
+        symbolica::utils::resources::checkpoint().map_err(SourcePortAuditError::Resources)?;
         let Some(upper) = cell.upper()[axis] else {
             continue;
         };
@@ -634,7 +642,9 @@ fn coefficient_vanishes_in_affine_domain(
             })?;
         leaves = leaves
             .checked_mul(width)
-            .filter(|leaves| *leaves <= limits.max_uncovered_boxes as u64)
+            .filter(|leaves| {
+                !limits.diagnostics_enabled || *leaves <= limits.max_uncovered_boxes as u64
+            })
             .ok_or_else(|| error("finite zero-product proof exceeded its geometry budget"))?;
         finite_axes.push((axis, cell.lower()[axis], upper));
     }
@@ -642,9 +652,11 @@ fn coefficient_vanishes_in_affine_domain(
         let coordinate_work = usize::try_from(leaves)
             .ok()
             .and_then(|leaves| leaves.checked_mul(sector.len()));
-        if sector.len() > limits.max_arity
-            || leaves > limits.max_uncovered_boxes as u64
-            || coordinate_work.is_none_or(|work| work > limits.max_uncovered_box_coordinate_cells)
+        if (limits.diagnostics_enabled && sector.len() > limits.max_arity)
+            || (limits.diagnostics_enabled && leaves > limits.max_uncovered_boxes as u64)
+            || coordinate_work.is_none_or(|work| {
+                limits.diagnostics_enabled && work > limits.max_uncovered_box_coordinate_cells
+            })
         {
             return Err(error(
                 "affine finite-leaf proof exceeded its geometry budget",
@@ -671,6 +683,7 @@ fn coefficient_vanishes_in_affine_domain(
             return Ok(!denominator.is_zero() && numerator.is_zero());
         };
         for local in lower..=upper {
+            symbolica::utils::resources::checkpoint().map_err(SourcePortAuditError::Resources)?;
             if affine.is_some() {
                 assignments.push((axis, local));
             }
@@ -755,7 +768,7 @@ fn affine_leaf_is_empty(
         upper[axis] = Some(value);
     }
     let leaf = LatticeBox::try_new(lower, upper).map_err(error)?;
-    Ok(affine.is_proved_empty_in_box(&leaf))
+    affine.is_proved_empty_in_box(&leaf).map_err(error)
 }
 
 /// Split exactly where a translated power changes sign. This is a bounded
@@ -774,15 +787,13 @@ pub(crate) fn sign_partition_with_limits(
     shifts: &[i64],
     limits: CompletionGeometryLimits,
 ) -> Result<Vec<LatticeBox>, SourcePortAuditError> {
-    validate_sign_partition_shape(cell, sector, shifts, limits.max_arity)?;
-    if limits.max_uncovered_boxes == 0 {
+    validate_sign_partition_shape(cell, sector, shifts, limits)?;
+    if limits.diagnostics_enabled && limits.max_uncovered_boxes == 0 {
         return Err(error("sign partition exceeds its geometry resource policy"));
     }
-    if sector
-        .len()
-        .checked_mul(2)
-        .is_none_or(|entries| entries > limits.max_uncovered_box_coordinate_cells)
-    {
+    if sector.len().checked_mul(2).is_none_or(|entries| {
+        limits.diagnostics_enabled && entries > limits.max_uncovered_box_coordinate_cells
+    }) {
         return Err(error("sign partition has incompatible index arity"));
     }
     sign_partition_admitted(cell, sector, shifts, limits)
@@ -792,12 +803,13 @@ pub(super) fn validate_sign_partition_shape(
     cell: &LatticeBox,
     sector: &[bool],
     shifts: &[i64],
-    max_arity: usize,
+    limits: CompletionGeometryLimits,
 ) -> Result<(), SourcePortAuditError> {
     if cell.arity() != sector.len() || shifts.len() != sector.len() {
         return Err(error("sign partition has incompatible index arity"));
     }
-    if sector.len() > max_arity {
+    symbolica::utils::resources::checkpoint().map_err(SourcePortAuditError::Resources)?;
+    if limits.diagnostics_enabled && sector.len() > limits.max_arity {
         return Err(error("sign partition exceeds its geometry resource policy"));
     }
     Ok(())
@@ -812,6 +824,7 @@ fn sign_partition_admitted(
     let mut pieces = vec![copy_box(cell)?];
     let mut splits = 0usize;
     for axis in 0..sector.len() {
+        symbolica::utils::resources::checkpoint().map_err(SourcePortAuditError::Resources)?;
         let threshold = if sector[axis] && shifts[axis] < 0 {
             shifts[axis].unsigned_abs()
         } else if !sector[axis] && shifts[axis] > 0 {
@@ -829,7 +842,9 @@ fn sign_partition_admitted(
             }
             splits = splits
                 .checked_add(1)
-                .filter(|count| *count <= limits.max_split_operations)
+                .filter(|count| {
+                    !limits.diagnostics_enabled || *count <= limits.max_split_operations
+                })
                 .ok_or_else(|| error("sign partition exceeds its split-operation budget"))?;
             let mut left_upper = piece.upper().to_vec();
             left_upper[axis] = Some(threshold - 1);
@@ -842,12 +857,14 @@ fn sign_partition_admitted(
                 LatticeBox::try_new(right_lower, piece.upper().iter().copied()).map_err(error)?,
             );
         }
-        if next.len() > limits.max_uncovered_boxes
+        if (limits.diagnostics_enabled && next.len() > limits.max_uncovered_boxes)
             || next
                 .len()
                 .checked_mul(sector.len())
                 .and_then(|n| n.checked_mul(2))
-                .is_none_or(|cells| cells > limits.max_uncovered_box_coordinate_cells)
+                .is_none_or(|cells| {
+                    limits.diagnostics_enabled && cells > limits.max_uncovered_box_coordinate_cells
+                })
         {
             return Err(error(
                 "source-port descent sign partition exceeded its geometry budget",

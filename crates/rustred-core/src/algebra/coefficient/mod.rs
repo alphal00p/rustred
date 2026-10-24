@@ -20,7 +20,7 @@ pub(in crate::algebra) use operations::{
 pub(crate) use validation::{
     coefficient_clone_owned_retained_byte_bound, integer_clone_owned_heap_byte_bound,
     polynomial_clone_owned_heap_byte_bound, validate_coefficient_on_map,
-    validate_polynomial_on_map,
+    validate_coefficient_structure_on_map, validate_polynomial_on_map,
 };
 
 #[cfg(test)]

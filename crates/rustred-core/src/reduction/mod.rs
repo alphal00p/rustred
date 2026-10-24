@@ -18,6 +18,7 @@ pub mod terminal_relations;
 
 pub use cache_policy::CompletedCachePolicy;
 pub use error::ReductionError;
+pub(crate) use error::resource_limit_error;
 pub use guarded_cache::{
     ClosedUnitMassProgram, GuardedCacheBacking, GuardedCacheBackingError,
     GuardedCacheBackingErrorKind, GuardedCacheError, GuardedRootCache, GuardedRootCacheStatistics,

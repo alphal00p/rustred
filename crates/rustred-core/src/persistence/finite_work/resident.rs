@@ -287,6 +287,7 @@ impl TrustedGeneratedResidentWork {
         }
         stage.finish(1);
         let mut staged = Vec::new();
+        allocation(slot_payload(delta.work().len())?)?;
         if staged.try_reserve_exact(delta.work().len()).is_err() {
             check(cancel)?;
             return Ok(None);
@@ -401,6 +402,7 @@ fn slot_payload(capacity: usize) -> GeneratedWorkResult<usize> {
         .ok_or_else(|| resource("resident delta slot payload overflow"))
 }
 fn check(cancel: &AtomicBool) -> GeneratedWorkResult<()> {
+    checkpoint()?;
     if cancel.load(Ordering::Acquire) {
         Err(GeneratedWorkError::new(
             GeneratedWorkErrorKind::Cancelled,

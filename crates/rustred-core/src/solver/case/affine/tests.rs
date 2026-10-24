@@ -389,3 +389,34 @@ fn rational_chart_preserves_transverse_source_translation_and_integer_corners() 
         affine::<2>(&context, &["-6*n0+3*n1+12", "4*n0-2*n1-8"])
     );
 }
+
+#[test]
+fn affine_intersection_preserves_the_typed_ambient_resource_failure() {
+    let context =
+        crate::algebra::CoefficientContext::new(["affine_budget_axis_a", "affine_budget_axis_b"]);
+    let equation = context
+        .coefficient_fixture("affine_budget_axis_a-affine_budget_axis_b")
+        .numerator;
+    let budget = symbolica::utils::resources::ResourceBudget::new(
+        symbolica::utils::resources::ResourceLimits {
+            max_elapsed: Some(std::time::Duration::ZERO),
+            ..Default::default()
+        },
+    );
+    let error = budget
+        .run(|| {
+            AffineCase::from_coordinate(
+                &CoordinateCase::generic(),
+                &[equation],
+                &[0, 1],
+                &[true, true],
+            )
+        })
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        AffineGeometryError::Resources(
+            symbolica::utils::resources::ResourceLimitError::Elapsed { .. }
+        )
+    ));
+}

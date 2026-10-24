@@ -173,7 +173,9 @@ pub(super) fn verify_finite_root(
         .ok_or(Error::InvalidWitness(
             "sector symmetry finite root live entry count overflow",
         ))?;
-    if live > limits.verification.max_symbolica_live_matrix_entries {
+    if limits.verification.diagnostics_enabled
+        && live > limits.verification.max_symbolica_live_matrix_entries
+    {
         return Err(Error::InvalidWitness(
             "sector symmetry finite root exceeds caller live entry limit",
         ));
@@ -603,8 +605,9 @@ fn check_shape(
     let entries = rows.checked_mul(columns).ok_or(Error::InvalidWitness(
         "sector symmetry matrix entry count overflow",
     ))?;
-    if entries > limits.verification.max_matrix_entries
-        || entries > limits.verification.max_symbolica_single_matrix_entries
+    if limits.verification.diagnostics_enabled
+        && (entries > limits.verification.max_matrix_entries
+            || entries > limits.verification.max_symbolica_single_matrix_entries)
     {
         return Err(Error::InvalidWitness(
             "sector symmetry native matrix exceeds caller entry limit",
@@ -637,7 +640,9 @@ fn check_geometry_live_entries(
         .ok_or(Error::InvalidWitness(
             "sector symmetry native live matrix entry count overflow",
         ))?;
-    if entries > limits.verification.max_symbolica_live_matrix_entries {
+    if limits.verification.diagnostics_enabled
+        && entries > limits.verification.max_symbolica_live_matrix_entries
+    {
         return Err(Error::InvalidWitness(
             "sector symmetry native geometry exceeds caller live entry limit",
         ));

@@ -16,16 +16,14 @@ two-loop unit-mass vacuum families.
 
 ## Pinned backend
 
-The workspace requests `symbolica = "=2.2.0"` with default features disabled
-and exactly the `integer-gmp`, `float-mpfr`, and
-`tracing_max_level_info` features enabled in the
-[`workspace manifest`](../Cargo.toml). The workspace root patches Symbolica,
-Graphica, and Numerica to the checked-in
-[`vendor/symbolica`](../vendor/symbolica) tree. The submodule tracks Symbolica's
-`dev` branch for explicit remote updates; the RustRed parent repository still
-pins every checkout reproducibly to one commit, currently
-`3805d02ed6de0ee3fd3011cdf584cc3972aff40e`. The tree continues to declare
-Symbolica 2.2.0 in its [`Cargo.toml`](../vendor/symbolica/Cargo.toml).
+The workspace requests Symbolica `~3.0.0` with default features disabled and
+`tracing_max_level_info` plus `bincode` enabled in the
+[`workspace manifest`](../Cargo.toml). RustRed's `native` feature selects
+`integer-gmp` and `float-mpfr`. The workspace root patches Symbolica, Graphica,
+and Numerica to the shared [`vendor/symbolica`](../vendor/symbolica) tree.
+The parent repository pins that tree through its submodule commit; consumers
+must use a coherent source for all three crates. The optional `reconstruction`
+feature uses the same Symbolica kernel's checked adaptive/fallible oracle API.
 
 Consequences of this configuration are deliberate:
 
@@ -96,8 +94,16 @@ is no parallel `parametric_coefficient` stack.
 
 Stored polynomial exponents use Symbolica's native `u16`. Prospective sums and
 powers widen through checked `u32` or `u64` arithmetic before entering native
-code. `u128` is not an exponent representation. Term and allocation counts use
-checked `usize`; integer-magnitude bounds have their own checked width.
+code. `u128` is not an exponent representation. Actual allocation/layout counts
+use checked `usize`; ordinary cumulative work statistics saturate instead of
+creating an execution ceiling.
+
+Exact/indexed algebra checks the caller's shared RAM/time scope. Its optional
+term, degree, work, and bit-envelope diagnostics default to disabled. Calling
+`with_diagnostics()` enables their configured thresholds; it never changes
+variable maps, native exponent representation, nonzero guards, or mathematical
+admission. See [operational budgets](saved_application.md#operational-budgets-and-reuse)
+for the shared resource scope and its native-call limitations.
 
 ### Base-field contract
 
@@ -107,8 +113,8 @@ checked `usize`; integer-magnitude bounds have their own checked width.
 - require both numerator and denominator to use exactly that map;
 - reject malformed sparse layouts, explicit numerical zero terms,
   noncanonical monomial order, and a zero denominator;
-- preflight exponent and visible term-operation bounds before panic-prone
-  native arithmetic; and
+- enforce native exponent/layout bounds and poll the shared resource scope,
+  with prospective work envelopes enforced only when diagnostics are enabled; and
 - authenticate the normalized Symbolica result again, because rational
   cancellation may produce more retained terms than a sparse input-pair
   estimate predicts.
@@ -128,13 +134,16 @@ private positional pool shared by every indexed context in the process.
 Symbolica therefore retains at most one native symbol for each admitted index
 position rather than a distinct namespace for every family. Compatibility and
 authentication still compare the complete fingerprint; shared native symbols
-never make different scopes interchangeable. Family construction bounds the
-pool through `IntegralFamilyLimits::max_scalar_products`, and the generator's
-default `IndexedContextLimits` uses the same 4096-position ceiling. Callers
-that raise the family ceiling can raise `ParametricIbpConfig::context_limits`
-explicitly. Direct low-level construction accepts the same configurable
-policy through `IndexedCoefficientContext::try_new_with_limits`; its limits
-cover index arity, exact fingerprint bytes, and aggregate native-name work.
+never make different scopes interchangeable. Family and indexed-context count
+thresholds, including the historical 4096-position template, are optional
+diagnostics. They do not bound ordinary construction. Callers can explicitly
+enable a configured policy through `IndexedContextLimits::with_diagnostics()`
+and `IndexedCoefficientContext::try_new_with_limits`, or through the
+corresponding family/generator options. Native index representation, exact
+fingerprint identity, sparse-layout validation, and actual allocation checks
+remain mandatory. Boolean membership checks share that structural validation
+without turning a transient resource refusal into a false foreign-context
+result; fallible arithmetic and admission retain the typed resource error.
 
 The current indexed services are:
 

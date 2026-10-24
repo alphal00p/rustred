@@ -105,8 +105,9 @@ impl VacuumFamilyAliasPlan {
                 Some(Skip::AnalyticPowerShifts)
             } else if family.loop_count() == 0 {
                 Some(Skip::ActiveLineCount)
-            } else if limits.parametric.max_supports == 0
-                || limits.parametric.max_canonicalizations == 0
+            } else if limits.parametric.diagnostics_enabled
+                && (limits.parametric.max_supports == 0
+                    || limits.parametric.max_canonicalizations == 0)
             {
                 Some(Skip::ParametricPreparationLimit)
             } else {

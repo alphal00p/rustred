@@ -12,7 +12,7 @@ use rustred::solver::{Integral, Power, SectorSolution, SectorStats};
 pub(super) mod dispatch;
 pub(super) mod rules;
 
-use crate::application::{AppError, MAX_INPUT_BYTES};
+use crate::application::AppError;
 
 use super::model::*;
 
@@ -138,7 +138,7 @@ pub(super) fn read_structure(
 /// Bincode's public allocation-claim API enforces the caller's runtime grant.
 /// Framing and nested allocation checks remain active above the former 1 GiB
 /// default; native Symbolica payloads still require trusted provenance.
-pub(super) fn decode_record<T: bincode::Decode<()>>(
+pub(in crate::application) fn decode_record<T: bincode::Decode<()>>(
     bytes: &[u8],
     allowance: usize,
 ) -> Result<(T, usize), AppError> {
@@ -152,18 +152,22 @@ pub(super) fn decode_record<T: bincode::Decode<()>>(
     }
     impl Reader for Counted<'_> {
         fn read(&mut self, bytes: &mut [u8]) -> Result<(), bincode::error::DecodeError> {
+            symbolica::utils::resources::checkpoint().map_err(|error| {
+                bincode::error::DecodeError::Io {
+                    inner: std::io::Error::other(error),
+                    additional: bytes.len(),
+                }
+            })?;
             self.reader.read(bytes)?;
             self.position += bytes.len();
             Ok(())
-        }
-        fn peek_read(&mut self, n: usize) -> Option<&[u8]> {
-            self.reader.peek_read(n)
         }
         fn consume(&mut self, n: usize) {
             self.reader.consume(n);
             self.position += n;
         }
     }
+    symbolica::utils::resources::checkpoint().map_err(AppError::resource)?;
     if bytes.len() > allowance {
         return Err(AppError::limit(
             "candidate structural bytes exceed caller allowance",
@@ -181,6 +185,9 @@ pub(super) fn decode_record<T: bincode::Decode<()>>(
         bincode::error::DecodeError::LimitExceeded => {
             AppError::limit("candidate structural allocation exceeds caller allowance")
         }
+        bincode::error::DecodeError::Io { inner, .. } => {
+            AppError::from_native(inner, crate::AppErrorKind::Schema)
+        }
         _ => AppError::schema(format!("invalid candidate structural record: {e}")),
     };
     decoder
@@ -188,6 +195,7 @@ pub(super) fn decode_record<T: bincode::Decode<()>>(
         .map_err(error)?;
     let value = T::decode(&mut decoder).map_err(error)?;
     let consumed = decoder.reader().position;
+    symbolica::utils::resources::checkpoint().map_err(AppError::resource)?;
     Ok((value, consumed))
 }
 
@@ -261,6 +269,7 @@ pub(super) fn write_records(
 
 pub(super) fn binary_error(error: BinaryIoError) -> AppError {
     match error {
+        BinaryIoError::Resource(error) => AppError::resource(error),
         BinaryIoError::Limit { .. } | BinaryIoError::Allocation { .. } => {
             AppError::limit(error.to_string())
         }
@@ -289,11 +298,7 @@ fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(),
     }
     super::policy::numerical_depth(&bundle.solver_policy)?;
     dispatch::validate(bundle, limits)?;
-    if bundle.family_source.len() > MAX_INPUT_BYTES {
-        return Err(AppError::limit(
-            "candidate family input exceeds its byte limit",
-        ));
-    }
+    crate::application::validate_ingress(&bundle.family_source)?;
     let n = bundle.root_sector.len();
     super::preparation::validate_arity(n)?;
     super::preparation::validate_permutation(n, bundle.permutation.as_deref())?;
@@ -394,7 +399,7 @@ impl CollectionBudget {
             .entries
             .checked_add(count)
             .ok_or_else(|| AppError::limit("candidate collection count overflow"))?;
-        if self.entries > self.limits.max_collection_entries {
+        if self.limits.diagnostics_enabled && self.entries > self.limits.max_collection_entries {
             return Err(AppError::limit(format!(
                 "candidate aggregate collection-entry budget exceeded: {} > {}",
                 self.entries, self.limits.max_collection_entries,
@@ -405,10 +410,7 @@ impl CollectionBudget {
 }
 
 pub(super) fn collection_entries(record: &ProgramRecord) -> Result<usize, AppError> {
-    let limits = CandidateBundleLimits {
-        max_collection_entries: usize::MAX,
-        ..Default::default()
-    };
+    let limits = CandidateBundleLimits::default();
     let mut budget = CollectionBudget::new(limits, record.sectors.len())?;
     for sector in &record.sectors {
         budget.admit_sector(sector)?;
@@ -458,11 +460,82 @@ mod collection_budget_tests {
     }
 
     #[test]
+    fn mid_decode_resource_refusal_keeps_its_cause_and_can_retry() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+
+        let expected = vec![1u64, 2];
+        let bytes = bincode::encode_to_vec(&expected, bincode::config::standard()).unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        let budget = ResourceBudget::with_memory_monitor(
+            ResourceLimits {
+                max_process_rss_bytes: Some(1),
+                ..Default::default()
+            },
+            move || {
+                Ok(if observed.fetch_add(1, Ordering::SeqCst) < 2 {
+                    0
+                } else {
+                    2
+                })
+            },
+        );
+        let error = budget
+            .run(|| decode_record::<Vec<u64>>(&bytes, usize::MAX))
+            .unwrap_err();
+        assert!(calls.load(Ordering::SeqCst) >= 3);
+        assert_eq!(
+            error.resource_limit_error(),
+            Some(&ResourceLimitError::Memory {
+                rss_bytes: 2,
+                additional_bytes: 0,
+                limit_bytes: 1,
+            })
+        );
+        let (restored, consumed) = decode_record::<Vec<u64>>(&bytes, usize::MAX).unwrap();
+        assert_eq!(restored, expected);
+        assert_eq!(consumed, bytes.len());
+    }
+
+    #[test]
+    fn ordinary_candidate_census_ignores_count_templates_and_preserves_resource_failures() {
+        let limits = CandidateBundleLimits {
+            max_collection_entries: 0,
+            ..Default::default()
+        };
+        let mut census = CollectionBudget::new(limits, 2).unwrap();
+        census.admit_sector(&sector(false)).unwrap();
+        census.admit_sector(&sector(true)).unwrap();
+        assert_eq!(census.admitted_entries(), 32);
+        assert!(CollectionBudget::new(limits.with_diagnostics(), 2).is_err());
+        let bytes = bincode::encode_to_vec(vec![1u64, 2], bincode::config::standard()).unwrap();
+        let budget = symbolica::utils::resources::ResourceBudget::with_memory_monitor(
+            symbolica::utils::resources::ResourceLimits {
+                max_process_rss_bytes: Some(1),
+                ..Default::default()
+            },
+            || Ok(2),
+        );
+        let error = budget
+            .run(|| decode_record::<Vec<u64>>(&bytes, usize::MAX))
+            .unwrap_err();
+        assert!(matches!(
+            error.resource_limit_error(),
+            Some(symbolica::utils::resources::ResourceLimitError::Memory { .. })
+        ));
+    }
+
+    #[test]
     fn individually_admissible_shards_cannot_bypass_final_aggregate_entry_limit() {
         let sectors = vec![sector(false), sector(true)];
         // Each sector costs 15: rule(1), residuals(2), equations(2), RHS(3),
         // sources(2), branches(2), branch entries(3). Final count adds 2.
         let mut limits = CandidateBundleLimits::default();
+        limits.diagnostics_enabled = true;
         limits.max_collection_entries = 31;
         for sector in &sectors {
             let mut individual = CollectionBudget::new(limits, 1).unwrap();
@@ -494,6 +567,7 @@ mod collection_budget_tests {
             validate(&bundle, limits).unwrap_err().kind(),
             AppErrorKind::Limit
         );
+        limits.diagnostics_enabled = true;
         limits.max_collection_entries = 32;
         let mut exact = CollectionBudget::new(limits, 2).unwrap();
         for sector in &bundle.sectors {
@@ -501,6 +575,7 @@ mod collection_budget_tests {
         }
         assert_eq!(exact.entries, 32);
         validate(&bundle, limits).unwrap();
+        limits.diagnostics_enabled = true;
         limits.max_collection_entries = 1;
         assert_eq!(
             CollectionBudget::new(limits, 2).unwrap_err().kind(),
@@ -514,7 +589,8 @@ fn validate_integral(value: &IntegralRecord, n: usize) -> Result<(), AppError> {
         return Err(AppError::input("candidate integral has the wrong arity"));
     }
     for (&symbolic, &value) in value.symbolic.iter().zip(&value.values) {
-        Power::new(symbolic, value).map_err(|error| AppError::input(error.to_string()))?;
+        Power::new(symbolic, value)
+            .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Input))?;
     }
     Ok(())
 }
@@ -536,7 +612,7 @@ fn integral<const N: usize>(value: &IntegralRecord) -> Result<Integral<N>, AppEr
     let mut powers = [Power::default(); N];
     for (axis, power) in powers.iter_mut().take(value.values.len()).enumerate() {
         *power = Power::new(value.symbolic[axis], value.values[axis])
-            .map_err(|error| AppError::input(error.to_string()))?;
+            .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Input))?;
     }
     Ok(Integral::new(powers))
 }
@@ -730,7 +806,7 @@ pub(super) fn solutions_from_table<const N: usize>(
             let order =
                 rustred::solver::IntegralOrder::from_persisted_policy(sector, &mathematical_order)
                     .and_then(|order| order.with_physical_arity(context.index_count()))
-                    .map_err(|error| AppError::input(error.to_string()))?;
+                    .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Input))?;
             Ok((
                 sector,
                 SectorSolution {

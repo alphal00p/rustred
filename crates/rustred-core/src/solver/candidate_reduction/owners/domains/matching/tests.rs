@@ -342,26 +342,32 @@ fn resource_cancellation_consumer_and_malformed_input_are_typed_incomplete() {
     batch(&mut p).rules = vec![first];
     for limits in [
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_rules: 0,
             ..Default::default()
         },
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_predicates: 0,
             ..Default::default()
         },
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_pieces: 0,
             ..Default::default()
         },
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_cells: 0,
             ..Default::default()
         },
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_split_operations: 0,
             ..Default::default()
         },
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_coordinate_cells: 0,
             ..Default::default()
         },
@@ -468,7 +474,8 @@ fn native_guard_limits_fail_as_typed_algebra_resource_errors() {
     let mut first = rule(0);
     first.equalities.push(minus(&c, 0, 2));
     batch(&mut p).rules = vec![first];
-    let mut limits = OwnerDomainMatchLimits::default();
+    let mut limits = OwnerDomainMatchLimits::default().with_diagnostics();
+    limits.guard_algebra.diagnostics_enabled = true;
     limits.guard_algebra.max_input_terms = 0;
     let e = p
         .visit_owner_domain_matches(
@@ -557,6 +564,7 @@ fn terminal_work_is_bounded_and_empty_exclusion_skips_the_whole_rule() {
             &[None; 3],
             Some(0),
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_terminal_checks: 0,
                 ..Default::default()
             },
@@ -673,6 +681,7 @@ fn bounded_refinement_matches_explicit_slices_and_retries_each_exact_predicate_p
             [None, Some(0), None],
             Some(2),
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_bounded_refinement_cells: 3,
                 ..Default::default()
             },
@@ -715,15 +724,18 @@ fn bounded_refinement_insufficient_full_split_allowance_preserves_original_unkno
     );
     for limits in [
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_bounded_refinement_cells: 2,
             ..Default::default()
         },
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_bounded_refinement_cells: 3,
             max_cells: baseline.cells,
             ..Default::default()
         },
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_bounded_refinement_cells: 3,
             max_coordinate_cells: baseline.coordinate_cells,
             ..Default::default()
@@ -754,6 +766,7 @@ fn bounded_refinement_never_enumerates_positive_or_unbounded_inactive_axes() {
         [Some(2), Some(2), Some(2)],
         Some(2),
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_bounded_refinement_cells: 100,
             ..Default::default()
         },
@@ -771,6 +784,7 @@ fn bounded_refinement_never_enumerates_positive_or_unbounded_inactive_axes() {
         [None, Some(0), None],
         None,
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_bounded_refinement_cells: 100,
             ..Default::default()
         },
@@ -805,6 +819,7 @@ fn bounded_refinement_rank_induced_singleton_progresses_once_then_keeps_positive
         [None; 3],
         Some(0),
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_bounded_refinement_cells: 1,
             ..Default::default()
         },
@@ -858,6 +873,7 @@ fn bounded_refinement_nested_simplex_counts_are_cumulative_and_deterministic() {
             &[None; 3],
             Some(2),
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_bounded_refinement_cells: 9,
                 ..Default::default()
             },
@@ -906,6 +922,7 @@ fn bounded_refinement_nested_simplex_counts_are_cumulative_and_deterministic() {
             &[None; 3],
             Some(2),
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_bounded_refinement_cells: 3,
                 ..Default::default()
             },
@@ -935,6 +952,7 @@ fn bounded_refinement_nested_simplex_counts_are_cumulative_and_deterministic() {
             &[None, Some(2), Some(1)],
             Some(2),
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_bounded_refinement_cells: 2,
                 ..Default::default()
             },
@@ -966,6 +984,7 @@ fn bounded_refinement_prepaid_lazy_faces_cancel_without_visiting_whole_interval(
             &[None, Some(0), None],
             Some(999),
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_bounded_refinement_cells: 1000,
                 ..Default::default()
             },
@@ -995,6 +1014,7 @@ fn bounded_refinement_above_entry_rank_retains_exact_r11_scope() {
         [None, Some(0), None],
         Some(11),
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_bounded_refinement_cells: 2,
             ..Default::default()
         },
@@ -1051,6 +1071,7 @@ fn bounded_refinement_conservative_cover_drops_rank_empty_intersections_before_b
             &[None; 3],
             Some(2),
             OwnerDomainMatchLimits {
+                diagnostics_enabled: true,
                 max_bounded_refinement_cells: 1,
                 ..Default::default()
             },
@@ -1085,11 +1106,13 @@ fn bounded_refinement_conservative_cover_drops_rank_empty_intersections_before_b
 
 fn resource_refinement_limits(faces: usize) -> OwnerDomainMatchLimits {
     let mut limits = OwnerDomainMatchLimits {
+        diagnostics_enabled: true,
         max_bounded_refinement_cells: faces,
         ..Default::default()
     };
     // Linear two-variable factor preflight costs128; a specialized linear
     // univariate guard costs12. All native arithmetic remains unchanged.
+    limits.guard_algebra.diagnostics_enabled = true;
     limits.guard_algebra.max_gcd_factor_work = 64;
     limits
 }
@@ -1208,10 +1231,12 @@ fn resource_refinement_optional_refusal_preserves_original_error_and_attempt_cou
     for limits in [
         resource_refinement_limits(2),
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_cells: baseline.stats.cells,
             ..resource_refinement_limits(3)
         },
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_coordinate_cells: baseline.stats.coordinate_cells,
             ..resource_refinement_limits(3)
         },
@@ -1268,9 +1293,12 @@ fn resource_refinement_degree_refusal_uses_actual_r11_simplex_not_saved_entry_ra
     )];
     batch(&mut p).rules = vec![first, rule(1)];
     let mut limits = OwnerDomainMatchLimits {
+        diagnostics_enabled: true,
         max_bounded_refinement_cells: 2,
         ..Default::default()
     };
+    limits = limits.with_diagnostics();
+    limits.guard_algebra.diagnostics_enabled = true;
     limits.guard_algebra.max_univariate_degree = 1;
     let (stats, automatic) = refined(&p, [0, 0, 10], [None, Some(0), None], Some(11), limits);
     assert_eq!((stats.refinement_cells, stats.refinement_steps), (2, 1));
@@ -1302,9 +1330,12 @@ fn resource_refinement_late_child_refusal_keeps_exact_cell_and_blocks_later_rule
     first.equalities = vec![poly(&c, guard)];
     batch(&mut p).rules = vec![first, rule(1)];
     let mut limits = OwnerDomainMatchLimits {
+        diagnostics_enabled: true,
         max_bounded_refinement_cells: 2,
         ..Default::default()
     };
+    limits = limits.with_diagnostics();
+    limits.guard_algebra.diagnostics_enabled = true;
     limits.guard_algebra.max_univariate_degree = 1;
     let mut pieces = Vec::new();
     let e = p
@@ -1375,6 +1406,7 @@ fn resource_refinement_does_not_bypass_global_or_noneligible_native_limits() {
         &p,
         Some(2),
         OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             max_cells: 1,
             ..resource_refinement_limits(3)
         },
@@ -1389,6 +1421,7 @@ fn resource_refinement_does_not_bypass_global_or_noneligible_native_limits() {
     assert_eq!(e.stats.refinement_cells, 0);
 
     let mut limits = resource_refinement_limits(3);
+    limits.guard_algebra.diagnostics_enabled = true;
     limits.guard_algebra.max_input_terms = 0;
     let e = resource_refusal(&p, Some(2), limits);
     assert!(matches!(
@@ -1513,5 +1546,52 @@ fn resource_refinement_policy_excludes_outputs_replay_overflow_and_backend_fault
             requested: 10,
             limit: 1,
         }
+    ));
+}
+
+#[test]
+fn domain_matching_zero_work_caps_are_disabled_by_default() {
+    let p = fixture();
+    let limits = OwnerDomainMatchLimits {
+        max_rules: 0,
+        max_terminal_checks: 0,
+        max_predicates: 0,
+        max_pieces: 0,
+        max_cells: 0,
+        max_split_operations: 0,
+        max_coordinate_cells: 0,
+        ..Default::default()
+    };
+    let mut pieces = 0;
+    let stats = p
+        .visit_owner_domain_matches(
+            OWNER,
+            &[0; 3],
+            &[Some(0); 3],
+            Some(11),
+            limits,
+            &AtomicBool::new(false),
+            |_| {
+                pieces += 1;
+                ControlFlow::Continue(())
+            },
+        )
+        .unwrap();
+    assert!(pieces > 0);
+    assert!(stats.cells > 0);
+    assert!(matches!(
+        p.visit_owner_domain_matches(
+            OWNER,
+            &[0; 3],
+            &[Some(0); 3],
+            Some(11),
+            limits.with_diagnostics(),
+            &AtomicBool::new(false),
+            |_| ControlFlow::Continue(())
+        ),
+        Err(OwnerDomainMatchError {
+            failure: OwnerDomainMatchFailure::ResourceLimit { .. },
+            ..
+        })
     ));
 }

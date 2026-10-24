@@ -428,6 +428,7 @@ mod resident_preprobe_differential {
                 [8; 32],
                 Arc::new(vec![vec![reference]]),
                 GeneratedDirectoryLimits {
+                    diagnostics_enabled: true,
                     max_arity: 1,
                     max_runs: 1,
                     max_pages: 1,
@@ -488,7 +489,7 @@ mod resident_preprobe_differential {
         limit(
             0,
             nodes.len(),
-            shared.publication_capacity(),
+            Some(shared.publication_capacity()),
             "publication batch",
         )?;
         let mut batch = Vec::with_capacity(nodes.len());

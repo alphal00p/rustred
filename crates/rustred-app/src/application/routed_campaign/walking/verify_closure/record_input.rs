@@ -6,6 +6,7 @@ use rayon::prelude::*;
 use serde_json::Value;
 use std::io::{self, BufRead, BufReader, Read};
 use std::sync::atomic::{AtomicBool, Ordering};
+use symbolica::utils::resources::ResourceBudget;
 
 pub(super) enum RecordValue {
     Typed(Record),
@@ -140,17 +141,24 @@ impl Decoder {
                 }
             }
         }
+        // Capture each refill, since this decoder/pool can outlive a calling
+        // request's lexical resource scope.
+        let resources = ResourceBudget::capture_current();
         self.pending = pool
             .install(|| {
-                batch
-                    .into_par_iter()
-                    .map(|value| {
-                        if cancellation.load(Ordering::Relaxed) {
-                            return Err(Error::Cancelled);
-                        }
-                        value?.decode(digest).map_err(Error::Decode)
-                    })
-                    .collect::<Vec<_>>()
+                resources.run_captured(|| {
+                    batch
+                        .into_par_iter()
+                        .map(|value| {
+                            resources.run_captured(|| {
+                                if cancellation.load(Ordering::Relaxed) {
+                                    return Err(Error::Cancelled);
+                                }
+                                value?.decode(digest).map_err(Error::Decode)
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
             })
             .into_iter();
         self.pending.next()

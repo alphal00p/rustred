@@ -14,6 +14,7 @@ fn typed_lookup_budget_is_distinct_from_hit_and_verified_absence() {
     writer.checkpoint().unwrap();
     make_legacy(&path);
     let tight = SavedApplicationCachePackLimits {
+        diagnostics_enabled: true,
         max_lookup_chunks: 1,
         ..limits
     };
@@ -57,14 +58,17 @@ fn typed_lookup_stops_before_ungranted_io_and_preserves_read_decode_grants() {
     writer.checkpoint().unwrap();
     for tight in [
         SavedApplicationCachePackLimits {
+            diagnostics_enabled: true,
             max_lookup_chunks: 0,
             ..limits
         },
         SavedApplicationCachePackLimits {
+            diagnostics_enabled: true,
             max_lookup_encoded_bytes: 0,
             ..limits
         },
         SavedApplicationCachePackLimits {
+            diagnostics_enabled: true,
             max_lookup_decoded_bytes: 0,
             ..limits
         },
@@ -83,6 +87,58 @@ fn typed_lookup_stops_before_ungranted_io_and_preserves_read_decode_grants() {
         assert_eq!(stats.lookup_decoded_bytes_charged, 0);
         assert_eq!(stats.misses, 0);
     }
+}
+
+#[test]
+fn ordinary_reads_preserve_exact_results_with_inactive_count_and_traffic_templates() {
+    let scratch = scratch();
+    let path = scratch.0.join("inactive-pack-diagnostics");
+    let mut limits = SavedApplicationCachePackLimits {
+        max_runs: 0,
+        max_chunks: 0,
+        max_lookup_chunks: 0,
+        max_lookup_encoded_bytes: 0,
+        max_lookup_decoded_bytes: 0,
+        ..Default::default()
+    };
+    limits.chunk.max_records = 0;
+    assert!(!limits.diagnostics_enabled);
+    assert!(!limits.chunk.diagnostics_enabled);
+    let mut writer = SavedApplicationCacheWriter::create(&path, binding(1), limits).unwrap();
+    for endpoint in [10, 11] {
+        writer
+            .append_completed(&[record(0), record(endpoint)], &context())
+            .unwrap();
+    }
+    writer.checkpoint().unwrap();
+    drop(writer);
+    let mut ordinary =
+        SavedApplicationCachePack::open_generated(&path, &binding(1), limits).unwrap();
+    assert_eq!(ordinary.statistics().runs, 2);
+    assert_eq!(ordinary.statistics().chunks, 2);
+    assert_eq!(ordinary.statistics().records, 4);
+    assert_eq!(
+        ordinary.lookup_outcome(&key(10), &context()).unwrap(),
+        SavedApplicationCacheLookupOutcome::Hit(record(10))
+    );
+    assert_eq!(ordinary.statistics().lookup_limit_refusals, 0);
+    assert_eq!(ordinary.statistics().chunks_read, 1);
+    let mut diagnostic = SavedApplicationCachePack::open_generated(
+        &path,
+        &binding(1),
+        SavedApplicationCachePackLimits {
+            diagnostics_enabled: true,
+            max_lookup_chunks: 0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        diagnostic.lookup_outcome(&key(10), &context()).unwrap(),
+        SavedApplicationCacheLookupOutcome::WorkBudgetExhausted
+    );
+    assert_eq!(diagnostic.statistics().chunks_read, 0);
+    assert_eq!(diagnostic.statistics().lookup_limit_refusals, 1);
 }
 
 #[test]

@@ -13,9 +13,8 @@ use crate::algebra::CoefficientPolynomial;
 
 use super::super::Case;
 
-/// At most this many native determinant calls and one native matrix solve.
-/// Over this cold-geometry limit we make no inference; it is independent of
-/// topology, loop count and compact-power representation.
+/// Optional diagnostic threshold on native principal-minor calls.
+/// Ordinary proof work is governed by the shared resource context.
 const MAX_PRINCIPAL_MINORS: usize = 32;
 
 #[derive(Debug)]
@@ -25,13 +24,46 @@ pub(super) enum QuadraticProof {
     Unknown,
 }
 
+#[cfg(test)]
 pub(super) fn classify<const N: usize>(
     parent: &Case<N>,
     equation: &CoefficientPolynomial,
     indices: &[usize; N],
     sector: &[bool; N],
 ) -> QuadraticProof {
-    proof(parent, equation, indices, sector).unwrap_or(QuadraticProof::Unknown)
+    classify_with_policy(parent, equation, indices, sector, true).unwrap()
+}
+
+pub(super) fn classify_with_policy<const N: usize>(
+    parent: &Case<N>,
+    equation: &CoefficientPolynomial,
+    indices: &[usize; N],
+    sector: &[bool; N],
+    diagnostics_enabled: bool,
+) -> Result<QuadraticProof, super::CaseIntersectionFailure> {
+    let mut failure = None;
+    let result = proof(
+        parent,
+        equation,
+        indices,
+        sector,
+        diagnostics_enabled,
+        &mut failure,
+    );
+    match failure {
+        Some(error) => Err(error),
+        None => Ok(result.unwrap_or(QuadraticProof::Unknown)),
+    }
+}
+
+fn poll(failure: &mut Option<super::CaseIntersectionFailure>) -> Option<()> {
+    match super::engine::checkpoint() {
+        Ok(()) => Some(()),
+        Err(error) => {
+            *failure = Some(error);
+            None
+        }
+    }
 }
 
 fn proof<const N: usize>(
@@ -39,7 +71,10 @@ fn proof<const N: usize>(
     equation: &CoefficientPolynomial,
     indices: &[usize; N],
     sector: &[bool; N],
+    diagnostics_enabled: bool,
+    failure: &mut Option<super::CaseIntersectionFailure>,
 ) -> Option<QuadraticProof> {
+    poll(failure)?;
     let nvars = equation.nvars();
     let mut axis_of = vec![None; nvars];
     for (axis, &variable) in indices.iter().enumerate() {
@@ -53,6 +88,7 @@ fn proof<const N: usize>(
     let mut supported = vec![false; N];
     let mut quadratic = false;
     for powers in equation.exponents_iter() {
+        poll(failure)?;
         let mut degree = 0u64;
         for (variable, &power) in powers.iter().enumerate() {
             if power == 0 {
@@ -72,7 +108,7 @@ fn proof<const N: usize>(
     }
     let axes: Vec<_> = (0..N).filter(|&axis| supported[axis]).collect();
     let size = axes.len();
-    if size == 0 || size > MAX_PRINCIPAL_MINORS {
+    if size == 0 || (diagnostics_enabled && size > MAX_PRINCIPAL_MINORS) {
         return None;
     }
     let size_u32 = u32::try_from(size).ok()?;
@@ -94,6 +130,7 @@ fn proof<const N: usize>(
     let orient = |value: Integer| Rational::from(if reverse_sign { -value } else { value });
     let mut hessian_data = Vec::with_capacity(size * size);
     for gradient in &gradient_polynomials {
+        poll(failure)?;
         for &axis in &axes {
             hessian_data.push(orient(
                 gradient.derivative(indices[axis]).replace_all(&zero),
@@ -102,6 +139,7 @@ fn proof<const N: usize>(
     }
     let hessian = Matrix::from_linear(hessian_data, size_u32, size_u32, Q).ok()?;
     for width in 1..=size_u32 {
+        poll(failure)?;
         let mut entries = Vec::with_capacity((width as usize) * (width as usize));
         for row in 0..width {
             for column in 0..width {
@@ -109,7 +147,9 @@ fn proof<const N: usize>(
             }
         }
         let minor = Matrix::from_linear(entries, width, width, Q).ok()?;
-        if minor.det().ok()? <= Rational::zero() {
+        let determinant = minor.det().ok()?;
+        poll(failure)?;
+        if determinant <= Rational::zero() {
             return None;
         }
     }
@@ -119,6 +159,7 @@ fn proof<const N: usize>(
         .map(|polynomial| orient(polynomial.replace_all(&zero)))
         .collect::<Vec<_>>();
     let rhs = Matrix::new_vec(gradient.iter().map(|value| -value.clone()).collect(), Q);
+    poll(failure)?;
     let stationary = hessian.solve(&rhs).ok()?;
     // For q(x)=c+b*x+(x*H*x)/2, H*x*=-b and
     // min q = c+(b*x*)/2. All operations here are native exact rationals.

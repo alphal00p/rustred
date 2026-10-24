@@ -281,15 +281,17 @@ fn preflight_unreduced_denominator_sum(
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
     preflight_cross_sum_degrees(left, right, operation, limits)?;
-    let left_terms = checked_term_product(
+    let left_terms = estimated_term_product(
         left.numerator.nterms(),
         right.denominator.nterms(),
         "exact addition numerator terms",
+        limits.diagnostics_enabled,
     )?;
-    let right_terms = checked_term_product(
+    let right_terms = estimated_term_product(
         right.numerator.nterms(),
         left.denominator.nterms(),
         "exact addition numerator terms",
+        limits.diagnostics_enabled,
     )?;
     preflight_sum_terms(
         left_terms,
@@ -357,15 +359,17 @@ fn preflight_reduced_denominator_sum(
     operation: ExactAlgebraOperation,
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
-    let gcd_term_pairs = checked_term_product(
+    let gcd_term_pairs = estimated_term_product(
         left.denominator.nterms(),
         right.denominator.nterms(),
         SUM_DENOMINATOR_GCD_TERM_PAIRS,
+        limits.diagnostics_enabled,
     )?;
     check_exact_resource_limit(
         SUM_DENOMINATOR_GCD_TERM_PAIRS,
         gcd_term_pairs,
         limits.max_term_operations,
+        limits.diagnostics_enabled,
     )?;
 
     let denominator_gcd = catch_unwind(AssertUnwindSafe(|| {
@@ -410,15 +414,17 @@ fn preflight_reduced_denominator_sum(
     // the maximum degree of those two products.
     preflight_product_degrees(&left.numerator, &right_reduced, operation, limits)?;
     preflight_product_degrees(&right.numerator, &left_reduced, operation, limits)?;
-    let left_terms = checked_term_product(
+    let left_terms = estimated_term_product(
         left.numerator.nterms(),
         right_reduced.nterms(),
         "exact addition numerator terms",
+        limits.diagnostics_enabled,
     )?;
-    let right_terms = checked_term_product(
+    let right_terms = estimated_term_product(
         right.numerator.nterms(),
         left_reduced.nterms(),
         "exact addition numerator terms",
+        limits.diagnostics_enabled,
     )?;
     preflight_sum_terms(
         left_terms,
@@ -489,13 +495,14 @@ fn preflight_trusted_input_limits(
             "sealed input polynomial terms",
             polynomial.nterms(),
             limits.max_polynomial_terms,
+            limits.diagnostics_enabled,
         )?;
-        if limits.max_exponent != u16::MAX {
+        if limits.exponent_limit() != u16::MAX {
             if let Some((position, &exponent)) = polynomial
                 .exponents
                 .iter()
                 .enumerate()
-                .find(|(_, exponent)| **exponent > limits.max_exponent)
+                .find(|(_, exponent)| **exponent > limits.exponent_limit())
             {
                 let variable = if polynomial.variables().is_empty() {
                     0
@@ -506,7 +513,7 @@ fn preflight_trusted_input_limits(
                     operation: ExactAlgebraOperation::Authenticate,
                     variable,
                     requested: u64::from(exponent),
-                    limit: limits.max_exponent,
+                    limit: limits.exponent_limit(),
                 });
             }
         }
@@ -601,12 +608,12 @@ fn check_exact_exponent(
     requested: u64,
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
-    if requested > u64::from(limits.max_exponent) {
+    if requested > u64::from(limits.exponent_limit()) {
         Err(ExactAlgebraError::ExponentLimit {
             operation,
             variable,
             requested,
-            limit: limits.max_exponent,
+            limit: limits.exponent_limit(),
         })
     } else {
         Ok(())
@@ -628,9 +635,23 @@ fn preflight_product_terms(
     resource: &'static str,
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
-    let requested = checked_term_product(left, right, resource)?;
-    check_exact_resource_limit(resource, requested, limits.max_term_operations)?;
-    check_exact_resource_limit(resource, requested, limits.max_polynomial_terms)
+    let requested = if limits.diagnostics_enabled {
+        checked_term_product(left, right, resource)?
+    } else {
+        left.saturating_mul(right)
+    };
+    check_exact_resource_limit(
+        resource,
+        requested,
+        limits.max_term_operations,
+        limits.diagnostics_enabled,
+    )?;
+    check_exact_resource_limit(
+        resource,
+        requested,
+        limits.max_polynomial_terms,
+        limits.diagnostics_enabled,
+    )
 }
 
 fn preflight_sum_terms(
@@ -639,9 +660,35 @@ fn preflight_sum_terms(
     resource: &'static str,
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
-    let requested = left
-        .checked_add(right)
-        .ok_or(ExactAlgebraError::ResourceCountOverflow { resource })?;
-    check_exact_resource_limit(resource, requested, limits.max_term_operations)?;
-    check_exact_resource_limit(resource, requested, limits.max_polynomial_terms)
+    let requested = if limits.diagnostics_enabled {
+        left.checked_add(right)
+            .ok_or(ExactAlgebraError::ResourceCountOverflow { resource })?
+    } else {
+        left.saturating_add(right)
+    };
+    check_exact_resource_limit(
+        resource,
+        requested,
+        limits.max_term_operations,
+        limits.diagnostics_enabled,
+    )?;
+    check_exact_resource_limit(
+        resource,
+        requested,
+        limits.max_polynomial_terms,
+        limits.diagnostics_enabled,
+    )
+}
+
+fn estimated_term_product(
+    left: usize,
+    right: usize,
+    resource: &'static str,
+    diagnostics_enabled: bool,
+) -> Result<usize, ExactAlgebraError> {
+    if diagnostics_enabled {
+        checked_term_product(left, right, resource)
+    } else {
+        Ok(left.saturating_mul(right))
+    }
 }

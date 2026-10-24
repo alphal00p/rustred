@@ -48,6 +48,16 @@ pub struct VacuumFactorReduction {
 /// Changing program identity requires a new `VacuumProductReducer` session.
 pub trait VacuumFactorProvider {
     type Error: fmt::Display;
+    /// Preserve an original RAM/time refusal before coverage classification or
+    /// formatting an otherwise opaque provider error.
+    fn resource_limit_error(
+        _error: &Self::Error,
+    ) -> Option<symbolica::utils::resources::ResourceLimitError>
+    where
+        Self: Sized,
+    {
+        None
+    }
     /// Classify only a typed lack of available reduction coverage. Invalid
     /// algebra, guards, inputs, corruption, and resource failures must return
     /// false. The default preserves the existing fail-closed provider contract.
@@ -67,6 +77,8 @@ pub trait VacuumFactorProvider {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VacuumProductReductionLimits {
+    /// Optional work-count stops; normal execution is governed by RAM/time.
+    pub diagnostics_enabled: bool,
     pub reduction: ReductionLimits,
     pub products: VacuumProductLimits,
     /// Existing exact native sector-zero analysis, performed before providers.
@@ -83,6 +95,7 @@ pub struct VacuumProductReductionLimits {
 impl Default for VacuumProductReductionLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             reduction: Default::default(),
             products: Default::default(),
             zero: Default::default(),
@@ -92,6 +105,20 @@ impl Default for VacuumProductReductionLimits {
             max_provider_calls: 100_000,
             max_families: 4096,
             max_nonzero_conditions: 1_000_000,
+        }
+    }
+}
+impl VacuumProductReductionLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.reduction = self.reduction.with_diagnostics();
+        self
+    }
+    pub(super) const fn diagnostic_limit(self, limit: usize) -> Option<usize> {
+        if self.diagnostics_enabled {
+            Some(limit)
+        } else {
+            None
         }
     }
 }
@@ -246,4 +273,13 @@ impl fmt::Display for VacuumProductReductionError {
         }
     }
 }
-impl std::error::Error for VacuumProductReductionError {}
+impl std::error::Error for VacuumProductReductionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Reduction(error) => Some(error),
+            Self::Product(error) => Some(error),
+            Self::Zero(error) => Some(error),
+            _ => None,
+        }
+    }
+}

@@ -26,6 +26,7 @@ fn resolved(job: &Job<2>, queries: &[Domain<2>], view: Option<&Snapshot<2>>) -> 
     resolver.finish(
         job,
         Finished {
+            resource_failure: None,
             stats: NativeStats::Apply(rustred::solver::OwnerAppliedStats {
                 events: queries.len(),
                 successors: queries.iter().filter(|q| q.phase == Phase::Apply).count(),

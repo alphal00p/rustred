@@ -21,6 +21,7 @@ use super::{
 /// Finite-inventory preparation bounds; transport limits apply to every map.
 #[derive(Clone, Copy, Debug)]
 pub struct TerminalCircuitLimits {
+    pub diagnostics_enabled: bool,
     pub normalization: TerminalNormalizationLimits,
     pub expansion: integral_transport::ExpansionLimits,
     /// Prospective native multiplication work, summed across the inventory.
@@ -32,6 +33,7 @@ pub struct TerminalCircuitLimits {
 impl Default for TerminalCircuitLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             normalization: Default::default(),
             expansion: Default::default(),
             max_transport_operations: 64_000_000,
@@ -81,6 +83,7 @@ impl TerminalCircuitEquations {
             "circuit input keys",
             keys.len(),
             limits.normalization.max_terminals,
+            limits.normalization.diagnostics_enabled,
         )?;
         for key in keys {
             if key.powers().len() != family.denominator_count() {
@@ -145,11 +148,13 @@ impl TerminalCircuitEquations {
                     "circuit supports",
                     supports.len().saturating_add(1),
                     limits.normalization.max_supports,
+                    limits.normalization.diagnostics_enabled,
                 )?;
                 check(
                     "circuit momentum matrix cells",
                     active_count.saturating_mul(family.loop_count()),
                     limits.normalization.max_matrix_cells,
+                    limits.normalization.diagnostics_enabled,
                 )?;
                 let support = corank_one::proposal::support(
                     &family,
@@ -310,8 +315,10 @@ fn check(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), TerminalNormalizationError> {
-    if requested > limit {
+    symbolica::utils::resources::checkpoint().map_err(TerminalNormalizationError::Resources)?;
+    if diagnostics_enabled && requested > limit {
         Err(TerminalNormalizationError::Limit {
             resource,
             requested,
@@ -328,3 +335,12 @@ fn algebra(error: impl std::fmt::Display) -> TerminalNormalizationError {
 
 #[cfg(test)]
 mod tests;
+
+impl TerminalCircuitLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.normalization = self.normalization.with_diagnostics();
+        self.expansion = self.expansion.with_diagnostics();
+        self
+    }
+}

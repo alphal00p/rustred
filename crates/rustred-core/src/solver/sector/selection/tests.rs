@@ -212,6 +212,7 @@ fn bounded_rule_portfolio_baseline_geometry_failure_remains_fatal_and_observed()
         .solve_sector_with_observer(
             SectorSolveOptions {
                 case_intersection_limits: CaseIntersectionLimits {
+                    diagnostics_enabled: true,
                     max_work_items: 0,
                     ..Default::default()
                 },
@@ -251,6 +252,7 @@ fn bounded_rule_portfolio_optional_geometry_budget_preserves_incumbent_and_all_c
             &Case::generic(),
             SectorSolveOptions {
                 case_intersection_limits: CaseIntersectionLimits {
+                    diagnostics_enabled: true,
                     max_work_items: 0,
                     ..Default::default()
                 },

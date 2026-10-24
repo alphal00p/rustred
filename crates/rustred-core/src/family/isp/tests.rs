@@ -33,7 +33,7 @@ mod coefficient_limit_tests {
         let exact = context.one().numerator.nterms() + context.one().denominator.nterms();
         assert_eq!(exact, 2);
 
-        let mut limits = IspCompletionLimits::default();
+        let mut limits = IspCompletionLimits::default().with_diagnostics();
         limits.max_rank_coefficient_terms = exact;
         one_loop_completion(context.one(), limits).unwrap();
 
@@ -55,7 +55,7 @@ mod coefficient_limit_tests {
         let exact = coefficient.to_string().len();
         assert!(exact > 32);
 
-        let mut limits = IspCompletionLimits::default();
+        let mut limits = IspCompletionLimits::default().with_diagnostics();
         limits.max_rank_coefficient_bytes = exact;
         one_loop_completion(coefficient.clone(), limits).unwrap();
 
@@ -73,7 +73,7 @@ mod coefficient_limit_tests {
     #[test]
     fn native_rank_input_and_output_payloads_have_separate_retained_byte_limits() {
         let context = CoefficientContext::new(["d"]);
-        let mut limits = IspCompletionLimits::default();
+        let mut limits = IspCompletionLimits::default().with_diagnostics();
         limits.max_rank_input_retained_bytes = 0;
         assert!(matches!(
             one_loop_completion(context.one(), limits),
@@ -99,7 +99,7 @@ mod coefficient_limit_tests {
     #[test]
     fn native_rank_operation_limit_is_cumulative_across_candidate_tests() {
         let context = CoefficientContext::new(["d", "s"]);
-        let mut limits = IspCompletionLimits::default();
+        let mut limits = IspCompletionLimits::default().with_diagnostics();
         // The initial [1,0] rank costs one native inverse.  Scouting the
         // dependent e0 row needs four more native scalar calls, so a cumulative
         // limit of four must fail at requested operation five.
@@ -137,6 +137,55 @@ mod coefficient_limit_tests {
             checked_scalar_product_count(loops, 0).unwrap(),
             18_000_000_003_000_000_000usize
         );
+    }
+
+    #[test]
+    fn count_thresholds_require_diagnostic_opt_in() {
+        let context = CoefficientContext::new(["d"]);
+        let mut limits = IspCompletionLimits::default();
+        limits.max_rank_matrix_entries = 0;
+        limits.max_rank_coefficient_terms = 0;
+        limits.max_rank_coefficient_bytes = 0;
+        limits.max_rank_input_retained_bytes = 0;
+        limits.max_rank_output_retained_bytes = 0;
+        limits.max_rank_operations = 0;
+        limits.max_rank_tests = 0;
+        limits.family.max_scalar_products = 0;
+        one_loop_completion(context.one(), limits).unwrap();
+
+        let enabled = limits.with_diagnostics();
+        assert!(enabled.diagnostics_enabled);
+        assert!(enabled.family.diagnostics_enabled);
+        assert!(enabled.family.exact_algebra.diagnostics_enabled);
+        assert!(matches!(
+            one_loop_completion(context.one(), enabled),
+            Err(IspCompletionError::ResourceLimit {
+                resource: "family scalar products",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn ambient_resource_budget_applies_with_diagnostics_disabled() {
+        use crate::algebra::ExactAlgebraError;
+        use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+
+        let context = CoefficientContext::new(["d"]);
+        let coefficient = context.one();
+        let budget = ResourceBudget::with_memory_monitor(
+            ResourceLimits {
+                max_process_rss_bytes: Some(1),
+                ..ResourceLimits::default()
+            },
+            || Ok(2),
+        );
+        assert!(matches!(
+            budget.run(|| one_loop_completion(coefficient, IspCompletionLimits::default())),
+            Err(IspCompletionError::ExactAlgebra(
+                ExactAlgebraError::Resource(ResourceLimitError::Memory { .. })
+            ))
+        ));
     }
 }
 

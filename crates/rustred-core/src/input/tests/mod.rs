@@ -14,7 +14,7 @@ pub(super) fn compiler() -> Compiler {
 }
 
 pub(super) fn compiler_with(update: impl FnOnce(&mut Limits)) -> Compiler {
-    let mut limits = Limits::default();
+    let mut limits = Limits::default().with_diagnostics();
     update(&mut limits);
     Compiler::new(limits).expect("bounded RustRed input grammar must initialize")
 }

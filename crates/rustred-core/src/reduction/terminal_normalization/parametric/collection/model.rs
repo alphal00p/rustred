@@ -31,6 +31,7 @@ impl VacuumIntegralKey {
 
 #[derive(Clone, Copy, Debug)]
 pub struct VacuumFamilyAliasLimits {
+    pub diagnostics_enabled: bool,
     pub max_families: usize,
     pub max_terminals: usize,
     /// Support and canonicalization counts apply to the entire collection.
@@ -39,6 +40,7 @@ pub struct VacuumFamilyAliasLimits {
 impl Default for VacuumFamilyAliasLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_families: 1024,
             max_terminals: 1_000_000,
             parametric: Default::default(),
@@ -150,5 +152,13 @@ impl VacuumFamilyAliasPlan {
         self.raw
             .get(&tagged)
             .ok_or(TerminalAliasError::UndeclaredTerminal)
+    }
+}
+
+impl VacuumFamilyAliasLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.parametric = self.parametric.with_diagnostics();
+        self
     }
 }

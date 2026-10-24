@@ -97,6 +97,7 @@ fn prepare_problem_with_anchor_requirement(
         return Err(ParametricRuleError::EmptySourceRows);
     }
     check_limit(
+        limits.diagnostics_enabled,
         "parametric source rows",
         relations.len(),
         limits.max_source_rows,
@@ -130,6 +131,7 @@ fn prepare_problem_with_anchor_requirement(
         relations.len(),
     )?;
     check_limit(
+        limits.diagnostics_enabled,
         "prospective parametric source entries",
         prospective_input_entries,
         limits.max_input_nonzero_entries,
@@ -139,6 +141,7 @@ fn prepare_problem_with_anchor_requirement(
     // term count is the allocation-free upper bound on those unique buffers.
     // Multiple handles never multiply the coordinate-cell census.
     check_cell_limit(
+        limits.diagnostics_enabled,
         "prospective parametric shift coordinate cells",
         prospective_terms,
         context.index_count(),
@@ -180,6 +183,7 @@ fn prepare_problem_with_anchor_requirement(
                 1,
             )?;
             check_limit(
+                limits.diagnostics_enabled,
                 "prepared parametric guard origins",
                 prepared_guard_origins,
                 limits.max_guard_origins,
@@ -190,6 +194,7 @@ fn prepare_problem_with_anchor_requirement(
                 condition.sources().len(),
             )?;
             check_limit(
+                limits.diagnostics_enabled,
                 "parametric guard provenance sources",
                 retained_condition_sources,
                 limits.max_guard_provenance_sources,
@@ -211,6 +216,7 @@ fn prepare_problem_with_anchor_requirement(
                 condition_index_cells,
             )?;
             check_limit(
+                limits.diagnostics_enabled,
                 "parametric guard provenance index cells",
                 guard_provenance_index_cells,
                 limits.max_guard_provenance_index_cells,
@@ -242,6 +248,7 @@ fn prepare_problem_with_anchor_requirement(
                     1,
                 )?;
                 check_limit(
+                    limits.diagnostics_enabled,
                     "prepared parametric guard origins",
                     prepared_guard_origins,
                     limits.max_guard_origins,
@@ -269,6 +276,7 @@ fn prepare_problem_with_anchor_requirement(
                 relations.len(),
             )?;
             check_limit(
+                limits.diagnostics_enabled,
                 "parametric source nonzero entries",
                 prospective_input,
                 limits.max_input_nonzero_entries,
@@ -286,6 +294,7 @@ fn prepare_problem_with_anchor_requirement(
     all_shifts.sort_unstable();
     all_shifts.dedup();
     check_limit(
+        limits.diagnostics_enabled,
         "parametric shift columns",
         all_shifts.len(),
         limits.max_shift_columns,
@@ -301,6 +310,7 @@ fn prepare_problem_with_anchor_requirement(
         1,
     )?;
     check_cell_limit(
+        limits.diagnostics_enabled,
         "live parametric index-coordinate cells",
         live_index_coordinate_buffers,
         context.index_count(),
@@ -309,6 +319,7 @@ fn prepare_problem_with_anchor_requirement(
     // Mask construction allocates one bool per index. Preflight it before
     // `Mask::try_from_indices` reserves or fills that buffer.
     check_limit(
+        limits.diagnostics_enabled,
         "parametric sector mask cells",
         anchor.len(),
         limits.max_sector_mask_cells,
@@ -319,6 +330,7 @@ fn prepare_problem_with_anchor_requirement(
     // Every domain coordinate owns an inclusive lower and upper i64 endpoint.
     // Admit the complete buffer before its constructor allocates it.
     check_cell_limit(
+        limits.diagnostics_enabled,
         "parametric domain bound endpoint cells",
         anchor.len(),
         2,
@@ -340,6 +352,7 @@ fn prepare_problem_with_anchor_requirement(
     // Each structural key allocates one i128 offset per index. The mask clone
     // inside a key is another Arc handle and owns no new bool cells.
     check_cell_limit(
+        limits.diagnostics_enabled,
         "live parametric ordering-key coordinate cells",
         all_shifts.len(),
         context.index_count(),
@@ -360,6 +373,7 @@ fn prepare_problem_with_anchor_requirement(
         relations.len(),
     )?;
     check_limit(
+        limits.diagnostics_enabled,
         "parametric augmented columns",
         augmented_columns,
         limits.max_augmented_columns,
@@ -540,21 +554,24 @@ pub(super) fn checked_mul(
 }
 
 pub(super) fn check_cell_limit(
+    diagnostics_enabled: bool,
     resource: &'static str,
     containers: usize,
     cells_per_container: usize,
     limit: usize,
 ) -> Result<(), ParametricRuleError> {
     let requested = checked_mul(resource, containers, cells_per_container)?;
-    check_limit(resource, requested, limit)
+    check_limit(diagnostics_enabled, resource, requested, limit)
 }
 
 pub(super) fn check_limit(
+    diagnostics_enabled: bool,
     resource: &'static str,
     requested: usize,
     limit: usize,
 ) -> Result<(), ParametricRuleError> {
-    if requested > limit {
+    symbolica::utils::resources::checkpoint()?;
+    if diagnostics_enabled && requested > limit {
         Err(ParametricRuleError::ResourceLimit {
             resource,
             requested,
@@ -569,6 +586,11 @@ pub(super) fn try_vec<T>(
     resource: &'static str,
     capacity: usize,
 ) -> Result<Vec<T>, ParametricRuleError> {
+    let bytes = capacity
+        .checked_mul(std::mem::size_of::<T>())
+        .and_then(|bytes| u64::try_from(bytes).ok())
+        .ok_or(ParametricRuleError::ResourceCountOverflow { resource })?;
+    symbolica::utils::resources::check_allocation(bytes)?;
     let mut values = Vec::new();
     values
         .try_reserve_exact(capacity)

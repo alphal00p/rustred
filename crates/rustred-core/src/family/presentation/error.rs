@@ -259,7 +259,14 @@ impl fmt::Display for FamilyPresentationError {
     }
 }
 
-impl std::error::Error for FamilyPresentationError {}
+impl std::error::Error for FamilyPresentationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ExactAlgebra(error) | Self::InvalidCoefficient { error, .. } => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<ExactAlgebraError> for FamilyPresentationError {
     fn from(value: ExactAlgebraError) -> Self {

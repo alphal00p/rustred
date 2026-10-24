@@ -361,7 +361,7 @@ fn decode_proof(
         }
     };
     let arity = metadata.count("artifact arity")?;
-    if arity > limits.max_index_arity {
+    if limits.diagnostics_enabled && arity > limits.max_index_arity {
         return Err(ArtifactPersistenceError::ResourceLimit {
             resource: "artifact arity",
             requested: arity,

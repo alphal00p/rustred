@@ -10,6 +10,7 @@ use std::num::NonZeroUsize;
 use rayon::prelude::*;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use symbolica::license::LicenseManager;
+use symbolica::utils::resources::ResourceBudget;
 
 /// Failure to construct an explicitly bounded RustRed execution context.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -209,6 +210,10 @@ impl ParallelExecution {
         ResultValue: Send,
         Operation: Fn(usize) -> ResultValue + Send + Sync,
     {
+        // Capture per invocation: a reusable pool must not retain the scopes
+        // active when it was constructed or restart the caller's clock.
+        let resources = ResourceBudget::capture_current();
+        let operation = |ordinal| resources.run_captured(|| operation(ordinal));
         if work_items > self.ordered_result_ceiling {
             return Err(ParallelExecutionError::OrderedResultCeilingExceeded {
                 work_items,
@@ -230,10 +235,12 @@ impl ParallelExecution {
             // Rayon reuses the capacity acquired above: its indexed
             // `collect_into_vec` reserve is therefore allocation-free here.
             Some(pool) => pool.install(|| {
-                (0..work_items)
-                    .into_par_iter()
-                    .map(operation)
-                    .collect_into_vec(&mut results);
+                resources.run_captured(|| {
+                    (0..work_items)
+                        .into_par_iter()
+                        .map(operation)
+                        .collect_into_vec(&mut results);
+                })
             }),
         }
         debug_assert_eq!(results.len(), work_items);
@@ -390,6 +397,48 @@ mod tests {
             .unwrap();
         assert_eq!(results, vec![Err(0), Err(1)]);
         assert_eq!(results.into_iter().collect::<Result<Vec<_>, _>>(), Err(0));
+    }
+
+    #[test]
+    fn ordered_calls_capture_current_scopes_instead_of_pool_construction() {
+        use symbolica::utils::resources::{
+            ResourceBudget, ResourceLimitError, ResourceLimits, checkpoint,
+        };
+        for workers in [1, 2] {
+            if ParallelExecution::preflight_requested_core_budget(workers).is_err() {
+                continue;
+            }
+            let execution = ParallelExecution::try_new(workers, 4).unwrap();
+            let limited = ResourceBudget::with_memory_monitor(
+                ResourceLimits {
+                    max_process_rss_bytes: Some(10),
+                    max_elapsed: None,
+                },
+                || Ok(11),
+            );
+            let results = limited
+                .run(|| execution.map_ordered(4, |ordinal| (ordinal, checkpoint())))
+                .unwrap();
+            for (expected, (actual, result)) in results.into_iter().enumerate() {
+                assert_eq!(actual, expected);
+                assert!(matches!(
+                    result,
+                    Err(ResourceLimitError::Memory {
+                        rss_bytes: 11,
+                        limit_bytes: 10,
+                        ..
+                    })
+                ));
+            }
+            assert!(
+                execution
+                    .map_ordered(4, |_| checkpoint())
+                    .unwrap()
+                    .into_iter()
+                    .all(|result| result.is_ok()),
+                "reusing the pool must not retain a previous request's limits"
+            );
+        }
     }
 
     #[test]

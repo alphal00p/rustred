@@ -116,8 +116,8 @@ impl<const N: usize> SourceSystem<N> {
         family: &IntegralFamily,
         include_lorentz: bool,
     ) -> Result<Self, SolverError> {
-        let generator = ParametricIbpGenerator::try_new(family)
-            .map_err(|error| SolverError::InvalidInput(error.to_string()))?;
+        let generator =
+            ParametricIbpGenerator::try_new(family).map_err(SolverError::invalid_input)?;
         let context = generator.context();
         if context.index_count() == 0 || context.index_count() > N {
             return Err(SolverError::InvalidInput(format!(
@@ -130,11 +130,11 @@ impl<const N: usize> SourceSystem<N> {
         let indices = std::array::from_fn(|i| offset + i);
         let batch = generator
             .prepare_ordinary_ibp()
-            .map_err(|error| SolverError::InvalidInput(error.to_string()))?;
+            .map_err(SolverError::invalid_input)?;
         let generated = (0..batch.len()).map(|i| batch.generate(i)).collect();
         let completed = batch
             .complete(generated)
-            .map_err(|error| SolverError::InvalidInput(error.to_string()))?;
+            .map_err(SolverError::invalid_input)?;
         let lorentz = if include_lorentz {
             // The existing generator uses the loop Lorentz operator on an
             // ascending external pair. C++ differentiates external momenta
@@ -142,11 +142,11 @@ impl<const N: usize> SourceSystem<N> {
             // pair antisymmetry cancel both sign reversals: no extra minus.
             let batch = generator
                 .prepare_lorentz_invariance(&completed)
-                .map_err(|error| SolverError::InvalidInput(error.to_string()))?;
+                .map_err(SolverError::invalid_input)?;
             (0..batch.len())
                 .map(|ordinal| batch.generate(ordinal))
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|error| SolverError::InvalidInput(error.to_string()))?
+                .map_err(SolverError::invalid_input)?
         } else {
             Vec::new()
         };

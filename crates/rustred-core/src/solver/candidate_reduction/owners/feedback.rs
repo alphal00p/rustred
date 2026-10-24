@@ -1,6 +1,7 @@
 //! Explicit prospective source searches and immutable partial-domain overlays.
 use std::fmt;
 use std::sync::Arc;
+use symbolica::utils::resources::{self, ResourceLimitError};
 
 use super::super::CandidateReductionError;
 use super::super::preparation::shared::{prepare_batch, validate_solution_order};
@@ -49,6 +50,8 @@ pub struct OwnerDomainScope {
 
 #[derive(Clone, Copy, Debug)]
 pub struct OwnerDomainAttemptLimits {
+    /// Enable execution-count diagnostics; the nominated cases remain the query scope.
+    pub diagnostics_enabled: bool,
     pub max_requested_cases: usize,
     pub finite_case_limits: FiniteCaseLimits,
     pub case_intersection_limits: CaseIntersectionLimits,
@@ -57,11 +60,32 @@ pub struct OwnerDomainAttemptLimits {
 impl Default for OwnerDomainAttemptLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_requested_cases: 10_000,
             finite_case_limits: Default::default(),
             case_intersection_limits: Default::default(),
             max_symbolic_cases: None,
         }
+    }
+}
+
+impl OwnerDomainAttemptLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.finite_case_limits = self.finite_case_limits.with_diagnostics();
+        self.case_intersection_limits = self.case_intersection_limits.with_diagnostics();
+        self
+    }
+
+    fn check_requested<const N: usize>(
+        self,
+        requested: usize,
+    ) -> Result<(), OwnerFeedbackError<N>> {
+        resources::checkpoint().map_err(OwnerFeedbackError::from)?;
+        if self.diagnostics_enabled {
+            limits::check(requested, self.max_requested_cases, "requested domains")?;
+        }
+        Ok(())
     }
 }
 
@@ -83,6 +107,11 @@ impl<const N: usize> From<CandidateReductionError> for OwnerFeedbackError<N> {
         Self::Candidate(error)
     }
 }
+impl<const N: usize> From<ResourceLimitError> for OwnerFeedbackError<N> {
+    fn from(error: ResourceLimitError) -> Self {
+        Self::Candidate(crate::reduction::ReductionError::Resources(error).into())
+    }
+}
 impl<const N: usize> fmt::Display for OwnerFeedbackError<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -102,7 +131,17 @@ impl<const N: usize> fmt::Display for OwnerFeedbackError<N> {
         }
     }
 }
-impl<const N: usize> std::error::Error for OwnerFeedbackError<N> {}
+impl<const N: usize> std::error::Error for OwnerFeedbackError<N> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Candidate(error) => Some(error),
+            Self::Source(error) => Some(error),
+            Self::Replay(error) => Some(error),
+            Self::Search(error) => Some(error.as_ref()),
+            _ => None,
+        }
+    }
+}
 
 /// Immutable partial-domain metadata; no whole-sector or recursive closure claim.
 #[derive(Debug)]
@@ -363,12 +402,13 @@ impl<const N: usize> BoundOwnerSearch<N> {
         limits: OwnerDomainAttemptLimits,
         observe: impl FnMut(SectorEvent<'_, N>),
     ) -> Result<BoundOwnerOverlay<N>, OwnerFeedbackError<N>> {
+        resources::checkpoint().map_err(OwnerFeedbackError::from)?;
         if cases.is_empty() {
             return Err(OwnerFeedbackError::InvalidInput(
                 "missing-domain request is empty".into(),
             ));
         }
-        limits::check(cases.len(), limits.max_requested_cases, "requested domains")?;
+        limits.check_requested(cases.len())?;
         if scope.finite_case_policy == FiniteCasePolicy::RetainRankFinite
             && scope.max_numerator_rank.is_none()
         {
@@ -412,6 +452,7 @@ impl<const N: usize> BoundOwnerSearch<N> {
                 observe,
             )
             .map_err(|error| OwnerFeedbackError::Search(Box::new(error)))?;
+        resources::checkpoint().map_err(OwnerFeedbackError::from)?;
         Ok(BoundOwnerOverlay {
             lineage: self.lineage.clone(),
             sector: self.sector,

@@ -415,7 +415,10 @@ impl PyIbpFamily {
     /// dependent on other preferred masters of its sector raises ``ValueError``.
     /// ``until_stable`` searches depths ``0..=max_depth`` and stops once two
     /// deeper searches reproduce the residuals; see ``stable_depth``.
-    #[pyo3(signature = (targets, *, max_depth=2, include_lorentz=false, max_targets=1024, preferred_masters=None, until_stable=false))]
+    /// ``max_targets=None`` leaves RHS-closure counts unrestricted. An explicit
+    /// integer enables a diagnostic ceiling; it does not change the requested
+    /// finite seed depth or certify unresolved residuals as masters.
+    #[pyo3(signature = (targets, *, max_depth=2, include_lorentz=false, max_targets=None, preferred_masters=None, until_stable=false))]
     #[allow(clippy::too_many_arguments)]
     fn reduce_laporta(
         &self,
@@ -423,7 +426,7 @@ impl PyIbpFamily {
         targets: Vec<Vec<PythonPower>>,
         max_depth: u32,
         include_lorentz: bool,
-        max_targets: usize,
+        max_targets: Option<usize>,
         preferred_masters: Option<Vec<Vec<PythonPower>>>,
         until_stable: bool,
     ) -> PyResult<PyIbpSolution> {

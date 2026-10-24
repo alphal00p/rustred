@@ -69,29 +69,36 @@ pub(crate) fn congruence_of_coefficient_matrix(
         "single Symbolica matrix entries",
         single_entries,
         limits.max_single_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
     check_limit(
         "live Symbolica matrix entries",
         live_entries,
         limits.max_live_matrix_entries,
+        limits.diagnostics_enabled,
     )?;
-    let operations = checked_add(
-        "Symbolica coefficient matrix exact operations",
-        product_operation_bound(
-            transform_shape.rows,
-            transform_shape.columns,
-            middle_shape.columns,
-        )?,
-        product_operation_bound(
-            intermediate_shape.rows,
-            intermediate_shape.columns,
-            transform_shape.rows,
-        )?,
-    )?;
+    let operations = if limits.diagnostics_enabled {
+        checked_add(
+            "Symbolica coefficient matrix exact operations",
+            product_operation_bound(
+                transform_shape.rows,
+                transform_shape.columns,
+                middle_shape.columns,
+            )?,
+            product_operation_bound(
+                intermediate_shape.rows,
+                intermediate_shape.columns,
+                transform_shape.rows,
+            )?,
+        )?
+    } else {
+        0
+    };
     check_limit(
         "Symbolica coefficient matrix exact operations",
         operations,
         limits.max_exact_operations,
+        limits.diagnostics_enabled,
     )?;
 
     let field =

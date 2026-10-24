@@ -319,6 +319,7 @@ fn invalid_entries_source_conditions_and_algebra_limits_abort() {
 fn input_and_unique_limits_apply_before_unbounded_duplicate_or_graph_retention() {
     let mut owner = partial(&[]);
     let limits = CandidateTraceLimits {
+        diagnostics_enabled: true,
         max_input_targets: 3,
         max_unique_integrals: 1,
     };
@@ -350,6 +351,7 @@ fn input_and_unique_limits_apply_before_unbounded_duplicate_or_graph_retention()
             .trace_targets(
                 [],
                 CandidateTraceLimits {
+                    diagnostics_enabled: true,
                     max_input_targets: 0,
                     max_unique_integrals: 0
                 }
@@ -360,6 +362,7 @@ fn input_and_unique_limits_apply_before_unbounded_duplicate_or_graph_retention()
         owner.trace_targets(
             [key([2])],
             CandidateTraceLimits {
+                diagnostics_enabled: true,
                 max_input_targets: 0,
                 ..limits
             }
@@ -370,6 +373,7 @@ fn input_and_unique_limits_apply_before_unbounded_duplicate_or_graph_retention()
         owner.trace_targets(
             [key([2])],
             CandidateTraceLimits {
+                diagnostics_enabled: true,
                 max_unique_integrals: 0,
                 ..limits
             }
@@ -381,6 +385,7 @@ fn input_and_unique_limits_apply_before_unbounded_duplicate_or_graph_retention()
         owner.trace_targets(
             [key([4])],
             CandidateTraceLimits {
+                diagnostics_enabled: true,
                 max_unique_integrals: 2,
                 ..Default::default()
             }

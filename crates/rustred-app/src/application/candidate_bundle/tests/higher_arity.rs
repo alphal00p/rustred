@@ -21,7 +21,7 @@ fn candidate_shape_has_no_arbitrary_arity_ceiling_and_rejects_empty_families() {
     let selected = FamilyCandidatesRequest::parse_selected_sectors(&["1".repeat(21)]).unwrap();
     assert_eq!(selected, vec![vec![true; 21]]);
     assert_eq!(
-        super::super::selection::canonical_masks(&[true; 21], Some(&selected), 22).unwrap(),
+        super::super::selection::canonical_masks(&[true; 21], Some(&selected), Some(22)).unwrap(),
         Some(selected)
     );
 }

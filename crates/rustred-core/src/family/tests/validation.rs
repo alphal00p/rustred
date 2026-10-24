@@ -189,6 +189,7 @@ fn family_authentication_rejects_malformed_coefficients_and_resource_limits() {
         Vec::new(),
         vec![context.zero()],
         IntegralFamilyLimits {
+            diagnostics_enabled: true,
             max_scalar_products: 0,
             ..IntegralFamilyLimits::default()
         },
@@ -223,6 +224,7 @@ fn derivative_cache_limits_count_expansions_and_all_dense_coefficient_cells() {
     // D=3, L=2, E=0: 3*2*2=12 affine expansions, each retaining
     // one constant and three denominator coefficients, hence 48 cells.
     let exact = IntegralFamilyLimits {
+        diagnostics_enabled: true,
         max_derivative_contractions: 12,
         max_derivative_contraction_coefficient_cells: 48,
         ..IntegralFamilyLimits::default()
@@ -231,6 +233,7 @@ fn derivative_cache_limits_count_expansions_and_all_dense_coefficient_cells() {
 
     assert!(matches!(
         build(IntegralFamilyLimits {
+            diagnostics_enabled: true,
             max_derivative_contractions: 11,
             ..exact
         }),
@@ -242,6 +245,7 @@ fn derivative_cache_limits_count_expansions_and_all_dense_coefficient_cells() {
     ));
     assert!(matches!(
         build(IntegralFamilyLimits {
+            diagnostics_enabled: true,
             max_derivative_contraction_coefficient_cells: 47,
             ..exact
         }),

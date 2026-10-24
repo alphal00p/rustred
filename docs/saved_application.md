@@ -141,8 +141,9 @@ prefactors are collected before entry admission, with their original rational
 poles retained even when an entire coefficient vanishes.
 
 Lowering is not itself a scope certificate. Its resulting nonzero keys still
-go through the same saved-domain checks. Scalar-work and expression-size limits
-are operational budgets, not additional mathematical rank or D cuts. For this
+go through the same saved-domain checks. Optional scalar-work and expression-size
+thresholds are diagnostic settings, disabled by default; they are not additional
+mathematical rank or D cuts. When diagnostics are enabled, for this
 weighted path, `max_polynomial_terms` bounds denominator-basis support and each
 collected coefficient's rational support; the older unweighted `lower()` applies
 its polynomial bound in the scalar-product basis. `max_lowered_terms` counts
@@ -175,8 +176,7 @@ fn apply_one(runtime: &Path) -> Result<(), Box<dyn std::error::Error>> {
     // Explicit native-session allowance; not a change to coverage.
     options.reduction_limits.max_cached_coefficient_bytes =
         usize::try_from(32_u64 * 1024 * 1024 * 1024)?;
-    // Make bytes the retained coefficient bound for this explicit session.
-    options.reduction_limits.max_cached_coefficient_terms = usize::MAX;
+    // Count diagnostics remain disabled for this explicit byte capacity.
     let mut prepared = load_saved_application::<15>(runtime, options)?;
     let one = prepared.family().coefficient_context().one();
     let result = prepared.reduce_linear_combination([
@@ -312,16 +312,52 @@ Unsafe algebra, source guards, invalid inputs, and resource failures remain erro
 ## Operational budgets and reuse
 
 `SavedApplicationOptions` keeps mathematical scope separate from operational
-limits. Default `ReductionLimits` include a 1 GiB retained coefficient-byte
-allowance and a 16-million retained coefficient-term allowance. Raising only
-the byte allowance does not remove the independent term or work limits.
-Input count, operational-node count, transport work, rule applications,
-coalescing work and pending frames also have explicit bounds.
+policy. Ordinary evaluation has no work-count ceiling: `diagnostics_enabled`
+defaults to `false` in the native limits types. Input, term, degree, transport,
+rule, coalescing, and pending-frame counters remain available. Call
+`with_diagnostics()` to explicitly enable their configured thresholds when
+diagnosing unexpectedly long work. These diagnostics never extend a saved
+entry predicate, admit an unsafe formula, or relax a cycle check.
+
+RAM and elapsed time use the shared kernel scope:
+
+```rust,ignore
+use rustred::resources::{ResourceBudget, ResourceLimits};
+use std::time::Duration;
+
+let budget = ResourceBudget::new(ResourceLimits {
+    max_process_rss_bytes: Some(8 * 1024 * 1024 * 1024),
+    max_elapsed: Some(Duration::from_secs(300)),
+});
+let result = budget.run(|| prepared.reduce_routed_linear_combination(inputs));
+```
+
+Both resource fields default to `None`. One scope can span ingress, routing,
+exact algebra, and lower-family composition; nested scopes cannot relax an
+outer scope. Native workers capture the same scope rather than restart its
+clock. RSS is measured for the process, including memory outside the reducer;
+a configured unavailable monitor returns an error. Checks are cooperative at
+native boundaries and cannot interrupt an opaque CAS call; hard mid-call
+limits require an external supervisor.
+
+`max_cached_coefficient_bytes` is a separate, explicitly configurable allowance
+for clone-owned coefficient payload. Its default `usize::MAX` is unbounded.
+It does not measure process RSS or all key, map, and frame allocations. Resource
+exhaustion remains an error, including when the requested result is cached.
+
+The separate finite-demand authoring policy explicitly enables its Work-directory
+count diagnostics when converting its required storage grants. Its serialized
+policy fields remain unchanged. Ordinary saved-application loading can also
+validate raw provenance from a finite publication; that default storage policy
+keeps directory diagnostics disabled. Both paths retain framing, integrity and
+actual byte-admission checks. The shared generated-directory default stays off.
 
 `cache_representation` defaults to `CandidateCacheRepresentation::Sparse`.
 The opt-in `Factorized` setting uses the existing Symbolica-native factorized
 denominator cache; returned coefficients remain ordinary exact coefficients.
-Its retained-term accounting includes a conservative expanded-size estimate.
+Ordinary accounting charges the stored sparse parts; the conservative expanded
+envelope applies only with count diagnostics enabled. Start a fresh cache when
+comparing these accounting policies, since existing entries retain their charges.
 Factorized storage is not an assurance upgrade or a guaranteed speedup. Select
 it before loading a prepared handle; use a separate handle for a matched
 representation comparison.
@@ -354,9 +390,12 @@ not the completed-result cache.
 
 `owner_preparation_statistics()` distinguishes declared, prepared and failed
 owners, preparation attempts and cumulative preparation time. Route presence
-and transport lookup do not prepare formulas. A first-use preparation error is
-cached and fails before any result is returned. Clearing coefficient memoization
-preserves prepared owners and their immutable identity.
+and transport lookup do not prepare formulas. Permanent first-use data errors
+are cached and fail before any result is returned. A typed RAM, elapsed-time or
+monitor refusal keeps the authenticated source available for a later independent
+request and is not cached as corrupt data. Concurrent requests still share one
+initializer. Clearing coefficient memoization preserves prepared owners and their
+immutable identity.
 
 A cache-budget error is an operational failure, not proof of missing rules or
 unsupported scope. A failed request can leave valid completed subresults in
@@ -776,10 +815,13 @@ remaining keys once loaded, without generating equations. `suite` writes JSONL r
 checks exact coefficient/guard equality on repeated applications. Cache mode is
 `independent` (default, clear between cases) or `shared`; representation is
 `sparse` (default) or `factorized`. The driver's explicit `CACHE_BYTES` override
-also removes its aggregate coefficient-term ceiling while preserving its other
-limits. The Rust API does not make that second change automatically.
-An optional JSON object overrides named operational counts without recompiling,
-for example `{"max_transport_endpoints":40000000,"preparation_workers":8}`.
+changes only retained coefficient capacity. Count templates remain inactive by
+default. An optional JSON object updates those templates without recompiling;
+`"diagnostics_enabled":true` explicitly enables them, recursively including native
+algebra and routing expansion. For example,
+`{"diagnostics_enabled":true,"max_transport_endpoints":40000000,"preparation_workers":8}`.
+An explicit false disables those diagnostics while preserving their numeric
+templates. `preparation_workers` and byte capacities do not enable counts.
 The same object accepts `"cache_policy":"evict-lru"` (default) or
 `"cache_policy":"fail-on-limit"`. Unknown names, rank/scope keys and invalid
 values are rejected. Complete selected limits appear in

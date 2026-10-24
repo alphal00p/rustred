@@ -74,6 +74,7 @@ struct RetainedRelationsAuthority {
 
 #[derive(Clone, Copy, Debug)]
 pub struct TerminalRelationLimits {
+    pub diagnostics_enabled: bool,
     pub max_seeds: usize,
     pub max_columns: usize,
     pub max_rows: usize,
@@ -84,6 +85,7 @@ pub struct TerminalRelationLimits {
 impl Default for TerminalRelationLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_seeds: 1_000_000,
             max_columns: 1_000_000,
             max_rows: 1_000_000,
@@ -122,6 +124,7 @@ pub struct TerminalRelationStats {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalRelationError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     InvalidInput(String),
     Algebra(String),
     Binary(String),
@@ -134,6 +137,7 @@ pub enum TerminalRelationError {
 impl fmt::Display for TerminalRelationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(f),
             Self::InvalidInput(s) => write!(f, "terminal relations input: {s}"),
             Self::Algebra(s) => write!(f, "terminal relations algebra: {s}"),
             Self::Binary(s) => write!(f, "terminal relations binary: {s}"),
@@ -153,8 +157,10 @@ fn check(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), TerminalRelationError> {
-    if requested > limit {
+    symbolica::utils::resources::checkpoint().map_err(TerminalRelationError::Resources)?;
+    if diagnostics_enabled && requested > limit {
         Err(TerminalRelationError::Limit {
             resource,
             requested,
@@ -224,6 +230,7 @@ impl TerminalRelationSession {
             normalization.canonical_terminals(),
             seed_depth,
             limits.max_seeds,
+            limits.diagnostics_enabled,
         )?;
         let mut columns: Vec<_> = normalization
             .canonical_terminals()
@@ -231,7 +238,12 @@ impl TerminalRelationSession {
             .cloned()
             .collect();
         elimination::sort_keys(&mut columns);
-        check("columns", columns.len(), limits.max_columns)?;
+        check(
+            "columns",
+            columns.len(),
+            limits.max_columns,
+            limits.diagnostics_enabled,
+        )?;
         let width = u32::try_from(columns.len()).map_err(invalid)?;
         let terminals = normalization.canonical_terminals().clone();
         let empty = raw.is_empty();
@@ -315,7 +327,7 @@ impl TerminalRelationSession {
         if maximum == 0 {
             return Err(invalid("column budget must be positive or absent"));
         }
-        check("columns", self.columns.len(), maximum)?;
+        check("columns", self.columns.len(), maximum, true)?;
         self.limits.max_columns = maximum;
         Ok(())
     }
@@ -386,6 +398,7 @@ impl TerminalRelationSession {
             "stored nonzeros",
             self.reducer.u().nvalues(),
             self.limits.max_nonzeros,
+            self.limits.diagnostics_enabled,
         )?;
         if self.rebuild_cursor < self.rebuild.len() {
             let row = self.normalized_row(&self.rebuild[self.rebuild_cursor])?;
@@ -451,12 +464,14 @@ impl TerminalRelationSession {
             "columns",
             normalization.canonical_terminals().len(),
             self.limits.max_columns,
+            self.limits.diagnostics_enabled,
         )?;
         u32::try_from(normalization.canonical_terminals().len()).map_err(invalid)?;
         let proposed = sources::seeds(
             normalization.canonical_terminals(),
             seed_depth,
             self.limits.max_seeds,
+            self.limits.diagnostics_enabled,
         )?;
         let existing: BTreeSet<_> = self.seeds.iter().cloned().collect();
         let new_seeds: Vec<_> = proposed
@@ -467,6 +482,7 @@ impl TerminalRelationSession {
             "seeds",
             self.seeds.len().saturating_add(new_seeds.len()),
             self.limits.max_seeds,
+            self.limits.diagnostics_enabled,
         )?;
         let changed = raw != self.raw;
         let support = self.assistance_support(
@@ -547,6 +563,7 @@ impl TerminalRelationSession {
             "seeds",
             self.seeds.len().saturating_add(new.len()),
             self.limits.max_seeds,
+            self.limits.diagnostics_enabled,
         )?;
         let support = self.assistance_support(new.iter())?;
         let added = new.len();
@@ -578,8 +595,12 @@ impl TerminalRelationSession {
         if max_promoted_axes > self.family.denominator_count() {
             return Err(invalid("containing-sector promotions exceed family arity"));
         }
-        let additional =
-            sources::containing_sector_seeds(&self.raw, max_promoted_axes, self.limits.max_seeds)?;
+        let additional = sources::containing_sector_seeds(
+            &self.raw,
+            max_promoted_axes,
+            self.limits.max_seeds,
+            self.limits.diagnostics_enabled,
+        )?;
         self.extend_source_seeds(&additional)
     }
 
@@ -595,5 +616,14 @@ impl TerminalRelationSession {
         io: BinaryIoLimits,
     ) -> Result<Self, TerminalRelationError> {
         codec::decode(bytes, limits, io)
+    }
+}
+
+impl TerminalRelationLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.normalization = self.normalization.with_diagnostics();
+        self.algebra = self.algebra.with_diagnostics();
+        self
     }
 }

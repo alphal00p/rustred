@@ -276,6 +276,9 @@ fn run<const N: usize>(
         let (stats, error, error_kind, predicate_context) = match result {
             Ok(stats) => (stats, None, None, Value::Null),
             Err(error) => {
+                if let Some(resource) = AppError::resource_cause(&error) {
+                    return Err(AppError::resource(resource));
+                }
                 let kind = failure_kind(&error.failure);
                 let detail = format!("{:?}", error.failure);
                 first_error = Some((query.id.clone(), kind, detail.clone()));
@@ -330,6 +333,7 @@ fn run<const N: usize>(
 
 fn failure_kind(failure: &OwnerDomainMatchFailure) -> &'static str {
     match failure {
+        OwnerDomainMatchFailure::Resources(_) => "resources",
         OwnerDomainMatchFailure::UnknownOwner => "unknown_owner",
         OwnerDomainMatchFailure::InvalidInput(_) => "invalid_input",
         OwnerDomainMatchFailure::Cancelled => "cancelled",

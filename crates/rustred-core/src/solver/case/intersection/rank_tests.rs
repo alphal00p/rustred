@@ -94,7 +94,7 @@ fn captured_five_axis_guard_closes_only_with_explicit_larger_work_allowance() {
             &conjunction,
             &indices,
             &sector,
-            Default::default(),
+            CaseIntersectionLimits::default().with_diagnostics(),
             10,
         )
         .unwrap_err();
@@ -105,8 +105,12 @@ fn captured_five_axis_guard_closes_only_with_explicit_larger_work_allowance() {
             limit: 4096,
         }
     );
-    assert_eq!(default_error.limits, CaseIntersectionLimits::default());
+    assert_eq!(
+        default_error.limits,
+        CaseIntersectionLimits::default().with_diagnostics()
+    );
     let limits = CaseIntersectionLimits {
+        diagnostics_enabled: true,
         max_work_items: 262_144,
         max_terms_per_conjunction: 1_000_000,
         max_normalizations: 65_536,
@@ -116,6 +120,24 @@ fn captured_five_axis_guard_closes_only_with_explicit_larger_work_allowance() {
     let result = parent
         .intersect_many_with_max_numerator_rank(&conjunction, &indices, &sector, limits, 10)
         .unwrap();
+    let ordinary = parent
+        .intersect_many_with_max_numerator_rank(
+            &conjunction,
+            &indices,
+            &sector,
+            Default::default(),
+            10,
+        )
+        .unwrap();
+    // Different scheduling can produce distinct exact OR covers. Compare
+    // both against the complete independent simplex oracle below.
+    assert_eq!(ordinary.max_numerator_rank, Some(10));
+    assert_eq!(ordinary.max_numerator_rank, result.max_numerator_rank);
+    assert!(ordinary.stats.work_items > 4096);
+    for case in &ordinary.cases {
+        assert!(case.is_in_sector(&sector));
+        assert!(implies(case, &conjunction[0], &indices));
+    }
     eprintln!(
         "captured five-axis R10 intersection: {:?}, {} cases, {:?}",
         started.elapsed(),
@@ -143,6 +165,11 @@ fn captured_five_axis_guard_closes_only_with_explicit_larger_work_allowance() {
         let expected = value.is_zero();
         zeros += usize::from(expected);
         assert_eq!(covers(&result.cases, powers), expected, "{powers:?}");
+        assert_eq!(
+            covers(&ordinary.cases, powers),
+            expected,
+            "ordinary {powers:?}"
+        );
     });
     assert_eq!(visited, 3003);
     assert!(zeros > 0);
@@ -357,6 +384,7 @@ fn scoped_work_budget_failure_preserves_the_complete_original_obligation() {
             &[0, 1],
             &[false; 2],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 3,
                 ..Default::default()
             },

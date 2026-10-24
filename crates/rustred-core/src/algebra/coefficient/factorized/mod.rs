@@ -114,7 +114,10 @@ impl FactorizedCoefficient {
     }
 
     /// Charged term envelope and clone-owned payload bytes, not process RSS.
-    pub(crate) fn cache_weight(&self) -> Result<(usize, usize), ExactAlgebraError> {
+    pub(crate) fn cache_weight(
+        &self,
+        diagnostics_enabled: bool,
+    ) -> Result<(usize, usize), ExactAlgebraError> {
         let value = &self.value;
         let stored_terms = value.denominators.iter().try_fold(
             value
@@ -127,11 +130,16 @@ impl FactorizedCoefficient {
                     .ok_or_else(admission::overflow)
             },
         )?;
-        let expanded_terms = value
-            .numerator
-            .nterms()
-            .checked_add(admission::denominator_shape(value)?.terms)
-            .ok_or_else(admission::overflow)?;
+        let charged_terms = if diagnostics_enabled {
+            let expanded_terms = value
+                .numerator
+                .nterms()
+                .checked_add(admission::denominator_shape(value)?.terms)
+                .ok_or_else(admission::overflow)?;
+            stored_terms.max(expanded_terms)
+        } else {
+            stored_terms
+        };
         let mut bytes = size_of::<Native>()
             .checked_add(
                 value
@@ -152,7 +160,7 @@ impl FactorizedCoefficient {
                 )
                 .ok_or_else(admission::overflow)?;
         }
-        Ok((stored_terms.max(expanded_terms), bytes))
+        Ok((charged_terms, bytes))
     }
 }
 

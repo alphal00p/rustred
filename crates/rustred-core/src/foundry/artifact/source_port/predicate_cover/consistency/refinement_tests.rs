@@ -160,7 +160,7 @@ fn all_faces_share_one_work_budget_and_cached_proofs_remain_reusable() {
         let mut short = RestrictionCache::with_work_limit(&X_SECTOR, atoms, cost - 1);
         assert_eq!(
             short.contradicts(&x_box(1), &X_ASSIGNMENTS),
-            Err(WorkExhausted)
+            Err(WorkExhausted::Diagnostic)
         );
         let mut uncached = RestrictionCache::new(&X_SECTOR, atoms);
         uncached.limits.boxes = 0;
@@ -168,7 +168,7 @@ fn all_faces_share_one_work_budget_and_cached_proofs_remain_reusable() {
         let mut zero = RestrictionCache::with_work_limit(&X_SECTOR, atoms, 0);
         assert_eq!(
             zero.contradicts(&x_box(1), &X_ASSIGNMENTS),
-            Err(WorkExhausted)
+            Err(WorkExhausted::Diagnostic)
         );
         assert_eq!(zero.statistics.native_work, 0);
     });
@@ -296,7 +296,7 @@ fn aggregate_shape_caps_reject_before_any_face_or_native_work() {
             let mut cache = RestrictionCache::new(&sector, atoms);
             assert_eq!(
                 cache.contradicts_finite_axis(&cell, &assignments),
-                Err(WorkExhausted)
+                Err(WorkExhausted::Diagnostic)
             );
             assert_eq!(cache.statistics.finite_axis_refinements, 0);
             assert_eq!(cache.statistics.finite_axis_faces, 0);

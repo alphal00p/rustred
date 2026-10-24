@@ -215,6 +215,7 @@ fn weighted_mass_and_collection_resources_fail_closed() {
         head,
         vec![k.clone()],
         ScalarNumeratorLimits {
+            diagnostics_enabled: true,
             max_polynomial_terms: 32,
             ..Default::default()
         },
@@ -227,7 +228,7 @@ fn weighted_mass_and_collection_resources_fail_closed() {
         Err(ScalarNumeratorError::ResourceLimit { .. })
             | Err(ScalarNumeratorError::ResourceCountOverflow { .. })
     ));
-    let mut limits = ScalarNumeratorLimits::default();
+    let mut limits = ScalarNumeratorLimits::default().with_diagnostics();
     // Whole-expression grammar/change-of-basis admission now shares this
     // request budget with collection (7 prior operations plus the 3-node
     // translated dot visited by native numeric distribution).

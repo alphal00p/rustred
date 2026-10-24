@@ -382,6 +382,7 @@ fn applied_budget_refusal_cancel_and_consumer_stop_keep_typed_prefix() {
     let cases = [
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_term_visits: 0,
                 ..defaults
             },
@@ -389,6 +390,7 @@ fn applied_budget_refusal_cancel_and_consumer_stop_keep_typed_prefix() {
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_shift_groups: 0,
                 ..defaults
             },
@@ -396,6 +398,7 @@ fn applied_budget_refusal_cancel_and_consumer_stop_keep_typed_prefix() {
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_boundary_cells: 0,
                 ..defaults
             },
@@ -403,6 +406,7 @@ fn applied_budget_refusal_cancel_and_consumer_stop_keep_typed_prefix() {
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_sign_splits: 0,
                 ..defaults
             },
@@ -410,6 +414,7 @@ fn applied_budget_refusal_cancel_and_consumer_stop_keep_typed_prefix() {
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_native_operations: 0,
                 ..defaults
             },
@@ -417,6 +422,7 @@ fn applied_budget_refusal_cancel_and_consumer_stop_keep_typed_prefix() {
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_events: 0,
                 ..defaults
             },
@@ -424,6 +430,7 @@ fn applied_budget_refusal_cancel_and_consumer_stop_keep_typed_prefix() {
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_scratch_terms: 0,
                 ..defaults
             },
@@ -431,6 +438,7 @@ fn applied_budget_refusal_cancel_and_consumer_stop_keep_typed_prefix() {
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_scratch_boxes: 0,
                 ..defaults
             },
@@ -438,6 +446,7 @@ fn applied_budget_refusal_cancel_and_consumer_stop_keep_typed_prefix() {
         ),
         (
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_scratch_coordinate_cells: 0,
                 ..defaults
             },
@@ -499,6 +508,7 @@ fn applied_budget_refusal_cancel_and_consumer_stop_keep_typed_prefix() {
             &[None; 3],
             Some(10),
             OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 max_scratch_boxes: 0,
                 ..defaults
             },
@@ -582,4 +592,50 @@ fn applied_small_integer_oracle_matches_native_evaluator_and_noninvolutive_order
             }
         }
     }
+}
+
+#[test]
+fn applied_inspection_zero_scratch_caps_are_only_diagnostics() {
+    let mut p = fixture();
+    let c = p.context.coefficient_context().clone();
+    batch(&mut p).rules = vec![rule(0, vec![term(&c, [-2, 0, -1], c.integer(1))])];
+    let limits = OwnerAppliedLimits {
+        max_term_visits: 0,
+        max_shift_groups: 0,
+        max_boundary_cells: 0,
+        max_sign_splits: 0,
+        max_native_operations: 0,
+        max_events: 0,
+        max_scratch_terms: 0,
+        max_scratch_boxes: 0,
+        max_scratch_coordinate_cells: 0,
+        ..Default::default()
+    };
+    let result = p
+        .visit_owner_applied_successors(
+            OWNER,
+            &[2, 0, 0],
+            &[None, None, None],
+            Some(10),
+            limits,
+            &AtomicBool::new(false),
+            |_| ControlFlow::Continue(()),
+        )
+        .unwrap();
+    assert_eq!(result.successors, 1);
+    assert!(matches!(
+        p.visit_owner_applied_successors(
+            OWNER,
+            &[2, 0, 0],
+            &[None, None, None],
+            Some(10),
+            limits.with_diagnostics(),
+            &AtomicBool::new(false),
+            |_| ControlFlow::Continue(())
+        ),
+        Err(OwnerAppliedError {
+            failure: OwnerAppliedFailure::ResourceLimit { .. },
+            ..
+        })
+    ));
 }

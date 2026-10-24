@@ -535,6 +535,7 @@ fn persistent_merge_preserve_certified_zero_keeps_source_validation_and_limits()
         );
     }
     let mut source = fixture();
+    source.limits.diagnostics_enabled = true;
     source.limits.max_input_targets = 0;
     let c = source.programs.context.family().coefficient_context();
     let mut app = source.application();

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::application::{AppError, MAX_INPUT_BYTES};
+use crate::application::AppError;
 
 use super::super::{codec, model::*, policy, preparation};
 
@@ -53,7 +53,9 @@ impl CheckpointManifest {
         let selected_sectors = super::super::selection::canonical_masks(
             root_sector,
             request.selected_sectors.as_deref(),
-            request.bundle_limits.max_collection_entries,
+            request
+                .bundle_limits
+                .diagnostic_limit(request.bundle_limits.max_collection_entries),
         )?;
         let manifest = Self {
             version: VERSION,
@@ -87,11 +89,7 @@ impl CheckpointManifest {
                 "unsupported candidate checkpoint recipe/version",
             ));
         }
-        if self.family_source.len() > MAX_INPUT_BYTES {
-            return Err(AppError::limit(
-                "checkpoint source exceeds its input byte limit",
-            ));
-        }
+        crate::application::validate_ingress(&self.family_source)?;
         policy::numerical_depth(&self.solver_policy)?;
         self.exact_backend.parse::<CandidateExactBackend>()?;
         let arity = self.root_sector.len();
@@ -107,7 +105,11 @@ impl CheckpointManifest {
             self.permutation.as_deref(),
         )?;
         if let Some(strategy) = &self.discovery_strategy {
-            strategy.validate(arity, &self.sectors, limits.max_collection_entries)?;
+            strategy.validate(
+                arity,
+                &self.sectors,
+                limits.diagnostic_limit(limits.max_collection_entries),
+            )?;
         }
         let entries = self
             .sectors
@@ -124,7 +126,7 @@ impl CheckpointManifest {
                 })
             })
             .ok_or_else(|| AppError::limit("checkpoint manifest collection count overflow"))?;
-        if entries > limits.max_collection_entries {
+        if limits.diagnostics_enabled && entries > limits.max_collection_entries {
             return Err(AppError::limit(
                 "checkpoint manifest exceeds its collection limit",
             ));

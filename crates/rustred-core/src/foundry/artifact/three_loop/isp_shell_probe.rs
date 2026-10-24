@@ -103,6 +103,7 @@ fn campaign_limits(degree: usize) -> CampaignLimits {
     let offset_count = CUMULATIVE_OFFSET_COUNTS[degree];
     let source_count = ORDINARY_SOURCE_COUNT * offset_count;
     let translated_sources = TranslatedSourceLimits {
+        diagnostics_enabled: true,
         max_requested_offsets: offset_count,
         max_requested_source_translations: source_count,
         max_translated_sources: source_count,

@@ -8,13 +8,14 @@ pub(super) struct Budget {
 pub(super) fn charge(
     value: &mut usize,
     n: usize,
-    limit: usize,
+    limit: Option<usize>,
     resource: &'static str,
 ) -> Result<(), OwnerDomainMatchFailure> {
-    let requested = value
-        .checked_add(n)
-        .ok_or(OwnerDomainMatchFailure::CountOverflow { resource })?;
-    if requested > limit {
+    symbolica::utils::resources::checkpoint().map_err(OwnerDomainMatchFailure::Resources)?;
+    let requested = value.saturating_add(n);
+    if let Some(limit) = limit
+        && requested > limit
+    {
         return Err(OwnerDomainMatchFailure::ResourceLimit {
             resource,
             requested,
@@ -24,24 +25,37 @@ pub(super) fn charge(
     *value = requested;
     Ok(())
 }
-pub(super) fn geometry(error: impl ToString) -> OwnerDomainMatchFailure {
+pub(super) fn geometry(error: impl std::error::Error + 'static) -> OwnerDomainMatchFailure {
+    if let Some(error) = crate::reduction::resource_limit_error(&error) {
+        return OwnerDomainMatchFailure::Resources(error.clone());
+    }
     OwnerDomainMatchFailure::Geometry(error.to_string())
 }
 impl Budget {
     pub fn cells<const N: usize>(&mut self, count: usize) -> Result<(), OwnerDomainMatchFailure> {
-        let coordinates = count.checked_mul(N).and_then(|n| n.checked_mul(2)).ok_or(
-            OwnerDomainMatchFailure::CountOverflow {
-                resource: "coordinate cells",
-            },
-        )?;
+        let coordinates = if self.limits.diagnostics_enabled {
+            count.checked_mul(N).and_then(|n| n.checked_mul(2)).ok_or(
+                OwnerDomainMatchFailure::CountOverflow {
+                    resource: "coordinate cells",
+                },
+            )?
+        } else {
+            count.saturating_mul(N).saturating_mul(2)
+        };
         // Validate both allowances before committing either counter.
         let mut cells = self.stats.cells;
         let mut entries = self.stats.coordinate_cells;
-        charge(&mut cells, count, self.limits.max_cells, "cells")?;
+        charge(
+            &mut cells,
+            count,
+            self.limits.diagnostic_limit(self.limits.max_cells),
+            "cells",
+        )?;
         charge(
             &mut entries,
             coordinates,
-            self.limits.max_coordinate_cells,
+            self.limits
+                .diagnostic_limit(self.limits.max_coordinate_cells),
             "coordinate cells",
         )?;
         self.stats.cells = cells;
@@ -97,10 +111,12 @@ impl Budget {
         charge(
             &mut self.stats.split_operations,
             max_ops,
-            self.limits.max_split_operations,
+            self.limits
+                .diagnostic_limit(self.limits.max_split_operations),
             "split operations",
         )?;
         let limits = CompletionGeometryLimits {
+            diagnostics_enabled: self.limits.diagnostics_enabled,
             max_arity: N,
             max_requested_boxes: 1,
             max_requested_box_coordinate_cells: 2 * N,

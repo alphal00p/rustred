@@ -262,6 +262,7 @@ fn fresh_candidate_app_session_reduces_unseen_root_through_native_disk_descendan
 
     let fresh_program = CandidateUnitMassProgram::new(&source, digest);
     let one_rule = ReductionLimits {
+        diagnostics_enabled: true,
         max_rule_applications: 1,
         ..Default::default()
     };

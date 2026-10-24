@@ -184,6 +184,7 @@ fn existing_work_factor_and_term_budgets_cannot_be_bypassed() {
     for (limits, kind, limit) in [
         (
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 0,
                 ..Default::default()
             },
@@ -192,6 +193,7 @@ fn existing_work_factor_and_term_budgets_cannot_be_bypassed() {
         ),
         (
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_factorizations: 0,
                 ..Default::default()
             },
@@ -200,6 +202,7 @@ fn existing_work_factor_and_term_budgets_cannot_be_bypassed() {
         ),
         (
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_terms_per_conjunction: 1,
                 ..Default::default()
             },
@@ -322,6 +325,7 @@ fn zero_minimum_affine_refinement_is_charged_to_the_work_budget() {
             &[0, 1],
             &[false; 2],
             CaseIntersectionLimits {
+                diagnostics_enabled: true,
                 max_work_items: 1,
                 ..Default::default()
             },

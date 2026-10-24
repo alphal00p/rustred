@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use crate::family::IntegralKey;
-use crate::reduction::{ReductionError, ReductionRequest};
+use crate::reduction::ReductionRequest;
 
 use super::{CandidateReducer, CandidateReductionError};
 
@@ -13,6 +13,8 @@ use super::{CandidateReducer, CandidateReductionError};
 /// These caps do not bound every transient allocation inside native algebra.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CandidateTraceLimits {
+    /// Optional work-count stops; normal execution is governed by RAM/time.
+    pub diagnostics_enabled: bool,
     /// Counts iterator entries, including duplicates, before retaining them.
     pub max_input_targets: usize,
     /// Counts distinct inputs and recursively scheduled nonzero successors.
@@ -22,8 +24,23 @@ pub struct CandidateTraceLimits {
 impl Default for CandidateTraceLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             max_input_targets: 100_000,
             max_unique_integrals: 100_000,
+        }
+    }
+}
+impl CandidateTraceLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+
+        self
+    }
+    pub(super) const fn diagnostic_limit(self, limit: usize) -> Option<usize> {
+        if self.diagnostics_enabled {
+            Some(limit)
+        } else {
+            None
         }
     }
 }
@@ -123,24 +140,17 @@ fn schedule(
     seen: &mut BTreeSet<IntegralKey>,
     pending: &mut BTreeSet<IntegralKey>,
     request: &mut ReductionRequest,
-    unique_limit: usize,
-    pending_limit: usize,
+    unique_limit: Option<usize>,
+    pending_limit: Option<usize>,
 ) -> Result<(), CandidateReductionError> {
     if seen.contains(&target) {
         return Ok(());
     }
-    let requested =
-        seen.len()
-            .checked_add(1)
-            .ok_or(CandidateReductionError::TraceIntegralLimit {
-                requested: usize::MAX,
-                limit: unique_limit,
-            })?;
-    if requested > unique_limit {
-        return Err(CandidateReductionError::TraceIntegralLimit {
-            requested,
-            limit: unique_limit,
-        });
+    let requested = seen.len().saturating_add(1);
+    if let Some(limit) = unique_limit {
+        if requested > limit {
+            return Err(CandidateReductionError::TraceIntegralLimit { requested, limit });
+        }
     }
     request.retain_pending_frame(pending_limit)?;
     seen.insert(target.clone());
@@ -168,14 +178,8 @@ impl<const N: usize> CandidateReducer<N> {
         let mut request = ReductionRequest::default();
         let mut input_targets = 0_usize;
         for target in targets {
-            input_targets =
-                input_targets
-                    .checked_add(1)
-                    .ok_or(CandidateReductionError::TraceInputLimit {
-                        requested: usize::MAX,
-                        limit: limits.max_input_targets,
-                    })?;
-            if input_targets > limits.max_input_targets {
+            input_targets = input_targets.saturating_add(1);
+            if limits.diagnostics_enabled && input_targets > limits.max_input_targets {
                 return Err(CandidateReductionError::TraceInputLimit {
                     requested: input_targets,
                     limit: limits.max_input_targets,
@@ -187,8 +191,8 @@ impl<const N: usize> CandidateReducer<N> {
                 &mut seen,
                 &mut pending,
                 &mut request,
-                limits.max_unique_integrals,
-                self.limits.max_pending_frames,
+                limits.diagnostic_limit(limits.max_unique_integrals),
+                self.limits.diagnostic_limit(self.limits.max_pending_frames),
             )?;
         }
         let mut report = CandidateTraceReport {
@@ -216,26 +220,24 @@ impl<const N: usize> CandidateReducer<N> {
                 report.declared_terminals.insert(target);
                 continue;
             }
-            request.record_rule_application(self.limits.max_rule_applications)?;
+            request.record_rule_application(
+                self.limits
+                    .diagnostic_limit(self.limits.max_rule_applications),
+            )?;
             // Shared application checks every physical edge before scheduling,
             // including edges to keys already encountered through another path.
             match self.apply_candidate(&target, &mut request) {
                 Ok(terms) => {
                     self.statistics.record_rule_application();
-                    report.rule_applications = report.rule_applications.checked_add(1).ok_or(
-                        ReductionError::RuleApplicationLimit {
-                            requested: usize::MAX,
-                            limit: self.limits.max_rule_applications,
-                        },
-                    )?;
+                    report.rule_applications = report.rule_applications.saturating_add(1);
                     for (child, _) in terms {
                         schedule(
                             child,
                             &mut seen,
                             &mut pending,
                             &mut request,
-                            limits.max_unique_integrals,
-                            self.limits.max_pending_frames,
+                            limits.diagnostic_limit(limits.max_unique_integrals),
+                            self.limits.diagnostic_limit(self.limits.max_pending_frames),
                         )?;
                     }
                 }

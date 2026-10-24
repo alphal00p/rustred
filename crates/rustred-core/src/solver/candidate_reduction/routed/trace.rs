@@ -29,22 +29,19 @@ enum Frame<const N: usize> {
 pub(super) fn charge(
     value: &mut usize,
     addition: usize,
-    limit: usize,
+    limit: Option<usize>,
     resource: &'static str,
 ) -> Result<(), CandidateRoutedError> {
-    let requested = value
-        .checked_add(addition)
-        .ok_or(CandidateRoutedError::ResourceLimit {
-            resource,
-            requested: usize::MAX,
-            limit,
-        })?;
-    if requested > limit {
-        return Err(CandidateRoutedError::ResourceLimit {
-            resource,
-            requested,
-            limit,
-        });
+    symbolica::utils::resources::checkpoint().map_err(crate::reduction::ReductionError::from)?;
+    let requested = value.saturating_add(addition);
+    if let Some(limit) = limit {
+        if requested > limit {
+            return Err(CandidateRoutedError::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            });
+        }
     }
     *value = requested;
     Ok(())
@@ -61,8 +58,8 @@ impl<const N: usize> Traversal<N> {
     fn schedule(
         &mut self,
         node: Node<N>,
-        nodes: usize,
-        pending: usize,
+        nodes: Option<usize>,
+        pending: Option<usize>,
     ) -> Result<(), CandidateRoutedError> {
         if self.active.contains(&node) {
             return Err(CandidateRoutedError::Cycle {
@@ -161,7 +158,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             charge(
                 &mut report.input_targets,
                 1,
-                self.limits.max_input_targets,
+                self.limits.diagnostic_limit(self.limits.max_input_targets),
                 "input targets",
             )?;
             base.validate_target(&target)?;
@@ -171,14 +168,14 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 charge(
                     &mut count,
                     1,
-                    self.limits.max_unique_nodes,
+                    self.limits.diagnostic_limit(self.limits.max_unique_nodes),
                     "initial operational nodes",
                 )?;
                 let mut pending = entries.len();
                 charge(
                     &mut pending,
                     1,
-                    limits.max_pending_frames,
+                    limits.diagnostic_limit(limits.max_pending_frames),
                     "initial pending frames",
                 )?;
             }
@@ -188,8 +185,8 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         for target in entries.into_iter().rev() {
             traversal.schedule(
                 Node::Route(target),
-                self.limits.max_unique_nodes,
-                limits.max_pending_frames,
+                self.limits.diagnostic_limit(self.limits.max_unique_nodes),
+                limits.diagnostic_limit(limits.max_pending_frames),
             )?;
         }
         let mut statistics = ReductionStatistics::default();
@@ -213,7 +210,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             }
             traversal
                 .request
-                .retain_pending_frame(limits.max_pending_frames)?;
+                .retain_pending_frame(limits.diagnostic_limit(limits.max_pending_frames))?;
             traversal.stack.push(Frame::Leave(node.clone()));
             let key = node.key();
             base.validate_target(key)?;
@@ -242,32 +239,25 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                     if self.programs.owners.contains_key(&parent_support) {
                         traversal.schedule(
                             Node::Apply(parent_support, key.clone()),
-                            self.limits.max_unique_nodes,
-                            limits.max_pending_frames,
+                            self.limits.diagnostic_limit(self.limits.max_unique_nodes),
+                            limits.diagnostic_limit(limits.max_pending_frames),
                         )?;
                     } else if let Some(route) = self.routes.get(&parent_support) {
                         charge(
                             &mut report.transport_calls,
                             1,
-                            self.limits.max_transport_calls,
+                            self.limits
+                                .diagnostic_limit(self.limits.max_transport_calls),
                             "transport calls",
                         )?;
                         let mapped = route.transport.transport_with_usage(
                             key,
                             self.limits.expansion,
                             |usage| {
-                                let operations = report
-                                    .transport_operations
-                                    .checked_add(usage.operations)
-                                    .ok_or(ExpansionError::ResourceCountOverflow {
-                                        resource: "aggregate routed operations",
-                                    })?;
-                                let endpoints = report
-                                    .transport_endpoints
-                                    .checked_add(usage.endpoints)
-                                    .ok_or(ExpansionError::ResourceCountOverflow {
-                                        resource: "aggregate routed endpoints",
-                                    })?;
+                                let operations =
+                                    report.transport_operations.saturating_add(usage.operations);
+                                let endpoints =
+                                    report.transport_endpoints.saturating_add(usage.endpoints);
                                 for (resource, requested, limit) in [
                                     (
                                         "aggregate routed operations",
@@ -280,7 +270,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                                         self.limits.max_transport_endpoints,
                                     ),
                                 ] {
-                                    if requested > limit {
+                                    if self.limits.diagnostics_enabled && requested > limit {
                                         return Err(ExpansionError::ResourceLimit {
                                             resource,
                                             requested,
@@ -307,8 +297,8 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                             let child_node = successor(key, child.clone(), owner_support)?;
                             traversal.schedule(
                                 child_node,
-                                self.limits.max_unique_nodes,
-                                limits.max_pending_frames,
+                                self.limits.diagnostic_limit(self.limits.max_unique_nodes),
+                                limits.diagnostic_limit(limits.max_pending_frames),
                             )?;
                         }
                     } else {
@@ -331,9 +321,9 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                         report.declared_terminals.insert(key.clone());
                         continue;
                     }
-                    traversal
-                        .request
-                        .record_rule_application(limits.max_rule_applications)?;
+                    traversal.request.record_rule_application(
+                        limits.diagnostic_limit(limits.max_rule_applications),
+                    )?;
                     let result = owner.evaluate_step::<CandidateReductionError>(key, |batch| {
                         let evaluator = CandidateEvaluator {
                             context: &shared.context,
@@ -352,15 +342,15 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                             charge(
                                 &mut report.rule_applications,
                                 1,
-                                limits.max_rule_applications,
+                                limits.diagnostic_limit(limits.max_rule_applications),
                                 "successful rule applications",
                             )?;
                             for child in terms.into_keys().rev() {
                                 let child_node = successor(key, child, *owner_sector)?;
                                 traversal.schedule(
                                     child_node,
-                                    self.limits.max_unique_nodes,
-                                    limits.max_pending_frames,
+                                    self.limits.diagnostic_limit(self.limits.max_unique_nodes),
+                                    limits.diagnostic_limit(limits.max_pending_frames),
                                 )?;
                             }
                         }

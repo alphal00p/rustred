@@ -38,7 +38,11 @@ pub(super) fn derive_denominator_map(
                 0,
                 0,
                 std::iter::empty(),
-                algebra.limits.max_matrix_entries,
+                if algebra.limits.diagnostics_enabled {
+                    algebra.limits.max_matrix_entries
+                } else {
+                    usize::MAX
+                },
             )?,
         });
     }
@@ -123,7 +127,11 @@ pub(super) fn derive_denominator_map(
             source_count,
             target_count,
             denominator_linear.into_iter().flatten(),
-            algebra.limits.max_matrix_entries,
+            if algebra.limits.diagnostics_enabled {
+                algebra.limits.max_matrix_entries
+            } else {
+                usize::MAX
+            },
         )?,
     })
 }

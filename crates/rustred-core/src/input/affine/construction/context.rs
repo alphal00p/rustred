@@ -50,6 +50,7 @@ impl SymbolicaAffineDenominatorCompiler {
             "base parameters",
             coefficients.parameter_names().len(),
             limits.max_base_parameters,
+            limits.diagnostics_enabled,
         )?;
         // Authenticate the already-retained template without constructing an
         // additional zero coefficient before its storage policy is known.
@@ -64,13 +65,19 @@ impl SymbolicaAffineDenominatorCompiler {
             .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
                 resource: "declared momenta",
             })?;
-        check_limit("declared momenta", momentum_count, limits.max_momenta)?;
+        check_limit(
+            "declared momenta",
+            momentum_count,
+            limits.max_momenta,
+            limits.diagnostics_enabled,
+        )?;
         let coordinate_count =
             scalar_product_coordinate_count(loop_momenta.len(), external_momenta.len())?;
         check_limit(
             "scalar-product coordinates",
             coordinate_count,
             limits.max_scalar_product_coordinates,
+            limits.diagnostics_enabled,
         )?;
         validate_declared_labels(&coefficients, &loop_momenta, &external_momenta, limits)?;
         validate_external_gram(&coefficients, &external_momenta, &external_gram, limits)?;
@@ -86,11 +93,13 @@ impl SymbolicaAffineDenominatorCompiler {
             "combined Symbolica variables",
             combined_count,
             limits.max_combined_variables,
+            limits.diagnostics_enabled,
         )?;
         check_limit(
             "combined variable-map exponent width",
             combined_count,
             limits.max_combined_exponent_entries,
+            limits.diagnostics_enabled,
         )?;
         let mut combined_names = Vec::new();
         combined_names
@@ -103,15 +112,23 @@ impl SymbolicaAffineDenominatorCompiler {
         combined_names.extend(loop_momenta.iter().cloned());
         combined_names.extend(external_momenta.iter().cloned());
         let combined = CoefficientContext::try_new(combined_names.clone())?;
-        let combined_template_census = planned_coefficient_clone_census(
-            combined.template(),
-            combined.parameter_names().len(),
-        )?;
-        check_limit(
-            "combined template retained bytes",
-            combined_template_census.retained_bytes,
-            limits.max_combined_retained_bytes,
-        )?;
+        symbolica::utils::resources::checkpoint().map_err(|error| {
+            SymbolicaAffineDenominatorError::ExactAlgebra(
+                crate::algebra::ExactAlgebraError::Resource(error),
+            )
+        })?;
+        if limits.diagnostics_enabled {
+            let combined_template_census = planned_coefficient_clone_census(
+                combined.template(),
+                combined.parameter_names().len(),
+            )?;
+            check_limit(
+                "combined template retained bytes",
+                combined_template_census.retained_bytes,
+                limits.max_combined_retained_bytes,
+                limits.diagnostics_enabled,
+            )?;
+        }
 
         for (position, label) in coefficients.parameter_names().iter().enumerate() {
             if combined.variables()[position] != coefficients.variables()[position] {

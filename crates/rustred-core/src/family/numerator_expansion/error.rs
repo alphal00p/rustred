@@ -141,7 +141,15 @@ impl fmt::Display for MultiAffineNumeratorExpansionError {
     }
 }
 
-impl std::error::Error for MultiAffineNumeratorExpansionError {}
+impl std::error::Error for MultiAffineNumeratorExpansionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ExactAlgebra(error) => Some(error),
+            Self::IntegralKey(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<IntegralKeyError> for MultiAffineNumeratorExpansionError {
     fn from(error: IntegralKeyError) -> Self {

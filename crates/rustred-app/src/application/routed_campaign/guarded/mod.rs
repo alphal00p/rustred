@@ -199,11 +199,16 @@ fn run<const N: usize>(
             });
         let (stats, native_error, error_kind) = match result {
             Ok(stats) => (stats, None, None),
-            Err(error) => (
-                error.stats,
-                Some(render::bounded_debug(&error.failure)),
-                Some(failure_kind(&error.failure)),
-            ),
+            Err(error) => {
+                if let Some(resource) = AppError::resource_cause(&error) {
+                    return Err(AppError::resource(resource));
+                }
+                (
+                    error.stats,
+                    Some(render::bounded_debug(&error.failure)),
+                    Some(failure_kind(&error.failure)),
+                )
+            }
         };
         let done = native_error.is_none() && render_error.is_none();
         if done {
@@ -250,6 +255,7 @@ fn run<const N: usize>(
 }
 fn failure_kind(failure: &OwnerGuardedFailure) -> &'static str {
     match failure {
+        OwnerGuardedFailure::Resources(_) => "resources",
         OwnerGuardedFailure::UnknownOwner => "unknown_owner",
         OwnerGuardedFailure::UnknownCandidate => "unknown_candidate",
         OwnerGuardedFailure::InvalidInput(_) => "invalid_input",

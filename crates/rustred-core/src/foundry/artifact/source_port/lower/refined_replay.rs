@@ -55,10 +55,12 @@ pub(super) fn verify_wide(
         .checked_add(rhs.len())
         .and_then(|n| n.checked_add(1))
         .ok_or_else(|| error("original replay column count overflow"))?;
-    if input_columns > limits.max_shift_columns
-        || input_columns
-            .checked_mul(3)
-            .is_none_or(|n| n > limits.max_replay_exact_operations)
+    symbolica::utils::resources::checkpoint().map_err(error)?;
+    if limits.diagnostics_enabled
+        && (input_columns > limits.max_shift_columns
+            || input_columns
+                .checked_mul(3)
+                .is_none_or(|n| n > limits.max_replay_exact_operations))
     {
         return Err(error(
             "original replay exceeds its column/exact-operation budget",

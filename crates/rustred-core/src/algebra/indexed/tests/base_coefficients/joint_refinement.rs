@@ -301,6 +301,7 @@ fn joint_refinement_obeys_full_replay_precharge_and_context_authentication() {
     for (limits, resource, requested, limit) in [
         (
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_exact_hyperplane_replay_substitutions: 3,
                 ..Default::default()
             },
@@ -310,6 +311,7 @@ fn joint_refinement_obeys_full_replay_precharge_and_context_authentication() {
         ),
         (
             IndexedGuardLimits {
+                diagnostics_enabled: true,
                 max_exact_hyperplane_replay_terms: 11,
                 ..Default::default()
             },
@@ -331,6 +333,7 @@ fn joint_refinement_obeys_full_replay_precharge_and_context_authentication() {
         context.integer_zero_locus_domain_resolution(
             &system,
             IndexedGuardLimits {
+            diagnostics_enabled: true,
                 max_exact_hyperplane_replay_work: 0,
                 ..Default::default()
             },

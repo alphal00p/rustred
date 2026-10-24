@@ -34,6 +34,7 @@ impl Drop for Scratch {
 }
 fn storage_limits() -> StorageLimits {
     StorageLimits {
+        diagnostics_enabled: true,
         raw: Default::default(),
         max_arity: 32,
         max_delta_records: 0,

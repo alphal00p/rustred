@@ -16,10 +16,16 @@ use super::{
 };
 
 pub(super) fn try_fixed_pairs(
+    diagnostics_enabled: bool,
     fixed: &[FixedIndexRestriction],
     limit: usize,
 ) -> Result<Vec<(usize, i64)>, RuleCellError> {
-    check_limit("fixed restrictions", fixed.len(), limit)?;
+    check_limit(
+        diagnostics_enabled,
+        "fixed restrictions",
+        fixed.len(),
+        limit,
+    )?;
     let mut pairs = Vec::new();
     pairs
         .try_reserve_exact(fixed.len())
@@ -32,11 +38,12 @@ pub(super) fn try_fixed_pairs(
 }
 
 pub(super) fn try_rhs_shifts<'a>(
+    diagnostics_enabled: bool,
     rule: &'a ParametricRule,
     limit: usize,
 ) -> Result<Vec<&'a [i64]>, RuleCellError> {
     let count = rule.right_hand_side().len();
-    check_limit("rule RHS shifts", count, limit)?;
+    check_limit(diagnostics_enabled, "rule RHS shifts", count, limit)?;
     let mut rhs = Vec::new();
     rhs.try_reserve_exact(count)
         .map_err(|_| RuleCellError::AllocationFailure {
@@ -60,7 +67,12 @@ impl SourceViewBatch {
         if ordinals.is_empty() {
             return Err(RuleCellError::EmptySourceSelection);
         }
-        check_limit("source views", ordinals.len(), limits.max_source_views)?;
+        check_limit(
+            limits.diagnostics_enabled,
+            "source views",
+            ordinals.len(),
+            limits.max_source_views,
+        )?;
         let (family_fingerprint, context_fingerprint, sources) = translated.into_foundry_parts();
         let available = sources.len();
         let mut slots = sources.into_iter().map(Some).collect::<Vec<_>>();
@@ -157,7 +169,7 @@ impl RuleCell {
         {
             return Err(RuleCellError::ApplicationNotTightened);
         }
-        let rhs = try_rhs_shifts(&rule, limits.max_retained_terms)?;
+        let rhs = try_rhs_shifts(limits.diagnostics_enabled, &rule, limits.max_retained_terms)?;
         let domain = SectorMonotoneDomain::try_new_for_rule(
             application.sector().clone(),
             application.bounds().iter().copied(),
@@ -262,6 +274,7 @@ pub(crate) fn try_single_guard_domain_split(
         });
     }
     check_limit(
+        limits.diagnostics_enabled,
         "rule guards",
         rule.nonzero_guards().len(),
         limits.max_guards,
@@ -274,11 +287,16 @@ pub(crate) fn try_single_guard_domain_split(
                 resource: "guard split coordinate cells",
             })?;
     check_limit(
+        limits.diagnostics_enabled,
         "guard split coordinate cells",
         coordinate_cells,
         limits.max_guard_split_coordinate_cells,
     )?;
-    let fixed_pairs = try_fixed_pairs(fixed, limits.max_fixed_restrictions)?;
+    let fixed_pairs = try_fixed_pairs(
+        limits.diagnostics_enabled,
+        fixed,
+        limits.max_fixed_restrictions,
+    )?;
     let mut selected = None;
     for (ordinal, guard) in rule.nonzero_guards().iter().enumerate() {
         let polynomial = context
@@ -364,7 +382,7 @@ pub(crate) fn try_single_guard_domain_split(
     if deferred_bounds.is_some() {
         return Ok(None);
     }
-    let rhs = try_rhs_shifts(rule, limits.max_retained_terms)?;
+    let rhs = try_rhs_shifts(limits.diagnostics_enabled, rule, limits.max_retained_terms)?;
     let build_domain = |bounds| {
         SectorMonotoneDomain::try_new_for_rule(
             application_domain.sector().clone(),
@@ -407,12 +425,19 @@ fn build(
         return Err(RuleCellError::ApplicationSectorMismatch);
     }
     check_limit(
+        limits.diagnostics_enabled,
         "fixed restrictions",
         fixed.len(),
         limits.max_fixed_restrictions,
     )?;
-    check_limit("pruned RHS terms", pruned.len(), limits.max_pruned_terms)?;
     check_limit(
+        limits.diagnostics_enabled,
+        "pruned RHS terms",
+        pruned.len(),
+        limits.max_pruned_terms,
+    )?;
+    check_limit(
+        limits.diagnostics_enabled,
         "rule guards",
         rule.nonzero_guards().len(),
         limits.max_guards,
@@ -466,7 +491,11 @@ fn build(
             return Err(RuleCellError::DuplicatePrunedTerm { ordinal: window[0] });
         }
     }
-    let fixed_pairs = try_fixed_pairs(&fixed, limits.max_fixed_restrictions)?;
+    let fixed_pairs = try_fixed_pairs(
+        limits.diagnostics_enabled,
+        &fixed,
+        limits.max_fixed_restrictions,
+    )?;
     let available = rule.right_hand_side().len();
     for &ordinal in &pruned {
         let term = rule
@@ -493,6 +522,7 @@ fn build(
         return Err(RuleCellError::EmptyRetainedRule);
     }
     check_limit(
+        limits.diagnostics_enabled,
         "retained RHS terms",
         retained_count,
         limits.max_retained_terms,
@@ -721,11 +751,13 @@ fn validate_bindings(
 }
 
 fn check_limit(
+    diagnostics_enabled: bool,
     resource: &'static str,
     requested: usize,
     limit: usize,
 ) -> Result<(), RuleCellError> {
-    if requested > limit {
+    symbolica::utils::resources::checkpoint()?;
+    if diagnostics_enabled && requested > limit {
         Err(RuleCellError::ResourceLimit {
             resource,
             requested,

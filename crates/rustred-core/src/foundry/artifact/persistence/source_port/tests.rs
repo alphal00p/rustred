@@ -498,7 +498,7 @@ fn affine_exclusion_codec_rejects_old_tag_wrong_axis_map_and_sector() {
 fn affine_exclusion_codec_checks_count_budget_and_truncated_predicates() {
     let (context, exclusions) = coupled_exclusion_fixture();
     let (bytes, table) = exclusion_plan_bytes(&context, &exclusions[..1]);
-    let mut limits = ArtifactLoadLimits::default();
+    let mut limits = ArtifactLoadLimits::default().with_diagnostics();
     limits.rule_cells.max_guards = 0;
     let mut reader = Reader::with_table(&bytes, limits, table.clone()).unwrap();
     assert_eq!(

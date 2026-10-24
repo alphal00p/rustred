@@ -249,6 +249,7 @@ fn symbolic_stream_failed_publisher_does_not_commit_contiguous_speculative_resul
             (
                 id,
                 Finished {
+                    resource_failure: None,
                     stats: NativeStats::Apply(Default::default()),
                     error: None,
                     error_kind: "none",
@@ -344,6 +345,7 @@ fn completed_escrow_event_cap_keeps_exact_publisher_prefix_and_later_attempts() 
             };
             let stopped = emit(event).is_break();
             Finished {
+                resource_failure: None,
                 stats: NativeStats::Apply(Default::default()),
                 error: stopped.then(|| "cancelled".into()),
                 error_kind: if stopped { "cancelled" } else { "none" },

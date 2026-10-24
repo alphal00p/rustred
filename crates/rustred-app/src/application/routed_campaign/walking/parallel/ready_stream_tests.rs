@@ -13,6 +13,7 @@ fn domain() -> Arc<Domain<1>> {
 }
 fn finished() -> Finished {
     Finished {
+        resource_failure: None,
         stats: NativeStats::Apply(Default::default()),
         error: None,
         error_kind: "none",

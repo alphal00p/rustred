@@ -22,6 +22,20 @@ struct Ancestry<const N: usize> {
     previous: Option<Arc<Self>>,
 }
 
+// Sharing the ancestry between siblings must not create recursive destruction
+// when a valid refinement has more states than the optional diagnostic default.
+impl<const N: usize> Drop for Ancestry<N> {
+    fn drop(&mut self) {
+        let mut previous = self.previous.take();
+        while let Some(ancestor) = previous {
+            match Arc::try_unwrap(ancestor) {
+                Ok(mut ancestor) => previous = ancestor.previous.take(),
+                Err(_) => break,
+            }
+        }
+    }
+}
+
 struct WorkItem<const N: usize> {
     parent: Case<N>,
     equations: Arc<[CoefficientPolynomial]>,
@@ -63,6 +77,7 @@ pub(super) fn intersect<const N: usize>(
         stats: CaseIntersectionStats::default(),
     };
     let outcome = catch_unwind(AssertUnwindSafe(|| {
+        checkpoint()?;
         native::preflight(parent, conjunction, indices)?;
         engine.run()
     }));
@@ -97,7 +112,7 @@ impl<const N: usize> Engine<'_, N> {
         loop {
             spend(
                 &mut self.stats.work_items,
-                self.limits.max_work_items,
+                self.limits.diagnostic_limit(self.limits.max_work_items),
                 CaseIntersectionBudget::WorkItems,
             )?;
             self.check_terms(&self.current.equations.clone())?;
@@ -155,7 +170,7 @@ impl<const N: usize> Engine<'_, N> {
                 )
                 .map_err(CaseIntersectionFailure::Admission);
             self.stats.admission_time += start.elapsed();
-            self.stats.affine_admissions += 1;
+            self.stats.affine_admissions = self.stats.affine_admissions.saturating_add(1);
             if let Some(child) = child? {
                 resolved.push(child);
             }
@@ -167,6 +182,7 @@ impl<const N: usize> Engine<'_, N> {
         // but may merit a new attempt on their smaller exact conjunction.
         let mut lex_attempted = false;
         loop {
+            checkpoint()?;
             if !rank::in_scope(&self.current.parent, self.max_numerator_rank) {
                 return Ok(());
             }
@@ -174,7 +190,7 @@ impl<const N: usize> Engine<'_, N> {
             let restricted =
                 native::restrict(&self.current.parent, &self.current.equations, self.indices);
             self.stats.restriction_time += start.elapsed();
-            self.stats.restrictions += 1;
+            self.stats.restrictions = self.stats.restrictions.saturating_add(1);
             let equations = restricted?;
             self.check_terms(&equations)?;
             self.current.equations = equations.into();
@@ -208,7 +224,7 @@ impl<const N: usize> Engine<'_, N> {
                     .intersect_in_rank(&affine, self.indices, self.sector, self.max_numerator_rank)
                     .map_err(CaseIntersectionFailure::Admission);
                 self.stats.admission_time += start.elapsed();
-                self.stats.affine_admissions += 1;
+                self.stats.affine_admissions = self.stats.affine_admissions.saturating_add(1);
                 let child = match child {
                     Err(
                         error @ CaseIntersectionFailure::Admission(AffineGeometryError::Coordinate(
@@ -256,7 +272,7 @@ impl<const N: usize> Engine<'_, N> {
                 if self.current.equations.len() > 1 {
                     spend(
                         &mut self.stats.normalizations,
-                        self.limits.max_normalizations,
+                        self.limits.diagnostic_limit(self.limits.max_normalizations),
                         CaseIntersectionBudget::Normalizations,
                     )?;
                     let start = Instant::now();
@@ -275,7 +291,7 @@ impl<const N: usize> Engine<'_, N> {
             for position in 0..self.current.equations.len() {
                 spend(
                     &mut self.stats.factorizations,
-                    self.limits.max_factorizations,
+                    self.limits.diagnostic_limit(self.limits.max_factorizations),
                     CaseIntersectionBudget::Factorizations,
                 )?;
                 let start = Instant::now();
@@ -293,19 +309,21 @@ impl<const N: usize> Engine<'_, N> {
                 // sibling equations and the entire integer-coordinate parent.
                 // Check the work budget before retaining a potentially broad
                 // union; no Cartesian product is materialized eagerly.
-                if self
-                    .stats
-                    .work_items
-                    .checked_add(pending.len())
-                    .and_then(|count| count.checked_add(factors.len()))
-                    .is_none_or(|count| count > self.limits.max_work_items)
+                if self.limits.diagnostics_enabled
+                    && self
+                        .stats
+                        .work_items
+                        .checked_add(pending.len())
+                        .and_then(|count| count.checked_add(factors.len()))
+                        .is_none_or(|count| count > self.limits.max_work_items)
                 {
                     return Err(CaseIntersectionFailure::Budget {
                         kind: CaseIntersectionBudget::WorkItems,
                         limit: self.limits.max_work_items,
                     });
                 }
-                self.stats.factor_children += factors.len();
+                self.stats.factor_children =
+                    self.stats.factor_children.saturating_add(factors.len());
                 for factor in factors.into_iter().rev() {
                     let mut child_equations = self.current.equations.to_vec();
                     child_equations[position] = factor;
@@ -327,12 +345,14 @@ impl<const N: usize> Engine<'_, N> {
             // geometry/solve elapsed time still includes all of its work.
             let mut affine_refinement = None;
             for equation in self.current.equations.iter() {
-                match definite_quadratic::classify(
+                checkpoint()?;
+                match definite_quadratic::classify_with_policy(
                     &self.current.parent,
                     equation,
                     self.indices,
                     self.sector,
-                ) {
+                    self.limits.diagnostics_enabled,
+                )? {
                     definite_quadratic::QuadraticProof::Empty => return Ok(()),
                     definite_quadratic::QuadraticProof::EquivalentAffine(gradients) => {
                         affine_refinement = Some(gradients);
@@ -340,6 +360,7 @@ impl<const N: usize> Engine<'_, N> {
                     }
                     definite_quadratic::QuadraticProof::Unknown => {}
                 }
+                checkpoint()?;
             }
             if let Some(gradients) = affine_refinement {
                 // This transition consumes a new refinement state even though
@@ -347,7 +368,7 @@ impl<const N: usize> Engine<'_, N> {
                 // or mutation, just as for a new factor-generated work item.
                 spend(
                     &mut self.stats.work_items,
-                    self.limits.max_work_items,
+                    self.limits.diagnostic_limit(self.limits.max_work_items),
                     CaseIntersectionBudget::WorkItems,
                 )?;
                 self.check_terms(&gradients)?;
@@ -363,7 +384,7 @@ impl<const N: usize> Engine<'_, N> {
                     )
                     .map_err(CaseIntersectionFailure::Admission);
                 self.stats.admission_time += start.elapsed();
-                self.stats.affine_admissions += 1;
+                self.stats.affine_admissions = self.stats.affine_admissions.saturating_add(1);
                 let Some(child) = child? else {
                     return Ok(());
                 };
@@ -400,12 +421,13 @@ impl<const N: usize> Engine<'_, N> {
                     let Some(branches) = branches else {
                         continue;
                     };
-                    if self
-                        .stats
-                        .work_items
-                        .checked_add(pending.len())
-                        .and_then(|n| n.checked_add(branches.len()))
-                        .is_none_or(|n| n > self.limits.max_work_items)
+                    if self.limits.diagnostics_enabled
+                        && self
+                            .stats
+                            .work_items
+                            .checked_add(pending.len())
+                            .and_then(|n| n.checked_add(branches.len()))
+                            .is_none_or(|n| n > self.limits.max_work_items)
                     {
                         return Err(CaseIntersectionFailure::Budget {
                             kind: CaseIntersectionBudget::WorkItems,
@@ -413,9 +435,11 @@ impl<const N: usize> Engine<'_, N> {
                         });
                     }
                     if is_bilinear {
-                        self.stats.bilinear_children += branches.len();
+                        self.stats.bilinear_children =
+                            self.stats.bilinear_children.saturating_add(branches.len());
                     } else {
-                        self.stats.resultant_children += branches.len();
+                        self.stats.resultant_children =
+                            self.stats.resultant_children.saturating_add(branches.len());
                     }
                     for affine in branches.into_iter().rev() {
                         // Keep the selected original equation too: native
@@ -435,11 +459,13 @@ impl<const N: usize> Engine<'_, N> {
             if self.split_rank_coordinate(pending)? {
                 return Ok(());
             }
-            if !lex_attempted && native::lex_eligible(&self.current.equations) {
+            if !lex_attempted
+                && native::lex_eligible(&self.current.equations, self.limits.diagnostics_enabled)
+            {
                 lex_attempted = true;
                 spend(
                     &mut self.stats.normalizations,
-                    self.limits.max_normalizations,
+                    self.limits.diagnostic_limit(self.limits.max_normalizations),
                     CaseIntersectionBudget::Normalizations,
                 )?;
                 let start = Instant::now();
@@ -464,7 +490,7 @@ impl<const N: usize> Engine<'_, N> {
     fn compact_overflow_conjunction_is_empty(&mut self) -> Result<bool, CaseIntersectionFailure> {
         spend(
             &mut self.stats.normalizations,
-            self.limits.max_normalizations,
+            self.limits.diagnostic_limit(self.limits.max_normalizations),
             CaseIntersectionBudget::Normalizations,
         )?;
         let start = Instant::now();
@@ -481,16 +507,16 @@ impl<const N: usize> Engine<'_, N> {
         &mut self,
         equations: &[CoefficientPolynomial],
     ) -> Result<(), CaseIntersectionFailure> {
-        let count = equations.iter().try_fold(0_usize, |count, equation| {
-            count.checked_add(equation.nterms())
+        checkpoint()?;
+        let count = equations.iter().fold(0_usize, |count, equation| {
+            count.saturating_add(equation.nterms())
         });
-        let Some(count) = count.filter(|&count| count <= self.limits.max_terms_per_conjunction)
-        else {
+        if self.limits.diagnostics_enabled && count > self.limits.max_terms_per_conjunction {
             return Err(CaseIntersectionFailure::Budget {
                 kind: CaseIntersectionBudget::ConjunctionTerms,
                 limit: self.limits.max_terms_per_conjunction,
             });
-        };
+        }
         self.stats.peak_conjunction_terms = self.stats.peak_conjunction_terms.max(count);
         Ok(())
     }
@@ -498,6 +524,7 @@ impl<const N: usize> Engine<'_, N> {
     fn remember_state(&mut self) -> Result<(), CaseIntersectionFailure> {
         let mut ancestor = self.current.ancestry.as_deref();
         while let Some(previous) = ancestor {
+            checkpoint()?;
             if previous.parent == self.current.parent
                 && previous.equations == self.current.equations
             {
@@ -516,14 +543,21 @@ impl<const N: usize> Engine<'_, N> {
 
 pub(super) fn spend(
     count: &mut usize,
-    limit: usize,
+    limit: Option<usize>,
     kind: CaseIntersectionBudget,
 ) -> Result<(), CaseIntersectionFailure> {
-    if *count >= limit {
+    checkpoint()?;
+    if let Some(limit) = limit
+        && *count >= limit
+    {
         return Err(CaseIntersectionFailure::Budget { kind, limit });
     }
-    *count += 1;
+    *count = count.saturating_add(1);
     Ok(())
+}
+
+pub(super) fn checkpoint() -> Result<(), CaseIntersectionFailure> {
+    symbolica::utils::resources::checkpoint().map_err(CaseIntersectionFailure::Resources)
 }
 
 /// Conservative equality-domain implication is sufficient for pruning a
@@ -535,6 +569,7 @@ fn canonical_union<const N: usize>(
     cases.dedup();
     let mut retained = Vec::<Case<N>>::new();
     for candidate in cases {
+        checkpoint()?;
         let mut covered = false;
         for container in &retained {
             if container

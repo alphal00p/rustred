@@ -5,9 +5,11 @@ use super::Error;
 
 pub const DEFAULT_MAX_MATRIX_ENTRIES: usize = 16_000_000;
 
-/// Aggregate bounds for one authoritative affine-map verification.
+/// Optional diagnostic count thresholds for one authoritative affine-map verification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Limits {
+    /// Count/work ceilings require explicit opt-in; ambient RAM/time checks remain active.
+    pub diagnostics_enabled: bool,
     pub exact_algebra: ExactAlgebraLimits,
     pub max_matrix_entries: usize,
     /// Aggregate replayable admission envelope for checked scalar calls and
@@ -33,6 +35,7 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             exact_algebra: ExactAlgebraLimits::default(),
             max_matrix_entries: DEFAULT_MAX_MATRIX_ENTRIES,
             max_exact_operations: 100_000_000,
@@ -43,6 +46,14 @@ impl Default for Limits {
             max_nonzero_conditions: 1_000_000,
             max_condition_sources: 4_000_000,
         }
+    }
+}
+
+impl Limits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.exact_algebra = self.exact_algebra.with_diagnostics();
+        self
     }
 }
 
@@ -136,8 +147,10 @@ pub(super) fn check_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 ) -> Result<(), Error> {
-    if requested > limit {
+    checkpoint()?;
+    if diagnostics_enabled && requested > limit {
         Err(Error::ResourceLimit {
             resource,
             requested,
@@ -146,4 +159,10 @@ pub(super) fn check_limit(
     } else {
         Ok(())
     }
+}
+
+pub(super) fn checkpoint() -> Result<(), Error> {
+    symbolica::utils::resources::checkpoint()
+        .map_err(crate::algebra::ExactAlgebraError::Resource)
+        .map_err(Error::ExactAlgebra)
 }

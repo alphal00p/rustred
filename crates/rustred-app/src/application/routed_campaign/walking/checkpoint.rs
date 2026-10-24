@@ -55,6 +55,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
+use symbolica::utils::resources::ResourceBudget;
 
 /// The role of one save. `Periodic` waits for the interval; `Forced` and
 /// `Final` write unless nothing changed. Only a save after which the walk
@@ -1001,25 +1002,30 @@ impl Store {
         let injected: Option<Section> = None;
         let mut slots: Vec<Option<Result<Written, String>>> =
             (0..jobs.len()).map(|_| None).collect();
+        let resources = ResourceBudget::capture_current();
         rayon::scope(|scope| {
             for ((section, first, count, write), slot) in jobs.into_iter().zip(slots.iter_mut()) {
                 let file = section.file_name(generation);
                 let path = directory.join(&file);
+                let resources = &resources;
                 scope.spawn(move |_| {
-                    let started = Instant::now();
-                    if injected == Some(section) {
-                        *slot = Some(Err(format!("injected {} section failure", section.name())));
-                        return;
-                    }
-                    *slot = Some(write_section(&path, write).map(|(bytes, blake3)| Written {
-                        section,
-                        file,
-                        first,
-                        count,
-                        bytes,
-                        blake3,
-                        seconds: started.elapsed().as_secs_f64(),
-                    }));
+                    resources.run_captured(|| {
+                        let started = Instant::now();
+                        if injected == Some(section) {
+                            *slot =
+                                Some(Err(format!("injected {} section failure", section.name())));
+                            return;
+                        }
+                        *slot = Some(write_section(&path, write).map(|(bytes, blake3)| Written {
+                            section,
+                            file,
+                            first,
+                            count,
+                            bytes,
+                            blake3,
+                            seconds: started.elapsed().as_secs_f64(),
+                        }));
+                    })
                 });
             }
         });

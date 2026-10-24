@@ -14,6 +14,7 @@ pub(super) type VacuumPolynomial =
 /// and has no abort callback; input graph size is bounded before entering it.
 #[derive(Clone, Copy, Debug)]
 pub struct VacuumParametricLimits {
+    pub diagnostics_enabled: bool,
     pub symanzik: FeynmanPolynomialLimits,
     pub max_supports: usize,
     pub max_canonicalizations: usize,
@@ -24,6 +25,7 @@ pub struct VacuumParametricLimits {
 impl Default for VacuumParametricLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             symanzik: FeynmanPolynomialLimits {
                 max_polynomial_terms: 20_000,
                 max_exponent_entries: 1_000_000,
@@ -76,5 +78,13 @@ impl VerifiedVacuumParameterMap {
     }
     pub fn representative_u_term_count(&self) -> usize {
         self.representative.u.nterms()
+    }
+}
+
+impl VacuumParametricLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.symanzik = self.symanzik.with_diagnostics();
+        self
     }
 }

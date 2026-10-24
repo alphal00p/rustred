@@ -67,7 +67,9 @@ pub fn load_generated_candidate_checkpoint<const N: usize>(
     super::super::selection::apply(
         &mut prepared,
         request.selected_sectors.as_deref(),
-        request.bundle_limits.max_collection_entries,
+        request
+            .bundle_limits
+            .diagnostic_limit(request.bundle_limits.max_collection_entries),
     )?;
     let manifest = CheckpointManifest::for_request(
         request,
@@ -111,7 +113,7 @@ pub fn load_generated_candidate_checkpoint<const N: usize>(
     }
 
     let context = ParametricIbpGenerator::try_new(&prepared.family)
-        .map_err(|error| AppError::execution(error.to_string()))?
+        .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Execution))?
         .context()
         .clone();
     let mut solutions = Vec::with_capacity(receipts.len());

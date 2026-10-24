@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::algebra::Coefficient;
 
-use super::limits::{DEFAULT_MAX_MATRIX_ENTRIES, check_limit};
+use super::limits::check_limit;
 use super::{Error, NonZeroCondition, Stats};
 
 /// A checked row-major coefficient matrix.
@@ -18,16 +18,17 @@ pub struct CoefficientMatrix {
 }
 
 impl CoefficientMatrix {
+    /// Construct shape-checked data under the ambient RAM/time policy.
     pub fn try_new(
         rows: usize,
         columns: usize,
         row_major: impl IntoIterator<Item = Coefficient>,
     ) -> Result<Self, Error> {
-        Self::try_new_with_max_entries(rows, columns, row_major, DEFAULT_MAX_MATRIX_ENTRIES)
+        Self::try_new_with_max_entries(rows, columns, row_major, usize::MAX)
     }
 
-    /// Construct a matrix without consuming more than the declared payload
-    /// plus one sentinel entry.
+    /// Explicitly cap the entry count for a diagnostic, consuming at most the
+    /// declared payload plus one sentinel entry.
     pub fn try_new_with_max_entries(
         rows: usize,
         columns: usize,
@@ -39,7 +40,7 @@ impl CoefficientMatrix {
             .ok_or(Error::ResourceCountOverflow {
                 resource: "exact matrix entries",
             })?;
-        check_limit("exact matrix entries", expected, max_entries)?;
+        check_limit("exact matrix entries", expected, max_entries, true)?;
 
         let mut iterator = row_major.into_iter();
         let mut retained = Vec::new();
@@ -50,6 +51,7 @@ impl CoefficientMatrix {
                 requested: expected,
             })?;
         for actual in 0..expected {
+            super::limits::checkpoint()?;
             let Some(entry) = iterator.next() else {
                 return Err(Error::MatrixPayloadSize {
                     rows,
@@ -67,6 +69,7 @@ impl CoefficientMatrix {
                 expected,
             });
         }
+        super::limits::checkpoint()?;
         Ok(Self {
             rows,
             columns,

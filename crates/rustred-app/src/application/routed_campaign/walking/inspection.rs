@@ -10,6 +10,7 @@ use rustred::solver::{
     RoutedCandidateReducer,
 };
 use serde_json::{Value, json};
+use symbolica::utils::resources::ResourceLimitError;
 
 use super::{
     OwnerDomainWalkRequest,
@@ -173,9 +174,13 @@ pub(super) struct Finished {
     pub stats: NativeStats,
     pub error: Option<String>,
     pub error_kind: &'static str,
+    pub resource_failure: Option<ResourceLimitError>,
     pub seconds: f64,
 }
 impl Finished {
+    pub fn resource_failure(&self) -> Option<&ResourceLimitError> {
+        self.resource_failure.as_ref()
+    }
     pub fn initial_overlap_scope(&self) -> Option<InitialOverlapScope> {
         match self.stats {
             NativeStats::ApplyPartial(_, scope) => Some(scope),
@@ -196,6 +201,12 @@ impl Finished {
             NativeStats::Route(_) => 0,
         }
     }
+}
+
+pub(super) fn original_resource_failure(
+    error: &(dyn std::error::Error + 'static),
+) -> Option<ResourceLimitError> {
+    crate::AppError::resource_cause(error)
 }
 
 pub(super) fn inspect<const N: usize>(
@@ -347,6 +358,7 @@ pub(super) fn inspect_g2<const N: usize>(
             emit,
         ),
         None => Finished {
+            resource_failure: None,
             stats: NativeStats::Apply(OwnerAppliedStats::default()),
             error: None,
             error_kind: "none",
@@ -435,6 +447,7 @@ pub(super) fn abandoned<const N: usize>(
         })
     };
     Finished {
+        resource_failure: None,
         stats,
         error: None,
         error_kind: "none",
@@ -634,19 +647,22 @@ fn inspect_native_observed<const N: usize>(
             };
             emit(Event::one(effect))
         });
-    let (stats, error, error_kind) = match result {
-        Ok(stats) => (stats, None, "none"),
+    let (stats, error, error_kind, resource_failure) = match result {
+        Ok(stats) => (stats, None, "none", None),
         Err(e) => {
+            let resource_failure = original_resource_failure(&e);
             use rustred::solver::{OwnerAppliedFailure as A, OwnerDomainMatchFailure as M};
             let kind = match &e.failure {
+                A::Resources(_) | A::Matching(M::Resources(_)) => "resources",
                 A::Cancelled | A::Matching(M::Cancelled) => "cancelled",
                 A::StoppedByConsumer | A::Matching(M::StoppedByConsumer) => "consumer_stop",
                 _ => "native_failure",
             };
-            (e.stats, Some(debug(&e.failure)), kind)
+            (e.stats, Some(debug(&e.failure)), kind, resource_failure)
         }
     };
     Finished {
+        resource_failure,
         stats: NativeStats::Apply(stats),
         error_kind: if conversion_error.is_some() {
             "conversion"

@@ -1,4 +1,3 @@
 [submodule "vendor/symbolica"]
 	path = vendor/symbolica
 	url = https://github.com/symbolica-dev/symbolica
-	branch = dev

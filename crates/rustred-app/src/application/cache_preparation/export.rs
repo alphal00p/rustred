@@ -16,13 +16,14 @@ use serde_json::{Value, json};
 use super::{
     CachePreparationCapabilities, CachePreparationOptions,
     batch::CompletedCacheBatch,
+    binary_error,
     program::NativeCacheProgram,
     session::{
         NativeApplicationCache, NativeCachePreparationBackend, backing_error, guarded_error,
     },
 };
 use crate::{
-    AppError, SavedApplicationCacheBundleWriter, SavedApplicationCacheCopyStatistics,
+    AppError, AppErrorKind, SavedApplicationCacheBundleWriter, SavedApplicationCacheCopyStatistics,
     SavedApplicationCachePackLimits,
 };
 
@@ -59,7 +60,7 @@ impl CacheSaveOptions {
         let mut limits = self.storage_limits;
         limits.max_disk_bytes =
             CachePreparationOptions::resolve_disk_bytes(loop_count, self.disk_bytes, capabilities)?;
-        if limits.chunk.max_records == 0 {
+        if limits.chunk.diagnostics_enabled && limits.chunk.max_records == 0 {
             return Err(AppError::input(
                 "cache export batch allowance must be positive",
             ));
@@ -113,8 +114,13 @@ struct ExportSink<'a> {
     writer: SavedApplicationCacheBundleWriter,
     batch: CompletedCacheBatch,
     limits: SavedApplicationCachePackLimits,
+    failure: Option<AppError>,
 }
 impl ExportSink<'_> {
+    fn fail(&mut self, error: AppError) -> GuardedCacheBackingError {
+        self.failure = Some(error.clone());
+        backing_error(error)
+    }
     fn flush(&mut self) -> Result<(), AppError> {
         self.batch
             .flush(&self.bindings, &mut self.writer, |namespace| {
@@ -141,16 +147,21 @@ impl GuardedCacheBacking for ExportSink<'_> {
         record: &ApplicationCacheRecord,
         _: &CoefficientContext,
     ) -> Result<(), GuardedCacheBackingError> {
-        let weight =
-            CompletedCacheBatch::weight(record, self.limits.chunk).map_err(backing_error)?;
-        if self.batch.needs_flush(weight, self.limits.chunk) {
-            self.flush().map_err(backing_error)?;
+        let weight = CompletedCacheBatch::weight(record, self.limits.chunk)
+            .map_err(|error| self.fail(error))?;
+        if self.batch.buffered_records() >= 64 || self.batch.needs_flush(weight, self.limits.chunk)
+        {
+            self.flush().map_err(|error| self.fail(error))?;
         }
+        let owned = record
+            .try_clone_with_resources()
+            .map_err(|error| binary_error(error, AppErrorKind::Limit))
+            .map_err(|error| self.fail(error))?;
         // At most the configured bounded batch is cloned, never the whole
         // live cache. Coefficient census and native codec limits remain active.
         self.batch
-            .push(self.namespace, record.clone(), weight, self.limits.chunk)
-            .map_err(backing_error)
+            .push(self.namespace, owned, weight, self.limits.chunk)
+            .map_err(|error| self.fail(error))
     }
 }
 
@@ -195,12 +206,15 @@ fn save_sessions<P: NativeCacheProgram>(
     limits: SavedApplicationCachePackLimits,
     resume: bool,
 ) -> Result<CacheSaveReport, AppError> {
-    if limits.chunk.max_records == 0 || limits.max_disk_bytes == 0 {
+    if (limits.chunk.diagnostics_enabled && limits.chunk.max_records == 0)
+        || limits.max_disk_bytes == 0
+    {
         return Err(AppError::input(
             "live cache export needs positive batch and disk allowances",
         ));
     }
-    if sessions.is_empty() || sessions.len() > limits.max_namespaces {
+    if sessions.is_empty() || (limits.diagnostics_enabled && sessions.len() > limits.max_namespaces)
+    {
         return Err(AppError::limit("cache export namespace allowance exceeded"));
     }
     // Check aggregate report counters before any output is created.
@@ -260,6 +274,7 @@ fn save_sessions<P: NativeCacheProgram>(
         writer,
         batch: CompletedCacheBatch::new(sessions.len()),
         limits,
+        failure: None,
     };
     let mut accepted = GuardedRootExportStatistics::default();
     let mut failure = None;
@@ -267,7 +282,14 @@ fn save_sessions<P: NativeCacheProgram>(
         sink.namespace = namespace;
         let (part, error) = match session.export_to(&mut sink) {
             Ok(statistics) => (statistics, None),
-            Err(error) => (error.accepted_prefix, Some(guarded_error(error.source))),
+            Err(error) => (
+                error.accepted_prefix,
+                Some(
+                    sink.failure
+                        .take()
+                        .unwrap_or_else(|| guarded_error(error.source)),
+                ),
+            ),
         };
         if let Err(error) = add_statistics(&mut accepted, part) {
             failure = Some(error);

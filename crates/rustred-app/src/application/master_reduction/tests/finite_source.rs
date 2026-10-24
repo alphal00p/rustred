@@ -76,6 +76,7 @@ fn policy() -> Policy {
             max_live_payload_bytes: 1000000,
         },
         storage: StorageLimits {
+            diagnostics_enabled: true,
             raw: Default::default(),
             max_arity: 16,
             max_delta_records: 1000,

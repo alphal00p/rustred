@@ -13,6 +13,12 @@ impl GeneratedWorkKey {
     ) -> GeneratedWorkResult<Self> {
         use crate::solver::CandidateRoutedWork;
         let arity = work.target().powers().len();
+        checkpoint()?;
+        allocation(
+            arity
+                .checked_mul(std::mem::size_of::<i64>() + std::mem::size_of::<bool>())
+                .ok_or_else(|| resource("Work key allocation overflow"))?,
+        )?;
         if !crate::fits_storage(arity, N) {
             return Err(corrupt("native Work has invalid storage arity"));
         }
@@ -58,6 +64,7 @@ impl GeneratedWorkKey {
         }
     }
     pub fn validate(&self, arity: usize) -> GeneratedWorkResult<()> {
+        checkpoint()?;
         if arity == 0 || self.powers().len() != arity {
             return Err(corrupt("stored Work arity"));
         }

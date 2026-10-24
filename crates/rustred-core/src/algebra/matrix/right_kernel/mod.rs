@@ -12,7 +12,7 @@ mod tests;
 pub(crate) use admission::{RightKernelError, RightKernelLimits};
 
 use admission::{
-    check_limit, checked_mul, preflight_rref_bits, try_vec, try_zero_integers,
+    check_limit, checked_mul, checkpoint, preflight_rref_bits, try_vec, try_zero_integers,
     validate_rational_matrix_bits,
 };
 use native::{
@@ -58,6 +58,7 @@ fn first_primitive_right_kernel_inner(
     columns: usize,
     limits: RightKernelLimits,
 ) -> Result<RightKernelDecision, RightKernelError> {
+    checkpoint()?;
     if columns == 0 {
         return Err(RightKernelError::ZeroColumns);
     }
@@ -69,9 +70,24 @@ fn first_primitive_right_kernel_inner(
             entries: entries.len(),
         });
     }
-    check_limit("rank matrix rows", rows, limits.max_rows)?;
-    check_limit("rank matrix columns", columns, limits.max_columns)?;
-    check_limit("rank matrix entries", expected_entries, limits.max_entries)?;
+    check_limit(
+        "rank matrix rows",
+        rows,
+        limits.max_rows,
+        limits.diagnostics_enabled,
+    )?;
+    check_limit(
+        "rank matrix columns",
+        columns,
+        limits.max_columns,
+        limits.diagnostics_enabled,
+    )?;
+    check_limit(
+        "rank matrix entries",
+        expected_entries,
+        limits.max_entries,
+        limits.diagnostics_enabled,
+    )?;
     if rows > u32::MAX as usize
         || columns > u32::MAX as usize
         || expected_entries > u32::MAX as usize
@@ -84,11 +100,13 @@ fn first_primitive_right_kernel_inner(
             "certificate kernel entries",
             columns,
             limits.max_kernel_entries,
+            limits.diagnostics_enabled,
         )?;
         check_limit(
             "certificate kernel integer bits",
             1,
             limits.max_kernel_integer_bits,
+            limits.diagnostics_enabled,
         )?;
         let mut primitive_kernel = try_zero_integers(columns, "right-kernel witness")?;
         primitive_kernel[0] = Integer::one();
@@ -100,14 +118,24 @@ fn first_primitive_right_kernel_inner(
         });
     }
 
-    let rank_operations = checked_mul(expected_entries, rows.min(columns), "rank operations")?;
+    let rank_operations = if limits.diagnostics_enabled {
+        checked_mul(expected_entries, rows.min(columns), "rank operations")?
+    } else {
+        0
+    };
     check_limit(
         "rank operations",
         rank_operations,
         limits.max_rank_operations,
+        limits.diagnostics_enabled,
     )?;
-    let minor_bit_bound =
-        preflight_rref_bits(entries, rows, columns, limits.max_rref_integer_bits)?;
+    let minor_bit_bound = preflight_rref_bits(
+        entries,
+        rows,
+        columns,
+        limits.max_rref_integer_bits,
+        limits.diagnostics_enabled,
+    )?;
 
     // Preserve every original admission check before the shortcut. Reserve
     // work for both native reductions in case this prime loses rank; insufficient
@@ -126,8 +154,14 @@ fn first_primitive_right_kernel_inner(
     );
     let mut reduced = Matrix::from_linear(rational_entries, rows as u32, columns as u32, Q)
         .map_err(|_| RightKernelError::NativeShape)?;
+    checkpoint()?;
     let rank = reduced.row_reduce(columns as u32);
-    validate_rational_matrix_bits(&reduced, limits.max_rref_integer_bits)?;
+    checkpoint()?;
+    validate_rational_matrix_bits(
+        &reduced,
+        limits.max_rref_integer_bits,
+        limits.diagnostics_enabled,
+    )?;
     if rank == columns {
         return Ok(RightKernelDecision::FullColumnRank { rank });
     }
@@ -139,6 +173,7 @@ fn first_primitive_right_kernel_inner(
         "certificate kernel entries",
         columns,
         limits.max_kernel_entries,
+        limits.diagnostics_enabled,
     )?;
     let kernel_bit_bound = checked_mul(
         columns,
@@ -149,12 +184,17 @@ fn first_primitive_right_kernel_inner(
         "certificate kernel integer bits",
         kernel_bit_bound,
         limits.max_kernel_integer_bits,
+        limits.diagnostics_enabled,
     )?;
 
     let rational_kernel = deterministic_rref_kernel(&reduced, rank, columns)?;
     drop(reduced);
-    let primitive_kernel =
-        normalize_with_primitive_part(rational_kernel, columns, limits.max_kernel_integer_bits)?;
+    let primitive_kernel = normalize_with_primitive_part(
+        rational_kernel,
+        columns,
+        limits.max_kernel_integer_bits,
+        limits.diagnostics_enabled,
+    )?;
     let primitive_kernel = verify_with_native_product(entries, rows, columns, primitive_kernel)?;
 
     Ok(RightKernelDecision::Deficient {

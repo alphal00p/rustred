@@ -107,6 +107,7 @@ fn sparse_v3_roundtrip_is_bound_and_rejects_unknown_duplicate_or_out_of_range_ma
     invalid.rule_dispatch.push(invalid.rule_dispatch[0].clone());
     assert!(validate(&invalid, Default::default()).is_err());
     let limits = CandidateBundleLimits {
+        diagnostics_enabled: true,
         max_collection_entries: 0,
         ..Default::default()
     };

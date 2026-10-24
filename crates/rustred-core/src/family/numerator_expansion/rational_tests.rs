@@ -295,6 +295,7 @@ fn output_clone_budget_remains_prospective_and_simultaneous() {
         .clone_owned_bytes
         .max(size_of::<Rational>());
     let limits = MultiAffineNumeratorExpansionLimits {
+        diagnostics_enabled: true,
         max_retained_coefficient_clone_owned_bytes: 2 * fixed - 1,
         ..Default::default()
     };
@@ -312,6 +313,7 @@ fn output_clone_budget_remains_prospective_and_simultaneous() {
             &base,
             &[],
             MultiAffineNumeratorExpansionLimits {
+                diagnostics_enabled: true,
                 max_retained_coefficient_clone_owned_bytes: 2 * fixed,
                 ..limits
             }
@@ -373,7 +375,7 @@ fn reservation_callback_keeps_conservative_work_and_can_reject_before_native_wor
 fn native_q_does_not_bypass_zero_inner_term_limits_or_foreign_constants() {
     let family = family();
     let base = IntegralKey::try_new(vec![1; family.denominator_count()]).unwrap();
-    let mut limits = MultiAffineNumeratorExpansionLimits::default();
+    let mut limits = MultiAffineNumeratorExpansionLimits::default().with_diagnostics();
     limits.exact_algebra.max_polynomial_terms = 0;
     assert!(matches!(
         try_expand_multi_affine_numerator(&family, &base, &[], limits),

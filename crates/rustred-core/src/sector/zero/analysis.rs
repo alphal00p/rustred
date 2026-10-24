@@ -9,7 +9,7 @@ use crate::sector::{self, Mask, Restrictions};
 
 use super::domain::{ConditionSource, Domain};
 use super::error::Error;
-use super::limits::{Limits, check_limit};
+use super::limits::{Limits, check_limit, checkpoint};
 use super::model::{Certificate, Decision, FullColumnRank};
 use super::rank::EffectiveRankDecision;
 
@@ -57,6 +57,7 @@ impl Analyzer {
         family: &IntegralFamily,
         limits: Limits,
     ) -> Result<Self, Error> {
+        checkpoint()?;
         catch_unwind(AssertUnwindSafe(|| {
             let restrictions = Restrictions::unrestricted(family.denominator_count())?;
             Self::build(family, restrictions, limits)
@@ -69,6 +70,7 @@ impl Analyzer {
         restrictions: Restrictions,
         limits: Limits,
     ) -> Result<Self, Error> {
+        checkpoint()?;
         if restrictions.arity() != family.denominator_count() {
             return Err(Error::WrongRestrictionsArity {
                 expected: family.denominator_count(),
@@ -122,6 +124,7 @@ impl Analyzer {
             "power-shift pair checks",
             shift_pairs,
             limits.max_power_shift_pair_checks,
+            limits.diagnostics_enabled,
         )?;
         for left in 0..family.power_shifts().len() {
             for right in left + 1..family.power_shifts().len() {
@@ -160,6 +163,7 @@ impl Analyzer {
     }
 
     fn analyze_inner(&self, raw_sector: &Mask) -> Result<Decision, Error> {
+        checkpoint()?;
         if let Some(exclusion) = self.restrictions.exclusion(raw_sector)? {
             return Ok(Decision::Excluded(exclusion));
         }

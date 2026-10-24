@@ -7,6 +7,7 @@ use super::super::queue::PreparedAdmission;
 use super::super::worker_budget::WorkerBudget;
 use super::*;
 use rayon::prelude::*;
+use symbolica::utils::resources::ResourceBudget;
 
 const BATCH_RECORDS: usize = 256;
 const MIN_ADMISSIONS: usize = 16;
@@ -398,35 +399,42 @@ impl Engine {
             // Vec's indexed parallel iterator preserves every original ordinal,
             // including non-admission callbacks; no queue mutation is possible
             // until all scoped work has joined and this shared borrow ends.
+            let resources = ResourceBudget::capture_current();
             let prepared: Vec<_> = pool.install(|| {
-                #[cfg(test)]
-                if let Some(min_task_len) = self.min_task_len {
-                    return events
+                resources.run_captured(|| {
+                    #[cfg(test)]
+                    if let Some(min_task_len) = self.min_task_len {
+                        return events
+                            .into_par_iter()
+                            .with_min_len(min_task_len.get())
+                            .map(|event| {
+                                resources.run_captured(|| {
+                                    PreparedEvent::prepare(
+                                        event,
+                                        queue,
+                                        cancellation,
+                                        producer_stop,
+                                        checkpointing,
+                                    )
+                                })
+                            })
+                            .collect();
+                    }
+                    events
                         .into_par_iter()
-                        .with_min_len(min_task_len.get())
                         .map(|event| {
-                            PreparedEvent::prepare(
-                                event,
-                                queue,
-                                cancellation,
-                                producer_stop,
-                                checkpointing,
-                            )
+                            resources.run_captured(|| {
+                                PreparedEvent::prepare(
+                                    event,
+                                    queue,
+                                    cancellation,
+                                    producer_stop,
+                                    checkpointing,
+                                )
+                            })
                         })
-                        .collect();
-                }
-                events
-                    .into_par_iter()
-                    .map(|event| {
-                        PreparedEvent::prepare(
-                            event,
-                            queue,
-                            cancellation,
-                            producer_stop,
-                            checkpointing,
-                        )
-                    })
-                    .collect()
+                        .collect()
+                })
             });
             metrics.preparation_seconds += started.elapsed().as_secs_f64();
             for event in &prepared {

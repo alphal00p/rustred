@@ -601,8 +601,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             |event| observe(SearchEvent::ExactProgress(event)),
                         );
                         stats.exact_materialization = exact_start.elapsed();
-                        let exact =
-                            exact.map_err(|error| SolverError::ExactReplay(error.to_string()))?;
+                        let exact = exact.map_err(SolverError::exact_replay)?;
                         observe(SearchEvent::CanonicalizationStarted {
                             terms: exact.len(),
                             direct_hit: false,

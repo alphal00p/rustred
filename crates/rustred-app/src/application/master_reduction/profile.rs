@@ -29,9 +29,13 @@ impl MasterNormalizationProfile {
     pub(super) fn normalization_limits(self) -> TerminalNormalizationLimits {
         let standard = self == Self::StandardV1;
         let mut limits = TerminalNormalizationLimits {
+            diagnostics_enabled: false,
             parametric: VacuumParametricLimits {
+                diagnostics_enabled: false,
                 symanzik: FeynmanPolynomialLimits {
+                    diagnostics_enabled: false,
                     exact_algebra: ExactAlgebraLimits {
+                        diagnostics_enabled: false,
                         max_exponent: 65_535,
                         max_polynomial_terms: 4_000_000,
                         max_term_operations: 16_000_000,
@@ -80,6 +84,7 @@ impl MasterNormalizationProfile {
 
     pub(super) fn relation_limits(self) -> TerminalRelationLimits {
         TerminalRelationLimits {
+            diagnostics_enabled: false,
             // Campaigns have a live RAM guard. A preset column count is not a
             // memory budget and used to stop otherwise healthy refinements.
             // Callers can impose an explicit resumable operational cap.
@@ -131,6 +136,7 @@ impl MasterNormalizationProfile {
 /// admission limits; representation bounds remain enforced by native codecs.
 pub(super) fn native_io_limits(explicit: Option<BinaryIoLimits>) -> BinaryIoLimits {
     explicit.unwrap_or(BinaryIoLimits {
+        diagnostics_enabled: false,
         max_program_bytes: usize::MAX,
         max_sections: usize::MAX,
         max_collection_entries: usize::MAX,

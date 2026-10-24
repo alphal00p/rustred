@@ -320,6 +320,7 @@ fn predicate_mutation_and_resource_exhaustion_fail_closed() {
             &owners,
             &[],
             PredicateCoverLimits {
+                diagnostics_enabled: true,
                 max_predicates: 0,
                 ..Default::default()
             }

@@ -9,6 +9,7 @@ use crate::solver::{
 
 fn backend() -> SymbolicExactBackend {
     SymbolicExactBackend::SemiNumericalSourceWeights {
+        diagnostics_enabled: true,
         max_degree: 32,
         max_probes: 20_000,
         max_attempts: 4,

@@ -5,6 +5,7 @@ use super::super::super::relation::ParametricRelationError;
 /// Typed failures while constructing or applying a translated-source plan.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TranslatedSourceError {
+    Resources(symbolica::utils::resources::ResourceLimitError),
     EmptyIntegralShift,
     EmptySourceRows,
     EmptyOffsets,
@@ -53,6 +54,7 @@ pub enum TranslatedSourceError {
 impl fmt::Display for TranslatedSourceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Resources(error) => error.fmt(formatter),
             Self::EmptyIntegralShift => formatter.write_str("an integral shift cannot be empty"),
             Self::EmptySourceRows => formatter
                 .write_str("translated-source construction needs a nonempty sealed source batch"),
@@ -132,10 +134,17 @@ impl fmt::Display for TranslatedSourceError {
 impl std::error::Error for TranslatedSourceError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::Resources(error) => Some(error),
             Self::RelationTranslation { error, .. } | Self::RequestTranslation { error, .. } => {
                 Some(error)
             }
             _ => None,
         }
+    }
+}
+
+impl From<symbolica::utils::resources::ResourceLimitError> for TranslatedSourceError {
+    fn from(error: symbolica::utils::resources::ResourceLimitError) -> Self {
+        Self::Resources(error)
     }
 }

@@ -1027,7 +1027,17 @@ fn shared_owner_campaign_admits_all_steering_before_native_load() {
             .contains("ingress")
     );
     selection["load_limits"] = json!({"max_bundle_bytes":2usize*1024*1024*1024});
-    assert!(input::Selection::parse(&selection.to_string()).is_err());
+    assert!(input::Selection::parse(&selection.to_string()).is_ok());
+    let mut larger = fixture.request.clone();
+    larger.selection_json = selection.to_string();
+    routed_campaign_with_progress(larger, &AtomicBool::new(false), |_| {}).unwrap();
+    selection["load_limits"] = json!({"max_bundle_bytes":1});
+    assert!(
+        input::Selection::parse(&selection.to_string())
+            .unwrap_err()
+            .message()
+            .contains("ingress")
+    );
     selection["load_limits"] = json!({"max_bundle_bytes":true});
     assert!(input::Selection::parse(&selection.to_string()).is_err());
     selection["load_limits"] = json!({});

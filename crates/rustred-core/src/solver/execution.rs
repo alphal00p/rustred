@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use rayon::prelude::*;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use symbolica::license::LicenseManager;
+use symbolica::utils::resources::ResourceBudget;
 
 use super::{
     SectorConfig, SectorEvent, SectorSolution, SectorSolveError, SectorSolveOptions, SectorSolver,
@@ -273,9 +274,10 @@ impl SectorExecutor {
 
     /// Run preparation/assembly on the same compute pool as sector solves.
     pub fn install<R: Send>(&self, operation: impl FnOnce() -> R + Send) -> R {
+        let resources = ResourceBudget::capture_current();
         match &self.pool {
-            Some(pool) => pool.install(operation),
-            None => operation(),
+            Some(pool) => pool.install(|| resources.run_captured(operation)),
+            None => resources.run_captured(operation),
         }
     }
 
@@ -447,49 +449,54 @@ impl SectorExecutor {
                 )
             });
         }
+        let resources = ResourceBudget::capture_current();
         let operation = |ordinal: usize| {
-            let _running = self.shared.as_ref().map(|shared| shared.running());
-            let sector = sectors[ordinal];
-            let result = (|| {
-                if self
-                    .cancellation
-                    .as_ref()
-                    .is_some_and(|token| token.load(Ordering::Acquire))
-                {
-                    return Err(SectorExecutionError::Cancelled { ordinal, sector });
+            resources.run_captured(|| {
+                let _running = self.shared.as_ref().map(|shared| shared.running());
+                let sector = sectors[ordinal];
+                let result = (|| {
+                    if self
+                        .cancellation
+                        .as_ref()
+                        .is_some_and(|token| token.load(Ordering::Acquire))
+                    {
+                        return Err(SectorExecutionError::Cancelled { ordinal, sector });
+                    }
+                    let start = Instant::now();
+                    let solver = SectorSolver::new(sources, sector, configure(ordinal, sector))
+                        .map_err(|source| SectorExecutionError::Prepare {
+                            ordinal,
+                            sector,
+                            source,
+                        })?;
+                    let preconditioning = start.elapsed();
+                    let solution = solver
+                        .solve_sector_with_observer(options, |event| {
+                            observe(ordinal, sector, event)
+                        })
+                        .map_err(|source| SectorExecutionError::Solve {
+                            ordinal,
+                            sector,
+                            source,
+                        })?;
+                    drop(solver);
+                    consume(SectorCompleted {
+                        ordinal,
+                        sector,
+                        preconditioning,
+                        solution,
+                    })
+                    .map_err(|source| SectorExecutionError::Consume {
+                        ordinal,
+                        sector,
+                        source,
+                    })
+                })();
+                if let Err(error) = &result {
+                    observe_error(error);
                 }
-                let start = Instant::now();
-                let solver = SectorSolver::new(sources, sector, configure(ordinal, sector))
-                    .map_err(|source| SectorExecutionError::Prepare {
-                        ordinal,
-                        sector,
-                        source,
-                    })?;
-                let preconditioning = start.elapsed();
-                let solution = solver
-                    .solve_sector_with_observer(options, |event| observe(ordinal, sector, event))
-                    .map_err(|source| SectorExecutionError::Solve {
-                        ordinal,
-                        sector,
-                        source,
-                    })?;
-                drop(solver);
-                consume(SectorCompleted {
-                    ordinal,
-                    sector,
-                    preconditioning,
-                    solution,
-                })
-                .map_err(|source| SectorExecutionError::Consume {
-                    ordinal,
-                    sector,
-                    source,
-                })
-            })();
-            if let Err(error) = &result {
-                observe_error(error);
-            }
-            (ordinal, result)
+                (ordinal, result)
+            })
         };
         let mut results: Vec<_> = match (&self.pool, &self.shared) {
             (Some(pool), Some(shared)) => {

@@ -2,6 +2,7 @@
 //! guard provenance are supplied by the native program, never reconstructed
 //! from the requested root's guards or from a guardless coefficient memo.
 use std::sync::atomic::{AtomicBool, Ordering};
+use symbolica::utils::resources::checkpoint;
 
 use rustred::{
     algebra::CoefficientContext,
@@ -13,7 +14,7 @@ use rustred::{
 
 use super::{
     CachePreparationReport, CachePreparationResolvedOptions, batch::CompletedCacheBatch,
-    session::backing_error,
+    binary_error, resource_error, session::backing_error,
 };
 use crate::{
     AppError, AppErrorKind, SavedApplicationCacheBundleWriter, SavedApplicationCacheLookupOutcome,
@@ -94,6 +95,7 @@ impl GuardedIntermediateCapture for PreparationCapture<'_> {
         key: &ApplicationCacheKey,
         context: &CoefficientContext,
     ) -> Result<bool, GuardedCacheBackingError> {
+        checkpoint().map_err(|error| self.fail(resource_error(error)))?;
         if self.cancellation.load(Ordering::Relaxed) {
             return Err(self.fail(AppError::new(
                 AppErrorKind::Cancelled,
@@ -130,7 +132,7 @@ impl GuardedIntermediateCapture for PreparationCapture<'_> {
                     if matches!(
                         error.kind(),
                         AppErrorKind::Limit | AppErrorKind::OutputLimit
-                    ) =>
+                    ) && error.resource_limit_error().is_none() =>
                 {
                     self.report.capture_oversized_records =
                         self.report.capture_oversized_records.saturating_add(1);
@@ -146,8 +148,10 @@ impl GuardedIntermediateCapture for PreparationCapture<'_> {
                     return Err(error);
                 }
             }
-            self.pending
-                .push(self.namespace, record.clone(), weight, limits)
+            let owned = record
+                .try_clone_with_resources()
+                .map_err(|error| binary_error(error, AppErrorKind::Limit))?;
+            self.pending.push(self.namespace, owned, weight, limits)
         })();
         result.map_err(|error| {
             self.failure_is_storage = true;

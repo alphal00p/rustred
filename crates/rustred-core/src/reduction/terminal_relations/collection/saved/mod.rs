@@ -29,15 +29,21 @@ struct CollectionConditions<'a> {
     union: GuardUnion<'a>,
     retained: usize,
     limit: usize,
+    diagnostics_enabled: bool,
 }
 
 impl<'a> CollectionConditions<'a> {
-    fn new(output: &'a mut Vec<Coefficient>, limit: usize) -> Result<Self> {
+    fn new(
+        output: &'a mut Vec<Coefficient>,
+        limit: usize,
+        diagnostics_enabled: bool,
+    ) -> Result<Self> {
         let retained = output.len();
         Ok(Self {
             union: GuardUnion::try_new(output).map_err(algebra)?,
             retained,
             limit,
+            diagnostics_enabled,
         })
     }
 
@@ -51,7 +57,7 @@ impl<'a> CollectionConditions<'a> {
         self.union
             .extend_with(std::slice::from_ref(value), |_| {
                 let requested = self.retained.saturating_add(1);
-                if requested > self.limit {
+                if self.diagnostics_enabled && requested > self.limit {
                     return Err(ReductionError::CacheLimit {
                         requested,
                         limit: self.limit,
@@ -66,6 +72,7 @@ impl<'a> CollectionConditions<'a> {
                     requested,
                     limit,
                 },
+                ReductionError::Resources(error) => VacuumCollectionError::Resources(error),
                 other => algebra(other),
             })
     }
@@ -88,6 +95,7 @@ fn with_additional_conditions(
 
 #[derive(Clone, Copy, Debug)]
 pub struct TerminalCollectionLimits {
+    pub diagnostics_enabled: bool,
     pub diagonal: VacuumDiagonalCollectionLimits,
     /// Retained finite sessions have a larger support than diagonal discovery.
     /// These are checked retained-matrix bounds, not a peak-memory guarantee.
@@ -99,6 +107,7 @@ pub struct TerminalCollectionLimits {
 impl Default for TerminalCollectionLimits {
     fn default() -> Self {
         Self {
+            diagnostics_enabled: false,
             diagonal: Default::default(),
             finite_feedback: VacuumDiagonalCollectionLimits {
                 max_source_rows: 1_000_000,
@@ -331,6 +340,7 @@ impl TerminalCollectionPlan {
             "collection proof layers",
             candidate.layer_ends.len(),
             limits.max_proof_layers,
+            limits.diagnostics_enabled,
         )?;
         Ok(candidate)
     }
@@ -343,6 +353,7 @@ impl TerminalCollectionPlan {
             "collection families",
             sessions.len(),
             limits.diagonal.aliases.max_families,
+            limits.diagonal.aliases.diagnostics_enabled,
         )?;
         let mut seen = BTreeSet::new();
         for session in sessions {
@@ -366,6 +377,7 @@ impl TerminalCollectionPlan {
             "collection proof layers",
             layer_ends.len(),
             limits.max_proof_layers,
+            limits.diagnostics_enabled,
         )?;
         if layer_ends.last().copied().unwrap_or(0) != proofs.len()
             || layer_ends.windows(2).any(|pair| pair[0] >= pair[1])
@@ -377,6 +389,7 @@ impl TerminalCollectionPlan {
             "finite feedback layers",
             feedbacks.len(),
             limits.max_proof_layers,
+            limits.diagnostics_enabled,
         )?;
         if feedbacks.iter().any(|f| f.after_layer > layer_ends.len())
             || feedbacks
@@ -457,8 +470,11 @@ impl TerminalCollectionPlan {
             let local_remaining = session.remaining_terminals();
             let local = session.apply_all_terminals()?;
             let mut conditions = Vec::new();
-            let mut condition_union =
-                CollectionConditions::new(&mut conditions, limits.diagonal.max_conditions)?;
+            let mut condition_union = CollectionConditions::new(
+                &mut conditions,
+                limits.diagonal.max_conditions,
+                limits.diagonal.diagnostics_enabled,
+            )?;
             for condition in session.nonzero_conditions() {
                 condition_union.retain(condition)?;
             }
@@ -530,6 +546,7 @@ impl TerminalCollectionPlan {
                 let mut row_condition_union = CollectionConditions::new(
                     &mut additional_conditions,
                     limits.diagonal.max_conditions,
+                    limits.diagonal.diagnostics_enabled,
                 )?;
                 // The resource bound applies to base plus genuinely new
                 // guards, even though only the additions are retained here.
@@ -576,13 +593,19 @@ impl TerminalCollectionPlan {
                         "intermediate composed map terms",
                         next_terms.len(),
                         limits.max_composed_terms,
+                        limits.diagnostics_enabled,
                     )?;
                     terms = next_terms;
                 }
                 drop(row_condition_union);
                 let row_conditions = with_additional_conditions(&conditions, additional_conditions);
                 total_terms = total_terms.saturating_add(terms.len());
-                check("composed map terms", total_terms, limits.max_composed_terms)?;
+                check(
+                    "composed map terms",
+                    total_terms,
+                    limits.max_composed_terms,
+                    limits.diagnostics_enabled,
+                )?;
                 remaining.extend(terms.keys().cloned());
                 raw.insert(VacuumIntegralKey::from_family(family, target.clone()));
                 rows.insert(
@@ -708,5 +731,14 @@ impl TerminalCollectionPlan {
         io: BinaryIoLimits,
     ) -> Result<Self> {
         codec::decode(bytes, sessions, limits, io)
+    }
+}
+
+impl TerminalCollectionLimits {
+    pub fn with_diagnostics(mut self) -> Self {
+        self.diagnostics_enabled = true;
+        self.diagonal = self.diagonal.with_diagnostics();
+        self.finite_feedback = self.finite_feedback.with_diagnostics();
+        self
     }
 }

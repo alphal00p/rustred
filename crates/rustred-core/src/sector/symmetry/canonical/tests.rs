@@ -120,6 +120,59 @@ fn authenticated_sunset_generators_close_to_exact_s3() {
 }
 
 #[test]
+fn symmetry_and_canonical_counts_require_diagnostic_opt_in() {
+    let family = sunset_family();
+    let map = vacuum_map(family.coefficient_context(), [0, 1, 1, 0]);
+    let limits = Limits {
+        max_matrix_entries: 0,
+        max_exact_operations: 0,
+        max_symbolica_single_matrix_entries: 0,
+        max_symbolica_live_matrix_entries: 0,
+        max_symbolica_input_retained_bytes: 0,
+        max_symbolica_output_retained_bytes: 0,
+        max_nonzero_conditions: 0,
+        max_condition_sources: 0,
+        ..Limits::default()
+    };
+    let verified = verify(&family, &family, map.clone(), limits).unwrap();
+    let enabled = limits.with_diagnostics();
+    assert!(enabled.diagnostics_enabled);
+    assert!(enabled.exact_algebra.diagnostics_enabled);
+    assert!(matches!(
+        verify(&family, &family, map, enabled),
+        Err(crate::sector::symmetry::Error::ResourceLimit { limit: 0, .. })
+    ));
+    let generator = compile(&family, verified).unwrap();
+    let action_limits = CanonicalizationLimits {
+        max_generators: 0,
+        max_group_order: 0,
+        max_group_entries: 0,
+        ..CanonicalizationLimits::default()
+    };
+    let owner =
+        Canonicalizer::try_new(OrderingPolicy::default(), [generator], action_limits).unwrap();
+    assert_eq!(owner.group_order(), 2);
+    let priority_limits = CoordinatePriorityActionLimits {
+        max_orbit_images: 0,
+        max_quotient_priorities: 0,
+        max_retained_rank_entries: 0,
+        max_transport_rank_entries: 0,
+        ..CoordinatePriorityActionLimits::default()
+    };
+    assert_eq!(
+        owner
+            .coordinate_priority_quotient(priority_limits)
+            .unwrap()
+            .class_count(),
+        3
+    );
+    assert!(matches!(
+        owner.coordinate_priority_quotient(priority_limits.with_diagnostics()),
+        Err(Error::ResourceLimit { limit: 0, .. })
+    ));
+}
+
+#[test]
 fn canonicalizer_rejects_same_arity_generators_from_distinct_families() {
     let first = sunset_family_with_identity("canonical-symmetry-family-first");
     let second = sunset_family_with_identity("canonical-symmetry-family-second");
@@ -209,7 +262,7 @@ fn construction_limits_fail_before_unbounded_group_retention() {
             [generator],
             CanonicalizationLimits {
                 max_group_order: 1,
-                ..CanonicalizationLimits::default()
+                ..CanonicalizationLimits::default().with_diagnostics()
             },
         )
         .unwrap_err(),
@@ -354,6 +407,7 @@ fn coordinate_priority_actions_reject_wrong_arity_ordinals_and_resource_overruns
         owner.coordinate_priority_orbit(
             &priority,
             CoordinatePriorityActionLimits {
+                diagnostics_enabled: true,
                 max_orbit_images: 5,
                 ..action_limits
             },
@@ -369,6 +423,7 @@ fn coordinate_priority_actions_reject_wrong_arity_ordinals_and_resource_overruns
             .coordinate_priority_orbit(
                 &priority,
                 CoordinatePriorityActionLimits {
+                    diagnostics_enabled: true,
                     max_orbit_images: 6,
                     ..action_limits
                 },
@@ -379,6 +434,7 @@ fn coordinate_priority_actions_reject_wrong_arity_ordinals_and_resource_overruns
     );
     assert_eq!(
         owner.coordinate_priority_quotient(CoordinatePriorityActionLimits {
+            diagnostics_enabled: true,
             max_quotient_priorities: 5,
             ..action_limits
         }),
@@ -393,6 +449,7 @@ fn coordinate_priority_actions_reject_wrong_arity_ordinals_and_resource_overruns
             &priority,
             0,
             CoordinatePriorityActionLimits {
+                diagnostics_enabled: true,
                 max_retained_rank_entries: 2,
                 ..action_limits
             },
@@ -409,6 +466,7 @@ fn coordinate_priority_actions_reject_wrong_arity_ordinals_and_resource_overruns
     // admission boundary is 6*3 + 2*3 + 2*3 = 30 rank entries.
     let c2 = sunset_swap_c2();
     let exact_small_group_limit = CoordinatePriorityActionLimits {
+        diagnostics_enabled: true,
         max_retained_rank_entries: 30,
         ..action_limits
     };
@@ -429,6 +487,7 @@ fn coordinate_priority_actions_reject_wrong_arity_ordinals_and_resource_overruns
     }
     assert_eq!(
         c2.coordinate_priority_quotient(CoordinatePriorityActionLimits {
+            diagnostics_enabled: true,
             max_retained_rank_entries: 29,
             ..action_limits
         }),

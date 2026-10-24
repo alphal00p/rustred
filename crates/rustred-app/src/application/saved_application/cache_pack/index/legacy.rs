@@ -1,11 +1,12 @@
 //! Bounded structural import of index02; native chunk payloads are unchanged.
 //! Only tests write this layout. New checkpoints and copies always write03.
+#[cfg(test)]
 use super::*;
 
 pub(super) const MAGIC: &[u8; 16] = b"RR-CACHE-PACK-02";
 
-#[derive(bincode::Decode)]
-#[cfg_attr(test, derive(bincode::Encode))]
+#[cfg(test)]
+#[derive(bincode::Encode)]
 struct Chunk02 {
     digest: [u8; 32],
     bytes: u64,
@@ -16,43 +17,13 @@ struct Chunk02 {
     last: ApplicationCacheKey,
 }
 
-#[derive(bincode::Decode)]
-#[cfg_attr(test, derive(bincode::Encode))]
+#[cfg(test)]
+#[derive(bincode::Encode)]
 struct Manifest02 {
     binding: ApplicationCacheBinding,
     bundle_managed: bool,
     generation: u64,
     runs: Vec<Vec<Chunk02>>,
-}
-
-pub(super) fn decode(bytes: &[u8]) -> Result<(Manifest, usize), AppError> {
-    let (old, consumed): (Manifest02, usize) =
-        bincode::decode_from_slice(bytes, bincode::config::standard().with_limit::<MAX_FRAME>())
-            .map_err(fail)?;
-    let manifest = Manifest {
-        binding: old.binding,
-        bundle_managed: old.bundle_managed,
-        generation: old.generation,
-        runs: old
-            .runs
-            .into_iter()
-            .map(|run| {
-                run.into_iter()
-                    .map(|chunk| Chunk {
-                        digest: chunk.digest,
-                        bytes: chunk.bytes,
-                        decoded_digest: chunk.decoded_digest,
-                        decoded_bytes: chunk.decoded_bytes,
-                        records: chunk.records,
-                        first: chunk.first,
-                        last: chunk.last,
-                        key_fingerprints: None,
-                    })
-                    .collect()
-            })
-            .collect(),
-    };
-    Ok((manifest, consumed))
 }
 
 #[cfg(test)]

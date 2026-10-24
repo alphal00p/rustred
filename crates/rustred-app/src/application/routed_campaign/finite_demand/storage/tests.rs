@@ -39,6 +39,7 @@ impl Drop for Scratch {
 }
 fn limits() -> StorageLimits {
     StorageLimits {
+        diagnostics_enabled: true,
         raw: RawCensusLimits {
             max_page_records: 2,
             ..Default::default()

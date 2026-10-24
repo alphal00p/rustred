@@ -181,6 +181,7 @@ fn factorized_resource_boundaries_and_dense_native_quotients_are_checked() {
     let context = CoefficientContext::new(["x"]);
     let value = factor(&context, "1/(x+1)^4");
     let exact = ExactAlgebraLimits {
+        diagnostics_enabled: true,
         max_polynomial_terms: 5,
         ..Default::default()
     };
@@ -190,6 +191,7 @@ fn factorized_resource_boundaries_and_dense_native_quotients_are_checked() {
             &context,
             value.value.clone(),
             ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_polynomial_terms: 4,
                 ..exact
             }
@@ -200,6 +202,7 @@ fn factorized_resource_boundaries_and_dense_native_quotients_are_checked() {
         value.materialize(
             &context,
             ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_term_operations: 24,
                 ..exact
             }
@@ -210,6 +213,7 @@ fn factorized_resource_boundaries_and_dense_native_quotients_are_checked() {
         .materialize(
             &context,
             ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_term_operations: 25,
                 ..exact
             },
@@ -222,6 +226,7 @@ fn factorized_resource_boundaries_and_dense_native_quotients_are_checked() {
             &b,
             &context,
             ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_polynomial_terms: 2,
                 ..Default::default()
             }
@@ -233,6 +238,7 @@ fn factorized_resource_boundaries_and_dense_native_quotients_are_checked() {
             &b,
             &context,
             ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_term_operations: 0,
                 ..Default::default()
             }
@@ -247,7 +253,7 @@ fn cache_weight_covers_stored_factors_and_expanded_payload_terms() {
     for expression in ["1", "1/(x+1)^8", "123456789012345678901234567890/(x^3+1)"] {
         let value = factor(&context, expression);
         let ordinary = value.materialize(&context, Default::default()).unwrap();
-        let (terms, bytes) = value.cache_weight().unwrap();
+        let (terms, bytes) = value.cache_weight(true).unwrap();
         assert!(terms >= ordinary.numerator.nterms() + ordinary.denominator.nterms());
         assert!(
             terms
@@ -261,7 +267,7 @@ fn cache_weight_covers_stored_factors_and_expanded_payload_terms() {
                     + 2
         );
         assert!(bytes >= size_of::<Native>());
-        assert_eq!((terms, bytes), value.cache_weight().unwrap());
+        assert_eq!((terms, bytes), value.cache_weight(true).unwrap());
     }
 }
 
@@ -273,6 +279,7 @@ fn sealed_operands_recheck_stricter_current_limits_before_zero_shortcuts() {
         (
             "x^3+1",
             ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_exponent: 2,
                 ..Default::default()
             },
@@ -280,6 +287,7 @@ fn sealed_operands_recheck_stricter_current_limits_before_zero_shortcuts() {
         (
             "1/(x+1)^3",
             ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_exponent: 2,
                 ..Default::default()
             },
@@ -287,6 +295,7 @@ fn sealed_operands_recheck_stricter_current_limits_before_zero_shortcuts() {
         (
             "x^2+x+1",
             ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_polynomial_terms: 2,
                 ..Default::default()
             },
@@ -294,6 +303,7 @@ fn sealed_operands_recheck_stricter_current_limits_before_zero_shortcuts() {
         (
             "1/(x+1)^3",
             ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_polynomial_terms: 3,
                 ..Default::default()
             },
@@ -314,6 +324,7 @@ fn sealed_operands_recheck_stricter_current_limits_before_zero_shortcuts() {
     }
     let value = factor(&context, "x+1");
     let no_work = ExactAlgebraLimits {
+        diagnostics_enabled: true,
         max_term_operations: 0,
         ..Default::default()
     };
@@ -397,4 +408,21 @@ fn sealed_resource_admission_matches_full_authentication_on_fixture_grid() {
             }
         }
     }
+}
+
+#[test]
+fn normal_factorized_cache_counts_stored_terms_without_expanding_diagnostic_envelopes() {
+    let context = CoefficientContext::new((0..80).map(|axis| format!("envelope_axis_{axis}")));
+    let mut value = factor(&context, "1");
+    for axis in 0..80 {
+        let next = factor(&context, &format!("1/(envelope_axis_{axis}+1)"));
+        value = value.try_mul(&next, &context, Default::default()).unwrap();
+    }
+    let (stored_terms, bytes) = value.cache_weight(false).unwrap();
+    assert_eq!(stored_terms, 163);
+    assert!(bytes >= size_of::<Native>());
+    assert!(matches!(
+        value.cache_weight(true),
+        Err(ExactAlgebraError::ResourceCountOverflow { .. })
+    ));
 }

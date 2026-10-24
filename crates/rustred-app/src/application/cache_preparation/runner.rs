@@ -12,10 +12,11 @@ use rustred::{
     reduction::GuardedIntermediateCapture,
 };
 use serde_json::{Value, json};
+use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits, checkpoint};
 
 use super::{
     CachePreparationResolvedOptions, CachePreparationTarget, CachePreparationWorkload,
-    batch::CompletedCacheBatch, capture::PreparationCapture,
+    batch::CompletedCacheBatch, capture::PreparationCapture, resource_error,
 };
 use crate::{
     AppError, AppErrorKind, SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter,
@@ -140,6 +141,9 @@ pub struct CachePreparationReport {
     /// current at every observer callback independently of this sampling.
     pub native_statistics: Value,
     pub failure: Option<AppError>,
+    /// Actual ambient memory/time failure, separate from a storage quota or
+    /// caller-selected diagnostic count refusal.
+    pub resource_failure: Option<ResourceLimitError>,
     pub checkpoint_failure: Option<AppError>,
 }
 
@@ -202,6 +206,14 @@ impl CachePreparationReport {
             "options": self.options, "native_profile": self.native_profile,
             "native_statistics": self.native_statistics,
             "failure": self.failure.as_ref().map(|e| json!({"kind": e.kind().as_str(), "detail": e.message()})),
+            "resource_failure": self.resource_failure.as_ref().map(|error| json!({
+                "resource": match error {
+                    ResourceLimitError::Memory { .. } => "memory",
+                    ResourceLimitError::Elapsed { .. } => "elapsed",
+                    ResourceLimitError::MonitorUnavailable { resource, .. } => resource,
+                },
+                "detail": error.to_string(),
+            })),
             "checkpoint_failure": self.checkpoint_failure.as_ref().map(|e| json!({"kind": e.kind().as_str(), "detail": e.message()})),
             "capture_profile": CAPTURE_PROFILE,
             "resume_semantics": "durable selected roots and guarded intermediates; no in-flight native operation state",
@@ -209,6 +221,10 @@ impl CachePreparationReport {
         })
     }
     fn stop(&mut self, error: AppError, storage: bool) {
+        if let Some(resource) = error.resource_limit_error().cloned() {
+            self.stop_resource(resource);
+            return;
+        }
         self.status = match error.kind() {
             AppErrorKind::Cancelled => CachePreparationStatus::Cancelled,
             AppErrorKind::Limit | AppErrorKind::OutputLimit if storage => {
@@ -220,6 +236,34 @@ impl CachePreparationReport {
             _ => CachePreparationStatus::Failed,
         };
         self.failure = Some(error);
+    }
+
+    fn stop_resource(&mut self, error: ResourceLimitError) {
+        self.status = match &error {
+            ResourceLimitError::Elapsed { .. } => CachePreparationStatus::TimeBudget,
+            _ => CachePreparationStatus::ResourceRefusal,
+        };
+        self.failure = Some(resource_error(error.clone()));
+        self.resource_failure = Some(error);
+    }
+
+    fn checkpoint_failed(&mut self, error: AppError) {
+        if let Some(resource) = error.resource_limit_error().cloned() {
+            if self.failure.is_none()
+                && matches!(
+                    self.status,
+                    CachePreparationStatus::Running | CachePreparationStatus::Complete
+                )
+            {
+                self.stop_resource(resource);
+            } else if self.resource_failure.is_none() {
+                self.resource_failure = Some(resource);
+            }
+        }
+        self.checkpoint_failure = Some(error);
+        if self.status == CachePreparationStatus::Complete {
+            self.status = CachePreparationStatus::Failed;
+        }
     }
 }
 
@@ -234,9 +278,24 @@ struct Checkpoint {
     native_profile: String,
     capture_profile: String,
 }
+
+/// Borrowed checkpoint fields prevent a malicious string-length prefix from
+/// causing an allocation before the full metadata structure has been checked.
+#[derive(bincode::BorrowDecode)]
+struct CheckpointView<'a> {
+    version: u32,
+    workload: [u8; 32],
+    total: u64,
+    completed: u64,
+    status: &'a str,
+    options: &'a str,
+    native_profile: &'a str,
+    capture_profile: &'a str,
+}
 const CAPTURE_PROFILE: &str = "completed-intermediates-with-local-guard-provenance-v1";
 impl Checkpoint {
     fn verify(bytes: &[u8], workload: &CachePreparationWorkload) -> Result<(), AppError> {
+        checkpoint().map_err(resource_error)?;
         let (version, _): (u32, usize) =
             bincode::decode_from_slice(bytes, bincode::config::standard())
                 .map_err(|error| AppError::serialization(error.to_string()))?;
@@ -245,22 +304,33 @@ impl Checkpoint {
                 "cache preparation capture profile changed; use a new output directory to capture intermediate descendants",
             ));
         }
-        let (checkpoint, used): (Self, usize) = bincode::decode_from_slice(
-            bytes,
-            bincode::config::standard().with_limit::<{ 64 * 1024 * 1024 }>(),
-        )
-        .map_err(|error| AppError::serialization(error.to_string()))?;
+        let (view, used): (CheckpointView<'_>, usize) =
+            bincode::borrow_decode_from_slice(bytes, bincode::config::standard())
+                .map_err(|error| AppError::serialization(error.to_string()))?;
         if used != bytes.len()
-            || checkpoint.version != 2
-            || checkpoint.capture_profile != CAPTURE_PROFILE
-            || checkpoint.workload != *workload.digest()
-            || checkpoint.total != workload.targets().len() as u64
-            || checkpoint.completed > checkpoint.total
+            || view.version != 2
+            || view.capture_profile != CAPTURE_PROFILE
+            || view.workload != *workload.digest()
+            || view.total != workload.targets().len() as u64
+            || view.completed > view.total
+            || ![
+                "running",
+                "complete",
+                "time-budget",
+                "cancelled",
+                "storage-budget",
+                "resource-refusal",
+                "failed",
+            ]
+            .contains(&view.status)
+            || view.options.is_empty()
+            || view.native_profile.is_empty()
         {
             return Err(AppError::input(
                 "cache preparation checkpoint/workload mismatch",
             ));
         }
+        checkpoint().map_err(resource_error)?;
         Ok(())
     }
     fn publish(
@@ -268,6 +338,7 @@ impl Checkpoint {
         report: &CachePreparationReport,
         writer: &mut SavedApplicationCacheBundleWriter,
     ) -> Result<(), AppError> {
+        checkpoint().map_err(resource_error)?;
         let checkpoint = Self {
             version: 2,
             workload: *workload.digest(),
@@ -347,22 +418,54 @@ pub(super) fn prepare_application_cache_with_progress_clock(
     output: &Path,
     cancellation: &AtomicBool,
     backend: &mut impl CachePreparationBackend,
+    observer: impl FnMut(&CachePreparationReport) -> Result<(), AppError>,
+    progress_clock: impl FnMut(Instant) -> Duration,
+) -> Result<CachePreparationReport, AppError> {
+    // This single scope covers validation, configuration, resume I/O, every
+    // root and final publication. Nested native calls inherit the same clock.
+    let started = Instant::now();
+    ResourceBudget::new(ResourceLimits {
+        max_process_rss_bytes: None,
+        max_elapsed: Some(options.time_limit),
+    })
+    .run(|| {
+        prepare_application_cache_in_scope(
+            workload,
+            options,
+            output,
+            cancellation,
+            backend,
+            observer,
+            progress_clock,
+            started,
+        )
+    })
+}
+
+fn prepare_application_cache_in_scope(
+    workload: &CachePreparationWorkload,
+    options: &CachePreparationResolvedOptions,
+    output: &Path,
+    cancellation: &AtomicBool,
+    backend: &mut impl CachePreparationBackend,
     mut observer: impl FnMut(&CachePreparationReport) -> Result<(), AppError>,
     mut progress_clock: impl FnMut(Instant) -> Duration,
+    started: Instant,
 ) -> Result<CachePreparationReport, AppError> {
     options.validate()?;
+    checkpoint().map_err(resource_error)?;
     if workload.bindings() != backend.bindings() {
         return Err(AppError::input(
             "cache workload differs from active program bindings",
         ));
     }
-    if workload.targets().len() > options.max_roots {
+    if options.diagnostics_enabled && workload.targets().len() > options.max_roots {
         return Err(AppError::limit(
             "cache workload exceeds resolved root allowance",
         ));
     }
     backend.configure(options)?;
-    let started = Instant::now();
+    checkpoint().map_err(resource_error)?;
     let existed = output
         .try_exists()
         .map_err(|e| AppError::input(e.to_string()))?;
@@ -429,6 +532,7 @@ pub(super) fn prepare_application_cache_with_progress_clock(
         native_profile: backend.operational_profile(),
         native_statistics: Value::Null,
         failure: None,
+        resource_failure: None,
         checkpoint_failure: None,
     };
     let mut progress = ProgressRefresh::default();
@@ -451,8 +555,8 @@ pub(super) fn prepare_application_cache_with_progress_clock(
             report.status = CachePreparationStatus::Cancelled;
             break;
         }
-        if report.elapsed >= options.time_limit {
-            report.status = CachePreparationStatus::TimeBudget;
+        if let Err(error) = checkpoint() {
+            report.stop_resource(error);
             break;
         }
         if let Err(error) = progress.refresh(
@@ -581,7 +685,7 @@ pub(super) fn prepare_application_cache_with_progress_clock(
             if report.failure.is_none() {
                 report.stop(error, true);
             } else {
-                report.checkpoint_failure = Some(error);
+                report.checkpoint_failed(error);
             }
         }
     }
@@ -604,10 +708,7 @@ pub(super) fn prepare_application_cache_with_progress_clock(
         // not a failed checkpoint and must not overwrite that separate receipt.
     }
     if let Err(error) = Checkpoint::publish(workload, &report, &mut writer) {
-        report.checkpoint_failure = Some(error);
-        if report.status == CachePreparationStatus::Complete {
-            report.status = CachePreparationStatus::Failed;
-        }
+        report.checkpoint_failed(error);
     }
     report.charged_disk_bytes = writer.charged_disk_bytes()?;
     // Never announce completion until the final progress checkpoint is durable.
@@ -615,10 +716,81 @@ pub(super) fn prepare_application_cache_with_progress_clock(
         if report.failure.is_none() {
             report.stop(error, false);
             if let Err(error) = Checkpoint::publish(workload, &report, &mut writer) {
-                report.checkpoint_failure = Some(error);
+                report.checkpoint_failed(error);
             }
             report.charged_disk_bytes = writer.charged_disk_bytes()?;
         }
     }
+    // The final observer is also part of this job. An opaque callback may
+    // overrun cooperatively, but its completed call cannot return success after
+    // an elapsed/RSS failure observed here.
+    if let Err(error) = checkpoint() {
+        if report.failure.is_none() {
+            report.stop_resource(error);
+            if let Err(error) = Checkpoint::publish(workload, &report, &mut writer) {
+                report.checkpoint_failed(error);
+            }
+        } else if report.resource_failure.is_none() {
+            report.resource_failure = Some(error);
+        }
+    }
+    report.elapsed = started.elapsed();
     Ok(report)
+}
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+    use rustred::family::IntegralKey;
+
+    #[test]
+    fn checkpoint_strings_are_borrowed_only_after_complete_structural_decoding() {
+        let workload = CachePreparationWorkload::explicit_with_diagnostic_limit(
+            vec![ApplicationCacheBinding {
+                artifact_digest: [19; 32],
+                family_fingerprint: "checkpoint-structure-test".into(),
+                physical_arity: 1,
+                layer: "checkpoint-structure-test".into(),
+            }],
+            [(0, IntegralKey::try_new([1]).unwrap())],
+            None,
+        )
+        .unwrap();
+        let encoded = bincode::encode_to_vec(
+            Checkpoint {
+                version: 2,
+                workload: *workload.digest(),
+                total: 1,
+                completed: 1,
+                status: "complete".into(),
+                options: "{}".into(),
+                native_profile: "{}".into(),
+                capture_profile: CAPTURE_PROFILE.into(),
+            },
+            bincode::config::standard(),
+        )
+        .unwrap();
+        Checkpoint::verify(&encoded, &workload).unwrap();
+        let mut trailing = encoded;
+        trailing.push(0);
+        assert_eq!(
+            Checkpoint::verify(&trailing, &workload).unwrap_err().kind(),
+            AppErrorKind::Input
+        );
+
+        // An untrusted length prefix cannot request an owned String allocation:
+        // the borrowed decoder must first find its bytes in this exact frame.
+        let mut malformed = bincode::encode_to_vec(
+            (2_u32, *workload.digest(), 1_u64, 0_u64),
+            bincode::config::standard(),
+        )
+        .unwrap();
+        malformed.extend(bincode::encode_to_vec(u64::MAX, bincode::config::standard()).unwrap());
+        assert_eq!(
+            Checkpoint::verify(&malformed, &workload)
+                .unwrap_err()
+                .kind(),
+            AppErrorKind::Serialization
+        );
+    }
 }
