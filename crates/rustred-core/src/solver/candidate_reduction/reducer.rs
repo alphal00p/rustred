@@ -14,8 +14,9 @@ use crate::sector::{OrderingPolicy, zero};
 use super::cache::{self, CacheEntry, CachedTerms};
 use super::capture::CaptureObserver;
 use super::model::{
-    CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
-    CandidateReductionError, CandidateStatistics, PreparedRule, UnresolvedPolicy,
+    CandidateCacheRepresentation, CandidateDecomposition, CandidateFamilyAdmission,
+    CandidateReachabilityReport, CandidateReductionError, CandidateStatistics, PreparedRule,
+    UnresolvedPolicy,
 };
 
 /// A request-scoped lookup of complete, already validated guarded records.
@@ -29,6 +30,8 @@ pub(super) type CandidateGuardedLookup<'a, E> =
 #[derive(Debug)]
 pub(super) struct CandidateProgram<const N: usize> {
     pub(super) family_fingerprint: Arc<String>,
+    /// Family-shape admission the program was prepared under.
+    pub(super) admission: CandidateFamilyAdmission,
     pub(super) context: IndexedCoefficientContext,
     pub(super) root_sector: [bool; N],
     pub(super) max_numerator_rank: Option<u32>,
@@ -119,6 +122,12 @@ impl<const N: usize> CandidateReducer<N> {
     /// The declared root sector (positions that may carry positive powers).
     pub fn root_sector(&self) -> [bool; N] {
         self.program.root_sector
+    }
+    /// The family-shape admission this program was prepared under. Consumers
+    /// that assume unit masses must refuse
+    /// [`CandidateFamilyAdmission::ParametricVacuum`] programs.
+    pub fn admission(&self) -> CandidateFamilyAdmission {
+        self.program.admission
     }
     pub fn index_count(&self) -> usize {
         N

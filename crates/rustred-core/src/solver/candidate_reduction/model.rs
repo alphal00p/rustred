@@ -42,8 +42,12 @@ pub enum CandidateFamilyAdmission {
     /// UNCERTIFIED lane: any uncut, unshifted vacuum family, including
     /// symbolic or numeric masses and extra parameters (e.g. a deformation
     /// `D_s -> D_s - eta`, or a numeric `d` with only `eta` symbolic). Only
-    /// the unit-mass predicate is bypassed; unit-mass consumers (terminal
-    /// aliases, common-mass powers, closing artifacts) must not be fed from it.
+    /// the unit-mass predicate is bypassed. The admission is recorded on the
+    /// program ([`crate::solver::CandidateReducer::admission`]). The exact
+    /// applier accepts it, but consumers that assume unit masses (for
+    /// example common-mass power extraction) must check it and refuse such
+    /// programs. A candidate program is never a closing artifact under
+    /// either policy.
     ParametricVacuum,
 }
 

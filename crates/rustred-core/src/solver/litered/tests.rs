@@ -147,10 +147,18 @@ fn parametric_admission_only_bypasses_the_unit_mass_predicate() {
         Err(CandidateReductionError::UnsupportedFamily(_))
     ));
     let mut parametric = reducer(&family, CandidateFamilyAdmission::ParametricVacuum);
+    assert_eq!(
+        parametric.admission(),
+        CandidateFamilyAdmission::ParametricVacuum
+    );
     let decomposition = parametric.reduce_unit_mass(&key([2, 1, 1])).unwrap();
     assert!(!decomposition.is_zero());
     // The unit-mass family still passes the strict default policy.
-    let _ = reducer(&sunset(false), CandidateFamilyAdmission::UnitMassVacuum);
+    let unit_mass = reducer(&sunset(false), CandidateFamilyAdmission::UnitMassVacuum);
+    assert_eq!(
+        unit_mass.admission(),
+        CandidateFamilyAdmission::UnitMassVacuum
+    );
 }
 
 #[test]
