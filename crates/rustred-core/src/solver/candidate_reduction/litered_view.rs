@@ -1,17 +1,18 @@
 //! Crate-private, read-only view of one prepared candidate program for the
 //! modular LiteRed DAG lane (`crate::solver::litered`).
 //!
-//! The view exposes the exact prepared formulas and the exact one-step
-//! evaluator. It grants no authority beyond the candidate applier's own:
-//! formulas still carry no source-replay provenance or cover proof.
+//! The view exposes the exact prepared formulas (and, for tests, the exact
+//! rule selection of the ordinary evaluator). It grants no authority beyond
+//! the candidate applier's own: formulas still carry no source-replay
+//! provenance or cover proof.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::model::{CandidateReductionError, PreparedRule};
+use super::model::PreparedRule;
 use super::reducer::{CandidateProgram, CandidateReducer};
-use crate::algebra::{Coefficient, IndexedCoefficientContext, IndexedPolynomial};
+use crate::algebra::{IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::IntegralKey;
-use crate::reduction::{ReductionLimits, ReductionRequest, ReductionStatistics};
+use crate::reduction::ReductionLimits;
 use crate::sector::OrderingPolicy;
 
 #[derive(Clone, Copy, Debug)]
@@ -65,26 +66,14 @@ impl<'a, const N: usize> CandidateProgramView<'a, N> {
     }
 
     /// Exact baseline and selected rule ordinals of the ordinary evaluator.
+    #[cfg(test)]
     pub(crate) fn exact_selection(
         &self,
         target: &IntegralKey,
-    ) -> Result<(usize, usize), CandidateReductionError> {
+    ) -> Result<(usize, usize), super::model::CandidateReductionError> {
         let evaluator = self.program.evaluator(target, self.limits)?;
         evaluator.validate_target(target)?;
         let (baseline, selected) = evaluator.selected_rule(target)?;
         Ok((baseline.ordinal, selected.ordinal))
-    }
-
-    /// Exact one-step application of the ordinary evaluator (zero-sector
-    /// children dropped, strict descent checked, RHS coalesced exactly).
-    pub(crate) fn exact_step(
-        &self,
-        target: &IntegralKey,
-    ) -> Result<BTreeMap<IntegralKey, Coefficient>, CandidateReductionError> {
-        let mut request = ReductionRequest::default();
-        let mut statistics = ReductionStatistics::default();
-        let evaluator = self.program.evaluator(target, self.limits)?;
-        evaluator.validate_target(target)?;
-        evaluator.apply(target, &mut request, &mut statistics)
     }
 }
