@@ -150,5 +150,6 @@ pub fn load_generated_candidate_checkpoint<const N: usize>(
         ordering,
         request.max_numerator_rank,
         reduction_limits,
+        rustred::solver::CandidateFamilyAdmission::UnitMassVacuum,
     )
 }

@@ -19,6 +19,7 @@ mod execution;
 mod geometry;
 mod index;
 mod instantiate;
+pub mod litered;
 mod numeric;
 mod precondition;
 mod row;
@@ -41,12 +42,12 @@ pub use candidate_reduction::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateCacheRepresentation, CandidateDecomposition,
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,
     CandidateDomainRouteFailure, CandidateDomainRouteLimits, CandidateDomainRouteOptions,
-    CandidateDomainRouteStats, CandidateEntryAdmission, CandidateGuardedCacheError,
-    CandidateIntegralIdentity, CandidateOrderedPhaseKind, CandidateOrderedReduction,
-    CandidateOrderedReductionProgress, CandidateOwnerContext, CandidateOwnerInput,
-    CandidateOwnerPrograms, CandidateOwnerRoute, CandidateOwnerScope, CandidateReachabilityReport,
-    CandidateReducer, CandidateReductionError, CandidateRoutedActivity,
-    CandidateRoutedApplicationEnvelope, CandidateRoutedApplicationEvent,
+    CandidateDomainRouteStats, CandidateEntryAdmission, CandidateFamilyAdmission,
+    CandidateGuardedCacheError, CandidateIntegralIdentity, CandidateOrderedPhaseKind,
+    CandidateOrderedReduction, CandidateOrderedReductionProgress, CandidateOwnerContext,
+    CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerRoute, CandidateOwnerScope,
+    CandidateReachabilityReport, CandidateReducer, CandidateReductionError,
+    CandidateRoutedActivity, CandidateRoutedApplicationEnvelope, CandidateRoutedApplicationEvent,
     CandidateRoutedApplicationMetrics, CandidateRoutedApplicationObserver,
     CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
     CandidateRoutedApplicationStatistics, CandidateRoutedApplicationStatus,

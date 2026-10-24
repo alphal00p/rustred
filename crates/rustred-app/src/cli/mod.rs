@@ -6,6 +6,7 @@ mod entry_domain;
 pub(crate) mod error;
 mod finite_demand;
 mod io;
+mod litered;
 mod owner_domains;
 mod owner_guarded;
 mod owner_match;
@@ -101,6 +102,7 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::FamilyClose(arguments) => family_close_cli(arguments),
         Command::FamilyCandidates(arguments) => candidates::generate(arguments),
         Command::FamilyCandidatesBatch(arguments) => candidates_batch::run(arguments),
+        Command::LiteRedReduce(arguments) => litered::run(arguments),
         Command::CandidateInspect(arguments) => candidate_inspect::run(arguments),
         Command::CertifyCandidates(arguments) => candidates::certify(arguments),
         Command::CampaignPlan(arguments) => plan_campaign(arguments),

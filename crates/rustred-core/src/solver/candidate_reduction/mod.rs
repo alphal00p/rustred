@@ -12,6 +12,7 @@ mod cache;
 mod cached_program;
 mod capture;
 mod evaluator;
+mod litered_view;
 mod model;
 mod ordered;
 mod owners;
@@ -26,9 +27,11 @@ mod trace;
 mod unmemoized;
 
 pub use cached_program::{CandidateGuardedCacheError, CandidateUnitMassProgram};
+pub(crate) use litered_view::CandidateProgramView;
+pub(crate) use model::PreparedRule;
 pub use model::{
-    CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
-    CandidateReductionError, CandidateStatistics, UnresolvedPolicy,
+    CandidateCacheRepresentation, CandidateDecomposition, CandidateFamilyAdmission,
+    CandidateReachabilityReport, CandidateReductionError, CandidateStatistics, UnresolvedPolicy,
 };
 pub use ordered::CandidateOrderedReduction;
 pub use owners::{

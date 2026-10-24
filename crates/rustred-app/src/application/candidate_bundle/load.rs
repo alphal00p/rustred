@@ -4,7 +4,7 @@ use rustred::family::IntegralFamily;
 use rustred::identity::ParametricIbpGenerator;
 use rustred::reduction::ReductionLimits;
 use rustred::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, OrderingPolicy, zero};
-use rustred::solver::{CandidateReducer, SectorSolution};
+use rustred::solver::{CandidateFamilyAdmission, CandidateReducer, SectorSolution};
 
 use crate::application::AppError;
 
@@ -93,6 +93,24 @@ pub fn load_generated_candidate_bundle<const N: usize>(
     input_limits: CandidateBundleLimits,
     reduction_limits: ReductionLimits,
 ) -> Result<(IntegralFamily, CandidateReducer<N>), AppError> {
+    load_generated_candidate_bundle_with_admission(
+        bytes,
+        input_limits,
+        reduction_limits,
+        CandidateFamilyAdmission::UnitMassVacuum,
+    )
+}
+
+/// As [`load_generated_candidate_bundle`], under an explicit family-shape
+/// admission. [`CandidateFamilyAdmission::ParametricVacuum`] is the
+/// UNCERTIFIED lane for deformed vacuum families (`-1-eta` constants, extra
+/// parameters, numeric `d`): it bypasses only the unit-mass predicate.
+pub fn load_generated_candidate_bundle_with_admission<const N: usize>(
+    bytes: &[u8],
+    input_limits: CandidateBundleLimits,
+    reduction_limits: ReductionLimits,
+    admission: CandidateFamilyAdmission,
+) -> Result<(IntegralFamily, CandidateReducer<N>), AppError> {
     let bundle = codec::read(bytes, input_limits)?;
     preparation::validate_arity(bundle.root_sector.len())?;
     if !rustred::fits_storage(bundle.root_sector.len(), N) {
@@ -123,6 +141,7 @@ pub fn load_generated_candidate_bundle<const N: usize>(
         ordering,
         max_numerator_rank,
         reduction_limits,
+        admission,
     )
 }
 
@@ -154,6 +173,7 @@ fn finish_reducer<const N: usize>(
     ordering: OrderingPolicy,
     max_numerator_rank: Option<u32>,
     reduction_limits: ReductionLimits,
+    admission: CandidateFamilyAdmission,
 ) -> Result<(IntegralFamily, CandidateReducer<N>), AppError> {
     // Preparation keeps a compact zero-mask census. The experimental reducer
     // takes native proof owners, not caller-asserted zero masks.
@@ -180,7 +200,7 @@ fn finish_reducer<const N: usize>(
         }
     }
     drop(analyzer);
-    let reducer = CandidateReducer::try_new_with_numerator_rank(
+    let reducer = CandidateReducer::try_new_with_admission(
         &prepared.family,
         prepared.root,
         ordering,
@@ -188,6 +208,7 @@ fn finish_reducer<const N: usize>(
         certificates,
         reduction_limits,
         max_numerator_rank,
+        admission,
     )
     .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Execution))?;
     Ok((prepared.family, reducer))
