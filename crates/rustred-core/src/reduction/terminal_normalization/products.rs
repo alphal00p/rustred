@@ -4,17 +4,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use symbolica::domains::SelfRing;
-use symbolica::poly::factor::Factorize;
-use symbolica::prelude::{Integer, MultivariatePolynomial, PolyVariable, Z};
+use symbolica::prelude::{Integer, PolyVariable};
 
 use crate::algebra::matrix::{
     SymbolicaCoefficientMatrixError, invert_and_verify_coefficient_matrix,
     multiply_coefficient_matrices,
 };
 use crate::algebra::{Coefficient, CoefficientContext};
-use crate::family::{
-    IntegralFamily, IntegralKey, ScalarProductCoordinate, symbolica_matrix_limits,
-};
+use crate::family::{IntegralFamily, IntegralKey, symbolica_matrix_limits};
 use crate::sector::symmetry::{self, CoefficientMatrix, DenominatorAction, Jacobian, MomentumMap};
 use crate::sector::{ComplexityKey, OrderingPolicy};
 
@@ -22,8 +19,6 @@ use super::{
     ProductSkipReason as Skip, TerminalAliasError as Error, TerminalAliasPlan,
     TerminalAliasStatistics, VerifiedTerminalAlias,
 };
-
-type Quadratic = MultivariatePolynomial<symbolica::prelude::IntegerRing, u16>;
 
 struct Product {
     key: IntegralKey,
@@ -236,71 +231,17 @@ pub(super) fn momentum(
 /// Propose a momentum square independently of its mass constant. Exact family
 /// map verification must retain and compare the original complete denominator.
 /// The existing unit-mass routing lane still applies its unchanged gate above.
+/// The sector symmetry owner supplies the shared exact integer extractor.
 pub(super) fn momentum_quadratic(
     family: &IntegralFamily,
     slot: usize,
     variables: &Arc<Vec<PolyVariable>>,
 ) -> Result<Result<Vec<Coefficient>, Skip>, Error> {
-    let context = family.coefficient_context();
-    let denominator = &family.denominators()[slot];
-    let mut quadratic = Quadratic::new(&Z, None, variables.clone());
-    for (coordinate, value) in family.coordinates().iter().zip(denominator.coefficients()) {
-        let Some(value) = integer(value, context)? else {
-            return Ok(Err(Skip::NonIntegerQuadratic));
-        };
-        let ScalarProductCoordinate::LoopLoop { left, right } = *coordinate else {
-            return Ok(Err(Skip::ExternalMomenta));
-        };
-        let mut powers = vec![0_u16; family.loop_count()];
-        powers[left] += 1;
-        powers[right] += 1;
-        quadratic.append_monomial(value, &powers);
+    match symmetry::discovery::line_momentum(family, slot, variables) {
+        Ok(row) => Ok(row.map_err(Skip::from)),
+        Err(symmetry::DiscoveryError::ForeignCoefficient) => Err(Error::InvalidCoefficientContext),
+        Err(_) => Err(Error::InvalidProductWitness),
     }
-    if quadratic.is_zero() {
-        return Ok(Err(Skip::NotLinearSquare));
-    }
-    let mut scalar = Integer::from(1);
-    let mut linear = None;
-    for (factor, multiplicity) in quadratic.factor() {
-        if factor.is_constant() {
-            scalar *= factor.get_constant().pow(multiplicity as u64);
-        } else if multiplicity == 2
-            && linear.is_none()
-            && (0..factor.nterms())
-                .all(|term| factor.exponents(term).iter().copied().sum::<u16>() == 1)
-        {
-            linear = Some(factor);
-        } else {
-            return Ok(Err(Skip::NotLinearSquare));
-        }
-    }
-    let Some(linear) = linear else {
-        return Ok(Err(Skip::NotLinearSquare));
-    };
-    if scalar <= Integer::from(0) {
-        return Ok(Err(Skip::NotLinearSquare));
-    }
-    // Symbolica owns integer root extraction; the proposal is independently
-    // checked by exact polynomial multiplication, not trusted by shape alone.
-    let root = scalar.root(2);
-    let proposed = &linear * &linear.constant(root);
-    if &proposed * &proposed != quadratic {
-        return Ok(Err(Skip::NotLinearSquare));
-    }
-    let mut row = vec![context.zero(); family.loop_count()];
-    for term in 0..proposed.nterms() {
-        let slot = proposed
-            .exponents(term)
-            .iter()
-            .position(|&power| power == 1)
-            .ok_or(Error::InvalidProductWitness)?;
-        row[slot] = context
-            .zero()
-            .numerator
-            .constant(proposed.coefficients[term].clone())
-            .into();
-    }
-    Ok(Ok(row))
 }
 
 fn alias(

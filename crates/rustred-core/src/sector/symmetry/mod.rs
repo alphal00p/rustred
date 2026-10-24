@@ -11,9 +11,14 @@
 //! and affine-denominator maps. Candidate generation is deliberately outside
 //! this proof boundary: graph signatures, numerical samples, denominator
 //! counts, and topology names are never accepted as proof.
+//!
+//! For vacuum families, the sector-owned projector-graph `discovery` service
+//! PROPOSES such maps from exact mass-colored canonical graphs. Every proposal
+//! still passes [`verify()`] and [`integral_transport::compile`] before use.
 
 pub mod canonical;
 mod condition;
+pub(crate) mod discovery;
 mod error;
 pub mod integral_transport;
 mod limits;
@@ -29,6 +34,7 @@ pub use canonical::{
 #[cfg(test)]
 pub(crate) use canonical::{CoordinatePriorityActionLimits, CoordinatePriorityQuotient};
 pub use condition::{ConditionSource, NonZeroCondition};
+pub use discovery::{CanonicalSupportKey, DiscoveryError, LineGeometrySkip, SupportSkipReason};
 pub use error::Error;
 pub use limits::{DEFAULT_MAX_MATRIX_ENTRIES, Limits, Stats};
 pub use model::{
