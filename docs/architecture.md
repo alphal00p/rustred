@@ -317,8 +317,20 @@ cardinality before retaining terms.
 sector masks, cuts/pattern exclusions, deterministic ordering, exact symmetry
 verification, verified internal-permutation transport, and zero-sector proof
 results. Cuts and patterns are exclusion metadata, not analytic zero proofs.
-The current symmetry service verifies a supplied exact momentum map; graph
-canonization and routing-candidate discovery are not implemented yet.
+The symmetry service verifies a supplied exact momentum map. For vacuum
+families it also owns the mass-colored projector-graph discovery that
+proposes such maps (Symbolica graph canonization), shared by the public
+`SectorSymmetryCensus` and by `reduction`'s terminal refinement equations.
+The census partitions declared sectors into exact classes with deterministic
+(or caller-preferred) representatives, verified unit-Jacobian routes and
+representative automorphisms. It retains the zero-sector analyzer's zero
+set and returns exact transported integrals, recursive normal forms on
+representative sectors and `I - T(I)` rows, including parameter-dependent
+line constants such as `-1 - eta` (an explicit opt-in of the transport
+compiler, whose default stays rational-constant only). Sector-local
+failures become reported skips, never unverified relations. Proposals never
+become identities without the existing verifier and transport compiler; see
+the [census contract](sector_symmetry_census.md).
 
 ### `campaign`
 

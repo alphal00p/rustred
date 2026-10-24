@@ -50,7 +50,9 @@ The public `rustred` facade is organized by mathematical owner:
 - `identity` owns sparse parametric relations and the topology-neutral
   `ParametricIbpGenerator`, including ordinary and LI source batches;
 - `sector` owns masks, restrictions, ordering, exact caller-supplied symmetry
-  verification/transport, and on-demand zero-sector analysis;
+  verification/transport, the vacuum `SectorSymmetryCensus` (verified sector
+  classes, routes, automorphisms, zero set, normal forms and relation rows),
+  and on-demand zero-sector analysis;
 - `tensor` owns validated caller Symbolica heads, sealed-evidence lane
   selection, bounded key-aware Lorentz projection, and affine scalar-product
   lowering onto typed integral keys;
