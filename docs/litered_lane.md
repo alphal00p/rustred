@@ -86,6 +86,7 @@ The spec has schema `rustred.litered-reduce-spec.v1`. Its fields:
 | Field | Meaning |
 |---|---|
 | `bundle` | Path of the candidate bundle. |
+| `admission` | `parametric-vacuum` (default) or `unit-mass-vacuum`. |
 | `targets` | Integrals to reduce. |
 | `extra_targets` | Further integrals reduced onto the same basis, e.g. a foreign basis for a basis-change check. |
 | `preferred` | Integrals forced to the easy end of the column order. |
@@ -95,6 +96,7 @@ The spec has schema `rustred.litered-reduce-spec.v1`. Its fields:
 | `seed` | Seed of the structure sample. |
 | `points` | Rational parameter points, by parameter name. |
 | `random_points` | Number of extra random rational points. |
+| `random_point_seed` | Seed of the random rational points. |
 | `univariate` | One map per reduction: every parameter but one fixed. |
 | `max_primes`, `workers` | Prime budget and concurrent samples. |
 | `exact_cross_check` | Number of targets also reduced by the exact applier and compared. |
@@ -121,7 +123,11 @@ are in the pilot scratchpad: `rustred-dev/litered-lane`.
   - Generator rows and group-orbit rows give the same masters.
   - Per-unique-sector counts equal Kira's in 27/27, 26/26 and 11/11 classes.
 - **Coefficients against Kira.** The coefficients of the 74 rim and 66 spoke
-  requests equal the Kira tables after the basis change:
+  requests equal the Kira tables after the basis change. 42 requests of each
+  family are Kira masters, for which this comparison only checks the basis
+  change itself; the non-trivial rows are the 32 rim and 24 spoke requests
+  that Kira reduces, together with the full rank (42) of the basis change.
+  The rows agree:
   - exactly at 3 rational `(d, eta)` points;
   - in `Q(eta)` at `d = 4-2/2700` and at `d = 37/11`, checked at 4 rational
     `eta` points each.
