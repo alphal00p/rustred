@@ -6,11 +6,31 @@ use crate::sector::symmetry::{DenominatorAction, Jacobian, VerifiedMap};
 
 use super::{Error, ExpansionError, ExpansionLimits, Prepared};
 
+/// Which inactive-row affine constants a compiled transport may carry.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum AffineConstants {
+    /// Rational constants only: the contract of [`compile`]. Every transport
+    /// lane accepts such a map, including the native-Q trace-support lane
+    /// used by routed candidate reducers.
+    #[default]
+    Rational,
+    /// Constants may also depend on coefficient parameters, as when an
+    /// inactive unit line is expressed through a deformed `-1 - eta` target
+    /// line. Only exact [`Prepared::transport`] substitutes them; the
+    /// trace-support lane rejects such a map with
+    /// [`Error::ParametricConstantSupport`], and routed candidate reducers
+    /// refuse it at admission. See [`Prepared::has_parametric_constants`].
+    Parametric,
+}
+
 /// Bind an exact verified map to its families and a unit active-row bijection.
 ///
-/// Rational-constant affine inactive rows, zero analytic shifts and an
-/// unconditional unit Jacobian are the initial supported lane. Unsupported
-/// maps fail explicitly; no kinematic conditions are silently discarded.
+/// Affine inactive rows with rational-constant coefficients, zero analytic
+/// shifts and an unconditional unit Jacobian are the supported lane.
+/// Unsupported maps fail explicitly; no kinematic conditions are silently
+/// discarded. A parameter-dependent affine constant fails with
+/// [`Error::NonconstantCoefficient`] (`column: None`); callers that need such
+/// maps opt in through [`compile_with_affine_constants`].
 pub fn compile(
     source: &IntegralFamily,
     target: Arc<IntegralFamily>,
@@ -18,6 +38,32 @@ pub fn compile(
     source_root: Mask,
     target_root: Mask,
     limits: ExpansionLimits,
+) -> Result<Prepared, Error> {
+    compile_with_affine_constants(
+        source,
+        target,
+        map,
+        source_root,
+        target_root,
+        limits,
+        AffineConstants::Rational,
+    )
+}
+
+/// [`compile`] with an explicit affine-constant policy.
+///
+/// With [`AffineConstants::Parametric`], inactive-row constants may depend
+/// on coefficient parameters; linear coefficients must still be rational
+/// constants. Such constants are authenticated here and substituted exactly
+/// by the parametric-constant expansion lane of [`Prepared::transport`].
+pub fn compile_with_affine_constants(
+    source: &IntegralFamily,
+    target: Arc<IntegralFamily>,
+    map: Arc<VerifiedMap>,
+    source_root: Mask,
+    target_root: Mask,
+    limits: ExpansionLimits,
+    affine_constants: AffineConstants,
 ) -> Result<Prepared, Error> {
     for (side, actual, expected) in [
         (
@@ -105,13 +151,20 @@ pub fn compile(
     seen.resize(target_arity, false);
     let one = target.coefficient_context().one();
     let mut numerator_entries = 0_usize;
+    let mut parametric_constants = false;
     for row in 0..arity {
+        let constant = &map.denominators().constant()[row];
         target
             .coefficient_context()
-            .validate_with_limits(&map.denominators().constant()[row], limits.exact_algebra)
+            .validate_with_limits(constant, limits.exact_algebra)
             .map_err(ExpansionError::ExactAlgebra)?;
-        if !map.denominators().constant()[row].is_constant() {
-            return Err(Error::NonconstantCoefficient { row, column: None });
+        if !constant.is_constant() {
+            match affine_constants {
+                AffineConstants::Rational => {
+                    return Err(Error::NonconstantCoefficient { row, column: None });
+                }
+                AffineConstants::Parametric => parametric_constants = true,
+            }
         }
         for column in 0..target_arity {
             let coefficient = map
@@ -191,6 +244,7 @@ pub fn compile(
         active_target: active_target.into_boxed_slice(),
         numerator_support_offsets: numerator_support_offsets.into_boxed_slice(),
         numerator_support_sources: numerator_support_sources.into_boxed_slice(),
+        parametric_constants,
     })
 }
 

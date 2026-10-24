@@ -109,6 +109,268 @@ pub(crate) fn try_expand_multi_affine_numerator_with_usage(
     )
 }
 
+/// Expand with parameter-dependent affine constants, e.g. a deformed mass.
+///
+/// Rational-constant inputs take the unchanged native-Q lane above and return
+/// identical endpoints. Otherwise every parameter-dependent constant `c_a`
+/// becomes one virtual Temporary axis `X_a`, so the complete native
+/// expansion of `prod_a (X_a + sum_i c_ai D_i)^n_a` stays over Q with the
+/// unchanged prospective support/operation/exponent admission on the lifted
+/// arity. Each lifted monomial `q X^e D^f` is then substituted exactly as
+/// `q prod_a c_a^e_a` in the family coefficient context and coalesced per
+/// endpoint key; exact zero sums are dropped. Linear denominator coefficients
+/// must still be rational constants. This substitution is the separate
+/// coefficient-work boundary: one checked context product per lifted
+/// monomial and virtual axis is admitted against the native operation limit,
+/// and every retained output coefficient against the retained-coefficient
+/// limits.
+pub(crate) fn try_expand_parametric_multi_affine_numerator_with_usage(
+    family: &IntegralFamily,
+    base: &IntegralKey,
+    factors: &[MultiAffineNumeratorFactor],
+    limits: MultiAffineNumeratorExpansionLimits,
+    reserve: impl FnOnce(ExpansionUsage) -> Result<(), MultiAffineNumeratorExpansionError>,
+) -> Result<Box<[MultiAffineNumeratorEndpoint]>, MultiAffineNumeratorExpansionError> {
+    let context = family.coefficient_context();
+    let arity = family.denominator_count();
+    if base.powers().len() != arity {
+        return Err(MultiAffineNumeratorExpansionError::WrongBaseArity {
+            expected: arity,
+            actual: base.powers().len(),
+        });
+    }
+    admit_limit(
+        "multi-affine factors",
+        factors.len(),
+        limits.max_factors,
+        limits.diagnostics_enabled,
+    )?;
+    let mut parametric = 0_usize;
+    for factor in factors {
+        context.validate_with_limits(factor.constant(), limits.exact_algebra)?;
+        if !factor.constant().is_constant() {
+            parametric += 1;
+            // The substitution power table reaches c_a^n_a exactly once per
+            // virtual axis; admit its exponent growth before any work.
+            context.preflight_power_with_limits(
+                factor.constant(),
+                factor.power(),
+                limits.exact_algebra,
+            )?;
+        }
+    }
+    if parametric == 0 {
+        return try_expand_multi_affine_numerator_with_usage(
+            family, base, factors, limits, reserve,
+        );
+    }
+    // Shared budgets also see the substitution boundary: at most one checked
+    // context product per lifted monomial and virtual axis, plus one
+    // coalescing sum, prospectively charged on the projected lifted support.
+    // As elsewhere, overflow is a diagnostic; ordinary execution saturates.
+    const SUBSTITUTION: &str = "multi-affine parametric constant operations";
+    let diagnostics = limits.diagnostics_enabled;
+    let substitution_per_term = estimate(parametric.checked_add(1), SUBSTITUTION, diagnostics)?;
+    let reserve = move |usage: ExpansionUsage| {
+        let substitution = estimate(
+            usage.endpoints.checked_mul(substitution_per_term),
+            SUBSTITUTION,
+            diagnostics,
+        )?;
+        reserve(ExpansionUsage {
+            operations: estimate(
+                usage.operations.checked_add(substitution),
+                SUBSTITUTION,
+                diagnostics,
+            )?,
+            endpoints: usage.endpoints,
+        })
+    };
+    let lifted_arity = arity.checked_add(parametric).ok_or(
+        MultiAffineNumeratorExpansionError::ResourceCountOverflow {
+            resource: "multi-affine parametric lifted arity",
+        },
+    )?;
+    admit_product_limit(
+        "multi-affine relation coefficient entries",
+        factors.len(),
+        lifted_arity,
+        limits.max_relation_coefficient_entries,
+        limits.diagnostics_enabled,
+    )?;
+    let mut constants = Vec::new();
+    constants.try_reserve_exact(parametric).map_err(|_| {
+        MultiAffineNumeratorExpansionError::AllocationFailure {
+            resource: "multi-affine parametric constants",
+            requested: parametric,
+        }
+    })?;
+    let mut lifted = Vec::new();
+    lifted.try_reserve_exact(factors.len()).map_err(|_| {
+        MultiAffineNumeratorExpansionError::AllocationFailure {
+            resource: "multi-affine lifted factors",
+            requested: factors.len(),
+        }
+    })?;
+    for (ordinal, factor) in factors.iter().enumerate() {
+        if factor.denominator_coefficients().len() != arity {
+            return Err(MultiAffineNumeratorExpansionError::WrongRelationArity {
+                factor: ordinal,
+                expected: arity,
+                actual: factor.denominator_coefficients().len(),
+            });
+        }
+        let virtual_axis = (!factor.constant().is_constant()).then(|| arity + constants.len());
+        let coefficients =
+            factor
+                .denominator_coefficients()
+                .iter()
+                .cloned()
+                .chain((arity..lifted_arity).map(|axis| {
+                    if Some(axis) == virtual_axis {
+                        context.one()
+                    } else {
+                        context.zero()
+                    }
+                }));
+        let constant = if virtual_axis.is_some() {
+            constants.push(factor.constant().clone());
+            context.zero()
+        } else {
+            factor.constant().clone()
+        };
+        lifted.push(MultiAffineNumeratorFactor::try_new(
+            constant,
+            coefficients,
+            factor.power(),
+        )?);
+    }
+    let mut lifted_base = try_clone_powers(base.powers())?;
+    lifted_base.try_reserve_exact(parametric).map_err(|_| {
+        MultiAffineNumeratorExpansionError::AllocationFailure {
+            resource: "multi-affine lifted base powers",
+            requested: parametric,
+        }
+    })?;
+    lifted_base.resize(lifted_arity, 0);
+    let lifted_base = IntegralKey::try_from_preallocated(lifted_base)?;
+    let Some(expanded) = expand_native_on(
+        context,
+        lifted_arity,
+        &lifted_base,
+        &lifted,
+        limits,
+        reserve,
+    )?
+    else {
+        return Ok(Box::new([]));
+    };
+    substitute_parametric_constants(context, base, &constants, &expanded, limits)
+}
+
+fn substitute_parametric_constants(
+    context: &CoefficientContext,
+    base: &IntegralKey,
+    constants: &[Coefficient],
+    expanded: &NativeExpansion,
+    limits: MultiAffineNumeratorExpansionLimits,
+) -> Result<Box<[MultiAffineNumeratorEndpoint]>, MultiAffineNumeratorExpansionError> {
+    let polynomial = &expanded.polynomial;
+    let arity = base.powers().len();
+    let lifted_arity = arity + constants.len();
+    admit_limit(
+        "multi-affine endpoints",
+        polynomial.nterms(),
+        limits.max_endpoints,
+        limits.diagnostics_enabled,
+    )?;
+    preflight_endpoint_key_storage(polynomial.nterms(), arity, limits)?;
+    let operations = estimate(
+        constants
+            .len()
+            .checked_add(1)
+            .and_then(|per_term| polynomial.nterms().checked_mul(per_term)),
+        "multi-affine parametric constant operations",
+        limits.diagnostics_enabled,
+    )?;
+    admit_limit(
+        "multi-affine parametric constant operations",
+        operations,
+        limits.max_native_polynomial_operations,
+        limits.diagnostics_enabled,
+    )?;
+    let live_base = expanded.input_weight.checked_add(polynomial_weight(
+        polynomial,
+        expanded.constant_wrapper_bytes,
+    )?)?;
+    admit_live_coefficients(live_base, limits)?;
+    // powers[a][e] = c_a^e, extended on demand up to the lifted degree.
+    let mut powers: Vec<Vec<Coefficient>> = constants.iter().map(|_| vec![context.one()]).collect();
+    let mut endpoints = std::collections::BTreeMap::<IntegralKey, Coefficient>::new();
+    for term in 0..polynomial.nterms() {
+        let exponents = polynomial.exponents(term);
+        if exponents.len() != lifted_arity {
+            return Err(MultiAffineNumeratorExpansionError::NativeExponentWidth {
+                expected: lifted_arity,
+                actual: exponents.len(),
+            });
+        }
+        let mut key = try_clone_powers(base.powers())?;
+        for (position, &exponent) in exponents[..arity].iter().enumerate() {
+            key[position] = checked_lower_power(position, key[position], u64::from(exponent))?;
+        }
+        let mut value = contextual_coefficient(context, &polynomial.coefficients[term]);
+        for (axis, &exponent) in exponents[arity..].iter().enumerate() {
+            let exponent = usize::try_from(exponent).map_err(|_| {
+                MultiAffineNumeratorExpansionError::ResourceCountOverflow {
+                    resource: "multi-affine parametric constant power",
+                }
+            })?;
+            if exponent == 0 {
+                continue;
+            }
+            while powers[axis].len() <= exponent {
+                let next = context.try_mul(
+                    powers[axis].last().expect("power table starts at one"),
+                    &constants[axis],
+                    limits.exact_algebra,
+                )?;
+                powers[axis].push(next);
+            }
+            value = context.try_mul(&value, &powers[axis][exponent], limits.exact_algebra)?;
+        }
+        let key = IntegralKey::try_from_preallocated(key)?;
+        match endpoints.entry(key) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(value);
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                let sum = context.try_add(entry.get(), &value, limits.exact_algebra)?;
+                if sum.is_zero() {
+                    entry.remove();
+                } else {
+                    *entry.get_mut() = sum;
+                }
+            }
+        }
+    }
+    let mut output = Vec::new();
+    output.try_reserve_exact(endpoints.len()).map_err(|_| {
+        MultiAffineNumeratorExpansionError::AllocationFailure {
+            resource: "multi-affine endpoints",
+            requested: endpoints.len(),
+        }
+    })?;
+    let mut output_weight = CoefficientWeight::default();
+    for (key, coefficient) in endpoints {
+        context.validate_with_limits(&coefficient, limits.exact_algebra)?;
+        output_weight = output_weight.checked_add(coefficient_weight(&coefficient)?)?;
+        admit_live_coefficients(live_base.checked_add(output_weight)?, limits)?;
+        output.push(MultiAffineNumeratorEndpoint { key, coefficient });
+    }
+    Ok(output.into_boxed_slice())
+}
+
 /// Shared native algebra, before choosing coefficient output or trace support.
 struct NativeExpansion {
     polynomial: EndpointPolynomial,
@@ -123,7 +385,26 @@ fn expand_native(
     limits: MultiAffineNumeratorExpansionLimits,
     reserve: impl FnOnce(ExpansionUsage) -> Result<(), MultiAffineNumeratorExpansionError>,
 ) -> Result<Option<NativeExpansion>, MultiAffineNumeratorExpansionError> {
-    let arity = family.denominator_count();
+    expand_native_on(
+        family.coefficient_context(),
+        family.denominator_count(),
+        base,
+        factors,
+        limits,
+        reserve,
+    )
+}
+
+/// Native expansion over `arity` Temporary variables of one coefficient
+/// context. The parametric-constant lane calls this with virtual axes.
+fn expand_native_on(
+    context: &CoefficientContext,
+    arity: usize,
+    base: &IntegralKey,
+    factors: &[MultiAffineNumeratorFactor],
+    limits: MultiAffineNumeratorExpansionLimits,
+    reserve: impl FnOnce(ExpansionUsage) -> Result<(), MultiAffineNumeratorExpansionError>,
+) -> Result<Option<NativeExpansion>, MultiAffineNumeratorExpansionError> {
     if base.powers().len() != arity {
         return Err(MultiAffineNumeratorExpansionError::WrongBaseArity {
             expected: arity,
@@ -159,7 +440,6 @@ fn expand_native(
         });
     }
 
-    let context = family.coefficient_context();
     let (plans, projected_support, zero_product, input_weight, operation_bound) =
         preflight_factors(context, factors, arity, total_power, limits)?;
     reserve(ExpansionUsage {

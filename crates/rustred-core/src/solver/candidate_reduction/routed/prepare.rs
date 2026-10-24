@@ -37,6 +37,15 @@ pub(super) fn validate_routes<const N: usize>(
     let fingerprint = context.family.fingerprint();
     let mut selected = BTreeMap::new();
     for route in routes {
+        // Routed traversal expands numerator support in the native-Q
+        // trace-support lane, which cannot carry parameter-dependent affine
+        // constants (an `integral_transport::AffineConstants::Parametric`
+        // opt-in). Refuse such a route first, rather than mid-traversal.
+        if route.transport.has_parametric_constants() {
+            return Err(CandidateRoutedError::Transport(
+                crate::sector::symmetry::integral_transport::Error::ParametricConstantSupport,
+            ));
+        }
         if route.owner_sector.arity() != context.family.denominator_count()
             || route.transport.source_root().arity() != context.family.denominator_count()
             || route.transport.target_root().arity() != context.family.denominator_count()
@@ -57,6 +66,7 @@ pub(super) fn validate_routes<const N: usize>(
                 "route target differs from its declared owner".into(),
             ));
         }
+
         let owner = std::array::from_fn(|i| {
             route
                 .owner_sector

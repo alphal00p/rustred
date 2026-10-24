@@ -8,7 +8,8 @@ use super::Endpoint;
 
 /// Shared immutable owner for a restricted, exactly verified family map.
 ///
-/// Construction is only through [`super::compile`]. A bare [`IntegralKey`]
+/// Construction is only through [`super::compile`] or
+/// [`super::compile_with_affine_constants`]. A bare [`IntegralKey`]
 /// carries no family identity; the caller must supply keys of this source
 /// family. No sector search, recursive rule application or rank cutoff lives
 /// in this object.
@@ -24,6 +25,9 @@ pub struct Prepared {
     /// Coefficients stay in `map`; routing geometry shares only source axes.
     pub(super) numerator_support_offsets: Box<[usize]>,
     pub(super) numerator_support_sources: Box<[usize]>,
+    /// Some inactive-row affine constant depends on coefficient parameters
+    /// (admitted only by [`super::AffineConstants::Parametric`]).
+    pub(super) parametric_constants: bool,
 }
 
 impl Prepared {
@@ -41,6 +45,12 @@ impl Prepared {
     }
     pub fn target_root(&self) -> &Mask {
         &self.target_root
+    }
+    /// Whether some inactive-row affine constant depends on coefficient
+    /// parameters. Such a map supports exact [`Self::transport`] only; it has
+    /// no native-Q trace support and routed candidate reducers refuse it.
+    pub fn has_parametric_constants(&self) -> bool {
+        self.parametric_constants
     }
     /// The already admitted unit active-row bijection, indexed by source axis.
     /// Inactive numerator rows are affine and deliberately have no such target.

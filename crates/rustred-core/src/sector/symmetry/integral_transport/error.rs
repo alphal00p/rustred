@@ -39,6 +39,9 @@ pub enum Error {
         axis: usize,
         power: i64,
     },
+    /// Native-Q trace support was requested for a map whose affine constants
+    /// depend on coefficient parameters; only exact transport admits it.
+    ParametricConstantSupport,
     Expansion(ExpansionError),
 }
 
@@ -94,6 +97,10 @@ impl fmt::Display for Error {
             Self::PositiveOutsideRoot { axis, power } => write!(
                 f,
                 "transport input power {power} is positive outside root at axis {axis}"
+            ),
+            Self::ParametricConstantSupport => f.write_str(
+                "transport trace support requires rational affine constants; \
+                 parameter-dependent constants admit exact transport only",
             ),
             Self::Expansion(error) => error.fmt(f),
         }
