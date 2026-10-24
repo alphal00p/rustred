@@ -46,18 +46,10 @@ pub use model::{
 /// The stronger lane shares the existing exact verification/expansion policy.
 pub type TerminalSectorSymmetryLimits = super::TerminalNumeratorSymmetryLimits;
 
+/// The sector-owned discovery gate, with this lane's error mapping (an
+/// ineligible family is an `InvalidWitness` with the same reason).
 pub(super) fn eligible(family: &IntegralFamily) -> Result<(), Error> {
-    if family.external_count() != 0 {
-        return Err(Error::InvalidWitness(
-            "sector symmetry requires vacuum kinematics",
-        ));
-    }
-    if family.power_shifts().iter().any(|shift| !shift.is_zero()) {
-        return Err(Error::InvalidWitness(
-            "sector symmetry does not authorize analytic power shifts",
-        ));
-    }
-    Ok(())
+    Ok(crate::sector::symmetry::discovery::eligible(family)?)
 }
 
 pub(super) fn validate_key(family: &IntegralFamily, key: &IntegralKey) -> Result<(), Error> {

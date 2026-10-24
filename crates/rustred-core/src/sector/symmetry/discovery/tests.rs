@@ -39,7 +39,7 @@ fn support(family: &Arc<IntegralFamily>, bits: &[bool]) -> Arc<PreparedSupport> 
         family,
         &Mask::try_new(bits.iter().copied()).unwrap(),
         Default::default(),
-        &TerminalSectorSymmetryControl::default(),
+        &|| false,
     )
     .unwrap()
     .unwrap()
@@ -73,7 +73,7 @@ fn simultaneous_three_cycle_is_discovered_without_any_individual_swap() {
         &family,
         &Mask::try_new([true; 6]).unwrap(),
         Default::default(),
-        &TerminalSectorSymmetryControl::default(),
+        &|| false,
     )
     .unwrap();
     assert!(
@@ -102,7 +102,7 @@ fn bridge_orientation_generators_keep_affine_inactive_isp_actions() {
         &family,
         &Mask::try_new([true, true, false]).unwrap(),
         Default::default(),
-        &TerminalSectorSymmetryControl::default(),
+        &|| false,
     )
     .unwrap();
     assert!(
@@ -126,14 +126,9 @@ fn canonical_projector_and_cross_family_map_are_loop_basis_invariant() {
     let source = support(&source, &[true; 3]);
     let target = support(&target, &[true; 3]);
     assert_eq!(source.graph, target.graph);
-    let map = match_supports(
-        &source,
-        &target,
-        Default::default(),
-        &TerminalSectorSymmetryControl::default(),
-    )
-    .unwrap()
-    .unwrap();
+    let map = match_supports(&source, &target, Default::default(), &|| false)
+        .unwrap()
+        .unwrap();
     assert!(matches!(map.jacobian(), Jacobian::Unit { .. }));
     assert_eq!(map.source_family_fingerprint(), source.family.fingerprint());
     assert_eq!(map.target_family_fingerprint(), target.family.fingerprint());
@@ -150,7 +145,7 @@ fn exact_mass_colors_prevent_invalid_active_interchange() {
         &family,
         &Mask::try_new([true, true, false]).unwrap(),
         Default::default(),
-        &TerminalSectorSymmetryControl::default(),
+        &|| false,
     )
     .unwrap();
     assert!(!maps.is_empty());
@@ -169,14 +164,9 @@ fn cross_support_canonical_route_is_discovered_independently_of_powers() {
     );
     let source = support(&family, &[true, true, false]);
     let target = support(&family, &[true, false, true]);
-    let map = match_supports(
-        &source,
-        &target,
-        Default::default(),
-        &TerminalSectorSymmetryControl::default(),
-    )
-    .unwrap()
-    .unwrap();
+    let map = match_supports(&source, &target, Default::default(), &|| false)
+        .unwrap()
+        .unwrap();
     let mut images = [image(&map, 0), image(&map, 1)];
     images.sort();
     assert_eq!(images, [0, 2]);
@@ -198,14 +188,9 @@ fn nonunit_cross_family_jacobian_is_rejected_after_exact_verification() {
     let target = support(&target, &[true, true, false]);
     assert_eq!(source.graph, target.graph);
     assert!(
-        match_supports(
-            &source,
-            &target,
-            Default::default(),
-            &TerminalSectorSymmetryControl::default()
-        )
-        .unwrap()
-        .is_none()
+        match_supports(&source, &target, Default::default(), &|| false)
+            .unwrap()
+            .is_none()
     );
 }
 
@@ -229,7 +214,7 @@ fn rank_deficiency_supplies_no_projector_proposal() {
             &family,
             &Mask::try_new([true, true, true, false, false, false]).unwrap(),
             Default::default(),
-            &TerminalSectorSymmetryControl::default()
+            &|| false
         )
         .unwrap()
         .is_none()
@@ -270,7 +255,7 @@ fn finite_root_gate_rejects_a_valid_shear_on_a_deficient_support() {
             &family,
             &Mask::try_new([true, true, true, false, false, false]).unwrap(),
             Default::default(),
-            &TerminalSectorSymmetryControl::default(),
+            &|| false,
         )
         .unwrap()
     );
@@ -279,7 +264,7 @@ fn finite_root_gate_rejects_a_valid_shear_on_a_deficient_support() {
             &family,
             &Mask::try_new([true; 6]).unwrap(),
             Default::default(),
-            &TerminalSectorSymmetryControl::default(),
+            &|| false,
         )
         .unwrap()
     );
@@ -302,13 +287,9 @@ fn independent_native_basis_rows_need_not_be_an_active_prefix() {
     let prepared = support(&family, &[true, true, true, true, false, false]);
     assert_eq!(prepared.basis_slots, [0, 1, 3]);
     assert!(
-        !discover_prepared(
-            &prepared,
-            Default::default(),
-            &TerminalSectorSymmetryControl::default()
-        )
-        .unwrap()
-        .is_empty()
+        !discover_prepared(&prepared, Default::default(), &|| false)
+            .unwrap()
+            .is_empty()
     );
 }
 
@@ -322,19 +303,11 @@ fn cached_geometry_is_shared_only_for_declared_supports() {
     let root = Mask::try_new([true, true, false]).unwrap();
     let mut cache = DiscoveryCache::new(family);
     let first = cache
-        .prepare_support(
-            &root,
-            Default::default(),
-            &TerminalSectorSymmetryControl::default(),
-        )
+        .prepare_support(&root, Default::default(), &|| false)
         .unwrap()
         .unwrap();
     let second = cache
-        .prepare_support(
-            &root,
-            Default::default(),
-            &TerminalSectorSymmetryControl::default(),
-        )
+        .prepare_support(&root, Default::default(), &|| false)
         .unwrap()
         .unwrap();
     assert!(Arc::ptr_eq(&first, &second));
@@ -349,17 +322,14 @@ fn cancellation_precedes_native_algebra() {
         &[&[1, 0], &[0, 1], &[1, 1]],
         &[1, 1, 1],
     );
-    let control = TerminalSectorSymmetryControl {
-        cancelled: Some(&|| true),
-        progress: None,
-    };
-    assert!(
+    assert_eq!(
         prepare_support(
             &family,
             &Mask::try_new([true; 3]).unwrap(),
             Default::default(),
-            &control
+            &|| true,
         )
-        .is_err()
+        .err(),
+        Some(DiscoveryError::Cancelled)
     );
 }
