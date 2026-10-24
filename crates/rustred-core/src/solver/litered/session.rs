@@ -522,6 +522,9 @@ impl<const N: usize> LiteRedSession<N> {
         let mut modulus = Integer::one();
         let mut candidate: Option<Vec<RationalFunction>> = None;
         let (mut used, mut skipped, mut max_points) = (0usize, 0usize, 0usize);
+        // Primes whose image shapes disagreed with the accumulation since the
+        // last (re)start of the CRT.
+        let mut disagreeing = 0usize;
         let workers = self.options.workers.max(1);
         for prime in reconstruction_primes(self.options.max_primes) {
             let field = PrimeField::new(prime)?;
@@ -608,8 +611,21 @@ impl<const N: usize> LiteRedSession<N> {
                 .zip(&images)
                 .all(|(acc, (n, d))| acc.shape().is_none_or(|shape| shape == (n.len(), d.len())));
             if !consistent {
-                skipped += 1;
-                continue;
+                disagreeing += 1;
+                if disagreeing <= used {
+                    skipped += 1;
+                    continue;
+                }
+                // More primes disagree with the accumulated shapes than
+                // support them, so the accumulation started from an unlucky
+                // prime (for example a false early Thiele termination, which
+                // would otherwise reject every later prime). Restart the CRT
+                // from this prime; the discarded primes count as skipped.
+                skipped += used;
+                used = 0;
+                disagreeing = 0;
+                accumulators = vec![CrtAccumulator::default(); entries];
+                modulus = Integer::one();
             }
             for (acc, (n, d)) in accumulators.iter_mut().zip(&images) {
                 acc.add(n, d, prime, &modulus);
