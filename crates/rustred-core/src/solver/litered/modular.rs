@@ -71,10 +71,7 @@ pub fn forward<const N: usize>(
 }
 
 /// Decomposition onto terminals of a node computed by [`forward`].
-pub fn require<'a>(
-    forward: &'a [Option<SparseVector>],
-    node: u32,
-) -> Result<&'a SparseVector, LiteRedError> {
+pub fn require(forward: &[Option<SparseVector>], node: u32) -> Result<&SparseVector, LiteRedError> {
     forward[node as usize]
         .as_ref()
         .ok_or(LiteRedError::UncoveredNode { node })

@@ -147,12 +147,12 @@ impl<const N: usize> LiteRedSession<N> {
         options: LiteRedOptions,
     ) -> Result<Self, LiteRedError> {
         let view = reducer.program_view();
-        if let Some(census) = &census {
-            if census.family().fingerprint() != view.family_fingerprint() {
-                return Err(LiteRedError::Census(
-                    "census family differs from the candidate program family".into(),
-                ));
-            }
+        if let Some(census) = &census
+            && census.family().fingerprint() != view.family_fingerprint()
+        {
+            return Err(LiteRedError::Census(
+                "census family differs from the candidate program family".into(),
+            ));
         }
         let field = PrimeField::new(DEFAULT_PRIME)?;
         let mut rng = StdRng::seed_from_u64(options.seed);
