@@ -1,5 +1,7 @@
 //! Common admission for legacy single-owner and immutable owner-library users.
-use super::super::model::{CandidateReductionError, PreparedRule, PreparedTerm};
+use super::super::model::{
+    CandidateFamilyAdmission, CandidateReductionError, PreparedRule, PreparedTerm,
+};
 use crate::algebra::{IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::{IntegralFamily, IntegralKey};
 use crate::foundry::artifact::SourcePortAudit;
@@ -80,18 +82,45 @@ pub(in crate::solver::candidate_reduction) fn prepare_family<const N: usize>(
     zero_certificates: Vec<zero::Certificate>,
     limits: ReductionLimits,
 ) -> Result<PreparedFamily<N>, CandidateReductionError> {
+    prepare_family_with_admission(
+        family,
+        zero_certificates,
+        limits,
+        CandidateFamilyAdmission::UnitMassVacuum,
+    )
+}
+
+/// As [`prepare_family`], under an explicit family-shape admission. Only the
+/// unit-mass predicate differs between the policies; source preparation and
+/// zero-certificate binding are identical.
+pub(in crate::solver::candidate_reduction) fn prepare_family_with_admission<const N: usize>(
+    family: &IntegralFamily,
+    zero_certificates: Vec<zero::Certificate>,
+    limits: ReductionLimits,
+    admission: CandidateFamilyAdmission,
+) -> Result<PreparedFamily<N>, CandidateReductionError> {
     if N == 0 || !crate::fits_storage(family.denominator_count(), N) {
         return Err(CandidateReductionError::InvalidInput(format!(
             "candidate arity {N} does not match family arity {}",
             family.denominator_count()
         )));
     }
-    SourcePortAudit::<N>::validate_install_family(family).map_err(|error| {
-        match crate::reduction::resource_limit_error(&error) {
-            Some(resource) => crate::reduction::ReductionError::Resources(resource.clone()).into(),
-            None => CandidateReductionError::UnsupportedFamily(error.to_string()),
+    match admission {
+        CandidateFamilyAdmission::UnitMassVacuum => {
+            SourcePortAudit::<N>::validate_install_family(family).map_err(|error| {
+                match crate::reduction::resource_limit_error(&error) {
+                    Some(resource) => {
+                        crate::reduction::ReductionError::Resources(resource.clone()).into()
+                    }
+                    None => CandidateReductionError::UnsupportedFamily(error.to_string()),
+                }
+            })?
         }
-    })?;
+        CandidateFamilyAdmission::ParametricVacuum => {
+            crate::foundry::artifact::validate_parametric_vacuum_family(family)
+                .map_err(|e| CandidateReductionError::UnsupportedFamily(e.to_string()))?
+        }
+    }
     let generator = ParametricIbpGenerator::try_new(family).map_err(invalid_input)?;
     let context = generator.context().clone();
     let sources =

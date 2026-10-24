@@ -16,6 +16,10 @@ mod campaign {
     pub(super) mod preflight;
 }
 mod candidate_bundle;
+mod litered;
+pub use litered::{
+    LITERED_REDUCE_OUTPUT_SCHEMA, LITERED_REDUCE_SPEC_SCHEMA, LiteRedReduceSpec, litered_reduce,
+};
 mod closing;
 mod derive;
 mod entry_domain;
@@ -128,10 +132,10 @@ pub use candidate_bundle::{
     encode_generated_domain_overlay, family_candidates, family_candidates_on_executor,
     family_candidates_with_progress, inspect_generated_candidate_bundle,
     inspect_generated_candidate_program, inspect_generated_candidate_source_support,
-    load_generated_candidate_bundle, load_generated_candidate_checkpoint,
-    load_generated_candidate_owners, load_generated_candidate_owners_with_preferences,
-    load_generated_domain_overlay, validate_domain_overlay_ingress,
-    with_replayed_candidate_rule_circuits,
+    load_generated_candidate_bundle, load_generated_candidate_bundle_with_admission,
+    load_generated_candidate_checkpoint, load_generated_candidate_owners,
+    load_generated_candidate_owners_with_preferences, load_generated_domain_overlay,
+    validate_domain_overlay_ingress, with_replayed_candidate_rule_circuits,
 };
 pub use error::{AppError, AppErrorKind};
 pub use family_close::{

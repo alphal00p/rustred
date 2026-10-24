@@ -242,6 +242,25 @@ Python's existing `rustred.family_close` still provides the same generation,
 artifact and timing-report result; Python callbacks are deferred until their
 interaction with the detached coordinator and GIL is designed and tested.
 
+## Apply saved candidates through the LiteRed lane (uncertified)
+
+`litered-reduce` loads a saved `family-candidates` bundle under the
+`parametric-vacuum` admission. This admits deformed vacuum families with
+`-1-eta` constants and extra parameters. The command then:
+
+1. builds the RustRed sector-symmetry census;
+2. expands the requested integrals into a modular application DAG;
+3. compresses the candidate terminals with exact census rows;
+4. reconstructs exact coefficients onto the compressed basis, either at
+   rational points or in `Q(x)` for one free parameter.
+
+The output carries `status = "uncertified-litered"`. See
+[litered_lane.md](litered_lane.md).
+
+```bash
+rustred litered-reduce --spec spec.json --output reduction.json
+```
+
 ## Inspect saved candidate programs
 
 Read trusted native candidate bundles without another generation or coverage
