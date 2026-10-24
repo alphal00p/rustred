@@ -200,6 +200,7 @@ impl<const N: usize> CandidateReducer<N> {
         Ok(Self {
             program: Arc::new(CandidateProgram {
                 family_fingerprint: Arc::new(family.fingerprint().to_owned()),
+                admission,
                 context,
                 root_sector,
                 max_numerator_rank: scope.flatten(),
