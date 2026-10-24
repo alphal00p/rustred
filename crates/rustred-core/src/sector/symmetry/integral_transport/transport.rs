@@ -2,6 +2,7 @@ use crate::family::IntegralKey;
 use crate::family::numerator_expansion::{
     AdmittedSupport, ExpansionUsage, MultiAffineNumeratorFactor, preflight_coefficient_clones,
     try_expand_multi_affine_numerator_with_usage, try_expand_multi_affine_support_with_usage,
+    try_expand_parametric_multi_affine_numerator_with_usage,
 };
 
 use super::compile::{admit, overflow, reserved};
@@ -32,13 +33,25 @@ impl Prepared {
         reserve: impl FnOnce(ExpansionUsage) -> Result<(), ExpansionError>,
     ) -> Result<TransportedIntegral, Error> {
         let (base, factors) = self.expansion_input(source, limits)?;
-        let terms = try_expand_multi_affine_numerator_with_usage(
-            &self.target,
-            &base,
-            &factors,
-            limits,
-            reserve,
-        )?;
+        // Strictly compiled maps keep the native-Q lane unchanged; only an
+        // explicit parametric opt-in reaches the substitution lane.
+        let terms = if self.parametric_constants {
+            try_expand_parametric_multi_affine_numerator_with_usage(
+                &self.target,
+                &base,
+                &factors,
+                limits,
+                reserve,
+            )?
+        } else {
+            try_expand_multi_affine_numerator_with_usage(
+                &self.target,
+                &base,
+                &factors,
+                limits,
+                reserve,
+            )?
+        };
         Ok(TransportedIntegral {
             source: IntegralKey::try_new(source.powers().iter().copied())
                 .map_err(ExpansionError::IntegralKey)?,
@@ -50,13 +63,18 @@ impl Prepared {
 
     /// Trace-only support: native algebra and every virtual output limit are
     /// admitted before returning any keys. Real coefficient reduction must use
-    /// `transport`; this iterator is not an integral combination.
+    /// `transport`; this iterator is not an integral combination. Maps with
+    /// parameter-dependent affine constants are rejected by this native-Q
+    /// support lane before any work; only `transport` substitutes them.
     pub(crate) fn transport_support_with_usage(
         &self,
         source: &IntegralKey,
         limits: ExpansionLimits,
         reserve: impl FnOnce(ExpansionUsage) -> Result<(), ExpansionError>,
     ) -> Result<AdmittedSupport, Error> {
+        if self.parametric_constants {
+            return Err(Error::ParametricConstantSupport);
+        }
         let (base, factors) = self.expansion_input(source, limits)?;
         Ok(try_expand_multi_affine_support_with_usage(
             &self.target,
