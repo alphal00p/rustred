@@ -346,8 +346,24 @@ fn in_process_generation_and_dynamic_lane_agree_with_the_fixture() {
         [true; 3],
         2,
         CandidateFamilyAdmission::ParametricVacuum,
+        None,
     )
     .unwrap();
+    // An explicit coordinate priority keeps keys and terminal support valid.
+    let (prioritized, _) = generate_candidate_program::<3>(
+        &family,
+        [true; 3],
+        2,
+        CandidateFamilyAdmission::ParametricVacuum,
+        Some(&[2, 0, 1]),
+    )
+    .unwrap();
+    assert!(!prioritized.terminals().is_empty());
+    assert_eq!(isps_at_ends_priority(&[true; 3]), None);
+    assert_eq!(
+        isps_at_ends_priority(&[true, true, false, true, false]),
+        Some(vec![2, 0, 1, 3, 4])
+    );
     let fixture = reducer(&family, CandidateFamilyAdmission::ParametricVacuum);
     assert_eq!(generated.terminals(), fixture.terminals());
     assert_eq!(statistics.terminals, fixture.terminals().len());
@@ -357,6 +373,7 @@ fn in_process_generation_and_dynamic_lane_agree_with_the_fixture() {
         2,
         true,
         LiteRedOptions::default(),
+        None,
     )
     .unwrap();
     assert_eq!(report.census_classes.is_some(), true);

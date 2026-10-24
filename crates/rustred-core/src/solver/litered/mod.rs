@@ -42,7 +42,9 @@ pub use compress::{
 };
 pub use dag::{DagStatistics, DagStructure, DagValues, NodeKind, SampleProgramStatistics};
 pub use dynamic::{DynamicLiteRedSession, LiteRedLaneReport};
-pub use generate::{CandidateGenerationStatistics, generate_candidate_program};
+pub use generate::{
+    CandidateGenerationStatistics, generate_candidate_program, isps_at_ends_priority,
+};
 pub use modular::SparseVector;
 pub use reconstruct::RationalFunction;
 pub use session::{
