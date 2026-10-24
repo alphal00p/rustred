@@ -9,7 +9,7 @@
 //! does not depend on row order.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 use crate::family::IntegralKey;
@@ -245,7 +245,10 @@ pub fn census_rows(
                     }
                     expression
                 };
-                let mut orbit: Vec<Expression> = vec![start.clone()];
+                // `seen` makes the membership test O(1) per image; `orbit`
+                // keeps the discovery order, so the rows are unchanged.
+                let mut seen: HashSet<Expression> = HashSet::from([start.clone()]);
+                let mut orbit: Vec<Expression> = vec![start];
                 let mut queue = VecDeque::from([0usize]);
                 while let Some(position) = queue.pop_front() {
                     for automorphism in class.automorphisms() {
@@ -257,13 +260,14 @@ pub fn census_rows(
                             zero,
                             &mut statistics,
                         )?;
-                        if !orbit.contains(&image) {
+                        if !seen.contains(&image) {
                             if orbit.len() >= max_orbit {
                                 return Err(LiteRedError::Limit {
                                     resource: "census orbit size",
                                     limit: max_orbit,
                                 });
                             }
+                            seen.insert(image.clone());
                             orbit.push(image);
                             queue.push_back(orbit.len() - 1);
                         }
