@@ -21,6 +21,9 @@ pub use application::{
     run_finite_demand_with_progress, run_finite_demand_with_work_progress,
 };
 pub use application::{
+    LITERED_REDUCE_OUTPUT_SCHEMA, LITERED_REDUCE_SPEC_SCHEMA, LiteRedReduceSpec, litered_reduce,
+};
+pub use application::{
     MasterNormalizationProfile, MasterReductionArtifact, MasterReductionOperation,
     MasterReductionOptions, MasterRefinementStrategy, MasterSectorSymmetryPolicy,
     load_master_reduction, load_master_reduction_with_policy, load_master_relation_session,
@@ -129,10 +132,10 @@ pub use application::{
     foundry_campaign_run, foundry_campaign_run_with_progress, foundry_wave_campaign_run,
     foundry_wave_campaign_run_with_progress, inspect_generated_candidate_bundle,
     inspect_generated_candidate_program, inspect_generated_candidate_source_support,
-    load_generated_candidate_bundle, load_generated_candidate_checkpoint,
-    load_generated_candidate_owners, load_generated_candidate_owners_with_preferences,
-    load_generated_domain_overlay, validate_domain_overlay_ingress,
-    with_replayed_candidate_rule_circuits,
+    load_generated_candidate_bundle, load_generated_candidate_bundle_with_admission,
+    load_generated_candidate_checkpoint, load_generated_candidate_owners,
+    load_generated_candidate_owners_with_preferences, load_generated_domain_overlay,
+    validate_domain_overlay_ingress, with_replayed_candidate_rule_circuits,
 };
 
 /// Run the command-line adapter and return its stable process exit code.

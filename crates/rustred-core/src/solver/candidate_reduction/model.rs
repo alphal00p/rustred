@@ -29,6 +29,24 @@ pub enum CandidateCacheRepresentation {
     Factorized,
 }
 
+/// Family-shape admission of the explicitly uncertified candidate applier.
+///
+/// Neither policy grants closure authority: candidate formulas carry no
+/// original-source replay or cover proof in either case.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CandidateFamilyAdmission {
+    /// The publication shape shared with artifact installation: an uncut,
+    /// unshifted vacuum family with unit masses whose only parameter is `d`.
+    #[default]
+    UnitMassVacuum,
+    /// UNCERTIFIED lane: any uncut, unshifted vacuum family, including
+    /// symbolic or numeric masses and extra parameters (e.g. a deformation
+    /// `D_s -> D_s - eta`, or a numeric `d` with only `eta` symbolic). Only
+    /// the unit-mass predicate is bypassed; unit-mass consumers (terminal
+    /// aliases, common-mass powers, closing artifacts) must not be fed from it.
+    ParametricVacuum,
+}
+
 /// Exact arithmetic result of candidate formulas, not certified IBP provenance
 /// or a proof that the listed finite terminals form a complete master basis.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -309,7 +327,7 @@ impl From<ExactAlgebraError> for CandidateReductionError {
 }
 
 #[derive(Debug)]
-pub(super) struct PreparedRule<const N: usize> {
+pub(crate) struct PreparedRule<const N: usize> {
     pub ordinal: usize,
     pub dispatch_policy: crate::solver::RuleDispatchPolicy,
     /// Original authenticated equality chart, Arc-shared for affine cases.
@@ -321,7 +339,7 @@ pub(super) struct PreparedRule<const N: usize> {
 }
 
 #[derive(Debug)]
-pub(super) struct PreparedTerm<const N: usize> {
+pub(crate) struct PreparedTerm<const N: usize> {
     pub shift: [i64; N],
     pub coefficient: IndexedCoefficient,
     pub denominator: IndexedPolynomial,

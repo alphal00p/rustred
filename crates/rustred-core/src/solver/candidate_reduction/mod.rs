@@ -12,6 +12,7 @@ mod cache;
 mod cached_program;
 mod capture;
 mod evaluator;
+mod litered_view;
 mod model;
 mod owners;
 pub(crate) mod power_domain;
@@ -24,9 +25,11 @@ mod terminal_normalization;
 mod trace;
 
 pub use cached_program::{CandidateGuardedCacheError, CandidateUnitMassProgram};
+pub(crate) use litered_view::CandidateProgramView;
+pub(crate) use model::PreparedRule;
 pub use model::{
-    CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
-    CandidateReductionError, CandidateStatistics, UnresolvedPolicy,
+    CandidateCacheRepresentation, CandidateDecomposition, CandidateFamilyAdmission,
+    CandidateReachabilityReport, CandidateReductionError, CandidateStatistics, UnresolvedPolicy,
 };
 pub use owners::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateIntegralIdentity, CandidateOwnerContext,

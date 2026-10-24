@@ -116,6 +116,10 @@ impl<const N: usize> CandidateReducer<N> {
     pub fn family_fingerprint(&self) -> &str {
         &self.program.family_fingerprint
     }
+    /// The declared root sector (positions that may carry positive powers).
+    pub fn root_sector(&self) -> [bool; N] {
+        self.program.root_sector
+    }
     pub fn index_count(&self) -> usize {
         N
     }

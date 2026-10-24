@@ -36,7 +36,7 @@ pub use error::{ArtifactError, ArtifactPersistenceError};
 pub use factorization::{
     FactorizationFactor, FactorizationMasterEmbedding, FactorizationRule, UnimodularLoopBasis,
 };
-pub(crate) use install::validate_unit_mass_family;
+pub(crate) use install::{validate_parametric_vacuum_family, validate_unit_mass_family};
 pub use model::{
     ArtifactSchemaVersion, ArtifactValidationWitness, ClosedArtifact, CommonMassHomogeneityProof,
     ZeroSectorTerminal, ZeroTerminalProof,

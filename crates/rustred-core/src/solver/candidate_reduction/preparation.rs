@@ -9,7 +9,9 @@ use crate::reduction::{CacheWeight, ReductionLimits, ReductionStatistics, Shared
 use crate::sector::{OrderingPolicy, zero};
 use crate::solver::{FiniteCasePolicy, SectorSolution};
 
-use super::model::{CandidateCacheRepresentation, CandidateReductionError};
+use super::model::{
+    CandidateCacheRepresentation, CandidateFamilyAdmission, CandidateReductionError,
+};
 use super::reducer::{CandidateProgram, CandidateReducer};
 
 impl<const N: usize> CandidateReducer<N> {
@@ -61,6 +63,36 @@ impl<const N: usize> CandidateReducer<N> {
         )
     }
 
+    /// UNCERTIFIED parametric lane: as [`Self::try_new_with_numerator_rank`]
+    /// under an explicit [`CandidateFamilyAdmission`]. With
+    /// [`CandidateFamilyAdmission::ParametricVacuum`] the unit-mass predicate
+    /// is the only admission check that is bypassed, so deformed vacuum
+    /// families (`-1-eta` constants, extra parameters, numeric `d`) can be
+    /// applied. Coefficients stay exact in the family's base field; nothing
+    /// here is a closing artifact or a master-basis proof.
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_new_with_admission(
+        family: &IntegralFamily,
+        root_sector: [bool; N],
+        ordering: OrderingPolicy,
+        sectors: impl IntoIterator<Item = ([bool; N], SectorSolution<N>)>,
+        zero_certificates: Vec<zero::Certificate>,
+        limits: ReductionLimits,
+        max_numerator_rank: Option<u32>,
+        admission: CandidateFamilyAdmission,
+    ) -> Result<Self, CandidateReductionError> {
+        Self::prepare_with_admission(
+            family,
+            root_sector,
+            ordering,
+            sectors,
+            zero_certificates,
+            limits,
+            Some(max_numerator_rank),
+            admission,
+        )
+    }
+
     fn prepare(
         family: &IntegralFamily,
         root_sector: [bool; N],
@@ -68,13 +100,37 @@ impl<const N: usize> CandidateReducer<N> {
         sectors: impl IntoIterator<Item = ([bool; N], SectorSolution<N>)>,
         zero_certificates: Vec<zero::Certificate>,
         limits: ReductionLimits,
+        scope: Option<Option<u32>>,
+    ) -> Result<Self, CandidateReductionError> {
+        Self::prepare_with_admission(
+            family,
+            root_sector,
+            ordering,
+            sectors,
+            zero_certificates,
+            limits,
+            scope,
+            CandidateFamilyAdmission::UnitMassVacuum,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_with_admission(
+        family: &IntegralFamily,
+        root_sector: [bool; N],
+        ordering: OrderingPolicy,
+        sectors: impl IntoIterator<Item = ([bool; N], SectorSolution<N>)>,
+        zero_certificates: Vec<zero::Certificate>,
+        limits: ReductionLimits,
         mut scope: Option<Option<u32>>,
+        admission: CandidateFamilyAdmission,
     ) -> Result<Self, CandidateReductionError> {
         // Preserve validation of an ordering even for an empty/zero request.
         ordering
             .compare(&[0; N], &[0; N])
             .map_err(crate::reduction::ReductionError::Ordering)?;
-        let shared = shared::prepare_family(family, zero_certificates, limits)?;
+        let shared =
+            shared::prepare_family_with_admission(family, zero_certificates, limits, admission)?;
         let mut records = BTreeMap::new();
         let mut finite_case_policy = None;
         for (sector, solution) in sectors {

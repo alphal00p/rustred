@@ -682,3 +682,22 @@ pub(crate) fn validate_unit_mass_family(
     }
     Ok(())
 }
+
+/// Admission for the explicitly uncertified candidate applier only.
+///
+/// This is [`validate_unit_mass_family`] without its unit-mass, d-only and
+/// single-scale requirements: any uncut vacuum family without power shifts is
+/// accepted, with arbitrary exact base parameters (for example a deformation
+/// `eta`, or no parameter at all when `d` is numeric) and arbitrary exact
+/// denominator constants (for example `-1-eta`). It is never used by closing
+/// artifact installation, certification or publication, which keep the strict
+/// unit-mass predicate above. Output of lanes admitted here stays candidate
+/// arithmetic without source-replay provenance or cover proof.
+pub(crate) fn validate_parametric_vacuum_family(
+    family: &crate::family::IntegralFamily,
+) -> Result<(), ArtifactError> {
+    if family.external_count() != 0 || family.power_shifts().iter().any(|shift| !shift.is_zero()) {
+        return Err(ArtifactError::UnsupportedClosureShape);
+    }
+    Ok(())
+}
