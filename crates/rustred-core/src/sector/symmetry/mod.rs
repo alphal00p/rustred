@@ -13,10 +13,16 @@
 //! counts, and topology names are never accepted as proof.
 //!
 //! For vacuum families, the sector-owned projector-graph `discovery` service
-//! PROPOSES such maps from exact mass-colored canonical graphs. Every proposal
-//! still passes [`verify()`] and [`integral_transport::compile`] before use.
+//! PROPOSES such maps from exact mass-colored canonical graphs, and
+//! [`SectorSymmetryCensus`] turns the verified proposals into a public
+//! deterministic sector partition, verified routes to representatives,
+//! representative automorphisms, exact relation rows and recursive
+//! normalization onto representative sectors. Every proposal still passes
+//! [`verify()`] and [`integral_transport::compile_with_affine_constants`]
+//! before use.
 
 pub mod canonical;
+mod census;
 mod condition;
 pub(crate) mod discovery;
 mod error;
@@ -33,6 +39,15 @@ pub use canonical::{
 };
 #[cfg(test)]
 pub(crate) use canonical::{CoordinatePriorityActionLimits, CoordinatePriorityQuotient};
+pub use census::{
+    DEFAULT_MAX_CENSUS_GROUP_ORDER, DEFAULT_MAX_NORMAL_FORM_TERMS,
+    DEFAULT_MAX_NORMAL_FORM_TRANSPORTS, MAX_SUBSECTOR_CENSUS_ACTIVE_LINES, NormalizationLimits,
+    RelationEndpoints, RepresentativePolicy, SectorSymmetryCensus, SectorSymmetryCensusControl,
+    SectorSymmetryCensusError, SectorSymmetryCensusOptions, SectorSymmetryCensusProgress,
+    SectorSymmetryCensusStatistics, SectorSymmetryClass, SectorSymmetryMember,
+    SectorSymmetryNormalForm, SectorSymmetryRelation, SectorSymmetrySkip, SectorSymmetrySkipReason,
+    SectorSymmetrySkipStage, ZeroSectorKind, sector_id_cmp,
+};
 pub use condition::{ConditionSource, NonZeroCondition};
 pub use discovery::{CanonicalSupportKey, DiscoveryError, LineGeometrySkip, SupportSkipReason};
 pub use error::Error;
