@@ -277,7 +277,10 @@ pub fn composition_is_exact_and_equals_sequential_application_mod_p() {
             (key(&family, 7), c(&family, "2 + 3*(d-3)")),
         ])
     );
-    assert_eq!(*five.conditions, vec![c(&family, "d-4"), c(&family, "2*d-7")]);
+    assert_eq!(
+        *five.conditions,
+        vec![c(&family, "d-4"), c(&family, "2*d-7")]
+    );
     // Untouched rows keep their shared guard allocation.
     assert!(Arc::ptr_eq(
         &composed.rows[&key(&family, 4)].conditions,
@@ -362,7 +365,11 @@ pub fn malformed_layers_are_rejected() {
     let bad = layer_with(&family, vec![row(&family, 5, &[(7, "1")], &[])], &[7]);
     assert!(rejected(&base, &bad, &[]).contains("not a remaining terminal"));
     // Missing condition for a denominator.
-    let bad = layer_with(&family, vec![row(&family, 2, &[(7, "1/(2*d-7)")], &[])], &[7]);
+    let bad = layer_with(
+        &family,
+        vec![row(&family, 2, &[(7, "1/(2*d-7)")], &[])],
+        &[7],
+    );
     assert!(rejected(&base, &bad, &[]).contains("not covered"));
     // A condition with a different integer normalization still covers.
     let good = layer_with(
@@ -374,7 +381,10 @@ pub fn malformed_layers_are_rejected() {
     // Duplicated source.
     let bad = layer_with(
         &family,
-        vec![row(&family, 2, &[(7, "1")], &[]), row(&family, 2, &[(7, "2")], &[])],
+        vec![
+            row(&family, 2, &[(7, "1")], &[]),
+            row(&family, 2, &[(7, "2")], &[]),
+        ],
         &[7],
     );
     assert!(rejected(&base, &bad, &[]).contains("duplicate layer source"));
@@ -388,7 +398,10 @@ pub fn malformed_layers_are_rejected() {
     // Rows must be fully reduced: 2 -> 3 while 3 is also a source.
     let bad = layer_with(
         &family,
-        vec![row(&family, 2, &[(3, "1")], &[]), row(&family, 3, &[(3, "1")], &[])],
+        vec![
+            row(&family, 2, &[(3, "1")], &[]),
+            row(&family, 3, &[(3, "1")], &[]),
+        ],
         &[3],
     );
     assert!(rejected(&base, &bad, &[]).contains("fully reduced"));
@@ -538,7 +551,8 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
     // The fixture has no source campaign; give it the identity fields a real
     // publication carries (the loader does not interpret them).
     let manifest = base_dir.join("application.json");
-    let mut base_report: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    let mut base_report: Value =
+        serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     base_report["metadata"]["source_manifest_blake3"] = json!("f".repeat(64));
     base_report["metadata"]["source_scope_binding"] = json!("e".repeat(64));
     std::fs::write(&manifest, serde_json::to_vec(&base_report).unwrap()).unwrap();
@@ -622,13 +636,8 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
     assert_eq!(definitions["metadata"]["remaining_terminals"], 1);
     // Never replaces an existing package.
     assert!(
-        compose_saved_application_layer::<1>(
-            &base_dir,
-            &layer_path,
-            &out,
-            &Default::default()
-        )
-        .is_err()
+        compose_saved_application_layer::<1>(&base_dir, &layer_path, &out, &Default::default())
+            .is_err()
     );
 
     // Size gate failure without --layered writes nothing.
@@ -655,8 +664,7 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
     let report: Value =
         serde_json::from_slice(&std::fs::read(layered.join("application.json")).unwrap()).unwrap();
     let base_report: Value =
-        serde_json::from_slice(&std::fs::read(base_dir.join("application.json")).unwrap())
-            .unwrap();
+        serde_json::from_slice(&std::fs::read(base_dir.join("application.json")).unwrap()).unwrap();
     assert_eq!(
         report["terminal_maps"]["blake3"],
         base_report["terminal_maps"]["blake3"]
@@ -708,5 +716,8 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
     )
     .err()
     .unwrap();
-    assert!(error.to_string().contains("terminal_maps_blake3"), "{error}");
+    assert!(
+        error.to_string().contains("terminal_maps_blake3"),
+        "{error}"
+    );
 }

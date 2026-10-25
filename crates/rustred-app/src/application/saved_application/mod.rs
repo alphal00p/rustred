@@ -17,14 +17,14 @@ mod charts;
 mod codec;
 mod compose;
 mod layer;
+#[cfg(any(test, feature = "layer-test-support"))]
+#[doc(hidden)]
+pub mod layer_tests;
 mod options;
 mod package;
 mod products;
 mod progress;
 mod scope;
-#[cfg(any(test, feature = "layer-test-support"))]
-#[doc(hidden)]
-pub mod layer_tests;
 #[cfg(any(test, feature = "layer-test-support"))]
 #[doc(hidden)]
 pub mod tests;

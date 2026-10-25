@@ -95,7 +95,9 @@ pub fn compose_saved_application_layer<const N: usize>(
 ) -> Result<SavedApplicationComposeOutcome, AppError> {
     let started = Instant::now();
     if !(options.size_gate.is_finite() && options.size_gate >= 0.0) {
-        return Err(AppError::input("size gate must be a nonnegative finite ratio"));
+        return Err(AppError::input(
+            "size gate must be a nonnegative finite ratio",
+        ));
     }
     if !options.dry_run && out.exists() {
         return Err(AppError::input(format!(
@@ -147,9 +149,9 @@ pub fn compose_saved_application_layer<const N: usize>(
     )?;
     let metadata = prepared.metadata.clone();
     let base = &layer.base;
-    let mismatch = |field: &str| AppError::input(format!("layer base {field} differs from the package"));
-    if Some(base.terminal_maps_blake3.as_str()) != base_report["terminal_maps"]["blake3"].as_str()
-    {
+    let mismatch =
+        |field: &str| AppError::input(format!("layer base {field} differs from the package"));
+    if Some(base.terminal_maps_blake3.as_str()) != base_report["terminal_maps"]["blake3"].as_str() {
         return Err(mismatch("terminal_maps_blake3"));
     }
     if Some(base.source_manifest_blake3.as_str()) != metadata["source_manifest_blake3"].as_str() {
@@ -298,7 +300,10 @@ pub fn compose_saved_application_layer<const N: usize>(
         refinement["layer_rows"] = json!(bound.sources.len());
     }
     metadata["refinement_layer"] = refinement;
-    let authority = metadata["authority"].as_str().unwrap_or_default().to_owned();
+    let authority = metadata["authority"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     metadata["authority"] = json!(format!(
         "{authority}; refinement layer {}: RustRed relations, checked mod p at compose time",
         &digest.layer_blake3[..16]
@@ -454,7 +459,9 @@ fn write_definitions<const N: usize>(
 ) -> Result<usize, AppError> {
     let (_, mut definitions) = read_json(input)?;
     if definitions["schema"] != "rustred.native-master-definitions.v1" {
-        return Err(AppError::input("unsupported base terminal definitions schema"));
+        return Err(AppError::input(
+            "unsupported base terminal definitions schema",
+        ));
     }
     let entries = definitions["masters"]
         .as_array()
@@ -462,8 +469,12 @@ fn write_definitions<const N: usize>(
         .ok_or_else(|| AppError::input("base terminal definitions have no masters"))?;
     let mut by_key = BTreeMap::new();
     for entry in entries {
-        let fingerprint = entry["family_fingerprint"].as_str().unwrap_or_default().to_owned();
-        let powers: Vec<i64> = serde_json::from_value(entry["powers"].clone()).map_err(native_failure)?;
+        let fingerprint = entry["family_fingerprint"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let powers: Vec<i64> =
+            serde_json::from_value(entry["powers"].clone()).map_err(native_failure)?;
         by_key.insert((fingerprint, powers), entry);
     }
     let base_keys: BTreeSet<_> = base_remaining
@@ -479,7 +490,10 @@ fn write_definitions<const N: usize>(
     let mut masters = Vec::new();
     let mut new_index = 0;
     for key in prepared.remaining_terminals() {
-        let id = (key.family_fingerprint.clone(), key.integral.powers().to_vec());
+        let id = (
+            key.family_fingerprint.clone(),
+            key.integral.powers().to_vec(),
+        );
         masters.push(match by_key.get(&id) {
             Some(entry) => entry.clone(),
             None => {

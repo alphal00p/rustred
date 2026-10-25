@@ -312,7 +312,10 @@ fn load_with_policy<const N: usize>(
     }
     // A package feature this loader does not know must never be ignored.
     if let Some(object) = report.as_object() {
-        if let Some(unknown) = object.keys().find(|key| !KNOWN_KEYS.contains(&key.as_str())) {
+        if let Some(unknown) = object
+            .keys()
+            .find(|key| !KNOWN_KEYS.contains(&key.as_str()))
+        {
             return Err(AppError::input(format!(
                 "saved application key {unknown:?} is not supported by this loader"
             )));
@@ -345,10 +348,16 @@ fn load_with_policy<const N: usize>(
     if let Some(descriptor) = report.get("terminal_layer") {
         // RR-11 layered package: base rows stay byte-identical; the layer is
         // a final exact substitution of base terminals by layer masters.
-        let bytes = read_descriptor(directory, descriptor, options.binary_limits.max_program_bytes)?;
+        let bytes = read_descriptor(
+            directory,
+            descriptor,
+            options.binary_limits.max_program_bytes,
+        )?;
         let layer = codec::decode(&bytes, options)?;
         if layer.families.keys().ne(terminals.families.keys()) {
-            return Err(AppError::input("terminal layer families differ from the base maps"));
+            return Err(AppError::input(
+                "terminal layer families differ from the base maps",
+            ));
         }
         if report["metadata"]["refinement_layer"]["base_remaining_terminals"].as_u64()
             != Some(terminals.remaining.len() as u64)
