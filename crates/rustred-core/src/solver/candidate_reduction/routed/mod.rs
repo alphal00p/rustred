@@ -10,11 +10,16 @@ mod prepare;
 mod trace;
 
 pub use application::{
+    CandidateRoutedActivity, CandidateRoutedApplicationEnvelope, CandidateRoutedApplicationEvent,
+    CandidateRoutedApplicationMetrics, CandidateRoutedApplicationObserver,
     CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
     CandidateRoutedApplicationStatistics, CandidateRoutedApplicationStatus,
     CandidateRoutedCacheCensus, CandidateRoutedCacheExportStatistics, CandidateRoutedCachePolicy,
-    CandidateRoutedCacheStatistics, CandidateRoutedPersistentCacheStatistics,
-    CandidateRoutedReduction, RoutedCandidateApplication,
+    CandidateRoutedCacheStatistics, CandidateRoutedCompletionSource, CandidateRoutedComplexity,
+    CandidateRoutedFrontierSample, CandidateRoutedKeyDegrees, CandidateRoutedObservationOptions,
+    CandidateRoutedObserverControl, CandidateRoutedObserverFault, CandidateRoutedObserverStatus,
+    CandidateRoutedPersistentCacheStatistics, CandidateRoutedReduction,
+    CandidateRoutedTerminalProgress, CandidateRoutedWorkRef, RoutedCandidateApplication,
 };
 
 pub use campaign::{

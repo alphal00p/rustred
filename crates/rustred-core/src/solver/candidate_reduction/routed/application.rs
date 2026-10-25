@@ -14,8 +14,14 @@ mod transport;
 pub use cache_policy::{CandidateRoutedCachePolicy, CandidateRoutedCacheStatistics};
 use cache_policy::{EvictionIndex, EvictionMetadata};
 pub use progress::{
+    CandidateRoutedActivity, CandidateRoutedApplicationEnvelope, CandidateRoutedApplicationEvent,
+    CandidateRoutedApplicationMetrics, CandidateRoutedApplicationObserver,
     CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
-    CandidateRoutedApplicationStatus, CandidateRoutedCacheCensus,
+    CandidateRoutedApplicationStatus, CandidateRoutedCacheCensus, CandidateRoutedCompletionSource,
+    CandidateRoutedComplexity, CandidateRoutedFrontierSample, CandidateRoutedKeyDegrees,
+    CandidateRoutedObservationOptions, CandidateRoutedObserverControl,
+    CandidateRoutedObserverFault, CandidateRoutedObserverStatus, CandidateRoutedTerminalProgress,
+    CandidateRoutedWorkRef,
 };
 
 use std::collections::{BTreeMap, BTreeSet};

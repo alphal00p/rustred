@@ -27,14 +27,17 @@ pub struct CandidateRoutedCacheExportStatistics {
 }
 
 #[derive(Default)]
-pub(super) struct PersistentRequest<'a> {
-    pub backing: Option<&'a mut dyn GuardedCacheBacking>,
-    pub capture: Option<&'a mut dyn GuardedIntermediateCapture>,
+pub(super) struct PersistentRequest<'a, 'storage> {
+    // The request reborrows stores only for its own traversal. Their captured
+    // data can outlive that borrow, allowing the same observer to cover the
+    // subsequent saved terminal substitutions without retaining a store borrow.
+    pub backing: Option<&'a mut (dyn GuardedCacheBacking + 'storage)>,
+    pub capture: Option<&'a mut (dyn GuardedIntermediateCapture + 'storage)>,
     pub loaded: Option<ApplicationCacheRecord>,
     pub requested_roots: std::collections::BTreeSet<ApplicationCacheKey>,
 }
 
-impl PersistentRequest<'_> {
+impl PersistentRequest<'_, '_> {
     pub(super) fn report(&mut self, statistics: CandidateRoutedPersistentCacheStatistics) {
         if let Some(capture) = &mut self.capture {
             capture.report_statistics(crate::reduction::GuardedCaptureStatistics {
@@ -158,6 +161,60 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             Ok(result) => result,
             Err(panic) => std::panic::resume_unwind(panic),
         }
+    }
+
+    /// Observe the same cached/captured traversal. Telemetry faults detach the
+    /// observer; backing/capture errors and typed native failures are unchanged.
+    #[allow(clippy::too_many_arguments)] // Existing cache API plus observer/control.
+    pub fn reduce_linear_combination_with_cache_and_observation<'a>(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        admission: CandidateEntryAdmission<'_, N>,
+        binding: &ApplicationCacheBinding,
+        backing: Option<&'a mut dyn GuardedCacheBacking>,
+        capture: Option<&'a mut dyn GuardedIntermediateCapture>,
+        observer: &mut CandidateRoutedApplicationObserver<'_>,
+        cancel: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        self.validate_persistent_binding(binding, backing.as_deref(), capture.is_some())?;
+        self.reduce_observed_request(
+            terms,
+            admission,
+            progress::Progress::from_observer(observer),
+            cancel,
+            PersistentRequest {
+                backing,
+                capture,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Initial routing, cache lookup/capture and observation share one native
+    /// request; no diagnostic traversal or additional admission path is used.
+    #[allow(clippy::too_many_arguments)] // Existing cache API plus observer/control.
+    pub fn reduce_routed_linear_combination_with_cache_and_observation<'a>(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        admission: CandidateEntryAdmission<'_, N>,
+        binding: &ApplicationCacheBinding,
+        backing: Option<&'a mut dyn GuardedCacheBacking>,
+        capture: Option<&'a mut dyn GuardedIntermediateCapture>,
+        observer: &mut CandidateRoutedApplicationObserver<'_>,
+        cancel: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        self.validate_persistent_binding(binding, backing.as_deref(), capture.is_some())?;
+        self.reduce_observed_routed_request(
+            terms,
+            admission,
+            progress::Progress::from_observer(observer),
+            cancel,
+            PersistentRequest {
+                backing,
+                capture,
+                ..Default::default()
+            },
+        )
     }
 
     fn target_is_zero(&self, key: &IntegralKey) -> bool {
@@ -292,7 +349,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         &self,
         node: &Node<N>,
         conditions: &mut Vec<Coefficient>,
-        persistent: &mut PersistentRequest<'_>,
+        persistent: &mut PersistentRequest<'_, '_>,
         stats: &mut CandidateRoutedPersistentCacheStatistics,
     ) -> Result<bool, CandidateRoutedError> {
         let Some(backing) = &mut persistent.backing else {
@@ -362,7 +419,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
     pub(super) fn capture_persistent_node(
         &self,
         node: &Node<N>,
-        persistent: &mut PersistentRequest<'_>,
+        persistent: &mut PersistentRequest<'_, '_>,
         stats: &mut CandidateRoutedPersistentCacheStatistics,
     ) -> Result<(), CandidateRoutedError> {
         let Some(capture) = &mut persistent.capture else {

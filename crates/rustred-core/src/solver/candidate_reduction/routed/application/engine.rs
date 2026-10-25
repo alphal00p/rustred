@@ -6,7 +6,12 @@ use std::time::Duration;
 
 use super::cache_policy::DependencyPins;
 use super::guard_union::GuardUnion;
-use super::progress::Progress;
+use super::progress::{
+    CandidateRoutedActivity, CandidateRoutedApplicationEnvelope, CandidateRoutedApplicationEvent,
+    CandidateRoutedApplicationMetrics, CandidateRoutedApplicationObserver,
+    CandidateRoutedCompletionSource, CandidateRoutedComplexity, CandidateRoutedFrontierSample,
+    CandidateRoutedKeyDegrees, CandidateRoutedWorkRef, Progress,
+};
 use super::{
     CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
     CandidateRoutedApplicationStatistics, CandidateRoutedApplicationStatus,
@@ -29,6 +34,7 @@ enum Frame<const N: usize> {
         node: Node<N>,
         terms: Arc<BTreeMap<Node<N>, Coefficient>>,
         conditions: Vec<Coefficient>,
+        first_visit: bool,
     },
 }
 
@@ -61,6 +67,57 @@ mod tests {
             application.run_stack(&mut request),
             Err(CandidateRoutedError::Cycle { .. })
         ));
+
+        let mut cycle = None;
+        {
+            let mut callback = |event: &CandidateRoutedApplicationEnvelope<'_>| {
+                if event.event == CandidateRoutedApplicationEvent::CycleDetected {
+                    cycle = Some((
+                        event.active_path.len(),
+                        event.path_total_nodes,
+                        event.cycle_backedge,
+                        event.active_path.first() == event.active_path.last(),
+                    ));
+                }
+                Ok(super::super::progress::CandidateRoutedObserverControl::Continue)
+            };
+            let mut observer = CandidateRoutedApplicationObserver::new(
+                super::super::progress::CandidateRoutedObservationOptions {
+                    interval: Duration::ZERO,
+                    ..Default::default()
+                },
+                &mut callback,
+            );
+            let node = Node::Route(key([1]));
+            let mut request = Request {
+                progress: Progress::from_observer(&mut observer),
+                observation: Some(EngineObservation {
+                    path_limit: 8,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            request.set_root(&node);
+            request.active.insert(node.clone());
+            request.retain_observed_path(&node);
+            request
+                .push(
+                    Frame::Combine {
+                        node: node.clone(),
+                        terms: Arc::new(BTreeMap::new()),
+                        conditions: vec![],
+                        first_visit: true,
+                    },
+                    None,
+                )
+                .unwrap();
+            request.push(Frame::Enter(node), None).unwrap();
+            assert!(matches!(
+                application.run_stack(&mut request),
+                Err(CandidateRoutedError::Cycle { .. })
+            ));
+        }
+        assert_eq!(cycle, Some((2, 2, Some(0), true)));
     }
 
     #[test]
@@ -87,6 +144,7 @@ mod tests {
                         family.coefficient_context().one(),
                     )])),
                     conditions: vec![],
+                    first_visit: true,
                 },
                 None,
             )
@@ -101,8 +159,41 @@ mod tests {
     }
 }
 
+/// Optional request-local metadata. It never owns coefficients or participates
+/// in numerical work accounting. Only a bounded prefix of active ancestry is
+/// retained, and no metadata is allocated for an unobserved request.
 #[derive(Default)]
-pub(super) struct Request<'a, const N: usize> {
+struct EngineObservation<const N: usize> {
+    root: Option<Node<N>>,
+    current: Option<Node<N>>,
+    metrics: CandidateRoutedApplicationMetrics,
+    activity: CandidateRoutedActivity,
+    path_prefix: Vec<Node<N>>,
+    path_limit: usize,
+    complexity: CandidateRoutedComplexity,
+    has_seen_degrees: bool,
+}
+
+fn try_clone_node<const N: usize>(node: &Node<N>) -> Option<Node<N>> {
+    let key = IntegralKey::try_new(node.key().powers().iter().copied()).ok()?;
+    Some(match node {
+        Node::Route(_) => Node::Route(key),
+        Node::Apply(owner, _) => Node::Apply(*owner, key),
+    })
+}
+
+fn work_ref<const N: usize>(node: &Node<N>, arity: usize) -> CandidateRoutedWorkRef<'_> {
+    match node {
+        Node::Route(target) => CandidateRoutedWorkRef::Route(target),
+        Node::Apply(owner_sector, target) => CandidateRoutedWorkRef::Apply {
+            owner_sector: &owner_sector[..arity],
+            target,
+        },
+    }
+}
+
+#[derive(Default)]
+pub(super) struct Request<'a, 'storage, const N: usize> {
     algebra: ReductionRequest,
     pub(super) stats: CandidateRoutedApplicationStatistics,
     seen: BTreeSet<Node<N>>,
@@ -110,12 +201,137 @@ pub(super) struct Request<'a, const N: usize> {
     stack: Vec<Frame<N>>,
     pub(super) pins: DependencyPins<N>,
     progress: Option<Progress<'a>>,
+    observation: Option<EngineObservation<N>>,
     cancel: Option<&'a AtomicBool>,
-    pub(super) persistent: super::persistent::PersistentRequest<'a>,
+    pub(super) persistent: super::persistent::PersistentRequest<'a, 'storage>,
 }
 
-impl<'a, const N: usize> Request<'a, N> {
-    pub(super) fn with_persistent(persistent: super::persistent::PersistentRequest<'a>) -> Self {
+impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
+    fn set_root(&mut self, node: &Node<N>) {
+        if let Some(observation) = &mut self.observation {
+            observation.root = try_clone_node(node);
+        }
+        self.set_current(node);
+    }
+
+    fn set_current(&mut self, node: &Node<N>) {
+        if let Some(observation) = &mut self.observation {
+            let degrees = CandidateRoutedKeyDegrees::from_key(node.key());
+            if !observation.has_seen_degrees {
+                observation.metrics.max_seen_degrees = degrees;
+                observation.has_seen_degrees = true;
+            } else {
+                observation.metrics.max_seen_degrees.include(degrees);
+            }
+            observation.current = try_clone_node(node);
+            observation.complexity = CandidateRoutedComplexity::default();
+        }
+    }
+
+    fn set_entry_root(&mut self, key: &IntegralKey) {
+        if let Some(observation) = &mut self.observation {
+            let degrees = CandidateRoutedKeyDegrees::from_key(key);
+            if !observation.has_seen_degrees {
+                observation.metrics.max_seen_degrees = degrees;
+                observation.has_seen_degrees = true;
+            } else {
+                observation.metrics.max_seen_degrees.include(degrees);
+            }
+            observation.root = IntegralKey::try_new(key.powers().iter().copied())
+                .ok()
+                .map(Node::Route);
+            observation.current = observation.root.as_ref().and_then(try_clone_node);
+            observation.complexity = CandidateRoutedComplexity::default();
+        }
+    }
+
+    fn record_completion(&mut self, first_visit: bool) {
+        if let Some(observation) = &mut self.observation {
+            observation.metrics.completion_attempts =
+                observation.metrics.completion_attempts.saturating_add(1);
+            if first_visit {
+                observation.metrics.completed_unique_operational_nodes = observation
+                    .metrics
+                    .completed_unique_operational_nodes
+                    .saturating_add(1);
+            }
+        }
+    }
+
+    fn record_local_descent(&mut self) {
+        if let Some(observation) = &mut self.observation {
+            observation.metrics.observed_descent_checks = observation
+                .metrics
+                .observed_descent_checks
+                .saturating_add(1);
+        }
+    }
+
+    fn retain_observed_path(&mut self, node: &Node<N>) {
+        if let Some(observation) = &mut self.observation
+            && self.active.len() <= observation.path_limit
+        {
+            if observation.path_prefix.try_reserve(1).is_ok()
+                && let Some(node) = try_clone_node(node)
+            {
+                observation.path_prefix.push(node);
+            } else {
+                // Telemetry allocation refusal only omits detail.
+                observation.path_prefix.clear();
+                observation.path_limit = 0;
+            }
+        }
+    }
+
+    fn release_observed_path(&mut self) {
+        if let Some(observation) = &mut self.observation {
+            observation.path_prefix.truncate(self.active.len());
+        }
+    }
+
+    fn observe_activity(
+        &mut self,
+        application: &RoutedCandidateApplication<N>,
+        activity: CandidateRoutedActivity,
+        terms: Option<usize>,
+    ) {
+        if let Some(observation) = &mut self.observation {
+            observation.activity = activity;
+            observation.complexity = CandidateRoutedComplexity {
+                terms,
+                ..Default::default()
+            };
+            self.observe_event(
+                application,
+                None,
+                CandidateRoutedApplicationStatus::Running,
+                true,
+                CandidateRoutedApplicationEvent::ActivityStarted,
+                false,
+            );
+        }
+    }
+
+    fn observe_completion(
+        &mut self,
+        application: &RoutedCandidateApplication<N>,
+        source: CandidateRoutedCompletionSource,
+    ) {
+        if self.observation.is_some() {
+            self.observe_event(
+                application,
+                None,
+                CandidateRoutedApplicationStatus::Running,
+                false,
+                CandidateRoutedApplicationEvent::NodeCompleted(source),
+                true,
+            );
+        }
+    }
+
+    pub(super) fn with_persistent(
+        persistent: super::persistent::PersistentRequest<'a, 'storage>,
+    ) -> Self {
         Self {
             persistent,
             ..Default::default()
@@ -140,13 +356,53 @@ impl<'a, const N: usize> Request<'a, N> {
         status: CandidateRoutedApplicationStatus,
         force: bool,
     ) {
+        if let (Some(observation), Some(phase)) = (&mut self.observation, phase) {
+            observation.activity = match phase {
+                CandidateRoutedApplicationPhase::Admission => CandidateRoutedActivity::Admission,
+                CandidateRoutedApplicationPhase::Expansion => CandidateRoutedActivity::Expansion,
+                CandidateRoutedApplicationPhase::Combination => {
+                    CandidateRoutedActivity::CoefficientCombination
+                }
+                CandidateRoutedApplicationPhase::RootCollection => {
+                    CandidateRoutedActivity::RootCollection
+                }
+            };
+        }
+        self.observe_event(
+            application,
+            phase,
+            status,
+            force,
+            if status == CandidateRoutedApplicationStatus::Running {
+                CandidateRoutedApplicationEvent::Snapshot
+            } else {
+                CandidateRoutedApplicationEvent::CoreFinished
+            },
+            true,
+        );
+    }
+
+    fn observe_event(
+        &mut self,
+        application: &RoutedCandidateApplication<N>,
+        phase: Option<CandidateRoutedApplicationPhase>,
+        status: CandidateRoutedApplicationStatus,
+        force: bool,
+        event: CandidateRoutedApplicationEvent,
+        sample: bool,
+    ) {
         let Some(progress) = &mut self.progress else {
             return;
         };
         if let Some(phase) = phase {
             progress.phase = phase;
         }
-        let Some(now) = progress.due(force) else {
+        let now = if event == CandidateRoutedApplicationEvent::ActivityStarted && !sample {
+            progress.notice()
+        } else {
+            progress.due(force)
+        };
+        let Some(now) = now else {
             return;
         };
         let cached =
@@ -168,7 +424,109 @@ impl<'a, const N: usize> Request<'a, N> {
             pinned: self.pins.census,
             eligible: self.pins.census.map(|pinned| cached.excluding(pinned)),
         };
-        (progress.observer)(&snapshot);
+        let family = application.family();
+        let mut envelope = CandidateRoutedApplicationEnvelope::new(event, family.fingerprint());
+        let Some(observation) = &self.observation else {
+            progress.deliver(&snapshot, envelope);
+            return;
+        };
+        let arity = family.denominator_count();
+        envelope.activity = observation.activity;
+        envelope.root = observation.root.as_ref().map(|node| work_ref(node, arity));
+        envelope.current = observation
+            .current
+            .as_ref()
+            .map(|node| work_ref(node, arity));
+        envelope.degrees = observation
+            .current
+            .as_ref()
+            .map(|node| CandidateRoutedKeyDegrees::from_key(node.key()));
+        envelope.metrics = observation.metrics;
+        // The activity already supplied this O(1) structural hint. Computing
+        // cache censuses or sampling pending work remains sample-only below.
+        envelope.complexity = observation.complexity;
+        envelope.path_total_nodes = self.active.len();
+        let mut path = Vec::new();
+        if sample {
+            if path.try_reserve(observation.path_prefix.len()).is_ok() {
+                path.extend(
+                    observation
+                        .path_prefix
+                        .iter()
+                        .map(|node| work_ref(node, arity)),
+                );
+            }
+            if event == CandidateRoutedApplicationEvent::CycleDetected
+                && let Some(current) = &observation.current
+            {
+                // A cycle repeats an active ancestor. The full index is
+                // recovered only on this actual error path, even when the
+                // retained diagnostic prefix does not reach that ancestor.
+                envelope.cycle_backedge = self
+                    .stack
+                    .iter()
+                    .filter_map(|frame| match frame {
+                        Frame::Combine { node, .. } => Some(node),
+                        Frame::Enter(_) => None,
+                    })
+                    .position(|node| node == current)
+                    .or_else(|| {
+                        observation
+                            .path_prefix
+                            .iter()
+                            .position(|node| node == current)
+                    });
+                envelope.path_total_nodes = envelope.path_total_nodes.saturating_add(1);
+                if path.len() < progress.options().max_path_nodes && path.try_reserve(1).is_ok() {
+                    path.push(work_ref(current, arity));
+                }
+            }
+            envelope.active_path = &path;
+            if let Some(entry) = observation
+                .current
+                .as_ref()
+                .and_then(|node| application.cache.get(node))
+            {
+                envelope.complexity = CandidateRoutedComplexity {
+                    terms: Some(match &entry.terms {
+                        CachedTerms::Sparse(terms) => terms.len(),
+                        CachedTerms::Factorized(terms) => terms.len(),
+                    }),
+                    coefficient_terms: Some(entry.weight.coefficient_terms),
+                    coefficient_bytes: Some(entry.weight.coefficient_bytes),
+                    factorized: matches!(&entry.terms, CachedTerms::Factorized(_)),
+                    ..envelope.complexity
+                };
+            }
+            let examined = self.stack.len().min(progress.options().max_frontier_frames);
+            let mut nodes = Vec::new();
+            let mut integrals = Vec::new();
+            let available =
+                nodes.try_reserve(examined).is_ok() && integrals.try_reserve(examined).is_ok();
+            if available {
+                for frame in self.stack.iter().rev().take(examined) {
+                    if let Frame::Enter(node) = frame {
+                        nodes.push(work_ref(node, arity));
+                        integrals.push(node.key());
+                    }
+                }
+                nodes.sort_unstable();
+                nodes.dedup();
+                integrals.sort_unstable();
+                integrals.dedup();
+            }
+            envelope.frontier = Some(CandidateRoutedFrontierSample {
+                frames_examined: if available { examined } else { 0 },
+                total_pending_frames: self.stack.len(),
+                unique_nodes: nodes.len(),
+                unique_integrals: integrals.len(),
+                exact: available && examined == self.stack.len(),
+            });
+        }
+        progress.deliver(&snapshot, envelope);
+        if !progress.is_advanced() {
+            self.observation = None;
+        }
     }
 
     fn push(&mut self, frame: Frame<N>, limit: Option<usize>) -> Result<(), CandidateRoutedError> {
@@ -285,19 +643,69 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         )
     }
 
-    pub(super) fn reduce_observed_request<'a>(
+    /// Optional detailed telemetry over the ordinary exact direct-entry
+    /// traversal. Observer faults detach telemetry and preserve the typed
+    /// reduction result; cancellation keeps its existing safe-boundary rules.
+    pub fn reduce_linear_combination_with_observation(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        admission: CandidateEntryAdmission<'_, N>,
+        observer: &mut CandidateRoutedApplicationObserver<'_>,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        self.reduce_observed_request(
+            terms,
+            admission,
+            Progress::from_observer(observer),
+            cancel,
+            Default::default(),
+        )
+    }
+
+    pub(super) fn reduce_observed_request<'a, 'storage>(
         &mut self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         admission: CandidateEntryAdmission<'_, N>,
         progress: Option<Progress<'a>>,
         cancel: Option<&'a AtomicBool>,
-        persistent: super::persistent::PersistentRequest<'a>,
+        persistent: super::persistent::PersistentRequest<'a, 'storage>,
+    ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        self.reduce_observed_request_inner(terms, admission, progress, cancel, persistent, false)
+    }
+
+    pub(super) fn reduce_observed_routed_request<'a, 'storage>(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        admission: CandidateEntryAdmission<'_, N>,
+        progress: Option<Progress<'a>>,
+        cancel: Option<&'a AtomicBool>,
+        persistent: super::persistent::PersistentRequest<'a, 'storage>,
+    ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        self.reduce_observed_request_inner(terms, admission, progress, cancel, persistent, true)
+    }
+
+    fn reduce_observed_request_inner<'a, 'storage>(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        admission: CandidateEntryAdmission<'_, N>,
+        progress: Option<Progress<'a>>,
+        cancel: Option<&'a AtomicBool>,
+        persistent: super::persistent::PersistentRequest<'a, 'storage>,
+        initial_routing: bool,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
         let observed = progress.is_some();
+        let observation = progress
+            .as_ref()
+            .filter(|progress| progress.is_advanced())
+            .map(|progress| EngineObservation {
+                path_limit: progress.options().max_path_nodes,
+                ..Default::default()
+            });
         let has_callbacks =
             observed || persistent.backing.is_some() || persistent.capture.is_some();
         let mut request = Request {
             progress,
+            observation,
             cancel,
             persistent,
             ..Default::default()
@@ -312,12 +720,15 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 CandidateRoutedApplicationStatus::Running,
                 true,
             );
-            let result = self
-                .reduce_request(terms, admission, &mut request, true)
-                .and_then(|result| {
-                    symbolica::utils::resources::checkpoint().map_err(ReductionError::from)?;
-                    Ok(result)
-                });
+            let result = if initial_routing {
+                self.reduce_routed_request(terms, admission, &mut request)
+            } else {
+                self.reduce_request(terms, admission, &mut request, true)
+            }
+            .and_then(|result| {
+                symbolica::utils::resources::checkpoint().map_err(ReductionError::from)?;
+                Ok(result)
+            });
             request.observe(
                 self,
                 None,
@@ -359,24 +770,32 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         admission: CandidateEntryAdmission<'_, N>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        let mut request = Request::default();
-        let result = self
-            .reduce_routed_request(terms, admission, &mut request)
-            .and_then(|result| {
-                symbolica::utils::resources::checkpoint().map_err(ReductionError::from)?;
-                Ok(result)
-            });
-        self.release_request_pins(&mut request.pins);
-        self.work.merge_work(request.stats.work);
-        self.cache_work.merge(request.stats.cache);
-        result
+        self.reduce_observed_routed_request(terms, admission, None, None, Default::default())
+    }
+
+    /// The same detailed observations for the existing initial-entry transport
+    /// workflow. Routed endpoints retain the ordinary entry-admission checks.
+    pub fn reduce_routed_linear_combination_with_observation(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        admission: CandidateEntryAdmission<'_, N>,
+        observer: &mut CandidateRoutedApplicationObserver<'_>,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        self.reduce_observed_routed_request(
+            terms,
+            admission,
+            Progress::from_observer(observer),
+            cancel,
+            Default::default(),
+        )
     }
 
     pub(super) fn reduce_routed_request(
         &mut self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         admission: CandidateEntryAdmission<'_, N>,
-        request: &mut Request<'_, N>,
+        request: &mut Request<'_, '_, N>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
         let context = self.context.clone();
         let coefficients = context.shared.context.base();
@@ -388,6 +807,8 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 .validate_with_limits(&factor, limits.exact_algebra)
                 .map_err(CandidateReductionError::from)?;
             retain_polynomial(&mut conditions, &factor.denominator);
+            request.set_entry_root(&target);
+            request.observe_activity(self, CandidateRoutedActivity::Transport, None);
             let routed =
                 self.route_entry_in_request(&target, &mut request.stats, self.unresolved_policy)?;
             retain_conditions(&mut conditions, routed.nonzero_conditions);
@@ -436,7 +857,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         &mut self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         admission: CandidateEntryAdmission<'_, N>,
-        request: &mut Request<'_, N>,
+        request: &mut Request<'_, '_, N>,
         count_inputs: bool,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
         let context = self.context.clone();
@@ -456,6 +877,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         let mut entries = BTreeMap::new();
         let mut conditions = Vec::new();
         for (target, coefficient) in terms {
+            request.set_entry_root(&target);
             if count_inputs {
                 charge(
                     &mut request.stats.input_terms,
@@ -499,6 +921,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         }
         request.check_cancel()?;
         request.stats.requested_targets = entries.len();
+        if let Some(observation) = &mut request.observation {
+            observation.metrics.requested_roots = Some(entries.len());
+        }
         if request.persistent.backing.is_some() {
             request.persistent.requested_roots.extend(
                 entries
@@ -510,12 +935,14 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         for (target, factor) in entries {
             request.check_cancel()?;
             let root = Node::Route(target);
+            request.set_root(&root);
             self.pin_dependency(&root, &mut request.pins)?;
             request.push(
                 Frame::Enter(root.clone()),
                 limits.diagnostic_limit(limits.max_pending_frames),
             )?;
             self.run_stack(request)?;
+            request.set_current(&root);
             request.observe(
                 self,
                 Some(CandidateRoutedApplicationPhase::RootCollection),
@@ -523,6 +950,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 false,
             );
             request.check_cancel()?;
+            request.observe_activity(self, CandidateRoutedActivity::RootMaterialization, None);
             let entry = self
                 .cache
                 .get(&root)
@@ -534,7 +962,24 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 CachedTerms::Sparse(terms) => Cow::Borrowed(terms),
                 _ => Cow::Owned(entry.terms.materialize(coefficients, limits)?),
             };
-            for (terminal, coefficient) in terms.iter() {
+            request.observe_activity(
+                self,
+                CandidateRoutedActivity::RootCollection,
+                Some(terms.len()),
+            );
+            for (index, (terminal, coefficient)) in terms.iter().enumerate() {
+                if let Some(observation) = &mut request.observation {
+                    observation.complexity.contribution_index = Some(index + 1);
+                    observation.complexity.contribution_total = Some(terms.len());
+                    request.observe_event(
+                        self,
+                        None,
+                        CandidateRoutedApplicationStatus::Running,
+                        true,
+                        CandidateRoutedApplicationEvent::ActivityStarted,
+                        false,
+                    );
+                }
                 let contribution = coefficients
                     .try_mul(&factor, coefficient, limits.exact_algebra)
                     .map_err(CandidateReductionError::from)?;
@@ -553,6 +998,20 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             drop(terms);
             self.touch_cache(&root)?;
             self.release_dependency(&root, &mut request.pins)?;
+            if let Some(observation) = &mut request.observation {
+                observation.metrics.completed_roots =
+                    observation.metrics.completed_roots.saturating_add(1);
+                observation.metrics.output_terms = Some(output.len());
+                observation.activity = CandidateRoutedActivity::RootCollection;
+                request.observe_event(
+                    self,
+                    None,
+                    CandidateRoutedApplicationStatus::Running,
+                    true,
+                    CandidateRoutedApplicationEvent::RootCollected,
+                    true,
+                );
+            }
         }
         request.check_cancel()?;
         charge(
@@ -567,6 +1026,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 unresolved.insert(key.clone());
             }
         }
+        if let Some(observation) = &mut request.observation {
+            observation.metrics.output_terms = Some(output.len());
+        }
         Ok(CandidateRoutedReduction {
             family_fingerprint: context.family.fingerprint_owner(),
             terms: output,
@@ -576,7 +1038,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         })
     }
 
-    fn run_stack(&mut self, request: &mut Request<'_, N>) -> Result<(), CandidateRoutedError> {
+    fn run_stack(&mut self, request: &mut Request<'_, '_, N>) -> Result<(), CandidateRoutedError> {
         let context = self.context.clone();
         let shared = &context.shared;
         let limits = context.limits;
@@ -593,10 +1055,11 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         };
         while let Some(frame) = request.stack.pop() {
             request.algebra.release_pending_frame()?;
-            let phase = match &frame {
-                Frame::Enter(_) => CandidateRoutedApplicationPhase::Expansion,
-                Frame::Combine { .. } => CandidateRoutedApplicationPhase::Combination,
+            let (phase, current) = match &frame {
+                Frame::Enter(node) => (CandidateRoutedApplicationPhase::Expansion, node),
+                Frame::Combine { node, .. } => (CandidateRoutedApplicationPhase::Combination, node),
             };
+            request.set_current(current);
             request.observe(
                 self,
                 Some(phase),
@@ -609,10 +1072,16 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     node,
                     terms,
                     mut conditions,
+                    first_visit,
                 } => {
                     // One shallow membership index for the complete frame,
                     // including every child. Cache guards are borrowed until
                     // a genuinely new condition is retained in first-seen order.
+                    request.observe_activity(
+                        self,
+                        CandidateRoutedActivity::CoefficientCombination,
+                        Some(terms.len()),
+                    );
                     let mut guards = GuardUnion::try_new(&mut conditions)?;
                     let output = cache::combine_values(
                         coefficients,
@@ -645,6 +1114,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                         }
                         .into());
                     }
+                    request.release_observed_path();
                     self.cache_insert(
                         node.clone(),
                         output,
@@ -652,6 +1122,8 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                         &mut request.pins,
                         &mut request.stats.cache,
                     )?;
+                    request.record_completion(first_visit);
+                    request.observe_completion(self, CandidateRoutedCompletionSource::Computed);
                     self.capture_persistent_node(
                         &node,
                         &mut request.persistent,
@@ -662,6 +1134,16 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 Frame::Enter(node) => node,
             };
             if request.active.contains(&node) {
+                if request.observation.is_some() {
+                    request.observe_event(
+                        self,
+                        None,
+                        CandidateRoutedApplicationStatus::Running,
+                        true,
+                        CandidateRoutedApplicationEvent::CycleDetected,
+                        true,
+                    );
+                }
                 return Err(CandidateRoutedError::Cycle {
                     target: node.key().clone(),
                 });
@@ -691,6 +1173,8 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             if self.cache.contains_key(&node) {
                 self.reuse_cache(&node)?;
                 request.stats.work.record_cache_hit();
+                request.record_completion(!seen_before);
+                request.observe_completion(self, CandidateRoutedCompletionSource::RamHit);
                 continue;
             }
             if seen_before {
@@ -698,7 +1182,14 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     request.stats.cache.recomputed_nodes.saturating_add(1);
             }
             if base.is_zero(key) {
-                self.cache_insert_sparse(node, BTreeMap::new(), conditions, request)?;
+                self.cache_insert_sparse(
+                    node,
+                    BTreeMap::new(),
+                    conditions,
+                    !seen_before,
+                    CandidateRoutedCompletionSource::Zero,
+                    request,
+                )?;
                 continue;
             }
             if self.lookup_persistent_node(
@@ -712,11 +1203,20 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     .loaded
                     .take()
                     .expect("lookup sets completed record");
-                self.cache_insert_sparse(node.clone(), record.terms, conditions, request)?;
+                self.cache_insert_sparse(
+                    node.clone(),
+                    record.terms,
+                    conditions,
+                    !seen_before,
+                    CandidateRoutedCompletionSource::BackingHit,
+                    request,
+                )?;
                 request.stats.work.record_cache_hit();
+                request.observe_completion(self, CandidateRoutedCompletionSource::BackingHit);
                 continue;
             }
             request.active.insert(node.clone());
+            request.retain_observed_path(&node);
             let parent_support = support::<N>(key);
             let terms = match &node {
                 Node::Route(_) => {
@@ -733,6 +1233,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                                 .diagnostic_limit(self.limits.max_transport_calls),
                             "transport calls",
                         )?;
+                        request.observe_activity(self, CandidateRoutedActivity::Transport, None);
                         let mapped = route.transport.transport_with_usage(
                             key,
                             self.limits.expansion,
@@ -788,10 +1289,13 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                         terms
                     } else if self.unresolved_policy == UnresolvedPolicy::Preserve {
                         request.active.remove(&node);
+                        request.release_observed_path();
                         self.cache_insert_sparse(
                             node.clone(),
                             BTreeMap::from([(key.clone(), coefficients.one())]),
                             conditions,
+                            !seen_before,
+                            CandidateRoutedCompletionSource::UnresolvedPreserved,
                             request,
                         )?;
                         continue;
@@ -807,6 +1311,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                             "apply node does not belong to its owner support".into(),
                         ));
                     }
+                    request.observe_activity(self, CandidateRoutedActivity::OwnerPreparation, None);
                     let owner = self.owners.owner(owner_sector)?.ok_or_else(|| {
                         CandidateRoutedError::InvalidInput("admitted owner disappeared".into())
                     })?;
@@ -816,6 +1321,11 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                         request.algebra.record_rule_application(
                             limits.diagnostic_limit(limits.max_rule_applications),
                         )?;
+                        request.observe_activity(
+                            self,
+                            CandidateRoutedActivity::RuleEvaluation,
+                            None,
+                        );
                         owner.evaluate_step::<CandidateReductionError>(key, |batch| {
                             let evaluator = CandidateEvaluator {
                                 context: &shared.context,
@@ -842,10 +1352,13 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     match result {
                         OwnerStep::Terminal => {
                             request.active.remove(&node);
+                            request.release_observed_path();
                             self.cache_insert_sparse(
                                 node.clone(),
                                 BTreeMap::from([(key.clone(), coefficients.one())]),
                                 conditions,
+                                !seen_before,
+                                CandidateRoutedCompletionSource::Terminal,
                                 request,
                             )?;
                             continue;
@@ -854,10 +1367,13 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                             if self.unresolved_policy == UnresolvedPolicy::Preserve =>
                         {
                             request.active.remove(&node);
+                            request.release_observed_path();
                             self.cache_insert_sparse(
                                 node.clone(),
                                 BTreeMap::from([(key.clone(), coefficients.one())]),
                                 conditions,
+                                !seen_before,
+                                CandidateRoutedCompletionSource::UnresolvedPreserved,
                                 request,
                             )?;
                             continue;
@@ -873,6 +1389,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                             let mut children = BTreeMap::new();
                             for (child, coefficient) in terms {
                                 let child_node = successor(key, child, *owner_sector)?;
+                                request.record_local_descent();
                                 children.insert(child_node, coefficient);
                             }
                             children
@@ -888,6 +1405,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     node,
                     terms: terms.clone(),
                     conditions,
+                    first_visit: !seen_before,
                 },
                 limits.diagnostic_limit(limits.max_pending_frames),
             )?;
@@ -907,7 +1425,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         node: Node<N>,
         terms: BTreeMap<IntegralKey, Coefficient>,
         conditions: Vec<Coefficient>,
-        request: &mut Request<'_, N>,
+        first_visit: bool,
+        source: CandidateRoutedCompletionSource,
+        request: &mut Request<'_, '_, N>,
     ) -> Result<(), CandidateRoutedError> {
         let context = &self.context;
         let terms = CachedTerms::from_sparse(
@@ -923,6 +1443,10 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             &mut request.pins,
             &mut request.stats.cache,
         )?;
+        request.record_completion(first_visit);
+        if source != CandidateRoutedCompletionSource::BackingHit {
+            request.observe_completion(self, source);
+        }
         self.capture_persistent_node(
             &node,
             &mut request.persistent,

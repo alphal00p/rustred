@@ -417,7 +417,7 @@ fn thousands_of_overlapping_guards_keep_first_seen_order_on_warm_application() {
     }
 }
 
-fn prepared_fixture(source: &Path) -> PreparedSavedApplication<1> {
+pub(super) fn prepared_fixture(source: &Path) -> PreparedSavedApplication<1> {
     std::fs::create_dir_all(source.join("objects")).unwrap();
     let source_text = r#"
 schema="rustred.project.toml.v1"

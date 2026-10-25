@@ -15,6 +15,8 @@ pub use cache_file::{
 };
 mod charts;
 mod codec;
+#[cfg(test)]
+mod observation_tests;
 mod options;
 mod package;
 mod products;
@@ -62,6 +64,7 @@ pub use package::{
     saved_application_domains_with_policy,
 };
 pub use products::{SavedApplicationProduct, SavedApplicationProductStatistics};
+pub use progress::saved_application_observation_document;
 pub use witnesses::{
     SavedApplicationWitness, SavedApplicationWitnessKind, saved_application_boundary_witnesses,
 };
@@ -447,22 +450,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         mut progress: Option<&mut progress::SavedProgress<'_>>,
     ) -> Result<SavedApplicationReduction, AppError> {
-        let mut inputs = Vec::new();
-        for (key, coefficient) in terms {
-            symbolica::utils::resources::checkpoint().map_err(AppError::resource)?;
-            if self.options.trace_limits.diagnostics_enabled
-                && inputs.len() >= self.options.trace_limits.max_input_targets
-            {
-                return Err(AppError::limit(
-                    "saved application input term limit exceeded",
-                ));
-            }
-            // Admission is deliberately before cancellation and core-cache lookup.
-            if self.enforces_recorded_entry_coverage() {
-                self.entry_domain.validate(&key)?;
-            }
-            inputs.push((key, coefficient));
-        }
+        let inputs = self.collect_reduction_inputs(terms)?;
         let reduced = if let Some(progress) = progress.as_deref_mut() {
             self.application
                 .reduce_linear_combination_with_entry_admission_and_observer(
@@ -482,6 +470,29 @@ impl<const N: usize> PreparedSavedApplication<N> {
         self.apply_terminal_substitutions_progress(reduced, progress)
     }
 
+    fn collect_reduction_inputs(
+        &self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+    ) -> Result<Vec<(IntegralKey, Coefficient)>, AppError> {
+        let mut inputs = Vec::new();
+        for (key, coefficient) in terms {
+            symbolica::utils::resources::checkpoint().map_err(AppError::resource)?;
+            if self.options.trace_limits.diagnostics_enabled
+                && inputs.len() >= self.options.trace_limits.max_input_targets
+            {
+                return Err(AppError::limit(
+                    "saved application input term limit exceeded",
+                ));
+            }
+            // Admission is deliberately before cancellation and core-cache lookup.
+            if self.enforces_recorded_entry_coverage() {
+                self.entry_domain.validate(&key)?;
+            }
+            inputs.push((key, coefficient));
+        }
+        Ok(inputs)
+    }
+
     fn apply_terminal_substitutions(
         &self,
         reduced: CandidateRoutedReduction,
@@ -492,100 +503,132 @@ impl<const N: usize> PreparedSavedApplication<N> {
     fn apply_terminal_substitutions_progress(
         &self,
         reduced: CandidateRoutedReduction,
+        progress: Option<&mut progress::SavedProgress<'_>>,
+    ) -> Result<SavedApplicationReduction, AppError> {
+        self.apply_terminal_substitutions_observed(reduced, progress, None, None)
+    }
+
+    fn apply_terminal_substitutions_observed(
+        &self,
+        reduced: CandidateRoutedReduction,
         mut progress: Option<&mut progress::SavedProgress<'_>>,
+        observer: Option<&mut rustred::solver::CandidateRoutedApplicationObserver<'_>>,
+        cancel: Option<&AtomicBool>,
     ) -> Result<SavedApplicationReduction, AppError> {
         if let Some(progress) = progress.as_deref_mut() {
             progress.terminal_start(reduced.terms().len());
         }
-        let mut output = BTreeMap::new();
-        // Keep deterministic encounter order in the output, but use native
-        // Symbolica Hash/Eq for membership. Borrowing avoids a second owned
-        // copy of every potentially large polynomial in the membership set.
-        let mut conditions = Vec::new();
-        let mut seen_conditions = HashSet::new();
-        let mut seen_guard_vectors = HashSet::new();
-        append_conditions(
-            &mut conditions,
-            &mut seen_conditions,
-            reduced.nonzero_conditions(),
-        );
         let family = self.family();
-        let context = family.coefficient_context();
-        let routed_additions = reduced.statistics().work.coalescing_additions();
-        let mut additions = routed_additions;
-        for (integral, factor) in reduced.terms() {
-            let key = SavedApplicationIntegral {
-                family_fingerprint: family.fingerprint().to_owned(),
-                integral: integral.clone(),
-            };
-            let unresolved_terms;
-            let row_terms = if let Some(row) = self.terminals.rows.get(&key) {
-                if seen_guard_vectors.insert(Arc::as_ptr(&row.conditions)) {
-                    append_conditions(&mut conditions, &mut seen_conditions, &row.conditions);
-                }
-                &row.terms
-            } else if self.options.unresolved_policy == UnresolvedPolicy::Preserve
-                && reduced.unresolved().contains(integral)
-            {
-                unresolved_terms = BTreeMap::from([(key.clone(), context.one())]);
-                &unresolved_terms
-            } else {
-                return Err(AppError::execution(
-                    "saved owner returned a terminal absent from the published substitutions",
-                ));
-            };
-            for (key, coefficient) in row_terms {
-                let value = context
-                    .try_mul(
-                        factor,
-                        coefficient,
-                        self.options.reduction_limits.exact_algebra,
-                    )
-                    .map_err(native_failure)?;
-                if value.is_zero() {
-                    continue;
-                }
-                let sum = match output.remove(key) {
-                    Some(previous) => {
-                        additions = additions
-                            .checked_add(1)
-                            .filter(|&n| {
-                                !self.options.reduction_limits.diagnostics_enabled
-                                    || n <= self.options.reduction_limits.max_coalescing_additions
-                            })
-                            .ok_or_else(|| {
-                                AppError::limit("terminal substitution addition limit exceeded")
-                            })?;
-                        context
-                            .try_add(
-                                &previous,
-                                &value,
-                                self.options.reduction_limits.exact_algebra,
-                            )
-                            .map_err(native_failure)?
-                    }
-                    None => value,
+        let mut observation = observer.and_then(|observer| {
+            progress::SavedObservation::new(observer, family.fingerprint(), reduced.terms().len())
+        });
+        let result = (|| {
+            let mut output = BTreeMap::new();
+            // Keep deterministic encounter order in the output, but use native
+            // Symbolica Hash/Eq for membership. Borrowing avoids a second owned
+            // copy of every potentially large polynomial in the membership set.
+            let mut conditions = Vec::new();
+            let mut seen_conditions = HashSet::new();
+            let mut seen_guard_vectors = HashSet::new();
+            append_conditions(
+                &mut conditions,
+                &mut seen_conditions,
+                reduced.nonzero_conditions(),
+            );
+            let context = family.coefficient_context();
+            let routed_additions = reduced.statistics().work.coalescing_additions();
+            let mut additions = routed_additions;
+            for (integral, factor) in reduced.terms() {
+                progress::check_cancellation(cancel)?;
+                let key = SavedApplicationIntegral {
+                    family_fingerprint: family.fingerprint().to_owned(),
+                    integral: integral.clone(),
                 };
-                if !sum.is_zero() {
-                    output.insert(key.clone(), sum);
+                let unresolved_terms;
+                let row_terms = if let Some(row) = self.terminals.rows.get(&key) {
+                    if seen_guard_vectors.insert(Arc::as_ptr(&row.conditions)) {
+                        append_conditions(&mut conditions, &mut seen_conditions, &row.conditions);
+                    }
+                    &row.terms
+                } else if self.options.unresolved_policy == UnresolvedPolicy::Preserve
+                    && reduced.unresolved().contains(integral)
+                {
+                    unresolved_terms = BTreeMap::from([(key.clone(), context.one())]);
+                    &unresolved_terms
+                } else {
+                    return Err(AppError::execution(
+                        "saved owner returned a terminal absent from the published substitutions",
+                    ));
+                };
+                for (key, coefficient) in row_terms {
+                    progress::check_cancellation(cancel)?;
+                    let value = context
+                        .try_mul(
+                            factor,
+                            coefficient,
+                            self.options.reduction_limits.exact_algebra,
+                        )
+                        .map_err(native_failure)?;
+                    if value.is_zero() {
+                        continue;
+                    }
+                    let sum = match output.remove(key) {
+                        Some(previous) => {
+                            additions = additions
+                                .checked_add(1)
+                                .filter(|&n| {
+                                    !self.options.reduction_limits.diagnostics_enabled
+                                        || n <= self
+                                            .options
+                                            .reduction_limits
+                                            .max_coalescing_additions
+                                })
+                                .ok_or_else(|| {
+                                    AppError::limit("terminal substitution addition limit exceeded")
+                                })?;
+                            context
+                                .try_add(
+                                    &previous,
+                                    &value,
+                                    self.options.reduction_limits.exact_algebra,
+                                )
+                                .map_err(native_failure)?
+                        }
+                        None => value,
+                    };
+                    if !sum.is_zero() {
+                        output.insert(key.clone(), sum);
+                    }
+                }
+                if let Some(progress) = progress.as_deref_mut() {
+                    progress.terminal_row(additions - routed_additions);
+                }
+                if let Some(observation) = observation.as_mut() {
+                    observation.terminal_row(
+                        family.fingerprint(),
+                        additions - routed_additions,
+                        output.len(),
+                    );
                 }
             }
-            if let Some(progress) = progress.as_deref_mut() {
-                progress.terminal_row(additions - routed_additions);
-            }
+            progress::check_cancellation(cancel)?;
+            let unresolved = output
+                .keys()
+                .filter(|key| !self.terminals.remaining.contains(*key))
+                .cloned()
+                .collect();
+            Ok(SavedApplicationReduction {
+                terms: output,
+                unresolved,
+                conditions,
+                statistics: *reduced.statistics(),
+                terminal_substitution_additions: additions - routed_additions,
+            })
+        })();
+        if let Some(observation) = observation.as_mut() {
+            observation.finish(family.fingerprint(), &result);
         }
-        let unresolved = output
-            .keys()
-            .filter(|key| !self.terminals.remaining.contains(*key))
-            .cloned()
-            .collect();
-        Ok(SavedApplicationReduction {
-            terms: output,
-            unresolved,
-            conditions,
-            statistics: reduced.statistics().clone(),
-            terminal_substitution_additions: additions - routed_additions,
-        })
+        result
     }
 
     /// Write a self-contained directory, refusing to replace an existing path.

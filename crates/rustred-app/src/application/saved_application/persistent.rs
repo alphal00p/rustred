@@ -4,6 +4,7 @@ use rustred::persistence::application_cache::{
     ApplicationCacheBinding, ApplicationCacheKey, ApplicationCacheRecord,
 };
 use rustred::reduction::{GuardedCacheBacking, GuardedIntermediateCapture};
+use rustred::solver::CandidateRoutedApplicationObserver;
 
 impl<const N: usize> PreparedSavedApplication<N> {
     pub(super) fn enforces_recorded_entry_coverage(&self) -> bool {
@@ -101,6 +102,61 @@ impl<const N: usize> PreparedSavedApplication<N> {
             )
             .map_err(native_failure)?;
         self.apply_terminal_substitutions(reduced)
+    }
+
+    /// Observe the same native cache/capture request and saved substitutions.
+    /// A native success precedes saved terminal substitution; only the saved
+    /// final event completes this request. Telemetry faults preserve its result.
+    pub fn reduce_linear_combination_with_cache_and_observation<'a>(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        binding: &ApplicationCacheBinding,
+        backing: Option<&'a mut dyn GuardedCacheBacking>,
+        capture: Option<&'a mut dyn GuardedIntermediateCapture>,
+        observer: &mut CandidateRoutedApplicationObserver<'_>,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<SavedApplicationReduction, AppError> {
+        progress::begin_observation(observer, self.family().fingerprint());
+        let reduced = self
+            .application
+            .reduce_linear_combination_with_cache_and_observation(
+                terms,
+                Self::entry_admission(&self.entry_domain, self.options.entry_coverage_policy),
+                binding,
+                backing,
+                capture,
+                observer,
+                cancel,
+            )
+            .map_err(native_failure);
+        self.finish_observed_reduction(reduced, observer, cancel)
+    }
+
+    /// Verified initial routing, optional persistent cache/capture and saved
+    /// substitutions share the ordinary exact kernels and this one observer.
+    pub fn reduce_routed_linear_combination_with_cache_and_observation<'a>(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        binding: &ApplicationCacheBinding,
+        backing: Option<&'a mut dyn GuardedCacheBacking>,
+        capture: Option<&'a mut dyn GuardedIntermediateCapture>,
+        observer: &mut CandidateRoutedApplicationObserver<'_>,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<SavedApplicationReduction, AppError> {
+        progress::begin_observation(observer, self.family().fingerprint());
+        let reduced = self
+            .application
+            .reduce_routed_linear_combination_with_cache_and_observation(
+                terms,
+                Self::entry_admission(&self.entry_domain, self.options.entry_coverage_policy),
+                binding,
+                backing,
+                capture,
+                observer,
+                cancel,
+            )
+            .map_err(native_failure);
+        self.finish_observed_reduction(reduced, observer, cancel)
     }
 
     pub fn completed_cache_record(

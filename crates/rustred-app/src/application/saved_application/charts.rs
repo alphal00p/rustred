@@ -250,9 +250,11 @@ mod tests {
             all.statistics.work.canonical_candidates > one.statistics.work.canonical_candidates
         );
         let mut limits = VacuumProductChartLimits::default();
+        limits.products.diagnostics_enabled = true;
         limits.products.max_canonical_candidates = one.statistics.work.canonical_candidates;
         assert!(TerminalProductCharts::prepare(&first, limits).is_err());
         limits = VacuumProductChartLimits::default();
+        limits.products.diagnostics_enabled = true;
         limits.products.max_terminals = 5;
         assert!(TerminalProductCharts::prepare(&first, limits).is_err());
     }

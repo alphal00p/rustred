@@ -72,6 +72,7 @@ pub use saved_application::{
     prepare_saved_application_with_policy, saved_application_arity,
     saved_application_arity_with_policy, saved_application_boundary_witnesses,
     saved_application_domains, saved_application_domains_with_policy,
+    saved_application_observation_document,
 };
 
 pub(crate) use routed_campaign::{
