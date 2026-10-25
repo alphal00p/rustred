@@ -706,6 +706,8 @@ pub(super) struct BoundLayer<'a> {
     /// Base remaining terminals that are neither sources, masters, factorized
     /// nor declared unreduced: the layer is silent about them.
     pub(super) undeclared: BTreeSet<SavedApplicationIntegral>,
+    /// Sources that are factorized base terminals (RR-11 P1).
+    pub(super) factorized_sources: BTreeSet<SavedApplicationIntegral>,
 }
 
 impl BoundLayer<'_> {
@@ -760,12 +762,45 @@ pub(super) fn covered(denominator: &Coefficient, conditions: &[Coefficient]) -> 
     rest.is_constant()
 }
 
+/// Whether factorized remaining terminals (product route) may be layer
+/// sources (RR-11 proposal P1, adopted for scratch layers 2026-10-25 08:30).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum SavedApplicationFactorizedSources {
+    /// Factorized terminals stay on the product route; never sources.
+    #[default]
+    Refused,
+    /// A factorized terminal may be a source when its row states a
+    /// verification level and every master of the row is itself a factorized
+    /// base terminal: the row is an exact relation among product-route
+    /// terminals (e.g. a multi-block product onto the pure-product masters),
+    /// so the evaluation stays on the product route.
+    VerifiedOntoProducts,
+}
+
 /// Check a layer against base maps (L1). `factorized` are remaining
-/// terminals on the product route, which may never be layer sources.
+/// terminals on the product route, which are never layer sources
+/// (see [`bind_layer_with`] for RR-11 P1).
 pub(super) fn bind_layer<'a>(
     base: &TerminalMaps,
     layer: &'a SavedApplicationLayer,
     factorized: &BTreeSet<SavedApplicationIntegral>,
+    limits: ExactAlgebraLimits,
+) -> Result<BoundLayer<'a>, AppError> {
+    bind_layer_with(
+        base,
+        layer,
+        factorized,
+        SavedApplicationFactorizedSources::Refused,
+        limits,
+    )
+}
+
+/// [`bind_layer`] with an explicit policy for factorized sources (RR-11 P1).
+pub(super) fn bind_layer_with<'a>(
+    base: &TerminalMaps,
+    layer: &'a SavedApplicationLayer,
+    factorized: &BTreeSet<SavedApplicationIntegral>,
+    factorized_sources: SavedApplicationFactorizedSources,
     limits: ExactAlgebraLimits,
 ) -> Result<BoundLayer<'a>, AppError> {
     let family = base
@@ -800,6 +835,7 @@ pub(super) fn bind_layer<'a>(
         }
     }
     let mut sources = BTreeMap::new();
+    let mut factorized_source_keys = BTreeSet::new();
     for (index, row) in layer.rows.iter().enumerate() {
         let source = qualify(&row.source)?;
         if !base.remaining.contains(&source) {
@@ -809,10 +845,30 @@ pub(super) fn bind_layer<'a>(
             )));
         }
         if factorized.contains(&source) {
-            return Err(AppError::input(format!(
-                "layer source {:?} is a factorized terminal (product route)",
-                row.source.powers()
-            )));
+            if factorized_sources == SavedApplicationFactorizedSources::Refused {
+                return Err(AppError::input(format!(
+                    "layer source {:?} is a factorized terminal (product route); \
+                     factorized sources need RR-11 P1 (--allow-factorized-sources)",
+                    row.source.powers()
+                )));
+            }
+            if row.verification.is_none() {
+                return Err(AppError::input(format!(
+                    "factorized layer source {:?} states no verification level (RR-11 P1)",
+                    row.source.powers()
+                )));
+            }
+            for (master, _) in &row.terms {
+                if !factorized.contains(&qualify(master)?) {
+                    return Err(AppError::input(format!(
+                        "factorized layer source {:?} uses master {:?}, which is not a \
+                         factorized base terminal: RR-11 P1 rows must stay on the product route",
+                        row.source.powers(),
+                        master.powers()
+                    )));
+                }
+            }
+            factorized_source_keys.insert(source.clone());
         }
         if sources.insert(source, index).is_some() {
             return Err(AppError::input(format!(
@@ -932,6 +988,7 @@ pub(super) fn bind_layer<'a>(
         rows,
         unreduced,
         undeclared,
+        factorized_sources: factorized_source_keys,
     })
 }
 

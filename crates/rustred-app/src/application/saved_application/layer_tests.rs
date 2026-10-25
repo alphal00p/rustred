@@ -362,6 +362,70 @@ fn rejected(base: &TerminalMaps, layer: &SavedApplicationLayer, factorized: &[i6
     }
 }
 
+/// RR-11 P1: a factorized terminal may be a source only when the policy
+/// allows it, the row states a verification level and every master of the row
+/// is itself a factorized base terminal (the product route is kept).
+#[cfg_attr(test, test)]
+pub fn factorized_sources_need_p1_verification_and_product_masters() {
+    let family = family();
+    let base = base(&family);
+    let factorized: BTreeSet<_> = [3, 4].iter().map(|p| key(&family, *p)).collect();
+    let mut p1_row = row(&family, 3, &[(4, "(d-2)/(d-4)")], &["d-4"]);
+    p1_row.provenance = SavedApplicationRuleProvenance::Rustred;
+    p1_row.verification = Some("ii+i".into());
+    let good = layer_with(
+        &family,
+        vec![
+            row(&family, 2, &[(1, "(d-2)/(2*d-7)"), (7, "1")], &["2*d-7"]),
+            p1_row.clone(),
+        ],
+        &[1, 4, 7],
+    );
+    let bind = |layer: &SavedApplicationLayer, policy| {
+        bind_layer_with(&base, layer, &factorized, policy, Default::default())
+    };
+    // Refused by default (and by `bind_layer`).
+    let error = bind(&good, SavedApplicationFactorizedSources::Refused)
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(error.contains("factorized") && error.contains("P1"), "{error}");
+    assert!(rejected(&base, &good, &[3, 4]).contains("P1"));
+    // Accepted under P1; composition removes the source and keeps 4 as master.
+    let bound = bind(&good, SavedApplicationFactorizedSources::VerifiedOntoProducts).unwrap();
+    assert_eq!(bound.factorized_sources, BTreeSet::from([key(&family, 3)]));
+    let (composed, _) = compose_maps(&base, &bound, Default::default()).unwrap();
+    composed.validate(Default::default()).unwrap();
+    assert_eq!(
+        composed.remaining,
+        [1, 4, 7].iter().map(|p| key(&family, *p)).collect()
+    );
+    // Raw row 3 now reads (d-2)/(d-4) * 4 with the guard d-4.
+    let row3 = &composed.rows[&key(&family, 3)];
+    assert_eq!(
+        row3.terms,
+        BTreeMap::from([(key(&family, 4), c(&family, "(d-2)/(d-4)"))])
+    );
+    assert!(row3.conditions.contains(&c(&family, "d-4")));
+    // No verification level: refused.
+    let mut unverified = good.clone();
+    unverified.rows[1].verification = None;
+    let error = bind(&unverified, SavedApplicationFactorizedSources::VerifiedOntoProducts)
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(error.contains("verification level"), "{error}");
+    // A master off the product route (7 is not factorized): refused.
+    let mut off_route = good.clone();
+    off_route.rows[1].terms = vec![(IntegralKey::try_new([7]).unwrap(), c(&family, "3"))];
+    off_route.masters = [1, 7].iter().copied().map(master).collect();
+    let error = bind(&off_route, SavedApplicationFactorizedSources::VerifiedOntoProducts)
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(error.contains("product route"), "{error}");
+}
+
 #[cfg_attr(test, test)]
 pub fn malformed_layers_are_rejected() {
     let family = family();
