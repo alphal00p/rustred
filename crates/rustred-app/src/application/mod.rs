@@ -62,6 +62,8 @@ pub use routed_campaign::{
 };
 #[cfg(feature = "layer-test-support")]
 pub use saved_application::layer_tests as saved_application_layer_tests;
+#[cfg(feature = "layer-test-support")]
+pub use saved_application::tests as saved_application_unit_tests;
 pub use saved_application::{
     NativePackSnapshot, PreparedSavedApplication, SAVED_APPLICATION_LAYER_SCHEMA,
     SAVED_APPLICATION_LAYER_TABLE_MAGIC, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,
