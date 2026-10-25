@@ -910,8 +910,11 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
         serde_json::from_slice(&std::fs::read(layered.join("application.json")).unwrap()).unwrap();
     let base_report: Value =
         serde_json::from_slice(&std::fs::read(base_dir.join("application.json")).unwrap()).unwrap();
+    // The base rows are re-encoded: equal bytes only when the process-global
+    // Symbolica symbol table is unchanged (not under parallel tests), so the
+    // package binds the original digest and the re-encoded one separately.
     assert_eq!(
-        report["terminal_maps"]["blake3"],
+        report["metadata"]["refinement_layer"]["base_terminal_maps_blake3"],
         base_report["terminal_maps"]["blake3"]
     );
     assert!(report.get("terminal_layer").is_some());
