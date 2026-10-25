@@ -11,6 +11,7 @@ mod key_filter;
 mod key_index;
 mod lookup_outcome;
 mod snapshot;
+mod union;
 mod visit;
 
 fn binding(id: u8) -> ApplicationCacheBinding {
