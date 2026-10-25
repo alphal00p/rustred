@@ -275,6 +275,7 @@ mod tests {
             families: BTreeMap::from([(family.fingerprint().to_owned(), family)]),
             rows,
             remaining,
+            layer: None,
         };
         let original = maps.rows.clone();
         let prepared = TerminalProducts::prepare(&maps, Default::default()).unwrap();

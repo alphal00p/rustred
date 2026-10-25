@@ -34,26 +34,37 @@ pub use application::{
     owner_domain_walk_inventory,
 };
 pub use application::{
-    PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,
-    SavedApplicationCacheBundleWriter, SavedApplicationCacheCopyStatistics,
-    SavedApplicationCacheFile, SavedApplicationCacheFileIdentity, SavedApplicationCacheFileLimits,
+    PreparedSavedApplication, SAVED_APPLICATION_LAYER_SCHEMA, SAVED_APPLICATION_LAYER_TABLE_MAGIC,
+    SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter,
+    SavedApplicationCacheCopyStatistics, SavedApplicationCacheFile,
+    SavedApplicationCacheFileIdentity, SavedApplicationCacheFileLimits,
     SavedApplicationCacheFileStatistics, SavedApplicationCacheLookupOutcome,
     SavedApplicationCachePack, SavedApplicationCachePackLimits,
-    SavedApplicationCachePackStatistics, SavedApplicationCacheWriter, SavedApplicationDomain,
-    SavedApplicationEntryCoveragePolicy, SavedApplicationIntegral, SavedApplicationOptions,
+    SavedApplicationCachePackStatistics, SavedApplicationCacheWriter,
+    SavedApplicationComposeOptions, SavedApplicationComposeOutcome, SavedApplicationConsumerLimits,
+    SavedApplicationDomain, SavedApplicationEntryCoveragePolicy, SavedApplicationIntegral,
+    SavedApplicationLayer, SavedApplicationLayerBase, SavedApplicationLayerClassCount,
+    SavedApplicationLayerComposition, SavedApplicationLayerDigest, SavedApplicationLayerMaster,
+    SavedApplicationLayerMinimality, SavedApplicationLayerRow, SavedApplicationLayerUnreduced,
+    SavedApplicationMinimalityReference, SavedApplicationMinimalityScope, SavedApplicationOptions,
     SavedApplicationPreparationStatistics, SavedApplicationProduct,
     SavedApplicationProductChartStatistics, SavedApplicationProductStatistics,
-    SavedApplicationReduction, SavedApplicationWitness, SavedApplicationWitnessKind,
-    export_saved_application, export_saved_application_with_policy, load_saved_application,
-    load_saved_application_with_policy, prepare_saved_application,
+    SavedApplicationReduction, SavedApplicationRuleProvenance, SavedApplicationWitness,
+    SavedApplicationWitnessKind, compose_saved_application_layer, export_saved_application,
+    export_saved_application_with_policy, layer_minimality_claim, load_saved_application,
+    load_saved_application_with_policy, parse_layer_coefficient, prepare_saved_application,
     prepare_saved_application_with_policy, saved_application_arity,
     saved_application_arity_with_policy, saved_application_boundary_witnesses,
     saved_application_domains, saved_application_domains_with_policy,
+    saved_application_identity_layer, saved_application_layer_base,
 };
 pub use application::{
     PreparedSavedIntegralEquations, TerminalEquationReductionFailure,
     prepare_saved_integral_equations,
 };
+#[cfg(feature = "layer-test-support")]
+#[doc(hidden)]
+pub use application::{saved_application_layer_tests, saved_application_unit_tests};
 /// Native family entry for embedded hosts; no source-text round trip.
 pub use rustred::family::IntegralFamily as NativeIntegralFamily;
 #[cfg(feature = "cli")]

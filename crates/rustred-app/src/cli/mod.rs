@@ -16,6 +16,7 @@ mod master_reduction;
 mod master_table;
 mod progress;
 mod routed;
+mod saved_application;
 mod shards;
 mod walk_inventory;
 mod walk_rescue;
@@ -119,6 +120,7 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::WalkMasterReduce(arguments) => master_reduction::run(arguments),
         Command::MasterInspect(arguments) => master_reduction::inspect(arguments),
         Command::ArtifactInspect(arguments) => artifact_inspect::run(arguments),
+        Command::SavedApplication(arguments) => saved_application::run(arguments),
     }
 }
 

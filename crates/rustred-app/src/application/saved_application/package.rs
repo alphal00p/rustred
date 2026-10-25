@@ -10,6 +10,17 @@ use super::*;
 use crate::application::atomic_file::write_file_atomically;
 
 const MAX_METADATA: usize = 16 * 1024 * 1024;
+/// Top-level `application.json` keys understood by this loader.
+const KNOWN_KEYS: [&str; 8] = [
+    "schema",
+    "metadata",
+    "selection",
+    "queries",
+    "terminal_maps",
+    "terminal_layer",
+    "payloads",
+    "load_boundary",
+];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) struct Payload {
@@ -299,6 +310,17 @@ fn load_with_policy<const N: usize>(
     if report["schema"] != SAVED_APPLICATION_SCHEMA {
         return Err(AppError::input("unsupported saved application schema"));
     }
+    // A package feature this loader does not know must never be ignored.
+    if let Some(object) = report.as_object() {
+        if let Some(unknown) = object
+            .keys()
+            .find(|key| !KNOWN_KEYS.contains(&key.as_str()))
+        {
+            return Err(AppError::input(format!(
+                "saved application key {unknown:?} is not supported by this loader"
+            )));
+        }
+    }
     let selection = read_text_descriptor(directory, &report["selection"], maximum)?;
     let queries = read_text_descriptor(directory, &report["queries"], maximum)?;
     let payloads: Vec<Payload> =
@@ -322,12 +344,47 @@ fn load_with_policy<const N: usize>(
         &report["terminal_maps"],
         options.binary_limits.max_program_bytes,
     )?;
-    let terminals = codec::decode(&maps, options)?;
+    let mut terminals = codec::decode(&maps, options)?;
+    if let Some(descriptor) = report.get("terminal_layer") {
+        // RR-11 layered package: base rows stay byte-identical; the layer is
+        // a final exact substitution of base terminals by layer masters.
+        let bytes = read_descriptor(
+            directory,
+            descriptor,
+            options.binary_limits.max_program_bytes,
+        )?;
+        let layer = codec::decode(&bytes, options)?;
+        if layer.families.keys().ne(terminals.families.keys()) {
+            return Err(AppError::input(
+                "terminal layer families differ from the base maps",
+            ));
+        }
+        if report["metadata"]["refinement_layer"]["base_remaining_terminals"].as_u64()
+            != Some(terminals.remaining.len() as u64)
+        {
+            return Err(AppError::input(
+                "terminal layer base count differs from the base terminal maps",
+            ));
+        }
+        let base_remaining = std::mem::take(&mut terminals.remaining);
+        terminals.remaining = layer.remaining;
+        terminals.layer = Some(super::TerminalLayer {
+            rows: layer.rows,
+            base_remaining,
+        });
+        terminals.validate(options)?;
+    }
     if report["metadata"]["raw_terminals"].as_u64() != Some(terminals.rows.len() as u64)
         || report["metadata"]["remaining_terminals"].as_u64()
             != Some(terminals.remaining.len() as u64)
-        || report["metadata"]["source_keys_checked"].as_u64() != Some(terminals.rows.len() as u64)
+        || report["metadata"]["source_keys_checked"].as_u64()
+            != Some(
+                (terminals.rows.len() + terminals.layer.as_ref().map_or(0, |l| l.rows.len()))
+                    as u64,
+            )
     {
+        // Layered packages count raw plus layer rows as checked keys, so a
+        // loader that ignores `terminal_layer` always refuses them here.
         return Err(AppError::input("saved runtime terminal counts disagree"));
     }
     drop(maps);
@@ -384,13 +441,22 @@ pub(super) fn export<const N: usize>(
         prepared.inputs.queries.as_bytes(),
     )?;
     let terminal_maps = transport::export_bytes(&compact, destination, "terminal-maps.rrbin")?;
-    let report = json!({
+    drop(compact);
+    let mut report = json!({
         "schema":SAVED_APPLICATION_SCHEMA,
         "metadata":prepared.metadata,
         "selection":selection, "queries":queries,
         "terminal_maps":terminal_maps, "payloads":payloads,
         "load_boundary":"trusted native generated Symbolica data; integrity and structural checks do not certify source rules",
     });
+    if let Some(layer) = codec::encode_layer(&prepared.terminals, prepared.options)? {
+        report["terminal_layer"] = serde_json::to_value(transport::export_bytes(
+            &layer,
+            destination,
+            "terminal-layer.rrbin",
+        )?)
+        .map_err(failure)?;
+    }
     write_file_atomically(
         &destination.join("application.json"),
         &serde_json::to_vec_pretty(&report).map_err(failure)?,
