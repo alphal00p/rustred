@@ -18,6 +18,7 @@ pub(crate) enum SavedApplicationArgs {
         size_gate: f64,
         consumer_limits: String,
         fill_unreduced: bool,
+        allow_factorized_sources: bool,
         minimality_reference: Option<PathBuf>,
         minimality_reference_reviewed: bool,
         check_values_out: Option<PathBuf>,
@@ -53,6 +54,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
     let mut size_gate = 2.0;
     let mut consumer_limits = String::from("vakint-pin-52c74636");
     let mut fill_unreduced = false;
+    let mut allow_factorized_sources = false;
     let mut minimality_reference = None;
     let mut minimality_reference_reviewed = false;
     let mut check_values_out = None;
@@ -71,6 +73,9 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--size-gate" if sub == "compose-layer" => "--size-gate",
             "--consumer-limits" if sub == "compose-layer" => "--consumer-limits",
             "--fill-unreduced" if sub == "compose-layer" => "--fill-unreduced",
+            "--allow-factorized-sources" if sub == "compose-layer" => {
+                "--allow-factorized-sources"
+            }
             "--minimality-reference" if sub == "compose-layer" => "--minimality-reference",
             "--minimality-reference-reviewed" if sub == "compose-layer" => {
                 "--minimality-reference-reviewed"
@@ -119,6 +124,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
                 consumer_limits = value;
             }
             "--fill-unreduced" => fill_unreduced = true,
+            "--allow-factorized-sources" => allow_factorized_sources = true,
             "--minimality-reference" => {
                 minimality_reference = Some(PathBuf::from(next_value(&mut args, option)?))
             }
@@ -149,6 +155,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
                 size_gate,
                 consumer_limits,
                 fill_unreduced,
+                allow_factorized_sources,
                 minimality_reference,
                 minimality_reference_reviewed,
                 check_values_out,
@@ -211,6 +218,7 @@ pub(super) fn run(arguments: SavedApplicationArgs) -> Result<(), CliError> {
             size_gate,
             consumer_limits,
             fill_unreduced,
+            allow_factorized_sources,
             minimality_reference,
             minimality_reference_reviewed,
             check_values_out,
@@ -224,6 +232,7 @@ pub(super) fn run(arguments: SavedApplicationArgs) -> Result<(), CliError> {
                 consumer_limits: crate::SavedApplicationConsumerLimits::parse(&consumer_limits)
                     .ok_or_else(|| CliError::Input("unknown consumer limits".into()))?,
                 fill_unreduced,
+                allow_factorized_sources,
                 minimality_reference,
                 minimality_reference_reviewed,
                 check_values_out,

@@ -15,8 +15,8 @@ use serde_json::{Value, json};
 use super::codec::EncodedMapsLayout;
 use super::layer::{
     self, BoundLayer, SavedApplicationLayer, SavedApplicationLayerDigest,
-    SavedApplicationMinimalityScope, SavedApplicationRuleProvenance, bind_layer,
-    check_composition_mod_p, compose_maps, layer_minimality_claim, layer_summary,
+    SavedApplicationFactorizedSources, SavedApplicationMinimalityScope,
+    SavedApplicationRuleProvenance, bind_layer, bind_layer_with, check_composition_mod_p, compose_maps, layer_minimality_claim, layer_summary,
 };
 use super::{
     PreparedSavedApplication, SavedApplicationIntegral, SavedApplicationOptions, TerminalLayer,
@@ -121,6 +121,10 @@ pub struct SavedApplicationComposeOptions {
     /// Record base terminals the layer is silent about as unreduced instead
     /// of refusing the layer.
     pub fill_unreduced: bool,
+    /// RR-11 P1: factorized remaining terminals (product route) may be
+    /// sources when their rows state a verification level and use only
+    /// factorized base terminals as masters.
+    pub allow_factorized_sources: bool,
     /// The minimality reference file, checked against `reference_blake3`
     /// and parsed (`refine-5l.expected-counts.v1`): expected per-class counts
     /// come from it.
@@ -153,6 +157,7 @@ impl Default for SavedApplicationComposeOptions {
             size_gate: 2.0,
             consumer_limits: SavedApplicationConsumerLimits::VAKINT_PIN_52C74636,
             fill_unreduced: false,
+            allow_factorized_sources: false,
             minimality_reference: None,
             minimality_reference_reviewed: false,
             check_values_out: None,
@@ -280,7 +285,7 @@ pub fn compose_saved_application_layer<const N: usize>(
         }
     }
 
-    // Factorized terminals (product route) may never be sources.
+    // Factorized terminals (product route) are sources only under RR-11 P1.
     let product_started = Instant::now();
     prepared.prepare_terminal_products(VacuumProductLimits::default())?;
     prepared.prepare_terminal_product_charts(VacuumProductChartLimits::default())?;
@@ -297,7 +302,18 @@ pub fn compose_saved_application_layer<const N: usize>(
 
     // 4. Bind; 5-6. compose exactly.
     let limits = options.application.reduction_limits.exact_algebra;
-    let bound = bind_layer(&prepared.terminals, &layer, &factorized, limits)?;
+    let factorized_policy = if options.allow_factorized_sources {
+        SavedApplicationFactorizedSources::VerifiedOntoProducts
+    } else {
+        SavedApplicationFactorizedSources::Refused
+    };
+    let bound = bind_layer_with(
+        &prepared.terminals,
+        &layer,
+        &factorized,
+        factorized_policy,
+        limits,
+    )?;
     // The layer must account for every non-factorized remaining terminal:
     // a source, a master, or a declared (or explicitly filled) unreduced entry.
     if !bound.undeclared.is_empty() && !options.fill_unreduced {
@@ -454,6 +470,11 @@ pub fn compose_saved_application_layer<const N: usize>(
         "layer_blake3": digest.layer_blake3,
         "output": if matches!(mode, "composed" | "layered") { json!(out) } else { Value::Null },
         "factorized_terminals": factorized.len(),
+        "factorized_sources": {
+            "policy": if options.allow_factorized_sources { "rr11-p1-verified-onto-products" } else { "refused" },
+            "sources": bound.factorized_sources.len(),
+            "keys": bound.factorized_sources.iter().map(|k| k.integral.powers().to_vec()).collect::<Vec<_>>(),
+        },
         "composition": statistics,
         "consistency": {
             "masters_with_raw_rows_composing_to_identity": master_raw_rows,
@@ -542,6 +563,7 @@ pub fn compose_saved_application_layer<const N: usize>(
     refinement["consistency"] = report["consistency"].clone();
     refinement["self_check"] = report["self_check"].clone();
     refinement["factorized_terminals"] = json!(factorized.len());
+    refinement["factorized_sources"] = report["factorized_sources"].clone();
     refinement["unreduced_filled"] = json!(filled_unreduced);
     refinement["minimality_reference"] = reference.clone();
     let mut metadata = metadata;

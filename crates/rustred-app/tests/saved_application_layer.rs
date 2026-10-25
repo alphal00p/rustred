@@ -14,6 +14,11 @@ fn identity_layer_reproduces_maps_and_bytes() {
 }
 
 #[test]
+fn factorized_sources_need_p1_verification_and_product_masters() {
+    layer::factorized_sources_need_p1_verification_and_product_masters();
+}
+
+#[test]
 fn malformed_layers_are_rejected() {
     layer::malformed_layers_are_rejected();
 }
