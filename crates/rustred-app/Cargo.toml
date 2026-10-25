@@ -91,6 +91,10 @@ name = "saved_application_layer"
 required-features = ["layer-test-support"]
 
 [[test]]
+name = "saved_application_unit"
+required-features = ["layer-test-support"]
+
+[[test]]
 name = "closing_artifact_api"
 required-features = ["cli"]
 

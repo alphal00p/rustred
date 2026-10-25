@@ -35,7 +35,7 @@ pub use application::{
 };
 #[cfg(feature = "layer-test-support")]
 #[doc(hidden)]
-pub use application::saved_application_layer_tests;
+pub use application::{saved_application_layer_tests, saved_application_unit_tests};
 pub use application::{
     PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,
     SavedApplicationCacheBundleWriter, SavedApplicationCacheCopyStatistics,

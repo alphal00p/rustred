@@ -86,8 +86,8 @@ fn maps_fixture() -> TerminalMaps {
     }
 }
 
-#[test]
-fn partial_saved_application_loads_policy_without_changing_recorded_coverage() {
+#[cfg_attr(test, test)]
+pub fn partial_saved_application_loads_policy_without_changing_recorded_coverage() {
     let scratch = Scratch::new();
     let original = prepared_fixture(&scratch.0.join("source"));
     let runtime = scratch.0.join("runtime");
@@ -120,8 +120,8 @@ fn partial_saved_application_loads_policy_without_changing_recorded_coverage() {
     assert_eq!(actual.nonzero_conditions(), warm.nonzero_conditions());
 }
 
-#[test]
-fn partial_saved_substitution_preserves_unpublished_leaves_and_cancellation() {
+#[cfg_attr(test, test)]
+pub fn partial_saved_substitution_preserves_unpublished_leaves_and_cancellation() {
     use rustred::sector::OrderingPolicy;
     use rustred::solver::{
         CandidateOwnerContext, CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerScope,
@@ -192,8 +192,8 @@ fn partial_saved_substitution_preserves_unpublished_leaves_and_cancellation() {
     assert!(zero.unresolved().is_empty());
 }
 
-#[test]
-fn native_compact_maps_preserve_every_coefficient_context_and_guard() {
+#[cfg_attr(test, test)]
+pub fn native_compact_maps_preserve_every_coefficient_context_and_guard() {
     let maps = maps_fixture();
     let options = SavedApplicationOptions::default();
     let bytes = codec::encode(&maps, options).unwrap();
@@ -219,8 +219,8 @@ fn native_compact_maps_preserve_every_coefficient_context_and_guard() {
     assert!(codec::decode(&bytes, short_limit).is_err());
 }
 
-#[test]
-fn application_progress_preserves_output_and_orders_completion_after_substitution() {
+#[cfg_attr(test, test)]
+pub fn application_progress_preserves_output_and_orders_completion_after_substitution() {
     let scratch = Scratch::new();
     let mut application = prepared_fixture(&scratch.0.join("source"));
     let input = [(
@@ -270,8 +270,8 @@ fn application_progress_preserves_output_and_orders_completion_after_substitutio
     assert_eq!(last["schema"], "rustred.saved-application-progress.v1");
 }
 
-#[test]
-fn application_progress_reports_admission_and_terminal_substitution_failures() {
+#[cfg_attr(test, test)]
+pub fn application_progress_reports_admission_and_terminal_substitution_failures() {
     let scratch = Scratch::new();
     let mut application = prepared_fixture(&scratch.0.join("source"));
     let one = application.family().coefficient_context().one();
@@ -307,6 +307,7 @@ fn application_progress_reports_admission_and_terminal_substitution_failures() {
     assert_eq!(last["request_finished"], true);
 }
 
+#[cfg(test)]
 #[test]
 #[ignore = "bounded release timing diagnostic; reports observations, no timing assertion"]
 fn application_progress_cost_probe() {
@@ -360,8 +361,8 @@ fn application_progress_cost_probe() {
     }
 }
 
-#[test]
-fn compact_boundary_rejects_unknown_terminals_and_impossible_guards() {
+#[cfg_attr(test, test)]
+pub fn compact_boundary_rejects_unknown_terminals_and_impossible_guards() {
     let mut maps = maps_fixture();
     let options = SavedApplicationOptions::default();
     maps.remaining.clear();
@@ -378,8 +379,8 @@ fn compact_boundary_rejects_unknown_terminals_and_impossible_guards() {
     assert!(codec::encode(&maps, options).is_err());
 }
 
-#[test]
-fn thousands_of_overlapping_guards_keep_first_seen_order_on_warm_application() {
+#[cfg_attr(test, test)]
+pub fn thousands_of_overlapping_guards_keep_first_seen_order_on_warm_application() {
     let scratch = Scratch::new();
     let mut application = prepared_fixture(&scratch.0.join("source"));
     let c = application.family().coefficient_context().clone();
@@ -498,8 +499,8 @@ powers=[1]
     .unwrap()
 }
 
-#[test]
-fn runtime_is_portable_reuses_cache_and_keeps_exact_scope_holes() {
+#[cfg_attr(test, test)]
+pub fn runtime_is_portable_reuses_cache_and_keeps_exact_scope_holes() {
     let scratch = Scratch::new();
     let source = scratch.0.join("source");
     let mut original = prepared_fixture(&source);
@@ -551,8 +552,8 @@ fn runtime_is_portable_reuses_cache_and_keeps_exact_scope_holes() {
     assert!(load_saved_application::<1>(&destination, Default::default()).is_err());
 }
 
-#[test]
-fn runtime_options_select_native_cache_representation_and_report_preparation() {
+#[cfg_attr(test, test)]
+pub fn runtime_options_select_native_cache_representation_and_report_preparation() {
     use rustred::solver::CandidateCacheRepresentation;
     let scratch = Scratch::new();
     let original = prepared_fixture(&scratch.0.join("source"));
@@ -650,8 +651,8 @@ fn runtime_options_select_native_cache_representation_and_report_preparation() {
     }
 }
 
-#[test]
-fn compressed_terminal_export_and_legacy_raw_load_have_identical_maps_and_metadata() {
+#[cfg_attr(test, test)]
+pub fn compressed_terminal_export_and_legacy_raw_load_have_identical_maps_and_metadata() {
     let scratch = Scratch::new();
     let original = prepared_fixture(&scratch.0.join("source"));
     let runtime = scratch.0.join("runtime");
@@ -701,8 +702,8 @@ fn compressed_terminal_export_and_legacy_raw_load_have_identical_maps_and_metada
     }
 }
 
-#[test]
-fn compact_saved_maps_use_caller_byte_grants_and_optional_count_diagnostics() {
+#[cfg_attr(test, test)]
+pub fn compact_saved_maps_use_caller_byte_grants_and_optional_count_diagnostics() {
     let scratch = Scratch::new();
     let mut original = prepared_fixture(&scratch.0.join("source"));
     let runtime = scratch.0.join("runtime");
@@ -726,8 +727,8 @@ fn compact_saved_maps_use_caller_byte_grants_and_optional_count_diagnostics() {
     assert!(load_saved_application::<1>(&runtime, options).is_err());
 }
 
-#[test]
-fn saved_runtime_eviction_is_default_and_preserves_exact_refined_outputs() {
+#[cfg_attr(test, test)]
+pub fn saved_runtime_eviction_is_default_and_preserves_exact_refined_outputs() {
     use rustred::solver::{CandidateCacheRepresentation, CandidateRoutedCachePolicy};
     let scratch = Scratch::new();
     let mut original = prepared_fixture(&scratch.0.join("source"));
@@ -797,8 +798,8 @@ fn saved_runtime_eviction_is_default_and_preserves_exact_refined_outputs() {
     }
 }
 
-#[test]
-fn deferred_runtime_owns_authenticated_bytes_before_first_formula_use() {
+#[cfg_attr(test, test)]
+pub fn deferred_runtime_owns_authenticated_bytes_before_first_formula_use() {
     let scratch = Scratch::new();
     let mut original = prepared_fixture(&scratch.0.join("source"));
     let key = IntegralKey::try_new([2]).unwrap();
@@ -830,8 +831,8 @@ fn deferred_runtime_owns_authenticated_bytes_before_first_formula_use() {
     );
 }
 
-#[test]
-fn entry_routing_uses_only_admitted_images_and_preserves_exact_batch_coefficients() {
+#[cfg_attr(test, test)]
+pub fn entry_routing_uses_only_admitted_images_and_preserves_exact_batch_coefficients() {
     let scratch = Scratch::new();
     std::fs::create_dir(scratch.0.join("objects")).unwrap();
     let source = r#"
@@ -1094,8 +1095,8 @@ powers=[0,1,1]
     );
 }
 
-#[test]
-fn saved_application_persistent_file_preserves_terminal_substitutions_and_scope() {
+#[cfg_attr(test, test)]
+pub fn saved_application_persistent_file_preserves_terminal_substitutions_and_scope() {
     use rustred::persistence::application_cache::{ApplicationCacheKey, ApplicationCacheRecord};
     use rustred::reduction::{GuardedCacheBackingError, GuardedIntermediateCapture};
     struct Capture(BTreeMap<ApplicationCacheKey, ApplicationCacheRecord>);
@@ -1180,8 +1181,8 @@ fn saved_application_persistent_file_preserves_terminal_substitutions_and_scope(
     );
 }
 
-#[test]
-fn advisory_saved_coverage_is_independent_of_strict_complete_application() {
+#[cfg_attr(test, test)]
+pub fn advisory_saved_coverage_is_independent_of_strict_complete_application() {
     let scratch = Scratch::new();
     let mut prepared = prepared_fixture(&scratch.0.join("source"));
     let context = prepared.family().coefficient_context().clone();
@@ -1221,8 +1222,8 @@ fn advisory_saved_coverage_is_independent_of_strict_complete_application() {
     assert_eq!(legacy.nonzero_conditions(), result.nonzero_conditions());
 }
 
-#[test]
-fn public_saved_application_keeps_resource_causes_and_can_retry() {
+#[cfg_attr(test, test)]
+pub fn public_saved_application_keeps_resource_causes_and_can_retry() {
     use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
     let scratch = Scratch::new();
     let mut prepared = prepared_fixture(&scratch.0.join("resource-native-source"));
@@ -1251,8 +1252,8 @@ fn public_saved_application_keeps_resource_causes_and_can_retry() {
     );
 }
 
-#[test]
-fn public_saved_input_count_template_is_inactive_until_diagnostics_are_enabled() {
+#[cfg_attr(test, test)]
+pub fn public_saved_input_count_template_is_inactive_until_diagnostics_are_enabled() {
     let scratch = Scratch::new();
     let mut prepared = prepared_fixture(&scratch.0.join("count-template-native-source"));
     let context = prepared.family().coefficient_context().clone();

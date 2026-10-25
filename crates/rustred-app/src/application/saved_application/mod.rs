@@ -25,8 +25,9 @@ mod scope;
 #[cfg(any(test, feature = "layer-test-support"))]
 #[doc(hidden)]
 pub mod layer_tests;
-#[cfg(test)]
-mod tests;
+#[cfg(any(test, feature = "layer-test-support"))]
+#[doc(hidden)]
+pub mod tests;
 mod transport;
 mod witnesses;
 
