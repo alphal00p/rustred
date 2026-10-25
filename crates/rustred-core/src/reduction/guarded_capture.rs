@@ -24,6 +24,19 @@ pub trait GuardedIntermediateCapture {
         record: &ApplicationCacheRecord,
         context: &CoefficientContext,
     ) -> Result<(), GuardedCacheBackingError>;
+    /// Require Route/Apply capture to return the original typed error when an
+    /// eligible completed coefficient cannot be materialized within its native
+    /// allowance. The default keeps optional capture's historical skip behavior;
+    /// durable running-cache sinks opt in when every eligible record is required.
+    fn fail_on_materialization_limit(&self) -> bool {
+        false
+    }
+    /// Recapture Route/Apply records loaded from persistent backing. The
+    /// default preserves copy/preparation sinks; a cumulative running-cache
+    /// sink opts out because these records are already durable in its backing.
+    fn capture_backing_hits(&self) -> bool {
+        true
+    }
     /// Extra provenance metadata allowance, not a mathematical rank bound.
     /// Exhaustion disables further capture for this request and leaves native
     /// reduction and its complete root guards intact. Shared native memory

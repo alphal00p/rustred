@@ -48,9 +48,27 @@ impl SavedApplicationCacheWriter {
         quota: Arc<quota::Quota>,
         bundle_managed: bool,
     ) -> Result<Self, AppError> {
+        Self::create_with_quota_and_sync(
+            directory,
+            binding,
+            limits,
+            quota,
+            bundle_managed,
+            sync_directory,
+        )
+    }
+    pub(super) fn create_with_quota_and_sync(
+        directory: &Path,
+        binding: ApplicationCacheBinding,
+        limits: SavedApplicationCachePackLimits,
+        quota: Arc<quota::Quota>,
+        bundle_managed: bool,
+        mut sync: impl FnMut(&Path) -> Result<(), AppError>,
+    ) -> Result<Self, AppError> {
         binding.validate(limits.chunk).map_err(binary_error)?;
         fs::create_dir(directory).map_err(fail)?;
         fs::create_dir(directory.join("chunks")).map_err(fail)?;
+        sync(&directory.join("chunks"))?;
         let lock = lock(directory)?;
         let mut writer = Self {
             directory: directory.to_path_buf(),
@@ -68,6 +86,9 @@ impl SavedApplicationCacheWriter {
             _lock: lock,
         };
         writer.checkpoint()?;
+        // Checkpoint publication synced this directory. Persist its newly
+        // created name in the containing directory before claiming success.
+        sync(parent_directory(directory))?;
         Ok(writer)
     }
     pub fn resume(
@@ -132,6 +153,14 @@ impl SavedApplicationCacheWriter {
     }
     pub fn is_poisoned(&self) -> bool {
         self.writes.is_poisoned()
+    }
+    /// Publish the exact currently committed native index as an immutable
+    /// sidecar. Uncheckpointed appends are deliberately excluded. The caller
+    /// supplies a new path outside this store and retains its chunk directory;
+    /// no chunks or coefficients are copied, decoded or re-encoded.
+    pub fn freeze_snapshot(&self, sidecar: &Path) -> Result<reader::NativePackSnapshot, AppError> {
+        self.writes.ensure_open()?;
+        reader::freeze_committed_index(&self.directory, self.binding(), sidecar, self.limits)
     }
     #[cfg(test)]
     pub(super) fn inject_post_install_failure(&mut self) {
@@ -251,6 +280,19 @@ impl SavedApplicationCacheWriter {
         }
         result
     }
+}
+
+pub(super) fn parent_directory(directory: &Path) -> &Path {
+    directory
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+pub(super) fn sync_directory(directory: &Path) -> Result<(), AppError> {
+    File::open(directory)
+        .and_then(|directory| directory.sync_all())
+        .map_err(fail)
 }
 
 pub(super) fn lock(directory: &Path) -> Result<File, AppError> {

@@ -1447,6 +1447,15 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         if source != CandidateRoutedCompletionSource::BackingHit {
             request.observe_completion(self, source);
         }
+        if source == CandidateRoutedCompletionSource::BackingHit
+            && request
+                .persistent
+                .capture
+                .as_ref()
+                .is_some_and(|capture| !capture.capture_backing_hits())
+        {
+            return Ok(());
+        }
         self.capture_persistent_node(
             &node,
             &mut request.persistent,

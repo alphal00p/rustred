@@ -193,6 +193,14 @@ impl SavedApplicationCacheBundleWriter {
         bindings: &[ApplicationCacheBinding],
         limits: SavedApplicationCachePackLimits,
     ) -> Result<Self, AppError> {
+        Self::create_with_sync(directory, bindings, limits, writer::sync_directory)
+    }
+    pub(super) fn create_with_sync(
+        directory: &Path,
+        bindings: &[ApplicationCacheBinding],
+        limits: SavedApplicationCachePackLimits,
+        mut sync: impl FnMut(&Path) -> Result<(), AppError>,
+    ) -> Result<Self, AppError> {
         let manifest = Manifest {
             namespaces: namespaces(bindings, limits)?,
         };
@@ -210,8 +218,12 @@ impl SavedApplicationCacheBundleWriter {
                 true,
             )?;
         }
+        // Child creation/checkpoints synced each child. Persist all child names
+        // before the top-level index can make those stores visible.
+        sync(&directory.join("bindings"))?;
         quota.reserve(bytes.len() as u64)?;
         write_file_atomically_resource(&directory.join(FILE), &bytes, false)?;
+        sync(writer::parent_directory(directory))?;
         Ok(Self {
             directory: directory.to_path_buf(),
             manifest,

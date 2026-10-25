@@ -1,5 +1,291 @@
 use super::*;
 
+#[test]
+fn frozen_native_index_reopens_the_exact_committed_prefix_after_later_appends() {
+    let scratch = scratch();
+    let source = scratch.0.join("running-pack");
+    let sidecar = scratch.0.join("captured.rrindex");
+    let limits = SavedApplicationCachePackLimits::default();
+    let mut writer = SavedApplicationCacheWriter::create(&source, binding(1), limits).unwrap();
+    writer
+        .append_completed(&[record(1), record(3)], &context())
+        .unwrap();
+    writer.checkpoint().unwrap();
+    let committed = fs::read(source.join(index::MANIFEST)).unwrap();
+    let captured = SavedApplicationCachePack::open_generated(&source, &binding(1), limits).unwrap();
+    let charged = writer.charged_disk_bytes().unwrap();
+    let chunks = physical_chunks(&source);
+    let snapshot = writer.freeze_snapshot(&sidecar).unwrap();
+    assert_eq!(fs::read(&snapshot.manifest_path).unwrap(), committed);
+    assert_eq!(snapshot.manifest_bytes, committed.len() as u64);
+    assert_eq!(
+        snapshot.manifest_digest,
+        *blake3::hash(&committed).as_bytes()
+    );
+    assert_eq!(writer.charged_disk_bytes().unwrap(), charged);
+    assert_eq!(
+        physical_chunks(&source),
+        chunks,
+        "freezing copies no chunks"
+    );
+    assert!(
+        writer.freeze_snapshot(&sidecar).is_err(),
+        "captured sidecars cannot be replaced"
+    );
+
+    writer.append_completed(&[record(4)], &context()).unwrap();
+    let pending = writer
+        .freeze_snapshot(&scratch.0.join("before-checkpoint.rrindex"))
+        .unwrap();
+    assert_eq!(pending.generation, snapshot.generation);
+    assert_eq!(pending.manifest_digest, snapshot.manifest_digest);
+    writer.checkpoint().unwrap();
+    let mut replacement = record(1);
+    replacement.terms.clear();
+    writer
+        .append_completed(&[replacement.clone()], &context())
+        .unwrap();
+    writer.checkpoint().unwrap();
+    let mut latest =
+        SavedApplicationCachePack::open_generated(&source, &binding(1), limits).unwrap();
+    assert!(latest.generation() > snapshot.generation);
+    assert_eq!(
+        latest.lookup(&key(1), &context()).unwrap(),
+        Some(replacement)
+    );
+    assert_eq!(latest.lookup(&key(4), &context()).unwrap(), Some(record(4)));
+    drop(writer);
+
+    // A fresh reader needs only the captured descriptor and original chunks,
+    // even if the mutable latest index is unavailable at reopen time.
+    fs::rename(
+        source.join(index::MANIFEST),
+        scratch.0.join("later-index.rrindex"),
+    )
+    .unwrap();
+    let from_reader = captured
+        .freeze_snapshot(&scratch.0.join("captured-reader.rrindex"))
+        .unwrap();
+    assert_eq!(from_reader.generation, snapshot.generation);
+    assert_eq!(from_reader.manifest_digest, snapshot.manifest_digest);
+    assert_eq!(from_reader.manifest_bytes, snapshot.manifest_bytes);
+    assert_eq!(captured.statistics().chunks_read, 0);
+    assert_eq!(fs::read(&from_reader.manifest_path).unwrap(), committed);
+    let mut frozen =
+        SavedApplicationCachePack::open_snapshot(&source, &binding(1), &snapshot, limits).unwrap();
+    assert_eq!(frozen.generation(), snapshot.generation);
+    assert_eq!(frozen.statistics().chunks_read, 0);
+    assert_eq!(frozen.lookup(&key(1), &context()).unwrap(), Some(record(1)));
+    assert_eq!(frozen.lookup(&key(3), &context()).unwrap(), Some(record(3)));
+    assert_eq!(frozen.lookup(&key(4), &context()).unwrap(), None);
+    assert!(frozen.refresh().is_err());
+    let mut fork = frozen.fork_reader();
+    assert!(fork.refresh().is_err());
+    assert_eq!(fork.lookup(&key(4), &context()).unwrap(), None);
+    let mut reopened =
+        SavedApplicationCachePack::open_snapshot(&source, &binding(1), &from_reader, limits)
+            .unwrap();
+    assert_eq!(reopened.lookup(&key(4), &context()).unwrap(), None);
+}
+
+#[test]
+fn reader_snapshot_preserves_legacy_native_bytes_and_charges_retained_metadata() {
+    let scratch = scratch();
+    let source = scratch.0.join("legacy-pack");
+    let limits = SavedApplicationCachePackLimits::default();
+    let mut writer = SavedApplicationCacheWriter::create(&source, binding(1), limits).unwrap();
+    writer.append_completed(&[record(3)], &context()).unwrap();
+    writer.checkpoint().unwrap();
+    drop(writer);
+    make_legacy(&source);
+    let original = fs::read(source.join(index::MANIFEST)).unwrap();
+    let decoded = index::decode(&original, &binding(1), limits)
+        .unwrap()
+        .1
+        .directory_owned_bytes;
+    let reader = SavedApplicationCachePack::open_generated(&source, &binding(1), limits).unwrap();
+    let retained = reader.statistics().directory_owned_bytes;
+    assert!(retained >= decoded + original.len());
+    let tight = SavedApplicationCachePackLimits {
+        max_directory_owned_bytes: retained - 1,
+        ..limits
+    };
+    assert!(SavedApplicationCachePack::open_generated(&source, &binding(1), tight).is_err());
+    let exact = SavedApplicationCachePackLimits {
+        max_directory_owned_bytes: retained,
+        ..limits
+    };
+    assert!(SavedApplicationCachePack::open_generated(&source, &binding(1), exact).is_ok());
+    assert_eq!(
+        reader.fork_reader().statistics().directory_owned_bytes,
+        retained
+    );
+    fs::remove_file(source.join(index::MANIFEST)).unwrap();
+    let snapshot = reader
+        .freeze_snapshot(&scratch.0.join("legacy-captured.rrindex"))
+        .unwrap();
+    assert_eq!(fs::read(&snapshot.manifest_path).unwrap(), original);
+    let mut reopened =
+        SavedApplicationCachePack::open_snapshot(&source, &binding(1), &snapshot, limits).unwrap();
+    assert_eq!(
+        reopened.lookup(&key(3), &context()).unwrap(),
+        Some(record(3))
+    );
+}
+
+#[test]
+fn frozen_native_index_rejects_descriptor_tampering_bad_binding_and_aliases() {
+    let scratch = scratch();
+    let source = scratch.0.join("pack");
+    let limits = SavedApplicationCachePackLimits::default();
+    let writer = SavedApplicationCacheWriter::create(&source, binding(1), limits).unwrap();
+    assert!(
+        writer
+            .freeze_snapshot(&source.join("snapshot.rrindex"))
+            .is_err()
+    );
+    assert!(
+        writer
+            .freeze_snapshot(&source.join("..").join("pack").join("snapshot.rrindex"))
+            .is_err()
+    );
+    #[cfg(unix)]
+    {
+        let alias = scratch.0.join("pack-alias");
+        std::os::unix::fs::symlink(&source, &alias).unwrap();
+        assert!(
+            writer
+                .freeze_snapshot(&alias.join("snapshot.rrindex"))
+                .is_err()
+        );
+    }
+    let snapshot = writer
+        .freeze_snapshot(&scratch.0.join("captured.rrindex"))
+        .unwrap();
+    for changed in [
+        super::super::reader::NativePackSnapshot {
+            generation: snapshot.generation + 1,
+            ..snapshot.clone()
+        },
+        super::super::reader::NativePackSnapshot {
+            manifest_bytes: snapshot.manifest_bytes + 1,
+            ..snapshot.clone()
+        },
+        super::super::reader::NativePackSnapshot {
+            manifest_digest: [0; 32],
+            ..snapshot.clone()
+        },
+    ] {
+        assert!(
+            SavedApplicationCachePack::open_snapshot(&source, &binding(1), &changed, limits)
+                .is_err()
+        );
+    }
+    assert!(
+        SavedApplicationCachePack::open_snapshot(&source, &binding(2), &snapshot, limits).is_err()
+    );
+    let tight = SavedApplicationCachePackLimits {
+        max_manifest_bytes: snapshot.manifest_bytes as usize - 1,
+        ..limits
+    };
+    assert!(
+        SavedApplicationCachePack::open_snapshot(&source, &binding(1), &snapshot, tight).is_err()
+    );
+    let mut bytes = fs::read(&snapshot.manifest_path).unwrap();
+    bytes[0] ^= 1;
+    fs::write(&snapshot.manifest_path, &bytes).unwrap();
+    assert!(
+        SavedApplicationCachePack::open_snapshot(&source, &binding(1), &snapshot, limits).is_err()
+    );
+    let changed = super::super::reader::NativePackSnapshot {
+        manifest_digest: *blake3::hash(&bytes).as_bytes(),
+        ..snapshot
+    };
+    assert!(
+        SavedApplicationCachePack::open_snapshot(&source, &binding(1), &changed, limits).is_err(),
+        "a matching external digest cannot bypass native index validation"
+    );
+}
+
+#[test]
+fn new_pack_parent_sync_failure_is_an_error_after_index_installation() {
+    let scratch = scratch();
+    let source = scratch.0.join("pack");
+    let limits = SavedApplicationCachePackLimits::default();
+    let mut synced = Vec::new();
+    let result = writer::SavedApplicationCacheWriter::create_with_quota_and_sync(
+        &source,
+        binding(1),
+        limits,
+        std::sync::Arc::new(quota::Quota::new(limits.max_disk_bytes, 0).unwrap()),
+        false,
+        |path| {
+            synced.push(path.to_path_buf());
+            if path == scratch.0.as_path() {
+                Err(fail("injected new-pack parent directory sync failure"))
+            } else {
+                writer::sync_directory(path)
+            }
+        },
+    );
+    assert!(result.is_err());
+    assert_eq!(synced, [source.join("chunks"), scratch.0.clone()]);
+    assert!(source.join(index::MANIFEST).is_file());
+    assert!(SavedApplicationCacheWriter::create(&source, binding(1), limits).is_err());
+    assert!(SavedApplicationCachePack::open_generated(&source, &binding(1), limits).is_ok());
+    assert!(SavedApplicationCacheWriter::resume(&source, &binding(1), limits).is_ok());
+}
+
+#[test]
+fn new_bundle_directory_sync_failures_do_not_claim_durable_creation() {
+    let scratch = scratch();
+    let limits = SavedApplicationCachePackLimits::default();
+    for fail_parent in [false, true] {
+        let output = scratch.0.join(if fail_parent {
+            "after-top-index"
+        } else {
+            "before-top-index"
+        });
+        let failure = if fail_parent {
+            scratch.0.clone()
+        } else {
+            output.join("bindings")
+        };
+        let mut synced = Vec::new();
+        let result = bundle::SavedApplicationCacheBundleWriter::create_with_sync(
+            &output,
+            &[binding(1)],
+            limits,
+            |path| {
+                synced.push(path.to_path_buf());
+                if path == failure.as_path() {
+                    Err(fail("injected new-bundle directory sync failure"))
+                } else {
+                    writer::sync_directory(path)
+                }
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(synced[0], output.join("bindings"));
+        assert_eq!(synced.len(), if fail_parent { 2 } else { 1 });
+        assert_eq!(output.join("bundle.rrindex").is_file(), fail_parent);
+        assert!(
+            child_path(&output, &binding(1))
+                .join(index::MANIFEST)
+                .is_file()
+        );
+        assert!(SavedApplicationCacheBundleWriter::create(&output, &[binding(1)], limits).is_err());
+        assert_eq!(
+            SavedApplicationCacheBundle::open_generated(&output, &[binding(1)], limits).is_ok(),
+            fail_parent
+        );
+        assert_eq!(
+            SavedApplicationCacheBundleWriter::resume(&output, &[binding(1)], limits).is_ok(),
+            fail_parent
+        );
+    }
+}
+
 fn copy(
     path: &Path,
     bindings: &[ApplicationCacheBinding],

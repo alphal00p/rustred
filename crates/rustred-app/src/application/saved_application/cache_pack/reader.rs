@@ -27,6 +27,94 @@ pub enum SavedApplicationCacheLookupOutcome {
     WorkBudgetExhausted,
 }
 
+/// An exact committed native index, published separately from its append-only
+/// chunk store. The sidecar contains the original native index bytes, including
+/// their existing framing/digest; it is not a second cache representation.
+/// Callers persist this small descriptor and keep the original chunk directory.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativePackSnapshot {
+    pub manifest_path: PathBuf,
+    pub generation: u64,
+    pub manifest_bytes: u64,
+    pub manifest_digest: [u8; 32],
+}
+
+pub(super) fn freeze_committed_index(
+    directory: &Path,
+    expected: &ApplicationCacheBinding,
+    sidecar: &Path,
+    limits: SavedApplicationCachePackLimits,
+) -> Result<NativePackSnapshot, AppError> {
+    let bytes = index::read_bounded(&directory.join(index::MANIFEST), limits.max_manifest_bytes)?;
+    let (manifest, _) = index::decode(&bytes, expected, limits)?;
+    publish_snapshot(directory, &bytes, manifest.generation, sidecar, limits)
+}
+
+fn publish_snapshot(
+    directory: &Path,
+    bytes: &[u8],
+    generation: u64,
+    sidecar: &Path,
+    limits: SavedApplicationCachePackLimits,
+) -> Result<NativePackSnapshot, AppError> {
+    if bytes.len() > limits.max_manifest_bytes {
+        return Err(AppError::limit("snapshot index exceeds manifest allowance"));
+    }
+    let name = sidecar
+        .file_name()
+        .ok_or_else(|| fail("snapshot index path has no file name"))?;
+    let parent = sidecar
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .canonicalize()
+        .map_err(fail)?;
+    let directory = directory.canonicalize().map_err(fail)?;
+    if parent.starts_with(&directory) {
+        return Err(fail(
+            "snapshot index must be outside the cache pack directory",
+        ));
+    }
+    let path = parent.join(name);
+    let snapshot = NativePackSnapshot {
+        manifest_path: path.clone(),
+        generation,
+        manifest_bytes: u64::try_from(bytes.len()).map_err(fail)?,
+        manifest_digest: *blake3::hash(bytes).as_bytes(),
+    };
+    // The caller owns the external sidecar's storage allowance. Its size is
+    // independently bounded by max_manifest_bytes; source quota/chunks do not
+    // change. A late sync error remains Err even if the sidecar was installed.
+    crate::application::atomic_file::write_file_atomically_resource(&path, bytes, false)?;
+    Ok(snapshot)
+}
+
+fn retain_index_bytes(
+    bytes: Vec<u8>,
+    statistics: &mut SavedApplicationCachePackStatistics,
+    limits: SavedApplicationCachePackLimits,
+) -> Result<Arc<Vec<u8>>, AppError> {
+    // The raw native index is metadata, shared by forks. Charge its retained
+    // buffer and Arc/Vec allocation alongside the decoded range directory.
+    let header = std::mem::size_of::<Vec<u8>>() + 2 * std::mem::size_of::<usize>();
+    let owned = bytes
+        .capacity()
+        .checked_add(header)
+        .ok_or_else(|| fail("snapshot metadata size overflow"))?;
+    let total = statistics
+        .directory_owned_bytes
+        .checked_add(owned)
+        .ok_or_else(|| fail("cache directory size overflow"))?;
+    if total > limits.max_directory_owned_bytes {
+        return Err(AppError::limit(
+            "cache native index retention exceeds directory allowance",
+        ));
+    }
+    resource_allocation(header)?;
+    statistics.directory_owned_bytes = total;
+    Ok(Arc::new(bytes))
+}
+
 /// Immutable on-disk snapshot plus local I/O statistics. Persisted compact key
 /// fingerprints (or lazily retained exact keys for legacy chunks) reject known
 /// misses within the directory-memory allowance. Such skips use the trusted
@@ -37,9 +125,11 @@ pub enum SavedApplicationCacheLookupOutcome {
 pub struct SavedApplicationCachePack {
     directory: PathBuf,
     manifest: Arc<index::Manifest>,
+    raw_manifest: Arc<Vec<u8>>,
     limits: SavedApplicationCachePackLimits,
     statistics: SavedApplicationCachePackStatistics,
     key_index: KeyIndex,
+    frozen: bool,
 }
 impl SavedApplicationCachePack {
     /// Explicit trusted-native import. Binding equality and content hashes are
@@ -52,13 +142,48 @@ impl SavedApplicationCachePack {
         resource_checkpoint()?;
         let bytes =
             index::read_bounded(&directory.join(index::MANIFEST), limits.max_manifest_bytes)?;
-        let (manifest, statistics) = index::decode(&bytes, expected, limits)?;
+        let (manifest, mut statistics) = index::decode(&bytes, expected, limits)?;
+        let raw_manifest = retain_index_bytes(bytes, &mut statistics, limits)?;
         Ok(Self {
             directory: directory.to_path_buf(),
             manifest: Arc::new(manifest),
+            raw_manifest,
             limits,
             statistics,
             key_index: KeyIndex::default(),
+            frozen: false,
+        })
+    }
+    /// Open exactly a captured committed index while its original store keeps
+    /// appending. No latest-index read, chunk copy or coefficient import occurs.
+    /// Integrity checks retain the same trusted-generated native-data boundary.
+    pub fn open_snapshot(
+        directory: &Path,
+        expected: &ApplicationCacheBinding,
+        snapshot: &NativePackSnapshot,
+        limits: SavedApplicationCachePackLimits,
+    ) -> Result<Self, AppError> {
+        let length = usize::try_from(snapshot.manifest_bytes).map_err(fail)?;
+        if length > limits.max_manifest_bytes {
+            return Err(AppError::limit("snapshot index exceeds manifest allowance"));
+        }
+        let bytes = index::read_bounded(&snapshot.manifest_path, length)?;
+        if bytes.len() != length || *blake3::hash(&bytes).as_bytes() != snapshot.manifest_digest {
+            return Err(fail("snapshot index digest or length mismatch"));
+        }
+        let (manifest, mut statistics) = index::decode(&bytes, expected, limits)?;
+        if manifest.generation != snapshot.generation {
+            return Err(fail("snapshot index generation mismatch"));
+        }
+        let raw_manifest = retain_index_bytes(bytes, &mut statistics, limits)?;
+        Ok(Self {
+            directory: directory.to_path_buf(),
+            manifest: Arc::new(manifest),
+            raw_manifest,
+            limits,
+            statistics,
+            key_index: KeyIndex::default(),
+            frozen: true,
         })
     }
     pub fn binding(&self) -> &ApplicationCacheBinding {
@@ -70,6 +195,18 @@ impl SavedApplicationCachePack {
     pub fn statistics(&self) -> SavedApplicationCachePackStatistics {
         self.statistics
     }
+    /// Persist this reader's exact captured native index, even if the mutable
+    /// latest index has changed or disappeared. Only retained metadata is copied;
+    /// chunks stay in the original directory and are verified lazily on lookup.
+    pub fn freeze_snapshot(&self, sidecar: &Path) -> Result<NativePackSnapshot, AppError> {
+        publish_snapshot(
+            &self.directory,
+            &self.raw_manifest,
+            self.generation(),
+            sidecar,
+            self.limits,
+        )
+    }
     pub(super) fn captured_snapshot(&self) -> (&Path, &index::Manifest) {
         (&self.directory, &self.manifest)
     }
@@ -80,11 +217,16 @@ impl SavedApplicationCachePack {
     /// charges and hit/miss counters are preserved, not reset. Index reads are
     /// separately bounded by `max_manifest_bytes`, as at initial open.
     pub fn refresh(&mut self) -> Result<(), AppError> {
+        if self.frozen {
+            return Err(fail(
+                "an immutable cache snapshot cannot refresh to the latest index",
+            ));
+        }
         let bytes = index::read_bounded(
             &self.directory.join(index::MANIFEST),
             self.limits.max_manifest_bytes,
         )?;
-        let (manifest, directory) = index::decode(&bytes, self.binding(), self.limits)?;
+        let (manifest, mut directory) = index::decode(&bytes, self.binding(), self.limits)?;
         if manifest.bundle_managed != self.manifest.bundle_managed
             || manifest.generation < self.manifest.generation
             || manifest.generation == self.manifest.generation && manifest != *self.manifest
@@ -96,6 +238,7 @@ impl SavedApplicationCachePack {
         if manifest == *self.manifest {
             return Ok(());
         }
+        let raw_manifest = retain_index_bytes(bytes, &mut directory, self.limits)?;
         let mut statistics = self.statistics;
         statistics.runs = directory.runs;
         statistics.chunks = directory.chunks;
@@ -104,6 +247,7 @@ impl SavedApplicationCachePack {
         statistics.manifest_bytes = directory.manifest_bytes;
         statistics.directory_owned_bytes = directory.directory_owned_bytes;
         self.manifest = Arc::new(manifest);
+        self.raw_manifest = raw_manifest;
         self.key_index = KeyIndex::default();
         self.statistics = statistics;
         Ok(())
@@ -127,9 +271,11 @@ impl SavedApplicationCachePack {
         Self {
             directory: self.directory.clone(),
             manifest: self.manifest.clone(),
+            raw_manifest: self.raw_manifest.clone(),
             limits: self.limits,
             statistics,
             key_index: KeyIndex::default(),
+            frozen: self.frozen,
         }
     }
     /// Exact key lookup, newest immutable run first. A matching range is only

@@ -92,21 +92,12 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         &self,
         binding: &ApplicationCacheBinding,
         backing: Option<&dyn GuardedCacheBacking>,
-        capture: bool,
     ) -> Result<(), CandidateRoutedError> {
         if *binding != self.persistent_cache_binding(binding.artifact_digest)
             || backing.is_some_and(|b| b.binding() != binding)
         {
             return Err(failure(
                 "artifact, family, arity or solver-layer binding mismatch",
-            ));
-        }
-        // A permissive session may retain unresolved nodes in its internal DAG.
-        // Distributed capture/export is deliberately strict, even when those
-        // unknown terms later cancel in the final linear combination.
-        if capture && self.unresolved_policy != UnresolvedPolicy::Reject {
-            return Err(failure(
-                "completed record capture requires UnresolvedPolicy::Reject",
             ));
         }
         Ok(())
@@ -120,7 +111,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         backing: Option<&'a mut dyn GuardedCacheBacking>,
         capture: Option<&'a mut dyn GuardedIntermediateCapture>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        self.validate_persistent_binding(binding, backing.as_deref(), capture.is_some())?;
+        self.validate_persistent_binding(binding, backing.as_deref())?;
         self.reduce_observed_request(
             terms,
             admission,
@@ -142,7 +133,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         backing: Option<&'a mut dyn GuardedCacheBacking>,
         capture: Option<&'a mut dyn GuardedIntermediateCapture>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        self.validate_persistent_binding(binding, backing.as_deref(), capture.is_some())?;
+        self.validate_persistent_binding(binding, backing.as_deref())?;
         let mut request = super::engine::Request::with_persistent(PersistentRequest {
             backing,
             capture,
@@ -176,7 +167,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         observer: &mut CandidateRoutedApplicationObserver<'_>,
         cancel: Option<&std::sync::atomic::AtomicBool>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        self.validate_persistent_binding(binding, backing.as_deref(), capture.is_some())?;
+        self.validate_persistent_binding(binding, backing.as_deref())?;
         self.reduce_observed_request(
             terms,
             admission,
@@ -203,7 +194,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         observer: &mut CandidateRoutedApplicationObserver<'_>,
         cancel: Option<&std::sync::atomic::AtomicBool>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        self.validate_persistent_binding(binding, backing.as_deref(), capture.is_some())?;
+        self.validate_persistent_binding(binding, backing.as_deref())?;
         self.reduce_observed_routed_request(
             terms,
             admission,
@@ -290,11 +281,19 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         binding: &ApplicationCacheBinding,
         record: &ApplicationCacheRecord,
     ) -> Result<(), CandidateRoutedError> {
-        self.validate_persistent_binding(binding, None, false)?;
-        record
-            .key
-            .validate(binding.physical_arity)
-            .map_err(typed_failure)?;
+        self.validate_persistent_binding(binding, None)?;
+        self.validate_completed_cache_record_contents(record)
+    }
+
+    // Capture and import authenticate the same native content. Binding checks
+    // stay at the public request/record boundaries; no binding is synthesized
+    // from a record or from the current unresolved policy.
+    fn validate_completed_cache_record_contents(
+        &self,
+        record: &ApplicationCacheRecord,
+    ) -> Result<(), CandidateRoutedError> {
+        let arity = self.family().denominator_count();
+        record.key.validate(arity).map_err(typed_failure)?;
         let target = record.key.integral().map_err(typed_failure)?;
         for condition in self.target_conditions(&target)? {
             if !record.nonzero_conditions.contains(&condition) {
@@ -324,7 +323,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         }
         let context = self.context.shared.context.base();
         for (terminal, coefficient) in &record.terms {
-            if terminal.powers().len() != binding.physical_arity
+            if terminal.powers().len() != arity
                 || coefficient.is_zero()
                 || !self.terminal_is_declared(terminal)?
             {
@@ -380,25 +379,8 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         if record.key != key {
             return Err(failure("lookup returned a different key"));
         }
-        record.key.validate(arity).map_err(typed_failure)?;
-        for (terminal, coefficient) in &record.terms {
-            if terminal.powers().len() != arity
-                || coefficient.is_zero()
-                || !self.terminal_is_declared(terminal)?
-            {
-                return Err(failure("record contains an undeclared or invalid terminal"));
-            }
-            context
-                .validate_with_limits(coefficient, self.context.limits.exact_algebra)
-                .map_err(typed_failure)?;
-        }
+        self.validate_completed_cache_record(backing.binding(), &record)?;
         for guard in &record.nonzero_conditions {
-            if guard.is_zero() {
-                return Err(failure("record has a vanished nonzero condition"));
-            }
-            context
-                .validate_with_limits(guard, self.context.limits.exact_algebra)
-                .map_err(typed_failure)?;
             if !conditions.contains(guard) {
                 conditions.push(guard.clone());
             }
@@ -425,35 +407,42 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         let Some(capture) = &mut persistent.capture else {
             return Ok(());
         };
-        let context = self.context.shared.context.base();
-        let key = cache_key(node, self.family().denominator_count());
-        if !capture.wants(&key, context).map_err(typed_failure)? {
-            stats.skipped_records = stats.skipped_records.saturating_add(1);
-            return Ok(());
-        }
         let entry = self
             .cache
             .get(node)
             .ok_or_else(|| failure("completed node is absent"))?;
         for terminal in entry.terms.terminal_keys() {
             if !self.terminal_is_declared(terminal)? {
-                return Err(failure(
-                    "strict completed node contains an undeclared terminal",
-                ));
+                // Preserve-mode nodes can be ready yet still contain unknown
+                // integrals. Omit them before optional coefficient expansion;
+                // an exactly cancelled parent may independently be complete.
+                stats.skipped_records = stats.skipped_records.saturating_add(1);
+                return Ok(());
             }
+        }
+        let context = self.context.shared.context.base();
+        let key = cache_key(node, self.family().denominator_count());
+        if !capture.wants(&key, context).map_err(typed_failure)? {
+            stats.skipped_records = stats.skipped_records.saturating_add(1);
+            return Ok(());
         }
         let terms = match entry.terms.materialize(context, self.context.limits) {
             Ok(terms) => terms,
             // This optional materialization may exceed the allowance even
             // when later native factorized combinations would cancel it.
-            Err(CandidateReductionError::Application(
-                crate::reduction::ReductionError::ExactAlgebra(
-                    crate::algebra::ExactAlgebraError::ResourceLimit { .. }
-                    | crate::algebra::ExactAlgebraError::ExponentLimit { .. }
-                    | crate::algebra::ExactAlgebraError::ResourceCountOverflow { .. }
-                    | crate::algebra::ExactAlgebraError::ExponentArithmeticOverflow { .. },
+            Err(
+                error @ CandidateReductionError::Application(
+                    crate::reduction::ReductionError::ExactAlgebra(
+                        crate::algebra::ExactAlgebraError::ResourceLimit { .. }
+                        | crate::algebra::ExactAlgebraError::ExponentLimit { .. }
+                        | crate::algebra::ExactAlgebraError::ResourceCountOverflow { .. }
+                        | crate::algebra::ExactAlgebraError::ExponentArithmeticOverflow { .. },
+                    ),
                 ),
-            )) => {
+            ) => {
+                if capture.fail_on_materialization_limit() {
+                    return Err(error.into());
+                }
                 stats.skipped_records = stats.skipped_records.saturating_add(1);
                 return Ok(());
             }
@@ -464,6 +453,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             terms,
             nonzero_conditions: entry.conditions.clone(),
         };
+        self.validate_completed_cache_record_contents(&record)?;
         capture
             .store_completed(&record, context)
             .map_err(typed_failure)?;
@@ -478,7 +468,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         binding: &ApplicationCacheBinding,
         key: &ApplicationCacheKey,
     ) -> Result<Option<ApplicationCacheRecord>, CandidateRoutedError> {
-        self.validate_persistent_binding(binding, None, false)?;
+        self.validate_persistent_binding(binding, None)?;
         key.validate(binding.physical_arity)
             .map_err(typed_failure)?;
         let integral = key.integral().map_err(typed_failure)?;
@@ -529,7 +519,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         binding: &ApplicationCacheBinding,
         backing: &mut dyn GuardedCacheBacking,
     ) -> Result<CandidateRoutedCacheExportStatistics, CandidateRoutedError> {
-        self.validate_persistent_binding(binding, Some(backing), false)?;
+        self.validate_persistent_binding(binding, Some(backing))?;
         let context = self.context.shared.context.base();
         let mut statistics = CandidateRoutedCacheExportStatistics::default();
         for (node, entry) in &self.cache {
@@ -550,6 +540,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 terms: entry.terms.materialize(context, self.context.limits)?,
                 nonzero_conditions: entry.conditions.clone(),
             };
+            self.validate_completed_cache_record_contents(&record)?;
             backing
                 .store_completed(&record, context)
                 .map_err(typed_failure)?;

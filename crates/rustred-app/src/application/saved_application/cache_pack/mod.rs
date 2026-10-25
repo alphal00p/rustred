@@ -25,7 +25,9 @@ pub use bundle::{
     SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter,
     SavedApplicationCacheCopyStatistics,
 };
-pub use reader::{SavedApplicationCacheLookupOutcome, SavedApplicationCachePack};
+pub use reader::{
+    NativePackSnapshot, SavedApplicationCacheLookupOutcome, SavedApplicationCachePack,
+};
 pub use writer::SavedApplicationCacheWriter;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,8 +82,9 @@ pub struct SavedApplicationCachePackStatistics {
     pub records: usize,
     pub referenced_chunk_bytes: u64,
     pub manifest_bytes: usize,
-    /// Upper census of decoded directory structs, owned key/identity allocations
-    /// and optional exact chunk-key metadata. No coefficient payload lives here.
+    /// Upper census of retained raw native index bytes, decoded directory
+    /// structs, owned key/identity allocations and optional exact chunk-key
+    /// metadata. No coefficient payload lives here.
     pub directory_owned_bytes: usize,
     pub chunks_read: usize,
     pub chunk_bytes_read: u64,

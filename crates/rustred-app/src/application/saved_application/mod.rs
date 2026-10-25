@@ -21,6 +21,7 @@ mod options;
 mod package;
 mod products;
 mod progress;
+mod running_cache;
 mod scope;
 #[cfg(test)]
 mod tests;
@@ -49,7 +50,7 @@ use super::routed_campaign::{
 use crate::{AppError, MasterReductionArtifact};
 
 pub use cache_pack::{
-    SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter,
+    NativePackSnapshot, SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter,
     SavedApplicationCacheCopyStatistics, SavedApplicationCacheLookupOutcome,
     SavedApplicationCachePack, SavedApplicationCachePackLimits,
     SavedApplicationCachePackStatistics, SavedApplicationCacheWriter,
@@ -65,6 +66,11 @@ pub use package::{
 };
 pub use products::{SavedApplicationProduct, SavedApplicationProductStatistics};
 pub use progress::saved_application_observation_document;
+pub use running_cache::{
+    SavedApplicationReadOnlyCache, SavedApplicationRunningCache, SavedApplicationRunningCacheBase,
+    SavedApplicationRunningCacheControl, SavedApplicationRunningCacheOptions,
+    SavedApplicationRunningCacheReport, SavedApplicationRunningCacheSnapshot,
+};
 pub use witnesses::{
     SavedApplicationWitness, SavedApplicationWitnessKind, saved_application_boundary_witnesses,
 };

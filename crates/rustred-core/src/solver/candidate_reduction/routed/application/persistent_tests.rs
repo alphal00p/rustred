@@ -156,8 +156,119 @@ fn persistent_completed_nodes_reuse_held_out_descendants_with_exact_guards() {
         &[c.coefficient_fixture("d-7")]
     );
 }
+
 #[test]
-fn persistent_capture_rejects_permissive_sessions_and_foreign_or_incomplete_records() {
+fn persistent_read_through_capture_omits_backing_hits_but_keeps_new_ancestors() {
+    struct ReadThroughCapture<'a>(&'a mut Store);
+    impl GuardedIntermediateCapture for ReadThroughCapture<'_> {
+        fn wants(
+            &mut self,
+            key: &ApplicationCacheKey,
+            context: &CoefficientContext,
+        ) -> Result<bool, GuardedCacheBackingError> {
+            GuardedIntermediateCapture::wants(self.0, key, context)
+        }
+        fn store_completed(
+            &mut self,
+            record: &ApplicationCacheRecord,
+            context: &CoefficientContext,
+        ) -> Result<(), GuardedCacheBackingError> {
+            GuardedIntermediateCapture::store_completed(self.0, record, context)
+        }
+        fn capture_backing_hits(&self) -> bool {
+            false
+        }
+    }
+
+    let source = fixture();
+    let c = source.programs.context.family().coefficient_context();
+    let mut prepared = source.application();
+    let binding = prepared.persistent_cache_binding([23; 32]);
+    let mut backing = Store {
+        binding: binding.clone(),
+        records: Default::default(),
+    };
+    let expected = prepared
+        .reduce_linear_combination_with_cache(
+            [(key([3]), c.one())],
+            CandidateEntryAdmission::SavedGenerationScope,
+            &binding,
+            None,
+            Some(&mut backing),
+        )
+        .unwrap();
+    for legacy_copy in [false, true] {
+        let mut fresh = source.application();
+        let mut captured = Store {
+            binding: binding.clone(),
+            records: Default::default(),
+        };
+        let actual = if legacy_copy {
+            fresh.reduce_linear_combination_with_cache(
+                [(key([3]), c.one())],
+                CandidateEntryAdmission::SavedGenerationScope,
+                &binding,
+                Some(&mut backing),
+                Some(&mut captured),
+            )
+        } else {
+            fresh.reduce_linear_combination_with_cache(
+                [(key([3]), c.one())],
+                CandidateEntryAdmission::SavedGenerationScope,
+                &binding,
+                Some(&mut backing),
+                Some(&mut ReadThroughCapture(&mut captured)),
+            )
+        }
+        .unwrap();
+        assert_eq!(actual.terms(), expected.terms());
+        assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+        assert_eq!(actual.statistics().persistent_cache.requested_root_hits, 1);
+        assert_eq!(
+            actual.statistics().persistent_cache.captured_records,
+            usize::from(legacy_copy)
+        );
+        assert_eq!(captured.records.len(), usize::from(legacy_copy));
+    }
+
+    let expected = source
+        .application()
+        .reduce_linear_combination([(key([4]), c.one())])
+        .unwrap();
+    let mut fresh = source.application();
+    let mut captured = Store {
+        binding: binding.clone(),
+        records: Default::default(),
+    };
+    let actual = fresh
+        .reduce_linear_combination_with_cache(
+            [(key([4]), c.one())],
+            CandidateEntryAdmission::SavedGenerationScope,
+            &binding,
+            Some(&mut backing),
+            Some(&mut ReadThroughCapture(&mut captured)),
+        )
+        .unwrap();
+    assert_eq!(actual.terms(), expected.terms());
+    assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+    assert_eq!(actual.statistics().persistent_cache.intermediate_hits, 1);
+    assert_eq!(actual.statistics().persistent_cache.captured_records, 2);
+    assert_eq!(
+        captured.records.keys().cloned().collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            ApplicationCacheKey::route(&key([4])),
+            ApplicationCacheKey::apply(vec![true], &key([4])),
+        ])
+    );
+    for record in captured.records.values() {
+        fresh
+            .validate_completed_cache_record(&binding, record)
+            .unwrap();
+    }
+}
+
+#[test]
+fn persistent_capture_accepts_complete_preserve_nodes_and_rejects_invalid_records() {
     let source = fixture();
     let c = source.programs.context.family().coefficient_context();
     let mut app = source.application();
@@ -168,18 +279,18 @@ fn persistent_capture_rejects_permissive_sessions_and_foreign_or_incomplete_reco
     };
     app.set_unresolved_policy(UnresolvedPolicy::Preserve)
         .unwrap();
-    assert!(
-        app.reduce_linear_combination_with_cache(
+    let complete = app
+        .reduce_linear_combination_with_cache(
             [(key([4]), c.one())],
             CandidateEntryAdmission::SavedGenerationScope,
             &binding,
             None,
-            Some(&mut store)
+            Some(&mut store),
         )
-        .is_err()
-    );
-    assert!(store.records.is_empty());
-    assert_eq!(app.export_completed(&binding, &mut store).unwrap(), 0);
+        .unwrap();
+    assert!(complete.unresolved().is_empty());
+    assert!(!store.records.is_empty());
+    assert!(app.export_completed(&binding, &mut store).unwrap() > 0);
     store.binding.artifact_digest = [6; 32];
     assert!(
         app.reduce_linear_combination_with_cache(
@@ -198,7 +309,7 @@ fn persistent_capture_rejects_permissive_sessions_and_foreign_or_incomplete_reco
         ApplicationCacheRecord {
             key: target.clone(),
             terms: BTreeMap::from([(key([6]), c.one())]),
-            nonzero_conditions: vec![],
+            nonzero_conditions: vec![c.coefficient_fixture("d-7")],
         },
     );
     assert!(
@@ -216,7 +327,8 @@ fn persistent_capture_rejects_permissive_sessions_and_foreign_or_incomplete_reco
             .contains("undeclared")
     );
     store.records.get_mut(&target).unwrap().terms = BTreeMap::from([(key([1]), c.one())]);
-    store.records.get_mut(&target).unwrap().nonzero_conditions = vec![c.zero()];
+    store.records.get_mut(&target).unwrap().nonzero_conditions =
+        vec![c.coefficient_fixture("d-7"), c.zero()];
     assert!(
         source
             .application()
@@ -232,6 +344,278 @@ fn persistent_capture_rejects_permissive_sessions_and_foreign_or_incomplete_reco
             .contains("vanished")
     );
 }
+
+#[test]
+fn persistent_preserve_capture_omits_unresolved_nodes_without_changing_the_result() {
+    let source = fixture();
+    let c = source.programs.context.family().coefficient_context();
+    let inputs = [(key([3]), c.one()), (key([6]), c.one())];
+    for routed in [false, true] {
+        let mut ordinary = source.application();
+        ordinary
+            .set_unresolved_policy(UnresolvedPolicy::Preserve)
+            .unwrap();
+        let expected = if routed {
+            ordinary.reduce_routed_linear_combination_with_entry_admission(
+                inputs.clone(),
+                CandidateEntryAdmission::Advisory,
+            )
+        } else {
+            ordinary.reduce_linear_combination_with_entry_admission(
+                inputs.clone(),
+                CandidateEntryAdmission::Advisory,
+            )
+        }
+        .unwrap();
+        let mut app = source.application();
+        app.set_unresolved_policy(UnresolvedPolicy::Preserve)
+            .unwrap();
+        let binding = app.persistent_cache_binding([20; 32]);
+        let mut store = Store {
+            binding: binding.clone(),
+            records: Default::default(),
+        };
+        let actual = if routed {
+            app.reduce_routed_linear_combination_with_cache(
+                inputs.clone(),
+                CandidateEntryAdmission::Advisory,
+                &binding,
+                None,
+                Some(&mut store),
+            )
+        } else {
+            app.reduce_linear_combination_with_cache(
+                inputs.clone(),
+                CandidateEntryAdmission::Advisory,
+                &binding,
+                None,
+                Some(&mut store),
+            )
+        }
+        .unwrap();
+        assert_eq!(actual.terms(), expected.terms());
+        assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+        assert_eq!(actual.unresolved(), expected.unresolved());
+        assert_eq!(actual.unresolved(), &BTreeSet::from([key([6])]));
+        assert_eq!(actual.statistics().work, expected.statistics().work);
+        assert!(actual.statistics().persistent_cache.skipped_records > 0);
+        assert_eq!(
+            actual.statistics().persistent_cache.captured_records,
+            store.records.len()
+        );
+        assert!(
+            store
+                .records
+                .contains_key(&ApplicationCacheKey::route(&key([3])))
+        );
+        assert!(
+            !store
+                .records
+                .contains_key(&ApplicationCacheKey::route(&key([6])))
+        );
+        for record in store.records.values() {
+            assert!(!record.terms.contains_key(&key([6])));
+            assert!(
+                record
+                    .nonzero_conditions
+                    .contains(&c.coefficient_fixture("d-7"))
+            );
+            app.validate_completed_cache_record(&binding, record)
+                .unwrap();
+        }
+    }
+}
+
+#[test]
+fn persistent_capture_keeps_a_valid_prefix_when_a_later_root_fails() {
+    let source = fixture();
+    let c = source.programs.context.family().coefficient_context();
+    let mut app = source.application();
+    let binding = app.persistent_cache_binding([21; 32]);
+    let mut store = Store {
+        binding: binding.clone(),
+        records: Default::default(),
+    };
+    let failed = app.reduce_linear_combination_with_cache(
+        [(key([3]), c.one()), (key([6]), c.one())],
+        CandidateEntryAdmission::Advisory,
+        &binding,
+        None,
+        Some(&mut store),
+    );
+    assert!(matches!(
+        failed,
+        Err(CandidateRoutedError::Candidate(
+            CandidateReductionError::Uncovered { .. }
+        ))
+    ));
+    assert!(
+        store
+            .records
+            .contains_key(&ApplicationCacheKey::route(&key([3])))
+    );
+    assert!(
+        !store
+            .records
+            .contains_key(&ApplicationCacheKey::route(&key([6])))
+    );
+    for record in store.records.values() {
+        app.validate_completed_cache_record(&binding, record)
+            .unwrap();
+    }
+    let recovered = source
+        .application()
+        .reduce_linear_combination_with_cache(
+            [(key([3]), c.one())],
+            CandidateEntryAdmission::Advisory,
+            &binding,
+            Some(&mut store),
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        recovered.statistics().persistent_cache.requested_root_hits,
+        1
+    );
+    assert_eq!(
+        recovered.nonzero_conditions(),
+        &[c.coefficient_fixture("d-7")]
+    );
+}
+
+#[test]
+fn persistent_required_capture_preserves_materialization_limit_errors() {
+    struct RequiredCapture<'a>(&'a mut Store);
+    impl GuardedIntermediateCapture for RequiredCapture<'_> {
+        fn wants(
+            &mut self,
+            key: &ApplicationCacheKey,
+            context: &CoefficientContext,
+        ) -> Result<bool, GuardedCacheBackingError> {
+            GuardedIntermediateCapture::wants(self.0, key, context)
+        }
+        fn store_completed(
+            &mut self,
+            record: &ApplicationCacheRecord,
+            context: &CoefficientContext,
+        ) -> Result<(), GuardedCacheBackingError> {
+            GuardedIntermediateCapture::store_completed(self.0, record, context)
+        }
+        fn fail_on_materialization_limit(&self) -> bool {
+            true
+        }
+    }
+
+    let family = Arc::new(crate::solver::tests::tadpole());
+    let c = family.coefficient_context();
+    let indexed = crate::identity::ParametricIbpGenerator::try_new(&family)
+        .unwrap()
+        .context()
+        .clone();
+    let mut two = rule(&family, [2], &[([1], 1)]);
+    two.candidate.rhs[0].coefficient = indexed
+        .lift(&c.coefficient_fixture("1/(d+1)"))
+        .unwrap()
+        .raw()
+        .clone();
+    let mut three = rule(&family, [3], &[([2], 1)]);
+    three.candidate.rhs[0].coefficient = indexed
+        .lift(&c.coefficient_fixture("d+1"))
+        .unwrap()
+        .raw()
+        .clone();
+    let owners = programs(
+        family.clone(),
+        None,
+        vec![input([true], None, vec![three, two], &[[1]])],
+        crate::reduction::ReductionLimits {
+            exact_algebra: crate::algebra::ExactAlgebraLimits {
+                diagnostics_enabled: true,
+                max_polynomial_terms: 2,
+                max_term_operations: 3,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    let mut routing = crate::solver::RoutedCandidateLimits::default();
+    routing.expansion.exact_algebra = owners.context.limits.exact_algebra;
+    let source = RoutedCandidateReducer::try_new(owners, [], routing).unwrap();
+    let mut ordinary = source.application();
+    ordinary
+        .set_cache_representation(crate::solver::CandidateCacheRepresentation::Factorized)
+        .unwrap();
+    // The parent cancels its factorized denominator, so ordinary reduction
+    // never needs to expand the intermediate whose envelope is 4 > 3.
+    let expected = ordinary
+        .reduce_linear_combination([(key([3]), c.one())])
+        .unwrap();
+    assert_eq!(expected.terms(), &BTreeMap::from([(key([1]), c.one())]));
+    for required in [false, true] {
+        let mut app = source.application();
+        app.set_cache_representation(crate::solver::CandidateCacheRepresentation::Factorized)
+            .unwrap();
+        let binding = app.persistent_cache_binding([22; 32]);
+        let mut store = Store {
+            binding: binding.clone(),
+            records: Default::default(),
+        };
+        let result = if required {
+            app.reduce_linear_combination_with_cache(
+                [(key([3]), c.one())],
+                CandidateEntryAdmission::SavedGenerationScope,
+                &binding,
+                None,
+                Some(&mut RequiredCapture(&mut store)),
+            )
+        } else {
+            app.reduce_linear_combination_with_cache(
+                [(key([3]), c.one())],
+                CandidateEntryAdmission::SavedGenerationScope,
+                &binding,
+                None,
+                Some(&mut store),
+            )
+        };
+        if required {
+            assert!(matches!(
+                result,
+                Err(CandidateRoutedError::Candidate(
+                    CandidateReductionError::Application(
+                        crate::reduction::ReductionError::ExactAlgebra(
+                            crate::algebra::ExactAlgebraError::ResourceLimit {
+                                resource: "factorized native product term-pair envelope",
+                                requested: 4,
+                                limit: 3,
+                            }
+                        )
+                    )
+                ))
+            ));
+        } else {
+            let actual = result.unwrap();
+            assert_eq!(actual.terms(), expected.terms());
+            assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+            assert_eq!(actual.statistics().work, expected.statistics().work);
+            assert!(actual.statistics().persistent_cache.skipped_records > 0);
+        }
+        assert!(
+            !store
+                .records
+                .contains_key(&ApplicationCacheKey::apply(vec![true], &key([2])))
+        );
+        assert!(
+            store
+                .records
+                .contains_key(&ApplicationCacheKey::apply(vec![true], &key([1])))
+        );
+        for record in store.records.values() {
+            app.validate_completed_cache_record(&binding, record)
+                .unwrap();
+        }
+    }
+}
+
 #[test]
 fn persistent_export_and_native_record_validation_share_authority() {
     let source = fixture();
@@ -301,6 +685,33 @@ fn persistent_export_omits_unknown_nodes_but_preserves_exact_cancelled_parents()
         binding: binding.clone(),
         records: Default::default(),
     };
+    let mut captured = source.application();
+    captured
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    let captured_zero = captured
+        .reduce_linear_combination_with_cache(
+            [(key([4]), c.one())],
+            CandidateEntryAdmission::SavedGenerationScope,
+            &binding,
+            None,
+            Some(&mut store),
+        )
+        .unwrap();
+    assert_eq!(captured_zero.terms(), cancelled.terms());
+    assert_eq!(
+        captured_zero.nonzero_conditions(),
+        cancelled.nonzero_conditions()
+    );
+    assert!(captured_zero.statistics().persistent_cache.skipped_records > 0);
+    assert!(
+        store
+            .records
+            .get(&ApplicationCacheKey::route(&key([4])))
+            .unwrap()
+            .terms
+            .is_empty()
+    );
     let statistics = app
         .export_completed_with_statistics(&binding, &mut store)
         .unwrap();
@@ -414,6 +825,27 @@ fn persistent_captured_descendant_keeps_only_its_own_subtree_guards() {
         .retain(|g| g != &c.coefficient_fixture("d+3"));
     assert!(
         app.validate_completed_cache_record(&binding, &malformed)
+            .unwrap_err()
+            .to_string()
+            .contains("source condition")
+    );
+    let mut invalid = Store {
+        binding: binding.clone(),
+        records: BTreeMap::from([(malformed.key.clone(), malformed)]),
+    };
+    let mut fresh = source.application();
+    fresh
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    assert!(
+        fresh
+            .reduce_linear_combination_with_cache(
+                [(key([3]), c.one())],
+                CandidateEntryAdmission::SavedGenerationScope,
+                &binding,
+                Some(&mut invalid),
+                None,
+            )
             .unwrap_err()
             .to_string()
             .contains("source condition")
