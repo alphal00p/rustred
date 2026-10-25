@@ -64,6 +64,9 @@ pub use application::{
     OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
     owner_domain_walk_inventory,
 };
+#[cfg(feature = "layer-test-support")]
+#[doc(hidden)]
+pub use application::saved_application_layer_tests;
 pub use application::{
     PreparedSavedIntegralEquations, TerminalEquationReductionFailure,
     prepare_saved_integral_equations,

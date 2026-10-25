@@ -27,8 +27,9 @@ mod progress;
 mod route_addon;
 mod running_cache;
 mod scope;
-#[cfg(test)]
-mod layer_tests;
+#[cfg(any(test, feature = "layer-test-support"))]
+#[doc(hidden)]
+pub mod layer_tests;
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -900,7 +901,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         package::export(self, destination)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "layer-test-support"))]
     fn from_parts(
         inputs: package::ApplicationInputs,
         terminals: TerminalMaps,
