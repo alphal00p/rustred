@@ -2,9 +2,11 @@
 //!
 //! A layer re-expresses some remaining terminals of an immutable saved
 //! application (the *sources*) exactly over a smaller set of *masters*. The
-//! layer only carries externally produced RustRed results; this module checks
-//! its structure against the base terminal maps and composes the maps exactly
-//! (`raw -> remaining -> masters`). It never derives a relation itself.
+//! layer carries externally produced exact relations, each row tagged with its
+//! rule provenance (RustRed, a Kira stopgap result, an identity or a synthetic
+//! test row); this module checks its structure against the base terminal maps
+//! and composes the maps exactly (`raw -> remaining -> masters`). It never
+//! derives a relation itself.
 //!
 //! Wire format (authoritative description in the RR-11 design document):
 //! `layer.json` holds rows, masters and provenance. Coefficients are either
