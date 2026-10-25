@@ -177,6 +177,10 @@ pub struct SavedApplicationLayerRow {
     /// one of their numerators or denominators).
     pub conditions: Vec<Coefficient>,
     pub provenance: SavedApplicationRuleProvenance,
+    /// Verification level of the row as recorded by its producer (e.g. the
+    /// rollout manifest's `ii+i`, `ii`, `rustred-validated`); a short token,
+    /// counted per level in the package metadata. `None`: not stated.
+    pub verification: Option<String>,
 }
 
 /// A resolved layer: every coefficient lives in the family's coefficient context.
@@ -254,6 +258,31 @@ struct RowWire {
     /// Defaults to the layer's `provenance.kind`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     provenance: Option<SavedApplicationRuleProvenance>,
+    /// Optional verification level token (wire v2, additive).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    verification: Option<String>,
+}
+
+/// A verification level is a short printable token (at most 96 characters
+/// of `[A-Za-z0-9 +()._:;,/-]`, not blank).
+fn checked_verification(
+    source: &[i64],
+    level: &Option<String>,
+) -> Result<Option<String>, AppError> {
+    let Some(level) = level else {
+        return Ok(None);
+    };
+    if level.trim().is_empty()
+        || level.len() > 96
+        || !level
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || " +()._:;,/-".contains(c))
+    {
+        return Err(AppError::input(format!(
+            "layer row {source:?}: verification level {level:?} is not a short printable token"
+        )));
+    }
+    Ok(Some(level.clone()))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -469,6 +498,7 @@ impl SavedApplicationLayer {
                 })?;
                 Ok(SavedApplicationLayerRow {
                     provenance,
+                    verification: checked_verification(&row.source, &row.verification)?,
                     source: key(&row.source)?,
                     terms: row
                         .terms
@@ -541,6 +571,7 @@ impl SavedApplicationLayer {
                 terms,
                 conditions,
                 provenance: Some(row.provenance),
+                verification: row.verification.clone(),
             });
         }
         let encoded = table.finish().map_err(native_failure)?;
@@ -1190,6 +1221,171 @@ pub(super) fn check_composition_mod_p(
     Ok((checked, chosen))
 }
 
+/// Values of the base rows, the parsed layer rows and the composed rows at
+/// one regular point modulo `CHECK_PRIME`, plus the raw rows the layer
+/// touches (C3 review fix 2026-10-25). An external checker re-parses the
+/// layer's TEXT rows itself, compares them with `layer_rows`, redoes the
+/// substitution `base -> layer` on `base_rows` and compares with
+/// `composed_rows`: an arithmetic check that does not reuse the composition
+/// code or the parsed rows. Rows are emitted for every raw row.
+pub(super) fn composition_check_values(
+    base: &TerminalMaps,
+    bound: &BoundLayer<'_>,
+    composed: &TerminalMaps,
+    seed: u64,
+) -> Result<Value, AppError> {
+    let field = Zp64::new(CHECK_PRIME);
+    let parameters = bound
+        .family
+        .coefficient_context()
+        .parameter_names()
+        .to_vec();
+    let mut random = SplitMix(seed);
+    let powers = |k: &SavedApplicationIntegral| json!(k.integral.powers());
+    for _ in 0..64 {
+        let point_values: Vec<u64> = (0..parameters.len())
+            .map(|_| random.next() % CHECK_PRIME)
+            .collect();
+        let point: Vec<Fp> = point_values.iter().map(|v| field.to_element(*v)).collect();
+        let terms_json =
+            |terms: &BTreeMap<SavedApplicationIntegral, Coefficient>| -> Option<Value> {
+                let mut out = Vec::with_capacity(terms.len());
+                for (key, coefficient) in terms {
+                    let value = evaluate(coefficient, &field, &point)?;
+                    out.push(json!([powers(key), field.from_element(&value).to_string()]));
+                }
+                Some(Value::Array(out))
+            };
+        let rows_json =
+            |rows: &BTreeMap<SavedApplicationIntegral, TerminalRow>| -> Option<Vec<Value>> {
+                rows.iter()
+                    .map(|(key, row)| {
+                        Some(json!({"key": powers(key), "terms": terms_json(&row.terms)?}))
+                    })
+                    .collect()
+            };
+        let Some(base_rows) = rows_json(&base.rows) else {
+            continue;
+        };
+        let Some(composed_rows) = rows_json(&composed.rows) else {
+            continue;
+        };
+        let mut layer_rows = Vec::with_capacity(bound.sources.len());
+        let mut regular = true;
+        for (source, index) in &bound.sources {
+            match terms_json(&bound.rows[*index]) {
+                Some(terms) => layer_rows.push(json!({"source": powers(source), "terms": terms})),
+                None => {
+                    regular = false;
+                    break;
+                }
+            }
+        }
+        if !regular {
+            continue;
+        }
+        let touched: Vec<Value> = base
+            .rows
+            .iter()
+            .filter_map(|(key, row)| {
+                let source_terms = row
+                    .terms
+                    .keys()
+                    .filter(|t| bound.sources.contains_key(*t))
+                    .count();
+                (source_terms > 0).then(|| {
+                    json!({"key": powers(key), "terms": row.terms.len(),
+                           "source_terms": source_terms,
+                           "is_source": bound.sources.contains_key(key)})
+                })
+            })
+            .collect();
+        return Ok(json!({
+            "schema": "rustred.saved-application-layer-check-values.v1",
+            "prime": CHECK_PRIME.to_string(),
+            "parameters": parameters,
+            "point": point_values.iter().map(u64::to_string).collect::<Vec<_>>(),
+            "family_fingerprint": bound.layer.family_fingerprint,
+            "base_remaining": base.remaining.iter().map(powers).collect::<Vec<_>>(),
+            "composed_remaining": composed.remaining.iter().map(powers).collect::<Vec<_>>(),
+            "touched_rows": touched,
+            "layer_rows": layer_rows,
+            "base_rows": base_rows,
+            "composed_rows": composed_rows,
+        }));
+    }
+    Err(AppError::execution(
+        "check values: no regular evaluation point in 64 draws",
+    ))
+}
+
+/// Schema of the per-class reference counts (`refine-5l/expected-counts.json`).
+pub const MINIMALITY_REFERENCE_SCHEMA: &str = "refine-5l.expected-counts.v1";
+
+/// The parsed minimality reference: expected master counts per census class
+/// (`class_rep`), taken from the reference file itself, never from the layer.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SavedApplicationMinimalityReference {
+    /// Non-factorized classes (`tide_factorized == false`) and their expected
+    /// counts (`symmetry_reduced_estimate`, an integer).
+    pub expected: BTreeMap<u64, u64>,
+    /// Factorized classes (product route; outside a layer claim).
+    pub factorized: BTreeSet<u64>,
+    /// Classes whose estimate is not a nonnegative integer.
+    pub non_integral: BTreeSet<u64>,
+}
+
+impl SavedApplicationMinimalityReference {
+    /// Parse a `refine-5l.expected-counts.v1` file.
+    pub fn parse(bytes: &[u8]) -> Result<Self, AppError> {
+        let value: Value = serde_json::from_slice(bytes)
+            .map_err(|e| AppError::input(format!("minimality reference: {e}")))?;
+        if value["schema"].as_str() != Some(MINIMALITY_REFERENCE_SCHEMA) {
+            return Err(AppError::input(format!(
+                "minimality reference schema {} is not {MINIMALITY_REFERENCE_SCHEMA}",
+                value["schema"]
+            )));
+        }
+        let classes = value["classes"]
+            .as_array()
+            .ok_or_else(|| AppError::input("minimality reference has no classes array"))?;
+        let mut reference = Self::default();
+        for class in classes {
+            let rep = class["class_rep"].as_u64().ok_or_else(|| {
+                AppError::input(format!(
+                    "minimality reference class without class_rep: {class}"
+                ))
+            })?;
+            let factorized = class["tide_factorized"].as_bool().ok_or_else(|| {
+                AppError::input(format!(
+                    "minimality reference class {rep}: no tide_factorized"
+                ))
+            })?;
+            let estimate = class["symmetry_reduced_estimate"].as_f64().ok_or_else(|| {
+                AppError::input(format!(
+                    "minimality reference class {rep}: no symmetry_reduced_estimate"
+                ))
+            })?;
+            let duplicate = reference.expected.contains_key(&rep)
+                || reference.factorized.contains(&rep)
+                || reference.non_integral.contains(&rep);
+            if duplicate {
+                return Err(AppError::input(format!(
+                    "minimality reference lists class {rep} twice"
+                )));
+            }
+            if factorized {
+                reference.factorized.insert(rep);
+            } else if estimate >= 0.0 && estimate.fract() == 0.0 && estimate < 1e9 {
+                reference.expected.insert(rep, estimate as u64);
+            } else {
+                reference.non_integral.insert(rep);
+            }
+        }
+        Ok(reference)
+    }
+}
+
 /// What the composition knows about the scope of a minimality claim.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SavedApplicationMinimalityScope {
@@ -1200,20 +1396,39 @@ pub struct SavedApplicationMinimalityScope {
     pub factorized: usize,
     /// The reference file was given and its blake3 equals `reference_blake3`.
     pub reference_verified: bool,
+    /// The parsed reference file (expected counts come only from here).
+    pub reference: Option<SavedApplicationMinimalityReference>,
+    /// The reference was independently reviewed (operator flag
+    /// `--minimality-reference-reviewed`); without it the claim is withheld.
+    pub reference_reviewed: bool,
 }
 
-/// The `minimality_claim` rule (addendum A1, RR-11 §3 step 7), evaluated
-/// against the base: true only if every non-factorized remaining terminal of
-/// the base is a source or a master (nothing unreduced, declared or not), the
-/// layer carries per-class counts against a reference whose content hash was
-/// verified, lists every reference class, every class count equals its
-/// reference, and the counts sum to the number of layer masters.
+/// Integer census class of a layer master (`class`: a number or a decimal string).
+fn master_class(master: &SavedApplicationLayerMaster) -> Option<u64> {
+    match master.class.as_ref()? {
+        Value::Number(number) => number.as_u64(),
+        Value::String(text) => text.parse().ok(),
+        _ => None,
+    }
+}
+
+/// The `minimality_claim` rule (addendum A1, RR-11 §3 step 7; C3 review fix
+/// 2026-10-25), evaluated against the base and the reference file: true only
+/// if every non-factorized remaining terminal of the base is a source or a
+/// master (nothing unreduced, declared or not), the reference file's content
+/// hash equals the layer's `reference_blake3`, every layer master states its
+/// census class, the per-class master counts COMPUTED from `masters` equal the
+/// counts the REFERENCE file gives for every non-factorized class (and no
+/// master sits in a class the reference does not list), the layer's declared
+/// per-class counts (if any) agree with both, and the reference was
+/// independently reviewed. Masters in factorized classes are reported and
+/// excluded (product route).
 pub fn layer_minimality_claim(
     layer: &SavedApplicationLayer,
     scope: &SavedApplicationMinimalityScope,
 ) -> (bool, String) {
     let Some(minimality) = &layer.minimality else {
-        return (false, "no per-class counts in the layer".into());
+        return (false, "no minimality block in the layer".into());
     };
     if scope.unreduced > 0 {
         return (
@@ -1233,52 +1448,113 @@ pub fn layer_minimality_claim(
             ),
         );
     }
-    if minimality.classes.len() as u64 != minimality.reference_classes {
+    let Some(reference) = &scope.reference else {
+        return (false, "minimality reference file not parsed".into());
+    };
+    if !reference.non_integral.is_empty() {
         return (
             false,
             format!(
-                "{} of {} reference classes listed",
-                minimality.classes.len(),
-                minimality.reference_classes
+                "reference classes {:?} have non-integral estimates",
+                reference.non_integral
+            ),
+        );
+    }
+    let mut computed: BTreeMap<u64, u64> = BTreeMap::new();
+    let mut factorized_masters = 0usize;
+    for master in &layer.masters {
+        let Some(class) = master_class(master) else {
+            return (
+                false,
+                format!(
+                    "layer master {:?} states no integer census class",
+                    master.key
+                ),
+            );
+        };
+        if reference.factorized.contains(&class) {
+            factorized_masters += 1;
+        } else if reference.expected.contains_key(&class) {
+            *computed.entry(class).or_default() += 1;
+        } else {
+            return (
+                false,
+                format!(
+                    "layer master {:?} is in class {class}, which the reference does not list",
+                    master.key
+                ),
+            );
+        }
+    }
+    for (class, expected) in &reference.expected {
+        let masters = computed.get(class).copied().unwrap_or_default();
+        if masters != *expected {
+            return (
+                false,
+                format!("class {class}: {masters} layer masters, reference expects {expected}"),
+            );
+        }
+    }
+    if minimality.reference_classes != reference.expected.len() as u64 {
+        return (
+            false,
+            format!(
+                "layer declares {} reference classes, the reference has {} non-factorized classes",
+                minimality.reference_classes,
+                reference.expected.len()
             ),
         );
     }
     let mut seen = BTreeSet::new();
     for class in &minimality.classes {
-        if !seen.insert(class.class.to_string()) {
-            return (false, format!("class {} listed twice", class.class));
+        let id = match &class.class {
+            Value::Number(n) => n.as_u64(),
+            Value::String(t) => t.parse().ok(),
+            _ => None,
+        };
+        let Some(id) = id else {
+            return (
+                false,
+                format!("declared class {} is not an integer", class.class),
+            );
+        };
+        if !seen.insert(id) {
+            return (false, format!("class {id} declared twice"));
         }
-        if class.masters != class.expected {
+        let computed_count = computed.get(&id).copied().unwrap_or_default();
+        if class.masters != computed_count || Some(&class.expected) != reference.expected.get(&id) {
             return (
                 false,
                 format!(
-                    "class {}: {} masters, reference {}",
-                    class.class, class.masters, class.expected
+                    "declared class {id} ({} masters, expected {}) disagrees with the computed \
+                     {computed_count} / reference {:?}",
+                    class.masters,
+                    class.expected,
+                    reference.expected.get(&id)
                 ),
             );
         }
     }
-    let total: u64 = minimality.classes.iter().map(|c| c.masters).sum();
-    if total != layer.masters.len() as u64 {
+    let agreed = format!(
+        "every non-factorized base terminal is a layer source or master; per-class master \
+         counts computed from the layer equal {} (blake3 {}) for all {} non-factorized classes; \
+         {factorized_masters} layer masters in factorized classes and {} factorized base \
+         terminals stay on the product route and are not covered",
+        minimality.reference,
+        minimality.reference_blake3.as_deref().unwrap_or_default(),
+        reference.expected.len(),
+        scope.factorized
+    );
+    if !scope.reference_reviewed {
         return (
             false,
             format!(
-                "class counts sum to {total}, layer has {} masters",
-                layer.masters.len()
+                "claim withheld: the reference is not marked independently reviewed \
+                 (--minimality-reference-reviewed); otherwise: {agreed}"
             ),
         );
     }
-    (
-        true,
-        format!(
-            "every non-factorized base terminal is a layer source or master; per census class \
-             versus {} (blake3 {}); {} factorized terminals stay on the product route and are \
-             not covered",
-            minimality.reference,
-            minimality.reference_blake3.as_deref().unwrap_or_default(),
-            scope.factorized
-        ),
-    )
+    (true, agreed)
 }
 
 impl SavedApplicationLayer {
@@ -1290,6 +1566,21 @@ impl SavedApplicationLayer {
             .collect();
         for row in &self.rows {
             *counts.get_mut(row.provenance.as_str()).unwrap() += 1;
+        }
+        counts
+    }
+
+    /// Number of rows per verification level (`unstated` for rows without one).
+    pub fn verification_counts(&self) -> BTreeMap<String, usize> {
+        let mut counts = BTreeMap::new();
+        for row in &self.rows {
+            *counts
+                .entry(
+                    row.verification
+                        .clone()
+                        .unwrap_or_else(|| "unstated".into()),
+                )
+                .or_insert(0) += 1;
         }
         counts
     }
@@ -1363,6 +1654,7 @@ pub(super) fn layer_summary(
         "minimality": layer.minimality,
         "provenance": layer.provenance,
         "provenance_counts": layer.provenance_counts(),
+        "verification_counts": layer.verification_counts(),
         "flagged_sources": layer.flagged_sources(),
     })
 }

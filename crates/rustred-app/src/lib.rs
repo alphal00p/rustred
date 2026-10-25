@@ -66,8 +66,8 @@ pub use application::{
     owner_domain_walk_inventory,
 };
 pub use application::{
-    PreparedSavedIntegralEquations, TerminalEquationReductionFailure,
-    prepare_saved_integral_equations,
+    PreparedSavedIntegralEquations, SavedApplicationMinimalityReference,
+    TerminalEquationReductionFailure, prepare_saved_integral_equations,
 };
 pub use application::{
     SAVED_ROUTE_PREPARATION_FILE, SAVED_ROUTE_PREPARATION_SCHEMA, SavedRouteAddon,
