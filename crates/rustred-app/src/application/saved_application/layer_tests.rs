@@ -1,5 +1,7 @@
 //! RR-11 layer tests on synthetic rules (design §3 "Tests", acceptance L1).
-use super::compose::{SavedApplicationComposeOptions, compose_saved_application_layer};
+use super::compose::{
+    SavedApplicationComposeOptions, SavedApplicationConsumerLimits, compose_saved_application_layer,
+};
 use super::layer::*;
 use super::*;
 use rustred::algebra::CoefficientContext;
@@ -217,6 +219,7 @@ fn row(
             .map(|(m, t)| (IntegralKey::try_new([*m]).unwrap(), c(family, t)))
             .collect(),
         conditions: conditions.iter().map(|t| c(family, t)).collect(),
+        provenance: SavedApplicationRuleProvenance::SyntheticTest,
     }
 }
 
@@ -240,7 +243,7 @@ fn layer_with(
         masters: masters.iter().copied().map(master).collect(),
         unreduced: vec![],
         minimality: None,
-        provenance: json!({"engine": "synthetic"}),
+        provenance: json!({"kind": "synthetic-test", "engine": "synthetic"}),
     }
 }
 
@@ -262,8 +265,15 @@ pub fn composition_is_exact_and_equals_sequential_application_mod_p() {
     let base = base(&family);
     let layer = layer(&family);
     let bound = bind_layer(&base, &layer, &BTreeSet::new(), Default::default()).unwrap();
+    // Terminal 4 is neither a source, a master nor declared unreduced.
+    assert_eq!(bound.undeclared, BTreeSet::from([key(&family, 4)]));
     let (composed, statistics) = compose_maps(&base, &bound, Default::default()).unwrap();
     composed.validate(Default::default()).unwrap();
+    // Master 1 is a raw-row key and stays the identity.
+    assert_eq!(
+        check_masters_compose_to_identity(&composed, &bound).unwrap(),
+        1
+    );
     assert_eq!(
         composed.remaining,
         BTreeSet::from([key(&family, 1), key(&family, 4), key(&family, 7)])
@@ -371,13 +381,30 @@ pub fn malformed_layers_are_rejected() {
         &[7],
     );
     assert!(rejected(&base, &bad, &[]).contains("not covered"));
-    // A condition with a different integer normalization still covers.
-    let good = layer_with(
+    // A condition with a different integer normalization still covers, and
+    // so do conditions that are powers or products of denominator factors.
+    for (coefficient, condition) in [
+        ("1/(2*d-8)", "d-4"),
+        ("1/(d-4)", "(d-4)^2"),
+        ("1/((d-4)^3*(2*d-7))", "(d-4)*(2*d-7)"),
+        ("1/((d-4)*(d-5))", "1/((d-4)^2*(d-5))"),
+    ] {
+        let good = layer_with(
+            &family,
+            vec![row(&family, 2, &[(7, coefficient)], &[condition])],
+            &[7],
+        );
+        assert!(
+            bind_layer(&base, &good, &BTreeSet::new(), Default::default()).is_ok(),
+            "{coefficient} under {condition}"
+        );
+    }
+    let bad = layer_with(
         &family,
-        vec![row(&family, 2, &[(7, "1/(2*d-8)")], &["d-4"])],
+        vec![row(&family, 2, &[(7, "1/((d-4)*(d-5))")], &["(d-4)^2"])],
         &[7],
     );
-    assert!(bind_layer(&base, &good, &BTreeSet::new(), Default::default()).is_ok());
+    assert!(rejected(&base, &bad, &[]).contains("not covered"));
     // Duplicated source.
     let bad = layer_with(
         &family,
@@ -413,18 +440,67 @@ pub fn malformed_layers_are_rejected() {
     assert!(rejected(&base, &bad, &[]).contains("not used"));
     // Factorized terminals stay on the product route.
     assert!(rejected(&base, &ok, &[3]).contains("factorized"));
-    // Unreduced entries must be remaining non-sources.
-    let mut bad = ok.clone();
-    bad.unreduced = vec![SavedApplicationLayerUnreduced {
-        key: vec![2],
-        reason: "rank".into(),
+    // Unreduced entries must be remaining terminals, neither sources nor masters.
+    for k in [2, 1] {
+        let mut bad = ok.clone();
+        bad.unreduced = vec![SavedApplicationLayerUnreduced {
+            key: vec![k],
+            reason: "rank".into(),
+        }];
+        assert!(rejected(&base, &bad, &[]).contains("unreduced"));
+    }
+    let mut declared = ok.clone();
+    declared.unreduced = vec![SavedApplicationLayerUnreduced {
+        key: vec![4],
+        reason: "T2b".into(),
     }];
-    assert!(rejected(&base, &bad, &[]).contains("unreduced"));
+    let bound = bind_layer(&base, &declared, &BTreeSet::new(), Default::default()).unwrap();
+    assert!(bound.undeclared.is_empty());
+    // An identity-provenance row must be source = source.
+    let mut bad = layer_with(&family, vec![row(&family, 2, &[(7, "1")], &[])], &[7]);
+    bad.rows[0].provenance = SavedApplicationRuleProvenance::Identity;
+    assert!(rejected(&base, &bad, &[]).contains("provenance identity"));
     // Empty row; empty layer.
     let bad = layer_with(&family, vec![row(&family, 2, &[], &[])], &[]);
     assert!(rejected(&base, &bad, &[]).contains("empty"));
     let bad = layer_with(&family, vec![], &[]);
     assert!(rejected(&base, &bad, &[]).contains("no rows"));
+}
+
+/// A master that is a raw-row key (here 5, reduced by the base onto 1, 2, 3)
+/// must compose to itself; a layer contradicting the base is refused.
+#[cfg_attr(test, test)]
+pub fn masters_with_raw_rows_must_compose_to_identity() {
+    let family = family();
+    let base = base(&family);
+    // 5 = d/(d-4) [1] + 2 [2] + (d-3) [3]  =>  3 = ([5] - d/(d-4) [1] - 2 [2]) / (d-3).
+    let consistent = layer_with(
+        &family,
+        vec![row(
+            &family,
+            3,
+            &[(5, "1/(d-3)"), (1, "-d/((d-4)*(d-3))"), (2, "-2/(d-3)")],
+            &["d-3", "d-4"],
+        )],
+        &[1, 2, 5],
+    );
+    let bound = bind_layer(&base, &consistent, &BTreeSet::new(), Default::default()).unwrap();
+    let (composed, _) = compose_maps(&base, &bound, Default::default()).unwrap();
+    assert_eq!(
+        composed.rows[&key(&family, 5)].terms,
+        BTreeMap::from([(key(&family, 5), c(&family, "1"))])
+    );
+    assert_eq!(
+        check_masters_compose_to_identity(&composed, &bound).unwrap(),
+        3
+    );
+    let wrong = layer_with(&family, vec![row(&family, 3, &[(5, "1")], &[])], &[5]);
+    let bound = bind_layer(&base, &wrong, &BTreeSet::new(), Default::default()).unwrap();
+    let (composed, _) = compose_maps(&base, &bound, Default::default()).unwrap();
+    let error = check_masters_compose_to_identity(&composed, &bound)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("inconsistent"), "{error}");
 }
 
 #[cfg_attr(test, test)]
@@ -475,6 +551,85 @@ pub fn layer_files_roundtrip_with_native_table_and_text() {
         SavedApplicationLayer::read(&text_path, &family, Default::default(), Default::default())
             .unwrap();
     assert_eq!(from_text.rows, layer.rows);
+    let read_text = |value: &Value| {
+        std::fs::write(&text_path, serde_json::to_vec(value).unwrap()).unwrap();
+        SavedApplicationLayer::read(&text_path, &family, Default::default(), Default::default())
+    };
+    // The written layer uses tagged table references.
+    let written: Value =
+        serde_json::from_slice(&std::fs::read(directory.join("layer.json")).unwrap()).unwrap();
+    assert_eq!(written["schema"], "rustred.saved-application-layer.v2");
+    assert!(written["rows"][0]["terms"][0]["coefficient"]["id"].is_u64());
+    assert_eq!(written["rows"][0]["provenance"], "synthetic-test");
+    // A bare JSON number is refused (v2 and legacy v1), never read as a table ID.
+    for schema in [
+        SAVED_APPLICATION_LAYER_SCHEMA,
+        SAVED_APPLICATION_LAYER_SCHEMA_V1,
+    ] {
+        let mut bare = text.clone();
+        bare["schema"] = json!(schema);
+        bare["rows"][1]["terms"][0]["coefficient"] = json!(3);
+        let error = read_text(&bare).err().unwrap().to_string();
+        assert!(error.contains("ambiguous"), "{error}");
+        let mut legacy = text.clone();
+        legacy["schema"] = json!(schema);
+        assert_eq!(read_text(&legacy).unwrap().0.rows, layer.rows);
+    }
+    // {"id": n} without a table, or a malformed object, is refused.
+    let mut tagged = text.clone();
+    tagged["rows"][1]["terms"][0]["coefficient"] = json!({"id": 0});
+    assert!(read_text(&tagged).is_err());
+    tagged["rows"][1]["terms"][0]["coefficient"] = json!({"value": "3"});
+    assert!(read_text(&tagged).is_err());
+    // Provenance: layer default, row override, unknown kinds and missing tags.
+    let mut stopgap = text.clone();
+    stopgap["provenance"] = json!({"kind": "kira-stopgap"});
+    stopgap["rows"][1]["provenance"] = json!("rustred");
+    let (read, _) = read_text(&stopgap).unwrap();
+    assert_eq!(
+        read.rows.iter().map(|r| r.provenance).collect::<Vec<_>>(),
+        [
+            SavedApplicationRuleProvenance::KiraStopgap,
+            SavedApplicationRuleProvenance::Rustred
+        ]
+    );
+    assert_eq!(read.provenance_counts()["kira-stopgap"], 1);
+    assert_eq!(read.provenance_counts()["rustred"], 1);
+    assert_eq!(read.flagged_sources()["kira-stopgap"], vec![vec![2]]);
+    let authority = read.authority("0123456789abcdef");
+    assert!(
+        authority.contains("1 kira-stopgap rows") && authority.contains("1 RustRed relation rows"),
+        "{authority}"
+    );
+    let mut mixed = stopgap.clone();
+    mixed["provenance"] = json!({"kind": "mixed"});
+    assert!(
+        read_text(&mixed)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("no provenance")
+    );
+    let mut untagged = stopgap.clone();
+    untagged["provenance"] = json!({"engine": "x"});
+    untagged["rows"][1]
+        .as_object_mut()
+        .unwrap()
+        .remove("provenance");
+    assert!(read_text(&untagged).is_err());
+    let mut unknown_kind = stopgap.clone();
+    unknown_kind["provenance"] = json!({"kind": "kira"});
+    assert!(
+        read_text(&unknown_kind)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("kind")
+    );
+    let mut unknown_row = stopgap;
+    unknown_row["rows"][0]["provenance"] = json!("fire-fly");
+    assert!(read_text(&unknown_row).is_err());
+    std::fs::write(&text_path, serde_json::to_vec(&text).unwrap()).unwrap();
     // Tampered table bytes or an unknown field are refused.
     let table = directory.join("layer.rrbin");
     let mut bytes = std::fs::read(&table).unwrap();
@@ -498,7 +653,12 @@ pub fn layer_files_roundtrip_with_native_table_and_text() {
 pub fn minimality_claim_requires_complete_matching_class_counts() {
     let family = family();
     let mut layer = layer(&family);
-    assert!(!layer_minimality_claim(&layer).0);
+    let complete = SavedApplicationMinimalityScope {
+        unreduced: 0,
+        factorized: 2,
+        reference_verified: true,
+    };
+    assert!(!layer_minimality_claim(&layer, &complete).0);
     let classes = |counts: &[(u64, u64)]| {
         counts
             .iter()
@@ -513,26 +673,34 @@ pub fn minimality_claim_requires_complete_matching_class_counts() {
     };
     layer.minimality = Some(SavedApplicationLayerMinimality {
         reference: "expected-counts.json".into(),
+        reference_blake3: Some("ab".repeat(32)),
         reference_classes: 1,
         classes: classes(&[(2, 2)]),
     });
-    assert!(layer_minimality_claim(&layer).0);
-    // A deviating class, a missing class, or unreduced terminals forbid the claim.
+    let (claim, scope) = layer_minimality_claim(&layer, &complete);
+    assert!(claim);
+    assert!(scope.contains("2 factorized terminals"), "{scope}");
+    // Unreduced base terminals (declared or filled), or an unverified
+    // reference, forbid the claim whatever the layer states.
+    let partial = SavedApplicationMinimalityScope {
+        unreduced: 1,
+        ..complete.clone()
+    };
+    assert!(!layer_minimality_claim(&layer, &partial).0);
+    let unverified = SavedApplicationMinimalityScope {
+        reference_verified: false,
+        ..complete.clone()
+    };
+    assert!(!layer_minimality_claim(&layer, &unverified).0);
+    // A deviating class, a missing class, or class counts not summing to the masters.
     layer.minimality.as_mut().unwrap().classes = classes(&[(2, 1)]);
-    assert!(!layer_minimality_claim(&layer).0);
+    assert!(!layer_minimality_claim(&layer, &complete).0);
     layer.minimality.as_mut().unwrap().reference_classes = 2;
     layer.minimality.as_mut().unwrap().classes = classes(&[(2, 2)]);
-    assert!(!layer_minimality_claim(&layer).0);
+    assert!(!layer_minimality_claim(&layer, &complete).0);
     layer.minimality.as_mut().unwrap().reference_classes = 1;
-    layer.unreduced = vec![SavedApplicationLayerUnreduced {
-        key: vec![4],
-        reason: "T2b".into(),
-    }];
-    assert!(!layer_minimality_claim(&layer).0);
-    layer.unreduced.clear();
-    // Counts must sum to the layer's masters.
     layer.minimality.as_mut().unwrap().classes = classes(&[(3, 3)]);
-    assert!(!layer_minimality_claim(&layer).0);
+    assert!(!layer_minimality_claim(&layer, &complete).0);
 }
 
 /// Package-level: export a base runtime, compose a text layer through the
@@ -586,9 +754,12 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
                   "conditions": ["d-2"]}],
         "masters": [{"key": [2], "class": "tadpole", "origin": "engine"}],
         "minimality": {"reference": "synthetic", "reference_classes": 1,
+                       "reference_blake3": blake3::hash(b"reference counts").to_hex().to_string(),
                        "classes": [{"class": "tadpole", "masters": 1, "expected": 1}]},
-        "provenance": {"engine": "synthetic"}
+        "provenance": {"kind": "synthetic-test", "engine": "synthetic"}
     });
+    let reference = scratch.0.join("expected-counts.json");
+    std::fs::write(&reference, b"reference counts").unwrap();
     let layer_path = scratch.0.join("layer.json");
     std::fs::write(&layer_path, serde_json::to_vec(&layer).unwrap()).unwrap();
     let factor = context
@@ -603,17 +774,67 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
         );
     }
 
-    // Composed package (gate passes).
-    let out = scratch.0.join("composed");
-    let outcome = compose_saved_application_layer::<1>(
+    // Without the reference file the claim is withheld; a wrong file is refused.
+    let unverified = compose_saved_application_layer::<1>(
         &base_dir,
         &layer_path,
-        &out,
-        &SavedApplicationComposeOptions::default(),
+        &scratch.0.join("unverified"),
+        &SavedApplicationComposeOptions {
+            dry_run: true,
+            ..Default::default()
+        },
     )
     .unwrap();
+    assert_eq!(unverified.report["minimality_claim"], false);
+    let other = scratch.0.join("other-counts.json");
+    std::fs::write(&other, b"other counts").unwrap();
+    let error = compose_saved_application_layer::<1>(
+        &base_dir,
+        &layer_path,
+        &scratch.0.join("wrong-reference"),
+        &SavedApplicationComposeOptions {
+            dry_run: true,
+            minimality_reference: Some(other),
+            ..Default::default()
+        },
+    )
+    .err()
+    .unwrap();
+    assert!(error.to_string().contains("reference"), "{error}");
+
+    // Composed package (gate passes); the loader's worker count is not recorded.
+    let out = scratch.0.join("composed");
+    let mut options = SavedApplicationComposeOptions {
+        minimality_reference: Some(reference.clone()),
+        ..Default::default()
+    };
+    options.application.preparation_workers = 3;
+    let outcome =
+        compose_saved_application_layer::<1>(&base_dir, &layer_path, &out, &options).unwrap();
     assert_eq!(outcome.mode, "composed", "{}", outcome.report);
     assert_eq!(outcome.report["minimality_claim"], true);
+    assert_eq!(outcome.report["provenance_counts"]["synthetic-test"], 1);
+    assert!(
+        std::fs::read_dir(&scratch.0).unwrap().all(|e| !e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with('.')),
+        "staging leftovers"
+    );
+    let written: Value =
+        serde_json::from_slice(&std::fs::read(out.join("application.json")).unwrap()).unwrap();
+    assert_eq!(
+        written["metadata"]["preparation_workers"],
+        base_report["metadata"]["preparation_workers"]
+    );
+    assert_eq!(
+        written["terminal_maps"]["blake3"],
+        outcome.report["written_terminal_maps_blake3"]
+    );
+    let authority = written["metadata"]["authority"].as_str().unwrap();
+    assert!(authority.contains("SYNTHETIC TEST"), "{authority}");
+    assert!(!authority.contains("RustRed relation"), "{authority}");
     let mut composed = load_saved_application::<1>(&out, Default::default()).unwrap();
     assert_eq!(
         composed.remaining_terminals(),
@@ -632,6 +853,11 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
     )
     .unwrap();
     assert_eq!(definitions["masters"][0]["powers"], json!([2]));
+    assert_eq!(
+        definitions["refinement_provenance"]["counts"]["synthetic-test"],
+        1
+    );
+    assert_eq!(definitions["minimality_claim"], true);
     assert_eq!(definitions["base_refinement_binding"], "base");
     assert_eq!(definitions["metadata"]["remaining_terminals"], 1);
     // Never replaces an existing package.
@@ -649,6 +875,25 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
     let outcome =
         compose_saved_application_layer::<1>(&base_dir, &layer_path, &rejected, &options).unwrap();
     assert_eq!(outcome.mode, "rejected");
+    assert!(!rejected.exists());
+    // So does a composed package beyond the consumer's binary limits, even
+    // when the ratio gate passes.
+    let tight = SavedApplicationComposeOptions {
+        consumer_limits: SavedApplicationConsumerLimits {
+            name: "tight",
+            max_program_bytes: 64,
+            ..SavedApplicationConsumerLimits::VAKINT_PIN_52C74636
+        },
+        ..Default::default()
+    };
+    let outcome =
+        compose_saved_application_layer::<1>(&base_dir, &layer_path, &rejected, &tight).unwrap();
+    assert_eq!(outcome.mode, "rejected", "{}", outcome.report);
+    assert_eq!(outcome.report["size_gate"]["ratio_passed"], true);
+    assert_eq!(
+        outcome.report["size_gate"]["consumer_limits"]["passed"],
+        false
+    );
     assert!(!rejected.exists());
 
     // Layered fallback: base maps unchanged, final substitution at runtime.
@@ -670,6 +915,11 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
         base_report["terminal_maps"]["blake3"]
     );
     assert!(report.get("terminal_layer").is_some());
+    assert_eq!(
+        report["metadata"]["refinement_layer"]["base_terminal_maps_reencoded_blake3"],
+        report["terminal_maps"]["blake3"]
+    );
+    assert_eq!(outcome.report["reload_check"]["base_rows_equal"], 1);
     let mut runtime = load_saved_application::<1>(&layered, Default::default()).unwrap();
     assert_eq!(
         runtime.remaining_terminals(),

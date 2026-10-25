@@ -37,3 +37,8 @@ fn minimality_claim_requires_complete_matching_class_counts() {
 fn compose_layer_package_roundtrip_composed_and_layered() {
     layer::compose_layer_package_roundtrip_composed_and_layered();
 }
+
+#[test]
+fn masters_with_raw_rows_must_compose_to_identity() {
+    layer::masters_with_raw_rows_must_compose_to_identity();
+}
