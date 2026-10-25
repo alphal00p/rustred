@@ -543,7 +543,7 @@ pub fn layer_files_roundtrip_with_native_table_and_text() {
         ],
         "masters": [{"key": [1], "class": 1, "origin": "test"},
                     {"key": [7], "class": 1, "origin": "test"}],
-        "provenance": {"engine": "synthetic"}
+        "provenance": {"kind": "synthetic-test", "engine": "synthetic"}
     });
     let text_path = scratch.0.join("text.json");
     std::fs::write(&text_path, serde_json::to_vec(&text).unwrap()).unwrap();
