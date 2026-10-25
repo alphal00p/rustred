@@ -368,8 +368,14 @@ fn load_with_policy<const N: usize>(
     if report["metadata"]["raw_terminals"].as_u64() != Some(terminals.rows.len() as u64)
         || report["metadata"]["remaining_terminals"].as_u64()
             != Some(terminals.remaining.len() as u64)
-        || report["metadata"]["source_keys_checked"].as_u64() != Some(terminals.rows.len() as u64)
+        || report["metadata"]["source_keys_checked"].as_u64()
+            != Some(
+                (terminals.rows.len() + terminals.layer.as_ref().map_or(0, |l| l.rows.len()))
+                    as u64,
+            )
     {
+        // Layered packages count raw plus layer rows as checked keys, so a
+        // loader that ignores `terminal_layer` always refuses them here.
         return Err(AppError::input("saved runtime terminal counts disagree"));
     }
     drop(maps);

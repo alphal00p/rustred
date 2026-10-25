@@ -610,6 +610,9 @@ pub(super) fn bind_layer<'a>(
     if layer.parameters.as_slice() != context.parameter_names() {
         return Err(AppError::input("layer parameters differ from the family"));
     }
+    if layer.rows.is_empty() {
+        return Err(AppError::input("layer has no rows"));
+    }
     let qualify = |key: &IntegralKey| -> Result<SavedApplicationIntegral, AppError> {
         if key.powers().len() != family.denominator_count() {
             return Err(AppError::input("layer key has the wrong arity"));

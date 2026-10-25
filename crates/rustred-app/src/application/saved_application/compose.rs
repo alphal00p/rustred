@@ -290,6 +290,13 @@ pub fn compose_saved_application_layer<const N: usize>(
     if minimality_claim {
         metadata["minimality_scope"] = json!(minimality_scope);
     }
+    if mode == "layered" {
+        // A loader unaware of `terminal_layer` compares this with the base
+        // rows only and refuses, even when the basis size is unchanged.
+        metadata["source_keys_checked"] =
+            json!(prepared.terminals.rows.len() + bound.sources.len());
+        refinement["layer_rows"] = json!(bound.sources.len());
+    }
     metadata["refinement_layer"] = refinement;
     let authority = metadata["authority"].as_str().unwrap_or_default().to_owned();
     metadata["authority"] = json!(format!(

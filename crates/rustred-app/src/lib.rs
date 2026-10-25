@@ -33,6 +33,9 @@ pub use application::{
     OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
     owner_domain_walk_inventory,
 };
+#[cfg(feature = "layer-test-support")]
+#[doc(hidden)]
+pub use application::saved_application_layer_tests;
 pub use application::{
     PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,
     SavedApplicationCacheBundleWriter, SavedApplicationCacheCopyStatistics,

@@ -56,6 +56,8 @@ pub use routed_campaign::{
     PreparedSavedIntegralEquations, TerminalEquationReductionFailure,
     prepare_saved_integral_equations,
 };
+#[cfg(feature = "layer-test-support")]
+pub use saved_application::layer_tests as saved_application_layer_tests;
 pub use saved_application::{
     PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,
     SavedApplicationCacheBundleWriter, SavedApplicationCacheCopyStatistics,

@@ -1,11 +1,126 @@
 //! RR-11 layer tests on synthetic rules (design §3 "Tests", acceptance L1).
 use super::compose::{SavedApplicationComposeOptions, compose_saved_application_layer};
 use super::layer::*;
-use super::tests::{Scratch, prepared_fixture};
 use super::*;
 use rustred::algebra::CoefficientContext;
 use rustred::family::AffineDenominator;
 use serde_json::json;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Self-cleaning scratch directory under the process temp dir.
+pub struct Scratch(pub PathBuf);
+impl Scratch {
+    pub fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "rustred-layer-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+}
+impl Default for Scratch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// One-propagator tadpole owner with entries at powers 2 and 4 and a single
+/// identity terminal row (same construction as the saved-application tests).
+fn prepared_fixture(source: &Path) -> PreparedSavedApplication<1> {
+    use crate::{
+        CandidateOwnerBundle, FamilyCandidatesRequest, family_candidates,
+        load_generated_candidate_owners,
+    };
+    std::fs::create_dir_all(source.join("objects")).unwrap();
+    let source_text = r#"
+schema="rustred.project.toml.v1"
+[family]
+name="saved_application_layer_test"
+loop_momenta=["q"]
+external_momenta=[]
+dimension="d"
+[[family.denominators]]
+id="P"
+expression="q^2-1"
+[target]
+powers=[1]
+"#;
+    let mut request = FamilyCandidatesRequest::new(source_text);
+    request.numerical_depth = 0;
+    request.max_numerator_rank = Some(2);
+    let bundle = family_candidates(request).unwrap();
+    let bytes = bundle.bundle();
+    let (family, _) = load_generated_candidate_owners::<1>(
+        &[CandidateOwnerBundle {
+            bytes,
+            owner_sector: &rustred::sector::Mask::try_new([true]).unwrap(),
+        }],
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    std::fs::write(source.join("objects/owner.rrbin"), bytes).unwrap();
+    let selection = json!({"family_fingerprint":family.fingerprint(),
+        "owners":[{"path":"objects/owner.rrbin","bytes":bytes.len(),"mask":"1"}],
+        "initial_frontier_routes":[]})
+    .to_string();
+    let queries = json!({"schema":"rustred.owner-domain-queries.json.v2", "queries":[
+        {"id":"two", "owner":"1", "lower":[1], "upper":[1], "max_numerator_rank":0},
+        {"id":"four", "owner":"1", "lower":[3], "upper":[3], "max_numerator_rank":0}
+    ]})
+    .to_string();
+    let context = family.coefficient_context();
+    let guard = context
+        .try_sub(
+            &context.parameter("d").unwrap(),
+            &context.integer(4),
+            Default::default(),
+        )
+        .unwrap();
+    let qualified = SavedApplicationIntegral {
+        family_fingerprint: family.fingerprint().to_owned(),
+        integral: IntegralKey::try_new([1]).unwrap(),
+    };
+    let terminals = TerminalMaps {
+        families: BTreeMap::from([(family.fingerprint().to_owned(), family.clone())]),
+        rows: BTreeMap::from([(
+            qualified.clone(),
+            TerminalRow {
+                terms: BTreeMap::from([(qualified.clone(), context.one())]),
+                conditions: Arc::new(vec![guard]),
+            },
+        )]),
+        remaining: BTreeSet::from([qualified]),
+        layer: None,
+    };
+    let payloads =
+        serde_json::from_value(json!([{"path":"objects/owner.rrbin","bytes":bytes.len(),
+        "blake3":blake3::hash(bytes).to_hex().to_string()}]))
+        .unwrap();
+    let metadata = json!({"family_fingerprint":family.fingerprint(),"raw_terminals":1,"remaining_terminals":1,
+        "source_keys_checked":1,"publication_assurance":"trusted_saved_scope","minimality_claim":false});
+    PreparedSavedApplication::from_parts(
+        package::ApplicationInputs {
+            selection,
+            queries,
+            owner_base: source.to_path_buf(),
+            payloads,
+        },
+        terminals,
+        metadata,
+        Default::default(),
+    )
+    .unwrap()
+}
 
 fn family() -> Arc<IntegralFamily> {
     let context = CoefficientContext::try_new(["d"]).unwrap();
@@ -141,8 +256,8 @@ fn layer(family: &IntegralFamily) -> SavedApplicationLayer {
     )
 }
 
-#[test]
-fn composition_is_exact_and_equals_sequential_application_mod_p() {
+#[cfg_attr(test, test)]
+pub fn composition_is_exact_and_equals_sequential_application_mod_p() {
     let family = family();
     let base = base(&family);
     let layer = layer(&family);
@@ -201,8 +316,8 @@ fn composition_is_exact_and_equals_sequential_application_mod_p() {
     assert_eq!(restored.remaining, composed.remaining);
 }
 
-#[test]
-fn identity_layer_reproduces_maps_and_bytes() {
+#[cfg_attr(test, test)]
+pub fn identity_layer_reproduces_maps_and_bytes() {
     let family = family();
     let base = base(&family);
     let identity = layer_with(
@@ -233,8 +348,8 @@ fn rejected(base: &TerminalMaps, layer: &SavedApplicationLayer, factorized: &[i6
     }
 }
 
-#[test]
-fn malformed_layers_are_rejected() {
+#[cfg_attr(test, test)]
+pub fn malformed_layers_are_rejected() {
     let family = family();
     let base = base(&family);
     let ok = layer(&family);
@@ -292,13 +407,15 @@ fn malformed_layers_are_rejected() {
         reason: "rank".into(),
     }];
     assert!(rejected(&base, &bad, &[]).contains("unreduced"));
-    // Empty row.
+    // Empty row; empty layer.
     let bad = layer_with(&family, vec![row(&family, 2, &[], &[])], &[]);
     assert!(rejected(&base, &bad, &[]).contains("empty"));
+    let bad = layer_with(&family, vec![], &[]);
+    assert!(rejected(&base, &bad, &[]).contains("no rows"));
 }
 
-#[test]
-fn coefficient_text_grammar_is_strict() {
+#[cfg_attr(test, test)]
+pub fn coefficient_text_grammar_is_strict() {
     let family = family();
     assert_eq!(c(&family, "(d-2)/(2*d-7)"), c(&family, "(2-d)/(7-2*d)"));
     assert_eq!(c(&family, "d^2-1"), c(&family, "(d-1)*(d+1)"));
@@ -310,8 +427,8 @@ fn coefficient_text_grammar_is_strict() {
     }
 }
 
-#[test]
-fn layer_files_roundtrip_with_native_table_and_text() {
+#[cfg_attr(test, test)]
+pub fn layer_files_roundtrip_with_native_table_and_text() {
     let scratch = Scratch::new();
     let family = family();
     let layer = layer(&family);
@@ -364,8 +481,8 @@ fn layer_files_roundtrip_with_native_table_and_text() {
     );
 }
 
-#[test]
-fn minimality_claim_requires_complete_matching_class_counts() {
+#[cfg_attr(test, test)]
+pub fn minimality_claim_requires_complete_matching_class_counts() {
     let family = family();
     let mut layer = layer(&family);
     assert!(!layer_minimality_claim(&layer).0);
@@ -408,8 +525,8 @@ fn minimality_claim_requires_complete_matching_class_counts() {
 /// Package-level: export a base runtime, compose a text layer through the
 /// public entry point, reload, and compare reductions; then the layered
 /// fallback, its loader, and the refusal by a layer-unaware loader.
-#[test]
-fn compose_layer_package_roundtrip_composed_and_layered() {
+#[cfg_attr(test, test)]
+pub fn compose_layer_package_roundtrip_composed_and_layered() {
     let scratch = Scratch::new();
     let mut original = prepared_fixture(&scratch.0.join("source"));
     let fingerprint = original.family().fingerprint().to_owned();

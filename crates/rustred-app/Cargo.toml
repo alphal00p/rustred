@@ -23,6 +23,9 @@ cli = ["dep:tabled", "dep:crossterm", "dep:ratatui", "dep:libc", "dep:signal-hoo
 # use it too. Verify a build with `nm -D target/<profile>/rustred`: `malloc`
 # and `free` must be defined (T), not imported (U).
 mimalloc = ["cli", "dep:mimalloc"]
+# RR-11: expose the relations-layer test bodies to `tests/saved_application_layer.rs`
+# (the full lib-test target needs > 20 GB to compile on the campaign host).
+layer-test-support = []
 
 [lib]
 name = "rustred_app"
@@ -82,6 +85,10 @@ required-features = ["cli"]
 [[test]]
 name = "application_api"
 required-features = ["cli"]
+
+[[test]]
+name = "saved_application_layer"
+required-features = ["layer-test-support"]
 
 [[test]]
 name = "closing_artifact_api"
