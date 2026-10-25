@@ -115,6 +115,7 @@ impl SavedApplicationCacheBundleWriter {
             let directory = child_path(output, namespace);
             fs::create_dir(&directory).map_err(fail)?;
             fs::create_dir(directory.join("chunks")).map_err(fail)?;
+            writer::sync_directory(&directory.join("chunks"))?;
             for chunk in unique_chunks(&child, limits)? {
                 let source = base
                     .expect("nonempty manifest has a base")
@@ -136,17 +137,9 @@ impl SavedApplicationCacheBundleWriter {
         }
         // Child index publication fsyncs each child, then sync the directory
         // containing those child names before making the top-level index visible.
-        fs::File::open(output.join("bindings"))
-            .and_then(|dir| dir.sync_all())
-            .map_err(fail)?;
+        writer::sync_directory(&output.join("bindings"))?;
         writes.write(&output.join(FILE), &bundle_bytes, false)?;
-        let parent = output
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
-        fs::File::open(parent)
-            .and_then(|dir| dir.sync_all())
-            .map_err(fail)?;
+        writer::sync_directory(writer::parent_directory(output))?;
         Ok((
             Self {
                 directory: output.to_path_buf(),

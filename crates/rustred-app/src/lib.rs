@@ -30,26 +30,30 @@ pub use application::{
     master_refine_published_artifact,
 };
 pub use application::{
-    OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
-    owner_domain_walk_inventory,
-};
-pub use application::{
-    PreparedSavedApplication, SAVED_APPLICATION_SCHEMA, SavedApplicationCacheBundle,
-    SavedApplicationCacheBundleWriter, SavedApplicationCacheCopyStatistics,
-    SavedApplicationCacheFile, SavedApplicationCacheFileIdentity, SavedApplicationCacheFileLimits,
+    NativePackSnapshot, PreparedSavedApplication, SAVED_APPLICATION_SCHEMA,
+    SavedApplicationCacheBundle, SavedApplicationCacheBundleWriter,
+    SavedApplicationCacheCopyStatistics, SavedApplicationCacheFile,
+    SavedApplicationCacheFileIdentity, SavedApplicationCacheFileLimits,
     SavedApplicationCacheFileStatistics, SavedApplicationCacheLookupOutcome,
     SavedApplicationCachePack, SavedApplicationCachePackLimits,
     SavedApplicationCachePackStatistics, SavedApplicationCacheWriter, SavedApplicationDomain,
     SavedApplicationEntryCoveragePolicy, SavedApplicationIntegral, SavedApplicationOptions,
     SavedApplicationPreparationStatistics, SavedApplicationProduct,
     SavedApplicationProductChartStatistics, SavedApplicationProductStatistics,
-    SavedApplicationReduction, SavedApplicationWitness, SavedApplicationWitnessKind,
+    SavedApplicationReadOnlyCache, SavedApplicationReduction, SavedApplicationRunningCache,
+    SavedApplicationRunningCacheBase, SavedApplicationRunningCacheControl,
+    SavedApplicationRunningCacheOptions, SavedApplicationRunningCacheReport,
+    SavedApplicationRunningCacheSnapshot, SavedApplicationWitness, SavedApplicationWitnessKind,
     export_saved_application, export_saved_application_with_policy, load_saved_application,
     load_saved_application_with_policy, prepare_saved_application,
     prepare_saved_application_with_policy, saved_application_arity,
     saved_application_arity_with_policy, saved_application_boundary_witnesses,
     saved_application_domains, saved_application_domains_with_policy,
     saved_application_observation_document,
+};
+pub use application::{
+    OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
+    owner_domain_walk_inventory,
 };
 pub use application::{
     PreparedSavedIntegralEquations, TerminalEquationReductionFailure,

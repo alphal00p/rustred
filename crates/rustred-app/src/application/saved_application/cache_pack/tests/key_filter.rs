@@ -162,6 +162,12 @@ fn fingerprint_memory_is_charged_and_no_full_key_duplicate_is_retained() {
             .capacity()
             * std::mem::size_of::<u64>()
     );
+    // Reader snapshots also retain the exact native index bytes. The decoded
+    // fingerprint delta above remains separate from that bounded metadata.
+    let total = SavedApplicationCachePack::open_generated(&path, &binding(1), limits)
+        .unwrap()
+        .statistics()
+        .directory_owned_bytes;
     let tight = SavedApplicationCachePackLimits {
         max_directory_owned_bytes: total - 1,
         ..limits
