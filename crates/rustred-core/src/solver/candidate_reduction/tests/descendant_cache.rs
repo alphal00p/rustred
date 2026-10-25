@@ -123,6 +123,7 @@ fn prepared_child_reduces_unseen_root_with_one_rule_for_both_representations_and
         let expected = baseline(&source, &key([5]));
         let program = CandidateUnitMassProgram::new(&source, [61; 32]);
         let one_rule = ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 1,
             ..Default::default()
         };
@@ -253,6 +254,7 @@ fn fresh_disk_provider_reuses_child_in_existing_native_schema_and_rejects_corrup
             &key([5]),
             &mut cache,
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_rule_applications: 1,
                 ..Default::default()
             },
@@ -612,6 +614,7 @@ fn imported_child_pressure_evicts_outer_records_and_cleans_up_after_refusal_or_p
                 &key([5]),
                 &mut cache,
                 ReductionLimits {
+                    diagnostics_enabled: true,
                     max_cached_integrals: 2,
                     ..Default::default()
                 },
@@ -640,6 +643,7 @@ fn imported_child_pressure_evicts_outer_records_and_cleans_up_after_refusal_or_p
                 &key([5]),
                 &mut cache,
                 ReductionLimits {
+                    diagnostics_enabled: true,
                     max_cached_integrals: 1,
                     ..Default::default()
                 },
@@ -666,6 +670,7 @@ fn imported_child_has_one_native_memo_charge_and_failed_parent_keeps_only_comple
         .reduce_guarded_root(&key([4]), &mut cache, Default::default(), None)
         .unwrap();
     let mut tight = ReductionLimits::default();
+    tight.diagnostics_enabled = true;
     tight.exact_algebra.max_polynomial_terms = 4;
     assert!(
         program
@@ -680,6 +685,7 @@ fn imported_child_has_one_native_memo_charge_and_failed_parent_keeps_only_comple
             &key([5]),
             &mut cache,
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_cached_integrals: 3,
                 max_rule_applications: 1,
                 ..Default::default()

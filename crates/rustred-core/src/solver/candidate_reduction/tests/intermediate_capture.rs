@@ -160,6 +160,7 @@ fn newly_computed_unselected_intermediate_survives_native_codec_and_shortcuts_a_
                 &key([6]),
                 &mut cold_cache,
                 ReductionLimits {
+                    diagnostics_enabled: true,
                     max_rule_applications: 2,
                     ..Default::default()
                 },
@@ -228,6 +229,7 @@ fn enriched_pack_retains_prepared_root_and_shortcuts_an_unseen_sibling_that_neve
     )
     .unwrap();
     let one = ReductionLimits {
+        diagnostics_enabled: true,
         max_rule_applications: 1,
         ..Default::default()
     };
@@ -417,6 +419,7 @@ fn optional_factorized_intermediate_record_refusal_does_not_abort_a_cancelling_p
         "fixture must expand larger than complete native factorized DAG: {intermediate_bytes} vs {allowed}"
     );
     let limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_coefficient_bytes: allowed,
         ..Default::default()
     };
@@ -566,6 +569,7 @@ fn uninterested_capture_preserves_factorized_native_work_and_tight_guard_term_al
     ordinary.reduce_unit_mass(&key([24])).unwrap();
     let guard_weight = crate::reduction::coefficient_cache_weight(expected.1.iter()).unwrap();
     let limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_coefficient_terms: ordinary.statistics().cached_coefficient_terms()
             + guard_weight.coefficient_terms,
         ..Default::default()

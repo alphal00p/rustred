@@ -172,14 +172,17 @@ fn malformed_arity_and_preparation_caps_fail_closed() {
     ));
     for normalization in [
         TerminalNormalizationLimits {
+            diagnostics_enabled: true,
             max_terminals: 0,
             ..Default::default()
         },
         TerminalNormalizationLimits {
+            diagnostics_enabled: true,
             max_supports: 0,
             ..Default::default()
         },
         TerminalNormalizationLimits {
+            diagnostics_enabled: true,
             max_matrix_cells: 0,
             ..Default::default()
         },
@@ -189,6 +192,7 @@ fn malformed_arity_and_preparation_caps_fail_closed() {
                 Arc::clone(&family),
                 &keys,
                 TerminalCircuitLimits {
+                    diagnostics_enabled: true,
                     normalization,
                     ..Default::default()
                 },
@@ -204,6 +208,7 @@ fn individual_and_aggregate_native_expansion_caps_remain_typed() {
     let target = key([1, 1, 1, 1, -2, 0]);
     for limits in [
         TerminalCircuitLimits {
+            diagnostics_enabled: true,
             expansion: integral_transport::ExpansionLimits {
                 max_total_power: 1,
                 ..Default::default()
@@ -211,15 +216,19 @@ fn individual_and_aggregate_native_expansion_caps_remain_typed() {
             ..Default::default()
         },
         TerminalCircuitLimits {
+            diagnostics_enabled: true,
             max_transport_endpoints: 1,
             ..Default::default()
         },
         TerminalCircuitLimits {
+            diagnostics_enabled: true,
             max_transport_operations: 0,
             ..Default::default()
         },
         TerminalCircuitLimits {
+            diagnostics_enabled: true,
             normalization: TerminalNormalizationLimits {
+                diagnostics_enabled: true,
                 max_output_terms: 0,
                 ..Default::default()
             },
@@ -258,6 +267,7 @@ fn expansion_budget_is_shared_across_keys_not_reset_per_map_or_target() {
         .max()
         .unwrap();
     let limits = TerminalCircuitLimits {
+        diagnostics_enabled: true,
         max_transport_endpoints: individual_bound,
         ..Default::default()
     };

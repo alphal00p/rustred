@@ -114,6 +114,7 @@ fn inline_min_caps_charge_failed_attempts_and_conservative_reservations() {
     }
     let original = super::super::tests::diamond(
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 1,
             ..Default::default()
         },
@@ -123,6 +124,7 @@ fn inline_min_caps_charge_failed_attempts_and_conservative_reservations() {
     let original = super::super::tests::diamond(
         Default::default(),
         RoutedCandidateLimits {
+            diagnostics_enabled: true,
             max_unique_nodes: 1,
             ..Default::default()
         },

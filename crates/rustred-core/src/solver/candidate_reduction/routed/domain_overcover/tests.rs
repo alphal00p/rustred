@@ -450,6 +450,7 @@ fn route_overcover_budget_cancel_and_consumer_stop_preserve_prefix() {
 fn route_overcover_does_not_invoke_expansion_or_claim_every_support_is_reached() {
     let mut reducer = fixture();
     reducer.limits = RoutedCandidateLimits {
+        diagnostics_enabled: true,
         max_transport_calls: 0,
         expansion: integral_transport::ExpansionLimits {
             max_total_power: 0,

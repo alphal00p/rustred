@@ -293,34 +293,42 @@ fn diagonal_collection_caps_fail_closed_and_empty_inventory_is_finite() {
     let defaults = VacuumDiagonalCollectionLimits::default();
     let limits = [
         VacuumDiagonalCollectionLimits {
+            diagnostics_enabled: true,
             max_corner_seeds: 0,
             ..defaults
         },
         VacuumDiagonalCollectionLimits {
+            diagnostics_enabled: true,
             max_source_rows: 0,
             ..defaults
         },
         VacuumDiagonalCollectionLimits {
+            diagnostics_enabled: true,
             max_source_terms: 0,
             ..defaults
         },
         VacuumDiagonalCollectionLimits {
+            diagnostics_enabled: true,
             max_columns: 0,
             ..defaults
         },
         VacuumDiagonalCollectionLimits {
+            diagnostics_enabled: true,
             max_reducer_nonzeros: 0,
             ..defaults
         },
         VacuumDiagonalCollectionLimits {
+            diagnostics_enabled: true,
             max_replay_operations: 0,
             ..defaults
         },
         VacuumDiagonalCollectionLimits {
+            diagnostics_enabled: true,
             max_flat_map_terms: 0,
             ..defaults
         },
         VacuumDiagonalCollectionLimits {
+            diagnostics_enabled: true,
             max_coefficient_terms: 0,
             ..defaults
         },

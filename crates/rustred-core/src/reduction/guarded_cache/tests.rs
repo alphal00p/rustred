@@ -135,6 +135,7 @@ fn cold_warm_one_through_four_and_held_out_five_match_native_guarded_results() {
                     &key(n),
                     &mut cache,
                     ReductionLimits {
+                        diagnostics_enabled: true,
                         max_rule_applications: 0,
                         ..Default::default()
                     },
@@ -241,6 +242,7 @@ fn backing_roundtrip_clear_and_zero_keep_ordered_guards() {
             &key(4),
             &mut cache,
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_rule_applications: 0,
                 ..Default::default()
             },
@@ -275,6 +277,7 @@ fn backing_roundtrip_clear_and_zero_keep_ordered_guards() {
     let mut too_small = GuardedRootCache::new(
         &program,
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_coefficient_bytes: 0,
             ..Default::default()
         },
@@ -302,6 +305,7 @@ fn both_eviction_policies_admit_bounded_backing_results_and_reuse_after_clear() 
         CompletedCachePolicy::EvictAgedLeastFrequentlyUsed,
     ] {
         let limits = ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_integrals: 2,
             ..Default::default()
         };
@@ -442,6 +446,7 @@ fn failed_reduction_or_store_does_not_publish_a_root_and_cache_stays_reusable() 
     let mut cache = GuardedRootCache::new(&program, Default::default());
     let mut backing = Backing::new(&program);
     let no_work = ReductionLimits {
+        diagnostics_enabled: true,
         max_rule_applications: 0,
         ..Default::default()
     };
@@ -502,6 +507,7 @@ fn full_outer_roots_yield_to_the_same_cold_insertion_without_restarting_work() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let program = ClosedUnitMassProgram::new(&artifact, [16; 32]);
     let limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_integrals: 2,
         ..Default::default()
     };
@@ -578,6 +584,7 @@ fn native_error_releases_transient_budget_and_next_cold_request_can_succeed() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let program = ClosedUnitMassProgram::new(&artifact, [18; 32]);
     let limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_integrals: 2,
         ..Default::default()
     };
@@ -591,6 +598,7 @@ fn native_error_releases_transient_budget_and_next_cold_request_can_succeed() {
                 &key(2),
                 &mut cache,
                 ReductionLimits {
+                    diagnostics_enabled: true,
                     max_rule_applications: 0,
                     ..limits
                 },
@@ -635,6 +643,7 @@ fn warm_hits_reuse_validation_stamp_and_tighter_bounds_validate_once() {
     }
     assert_eq!(cache.statistics().payload_validations, 1);
     let mut tighter = ReductionLimits::default();
+    tighter.diagnostics_enabled = true;
     tighter.exact_algebra.max_polynomial_terms -= 1;
     program
         .reduce_guarded_root(&key(2), &mut cache, tighter, None)

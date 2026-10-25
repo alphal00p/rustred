@@ -22,6 +22,7 @@ fn application_refinement_exact_partition_is_axis_and_owner_independent() {
                 let cancel = AtomicBool::new(false);
                 let mut budget = Budget {
                     limits: OwnerAppliedLimits {
+                        diagnostics_enabled: true,
                         cell_refinement: policy(4),
                         ..Default::default()
                     },
@@ -95,6 +96,7 @@ fn application_refinement_policy_misses_are_unchanged_before_work() {
         let source = LatticeBox::try_new(lower, upper).unwrap();
         let mut budget = Budget {
             limits: OwnerAppliedLimits {
+                diagnostics_enabled: true,
                 cell_refinement: policy,
                 ..Default::default()
             },
@@ -117,6 +119,7 @@ fn application_refinement_policy_misses_are_unchanged_before_work() {
     let source = LatticeBox::try_new(lower, [Some(i64::MAX as u64 + 1), Some(0)]).unwrap();
     let mut budget = Budget {
         limits: OwnerAppliedLimits {
+            diagnostics_enabled: true,
             cell_refinement: policy(2),
             ..Default::default()
         },
@@ -147,6 +150,7 @@ fn application_refinement_preflights_whole_partition_and_extra_live_scratch() {
     let source = LatticeBox::try_new([0, 0], [Some(1), Some(0)]).unwrap();
     let cancel = AtomicBool::new(false);
     let base = OwnerAppliedLimits {
+        diagnostics_enabled: true,
         cell_refinement: policy(2),
         ..Default::default()
     };
@@ -213,6 +217,7 @@ fn application_refinement_cancellation_preserves_only_actual_visited_cells() {
     let cancel = AtomicBool::new(true);
     let mut budget = Budget {
         limits: OwnerAppliedLimits {
+            diagnostics_enabled: true,
             cell_refinement: policy(2),
             ..Default::default()
         },
@@ -248,6 +253,7 @@ fn application_refinement_children_retain_rank_and_power_intersections() {
     let cancel = AtomicBool::new(false);
     let mut budget = Budget {
         limits: OwnerAppliedLimits {
+            diagnostics_enabled: true,
             cell_refinement: policy(4),
             ..Default::default()
         },

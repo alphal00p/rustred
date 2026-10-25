@@ -125,6 +125,7 @@ fn empty_inventory_and_seed_limits_are_explicit() {
             .is_complete()
     );
     let mut limits = TerminalRelationLimits::default();
+    limits.diagnostics_enabled = true;
     limits.max_seeds = 1;
     assert!(TerminalRelationSession::new(tadpole(), BTreeSet::from([key(1)]), 1, limits).is_err());
     let seed = sources::seeds(&BTreeSet::from([key(1)]), 1, 10, true).unwrap();
@@ -134,6 +135,7 @@ fn empty_inventory_and_seed_limits_are_explicit() {
 #[test]
 fn refused_scope_extension_keeps_old_checkpoint_usable() {
     let limits = TerminalRelationLimits {
+        diagnostics_enabled: true,
         max_columns: 2,
         ..Default::default()
     };
@@ -156,6 +158,7 @@ fn column_budget_can_be_raised_or_removed_without_losing_proved_rows() {
         BTreeSet::from([key(1), key(2)]),
         0,
         TerminalRelationLimits {
+            diagnostics_enabled: true,
             max_columns: 2,
             ..Default::default()
         },
@@ -294,6 +297,7 @@ fn fill_admission_never_makes_a_checkpoint_exceed_its_own_nonzero_limit() {
     let family = tadpole();
     let one = family.coefficient_context().one();
     let limits = TerminalRelationLimits {
+        diagnostics_enabled: true,
         max_nonzeros: 4,
         ..Default::default()
     };
@@ -671,6 +675,7 @@ fn assistance_validation_provider_and_admission_errors_preserve_retry_boundaries
         nonzero_conditions: vec![],
     };
     let limits = TerminalRelationLimits {
+        diagnostics_enabled: true,
         max_columns: 1,
         ..Default::default()
     };

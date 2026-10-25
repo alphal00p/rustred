@@ -115,6 +115,7 @@ fn fresh_root_succeeds_under_same_allowance_that_refuses_duplicated_subtree_guar
     let allowed = ordinary.statistics().cached_coefficient_terms() + unique.coefficient_terms;
     assert!(allowed < legacy.statistics().cached_coefficient_terms());
     let limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_coefficient_terms: allowed,
         ..Default::default()
     };
@@ -192,6 +193,7 @@ fn fresh_guard_lease_shares_budget_and_cleans_up_on_refusal_and_panic() {
             .unwrap();
         let before = shared.snapshot();
         let limits = ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_coefficient_terms: 12,
             ..Default::default()
         };

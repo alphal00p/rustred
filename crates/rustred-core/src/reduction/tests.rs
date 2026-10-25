@@ -29,6 +29,7 @@ fn factorization_convolves_every_typed_master_of_a_lower_family() {
             &[3, 4, 5],
             6,
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_factorization_terms: 1,
                 ..ReductionLimits::default()
             },
@@ -134,6 +135,7 @@ fn sunset_dependency_work_and_cache_limits_are_aggregate() {
         Reducer::with_limits(
             &artifact,
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_cached_integrals: 2,
                 ..ReductionLimits::default()
             }
@@ -148,6 +150,7 @@ fn sunset_dependency_work_and_cache_limits_are_aggregate() {
     let mut limited = Reducer::with_limits(
         &artifact,
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 1,
             ..ReductionLimits::default()
         },
@@ -459,6 +462,7 @@ fn reducer_reports_arity_context_and_work_limits_with_typed_errors() {
     let mut limited = Reducer::with_limits(
         &artifact,
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 1,
             ..ReductionLimits::default()
         },
@@ -483,6 +487,7 @@ fn cache_capacity_is_bounded_and_can_be_cleared_back_to_explicit_masters() {
         Reducer::with_limits(
             &artifact,
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_cached_integrals: 0,
                 ..ReductionLimits::default()
             },
@@ -496,6 +501,7 @@ fn cache_capacity_is_bounded_and_can_be_cleared_back_to_explicit_masters() {
         Reducer::with_limits(
             &artifact,
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_cached_coefficient_terms: seed_statistics.cached_coefficient_terms() - 1,
                 ..ReductionLimits::default()
             },
@@ -510,6 +516,7 @@ fn cache_capacity_is_bounded_and_can_be_cleared_back_to_explicit_masters() {
         Reducer::with_limits(
             &artifact,
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_cached_coefficient_bytes: seed_statistics.cached_coefficient_bytes() - 1,
                 ..ReductionLimits::default()
             },
@@ -524,6 +531,7 @@ fn cache_capacity_is_bounded_and_can_be_cleared_back_to_explicit_masters() {
     let mut coefficient_limited = Reducer::with_limits(
         &artifact,
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_coefficient_terms: seed_statistics.cached_coefficient_terms(),
             ..ReductionLimits::default()
         },
@@ -536,6 +544,7 @@ fn cache_capacity_is_bounded_and_can_be_cleared_back_to_explicit_masters() {
     let mut byte_limited = Reducer::with_limits(
         &artifact,
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_coefficient_bytes: seed_statistics.cached_coefficient_bytes(),
             ..ReductionLimits::default()
         },
@@ -549,6 +558,7 @@ fn cache_capacity_is_bounded_and_can_be_cleared_back_to_explicit_masters() {
     let mut reducer = Reducer::with_limits(
         &artifact,
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_integrals: 2,
             ..ReductionLimits::default()
         },
@@ -595,6 +605,7 @@ fn generic_failure_and_collection_primitives_are_typed_and_exact() {
         Reducer::with_limits(
             &incomplete,
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_rule_applications: 0,
                 ..ReductionLimits::default()
             },

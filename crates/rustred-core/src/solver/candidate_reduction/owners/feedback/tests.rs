@@ -937,6 +937,7 @@ fn source_limits_invalid_inputs_and_symbolic_terminals_fail_closed() {
                 vec![Case::generic()],
                 scope(10),
                 OwnerDomainAttemptLimits {
+                    diagnostics_enabled: true,
                     max_symbolic_cases: Some(0),
                     ..Default::default()
                 },

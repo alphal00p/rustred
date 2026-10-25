@@ -575,6 +575,7 @@ fn a_refused_source_can_be_saved_and_retried_without_a_duplicate_identity() {
     let mut resumed = TerminalRelationModularSession::from_native_bytes(
         &bytes,
         TerminalRelationLimits {
+            diagnostics_enabled: true,
             max_columns: 2,
             ..Default::default()
         },
@@ -714,6 +715,7 @@ fn immutable_known_terminal_relation_full_pipeline_benchmark() {
     assert!(compare_exact <= 1);
     let bytes = std::fs::read(&path).unwrap();
     let limits = TerminalRelationLimits {
+        diagnostics_enabled: true,
         max_seeds: usize::MAX,
         max_columns: usize::MAX,
         max_rows: usize::MAX,

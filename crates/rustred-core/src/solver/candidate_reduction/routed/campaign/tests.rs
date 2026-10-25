@@ -67,6 +67,7 @@ fn aggregate_shared_work_succeeds_where_independent_totals_exceed_allowance() {
     }
     let reducer = diamond(
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 5,
             ..Default::default()
         },
@@ -194,12 +195,14 @@ fn aggregate_node_pending_rule_and_input_limits_fail_closed() {
         (
             ReductionLimits::default(),
             RoutedCandidateLimits {
+                diagnostics_enabled: true,
                 max_unique_nodes: 2,
                 ..Default::default()
             },
         ),
         (
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_pending_frames: 1,
                 ..Default::default()
             },
@@ -207,6 +210,7 @@ fn aggregate_node_pending_rule_and_input_limits_fail_closed() {
         ),
         (
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_rule_applications: 1,
                 ..Default::default()
             },
@@ -215,6 +219,7 @@ fn aggregate_node_pending_rule_and_input_limits_fail_closed() {
         (
             ReductionLimits::default(),
             RoutedCandidateLimits {
+                diagnostics_enabled: true,
                 max_input_targets: 1,
                 ..Default::default()
             },
@@ -259,6 +264,7 @@ fn coalescing_is_aggregate_and_local_cancellation_precedes_dedup() {
                 Some(0),
                 vec![owner],
                 ReductionLimits {
+                    diagnostics_enabled: true,
                     max_coalescing_additions: cap,
                     ..Default::default()
                 },
@@ -520,14 +526,17 @@ fn native_affine_route_and_pinch_match_legacy_with_shared_transport_budgets() {
         assert_eq!(completed.visited_zeros(), old.visited_zeros());
         for caps in [
             RoutedCandidateLimits {
+                diagnostics_enabled: true,
                 max_transport_calls: 1,
                 ..Default::default()
             },
             RoutedCandidateLimits {
+                diagnostics_enabled: true,
                 max_transport_operations: old.transport_operation_bound(),
                 ..Default::default()
             },
             RoutedCandidateLimits {
+                diagnostics_enabled: true,
                 max_transport_endpoints: old.transport_endpoint_bound(),
                 ..Default::default()
             },
@@ -745,10 +754,12 @@ fn publication_mid_chunk_limits_keep_exact_prefix_and_allow_exhausted_cap_joins(
     for pending_limit in [false, true] {
         let reducer = diamond(
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_pending_frames: if pending_limit { 4 } else { 100 },
                 ..Default::default()
             },
             RoutedCandidateLimits {
+                diagnostics_enabled: true,
                 max_unique_nodes: if pending_limit { 100 } else { 4 },
                 ..Default::default()
             },

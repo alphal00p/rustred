@@ -98,7 +98,9 @@ fn generic_three_and_five_loop_projections_are_flat_and_have_inspectable_native_
         // 25,200 terms). Give this positive genericity fixture explicit larger
         // finite Symanzik budgets; production defaults remain untouched.
         let limits = TerminalNormalizationLimits {
+            diagnostics_enabled: true,
             parametric: VacuumParametricLimits {
+                diagnostics_enabled: true,
                 symanzik: Default::default(),
                 ..Default::default()
             },
@@ -287,6 +289,7 @@ fn undeclared_positive_outputs_and_resource_exhaustion_fail_closed() {
             &raw,
             plan.ordering(),
             TerminalNormalizationLimits {
+                diagnostics_enabled: true,
                 max_matrix_cells: 1,
                 ..Default::default()
             }

@@ -68,6 +68,7 @@ fn weighted_route<const N: usize>(limits: ReductionLimits) -> RoutedCandidateRed
 fn weighted_endpoint_identities_share_rule_and_coalescing_budgets() {
     let target = key([1, 0, -1]);
     let admitted = weighted_route::<3>(ReductionLimits {
+        diagnostics_enabled: true,
         max_rule_applications: 2,
         max_coalescing_additions: 2,
         ..Default::default()
@@ -79,6 +80,7 @@ fn weighted_endpoint_identities_share_rule_and_coalescing_budgets() {
     );
 
     let rule_limited = weighted_route::<3>(ReductionLimits {
+        diagnostics_enabled: true,
         max_rule_applications: 1,
         ..Default::default()
     });
@@ -93,6 +95,7 @@ fn weighted_endpoint_identities_share_rule_and_coalescing_budgets() {
     ));
 
     let addition_limited = weighted_route::<3>(ReductionLimits {
+        diagnostics_enabled: true,
         max_coalescing_additions: 1,
         ..Default::default()
     });

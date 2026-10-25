@@ -14,6 +14,7 @@ fn partial_cache_after_a_failed_request_prevents_alias_installation() {
     let mut reducer = candidate::<3>(
         family,
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_integrals: 1,
             ..Default::default()
         },

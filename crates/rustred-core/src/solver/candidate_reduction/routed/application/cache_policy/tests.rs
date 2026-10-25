@@ -50,6 +50,7 @@ fn assert_census<const N: usize>(app: &RoutedCandidateApplication<N>) {
 #[test]
 fn aged_lfu_counts_only_genuine_reuse_and_uses_recency_for_ties() {
     let mut app = application(ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_integrals: 2,
         ..Default::default()
     });
@@ -86,6 +87,7 @@ fn aged_lfu_counts_only_genuine_reuse_and_uses_recency_for_ties() {
 #[test]
 fn lru_reuse_and_eviction_do_not_update_lfu_counts_or_age() {
     let mut app = application(ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_integrals: 2,
         ..Default::default()
     });
@@ -109,6 +111,7 @@ fn lru_reuse_and_eviction_do_not_update_lfu_counts_or_age() {
 #[test]
 fn aged_lfu_cold_stream_eventually_retires_a_formerly_hot_entry() {
     let mut app = application(ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_integrals: 2,
         ..Default::default()
     });
@@ -158,6 +161,7 @@ fn aged_lfu_cold_stream_eventually_retires_a_formerly_hot_entry() {
 #[test]
 fn aged_lfu_shared_pins_survive_aging_and_release_cannot_rewind_age() {
     let mut app = application(ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_integrals: 2,
         ..Default::default()
     });
@@ -364,6 +368,7 @@ fn observed_pin_census_counts_shared_guards_and_references_once() {
 #[test]
 fn default_fails_but_opt_in_preserves_shared_siblings_and_warm_root() {
     let limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_integrals: 2,
         ..Default::default()
     };
@@ -434,6 +439,7 @@ fn default_fails_but_opt_in_preserves_shared_siblings_and_warm_root() {
 #[test]
 fn pinned_working_set_failure_releases_all_pins_for_the_next_request() {
     let mut app = application(ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_integrals: 1,
         ..Default::default()
     });
@@ -467,6 +473,7 @@ fn evicted_dependencies_recompute_exactly_and_spend_the_same_work_grant() {
         CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed,
     ] {
         let limits = ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_integrals: 2,
             ..Default::default()
         };
@@ -485,6 +492,7 @@ fn evicted_dependencies_recompute_exactly_and_spend_the_same_work_grant() {
         assert_eq!(result.statistics().cache.recomputed_nodes, 2);
         assert_census(&app);
         let mut bounded = application(ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 3,
             ..limits
         });
@@ -523,6 +531,7 @@ fn insert(
 #[test]
 fn exact_lru_touches_and_reference_counts_preserve_route_apply_identity() {
     let mut app = application(ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_integrals: 2,
         ..Default::default()
     });
@@ -564,10 +573,12 @@ fn guards_in_cached_zeros_are_charged_and_released_without_duplicates() {
     let mut pins = DependencyPins::default();
     for limits in [
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_coefficient_terms: weight.coefficient_terms,
             ..Default::default()
         },
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_coefficient_bytes: weight.coefficient_bytes,
             ..Default::default()
         },
@@ -711,6 +722,7 @@ fn guarded_cancellation_recomputes_after_eviction_and_keeps_original_poles() {
 #[test]
 fn scheduling_failure_cleans_pins_and_access_sequence_fails_closed() {
     let mut app = application(ReductionLimits {
+        diagnostics_enabled: true,
         max_pending_frames: 2,
         ..Default::default()
     });
@@ -753,6 +765,7 @@ fn entry_admission_still_precedes_warm_lookup_and_input_cancellation() {
         CandidateEntryAdmission, DomainPowerBounds, FiniteRootAdmission, RootRegionInput,
     };
     let mut app = application(ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_integrals: 2,
         ..Default::default()
     });
@@ -792,6 +805,7 @@ fn entry_admission_still_precedes_warm_lookup_and_input_cancellation() {
 #[test]
 fn evicting_cache_never_turns_an_uncovered_target_into_a_terminal() {
     let mut app = application(ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_integrals: 1,
         ..Default::default()
     });

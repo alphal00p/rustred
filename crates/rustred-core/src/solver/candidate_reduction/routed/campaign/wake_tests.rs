@@ -25,6 +25,7 @@ fn await_waiters(shared: &Shared<'_, 1>, work: usize, reservation: usize) {
 fn separate_work_and_reservation_waiters_receive_their_own_progress() {
     let reducer = fixture(
         ReductionLimits {
+            diagnostics_enabled: true,
             max_coalescing_additions: 1,
             ..Default::default()
         },
@@ -78,6 +79,7 @@ fn cancellation_and_release_failure_drain_both_waiter_classes() {
     for release_failure in [false, true] {
         let reducer = fixture(
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_coalescing_additions: 1,
                 ..Default::default()
             },

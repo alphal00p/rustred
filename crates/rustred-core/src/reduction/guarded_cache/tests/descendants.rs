@@ -11,6 +11,7 @@ fn prepared_four_reduces_different_five_with_one_native_rule_for_both_policies()
     let program = ClosedUnitMassProgram::new(&artifact, [31; 32]);
     let reference = baseline(&program, 5);
     let one_rule = ReductionLimits {
+        diagnostics_enabled: true,
         max_rule_applications: 1,
         ..Default::default()
     };
@@ -60,6 +61,7 @@ fn disk_prepared_four_is_a_descendant_hit_without_repeating_starting_root_lookup
             &key(5),
             &mut cache,
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_rule_applications: 1,
                 ..Default::default()
             },
@@ -270,6 +272,7 @@ fn failed_parent_preserves_only_valid_completed_roots_and_releases_import_census
     // coalescing allowance is not a failure trigger for one vacant master.
     assert_eq!(prepared.record.terms[&key(1)].numerator.nterms(), 4);
     let mut constrained = ReductionLimits::default();
+    constrained.diagnostics_enabled = true;
     constrained.exact_algebra.max_polynomial_terms = 4;
     assert!(matches!(
         program.reduce_guarded_root(&key(5), &mut cache, constrained, None),

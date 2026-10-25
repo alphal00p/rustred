@@ -115,6 +115,7 @@ fn partial_candidate_factor_cannot_enter_a_complete_product_result() {
         family.clone(),
         vec![(key(4), c.one())],
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 0,
             ..Default::default()
         },
@@ -131,6 +132,7 @@ fn candidate_batch_reuses_guarded_subtrees_and_reports_only_actual_work() {
         family.clone(),
         vec![(key(4), c.one()), (key(5), c.one())],
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 4,
             ..Default::default()
         },
@@ -185,18 +187,22 @@ fn candidate_batch_clears_partial_native_cache_on_missing_rule_and_budget_errors
     assert_eq!(reducer.statistics().cached_coefficient_bytes(), 0);
     for limits in [
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 3,
             ..Default::default()
         },
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_coefficient_terms: 0,
             ..Default::default()
         },
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_coefficient_bytes: 0,
             ..Default::default()
         },
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_integrals: 5,
             ..Default::default()
         },
@@ -235,6 +241,7 @@ fn existing_guarded_candidate_rechecks_inclusive_warm_cache_against_tightened_gr
             .reduce_unit_mass_guarded(
                 &key(4),
                 ReductionLimits {
+                    diagnostics_enabled: true,
                     max_cached_coefficient_terms: before.cached_coefficient_terms() - 1,
                     ..Default::default()
                 }

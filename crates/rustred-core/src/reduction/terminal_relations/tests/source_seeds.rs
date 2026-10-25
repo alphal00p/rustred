@@ -189,6 +189,7 @@ fn source_seed_limits_and_invalid_arity_are_atomic_and_zero_promotions_are_noop(
         BTreeSet::from([key(1)]),
         0,
         TerminalRelationLimits {
+            diagnostics_enabled: true,
             max_seeds: 2,
             ..Default::default()
         },
