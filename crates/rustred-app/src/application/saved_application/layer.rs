@@ -319,8 +319,7 @@ impl SavedApplicationLayer {
                     })?;
                     let coefficient = table
                         .coefficient(
-                            CoefficientId::try_from_index(*id as usize)
-                                .map_err(native_failure)?,
+                            CoefficientId::try_from_index(*id as usize).map_err(native_failure)?,
                         )
                         .map_err(native_failure)?
                         .clone();
@@ -409,7 +408,11 @@ impl SavedApplicationLayer {
                     coefficient: id(coefficient)?,
                 });
             }
-            let conditions = row.conditions.iter().map(&mut id).collect::<Result<_, _>>()?;
+            let conditions = row
+                .conditions
+                .iter()
+                .map(&mut id)
+                .collect::<Result<_, _>>()?;
             rows.push(RowWire {
                 source: row.source.powers().to_vec(),
                 terms,
@@ -466,10 +469,8 @@ fn decode_table(
         return Err(AppError::input("invalid layer coefficient table magic"));
     }
     let payload = &bytes[SAVED_APPLICATION_LAYER_TABLE_MAGIC.len()..];
-    let (record, consumed): (TableRecord, usize) = super::super::candidate_bundle::decode_record(
-        payload,
-        binary_limits.max_program_bytes,
-    )?;
+    let (record, consumed): (TableRecord, usize) =
+        super::super::candidate_bundle::decode_record(payload, binary_limits.max_program_bytes)?;
     if consumed != payload.len() {
         return Err(AppError::input("trailing bytes in layer coefficient table"));
     }
@@ -503,7 +504,10 @@ pub fn saved_application_layer_base(
     let metadata = &report["metadata"];
     Ok(SavedApplicationLayerBase {
         terminal_maps_blake3: text(&report["terminal_maps"]["blake3"], "terminal_maps.blake3")?,
-        source_manifest_blake3: text(&metadata["source_manifest_blake3"], "source_manifest_blake3")?,
+        source_manifest_blake3: text(
+            &metadata["source_manifest_blake3"],
+            "source_manifest_blake3",
+        )?,
         source_scope_binding: text(&metadata["source_scope_binding"], "source_scope_binding")?,
         raw_terminals: metadata["raw_terminals"]
             .as_u64()
@@ -669,7 +673,9 @@ pub(super) fn bind_layer<'a>(
                 .validate_with_limits(condition, limits)
                 .map_err(native_failure)?;
             if condition.is_zero() {
-                return Err(AppError::input("layer row has an impossible zero condition"));
+                return Err(AppError::input(
+                    "layer row has an impossible zero condition",
+                ));
             }
         }
         let mut terms = BTreeMap::new();
@@ -726,8 +732,7 @@ pub(super) fn bind_layer<'a>(
     let mut unreduced = BTreeSet::new();
     for item in &layer.unreduced {
         let key = qualify(&IntegralKey::try_new(item.key.clone()).map_err(native_failure)?)?;
-        if !base.remaining.contains(&key) || sources.contains_key(&key) || !unreduced.insert(key)
-        {
+        if !base.remaining.contains(&key) || sources.contains_key(&key) || !unreduced.insert(key) {
             return Err(AppError::input(format!(
                 "layer unreduced entry {:?} is not a distinct remaining non-source terminal",
                 item.key

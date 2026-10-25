@@ -103,26 +103,30 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
     }
     let application = application.ok_or(ArgError::MissingRequiredOption("--application"))?;
     match sub.as_str() {
-        "compose-layer" => Ok(Command::SavedApplication(SavedApplicationArgs::ComposeLayer {
-            application,
-            layer: layer.ok_or(ArgError::MissingRequiredOption("--layer"))?,
-            out: out.ok_or(ArgError::MissingRequiredOption("--out"))?,
-            terminal_definitions,
-            terminal_definitions_out,
-            size_gate,
-            layered,
-            dry_run,
-            workers,
-            self_check_points,
-        })),
+        "compose-layer" => Ok(Command::SavedApplication(
+            SavedApplicationArgs::ComposeLayer {
+                application,
+                layer: layer.ok_or(ArgError::MissingRequiredOption("--layer"))?,
+                out: out.ok_or(ArgError::MissingRequiredOption("--out"))?,
+                terminal_definitions,
+                terminal_definitions_out,
+                size_gate,
+                layered,
+                dry_run,
+                workers,
+                self_check_points,
+            },
+        )),
         "layer-base" => Ok(Command::SavedApplication(SavedApplicationArgs::LayerBase {
             application,
         })),
-        "identity-layer" => Ok(Command::SavedApplication(SavedApplicationArgs::IdentityLayer {
-            application,
-            out: out.ok_or(ArgError::MissingRequiredOption("--out"))?,
-            workers,
-        })),
+        "identity-layer" => Ok(Command::SavedApplication(
+            SavedApplicationArgs::IdentityLayer {
+                application,
+                out: out.ok_or(ArgError::MissingRequiredOption("--out"))?,
+                workers,
+            },
+        )),
         _ => Err(ArgError::UnknownSubcommand {
             command: "saved-application",
             subcommand: sub,
@@ -136,8 +140,7 @@ pub(super) fn run(arguments: SavedApplicationArgs) -> Result<(), CliError> {
             let base = crate::saved_application_layer_base(&application)?;
             println!(
                 "{}",
-                serde_json::to_string_pretty(&base)
-                    .map_err(|e| CliError::Input(e.to_string()))?
+                serde_json::to_string_pretty(&base).map_err(|e| CliError::Input(e.to_string()))?
             );
             Ok(())
         }
@@ -186,7 +189,8 @@ pub(super) fn run(arguments: SavedApplicationArgs) -> Result<(), CliError> {
                     "saved application arity {arity} exceeds the supported 15"
                 )));
             }
-            let outcome = compose_saved_application_layer::<15>(&application, &layer, &out, &options)?;
+            let outcome =
+                compose_saved_application_layer::<15>(&application, &layer, &out, &options)?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&outcome.report)

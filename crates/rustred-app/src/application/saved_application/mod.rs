@@ -18,6 +18,9 @@ mod charts;
 mod codec;
 mod compose;
 mod layer;
+#[cfg(any(test, feature = "layer-test-support"))]
+#[doc(hidden)]
+pub mod layer_tests;
 #[cfg(test)]
 mod observation_tests;
 mod options;
@@ -27,9 +30,6 @@ mod progress;
 mod route_addon;
 mod running_cache;
 mod scope;
-#[cfg(any(test, feature = "layer-test-support"))]
-#[doc(hidden)]
-pub mod layer_tests;
 #[cfg(any(test, feature = "layer-test-support"))]
 #[doc(hidden)]
 pub mod tests;

@@ -64,9 +64,6 @@ pub use application::{
     OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
     owner_domain_walk_inventory,
 };
-#[cfg(feature = "layer-test-support")]
-#[doc(hidden)]
-pub use application::{saved_application_layer_tests, saved_application_unit_tests};
 pub use application::{
     PreparedSavedIntegralEquations, TerminalEquationReductionFailure,
     prepare_saved_integral_equations,
@@ -76,6 +73,9 @@ pub use application::{
     SavedRoutePreparation, SavedRoutePreparationSource, check_saved_application_route_addon,
     load_saved_application_with_route_addon, write_saved_application_route_addon,
 };
+#[cfg(feature = "layer-test-support")]
+#[doc(hidden)]
+pub use application::{saved_application_layer_tests, saved_application_unit_tests};
 /// Native family entry for embedded hosts; no source-text round trip.
 pub use rustred::family::IntegralFamily as NativeIntegralFamily;
 #[cfg(feature = "cli")]
