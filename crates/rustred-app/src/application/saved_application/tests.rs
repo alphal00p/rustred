@@ -82,6 +82,7 @@ fn maps_fixture() -> TerminalMaps {
             ),
         ]),
         remaining: BTreeSet::from([qualified(&family, 1)]),
+        layer: None,
     }
 }
 
@@ -417,7 +418,7 @@ fn thousands_of_overlapping_guards_keep_first_seen_order_on_warm_application() {
     }
 }
 
-fn prepared_fixture(source: &Path) -> PreparedSavedApplication<1> {
+pub(super) fn prepared_fixture(source: &Path) -> PreparedSavedApplication<1> {
     std::fs::create_dir_all(source.join("objects")).unwrap();
     let source_text = r#"
 schema="rustred.project.toml.v1"
@@ -475,6 +476,7 @@ powers=[1]
             },
         )]),
         remaining: BTreeSet::from([qualified(&family, 1)]),
+        layer: None,
     };
     let payloads =
         serde_json::from_value(json!([{"path":"objects/owner.rrbin","bytes":bytes.len(),
@@ -927,6 +929,7 @@ powers=[0,1,1]
             families: BTreeMap::from([(family.fingerprint().to_owned(), family)]),
             rows,
             remaining,
+            layer: None,
         },
         metadata,
         options,

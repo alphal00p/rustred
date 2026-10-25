@@ -72,6 +72,12 @@ pub use saved_application::{
     prepare_saved_application_with_policy, saved_application_arity,
     saved_application_arity_with_policy, saved_application_boundary_witnesses,
     saved_application_domains, saved_application_domains_with_policy,
+    SavedApplicationComposeOptions, SavedApplicationComposeOutcome, SavedApplicationLayer,
+    SavedApplicationLayerBase, SavedApplicationLayerClassCount, SavedApplicationLayerComposition,
+    SavedApplicationLayerDigest, SavedApplicationLayerMaster, SavedApplicationLayerMinimality,
+    SavedApplicationLayerRow, SavedApplicationLayerUnreduced, SAVED_APPLICATION_LAYER_SCHEMA,
+    SAVED_APPLICATION_LAYER_TABLE_MAGIC, compose_saved_application_layer, layer_minimality_claim,
+    parse_layer_coefficient, saved_application_identity_layer, saved_application_layer_base,
 };
 
 pub(crate) use routed_campaign::{

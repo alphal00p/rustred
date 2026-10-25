@@ -180,6 +180,7 @@ pub(crate) enum Command {
     WalkMasterReduce(super::master_reduction::MasterArgs),
     MasterInspect(super::master_reduction::MasterInspectArgs),
     ArtifactInspect(super::artifact_inspect::InspectArgs),
+    SavedApplication(super::saved_application::SavedApplicationArgs),
     FoundryCampaignRun(FoundryCampaignRunArgs),
     FoundryWaveCampaignRun(FoundryWaveCampaignRunArgs),
     Help,
@@ -305,6 +306,7 @@ pub(crate) fn parse_args(
         "walk-publish" => super::master_reduction::parse_publish(arguments),
         "master-inspect" => super::master_reduction::parse_inspect(arguments),
         "artifact-inspect" => super::artifact_inspect::parse(arguments),
+        "saved-application" => super::saved_application::parse(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
 }
@@ -407,6 +409,9 @@ USAGE:
     rustred walk-master-reduce --command WALK_ARGV.json --checkpoint DIR --directory DIR [--resume | --previous-artifact DIR] [--seed-depth N] [--threads N] [--events PATH] [--stop-file PATH] [--checkpoint-interval-seconds N]
     rustred master-inspect --artifact DIR [--finite-policy POLICY.json] [--format auto|table|json]
     rustred artifact-inspect (--campaign-directory DIR | --artifact DIR) [--finite-policy POLICY.json] [--format auto|table|json] [--threads N]
+    rustred saved-application compose-layer --application IBPS_DIR --layer LAYER(.json|DIR) --out NEW_DIR [--terminal-definitions FILE] [--terminal-definitions-out FILE] [--size-gate RATIO (default 2)] [--layered] [--dry-run] [--workers N] [--self-check-points N]
+    rustred saved-application layer-base --application IBPS_DIR
+    rustred saved-application identity-layer --application IBPS_DIR --out NEW_LAYER_DIR [--workers N]
     rustred walk-publish --command WALK_ARGV.json --checkpoint DIR --directory OUTPUT [--resume] [--previous-artifact DIR] [--deep-verification | --no-deep-verification] [--threads N] [--events FILE] [--stop-file FILE]
     rustred walk-master-reduce --artifact SOURCE --directory OUTPUT [--finite-policy POLICY.json] [--resume] [--fresh-search] [--refinement-strategy exact|modular-circuits] [--modular-policy POLICY.json] [--seed-depth N] [--containing-sector-depth N] [--saved-rule-assistance] [--circuit-symmetry-assistance] [--numerator-symmetry-assistance] [--sector-symmetry-assistance [--sector-symmetry-policy generators|polynomial-orbits] [--sector-symmetry-saved-projection | --no-sector-symmetry-saved-projection] [--selective-symmetry-feedback]] [--local-dimensional-recurrence-assistance] [--finite-feedback | --no-finite-feedback] [--normalization-profile conservative|standard] [--max-relation-columns N (0: unlimited; omitted: saved/default)] [--collection-artifact PEER (repeatable)] [--threads N] [--events FILE] [--stop-file FILE]
     rustred walk-finalize-refinement --refinement STOPPED_PHASE --directory OUTPUT [--recover-interrupted] [--finite-policy POLICY.json] [--resume] [--threads N] [--events FILE] [--stop-file FILE]
