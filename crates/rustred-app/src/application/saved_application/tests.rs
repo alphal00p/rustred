@@ -82,6 +82,7 @@ fn maps_fixture() -> TerminalMaps {
             ),
         ]),
         remaining: BTreeSet::from([qualified(&family, 1)]),
+        layer: None,
     }
 }
 
@@ -1120,6 +1121,7 @@ powers=[1]
             },
         )]),
         remaining: BTreeSet::from([qualified(&family, 1)]),
+        layer: None,
     };
     let payloads =
         serde_json::from_value(json!([{"path":"objects/owner.rrbin","bytes":bytes.len(),
@@ -1573,6 +1575,7 @@ powers=[0,1,1]
             families: BTreeMap::from([(family.fingerprint().to_owned(), family)]),
             rows,
             remaining,
+            layer: None,
         },
         metadata,
     )

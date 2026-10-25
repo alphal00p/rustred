@@ -16,6 +16,8 @@ pub use cache_file::{
 };
 mod charts;
 mod codec;
+mod compose;
+mod layer;
 #[cfg(test)]
 mod observation_tests;
 mod options;
@@ -25,6 +27,8 @@ mod progress;
 mod route_addon;
 mod running_cache;
 mod scope;
+#[cfg(test)]
+mod layer_tests;
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -58,6 +62,17 @@ pub use cache_pack::{
     SavedApplicationCachePackStatistics, SavedApplicationCacheWriter,
 };
 pub use charts::SavedApplicationProductChartStatistics;
+pub use compose::{
+    SavedApplicationComposeOptions, SavedApplicationComposeOutcome,
+    compose_saved_application_layer, saved_application_identity_layer,
+};
+pub use layer::{
+    SAVED_APPLICATION_LAYER_SCHEMA, SAVED_APPLICATION_LAYER_TABLE_MAGIC, SavedApplicationLayer,
+    SavedApplicationLayerBase, SavedApplicationLayerClassCount, SavedApplicationLayerComposition,
+    SavedApplicationLayerDigest, SavedApplicationLayerMaster, SavedApplicationLayerMinimality,
+    SavedApplicationLayerRow, SavedApplicationLayerUnreduced, layer_minimality_claim,
+    parse_layer_coefficient, saved_application_layer_base,
+};
 pub use options::{SavedApplicationEntryCoveragePolicy, SavedApplicationOptions};
 pub use package::{
     export_saved_application, export_saved_application_with_policy, load_saved_application,
@@ -181,7 +196,18 @@ struct TerminalRow {
 struct TerminalMaps {
     families: BTreeMap<String, Arc<IntegralFamily>>,
     rows: BTreeMap<SavedApplicationIntegral, TerminalRow>,
+    /// Output terminals. For a layered package this is the composed set.
     remaining: BTreeSet<SavedApplicationIntegral>,
+    /// RR-11 `--layered` packages: a final exact substitution of base
+    /// terminals by layer masters, applied after `rows`.
+    layer: Option<TerminalLayer>,
+}
+
+/// Layer rows of a layered package (RR-11 design §4). Base `rows` map onto
+/// `base_remaining`; every layer row maps one base terminal onto `remaining`.
+struct TerminalLayer {
+    rows: BTreeMap<SavedApplicationIntegral, TerminalRow>,
+    base_remaining: BTreeSet<SavedApplicationIntegral>,
 }
 
 impl TerminalMaps {
@@ -217,6 +243,7 @@ impl TerminalMaps {
             families,
             rows,
             remaining: collection.remaining_terminals().iter().map(key).collect(),
+            layer: None,
         })
     }
 
@@ -248,11 +275,62 @@ impl TerminalMaps {
             check_key(key)?;
         }
         let mut validated_conditions = HashSet::new();
+        let base_remaining = self
+            .layer
+            .as_ref()
+            .map_or(&self.remaining, |layer| &layer.base_remaining);
+        if let Some(layer) = &self.layer {
+            for key in &layer.base_remaining {
+                check_key(key)?;
+            }
+            for (source, row) in &layer.rows {
+                if !layer.base_remaining.contains(source) {
+                    return Err(AppError::input(
+                        "terminal layer source is not a base remaining terminal",
+                    ));
+                }
+                for (output, coefficient) in &row.terms {
+                    if !self.remaining.contains(output) || coefficient.is_zero() {
+                        return Err(AppError::input(
+                            "terminal layer row has a nonterminal or zero entry",
+                        ));
+                    }
+                    first
+                        .coefficient_context()
+                        .validate_with_limits(coefficient, options.reduction_limits.exact_algebra)
+                        .map_err(native_failure)?;
+                }
+                for condition in row.conditions.iter() {
+                    first
+                        .coefficient_context()
+                        .validate_with_limits(condition, options.reduction_limits.exact_algebra)
+                        .map_err(native_failure)?;
+                    if condition.is_zero() {
+                        return Err(AppError::input(
+                            "terminal layer has an impossible nonzero condition",
+                        ));
+                    }
+                }
+            }
+            let expected: BTreeSet<_> = layer
+                .base_remaining
+                .iter()
+                .filter(|key| !layer.rows.contains_key(*key))
+                .chain(layer.rows.values().flat_map(|row| row.terms.keys()))
+                .collect();
+            if expected.len() != self.remaining.len()
+                || !self.remaining.iter().all(|key| expected.contains(key))
+            {
+                return Err(AppError::input(
+                    "layered remaining terminals differ from the composed basis",
+                ));
+            }
+        }
         for (key, row) in &self.rows {
             check_key(key)?;
             for (output, coefficient) in &row.terms {
                 check_key(output)?;
-                if !self.remaining.contains(output) || coefficient.is_zero() {
+                if !base_remaining.contains(output) || coefficient.is_zero() {
                     return Err(AppError::input(
                         "terminal substitution has a nonterminal or zero entry",
                     ));
@@ -710,6 +788,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
                         "saved owner returned a terminal absent from the published substitutions",
                     ));
                 };
+                let mut expanded = Vec::new();
                 for (key, coefficient) in row_terms {
                     progress::check_cancellation(cancel)?;
                     let value = context
@@ -719,6 +798,40 @@ impl<const N: usize> PreparedSavedApplication<N> {
                             self.options.reduction_limits.exact_algebra,
                         )
                         .map_err(native_failure)?;
+                    if value.is_zero() {
+                        continue;
+                    }
+                    match self
+                        .terminals
+                        .layer
+                        .as_ref()
+                        .and_then(|layer| layer.rows.get(key))
+                    {
+                        None => expanded.push((key, value)),
+                        Some(layer_row) => {
+                            if seen_guard_vectors.insert(Arc::as_ptr(&layer_row.conditions)) {
+                                append_conditions(
+                                    &mut conditions,
+                                    &mut seen_conditions,
+                                    &layer_row.conditions,
+                                );
+                            }
+                            for (master, b) in &layer_row.terms {
+                                expanded.push((
+                                    master,
+                                    context
+                                        .try_mul(
+                                            &value,
+                                            b,
+                                            self.options.reduction_limits.exact_algebra,
+                                        )
+                                        .map_err(native_failure)?,
+                                ));
+                            }
+                        }
+                    }
+                }
+                for (key, value) in expanded {
                     if value.is_zero() {
                         continue;
                     }

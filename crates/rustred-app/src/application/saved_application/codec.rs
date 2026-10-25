@@ -22,14 +22,41 @@ struct Key {
     powers: Vec<i64>,
 }
 
+/// Encode the base maps. For a layered package these are the unchanged base
+/// rows over the base remaining terminals; see `encode_layer`.
 pub(super) fn encode(
     maps: &TerminalMaps,
     options: SavedApplicationOptions,
 ) -> Result<Vec<u8>, AppError> {
     maps.validate(options)?;
+    let remaining = maps
+        .layer
+        .as_ref()
+        .map_or(&maps.remaining, |layer| &layer.base_remaining);
+    encode_parts(&maps.families, &maps.rows, remaining, options)
+}
+
+/// Encode the layer rows of a layered package with the same codec: rows are
+/// keyed by base terminals and `remaining` is the composed basis.
+pub(super) fn encode_layer(
+    maps: &TerminalMaps,
+    options: SavedApplicationOptions,
+) -> Result<Option<Vec<u8>>, AppError> {
+    maps.validate(options)?;
+    maps.layer
+        .as_ref()
+        .map(|layer| encode_parts(&maps.families, &layer.rows, &maps.remaining, options))
+        .transpose()
+}
+
+fn encode_parts(
+    maps_families: &BTreeMap<String, Arc<rustred::family::IntegralFamily>>,
+    maps_rows: &BTreeMap<SavedApplicationIntegral, TerminalRow>,
+    maps_remaining: &BTreeSet<SavedApplicationIntegral>,
+    options: SavedApplicationOptions,
+) -> Result<Vec<u8>, AppError> {
     let mut table = CoefficientTableBuilder::new(options.binary_limits);
-    let families = maps
-        .families
+    let families = maps_families
         .iter()
         .map(|(fingerprint, family)| {
             Ok((
@@ -49,7 +76,7 @@ pub(super) fn encode(
     };
     let mut rows = Vec::new();
     let mut guard_ids = HashMap::<*const Vec<Coefficient>, Vec<u32>>::new();
-    for (source, row) in &maps.rows {
+    for (source, row) in maps_rows {
         let terms = row
             .terms
             .iter()
@@ -79,7 +106,7 @@ pub(super) fn encode(
         };
         rows.push((key(source), terms, conditions));
     }
-    let remaining = maps.remaining.iter().map(key).collect();
+    let remaining = maps_remaining.iter().map(key).collect();
     let encoded = table.finish().map_err(native_failure)?;
     let record = Record {
         families,
@@ -217,6 +244,7 @@ pub(super) fn decode(
         families,
         rows,
         remaining,
+        layer: None,
     };
     maps.validate(options)?;
     Ok(maps)

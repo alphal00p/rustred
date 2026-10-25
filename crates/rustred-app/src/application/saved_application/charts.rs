@@ -210,6 +210,7 @@ mod tests {
                 .collect(),
             families: BTreeMap::from([(family.fingerprint().to_owned(), family)]),
             remaining,
+            layer: None,
         }
     }
 
