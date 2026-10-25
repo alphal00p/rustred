@@ -170,6 +170,7 @@ fn support_preparation_is_reused_and_search_limits_fail_explicitly() {
             &family,
             &targets,
             VacuumProductLimits {
+                diagnostics_enabled: true,
                 max_canonical_candidates: 0,
                 ..Default::default()
             }

@@ -130,6 +130,7 @@ fn partial_candidate_keeps_arity_source_and_work_failures() {
         ))
     ));
     let limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_rule_applications: 0,
         ..Default::default()
     };

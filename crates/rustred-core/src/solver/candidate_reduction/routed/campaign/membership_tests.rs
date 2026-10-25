@@ -57,10 +57,12 @@ fn membership_preprobe_racing_new_keys_cannot_overbook_global_limits() {
     for pending in [false, true] {
         let reducer = fixture(
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_pending_frames: if pending { 1 } else { 10 },
                 ..Default::default()
             },
             super::super::super::RoutedCandidateLimits {
+                diagnostics_enabled: true,
                 max_unique_nodes: if pending { 10 } else { 1 },
                 ..Default::default()
             },
@@ -175,10 +177,12 @@ fn membership_preprobe_known_unknown_cap_failure_keeps_exact_prefix() {
     for pending in [false, true] {
         let reducer = fixture(
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_pending_frames: if pending { 5 } else { 100 },
                 ..Default::default()
             },
             super::super::super::RoutedCandidateLimits {
+                diagnostics_enabled: true,
                 max_unique_nodes: if pending { 100 } else { 5 },
                 ..Default::default()
             },
@@ -601,6 +605,7 @@ mod resident_preprobe_differential {
             let reducer = fixture(
                 Default::default(),
                 super::super::super::super::RoutedCandidateLimits {
+                    diagnostics_enabled: true,
                     max_unique_nodes: if case == "cap" { 3 } else { 100 },
                     ..Default::default()
                 },

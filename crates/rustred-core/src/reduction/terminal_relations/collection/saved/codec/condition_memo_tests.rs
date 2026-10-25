@@ -192,14 +192,17 @@ fn memoized_collection_matches_uncached_limit_failures_and_cold_roundtrip() {
             ..io
         },
         BinaryIoLimits {
+            diagnostics_enabled: true,
             max_atom_bytes: 0,
             ..io
         },
         BinaryIoLimits {
+            diagnostics_enabled: true,
             max_total_atom_bytes: 0,
             ..io
         },
         BinaryIoLimits {
+            diagnostics_enabled: true,
             max_program_bytes: structural_bytes - 1,
             ..io
         },

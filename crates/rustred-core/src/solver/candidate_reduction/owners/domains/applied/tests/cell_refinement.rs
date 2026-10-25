@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering;
 
 fn refined(max: usize) -> OwnerAppliedLimits {
     OwnerAppliedLimits {
+        diagnostics_enabled: true,
         cell_refinement: OwnerAppliedCellRefinement::SingleFiniteAxis {
             max_cardinality: NonZeroUsize::new(max).unwrap(),
         },

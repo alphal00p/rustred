@@ -206,6 +206,7 @@ fn retained_relation_binding_maps_and_guards_survive_cold_roundtrip() {
     restored.validate_retained_relations(&fresh).unwrap();
 
     let tight = BinaryIoLimits {
+        diagnostics_enabled: true,
         max_collection_entries: "cold-binding".len() - 1,
         ..Default::default()
     };

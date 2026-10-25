@@ -28,6 +28,7 @@ fn resolve_in(
 ) -> Result<Resolution, OwnerDomainMatchFailure> {
     let mut budget = Budget {
         limits: super::super::model::OwnerDomainMatchLimits {
+            diagnostics_enabled: true,
             guard_algebra: limits,
             ..Default::default()
         },
