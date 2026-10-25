@@ -19,6 +19,8 @@ pub(crate) enum SavedApplicationArgs {
         consumer_limits: String,
         fill_unreduced: bool,
         minimality_reference: Option<PathBuf>,
+        minimality_reference_reviewed: bool,
+        check_values_out: Option<PathBuf>,
         layered: bool,
         dry_run: bool,
         workers: usize,
@@ -52,6 +54,8 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
     let mut consumer_limits = String::from("vakint-pin-52c74636");
     let mut fill_unreduced = false;
     let mut minimality_reference = None;
+    let mut minimality_reference_reviewed = false;
+    let mut check_values_out = None;
     let mut layered = false;
     let mut dry_run = false;
     let mut workers = 1;
@@ -68,6 +72,10 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--consumer-limits" if sub == "compose-layer" => "--consumer-limits",
             "--fill-unreduced" if sub == "compose-layer" => "--fill-unreduced",
             "--minimality-reference" if sub == "compose-layer" => "--minimality-reference",
+            "--minimality-reference-reviewed" if sub == "compose-layer" => {
+                "--minimality-reference-reviewed"
+            }
+            "--check-values-out" if sub == "compose-layer" => "--check-values-out",
             "--layered" if sub == "compose-layer" => "--layered",
             "--dry-run" if sub == "compose-layer" => "--dry-run",
             "--workers" if sub == "compose-layer" || sub == "identity-layer" => "--workers",
@@ -114,6 +122,10 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--minimality-reference" => {
                 minimality_reference = Some(PathBuf::from(next_value(&mut args, option)?))
             }
+            "--minimality-reference-reviewed" => minimality_reference_reviewed = true,
+            "--check-values-out" => {
+                check_values_out = Some(PathBuf::from(next_value(&mut args, option)?))
+            }
             "--layered" => layered = true,
             "--dry-run" => dry_run = true,
             "--workers" => {
@@ -138,6 +150,8 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
                 consumer_limits,
                 fill_unreduced,
                 minimality_reference,
+                minimality_reference_reviewed,
+                check_values_out,
                 layered,
                 dry_run,
                 workers,
@@ -198,6 +212,8 @@ pub(super) fn run(arguments: SavedApplicationArgs) -> Result<(), CliError> {
             consumer_limits,
             fill_unreduced,
             minimality_reference,
+            minimality_reference_reviewed,
+            check_values_out,
             layered,
             dry_run,
             workers,
@@ -209,6 +225,8 @@ pub(super) fn run(arguments: SavedApplicationArgs) -> Result<(), CliError> {
                     .ok_or_else(|| CliError::Input("unknown consumer limits".into()))?,
                 fill_unreduced,
                 minimality_reference,
+                minimality_reference_reviewed,
+                check_values_out,
                 allow_layered: layered,
                 dry_run,
                 self_check_points,

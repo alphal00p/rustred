@@ -67,9 +67,9 @@ pub use layer::{
     SAVED_APPLICATION_LAYER_SCHEMA, SAVED_APPLICATION_LAYER_TABLE_MAGIC, SavedApplicationLayer,
     SavedApplicationLayerBase, SavedApplicationLayerClassCount, SavedApplicationLayerComposition,
     SavedApplicationLayerDigest, SavedApplicationLayerMaster, SavedApplicationLayerMinimality,
-    SavedApplicationLayerRow, SavedApplicationLayerUnreduced, SavedApplicationMinimalityScope,
-    SavedApplicationRuleProvenance, layer_minimality_claim, parse_layer_coefficient,
-    saved_application_layer_base,
+    SavedApplicationLayerRow, SavedApplicationLayerUnreduced, SavedApplicationMinimalityReference,
+    SavedApplicationMinimalityScope, SavedApplicationRuleProvenance, layer_minimality_claim,
+    parse_layer_coefficient, saved_application_layer_base,
 };
 pub use options::{SavedApplicationEntryCoveragePolicy, SavedApplicationOptions};
 pub use package::{

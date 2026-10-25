@@ -409,7 +409,7 @@ USAGE:
     rustred walk-master-reduce --command WALK_ARGV.json --checkpoint DIR --directory DIR [--resume | --previous-artifact DIR] [--seed-depth N] [--threads N] [--events PATH] [--stop-file PATH] [--checkpoint-interval-seconds N]
     rustred master-inspect --artifact DIR [--finite-policy POLICY.json] [--format auto|table|json]
     rustred artifact-inspect (--campaign-directory DIR | --artifact DIR) [--finite-policy POLICY.json] [--format auto|table|json] [--threads N]
-    rustred saved-application compose-layer --application IBPS_DIR --layer LAYER(.json|DIR) --out NEW_DIR [--terminal-definitions FILE] [--terminal-definitions-out FILE] [--size-gate RATIO (default 2)] [--consumer-limits vakint-pin-52c74636|none (default vakint-pin-52c74636)] [--fill-unreduced] [--minimality-reference FILE] [--layered] [--dry-run] [--workers N] [--self-check-points N]
+    rustred saved-application compose-layer --application IBPS_DIR --layer LAYER(.json|DIR) --out NEW_DIR [--terminal-definitions FILE] [--terminal-definitions-out FILE] [--size-gate RATIO (default 2)] [--consumer-limits vakint-pin-52c74636|none (default vakint-pin-52c74636)] [--fill-unreduced] [--minimality-reference FILE] [--minimality-reference-reviewed] [--check-values-out FILE] [--layered] [--dry-run] [--workers N] [--self-check-points N]
     rustred saved-application layer-base --application IBPS_DIR
     rustred saved-application identity-layer --application IBPS_DIR --out NEW_LAYER_DIR [--workers N]
     rustred walk-publish --command WALK_ARGV.json --checkpoint DIR --directory OUTPUT [--resume] [--previous-artifact DIR] [--deep-verification | --no-deep-verification] [--threads N] [--events FILE] [--stop-file FILE]

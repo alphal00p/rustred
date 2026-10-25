@@ -220,6 +220,7 @@ fn row(
             .collect(),
         conditions: conditions.iter().map(|t| c(family, t)).collect(),
         provenance: SavedApplicationRuleProvenance::SyntheticTest,
+        verification: None,
     }
 }
 
@@ -629,6 +630,27 @@ pub fn layer_files_roundtrip_with_native_table_and_text() {
     let mut unknown_row = stopgap;
     unknown_row["rows"][0]["provenance"] = json!("fire-fly");
     assert!(read_text(&unknown_row).is_err());
+    // Verification levels: optional per row, counted, kept by the native writer;
+    // control characters, blanks and long tokens are refused.
+    let mut verified = text.clone();
+    verified["rows"][0]["verification"] = json!("ii+i");
+    verified["rows"][1]["verification"] = json!("ii (i pending: not run)");
+    let (read, _) = read_text(&verified).unwrap();
+    assert_eq!(read.rows[0].verification.as_deref(), Some("ii+i"));
+    assert_eq!(read.verification_counts()["ii+i"], 1);
+    assert_eq!(read.verification_counts()["ii (i pending: not run)"], 1);
+    assert_eq!(layer.verification_counts()["unstated"], 2);
+    let native = directory.join("verified-native");
+    read.write(&native, Default::default()).unwrap();
+    let (reread, _) =
+        SavedApplicationLayer::read(&native, &family, Default::default(), Default::default())
+            .unwrap();
+    assert_eq!(reread.rows, read.rows);
+    for bad in ["", "  ", "ii\n", "x".repeat(97).as_str(), "ii{i}"] {
+        let mut malformed = text.clone();
+        malformed["rows"][0]["verification"] = json!(bad);
+        assert!(read_text(&malformed).is_err(), "{bad:?}");
+    }
     std::fs::write(&text_path, serde_json::to_vec(&text).unwrap()).unwrap();
     // Tampered table bytes or an unknown field are refused.
     let table = directory.join("layer.rrbin");
@@ -649,58 +671,141 @@ pub fn layer_files_roundtrip_with_native_table_and_text() {
     );
 }
 
+const REFERENCE_SCHEMA: &str = "refine-5l.expected-counts.v1";
+
+fn reference(classes: &[(u64, bool, f64)]) -> SavedApplicationMinimalityReference {
+    let classes: Vec<Value> = classes
+        .iter()
+        .map(|(rep, factorized, estimate)| {
+            json!({"class_rep": rep, "tide_factorized": factorized,
+                   "symmetry_reduced_estimate": estimate, "status": "test"})
+        })
+        .collect();
+    SavedApplicationMinimalityReference::parse(
+        &serde_json::to_vec(&json!({"schema": REFERENCE_SCHEMA, "classes": classes})).unwrap(),
+    )
+    .unwrap()
+}
+
 #[cfg_attr(test, test)]
 pub fn minimality_claim_requires_complete_matching_class_counts() {
     let family = family();
+    // Masters 1 and 7, both in class 1.
     let mut layer = layer(&family);
     let complete = SavedApplicationMinimalityScope {
         unreduced: 0,
         factorized: 2,
         reference_verified: true,
+        reference: Some(reference(&[(1, false, 2.0), (4, true, 1.0)])),
+        reference_reviewed: true,
     };
-    assert!(!layer_minimality_claim(&layer, &complete).0);
-    let classes = |counts: &[(u64, u64)]| {
-        counts
-            .iter()
-            .enumerate()
-            .map(|(i, (m, e))| SavedApplicationLayerClassCount {
-                class: json!(i),
-                masters: *m,
-                expected: *e,
-                sources: None,
-            })
-            .collect::<Vec<_>>()
+    let claim = |layer: &SavedApplicationLayer, scope: &SavedApplicationMinimalityScope| {
+        layer_minimality_claim(layer, scope)
     };
+    assert!(!claim(&layer, &complete).0);
     layer.minimality = Some(SavedApplicationLayerMinimality {
         reference: "expected-counts.json".into(),
         reference_blake3: Some("ab".repeat(32)),
         reference_classes: 1,
-        classes: classes(&[(2, 2)]),
+        classes: vec![],
     });
-    let (claim, scope) = layer_minimality_claim(&layer, &complete);
-    assert!(claim);
-    assert!(scope.contains("2 factorized terminals"), "{scope}");
-    // Unreduced base terminals (declared or filled), or an unverified
-    // reference, forbid the claim whatever the layer states.
-    let partial = SavedApplicationMinimalityScope {
-        unreduced: 1,
+    let (ok, scope) = claim(&layer, &complete);
+    assert!(ok, "{scope}");
+    assert!(scope.contains("2 factorized base terminals"), "{scope}");
+    // Not reviewed: withheld even though everything agrees.
+    let unreviewed = SavedApplicationMinimalityScope {
+        reference_reviewed: false,
         ..complete.clone()
     };
-    assert!(!layer_minimality_claim(&layer, &partial).0);
-    let unverified = SavedApplicationMinimalityScope {
-        reference_verified: false,
+    let (ok, scope) = claim(&layer, &unreviewed);
+    assert!(!ok && scope.contains("withheld"), "{scope}");
+    // Unreduced base terminals, an unverified or unparsed reference.
+    for scope in [
+        SavedApplicationMinimalityScope {
+            unreduced: 1,
+            ..complete.clone()
+        },
+        SavedApplicationMinimalityScope {
+            reference_verified: false,
+            ..complete.clone()
+        },
+        SavedApplicationMinimalityScope {
+            reference: None,
+            ..complete.clone()
+        },
+    ] {
+        assert!(!claim(&layer, &scope).0);
+    }
+    // Expected counts come from the reference, never from the layer: the
+    // layer's own declaration cannot make 2 masters match a reference of 3.
+    let three = SavedApplicationMinimalityScope {
+        reference: Some(reference(&[(1, false, 3.0), (4, true, 1.0)])),
         ..complete.clone()
     };
-    assert!(!layer_minimality_claim(&layer, &unverified).0);
-    // A deviating class, a missing class, or class counts not summing to the masters.
-    layer.minimality.as_mut().unwrap().classes = classes(&[(2, 1)]);
-    assert!(!layer_minimality_claim(&layer, &complete).0);
+    layer.minimality.as_mut().unwrap().classes = vec![SavedApplicationLayerClassCount {
+        class: json!(1),
+        masters: 3,
+        expected: 3,
+        sources: None,
+    }];
+    assert!(!claim(&layer, &three).0);
+    assert!(
+        !claim(&layer, &complete).0,
+        "declared counts disagree with computed"
+    );
+    layer.minimality.as_mut().unwrap().classes[0].masters = 2;
+    layer.minimality.as_mut().unwrap().classes[0].expected = 2;
+    assert!(claim(&layer, &complete).0);
+    // Reference classes the layer does not cover, a non-integral estimate,
+    // a wrong declared class total.
+    let wider = SavedApplicationMinimalityScope {
+        reference: Some(reference(&[(1, false, 2.0), (2, false, 1.0)])),
+        ..complete.clone()
+    };
+    assert!(!claim(&layer, &wider).0);
+    let fractional = SavedApplicationMinimalityScope {
+        reference: Some(reference(&[(1, false, 2.0), (3, false, 0.5)])),
+        ..complete.clone()
+    };
+    assert!(!claim(&layer, &fractional).0);
     layer.minimality.as_mut().unwrap().reference_classes = 2;
-    layer.minimality.as_mut().unwrap().classes = classes(&[(2, 2)]);
-    assert!(!layer_minimality_claim(&layer, &complete).0);
+    assert!(!claim(&layer, &complete).0);
     layer.minimality.as_mut().unwrap().reference_classes = 1;
-    layer.minimality.as_mut().unwrap().classes = classes(&[(3, 3)]);
-    assert!(!layer_minimality_claim(&layer, &complete).0);
+    // Every master needs an integer class listed by the reference; masters in
+    // factorized classes are excluded from the count.
+    layer.masters[0].class = None;
+    assert!(!claim(&layer, &complete).0);
+    layer.masters[0].class = Some(json!(99));
+    assert!(!claim(&layer, &complete).0);
+    layer.masters[0].class = Some(json!(4));
+    assert!(!claim(&layer, &complete).0);
+    layer.masters[0].class = Some(json!("1"));
+    assert!(claim(&layer, &complete).0);
+    // Malformed references are refused.
+    for bad in [
+        json!({"schema": "other", "classes": []}),
+        json!({"schema": REFERENCE_SCHEMA}),
+        json!({"schema": REFERENCE_SCHEMA, "classes": [{"class_rep": 1}]}),
+        json!({"schema": REFERENCE_SCHEMA, "classes": [
+            {"class_rep": 1, "tide_factorized": false, "symmetry_reduced_estimate": 1.0},
+            {"class_rep": 1, "tide_factorized": false, "symmetry_reduced_estimate": 1.0}]}),
+    ] {
+        assert!(
+            SavedApplicationMinimalityReference::parse(&serde_json::to_vec(&bad).unwrap()).is_err()
+        );
+    }
+}
+
+fn modular_inverse(value: u128, prime: u128) -> u128 {
+    let (mut result, mut base, mut exponent) = (1u128, value % prime, prime - 2);
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            result = result * base % prime;
+        }
+        base = base * base % prime;
+        exponent >>= 1;
+    }
+    result
 }
 
 /// Package-level: export a base runtime, compose a text layer through the
@@ -745,6 +850,10 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
     )
     .unwrap();
     let base = saved_application_layer_base(&base_dir).unwrap();
+    let reference_bytes = serde_json::to_vec(&json!({"schema": REFERENCE_SCHEMA, "classes": [
+        {"class_rep": 5, "tide_factorized": false, "symmetry_reduced_estimate": 1.0},
+        {"class_rep": 9, "tide_factorized": true, "symmetry_reduced_estimate": 2.0}]}))
+    .unwrap();
     let layer = json!({
         "schema": SAVED_APPLICATION_LAYER_SCHEMA,
         "family_fingerprint": family.fingerprint(),
@@ -752,14 +861,14 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
         "base": base,
         "rows": [{"source": [1], "terms": [{"master": [2], "coefficient": "2/(d-2)"}],
                   "conditions": ["d-2"]}],
-        "masters": [{"key": [2], "class": "tadpole", "origin": "engine"}],
+        "masters": [{"key": [2], "class": 5, "origin": "engine"}],
         "minimality": {"reference": "synthetic", "reference_classes": 1,
-                       "reference_blake3": blake3::hash(b"reference counts").to_hex().to_string(),
-                       "classes": [{"class": "tadpole", "masters": 1, "expected": 1}]},
+                       "reference_blake3": blake3::hash(&reference_bytes).to_hex().to_string(),
+                       "classes": [{"class": 5, "masters": 1, "expected": 1}]},
         "provenance": {"kind": "synthetic-test", "engine": "synthetic"}
     });
     let reference = scratch.0.join("expected-counts.json");
-    std::fs::write(&reference, b"reference counts").unwrap();
+    std::fs::write(&reference, &reference_bytes).unwrap();
     let layer_path = scratch.0.join("layer.json");
     std::fs::write(&layer_path, serde_json::to_vec(&layer).unwrap()).unwrap();
     let factor = context
@@ -801,11 +910,70 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
     .err()
     .unwrap();
     assert!(error.to_string().contains("reference"), "{error}");
+    // The right reference without the reviewed flag: counts agree, claim
+    // withheld. The check values let an outside checker redo the layer row.
+    let check_values = scratch.0.join("check-values.json");
+    let unreviewed = compose_saved_application_layer::<1>(
+        &base_dir,
+        &layer_path,
+        &scratch.0.join("unreviewed"),
+        &SavedApplicationComposeOptions {
+            dry_run: true,
+            minimality_reference: Some(reference.clone()),
+            check_values_out: Some(check_values.clone()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(unreviewed.report["minimality_claim"], false);
+    let scope = unreviewed.report["minimality_scope"].as_str().unwrap();
+    assert!(scope.contains("withheld"), "{scope}");
+    let values: Value = serde_json::from_slice(&std::fs::read(&check_values).unwrap()).unwrap();
+    let prime: u128 = values["prime"].as_str().unwrap().parse().unwrap();
+    let d: u128 = values["point"][0].as_str().unwrap().parse().unwrap();
+    assert_eq!(values["layer_rows"].as_array().unwrap().len(), 1);
+    assert_eq!(values["layer_rows"][0]["source"], json!([1]));
+    let row_value: u128 = values["layer_rows"][0]["terms"][0][1]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(
+        row_value,
+        2 * modular_inverse((d + prime - 2) % prime, prime) % prime
+    );
+    assert_eq!(values["layer_blake3"], unreviewed.report["layer_blake3"]);
+    assert!(
+        values["touched_rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t["source_terms"].as_u64() > Some(0))
+    );
+    assert_eq!(
+        values["base_rows"].as_array().unwrap().len(),
+        values["composed_rows"].as_array().unwrap().len()
+    );
+    // A check-values file is never replaced.
+    assert!(
+        compose_saved_application_layer::<1>(
+            &base_dir,
+            &layer_path,
+            &scratch.0.join("unreviewed"),
+            &SavedApplicationComposeOptions {
+                dry_run: true,
+                check_values_out: Some(check_values.clone()),
+                ..Default::default()
+            },
+        )
+        .is_err()
+    );
 
     // Composed package (gate passes); the loader's worker count is not recorded.
     let out = scratch.0.join("composed");
     let mut options = SavedApplicationComposeOptions {
         minimality_reference: Some(reference.clone()),
+        minimality_reference_reviewed: true,
         ..Default::default()
     };
     options.application.preparation_workers = 3;

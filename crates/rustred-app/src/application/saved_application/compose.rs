@@ -121,8 +121,17 @@ pub struct SavedApplicationComposeOptions {
     /// Record base terminals the layer is silent about as unreduced instead
     /// of refusing the layer.
     pub fill_unreduced: bool,
-    /// The minimality reference file, checked against `reference_blake3`.
+    /// The minimality reference file, checked against `reference_blake3`
+    /// and parsed (`refine-5l.expected-counts.v1`): expected per-class counts
+    /// come from it.
     pub minimality_reference: Option<PathBuf>,
+    /// The reference was independently reviewed; without this the
+    /// minimality claim is always withheld (false).
+    pub minimality_reference_reviewed: bool,
+    /// Write per-row values at one point mod p (base, parsed layer and
+    /// composed rows, plus the touched raw rows) for an external checker.
+    /// Written in every mode, dry-run included; never replaces a file.
+    pub check_values_out: Option<PathBuf>,
     /// Write a layered package when the size gate fails (needs a layer-aware loader).
     pub allow_layered: bool,
     /// Compute and report only; write nothing.
@@ -145,6 +154,8 @@ impl Default for SavedApplicationComposeOptions {
             consumer_limits: SavedApplicationConsumerLimits::VAKINT_PIN_52C74636,
             fill_unreduced: false,
             minimality_reference: None,
+            minimality_reference_reviewed: false,
+            check_values_out: None,
             allow_layered: false,
             dry_run: false,
             self_check_points: 3,
@@ -348,6 +359,29 @@ pub fn compose_saved_application_layer<const N: usize>(
         seed(&digest.layer_blake3),
     )?;
     let check_seconds = check_started.elapsed().as_secs_f64();
+    let check_values = match &options.check_values_out {
+        None => Value::Null,
+        Some(path) => {
+            if path.exists() {
+                return Err(AppError::input(format!(
+                    "{} already exists; check values never replace a file",
+                    path.display()
+                )));
+            }
+            let values = layer::composition_check_values(
+                &prepared.terminals,
+                &bound,
+                &composed,
+                seed(&digest.layer_blake3) ^ 0x5EED,
+            )?;
+            let mut values = values;
+            values["layer_blake3"] = json!(digest.layer_blake3);
+            let bytes = serde_json::to_vec(&values).map_err(native_failure)?;
+            write_file_atomically(path, &bytes, false).map_err(AppError::execution)?;
+            json!({"path": path, "blake3": blake3::hash(&bytes).to_hex().to_string(),
+                   "touched_rows": values["touched_rows"].as_array().map_or(0, Vec::len)})
+        }
+    };
 
     // Size gate on the decoded native maps: the ratio and the consumer limits.
     let encode_started = Instant::now();
@@ -377,10 +411,12 @@ pub fn compose_saved_application_layer<const N: usize>(
     };
 
     // Minimality, against the base and a content-bound reference.
+    let mut parsed_reference = None;
     let reference = match (&options.minimality_reference, layer.minimality.as_ref()) {
         (Some(path), minimality) => {
             let bytes =
                 fs::read(path).map_err(|e| AppError::input(format!("{}: {e}", path.display())))?;
+            parsed_reference = Some(layer::SavedApplicationMinimalityReference::parse(&bytes)?);
             let actual = blake3::hash(&bytes).to_hex().to_string();
             match minimality.and_then(|m| m.reference_blake3.as_ref()) {
                 Some(expected) if *expected == actual => {
@@ -402,6 +438,8 @@ pub fn compose_saved_application_layer<const N: usize>(
         unreduced: unreduced_nonfactorized,
         factorized: factorized.len(),
         reference_verified: reference["verified"] == true,
+        reference: parsed_reference,
+        reference_reviewed: options.minimality_reference_reviewed,
     };
     let (minimality_claim, minimality_scope) = layer_minimality_claim(&layer, &scope);
     let identical_rows = composed.rows == prepared.terminals.rows
@@ -427,6 +465,8 @@ pub fn compose_saved_application_layer<const N: usize>(
             "filled": filled_unreduced.len(),
         },
         "provenance_counts": provenance_counts,
+        "verification_counts": layer.verification_counts(),
+        "check_values": check_values,
         "authority": authority,
         "identical_to_base_rows": identical_rows,
         "identical_to_base_bytes": identical_bytes,
@@ -456,6 +496,7 @@ pub fn compose_saved_application_layer<const N: usize>(
         "minimality_claim": minimality_claim,
         "minimality_scope": minimality_scope,
         "minimality_reference": reference,
+        "minimality_reference_reviewed": options.minimality_reference_reviewed,
         "seconds": {
             "load": load_seconds, "products": product_seconds, "compose": compose_seconds,
             "self_check": check_seconds, "encode": encode_seconds,
@@ -892,6 +933,7 @@ pub fn saved_application_identity_layer<const N: usize>(
             terms: vec![(terminal.integral.clone(), one.clone())],
             conditions: vec![],
             provenance: SavedApplicationRuleProvenance::Identity,
+            verification: None,
         });
         masters.push(layer::SavedApplicationLayerMaster {
             key: terminal.integral.powers().to_vec(),

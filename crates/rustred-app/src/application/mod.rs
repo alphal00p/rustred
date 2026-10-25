@@ -73,7 +73,7 @@ pub use saved_application::{
     SavedApplicationLayer, SavedApplicationLayerBase, SavedApplicationLayerClassCount,
     SavedApplicationLayerComposition, SavedApplicationLayerDigest, SavedApplicationLayerMaster,
     SavedApplicationLayerMinimality, SavedApplicationLayerRow, SavedApplicationLayerUnreduced,
-    SavedApplicationMinimalityScope, SavedApplicationOptions,
+    SavedApplicationMinimalityReference, SavedApplicationMinimalityScope, SavedApplicationOptions,
     SavedApplicationPreparationStatistics, SavedApplicationProduct,
     SavedApplicationProductChartStatistics, SavedApplicationProductStatistics,
     SavedApplicationReduction, SavedApplicationRuleProvenance, SavedApplicationWitness,
