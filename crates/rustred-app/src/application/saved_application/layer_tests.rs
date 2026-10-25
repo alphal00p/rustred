@@ -381,18 +381,20 @@ pub fn factorized_sources_need_p1_verification_and_product_masters() {
         ],
         &[1, 4, 7],
     );
-    let bind = |layer: &SavedApplicationLayer, policy| {
-        bind_layer_with(&base, layer, &factorized, policy, Default::default())
-    };
+    macro_rules! bind {
+        ($layer:expr, $policy:expr) => {
+            bind_layer_with(&base, $layer, &factorized, $policy, Default::default())
+        };
+    }
     // Refused by default (and by `bind_layer`).
-    let error = bind(&good, SavedApplicationFactorizedSources::Refused)
+    let error = bind!(&good, SavedApplicationFactorizedSources::Refused)
         .err()
         .unwrap()
         .to_string();
     assert!(error.contains("factorized") && error.contains("P1"), "{error}");
     assert!(rejected(&base, &good, &[3, 4]).contains("P1"));
     // Accepted under P1; composition removes the source and keeps 4 as master.
-    let bound = bind(&good, SavedApplicationFactorizedSources::VerifiedOntoProducts).unwrap();
+    let bound = bind!(&good, SavedApplicationFactorizedSources::VerifiedOntoProducts).unwrap();
     assert_eq!(bound.factorized_sources, BTreeSet::from([key(&family, 3)]));
     let (composed, _) = compose_maps(&base, &bound, Default::default()).unwrap();
     composed.validate(Default::default()).unwrap();
@@ -410,7 +412,7 @@ pub fn factorized_sources_need_p1_verification_and_product_masters() {
     // No verification level: refused.
     let mut unverified = good.clone();
     unverified.rows[1].verification = None;
-    let error = bind(&unverified, SavedApplicationFactorizedSources::VerifiedOntoProducts)
+    let error = bind!(&unverified, SavedApplicationFactorizedSources::VerifiedOntoProducts)
         .err()
         .unwrap()
         .to_string();
@@ -419,7 +421,7 @@ pub fn factorized_sources_need_p1_verification_and_product_masters() {
     let mut off_route = good.clone();
     off_route.rows[1].terms = vec![(IntegralKey::try_new([7]).unwrap(), c(&family, "3"))];
     off_route.masters = [1, 7].iter().copied().map(master).collect();
-    let error = bind(&off_route, SavedApplicationFactorizedSources::VerifiedOntoProducts)
+    let error = bind!(&off_route, SavedApplicationFactorizedSources::VerifiedOntoProducts)
         .err()
         .unwrap()
         .to_string();
