@@ -108,3 +108,41 @@ Existing legacy single-file import safety limits remain unchanged. Running
 Pack capacity is governed by explicit chunk/manifest/disk/queue grants and
 ambient resources; there is no former 50/95 MiB aggregate publication limit.
 No path deletes old committed chunks to make room.
+
+== Portable unions of captured bases
+
+`SavedApplicationCacheBundleWriter::copy_base_union_to_new` publishes several
+captured Pack readers into a new independent bundle. Its base list is ordered
+from highest to lowest priority, matching ordinary running-cache base lookup.
+For each exact binding it concatenates bases in reverse order, retaining each
+base's internal run order. Native lookup therefore prefers the first supplied
+base and its newest matching record. Every run and shadowed record reference
+is retained; the operation does not establish unique-key counts or validate
+new mathematical identities.
+
+Each output child starts at generation one as a new store. That generation
+does not order the input stores or identify their provenance. Preserve the
+explicit captured source descriptors when provenance matters; the output's
+native index digest and directory identify its committed contents.
+
+Payloads remain in the existing native chunk representation. Compatible
+identical compressed hashes share one copied file per output namespace, while
+all original run references remain in the index. Descriptor conflicts fail
+before output creation. Copying checks compressed length and hash through the
+existing 64 KiB buffer, creates independent destination inodes, and performs
+no decompression, coefficient import, algebra or record re-encoding. Source
+readers retain their captured manifests even if a producer later appends.
+
+Before creating the output, the operation admits combined index and copy-plan
+memory, encoded metadata and aggregate disk bytes under the caller's grants
+and shared resource scopes. Existing conservative referenced-byte limits also
+remain: repeated references can consume that allowance even when physical
+chunk bytes are deduplicated. The bundle index is published last after child
+chunks and indexes are durable. A failed copy retains its partial destination
+and refuses overwrite; it does not modify, delete or lock the source stores.
+
+The existing `copy_bases_to_new` continues to accept at most one base per
+binding and retains its original generation-preserving behavior. Neither
+operation copies active computation or preparation-job metadata. This union
+requires storage for the copied payloads; metadata-only frozen snapshots remain
+the appropriate operation when independent portable payloads are unnecessary.
