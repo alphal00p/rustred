@@ -16,6 +16,9 @@ pub(crate) enum SavedApplicationArgs {
         terminal_definitions: Option<PathBuf>,
         terminal_definitions_out: Option<PathBuf>,
         size_gate: f64,
+        consumer_limits: String,
+        fill_unreduced: bool,
+        minimality_reference: Option<PathBuf>,
         layered: bool,
         dry_run: bool,
         workers: usize,
@@ -46,6 +49,9 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
     let mut terminal_definitions = None;
     let mut terminal_definitions_out = None;
     let mut size_gate = 2.0;
+    let mut consumer_limits = String::from("vakint-pin-52c74636");
+    let mut fill_unreduced = false;
+    let mut minimality_reference = None;
     let mut layered = false;
     let mut dry_run = false;
     let mut workers = 1;
@@ -59,6 +65,9 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--terminal-definitions" if sub == "compose-layer" => "--terminal-definitions",
             "--terminal-definitions-out" if sub == "compose-layer" => "--terminal-definitions-out",
             "--size-gate" if sub == "compose-layer" => "--size-gate",
+            "--consumer-limits" if sub == "compose-layer" => "--consumer-limits",
+            "--fill-unreduced" if sub == "compose-layer" => "--fill-unreduced",
+            "--minimality-reference" if sub == "compose-layer" => "--minimality-reference",
             "--layered" if sub == "compose-layer" => "--layered",
             "--dry-run" if sub == "compose-layer" => "--dry-run",
             "--workers" if sub == "compose-layer" || sub == "identity-layer" => "--workers",
@@ -90,6 +99,21 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
                         expected: "a nonnegative ratio",
                     })?;
             }
+            "--consumer-limits" => {
+                let value = next_utf8_value(&mut args, option)?;
+                if crate::SavedApplicationConsumerLimits::parse(&value).is_none() {
+                    return Err(ArgError::InvalidValue {
+                        option,
+                        value,
+                        expected: "vakint-pin-52c74636 or none",
+                    });
+                }
+                consumer_limits = value;
+            }
+            "--fill-unreduced" => fill_unreduced = true,
+            "--minimality-reference" => {
+                minimality_reference = Some(PathBuf::from(next_value(&mut args, option)?))
+            }
             "--layered" => layered = true,
             "--dry-run" => dry_run = true,
             "--workers" => {
@@ -111,6 +135,9 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
                 terminal_definitions,
                 terminal_definitions_out,
                 size_gate,
+                consumer_limits,
+                fill_unreduced,
+                minimality_reference,
                 layered,
                 dry_run,
                 workers,
@@ -168,6 +195,9 @@ pub(super) fn run(arguments: SavedApplicationArgs) -> Result<(), CliError> {
             terminal_definitions,
             terminal_definitions_out,
             size_gate,
+            consumer_limits,
+            fill_unreduced,
+            minimality_reference,
             layered,
             dry_run,
             workers,
@@ -175,6 +205,10 @@ pub(super) fn run(arguments: SavedApplicationArgs) -> Result<(), CliError> {
         } => {
             let mut options = SavedApplicationComposeOptions {
                 size_gate,
+                consumer_limits: crate::SavedApplicationConsumerLimits::parse(&consumer_limits)
+                    .ok_or_else(|| CliError::Input("unknown consumer limits".into()))?,
+                fill_unreduced,
+                minimality_reference,
                 allow_layered: layered,
                 dry_run,
                 self_check_points,
@@ -198,7 +232,8 @@ pub(super) fn run(arguments: SavedApplicationArgs) -> Result<(), CliError> {
             );
             if outcome.mode == "rejected" {
                 return Err(CliError::Input(
-                    "composed maps exceed the size gate; rerun with --layered for a layered package"
+                    "composed maps exceed the size gate or the consumer limits; rerun with --layered \
+                     for a layered package (needs a layer-aware consumer)"
                         .into(),
                 ));
             }

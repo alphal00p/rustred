@@ -1,4 +1,4 @@
-//! RR-11 relations layer `rustred.saved-application-layer.v1`.
+//! RR-11 relations layer `rustred.saved-application-layer.v2`.
 //!
 //! A layer re-expresses some remaining terminals of an immutable saved
 //! application (the *sources*) exactly over a smaller set of *masters*. The
@@ -8,9 +8,12 @@
 //!
 //! Wire format (authoritative description in the RR-11 design document):
 //! `layer.json` holds rows, masters and provenance. Coefficients are either
-//! inline text in the parameter grammar (integers, parameter names,
-//! `+ - * / ^` and parentheses) or integer IDs into an optional native
-//! Symbolica coefficient table `RR-APPLY-LAYER-01` bound by its blake3 digest.
+//! JSON strings in the parameter grammar (integers, parameter names,
+//! `+ - * / ^` and parentheses) or tagged references `{"id": n}` into an
+//! optional native Symbolica coefficient table `RR-APPLY-LAYER-01` bound by its
+//! blake3 digest. A bare JSON number is refused: it would be ambiguous between
+//! the rational value and a table entry. Every row carries a rule provenance
+//! (row field or the layer default `provenance.kind`).
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -31,13 +34,74 @@ use super::{SavedApplicationIntegral, TerminalMaps, TerminalRow, native_failure}
 use crate::AppError;
 use crate::application::atomic_file::write_file_atomically;
 
-/// Schema of `layer.json`.
-pub const SAVED_APPLICATION_LAYER_SCHEMA: &str = "rustred.saved-application-layer.v1";
+/// Schema of `layer.json` written by this crate.
+pub const SAVED_APPLICATION_LAYER_SCHEMA: &str = "rustred.saved-application-layer.v2";
+/// Legacy schema, still read: same rules as v2 (bare JSON numbers are refused,
+/// so a v1 integer table ID can never be misread as a rational).
+pub const SAVED_APPLICATION_LAYER_SCHEMA_V1: &str = "rustred.saved-application-layer.v1";
 /// Magic of the optional native coefficient table referenced by `layer.json`.
 pub const SAVED_APPLICATION_LAYER_TABLE_MAGIC: &[u8; 17] = b"RR-APPLY-LAYER-01";
 const LAYER_FILE: &str = "layer.json";
 const TABLE_FILE: &str = "layer.rrbin";
 const MAX_LAYER_JSON: u64 = 1 << 31;
+
+/// Who produced a layer row (user directive 2026-10-25 02:40: Kira stopgap
+/// rules must be tagged in the rows/manifest and are reproduced by RustRed).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SavedApplicationRuleProvenance {
+    /// An exact relation derived by RustRed.
+    Rustred,
+    /// An exact relation taken from an external Kira run (results only); a
+    /// stopgap to be reproduced by RustRed.
+    KiraStopgap,
+    /// The trivial row `source = 1 * source`; no relation is derived.
+    Identity,
+    /// A non-physical test row; packages carrying it must never be published.
+    SyntheticTest,
+}
+
+impl SavedApplicationRuleProvenance {
+    pub const ALL: [Self; 4] = [
+        Self::Rustred,
+        Self::KiraStopgap,
+        Self::Identity,
+        Self::SyntheticTest,
+    ];
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Rustred => "rustred",
+            Self::KiraStopgap => "kira-stopgap",
+            Self::Identity => "identity",
+            Self::SyntheticTest => "synthetic-test",
+        }
+    }
+    fn parse(text: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|p| p.as_str() == text)
+    }
+}
+
+/// Layer-level default row provenance from `provenance.kind`: one of the row
+/// provenances, `mixed` (every row states its own) or absent (likewise).
+fn default_provenance(
+    provenance: &Value,
+) -> Result<Option<SavedApplicationRuleProvenance>, AppError> {
+    match provenance.get("kind") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(kind)) if kind == "mixed" => Ok(None),
+        Some(Value::String(kind)) => SavedApplicationRuleProvenance::parse(kind)
+            .map(Some)
+            .ok_or_else(|| {
+                AppError::input(format!(
+                    "layer provenance.kind {kind:?} is not one of rustred, kira-stopgap, \
+                     identity, synthetic-test, mixed"
+                ))
+            }),
+        Some(other) => Err(AppError::input(format!(
+            "layer provenance.kind must be a string, not {other}"
+        ))),
+    }
+}
 
 /// Identity of the base package a layer was computed against.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,8 +153,12 @@ pub struct SavedApplicationLayerClassCount {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SavedApplicationLayerMinimality {
-    /// e.g. `refine-5l/expected-counts.json` with its sha256.
+    /// e.g. `refine-5l/expected-counts.json`.
     pub reference: String,
+    /// blake3 of the reference file bytes. A minimality claim needs it and
+    /// compose-layer must be given the file (`--minimality-reference`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_blake3: Option<String>,
     /// Number of census classes the reference declares for the reduced
     /// (non-factorized) terminals; every one must be listed for a claim.
     pub reference_classes: u64,
@@ -103,9 +171,10 @@ pub struct SavedApplicationLayerRow {
     pub source: IntegralKey,
     pub terms: Vec<(IntegralKey, Coefficient)>,
     /// Nonzero conditions; together they must cover every coefficient
-    /// denominator of the row (each denominator is a product of their
-    /// numerators and an integer).
+    /// denominator of the row (each irreducible denominator factor divides
+    /// one of their numerators or denominators).
     pub conditions: Vec<Coefficient>,
+    pub provenance: SavedApplicationRuleProvenance,
 }
 
 /// A resolved layer: every coefficient lives in the family's coefficient context.
@@ -121,11 +190,49 @@ pub struct SavedApplicationLayer {
     pub provenance: Value,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+/// A wire coefficient: a string in the parameter grammar, or `{"id": n}`.
+#[derive(Clone, Debug, PartialEq)]
 enum CoefficientWire {
     Table(u32),
     Text(String),
+}
+
+impl Serialize for CoefficientWire {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        match self {
+            Self::Text(text) => serializer.serialize_str(text),
+            Self::Table(id) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("id", id)?;
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for CoefficientWire {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        match Value::deserialize(deserializer)? {
+            Value::String(text) => Ok(Self::Text(text)),
+            Value::Object(map) if map.len() == 1 => match map.get("id").and_then(Value::as_u64) {
+                Some(id) => u32::try_from(id)
+                    .map(Self::Table)
+                    .map_err(|_| D::Error::custom("coefficient table ID exceeds u32")),
+                None => Err(D::Error::custom(
+                    "a coefficient object must be {\"id\": <table entry>}",
+                )),
+            },
+            Value::Number(number) => Err(D::Error::custom(format!(
+                "bare JSON number coefficient {number} is ambiguous: write exact values as \
+                 strings (\"{number}\") and table entries as {{\"id\": {number}}}"
+            ))),
+            _ => Err(D::Error::custom(
+                "a coefficient is a string in the parameter grammar or {\"id\": n}",
+            )),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -142,6 +249,9 @@ struct RowWire {
     terms: Vec<TermWire>,
     #[serde(default)]
     conditions: Vec<CoefficientWire>,
+    /// Defaults to the layer's `provenance.kind`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provenance: Option<SavedApplicationRuleProvenance>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -274,7 +384,9 @@ impl SavedApplicationLayer {
         let bytes = read_bounded(&path, MAX_LAYER_JSON)?;
         let wire: LayerWire = serde_json::from_slice(&bytes)
             .map_err(|e| AppError::input(format!("{}: {e}", path.display())))?;
-        if wire.schema != SAVED_APPLICATION_LAYER_SCHEMA {
+        if wire.schema != SAVED_APPLICATION_LAYER_SCHEMA
+            && wire.schema != SAVED_APPLICATION_LAYER_SCHEMA_V1
+        {
             return Err(AppError::input(format!(
                 "unsupported layer schema {:?}",
                 wire.schema
@@ -341,11 +453,20 @@ impl SavedApplicationLayer {
             }
             IntegralKey::try_new(powers.to_vec()).map_err(native_failure)
         };
+        let layer_provenance = default_provenance(&wire.provenance)?;
         let rows = wire
             .rows
             .iter()
             .map(|row| {
+                let provenance = row.provenance.or(layer_provenance).ok_or_else(|| {
+                    AppError::input(format!(
+                        "layer row {:?} has no provenance and the layer declares no \
+                         provenance.kind default",
+                        row.source
+                    ))
+                })?;
                 Ok(SavedApplicationLayerRow {
+                    provenance,
                     source: key(&row.source)?,
                     terms: row
                         .terms
@@ -417,6 +538,7 @@ impl SavedApplicationLayer {
                 source: row.source.powers().to_vec(),
                 terms,
                 conditions,
+                provenance: Some(row.provenance),
             });
         }
         let encoded = table.finish().map_err(native_failure)?;
@@ -546,6 +668,11 @@ pub(super) struct BoundLayer<'a> {
     pub(super) masters: BTreeSet<SavedApplicationIntegral>,
     /// Layer rows in family-qualified form.
     pub(super) rows: Vec<BTreeMap<SavedApplicationIntegral, Coefficient>>,
+    /// Declared `unreduced` terminals.
+    pub(super) unreduced: BTreeSet<SavedApplicationIntegral>,
+    /// Base remaining terminals that are neither sources, masters, factorized
+    /// nor declared unreduced: the layer is silent about them.
+    pub(super) undeclared: BTreeSet<SavedApplicationIntegral>,
 }
 
 impl BoundLayer<'_> {
@@ -567,9 +694,12 @@ impl BoundLayer<'_> {
     }
 }
 
-/// Is `denominator` a product of the condition numerators/denominators
-/// (with multiplicity) and an integer?
-fn covered(denominator: &Coefficient, conditions: &[Coefficient]) -> bool {
+/// Is every irreducible factor of the coefficient denominator (with any
+/// multiplicity) a factor of some condition numerator or denominator, up to an
+/// integer? Then the denominator is nonzero wherever the conditions are. A
+/// condition may be a power or a product of denominator factors: the factor
+/// removed at each step is a gcd with one condition polynomial.
+pub(super) fn covered(denominator: &Coefficient, conditions: &[Coefficient]) -> bool {
     let mut rest = denominator.denominator.clone();
     if rest.is_constant() {
         return true;
@@ -578,23 +708,23 @@ fn covered(denominator: &Coefficient, conditions: &[Coefficient]) -> bool {
         .iter()
         .flat_map(|c| [&c.numerator, &c.denominator])
         .filter(|p| !p.is_constant())
-        .map(|p| p.clone().make_primitive())
         .collect::<Vec<_>>();
-    loop {
-        let mut progressed = false;
-        for factor in &factors {
-            while let Some(quotient) = rest.try_div(factor) {
-                rest = quotient;
-                progressed = true;
-                if rest.is_constant() {
-                    return true;
-                }
+    for factor in factors {
+        loop {
+            let common = rest.gcd(factor);
+            if common.is_constant() {
+                break;
+            }
+            match rest.try_div(&common) {
+                Some(quotient) => rest = quotient,
+                None => break,
+            }
+            if rest.is_constant() {
+                return true;
             }
         }
-        if !progressed {
-            return rest.is_constant();
-        }
     }
+    rest.is_constant()
 }
 
 /// Check a layer against base maps (L1). `factorized` are remaining
@@ -713,9 +843,15 @@ pub(super) fn bind_layer<'a>(
             }
             used.insert(master);
         }
-        if masters.contains(&source)
-            && (terms.len() != 1 || terms.get(&source).is_none_or(|c| *c != context.one()))
-        {
+        let is_identity =
+            terms.len() == 1 && terms.get(&source).is_some_and(|c| *c == context.one());
+        if row.provenance == SavedApplicationRuleProvenance::Identity && !is_identity {
+            return Err(AppError::input(format!(
+                "layer row {:?} has provenance identity but is not source = source",
+                row.source.powers()
+            )));
+        }
+        if masters.contains(&source) && !is_identity {
             return Err(AppError::input(format!(
                 "layer source {:?} is also a master but its row is not the identity",
                 row.source.powers()
@@ -732,20 +868,64 @@ pub(super) fn bind_layer<'a>(
     let mut unreduced = BTreeSet::new();
     for item in &layer.unreduced {
         let key = qualify(&IntegralKey::try_new(item.key.clone()).map_err(native_failure)?)?;
-        if !base.remaining.contains(&key) || sources.contains_key(&key) || !unreduced.insert(key) {
+        if !base.remaining.contains(&key)
+            || sources.contains_key(&key)
+            || masters.contains(&key)
+            || !unreduced.insert(key)
+        {
             return Err(AppError::input(format!(
-                "layer unreduced entry {:?} is not a distinct remaining non-source terminal",
+                "layer unreduced entry {:?} is not a distinct remaining terminal that is \
+                 neither a source nor a master",
                 item.key
             )));
         }
     }
+    let undeclared = base
+        .remaining
+        .iter()
+        .filter(|key| {
+            !sources.contains_key(*key)
+                && !masters.contains(*key)
+                && !factorized.contains(*key)
+                && !unreduced.contains(*key)
+        })
+        .cloned()
+        .collect();
     Ok(BoundLayer {
         layer,
         family,
         sources,
         masters,
         rows,
+        unreduced,
+        undeclared,
     })
+}
+
+/// Consistency with the base: every layer master that is also a raw-row key
+/// must compose to exactly itself (`M = 1 * M`); otherwise the layer and the
+/// base relations disagree, or the new basis is still linearly dependent.
+/// Returns the number of such masters.
+pub(super) fn check_masters_compose_to_identity(
+    composed: &TerminalMaps,
+    bound: &BoundLayer<'_>,
+) -> Result<usize, AppError> {
+    let one = bound.family.coefficient_context().one();
+    let mut checked = 0;
+    for master in &bound.masters {
+        if let Some(row) = composed.rows.get(master) {
+            checked += 1;
+            if row.terms.len() != 1 || row.terms.get(master) != Some(&one) {
+                return Err(AppError::input(format!(
+                    "layer master {:?} is a raw row of the base but composes to a non-identity \
+                     row with {} terms: the layer is inconsistent with the base maps",
+                    master.integral.powers(),
+                    row.terms.len()
+                )));
+            }
+        }
+    }
+    Ok(checked)
 }
 
 /// Exact composition `raw -> remaining -> masters` of every base row.
@@ -1008,18 +1188,47 @@ pub(super) fn check_composition_mod_p(
     Ok((checked, chosen))
 }
 
-/// The `minimality_claim` rule (addendum A1, RR-11 §3 step 7): true only if
-/// the layer carries per-class counts against a reference, lists every
-/// reference class, every class count equals its reference, the counts sum
-/// to the number of layer masters, and nothing is left unreduced.
-pub fn layer_minimality_claim(layer: &SavedApplicationLayer) -> (bool, String) {
+/// What the composition knows about the scope of a minimality claim.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SavedApplicationMinimalityScope {
+    /// Non-factorized base terminals left unreduced: declared `unreduced`
+    /// entries plus any filled in by compose-layer (`--fill-unreduced`).
+    pub unreduced: usize,
+    /// Factorized base terminals (product route, outside the layer).
+    pub factorized: usize,
+    /// The reference file was given and its blake3 equals `reference_blake3`.
+    pub reference_verified: bool,
+}
+
+/// The `minimality_claim` rule (addendum A1, RR-11 §3 step 7), evaluated
+/// against the base: true only if every non-factorized remaining terminal of
+/// the base is a source or a master (nothing unreduced, declared or not), the
+/// layer carries per-class counts against a reference whose content hash was
+/// verified, lists every reference class, every class count equals its
+/// reference, and the counts sum to the number of layer masters.
+pub fn layer_minimality_claim(
+    layer: &SavedApplicationLayer,
+    scope: &SavedApplicationMinimalityScope,
+) -> (bool, String) {
     let Some(minimality) = &layer.minimality else {
         return (false, "no per-class counts in the layer".into());
     };
-    if !layer.unreduced.is_empty() {
+    if scope.unreduced > 0 {
         return (
             false,
-            format!("{} terminals left unreduced", layer.unreduced.len()),
+            format!(
+                "{} non-factorized base terminals left unreduced",
+                scope.unreduced
+            ),
+        );
+    }
+    if !scope.reference_verified {
+        return (
+            false,
+            format!(
+                "minimality reference {} not verified against reference_blake3",
+                minimality.reference
+            ),
         );
     }
     if minimality.classes.len() as u64 != minimality.reference_classes {
@@ -1060,10 +1269,80 @@ pub fn layer_minimality_claim(layer: &SavedApplicationLayer) -> (bool, String) {
     (
         true,
         format!(
-            "per census class of the layer, versus {}; terminals outside the layer are not covered",
-            minimality.reference
+            "every non-factorized base terminal is a layer source or master; per census class \
+             versus {} (blake3 {}); {} factorized terminals stay on the product route and are \
+             not covered",
+            minimality.reference,
+            minimality.reference_blake3.as_deref().unwrap_or_default(),
+            scope.factorized
         ),
     )
+}
+
+impl SavedApplicationLayer {
+    /// Number of rows per provenance (every provenance listed, zeros included).
+    pub fn provenance_counts(&self) -> BTreeMap<&'static str, usize> {
+        let mut counts: BTreeMap<_, _> = SavedApplicationRuleProvenance::ALL
+            .into_iter()
+            .map(|p| (p.as_str(), 0))
+            .collect();
+        for row in &self.rows {
+            *counts.get_mut(row.provenance.as_str()).unwrap() += 1;
+        }
+        counts
+    }
+
+    /// Source keys of the rows that are not RustRed relations or identities
+    /// (kira-stopgap, synthetic-test): the rows still to be reproduced.
+    pub fn flagged_sources(&self) -> BTreeMap<&'static str, Vec<Vec<i64>>> {
+        let mut flagged = BTreeMap::new();
+        for row in &self.rows {
+            if matches!(
+                row.provenance,
+                SavedApplicationRuleProvenance::KiraStopgap
+                    | SavedApplicationRuleProvenance::SyntheticTest
+            ) {
+                flagged
+                    .entry(row.provenance.as_str())
+                    .or_insert_with(Vec::new)
+                    .push(row.source.powers().to_vec());
+            }
+        }
+        flagged
+    }
+
+    /// The package authority statement of the refinement layer, built from
+    /// the row provenance counts (never assumed).
+    pub fn authority(&self, layer_id: &str) -> String {
+        let counts = self.provenance_counts();
+        let mut parts = Vec::new();
+        for provenance in SavedApplicationRuleProvenance::ALL {
+            let count = counts[provenance.as_str()];
+            if count == 0 {
+                continue;
+            }
+            parts.push(match provenance {
+                SavedApplicationRuleProvenance::Rustred => {
+                    format!("{count} RustRed relation rows")
+                }
+                SavedApplicationRuleProvenance::KiraStopgap => format!(
+                    "{count} kira-stopgap rows (exact results of an external Kira process, \
+                     user-approved stopgap, to be reproduced by RustRed)"
+                ),
+                SavedApplicationRuleProvenance::Identity => {
+                    format!("{count} identity rows (no relation derived)")
+                }
+                SavedApplicationRuleProvenance::SyntheticTest => format!(
+                    "{count} SYNTHETIC TEST rows (non-physical; this package must never be \
+                     published)"
+                ),
+            });
+        }
+        format!(
+            "refinement layer {layer_id}: {}; composition checked mod p at compose time",
+            parts.join(", ")
+        )
+    }
 }
 
 /// Summary of a layer for metadata (no coefficients).
@@ -1081,5 +1360,7 @@ pub(super) fn layer_summary(
         "unreduced": layer.unreduced,
         "minimality": layer.minimality,
         "provenance": layer.provenance,
+        "provenance_counts": layer.provenance_counts(),
+        "flagged_sources": layer.flagged_sources(),
     })
 }

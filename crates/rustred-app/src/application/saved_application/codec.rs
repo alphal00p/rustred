@@ -22,12 +22,53 @@ struct Key {
     powers: Vec<i64>,
 }
 
+/// Sizes of one encoded compact-maps record, as a consumer's binary limits
+/// see them (`BinaryIoLimits`: total bytes, Symbolica state, coefficient
+/// table, single atom frames, collection entries).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub struct EncodedMapsLayout {
+    pub total_bytes: usize,
+    pub state_bytes: usize,
+    pub atom_table_bytes: usize,
+    pub atom_entries: usize,
+    pub max_atom_bytes: usize,
+    pub rows: usize,
+    pub remaining: usize,
+}
+
+/// Frame count and largest frame of a native coefficient table
+/// (`u64 LE count`, then `u64 LE length` + bytes per atom).
+fn atom_frames(atoms: &[u8]) -> Option<(usize, usize)> {
+    let mut source = atoms;
+    let take = |source: &mut &[u8]| -> Option<usize> {
+        let (head, tail) = source.split_at_checked(8)?;
+        *source = tail;
+        usize::try_from(u64::from_le_bytes(head.try_into().ok()?)).ok()
+    };
+    let count = take(&mut source)?;
+    let mut largest = 0;
+    for _ in 0..count {
+        let length = take(&mut source)?;
+        largest = largest.max(length);
+        source = source.get(length..)?;
+    }
+    source.is_empty().then_some((count, largest))
+}
+
 /// Encode the base maps. For a layered package these are the unchanged base
 /// rows over the base remaining terminals; see `encode_layer`.
 pub(super) fn encode(
     maps: &TerminalMaps,
     options: SavedApplicationOptions,
 ) -> Result<Vec<u8>, AppError> {
+    encode_with_layout(maps, options).map(|(bytes, _)| bytes)
+}
+
+/// `encode`, plus the layout a consumer's binary limits are checked against.
+pub(super) fn encode_with_layout(
+    maps: &TerminalMaps,
+    options: SavedApplicationOptions,
+) -> Result<(Vec<u8>, EncodedMapsLayout), AppError> {
     maps.validate(options)?;
     let remaining = maps
         .layer
@@ -45,7 +86,10 @@ pub(super) fn encode_layer(
     maps.validate(options)?;
     maps.layer
         .as_ref()
-        .map(|layer| encode_parts(&maps.families, &layer.rows, &maps.remaining, options))
+        .map(|layer| {
+            encode_parts(&maps.families, &layer.rows, &maps.remaining, options)
+                .map(|(bytes, _)| bytes)
+        })
         .transpose()
 }
 
@@ -54,7 +98,7 @@ fn encode_parts(
     maps_rows: &BTreeMap<SavedApplicationIntegral, TerminalRow>,
     maps_remaining: &BTreeSet<SavedApplicationIntegral>,
     options: SavedApplicationOptions,
-) -> Result<Vec<u8>, AppError> {
+) -> Result<(Vec<u8>, EncodedMapsLayout), AppError> {
     let mut table = CoefficientTableBuilder::new(options.binary_limits);
     let families = maps_families
         .iter()
@@ -108,6 +152,17 @@ fn encode_parts(
     }
     let remaining = maps_remaining.iter().map(key).collect();
     let encoded = table.finish().map_err(native_failure)?;
+    let (atom_entries, max_atom_bytes) = atom_frames(&encoded.atoms)
+        .ok_or_else(|| AppError::execution("native coefficient table framing is invalid"))?;
+    let mut layout = EncodedMapsLayout {
+        total_bytes: 0,
+        state_bytes: encoded.state.len(),
+        atom_table_bytes: encoded.atoms.len(),
+        atom_entries,
+        max_atom_bytes,
+        rows: rows.len(),
+        remaining: maps_remaining.len(),
+    };
     let record = Record {
         families,
         rows,
@@ -123,7 +178,8 @@ fn encode_parts(
             "compact terminal maps exceed binary allowance",
         ));
     }
-    Ok(bytes)
+    layout.total_bytes = bytes.len();
+    Ok((bytes, layout))
 }
 
 pub(super) fn decode(
