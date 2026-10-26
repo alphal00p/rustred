@@ -177,7 +177,11 @@ fn package_identity<const N: usize>(
     })
 }
 
-pub(super) fn sample<const N: usize>(args: &[String], arity: usize) -> Result<()> {
+pub(super) fn sample<const N: usize>(
+    args: &[String],
+    arity: usize,
+    guard_admission: &Value,
+) -> Result<()> {
     let request_bytes = std::fs::read(&args[2])?;
     let request = parse_request(&request_bytes, arity)?;
     let mut options = SavedApplicationOptions::default();
@@ -251,6 +255,7 @@ pub(super) fn sample<const N: usize>(args: &[String], arity: usize) -> Result<()
         "operational_options":format!("{options:?}"),
         "common_operational_options":format!("{common_options:?}"),
         "build_identity":build_identity(),
+        "resource_guard_admission":guard_admission,
         "defaults":{"scheduling":{"roots":"canonical","dependencies":"canonical"},
             "entry_mode":"direct","unresolved_policy":"Reject",
             "cache_policy":format!("{:?}",SavedApplicationOptions::default().cache_policy)},
@@ -459,7 +464,11 @@ fn parse_output<const N: usize>(
     Ok((terms, guards))
 }
 
-pub(super) fn check<const N: usize>(args: &[String], arity: usize) -> Result<()> {
+pub(super) fn check<const N: usize>(
+    args: &[String],
+    arity: usize,
+    guard_admission: &Value,
+) -> Result<()> {
     let bytes = std::fs::read(&args[2])?;
     let request = parse_request(&bytes, arity)?;
     let request_hash = blake3::hash(&bytes).to_hex().to_string();
@@ -499,6 +508,7 @@ pub(super) fn check<const N: usize>(args: &[String], arity: usize) -> Result<()>
         "ordered_guards_required":ordered_guards_required,
         "common_operational_options_equal":common_options_equal,"build_labels_equal":build_labels_equal,
         "checker_build_identity":build_identity(),
+        "resource_guard_admission":guard_admission,
         "expected_term_count":expected_terms.len(),"actual_term_count":actual_terms.len(),
         "reduction_calls":0,"package_authenticated_by_loader":true})
     );

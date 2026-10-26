@@ -7,6 +7,7 @@
 //! `saved_application compare-cache APPLICATION INVENTORY_JSON CASE_ID CACHE_BYTES [REFERENCE_BYTES] [LIMITS_JSON]`
 //! `saved_application scheduling-sample PACKAGE REQUEST_JSON ROOT_ORDER DEPENDENCY_ORDER OUTPUT_JSON [LIMITS_JSON]`
 //! `saved_application scheduling-check PACKAGE REQUEST_JSON EXPECTED_JSON ACTUAL_JSON`
+//! `saved_application guard-admission-only`
 //!
 //! Inventory writes a small JSON document to stdout. Suite emits JSONL, one
 //! completed receipt per concrete point, and never claims exhaustive closure.
@@ -32,9 +33,11 @@
 //! Scheduling samples perform one cold application; the separate checker only
 //! parses and compares full exact outputs. External launch/resource admission
 //! remains the caller's responsibility. See the scheduling module for schemas.
-//! Actual 5L sampling and checking both require external admission of Native
-//! data loading before invocation; this generic CLI cannot authorize that work.
+//! Scheduling samples and checks require the reviewed task guard receipt before
+//! any application/arity data read. guard-admission-only returns that receipt
+//! without reading Native data; launch/specification policy remains external.
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -49,6 +52,8 @@ use serde_json::{Value, json};
 mod compare_cache;
 #[path = "saved_application/limits.rs"]
 mod limits;
+#[path = "saved_application/resource_guard_admission.rs"]
+mod resource_guard_admission;
 #[path = "saved_application/scheduling.rs"]
 mod scheduling;
 
@@ -56,14 +61,44 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() < 2 {
+    let admission_only = args
+        .first()
+        .is_some_and(|arg| arg == "guard-admission-only");
+    if (admission_only && args.len() != 1) || (!admission_only && args.len() < 2) {
         return Err("expected inventory SOURCE, export SOURCE DEST, suite PACKAGE INVENTORY [OFFSET COUNT REPEATS], compare-cache PACKAGE INVENTORY CASE_ID CACHE_BYTES [REFERENCE_BYTES] [LIMITS_JSON], scheduling-sample PACKAGE REQUEST_JSON ROOT_ORDER DEPENDENCY_ORDER OUTPUT_JSON [LIMITS_JSON], or scheduling-check PACKAGE REQUEST_JSON EXPECTED_JSON ACTUAL_JSON".into());
+    }
+    // This exact reviewed helper is the only admission policy. It must run
+    // before saved_application_arity, which already reads application metadata.
+    let guard_admission = resource_guard_admission::admit_from_task_env()?;
+    if (admission_only || matches!(args[0].as_str(), "scheduling-sample" | "scheduling-check"))
+        && guard_admission.is_none()
+    {
+        return Err(
+            "reviewed task guard admission is required before scheduling Native/data work".into(),
+        );
+    }
+    if admission_only {
+        println!(
+            "{}",
+            json!({"event":"guard_admission_without_native","receipt":guard_admission})
+        );
+        std::io::stdout().flush()?;
+        return Ok(());
+    }
+    if let Some(receipt) = &guard_admission {
+        // Preserve admission even if package preparation or a later guard exit
+        // prevents the final sample/check receipt from being written.
+        println!(
+            "{}",
+            json!({"event":"resource_guard_admission_before_native","receipt":receipt})
+        );
+        std::io::stdout().flush()?;
     }
     let arity = saved_application_arity(Path::new(&args[1]))?;
     macro_rules! dispatch {
         ($($n:literal),*) => {
             match rustred::campaign_storage_arity(arity) {
-                $($n => run::<$n>(&args, arity),)*
+                $($n => run::<$n>(&args, arity, guard_admission.as_ref()),)*
                 _ => Err("input arity is not compiled".into()),
             }
         }
@@ -71,7 +106,11 @@ fn main() -> Result<()> {
     rustred::with_app_runtime_arities!(dispatch)
 }
 
-fn run<const N: usize>(args: &[String], arity: usize) -> Result<()> {
+fn run<const N: usize>(
+    args: &[String],
+    arity: usize,
+    guard_admission: Option<&Value>,
+) -> Result<()> {
     match args[0].as_str() {
         "inventory" if args.len() == 2 => inventory::<N>(Path::new(&args[1]), arity),
         "terminals" if args.len() == 2 => terminals::<N>(Path::new(&args[1])),
@@ -90,10 +129,16 @@ fn run<const N: usize>(args: &[String], arity: usize) -> Result<()> {
         }
         "suite" if (3..=11).contains(&args.len()) => suite::<N>(args, arity),
         "compare-cache" if (5..=7).contains(&args.len()) => compare_cache::run::<N>(args, arity),
-        "scheduling-sample" if (6..=7).contains(&args.len()) => {
-            scheduling::sample::<N>(args, arity)
-        }
-        "scheduling-check" if args.len() == 5 => scheduling::check::<N>(args, arity),
+        "scheduling-sample" if (6..=7).contains(&args.len()) => scheduling::sample::<N>(
+            args,
+            arity,
+            guard_admission.ok_or("missing task admission")?,
+        ),
+        "scheduling-check" if args.len() == 5 => scheduling::check::<N>(
+            args,
+            arity,
+            guard_admission.ok_or("missing task admission")?,
+        ),
         _ => Err("invalid saved_application arguments".into()),
     }
 }

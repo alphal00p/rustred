@@ -131,3 +131,9 @@ libc = { version = "0.2", optional = true }
 signal-hook = { version = "0.3", optional = true }
 toml = "1"
 mimalloc = { version = "0.1.52", default-features = false, features = ["override"], optional = true }
+
+[dev-dependencies]
+# The private scheduling example reuses the reviewed task-admission module.
+sha2 = "=0.10.9"
+rustix = { version = "=1.1.4", features = ["fs"] }
+tempfile = "=3.27.0"
