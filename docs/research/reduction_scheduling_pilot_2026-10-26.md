@@ -30,6 +30,35 @@ ordered terms are:
 
 The original 1,110-byte request JSON was frozen before timing, SHA256
 `372d34ed9f242ee1b7405822a84d1f6e6744500405526e08fb05c355de3f3ce2`.
+This standard-library-only example reconstructs those exact bytes; it writes
+the input only and performs no Native/data activation or reduction:
+
+```python
+import hashlib
+import json
+from pathlib import Path
+
+terms = [
+    ([1, 0, 1, 1, 2, 2, 1, 0, 1, 1, 0, 0, 0, 0, 0], "(d^2+d+1)/7"),
+    ([1, 1, 1, 1, 2, 2, 1, 0, 1, 0, 0, 0, 0, 0, 0], "-1/2"),
+    ([1, 1, 1, 1, 2, 2, 1, 0, 1, 1, -1, 0, 0, 0, 0], "(d+1)/3"),
+    ([1, 1, 1, 1, 2, 2, 1, 0, 1, 1, 0, 0, -1, 0, 0], "-2/5"),
+]
+request = {
+    "schema": "rustred.saved-application-scheduling-request.v1",
+    "id": "tuning-31740-root-sum-synthetic-v1",
+    "arity": 15,
+    "entry_mode": "routed",
+    "terms": [{"powers": p, "coefficient": c} for p, c in terms],
+}
+payload = (json.dumps(request, indent=2) + "\n").encode("utf-8")
+assert len(payload) == 1110
+assert hashlib.sha256(payload).hexdigest() == (
+    "372d34ed9f242ee1b7405822a84d1f6e6744500405526e08fb05c355de3f3ce2"
+)
+Path("tuning-31740-root-sum-synthetic-v1.json").write_bytes(payload)
+```
+
 The immutable external data checkout was
 `d4384149b5076de84b3f3fda761585dff1776532`, using `5L/ibps`; its root manifest
 SHA256 was `794c0e4b44a1c6be1d78f8ebdbca188473678823ea1f3b821f70b63b2a6dd5a7`.

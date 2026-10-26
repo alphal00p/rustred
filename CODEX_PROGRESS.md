@@ -26,8 +26,10 @@ The retained broader application attempt has one unavailable-compiled-arity
 configuration failure, not a full-suite PASS. See the
 [completed pilot report](docs/research/reduction_scheduling_pilot_2026-10-26.md)
 for exact scope, request, commands, measured/inferred distinctions and evidence
-identities. Raw outputs, executable and environment-owned launch configuration
-stay outside Git. No further mathematical execution or promotion is authorized
+identities. Its standard-library code example reconstructs the exact frozen
+1,110-byte request and verifies SHA256 `372d34ed...`; this check activates no
+Native/data or reduction. Raw outputs, executable and environment-owned launch
+configuration stay outside Git. No further mathematical execution or promotion is authorized
 by this publication; additional comparisons need a new bounded protocol.
 
 ## October 23 — consolidate the 640-master consumer into `vakint_rustred`
