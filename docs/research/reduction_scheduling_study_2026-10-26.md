@@ -1,6 +1,12 @@
-# Reduction scheduling study: source audit and held pilot design
+# Experimental reduction scheduling: source audit and pilot design
 
-Date: 2026-10-26. Status: **SOURCE DESIGN; ALL SCIENTIFIC SCHEDULING DATA HELD**.
+Date: 2026-10-26. Status: **EXPERIMENTAL; CANONICAL DEFAULT UNCHANGED**.
+
+This document preserves the original prospective design. Four subsequently
+authorized fresh-process single samples and their limitations are recorded in
+[the completed pilot report](reduction_scheduling_pilot_2026-10-26.md). The HELD
+statements below describe the original preregistration, not those completed
+samples. Further scientific work requires a separately authorized protocol.
 
 This note defines a bounded experiment in the visitation order of already
 admitted reduction work. It records source contracts and hypotheses, not a

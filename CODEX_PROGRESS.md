@@ -1,5 +1,35 @@
 # Codex progress: five-loop optimization and controlled deployment
 
+## October 26 — publish the experimental reduction-scheduling study
+
+At the user's explicit request to commit and push current work, publish the
+isolated scheduling source on `wip-reduction-scheduling-study`; do not merge it
+or change Native defaults, Vakint pins, production campaigns or cache files.
+The measured source is `8823121ba065d93ffbd2bd77c5d0c88c321f1835` and the
+documentation commit does not relabel its optimized executable. The responsible
+study lane is `reduction_order_study`; an independent source/publication review
+found no blocker or accidental data/configuration/binary inclusion.
+
+Four predeclared fresh-process singles completed with exact full coefficient
+and guard-set parity. Application seconds were 3.474096323 canonical,
+3.194117724 root-rank, 3.504069977 dependency-positive-powers and 3.399341941
+root-coefficient-size. All reported Native work counters and end-cache censuses
+were identical. This synthetic private tuning request has a known shared
+held-out component, so it is neither independent held-out nor cache-training
+evidence; no general speedup or cancellation-work reduction is established.
+All workers exited zero; the outer actors' subsequent metadata-size refusals
+remain preserved and were checked separately without retries.
+
+Focused engineering evidence: core 87 passed; applicable saved-application
+subset 117 passed/two ignored; example 16 passed/one real-controller test ignored.
+The retained broader application attempt has one unavailable-compiled-arity
+configuration failure, not a full-suite PASS. See the
+[completed pilot report](docs/research/reduction_scheduling_pilot_2026-10-26.md)
+for exact scope, request, commands, measured/inferred distinctions and evidence
+identities. Raw outputs, executable and environment-owned launch configuration
+stay outside Git. No further mathematical execution or promotion is authorized
+by this publication; additional comparisons need a new bounded protocol.
+
 ## October 23 — consolidate the 640-master consumer into `vakint_rustred`
 
 At the user's request, merge the tested `five-loop-640-loader-acceptance`
