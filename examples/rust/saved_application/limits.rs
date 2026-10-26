@@ -61,6 +61,20 @@ fn override_from_value(
             };
             continue;
         }
+        if name == "entry_coverage_policy" {
+            candidate.entry_coverage_policy = match value.as_str() {
+                Some("advisory") => rustred_app::SavedApplicationEntryCoveragePolicy::Advisory,
+                Some("follow-unresolved-policy") => {
+                    rustred_app::SavedApplicationEntryCoveragePolicy::FollowUnresolvedPolicy
+                }
+                _ => {
+                    return Err(
+                        "entry_coverage_policy must be advisory or follow-unresolved-policy".into(),
+                    );
+                }
+            };
+            continue;
+        }
         let value = value
             .as_u64()
             .and_then(|value| usize::try_from(value).ok())
@@ -96,6 +110,28 @@ fn override_from_value(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn advisory_entry_coverage_keeps_strict_result_policy_and_other_options() {
+        let original = SavedApplicationOptions::default();
+        let mut options = original;
+        override_from_value(&mut options, &json!({"entry_coverage_policy":"advisory"})).unwrap();
+        assert_eq!(
+            options.entry_coverage_policy,
+            rustred_app::SavedApplicationEntryCoveragePolicy::Advisory
+        );
+        assert_eq!(
+            options.unresolved_policy,
+            rustred::solver::UnresolvedPolicy::Reject
+        );
+        let admitted = options;
+        assert!(
+            override_from_value(&mut options, &json!({"entry_coverage_policy":"unknown"})).is_err()
+        );
+        assert_eq!(options, admitted);
+        options.entry_coverage_policy = original.entry_coverage_policy;
+        assert_eq!(options, original);
+    }
 
     #[test]
     fn work_overrides_do_not_change_unmentioned_policy() {
