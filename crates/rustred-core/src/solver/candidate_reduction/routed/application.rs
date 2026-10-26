@@ -4,10 +4,12 @@
 mod cache_policy;
 mod engine;
 mod persistent;
+mod scheduling;
 use crate::reduction::guard_union;
 pub use persistent::{
     CandidateRoutedCacheExportStatistics, CandidateRoutedPersistentCacheStatistics,
 };
+pub use scheduling::{CandidateRoutedScheduling, CandidateRoutedWorkOrder};
 mod progress;
 mod transport;
 
@@ -137,6 +139,7 @@ pub struct RoutedCandidateApplication<const N: usize> {
     cache_representation: CandidateCacheRepresentation,
     unresolved_policy: UnresolvedPolicy,
     cache_policy: CandidateRoutedCachePolicy,
+    scheduling: CandidateRoutedScheduling,
     eviction_index: EvictionIndex<Node<N>>,
     cache_work: CandidateRoutedCacheStatistics,
     cache_budget: SharedCacheBudget,
@@ -155,6 +158,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             cache_representation: CandidateCacheRepresentation::Sparse,
             unresolved_policy: UnresolvedPolicy::Reject,
             cache_policy: CandidateRoutedCachePolicy::default(),
+            scheduling: CandidateRoutedScheduling::default(),
             eviction_index: EvictionIndex::default(),
             cache_work: CandidateRoutedCacheStatistics::default(),
             cache_budget: SharedCacheBudget::default(),
@@ -188,6 +192,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             cache_representation: CandidateCacheRepresentation::Sparse,
             unresolved_policy: UnresolvedPolicy::Reject,
             cache_policy: CandidateRoutedCachePolicy::default(),
+            scheduling: CandidateRoutedScheduling::default(),
             eviction_index: EvictionIndex::default(),
             cache_work: CandidateRoutedCacheStatistics::default(),
             cache_budget: SharedCacheBudget::default(),
@@ -230,6 +235,18 @@ impl<const N: usize> RoutedCandidateApplication<N> {
 
     pub fn cache_policy(&self) -> CandidateRoutedCachePolicy {
         self.cache_policy
+    }
+
+    pub fn scheduling(&self) -> CandidateRoutedScheduling {
+        self.scheduling
+    }
+
+    /// Change operational visitation only. Existing complete cache identities
+    /// remain valid; rule selection, admission, guards and descent are unchanged.
+    /// Cold comparisons should use independent empty applications because
+    /// scheduling can affect cache residency and eviction.
+    pub fn set_scheduling(&mut self, scheduling: CandidateRoutedScheduling) {
+        self.scheduling = scheduling;
     }
 
     /// Select bounded cache behavior before application or after clearing the

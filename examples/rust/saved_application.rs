@@ -5,6 +5,8 @@
 //! `saved_application export PUBLICATION NEW_DIRECTORY`
 //! `saved_application suite APPLICATION INVENTORY_JSON [OFFSET] [COUNT] [REPEATS] [CACHE_MODE] [CACHE_BYTES] [CACHE_REPRESENTATION] [LIMITS_JSON] [PROGRESS_MS]`
 //! `saved_application compare-cache APPLICATION INVENTORY_JSON CASE_ID CACHE_BYTES [REFERENCE_BYTES] [LIMITS_JSON]`
+//! `saved_application scheduling-sample PACKAGE REQUEST_JSON ROOT_ORDER DEPENDENCY_ORDER OUTPUT_JSON [LIMITS_JSON]`
+//! `saved_application scheduling-check PACKAGE REQUEST_JSON EXPECTED_JSON ACTUAL_JSON`
 //!
 //! Inventory writes a small JSON document to stdout. Suite emits JSONL, one
 //! completed receipt per concrete point, and never claims exhaustive closure.
@@ -27,6 +29,11 @@
 //! PROGRESS_MS opts into structured request snapshots (zero/default is off).
 //! Snapshots run at native safe boundaries, not inside a CAS call or combine.
 //! Suite observes direct entries; the separate routed-entry API is unobserved.
+//! Scheduling samples perform one cold application; the separate checker only
+//! parses and compares full exact outputs. External launch/resource admission
+//! remains the caller's responsibility. See the scheduling module for schemas.
+//! Actual 5L sampling and checking both require external admission of Native
+//! data loading before invocation; this generic CLI cannot authorize that work.
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -42,13 +49,15 @@ use serde_json::{Value, json};
 mod compare_cache;
 #[path = "saved_application/limits.rs"]
 mod limits;
+#[path = "saved_application/scheduling.rs"]
+mod scheduling;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.len() < 2 {
-        return Err("expected inventory SOURCE, export SOURCE DEST, suite PACKAGE INVENTORY [OFFSET COUNT REPEATS], or compare-cache PACKAGE INVENTORY CASE_ID CACHE_BYTES [REFERENCE_BYTES] [LIMITS_JSON]".into());
+        return Err("expected inventory SOURCE, export SOURCE DEST, suite PACKAGE INVENTORY [OFFSET COUNT REPEATS], compare-cache PACKAGE INVENTORY CASE_ID CACHE_BYTES [REFERENCE_BYTES] [LIMITS_JSON], scheduling-sample PACKAGE REQUEST_JSON ROOT_ORDER DEPENDENCY_ORDER OUTPUT_JSON [LIMITS_JSON], or scheduling-check PACKAGE REQUEST_JSON EXPECTED_JSON ACTUAL_JSON".into());
     }
     let arity = saved_application_arity(Path::new(&args[1]))?;
     macro_rules! dispatch {
@@ -81,6 +90,10 @@ fn run<const N: usize>(args: &[String], arity: usize) -> Result<()> {
         }
         "suite" if (3..=11).contains(&args.len()) => suite::<N>(args, arity),
         "compare-cache" if (5..=7).contains(&args.len()) => compare_cache::run::<N>(args, arity),
+        "scheduling-sample" if (6..=7).contains(&args.len()) => {
+            scheduling::sample::<N>(args, arity)
+        }
+        "scheduling-check" if args.len() == 5 => scheduling::check::<N>(args, arity),
         _ => Err("invalid saved_application arguments".into()),
     }
 }

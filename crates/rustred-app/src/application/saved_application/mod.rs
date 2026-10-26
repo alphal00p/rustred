@@ -799,6 +799,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         application
             .set_cache_policy(options.cache_policy)
             .map_err(native_failure)?;
+        application.set_scheduling(options.scheduling);
         metadata["owner_preparation"] =
             serde_json::json!(if deferred { "on_first_use" } else { "eager" });
         metadata["preparation_workers"] = serde_json::json!(options.preparation_workers);

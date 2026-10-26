@@ -751,9 +751,10 @@ fn persistent_export_omits_unknown_nodes_but_preserves_exact_cancelled_parents()
     );
 }
 
-#[test]
-fn persistent_captured_descendant_keeps_only_its_own_subtree_guards() {
-    let mut source = fixture();
+fn with_indexed_guards(
+    mut source: RoutedCandidateReducer<1>,
+    capacity: Option<usize>,
+) -> RoutedCandidateReducer<1> {
     let programs = Arc::get_mut(&mut source.programs).unwrap();
     let indexed = programs.context.coefficient_context().clone();
     let d = indexed
@@ -771,6 +772,17 @@ fn persistent_captured_descendant_keeps_only_its_own_subtree_guards() {
             )
             .unwrap(),
     ];
+    if let Some(capacity) = capacity {
+        let limits = &mut Arc::get_mut(&mut programs.context).unwrap().limits;
+        limits.diagnostics_enabled = true;
+        limits.max_cached_integrals = capacity;
+    }
+    source
+}
+
+#[test]
+fn persistent_captured_descendant_keeps_only_its_own_subtree_guards() {
+    let source = with_indexed_guards(fixture(), None);
     let c = source.programs.context.family().coefficient_context();
     let mut app = source.application();
     let binding = app.persistent_cache_binding([9; 32]);
@@ -849,6 +861,238 @@ fn persistent_captured_descendant_keeps_only_its_own_subtree_guards() {
             .unwrap_err()
             .to_string()
             .contains("source condition")
+    );
+}
+
+#[test]
+fn experimental_scheduling_preserves_individual_guarded_records_through_eviction_and_import() {
+    let reference = with_indexed_guards(fixture(), None);
+    let c = reference.programs.context.family().coefficient_context();
+    let mut canonical = reference.application();
+    let binding = canonical.persistent_cache_binding([0x53; 32]);
+    let mut expected = Store {
+        binding: binding.clone(),
+        records: Default::default(),
+    };
+    let input = [(key([5]), c.one()), (key([4]), c.integer(-1))];
+    let exact = canonical
+        .reduce_linear_combination_with_cache(
+            input.clone(),
+            CandidateEntryAdmission::SavedGenerationScope,
+            &binding,
+            None,
+            Some(&mut expected),
+        )
+        .unwrap();
+    for order in [
+        CandidateRoutedWorkOrder::Canonical,
+        CandidateRoutedWorkOrder::NumeratorRankDescending,
+        CandidateRoutedWorkOrder::PositivePowerSumDescending,
+        CandidateRoutedWorkOrder::PropagatorCountDescending,
+        CandidateRoutedWorkOrder::CornerDistanceDescending,
+        CandidateRoutedWorkOrder::CoefficientTermsDescending,
+    ] {
+        for policy in [
+            CandidateRoutedCachePolicy::EvictLeastRecentlyUsed,
+            CandidateRoutedCachePolicy::EvictAgedLeastFrequentlyUsed,
+        ] {
+            let source = with_indexed_guards(fixture(), Some(2));
+            let mut application = source.application();
+            application.set_scheduling(CandidateRoutedScheduling {
+                roots: order,
+                dependencies: order,
+            });
+            application.set_cache_policy(policy).unwrap();
+            assert_eq!(application.persistent_cache_binding([0x53; 32]), binding);
+            let mut store = Store {
+                binding: binding.clone(),
+                records: Default::default(),
+            };
+            let reduced = application
+                .reduce_linear_combination_with_cache(
+                    input.clone(),
+                    CandidateEntryAdmission::SavedGenerationScope,
+                    &binding,
+                    None,
+                    Some(&mut store),
+                )
+                .unwrap();
+            assert_eq!(reduced.terms(), exact.terms());
+            assert!(
+                reduced
+                    .nonzero_conditions()
+                    .iter()
+                    .all(|g| exact.nonzero_conditions().contains(g))
+            );
+            assert!(
+                exact
+                    .nonzero_conditions()
+                    .iter()
+                    .all(|g| reduced.nonzero_conditions().contains(g))
+            );
+            assert!(reduced.statistics().cache.evicted_entries > 0);
+            // Visitation and eviction cannot attach a parent's guards to a
+            // descendant or change a completed individual identity's value.
+            assert_eq!(store.records, expected.records);
+            let mut imported = source.application();
+            imported.set_scheduling(CandidateRoutedScheduling {
+                dependencies: order,
+                ..Default::default()
+            });
+            let warm = imported
+                .reduce_linear_combination_with_cache(
+                    input.clone(),
+                    CandidateEntryAdmission::SavedGenerationScope,
+                    &binding,
+                    Some(&mut store),
+                    None,
+                )
+                .unwrap();
+            assert_eq!(warm.terms(), exact.terms());
+            assert_eq!(warm.nonzero_conditions(), exact.nonzero_conditions());
+            assert_eq!(warm.statistics().persistent_cache.requested_root_hits, 2);
+            let mut malformed =
+                expected.records[&ApplicationCacheKey::apply(vec![true], &key([3]))].clone();
+            malformed
+                .nonzero_conditions
+                .retain(|g| g != &c.coefficient_fixture("d+3"));
+            assert!(
+                imported
+                    .validate_completed_cache_record(&binding, &malformed)
+                    .is_err()
+            );
+        }
+    }
+}
+
+#[test]
+fn dependency_scheduling_keeps_ordered_branch_guards_and_releases_failed_pins() {
+    let family = Arc::new(crate::solver::tests::tadpole());
+    let owners = programs(
+        family.clone(),
+        None,
+        vec![input(
+            [true],
+            None,
+            vec![
+                rule(&family, [5], &[([4], 1), ([3], -1)]),
+                rule(&family, [4], &[([2], 2)]),
+                rule(&family, [3], &[([2], 1), ([1], 1)]),
+                rule(&family, [2], &[([1], 3)]),
+            ],
+            &[[1]],
+        )],
+        Default::default(),
+    );
+    let routed = RoutedCandidateReducer::try_new(owners, [], Default::default()).unwrap();
+    let source = with_indexed_guards(routed, Some(3));
+    let c = source.programs.context.family().coefficient_context();
+    let mut canonical = source.application();
+    canonical
+        .set_cache_policy(CandidateRoutedCachePolicy::EvictLeastRecentlyUsed)
+        .unwrap();
+    let expected = canonical
+        .reduce_linear_combination([(key([5]), c.one())])
+        .unwrap();
+    for order in super::tests::WORK_ORDERS {
+        let mut application = source.application();
+        application
+            .set_cache_policy(CandidateRoutedCachePolicy::EvictLeastRecentlyUsed)
+            .unwrap();
+        application.set_scheduling(CandidateRoutedScheduling {
+            dependencies: order,
+            ..Default::default()
+        });
+        let actual = application
+            .reduce_linear_combination([(key([5]), c.one())])
+            .unwrap();
+        assert_eq!(actual.terms(), expected.terms());
+        assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+        // A callback sets cancellation only after children have completed and
+        // a parent is ready to combine, so this exercises real live pins.
+        application.clear_cache().unwrap();
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let mut callback = |event: &CandidateRoutedApplicationEnvelope<'_>| {
+            if event.activity == CandidateRoutedActivity::CoefficientCombination {
+                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            Ok(CandidateRoutedObserverControl::Continue)
+        };
+        let mut observer = CandidateRoutedApplicationObserver::new(
+            CandidateRoutedObservationOptions {
+                interval: std::time::Duration::ZERO,
+                ..Default::default()
+            },
+            &mut callback,
+        );
+        assert!(matches!(
+            application.reduce_linear_combination_with_observation(
+                [(key([5]), c.one())],
+                CandidateEntryAdmission::SavedGenerationScope,
+                &mut observer,
+                Some(&cancel),
+            ),
+            Err(CandidateRoutedError::Cancelled)
+        ));
+        // The next request must be able to evict every stale dependency.
+        let resumed = application
+            .reduce_linear_combination([(key([5]), c.one())])
+            .unwrap();
+        assert_eq!(resumed.terms(), expected.terms());
+        assert_eq!(resumed.nonzero_conditions(), expected.nonzero_conditions());
+    }
+    // This branching fixture exposes a real scheduling tradeoff: canonical
+    // visitation succeeds with two resident entries; dots-first retains a
+    // completed sibling while the other branch needs two pinned children.
+    drop(canonical);
+    let mut small = source;
+    Arc::get_mut(&mut Arc::get_mut(&mut small.programs).unwrap().context)
+        .unwrap()
+        .limits
+        .max_cached_integrals = 2;
+    let c = small.programs.context.family().coefficient_context();
+    let mut canonical = small.application();
+    canonical
+        .set_cache_policy(CandidateRoutedCachePolicy::EvictLeastRecentlyUsed)
+        .unwrap();
+    assert_eq!(
+        canonical
+            .reduce_linear_combination([(key([5]), c.one())])
+            .unwrap()
+            .terms(),
+        expected.terms()
+    );
+    let mut priority = small.application();
+    priority
+        .set_cache_policy(CandidateRoutedCachePolicy::EvictLeastRecentlyUsed)
+        .unwrap();
+    priority.set_scheduling(CandidateRoutedScheduling {
+        dependencies: CandidateRoutedWorkOrder::PositivePowerSumDescending,
+        ..Default::default()
+    });
+    assert!(matches!(
+        priority.reduce_linear_combination([(key([5]), c.one())]),
+        Err(CandidateRoutedError::Candidate(
+            CandidateReductionError::Application(crate::reduction::ReductionError::CacheLimit {
+                requested: 3,
+                limit: 2
+            })
+        ))
+    ));
+    // Existing completed entries can themselves change the next request's
+    // pinned working set. Check cleanup with a terminal request, then compare
+    // the original cold canonical configuration after clearing the cache.
+    priority
+        .reduce_linear_combination([(key([1]), c.one())])
+        .unwrap();
+    priority.clear_cache().unwrap();
+    priority.set_scheduling(Default::default());
+    assert_eq!(
+        priority
+            .reduce_linear_combination([(key([5]), c.one())])
+            .unwrap()
+            .terms(),
+        expected.terms()
     );
 }
 

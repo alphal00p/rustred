@@ -18,8 +18,9 @@ pub use application::{
     CandidateRoutedCacheStatistics, CandidateRoutedCompletionSource, CandidateRoutedComplexity,
     CandidateRoutedFrontierSample, CandidateRoutedKeyDegrees, CandidateRoutedObservationOptions,
     CandidateRoutedObserverControl, CandidateRoutedObserverFault, CandidateRoutedObserverStatus,
-    CandidateRoutedPersistentCacheStatistics, CandidateRoutedReduction,
-    CandidateRoutedTerminalProgress, CandidateRoutedWorkRef, RoutedCandidateApplication,
+    CandidateRoutedPersistentCacheStatistics, CandidateRoutedReduction, CandidateRoutedScheduling,
+    CandidateRoutedTerminalProgress, CandidateRoutedWorkOrder, CandidateRoutedWorkRef,
+    RoutedCandidateApplication,
 };
 
 pub use campaign::{

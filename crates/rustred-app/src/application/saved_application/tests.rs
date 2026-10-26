@@ -22,6 +22,62 @@ impl Scratch {
         Self(path)
     }
 }
+
+#[test]
+fn saved_application_forwards_experimental_scheduling_without_changing_binding() {
+    use rustred::solver::{CandidateRoutedScheduling, CandidateRoutedWorkOrder};
+    let scratch = Scratch::new();
+    let original = prepared_fixture(&scratch.0.join("source"));
+    let runtime = scratch.0.join("runtime");
+    original.export_runtime(&runtime).unwrap();
+    let scheduling = CandidateRoutedScheduling {
+        roots: CandidateRoutedWorkOrder::PositivePowerSumDescending,
+        dependencies: CandidateRoutedWorkOrder::CoefficientTermsDescending,
+    };
+    let mut configured = load_saved_application::<1>(
+        &runtime,
+        SavedApplicationOptions {
+            scheduling,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut canonical = load_saved_application::<1>(&runtime, Default::default()).unwrap();
+    assert_eq!(configured.application.scheduling(), scheduling);
+    assert_eq!(
+        canonical.application.scheduling(),
+        CandidateRoutedScheduling::default()
+    );
+    assert_eq!(
+        configured.cache_binding([3; 32]),
+        canonical.cache_binding([3; 32])
+    );
+    let c = configured.family().coefficient_context().clone();
+    let input = [
+        (IntegralKey::try_new([4]).unwrap(), c.one()),
+        (IntegralKey::try_new([2]).unwrap(), c.integer(-1)),
+    ];
+    let expected = canonical.reduce_linear_combination(input.clone()).unwrap();
+    let actual = configured.reduce_linear_combination(input).unwrap();
+    assert_eq!(actual.terms(), expected.terms());
+    assert!(
+        actual
+            .nonzero_conditions()
+            .iter()
+            .all(|g| expected.nonzero_conditions().contains(g))
+    );
+    assert!(
+        expected
+            .nonzero_conditions()
+            .iter()
+            .all(|g| actual.nonzero_conditions().contains(g))
+    );
+    assert!(
+        configured
+            .reduce_linear_combination([(IntegralKey::try_new([3]).unwrap(), c.zero())])
+            .is_err()
+    );
+}
 impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);

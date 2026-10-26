@@ -15,7 +15,8 @@ use super::progress::{
 use super::{
     CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
     CandidateRoutedApplicationStatistics, CandidateRoutedApplicationStatus,
-    CandidateRoutedCacheCensus, CandidateRoutedReduction, RoutedCandidateApplication,
+    CandidateRoutedCacheCensus, CandidateRoutedReduction, CandidateRoutedWorkOrder,
+    RoutedCandidateApplication,
 };
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::family::IntegralKey;
@@ -38,11 +39,72 @@ enum Frame<const N: usize> {
     },
 }
 
+fn scheduling_buffer<T>(
+    count: usize,
+    resource: &'static str,
+) -> Result<Vec<T>, CandidateRoutedError> {
+    let bytes = count
+        .checked_mul(std::mem::size_of::<T>())
+        .and_then(|bytes| u64::try_from(bytes).ok())
+        .ok_or(ReductionError::AllocationFailure {
+            resource,
+            requested: count,
+        })?;
+    symbolica::utils::resources::check_allocation(bytes).map_err(ReductionError::from)?;
+    let mut buffer = Vec::new();
+    buffer
+        .try_reserve_exact(count)
+        .map_err(|_| ReductionError::AllocationFailure {
+            resource,
+            requested: count,
+        })?;
+    Ok(buffer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::solver::RoutedCandidateReducer;
     use crate::solver::candidate_reduction::owner_test_support::*;
+
+    #[test]
+    fn scheduling_buffers_preserve_typed_resource_and_size_failures() {
+        use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
+        let budget = ResourceBudget::with_memory_monitor(
+            ResourceLimits {
+                max_process_rss_bytes: Some(1),
+                ..Default::default()
+            },
+            || Ok(0),
+        );
+        let error = budget
+            .run(|| scheduling_buffer::<usize>(2, "test scheduling"))
+            .unwrap_err();
+        let mut cause: &(dyn std::error::Error + 'static) = &error;
+        while let Some(source) = cause.source() {
+            cause = source;
+        }
+        assert!(matches!(
+            cause.downcast_ref::<ResourceLimitError>(),
+            Some(ResourceLimitError::Memory {
+                rss_bytes: 0,
+                limit_bytes: 1,
+                ..
+            })
+        ));
+        assert!(matches!(
+            scheduling_buffer::<usize>(usize::MAX, "test scheduling"),
+            Err(CandidateRoutedError::Candidate(
+                CandidateReductionError::Application(ReductionError::AllocationFailure { .. })
+            ))
+        ));
+        assert!(
+            scheduling_buffer::<usize>(2, "test scheduling")
+                .unwrap()
+                .capacity()
+                >= 2
+        );
+    }
 
     #[test]
     fn active_operational_cycle_is_rejected_even_with_a_cached_result() {
@@ -67,6 +129,11 @@ mod tests {
             application.run_stack(&mut request),
             Err(CandidateRoutedError::Cycle { .. })
         ));
+
+        application.set_scheduling(super::super::CandidateRoutedScheduling {
+            roots: CandidateRoutedWorkOrder::NumeratorRankDescending,
+            dependencies: CandidateRoutedWorkOrder::PositivePowerSumDescending,
+        });
 
         let mut cycle = None;
         {
@@ -932,7 +999,21 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             );
         }
         let mut output = BTreeMap::new();
-        for (target, factor) in entries {
+        // Admission, input guards and cancellation above precede every policy.
+        // The canonical path keeps its existing map iterator and allocates no
+        // scheduling vector. Priorities only reorder the surviving roots.
+        let mut prioritized_entries = Vec::new();
+        let order = self.scheduling.roots;
+        if order != CandidateRoutedWorkOrder::Canonical {
+            prioritized_entries = scheduling_buffer(entries.len(), "routed root scheduling")?;
+            prioritized_entries.extend(std::mem::take(&mut entries));
+            prioritized_entries.sort_unstable_by(|(left, lc), (right, rc)| {
+                order
+                    .compare_priority(left, lc, right, rc)
+                    .then_with(|| left.cmp(right))
+            });
+        }
+        for (target, factor) in entries.into_iter().chain(prioritized_entries) {
             request.check_cancel()?;
             let root = Node::Route(target);
             request.set_root(&root);
@@ -1397,8 +1478,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     }
                 }
             };
-            // Schedule in sorted order; Route and Apply(owner, key) are distinct
-            // memoized states even when they refer to the same physical key.
+            // Route and Apply(owner, key) remain distinct memoized states.
+            // Keep the original map for arithmetic and guard combination;
+            // only the depth-first visitation queue may be reordered.
             let terms = Arc::new(terms);
             request.push(
                 Frame::Combine {
@@ -1409,12 +1491,29 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 },
                 limits.diagnostic_limit(limits.max_pending_frames),
             )?;
-            for child in terms.keys().rev() {
+            let order = self.scheduling.dependencies;
+            let mut schedule_child = |child: &Node<N>| {
                 self.pin_dependency(child, &mut request.pins)?;
                 request.push(
                     Frame::Enter(child.clone()),
                     limits.diagnostic_limit(limits.max_pending_frames),
-                )?;
+                )
+            };
+            if order == CandidateRoutedWorkOrder::Canonical {
+                for child in terms.keys().rev() {
+                    schedule_child(child)?;
+                }
+            } else {
+                let mut children = scheduling_buffer(terms.len(), "routed dependency scheduling")?;
+                children.extend(terms.iter());
+                children.sort_unstable_by(|(left, lc), (right, rc)| {
+                    order
+                        .compare_priority(left.key(), lc, right.key(), rc)
+                        .then_with(|| left.cmp(right))
+                });
+                for (child, _) in children.into_iter().rev() {
+                    schedule_child(child)?;
+                }
             }
         }
         Ok(())

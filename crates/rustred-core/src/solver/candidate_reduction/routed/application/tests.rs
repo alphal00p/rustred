@@ -11,6 +11,184 @@ use crate::solver::{
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+pub(super) const WORK_ORDERS: [CandidateRoutedWorkOrder; 6] = [
+    CandidateRoutedWorkOrder::Canonical,
+    CandidateRoutedWorkOrder::NumeratorRankDescending,
+    CandidateRoutedWorkOrder::PositivePowerSumDescending,
+    CandidateRoutedWorkOrder::PropagatorCountDescending,
+    CandidateRoutedWorkOrder::CornerDistanceDescending,
+    CandidateRoutedWorkOrder::CoefficientTermsDescending,
+];
+
+#[test]
+fn experimental_scheduling_preserves_exact_cancellation_guards_and_unknowns() {
+    for representation in [
+        CandidateCacheRepresentation::Sparse,
+        CandidateCacheRepresentation::Factorized,
+    ] {
+        for roots in WORK_ORDERS {
+            for dependencies in WORK_ORDERS {
+                let routed = partial_routed_fixture(Default::default());
+                let c = routed.programs.context.family().coefficient_context();
+                let mut application = routed.application();
+                application
+                    .set_cache_representation(representation)
+                    .unwrap();
+                application
+                    .set_unresolved_policy(UnresolvedPolicy::Preserve)
+                    .unwrap();
+                let scheduling = CandidateRoutedScheduling {
+                    roots,
+                    dependencies,
+                };
+                application.set_scheduling(scheduling);
+                assert_eq!(application.scheduling(), scheduling);
+                // The first root cancels internally. The remaining roots cancel
+                // its terminal output, leaving a known coefficient of a gap.
+                let input = [
+                    (key([4]), c.one()),
+                    (key([3]), c.integer(-1)),
+                    (key([1]), c.integer(2)),
+                ];
+                for _ in 0..2 {
+                    let result = application
+                        .reduce_linear_combination(input.clone())
+                        .unwrap();
+                    assert_eq!(result.terms(), &BTreeMap::from([(key([2]), c.integer(3))]));
+                    assert_eq!(result.unresolved(), &BTreeSet::from([key([2])]));
+                    assert_eq!(result.nonzero_conditions(), &[c.coefficient_fixture("d-7")]);
+                }
+                // A scheduling change keeps complete memoized identities valid.
+                application.set_scheduling(Default::default());
+                let warm = application.reduce_linear_combination(input).unwrap();
+                assert!(warm.statistics().work.cache_hits() > 0);
+                assert_eq!(warm.terms(), &BTreeMap::from([(key([2]), c.integer(3))]));
+                assert!(
+                    application
+                        .set_unresolved_policy(UnresolvedPolicy::Reject)
+                        .is_err()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn experimental_scheduling_changes_visitation_without_changing_child_arithmetic() {
+    fn observed(
+        scheduling: CandidateRoutedScheduling,
+        roots: &[i64],
+    ) -> (Vec<i64>, Vec<i64>, CandidateRoutedReduction) {
+        let routed = tadpole(Default::default());
+        let c = routed.programs.context.family().coefficient_context();
+        let mut application = routed.application();
+        application.set_scheduling(scheduling);
+        let mut collected = Vec::new();
+        let mut activity = Vec::new();
+        let mut callback = |event: &CandidateRoutedApplicationEnvelope<'_>| {
+            if event.event == CandidateRoutedApplicationEvent::RootCollected {
+                collected.push(event.root.unwrap().target().powers()[0]);
+            }
+            if event.event
+                == CandidateRoutedApplicationEvent::NodeCompleted(
+                    CandidateRoutedCompletionSource::Terminal,
+                )
+                || (event.event == CandidateRoutedApplicationEvent::ActivityStarted
+                    && event.activity == CandidateRoutedActivity::RuleEvaluation)
+            {
+                activity.push(event.current.unwrap().target().powers()[0]);
+            }
+            Ok(CandidateRoutedObserverControl::Continue)
+        };
+        let mut observer = CandidateRoutedApplicationObserver::new(
+            CandidateRoutedObservationOptions {
+                interval: Duration::ZERO,
+                ..Default::default()
+            },
+            &mut callback,
+        );
+        let result = application
+            .reduce_linear_combination_with_observation(
+                roots.iter().map(|&power| (key([power]), c.one())),
+                CandidateEntryAdmission::SavedGenerationScope,
+                &mut observer,
+                None,
+            )
+            .unwrap();
+        (collected, activity, result)
+    }
+    let order = CandidateRoutedWorkOrder::PositivePowerSumDescending;
+    let (canonical_roots, canonical_activity, canonical) = observed(Default::default(), &[3, 2]);
+    let (priority_roots, _, priority) = observed(
+        CandidateRoutedScheduling {
+            roots: order,
+            ..Default::default()
+        },
+        &[2, 3],
+    );
+    assert_eq!(canonical_roots, [2, 3]);
+    assert_eq!(priority_roots, [3, 2]);
+    assert_eq!(canonical.terms(), priority.terms());
+    assert_eq!(
+        canonical.nonzero_conditions(),
+        priority.nonzero_conditions()
+    );
+    let (_, sorted_activity, sorted) = observed(Default::default(), &[3]);
+    let (_, priority_activity, priority) = observed(
+        CandidateRoutedScheduling {
+            dependencies: order,
+            ..Default::default()
+        },
+        &[3],
+    );
+    assert_eq!(sorted_activity, [3, 1, 2]);
+    assert_eq!(priority_activity, [3, 2, 1]);
+    assert_eq!(sorted.terms(), priority.terms());
+    assert_eq!(sorted.nonzero_conditions(), priority.nonzero_conditions());
+    assert_ne!(canonical_activity, sorted_activity);
+}
+
+#[test]
+fn experimental_scheduling_cannot_bypass_entry_admission_with_a_cached_or_cancelled_root() {
+    let routed = tadpole(Default::default());
+    let c = routed.programs.context.family().coefficient_context();
+    let admission = FiniteRootAdmission::try_new(
+        [RootRegionInput {
+            support: [true],
+            lower: vec![0],
+            upper: vec![Some(0)],
+            rank: None,
+            powers: Default::default(),
+        }],
+        1,
+    )
+    .unwrap();
+    for order in WORK_ORDERS {
+        let mut application = routed.application();
+        application.set_scheduling(CandidateRoutedScheduling {
+            roots: order,
+            dependencies: order,
+        });
+        application
+            .reduce_linear_combination([(key([3]), c.one())])
+            .unwrap();
+        for factors in [vec![c.zero()], vec![c.one(), c.integer(-1)]] {
+            assert!(matches!(
+                application.reduce_linear_combination_with_entry_admission(
+                    factors.into_iter().map(|factor| (key([3]), factor)),
+                    CandidateEntryAdmission::ExplicitFinite(&admission),
+                ),
+                Err(CandidateRoutedError::EntryAdmission(_))
+            ));
+        }
+        assert!(
+            application
+                .reduce_linear_combination([(key([1, 1]), c.zero())])
+                .is_err()
+        );
+    }
+}
+
 fn tadpole(limits: ReductionLimits) -> RoutedCandidateReducer<1> {
     let family = Arc::new(crate::solver::tests::tadpole());
     let owners = programs(

@@ -2,7 +2,9 @@
 use crate::AppError;
 use rustred::persistence::BinaryIoLimits;
 use rustred::reduction::ReductionLimits;
-use rustred::solver::{CandidateRoutedCachePolicy, RoutedCandidateLimits, UnresolvedPolicy};
+use rustred::solver::{
+    CandidateRoutedCachePolicy, CandidateRoutedScheduling, RoutedCandidateLimits, UnresolvedPolicy,
+};
 
 /// Recorded coverage is independent of requiring a complete terminal result.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -31,6 +33,9 @@ pub struct SavedApplicationOptions {
     /// Completed results may be discarded and recomputed. Live dependencies
     /// remain protected; this allowance is not a process-wide memory limit.
     pub cache_policy: CandidateRoutedCachePolicy,
+    /// Experimental root/dependency visitation only; saved mathematical order,
+    /// formula dispatch and persistent-cache identities remain unchanged.
+    pub scheduling: CandidateRoutedScheduling,
     /// Existing bounded deterministic route-verification pool. This does not
     /// change reduction scope or create parallel formula-application workers.
     pub preparation_workers: usize,
@@ -45,6 +50,7 @@ impl Default for SavedApplicationOptions {
             binary_limits: Default::default(),
             cache_representation: Default::default(),
             cache_policy: CandidateRoutedCachePolicy::EvictLeastRecentlyUsed,
+            scheduling: CandidateRoutedScheduling::default(),
             preparation_workers: 1,
         }
     }
