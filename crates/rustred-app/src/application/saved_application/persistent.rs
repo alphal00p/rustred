@@ -6,6 +6,10 @@ use rustred::persistence::application_cache::{
 use rustred::reduction::{GuardedCacheBacking, GuardedIntermediateCapture};
 use rustred::solver::CandidateRoutedApplicationObserver;
 
+#[cfg(test)]
+#[path = "selected_cache_tests.rs"]
+mod selected_cache_tests;
+
 impl<const N: usize> PreparedSavedApplication<N> {
     pub(super) fn enforces_recorded_entry_coverage(&self) -> bool {
         self.options.entry_coverage_policy
@@ -58,6 +62,75 @@ impl<const N: usize> PreparedSavedApplication<N> {
         self.application
             .validate_completed_cache_record(binding, record)
             .map_err(native_failure)
+    }
+
+    /// Encode an explicit subset of an immutable native pack in the existing
+    /// single-file format, with one shared coefficient table. The caller must
+    /// authenticate `binding.artifact_digest` against its complete campaign and
+    /// catalogue; family, arity, solver layer and the backing must agree here.
+    ///
+    /// Duplicate requested keys are exported once. Missing keys, unsupported
+    /// stages, unresolved terms and corrupt selected payloads are errors. This
+    /// performs no reduction and does not export unrelated resident entries.
+    /// Exact terminal coefficients and ordered nonzero conditions are retained.
+    /// The result is not published until the caller atomically writes the
+    /// fully encoded bytes; an error never supplies a partial cache file.
+    pub fn encode_selected_completed_cache(
+        &self,
+        binding: &ApplicationCacheBinding,
+        backing: &mut SavedApplicationCachePack,
+        keys: &[ApplicationCacheKey],
+        limits: SavedApplicationCacheFileLimits,
+    ) -> Result<(Vec<u8>, SavedApplicationCacheFileIdentity), AppError> {
+        if backing.binding() != binding || self.cache_binding(binding.artifact_digest) != *binding {
+            return Err(AppError::input("selected cache export binding mismatch"));
+        }
+        let mut index_bytes = keys
+            .len()
+            .checked_mul(std::mem::size_of::<ApplicationCacheRecord>())
+            .ok_or_else(|| AppError::limit("selected cache record allocation overflow"))?;
+        if index_bytes > limits.chunk.max_index_owned_bytes {
+            return Err(AppError::limit(
+                "selected cache record index exceeds allowance",
+            ));
+        }
+        cache_pack::resource_allocation(index_bytes)?;
+        let mut records = Vec::new();
+        records
+            .try_reserve_exact(keys.len())
+            .map_err(|error| AppError::limit(error.to_string()))?;
+        let mut coefficient_terms = 0usize;
+        let mut coefficient_bytes = 0usize;
+        let context = self.family().coefficient_context();
+        backing.visit_selected_completed_records(keys, context, |record| {
+            self.validate_completed_cache_record(binding, &record)?;
+            let (terms, bytes) = record
+                .coefficient_census()
+                .map_err(cache_pack::binary_error)?;
+            coefficient_terms = coefficient_terms.checked_add(terms).ok_or_else(|| {
+                AppError::limit("selected cache coefficient term census overflow")
+            })?;
+            coefficient_bytes = coefficient_bytes.checked_add(bytes).ok_or_else(|| {
+                AppError::limit("selected cache coefficient byte census overflow")
+            })?;
+            index_bytes = index_bytes
+                .checked_add(record.key.owned_heap_bytes())
+                .ok_or_else(|| AppError::limit("selected cache key census overflow"))?;
+            if (limits.chunk.diagnostics_enabled
+                && (records.len().saturating_add(1) > limits.chunk.max_records
+                    || coefficient_terms > limits.chunk.max_decoded_coefficient_terms))
+                || coefficient_bytes > limits.chunk.max_decoded_coefficient_bytes
+                || index_bytes > limits.chunk.max_index_owned_bytes
+            {
+                return Err(AppError::limit(
+                    "selected cache record collection exceeds allowance",
+                ));
+            }
+            records.push(record);
+            Ok(())
+        })?;
+        records.sort_unstable_by(|left, right| left.key.cmp(&right.key));
+        SavedApplicationCacheFile::encode_generated(binding, &records, context, limits)
     }
 
     /// Apply with optional native backing and bounded completed-node capture.

@@ -11,6 +11,7 @@ use super::*;
 use crate::AppError;
 
 mod key_index;
+mod selected;
 mod visit;
 use key_index::KeyIndex;
 
