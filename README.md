@@ -1,5 +1,10 @@
 # RustRed
 
+[Selected completed-cache export](docs/selected_completed_cache.typ) extracts exact
+Route/Apply keys from an immutable saved-application cache, validates them against
+the prepared owner, and reuses the existing single-table gzip format. It performs
+no new reduction and preserves ordered guards.
+
 The [Feynkit bridge](crates/rustred-feynkit/README.md) adds native parametric
 and Laporta IBP solving to `symbolica.community.hepkit`, including multiscale
 two-loop graph tests and a [FeynCalc phi4 reproduction notebook](examples/notebooks/feyncalc_phi4_two_loop.ipynb).

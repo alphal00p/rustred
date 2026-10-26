@@ -10,6 +10,7 @@ use std::{collections::BTreeMap, fs, path::Path};
 mod key_filter;
 mod key_index;
 mod lookup_outcome;
+mod selected;
 mod snapshot;
 mod union;
 mod visit;
