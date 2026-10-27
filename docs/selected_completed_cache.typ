@@ -56,11 +56,10 @@ limits. #raw("with_decoded_bytes") includes the native file header in its
 allowance. An authenticated producer identity can supply exact load grants:
 
 ```rust
-let mut limits = SavedApplicationCacheFileLimits {
+let limits = SavedApplicationCacheFileLimits {
     max_compressed_bytes: trusted_identity.compressed_bytes.try_into()?,
     ..Default::default()
 }.with_decoded_bytes(trusted_identity.decoded_bytes.try_into()?)?;
-limits.chunk.max_records = trusted_statistics.records.try_into()?;
 let options = SavedApplicationCacheFileOptions {
     limits,
     decoded_directory: Some(private_decoded_directory.to_owned()),
@@ -70,10 +69,10 @@ let cache = SavedApplicationCacheFile::open_with_options(
 )?;
 ```
 
-Record-count and index grants remain independent admission checks; set them
-from the measured inventory and available RAM rather than assuming a larger
-decoded allowance raises every limit. The decoded directory must already
-exist. Loading streams decompression once
+Index grants remain independent admission checks; size them from the measured
+inventory and available RAM rather than assuming a larger decoded allowance
+raises every limit. Optional diagnostic count quotas apply only when explicitly
+enabled. The decoded directory must already exist. Loading streams decompression once
 into a private owned file. A bounded scan authenticates its native digest and
 retains one BLAKE3 digest per 64 KiB block; subsequent selected-range reads check
 the loaded blocks. The record/frame index, a fixed verification buffer and
