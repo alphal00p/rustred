@@ -479,8 +479,10 @@ fn unordered_ingestion_retains_unique_interner_and_key_ranges_not_record_algebra
 #[test]
 fn unordered_mode_index_copy_and_mixed_api_failures_are_explicit() {
     let (binding, context, records) = fixture();
-    let mut limits = ApplicationCacheIoLimits::default();
-    limits.max_index_owned_bytes = 1;
+    let limits = ApplicationCacheIoLimits {
+        max_index_owned_bytes: 1,
+        ..ApplicationCacheIoLimits::default()
+    };
     let mut writer = ApplicationCacheChunkWriter::new_unordered(
         Cursor::new(Vec::new()),
         &binding,

@@ -421,45 +421,6 @@ impl OwnedApplicationCacheChunk {
     }
 }
 
-#[cfg(test)]
-mod reader_admission_tests {
-    use super::*;
-    use std::io::{Read, Seek, SeekFrom};
-
-    struct NoIo;
-    impl Read for NoIo {
-        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
-            panic!("admission must precede file I/O")
-        }
-    }
-    impl Seek for NoIo {
-        fn seek(&mut self, _: SeekFrom) -> std::io::Result<u64> {
-            panic!("admission must precede file I/O")
-        }
-    }
-
-    #[test]
-    fn reader_byte_and_binding_grants_are_checked_before_scanning() {
-        let mut binding = ApplicationCacheBinding {
-            artifact_digest: [0; 32],
-            family_fingerprint: "reader-admission".into(),
-            physical_arity: 2,
-            layer: "native".into(),
-        };
-        let mut limits = ApplicationCacheIoLimits::default();
-        limits.binary.max_program_bytes = 0;
-        assert!(matches!(
-            OwnedApplicationCacheChunk::inspect_reader(NoIo, 1, &[0; 32], &binding, limits),
-            Err(BinaryIoError::Limit { .. })
-        ));
-        binding.family_fingerprint.clear();
-        assert!(matches!(
-            OwnedApplicationCacheChunk::inspect_reader(NoIo, 0, &[0; 32], &binding, limits),
-            Err(BinaryIoError::Invalid(_))
-        ));
-    }
-}
-
 fn decode_row(
     term_bytes: &[u8],
     guard_bytes: &[u8],
@@ -651,5 +612,44 @@ impl ByteCursor<'_> {
         Ok(u32::from_le_bytes(
             self.take(4)?.as_ref().try_into().expect("checked slice"),
         ))
+    }
+}
+
+#[cfg(test)]
+mod reader_admission_tests {
+    use super::*;
+    use std::io::{Read, Seek, SeekFrom};
+
+    struct NoIo;
+    impl Read for NoIo {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            panic!("admission must precede file I/O")
+        }
+    }
+    impl Seek for NoIo {
+        fn seek(&mut self, _: SeekFrom) -> std::io::Result<u64> {
+            panic!("admission must precede file I/O")
+        }
+    }
+
+    #[test]
+    fn reader_byte_and_binding_grants_are_checked_before_scanning() {
+        let mut binding = ApplicationCacheBinding {
+            artifact_digest: [0; 32],
+            family_fingerprint: "reader-admission".into(),
+            physical_arity: 2,
+            layer: "native".into(),
+        };
+        let mut limits = ApplicationCacheIoLimits::default();
+        limits.binary.max_program_bytes = 0;
+        assert!(matches!(
+            OwnedApplicationCacheChunk::inspect_reader(NoIo, 1, &[0; 32], &binding, limits),
+            Err(BinaryIoError::Limit { .. })
+        ));
+        binding.family_fingerprint.clear();
+        assert!(matches!(
+            OwnedApplicationCacheChunk::inspect_reader(NoIo, 0, &[0; 32], &binding, limits),
+            Err(BinaryIoError::Invalid(_))
+        ));
     }
 }

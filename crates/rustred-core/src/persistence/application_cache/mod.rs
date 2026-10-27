@@ -5,9 +5,9 @@
 //! A caller must authenticate the binding, validate its current entry policy,
 //! and admit decoded payloads to its current retained-memory budget before use.
 mod codec;
-mod writer;
 #[cfg(test)]
 mod tests;
+mod writer;
 
 use std::collections::BTreeMap;
 
@@ -270,7 +270,8 @@ impl ApplicationCacheIoLimits {
 
 pub use codec::{ApplicationCacheChunk, OwnedApplicationCacheChunk};
 pub use writer::{
-    ApplicationCacheChunkWriteStatistics, ApplicationCacheChunkWriter, encode_application_cache_chunk,
+    ApplicationCacheChunkWriteStatistics, ApplicationCacheChunkWriter,
+    encode_application_cache_chunk,
 };
 
 fn reduction_error(error: crate::reduction::ReductionError) -> BinaryIoError {
