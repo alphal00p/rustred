@@ -379,6 +379,8 @@ fn caller_observation_preserves_its_phase_and_running_status() {
     );
     envelope.activity = CandidateRoutedActivity::Caller;
     envelope.caller_phase = Some("special_symbolic");
+    envelope.complexity.terms = Some(3);
+    envelope.complexity.encoded_expression_bytes = Some(127);
 
     let document = saved_application_observation_document(&envelope);
     assert_eq!(document["observation_scope"], "caller");
@@ -390,6 +392,10 @@ fn caller_observation_preserves_its_phase_and_running_status() {
     assert_eq!(document["request_finished"], false);
     assert!(document["core"].is_null());
     assert!(document["terminal"].is_null());
+    assert!(document["stored_state"].is_null());
+    assert_eq!(document["complexity"]["terms"], 3);
+    assert_eq!(document["complexity"]["encoded_expression_bytes"], 127);
+    assert!(document["complexity"]["coefficient_bytes"].is_null());
 
     envelope.event = CandidateRoutedApplicationEvent::RequestFinished;
     envelope.status = CandidateRoutedApplicationStatus::Succeeded;
@@ -430,6 +436,7 @@ fn caller_failure_keeps_the_successful_native_summary_explicitly_stale() {
         caller.request_finished = true;
         caller.snapshot = observer.last_snapshot();
         caller.metrics = observer.last_metrics();
+        caller.stored_state = observer.last_stored_state();
         observer.emit(caller);
     }
     let last = documents.last().unwrap();
@@ -440,6 +447,12 @@ fn caller_failure_keeps_the_successful_native_summary_explicitly_stale() {
     assert_eq!(last["core_summary_live"], false);
     assert!(last["core_summary_age_seconds"].is_number());
     assert_eq!(last["metrics"]["completed_roots"], 1);
+    assert_eq!(last["stored_state"]["unstarted_roots"], 0);
+    assert_eq!(last["stored_state"]["scope"], "latest_native_request");
+    assert_eq!(
+        last["stored_state"]["sample_age_seconds"],
+        last["core_summary_age_seconds"]
+    );
 }
 
 #[test]
@@ -463,6 +476,7 @@ fn reused_observer_does_not_leak_previous_core_summary_after_binding_failure() {
             .reduce_linear_combination_with_observation(input.clone(), &mut observer, None)
             .unwrap();
         assert!(observer.last_snapshot().is_some());
+        assert!(observer.last_stored_state().is_some());
         assert!(observer.last_metrics().completed_roots > 0);
         let error = application
             .reduce_linear_combination_with_cache_and_observation(
@@ -476,6 +490,7 @@ fn reused_observer_does_not_leak_previous_core_summary_after_binding_failure() {
             .unwrap_err();
         assert!(error.to_string().contains("binding mismatch"));
         assert!(observer.last_snapshot().is_none());
+        assert!(observer.last_stored_state().is_none());
         assert_eq!(observer.last_metrics(), Default::default());
     }
     let last = documents.last().unwrap();
@@ -484,6 +499,7 @@ fn reused_observer_does_not_leak_previous_core_summary_after_binding_failure() {
     assert_eq!(last["status"], "failed");
     assert_eq!(last["request_finished"], true);
     assert!(last["core"].is_null());
+    assert!(last["stored_state"].is_null());
     assert!(last["metrics"]["output_terms"].is_null());
     assert_eq!(last["metrics"]["completed_roots"], 0);
 }

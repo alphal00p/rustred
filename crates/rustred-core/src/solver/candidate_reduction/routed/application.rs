@@ -20,8 +20,8 @@ pub use progress::{
     CandidateRoutedApplicationStatus, CandidateRoutedCacheCensus, CandidateRoutedCompletionSource,
     CandidateRoutedComplexity, CandidateRoutedFrontierSample, CandidateRoutedKeyDegrees,
     CandidateRoutedObservationOptions, CandidateRoutedObserverControl,
-    CandidateRoutedObserverFault, CandidateRoutedObserverStatus, CandidateRoutedTerminalProgress,
-    CandidateRoutedWorkRef,
+    CandidateRoutedObserverFault, CandidateRoutedObserverStatus, CandidateRoutedStoredState,
+    CandidateRoutedTerminalProgress, CandidateRoutedWorkRef,
 };
 
 use std::collections::{BTreeMap, BTreeSet};

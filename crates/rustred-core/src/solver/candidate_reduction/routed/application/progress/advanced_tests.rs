@@ -23,6 +23,8 @@ struct Recorded {
     snapshot: Option<CandidateRoutedApplicationSnapshot>,
     event: CandidateRoutedApplicationEvent,
     metrics: CandidateRoutedApplicationMetrics,
+    stored_state: Option<CandidateRoutedStoredState>,
+    activity: CandidateRoutedActivity,
     node: Option<(u8, Vec<bool>, Vec<i64>)>,
     frontier: Option<CandidateRoutedFrontierSample>,
     complexity: CandidateRoutedComplexity,
@@ -50,6 +52,8 @@ fn record(envelope: &CandidateRoutedApplicationEnvelope<'_>) -> Recorded {
         snapshot: envelope.snapshot,
         event: envelope.event,
         metrics: envelope.metrics,
+        stored_state: envelope.stored_state,
+        activity: envelope.activity,
         node: envelope.current.map(|node| match node {
             CandidateRoutedWorkRef::Route(key) => (0, vec![], key.powers().to_vec()),
             CandidateRoutedWorkRef::Apply {
@@ -219,6 +223,15 @@ fn backing_root_hit_counts_completion_without_replaying_dependencies() {
     assert_eq!(metrics.completion_attempts, 1);
     assert_eq!(metrics.observed_descent_checks, 0);
     assert_eq!(metrics.completed_roots, 1);
+    assert_eq!(
+        rows.last().unwrap().stored_state,
+        Some(CandidateRoutedStoredState {
+            unstarted_roots: Some(0),
+            deferred_rule_maps: Some(0),
+            deferred_child_integral_occurrences: Some(0),
+            collected_output_integrals: Some(actual.terms().len()),
+        })
+    );
 }
 
 #[test]
@@ -256,6 +269,15 @@ fn cold_and_warm_requests_count_operational_identity_and_reset_request_metrics()
             CandidateRoutedApplicationStatus::Succeeded
         );
         assert_eq!(finished.metrics.completed_roots, 2);
+        assert_eq!(
+            finished.stored_state,
+            Some(CandidateRoutedStoredState {
+                unstarted_roots: Some(0),
+                deferred_rule_maps: Some(0),
+                deferred_child_integral_occurrences: Some(0),
+                collected_output_integrals: Some(actual.terms().len()),
+            })
+        );
         assert_eq!(finished.metrics.requested_roots, Some(2));
         assert_eq!(finished.metrics.output_terms, Some(actual.terms().len()));
         assert_eq!(finished.metrics.completed_unique_operational_nodes, 6);
@@ -326,6 +348,15 @@ fn cold_and_warm_requests_count_operational_identity_and_reset_request_metrics()
         0
     );
     assert_eq!(warm_records.first().unwrap().metrics.completion_attempts, 0);
+    assert_eq!(
+        warm_records.first().unwrap().stored_state,
+        Some(CandidateRoutedStoredState {
+            unstarted_roots: None,
+            deferred_rule_maps: Some(0),
+            deferred_child_integral_occurrences: Some(0),
+            collected_output_integrals: None,
+        })
+    );
     let finished = warm_records.last().unwrap();
     assert_eq!(finished.metrics.completed_unique_operational_nodes, 2);
     assert_eq!(finished.metrics.completion_attempts, 2);
@@ -380,6 +411,14 @@ fn eviction_recompletion_does_not_inflate_unique_completion_or_change_the_answer
     assert_eq!(finished.snapshot.unwrap().active_nodes, 0);
     assert_eq!(finished.snapshot.unwrap().pending_frames, 0);
     assert_eq!(finished.snapshot.unwrap().pinned.unwrap().entries, 0);
+    assert_eq!(finished.stored_state.unwrap().deferred_rule_maps, Some(0));
+    assert_eq!(
+        finished
+            .stored_state
+            .unwrap()
+            .deferred_child_integral_occurrences,
+        Some(0)
+    );
 }
 
 #[test]
@@ -502,6 +541,10 @@ fn observation_cadence_preserves_forced_final_metrics_and_exact_work() {
     );
     assert_eq!(sparse.last().unwrap().metrics, all.last().unwrap().metrics);
     assert_eq!(
+        sparse.last().unwrap().stored_state,
+        all.last().unwrap().stored_state
+    );
+    assert_eq!(
         sparse.last().unwrap().snapshot.unwrap().statistics,
         *full.statistics()
     );
@@ -611,6 +654,15 @@ fn factorized_observation_preserves_guarded_work_and_reports_retained_census() {
     }
     let final_row = rows.last().unwrap();
     assert_eq!(final_row.metrics.output_terms, Some(actual.terms().len()));
+    assert_eq!(
+        final_row.stored_state.unwrap().collected_output_integrals,
+        Some(actual.terms().len())
+    );
+    assert_eq!(final_row.stored_state.unwrap().deferred_rule_maps, Some(0));
+    assert!(
+        rows.iter()
+            .all(|row| row.complexity.encoded_expression_bytes.is_none())
+    );
     let retained = observed.cache_statistics();
     assert_eq!(
         final_row.snapshot.unwrap().cached.coefficient_terms,
@@ -919,4 +971,122 @@ fn callback_panic_is_contained_and_completed_cache_stays_reusable() {
     let warm = app.reduce_linear_combination([(key([4]), one)]).unwrap();
     assert_eq!(warm.statistics().work.rule_applications(), 0);
     assert_eq!(app.cache.len(), app.eviction_index.eligible.len());
+}
+
+#[test]
+fn stored_state_counts_retained_maps_and_cancellation_without_changing_cache_records() {
+    let mut observed = application(20);
+    let mut reference = application(20);
+    let coefficients = observed.family().coefficient_context();
+    let terms = [
+        (key([3]), coefficients.one()),
+        (key([4]), coefficients.coefficient_fixture("2")),
+    ];
+    let binding = observed.persistent_cache_binding([71; 32]);
+    let mut expected_store = MemoryStore {
+        binding: binding.clone(),
+        records: BTreeMap::new(),
+    };
+    let mut actual_store = MemoryStore {
+        binding: binding.clone(),
+        records: BTreeMap::new(),
+    };
+    let expected = reference
+        .reduce_linear_combination_with_cache(
+            terms.clone(),
+            CandidateEntryAdmission::SavedGenerationScope,
+            &binding,
+            None,
+            Some(&mut expected_store),
+        )
+        .unwrap();
+    let rows = RefCell::new(Vec::new());
+    let mut sink = |envelope: &CandidateRoutedApplicationEnvelope<'_>| {
+        rows.borrow_mut().push(record(envelope));
+        Ok(CandidateRoutedObserverControl::Continue)
+    };
+    let mut observer = CandidateRoutedApplicationObserver::new(immediate_options(), &mut sink);
+    let actual = observed
+        .reduce_linear_combination_with_cache_and_observation(
+            terms,
+            CandidateEntryAdmission::SavedGenerationScope,
+            &binding,
+            None,
+            Some(&mut actual_store),
+            &mut observer,
+            None,
+        )
+        .unwrap();
+    assert_eq!(actual, expected);
+    assert!(
+        actual.terms().is_empty(),
+        "the two completed roots cancel exactly"
+    );
+    assert_eq!(actual_store.records, expected_store.records);
+    assert_eq!(observed.cache_statistics(), reference.cache_statistics());
+    let rows = rows.borrow();
+    let roots = rows
+        .iter()
+        .filter(|row| row.event == CandidateRoutedApplicationEvent::RootCollected)
+        .map(|row| row.stored_state.unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(roots.len(), 2);
+    assert_eq!(roots[0].unstarted_roots, Some(1));
+    assert_eq!(roots[0].collected_output_integrals, Some(1));
+    assert_eq!(roots[1].unstarted_roots, Some(0));
+    assert_eq!(roots[1].collected_output_integrals, Some(0));
+    assert!(roots.iter().all(|state| state.deferred_rule_maps == Some(0)
+        && state.deferred_child_integral_occurrences == Some(0)));
+    assert_eq!(
+        rows.iter()
+            .filter_map(|row| row.stored_state?.deferred_rule_maps)
+            .max(),
+        Some(3)
+    );
+    assert_eq!(
+        rows.iter()
+            .filter_map(|row| row.stored_state?.deferred_child_integral_occurrences)
+            .max(),
+        Some(4)
+    );
+    assert!(
+        rows.iter().any(
+            |row| row.activity == CandidateRoutedActivity::CoefficientCombination
+                && row
+                    .stored_state
+                    .is_some_and(|state| state.deferred_rule_maps.unwrap() > 0)
+        ),
+        "the currently popped Combine map remains counted while being processed"
+    );
+}
+
+#[test]
+fn stored_state_unknowns_reset_and_empty_request_is_exact_zero() {
+    let mut app = application(20);
+    let mut rows = Vec::new();
+    let mut sink = |envelope: &CandidateRoutedApplicationEnvelope<'_>| {
+        rows.push(record(envelope));
+        Ok(CandidateRoutedObserverControl::Continue)
+    };
+    let mut observer = CandidateRoutedApplicationObserver::new(immediate_options(), &mut sink);
+    let result = app
+        .reduce_linear_combination_with_observation(
+            [],
+            CandidateEntryAdmission::SavedGenerationScope,
+            &mut observer,
+            None,
+        )
+        .unwrap();
+    assert!(result.terms().is_empty());
+    assert_eq!(
+        observer.last_stored_state(),
+        Some(CandidateRoutedStoredState {
+            unstarted_roots: Some(0),
+            deferred_rule_maps: Some(0),
+            deferred_child_integral_occurrences: Some(0),
+            collected_output_integrals: Some(0),
+        })
+    );
+    observer.clear_native_summary();
+    assert_eq!(observer.last_stored_state(), None);
 }
