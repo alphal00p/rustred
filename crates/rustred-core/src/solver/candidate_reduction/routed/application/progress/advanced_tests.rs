@@ -817,6 +817,11 @@ fn precancelled_observed_request_remains_cancelled_and_leaves_cache_usable() {
         0
     );
     assert_eq!(rows.last().unwrap().metrics.completed_roots, 0);
+    let state = rows.last().unwrap().stored_state.unwrap();
+    assert_eq!(state.unstarted_roots, None);
+    assert_eq!(state.collected_output_integrals, None);
+    assert_eq!(state.deferred_rule_maps, Some(0));
+    assert_eq!(state.deferred_child_integral_occurrences, Some(0));
     assert_eq!(app.cache_statistics().cached_integrals(), 0);
     app.reduce_linear_combination([(key([3]), one)]).unwrap();
 }
@@ -1030,6 +1035,15 @@ fn stored_state_counts_retained_maps_and_cancellation_without_changing_cache_rec
         .filter(|row| row.event == CandidateRoutedApplicationEvent::RootCollected)
         .map(|row| row.stored_state.unwrap())
         .collect::<Vec<_>>();
+    assert!(
+        rows.iter()
+            .filter(|row| row.event
+                == CandidateRoutedApplicationEvent::NodeCompleted(
+                    CandidateRoutedCompletionSource::Computed
+                ))
+            .all(|row| row.stored_state.unwrap().deferred_rule_maps.unwrap() > 0),
+        "a completed combination still owns its popped child map through completion delivery"
+    );
     assert_eq!(roots.len(), 2);
     assert_eq!(roots[0].unstarted_roots, Some(1));
     assert_eq!(roots[0].collected_output_integrals, Some(1));
