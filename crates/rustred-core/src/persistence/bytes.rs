@@ -330,7 +330,7 @@ mod tests {
         assert_eq!(selected.as_ptr(), pointer.wrapping_add(1));
         assert_eq!(selected.as_ref(), &[2, 3]);
         assert!(source.slice(0..usize::MAX).is_err());
-        assert!(source.slice(3..2).is_err());
+        assert!(source.slice(std::ops::Range { start: 3, end: 2 }).is_err());
         assert_eq!(source.index_owned_bytes().unwrap(), 0);
     }
 
