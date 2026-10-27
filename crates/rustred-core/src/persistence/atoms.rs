@@ -9,6 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::io::Write;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
@@ -167,7 +168,57 @@ impl CoefficientTableBuilder {
         Ok(id)
     }
 
-    pub fn finish(self) -> Result<EncodedCoefficientTable, BinaryIoError> {
+    /// Complete encoded atom-section size, including count and frame lengths.
+    pub fn encoded_atom_bytes(&self) -> usize {
+        self.encoded_atom_bytes
+    }
+
+    /// Compact unique atom payload retained by the interner, excluding framing.
+    /// This is a memory floor, not a bound on allocator or native scratch RSS.
+    pub fn retained_atom_payload_bytes(&self) -> usize {
+        self.encoded_atom_bytes
+            - LENGTH_BYTES
+            - self.atoms.len() * (LENGTH_BYTES + NATIVE_ATOM_HEADER_BYTES)
+    }
+
+    /// Known interner container storage, excluding allocator overhead, hash
+    /// control bytes, variable-map payloads and native scratch. This is a lower
+    /// bound only; interning remains proportional to all unique coefficients.
+    pub fn retained_index_lower_bound_bytes(&self) -> Result<usize, BinaryIoError> {
+        let overflow = || BinaryIoError::Invalid("coefficient interner index size overflow");
+        let mut bytes = self
+            .atoms
+            .capacity()
+            .checked_mul(std::mem::size_of::<Atom>())
+            .and_then(|n| {
+                n.checked_add(
+                    self.buckets
+                        .capacity()
+                        .checked_mul(std::mem::size_of::<(u64, Vec<CoefficientId>)>())?,
+                )
+            })
+            .and_then(|n| {
+                n.checked_add(
+                    self.variable_maps
+                        .capacity()
+                        .checked_mul(std::mem::size_of::<Arc<Vec<PolyVariable>>>())?,
+                )
+            })
+            .ok_or_else(overflow)?;
+        for bucket in self.buckets.values() {
+            bytes = bytes
+                .checked_add(
+                    bucket
+                        .capacity()
+                        .checked_mul(std::mem::size_of::<CoefficientId>())
+                        .ok_or_else(overflow)?,
+                )
+                .ok_or_else(overflow)?;
+        }
+        Ok(bytes)
+    }
+
+    fn encoded_state(&self) -> Result<Vec<u8>, BinaryIoError> {
         check_limit(
             "coefficient table bytes",
             self.encoded_atom_bytes,
@@ -206,15 +257,23 @@ impl CoefficientTableBuilder {
             checked_add(state.len(), self.encoded_atom_bytes)?,
             self.limits.max_program_bytes,
         )?;
-        let mut atoms =
-            CappedWriter::new("coefficient table bytes", self.limits.max_total_atom_bytes);
-        write_length(&mut atoms, self.atoms.len())?;
-        for atom in &self.atoms {
+        Ok(state)
+    }
+
+    fn write_atoms(self, writer: &mut impl Write) -> Result<(), BinaryIoError> {
+        let count = self.atoms.len();
+        // No more equality lookups occur after all IDs have been assigned.
+        // Drop indexes before writing; consumed atoms are then freed one by one.
+        drop(self.buckets);
+        drop(self.variable_maps);
+        write_length(writer, count)?;
+        for atom in self.atoms {
+            super::resource_checkpoint()?;
             let frame_bytes =
                 checked_add(atom.as_view().get_data().len(), NATIVE_ATOM_HEADER_BYTES)?;
-            write_length(&mut atoms, frame_bytes)?;
+            write_length(writer, frame_bytes)?;
             let written =
-                bincode::encode_into_std_write(atom, &mut atoms, bincode::config::standard())
+                bincode::encode_into_std_write(&atom, writer, bincode::config::standard())
                     .map_err(super::native_encode_error)?;
             if written != frame_bytes {
                 return Err(BinaryIoError::Invalid(
@@ -222,6 +281,30 @@ impl CoefficientTableBuilder {
                 ));
             }
         }
+        Ok(())
+    }
+
+    /// Stream the two length-framed native sections in their existing order:
+    /// Symbolica state, then one shared atom table. Only the bounded state export
+    /// is buffered; no serialized atom-table copy is retained. All atoms must be
+    /// interned first so the state contains every encountered variable map.
+    /// A failure leaves partial output; callers must publish only on success.
+    pub fn finish_into(self, writer: &mut impl Write) -> Result<(), BinaryIoError> {
+        let state = self.encoded_state()?;
+        let atom_bytes = self.encoded_atom_bytes;
+        write_length(writer, state.len())?;
+        super::resource_checkpoint()?;
+        writer.write_all(&state).map_err(super::native_io_error)?;
+        drop(state);
+        write_length(writer, atom_bytes)?;
+        self.write_atoms(writer)
+    }
+
+    pub fn finish(self) -> Result<EncodedCoefficientTable, BinaryIoError> {
+        let state = self.encoded_state()?;
+        let mut atoms =
+            CappedWriter::new("coefficient table bytes", self.limits.max_total_atom_bytes);
+        self.write_atoms(&mut atoms)?;
         Ok(EncodedCoefficientTable {
             state,
             atoms: atoms.finish(),

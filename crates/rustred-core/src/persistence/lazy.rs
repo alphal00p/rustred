@@ -1,8 +1,9 @@
 //! Framing-only index and on-demand use of the existing native atom decoder.
 //! Trusted generated input only, exactly like DecodedCoefficientTable.
 
+use super::bytes::{ByteCursor, SharedCoefficientBytes};
 use super::error::check_limit;
-use super::native::{preflight_native_frame, preflight_state_export, read_length};
+use super::native::{preflight_native_frame_header, preflight_state_export};
 use super::{BinaryIoError, BinaryIoLimits, CoefficientId};
 use crate::algebra::Coefficient;
 use std::{
@@ -22,8 +23,8 @@ struct Imported {
 /// State import occurs once on first selected access; only accessed coefficients
 /// are cached. IDs remain local to this exact table.
 pub struct LazyDecodedCoefficientTable {
-    state: Arc<[u8]>,
-    atoms: Arc<[u8]>,
+    state: SharedCoefficientBytes,
+    atoms: SharedCoefficientBytes,
     frames: Vec<Range<usize>>,
     limits: BinaryIoLimits,
     imported: Mutex<Imported>,
@@ -33,6 +34,18 @@ impl LazyDecodedCoefficientTable {
     pub fn new(
         state: Arc<[u8]>,
         atoms: Arc<[u8]>,
+        limits: BinaryIoLimits,
+    ) -> Result<Self, BinaryIoError> {
+        Self::from_shared(
+            SharedCoefficientBytes::from_arc(state),
+            SharedCoefficientBytes::from_arc(atoms),
+            limits,
+        )
+    }
+
+    pub(crate) fn from_shared(
+        state: SharedCoefficientBytes,
+        atoms: SharedCoefficientBytes,
         limits: BinaryIoLimits,
     ) -> Result<Self, BinaryIoError> {
         check_limit("Symbolica state bytes", state.len(), limits.max_state_bytes)?;
@@ -49,8 +62,8 @@ impl LazyDecodedCoefficientTable {
                 .ok_or(BinaryIoError::Invalid("coefficient byte count overflow"))?,
             limits.max_program_bytes,
         )?;
-        let mut source = &atoms[..];
-        let count = read_length(&mut source)?;
+        let mut source = ByteCursor::shared(&atoms);
+        let count = source.length()?;
         limits.check_count(
             "coefficient table entries",
             count,
@@ -60,7 +73,7 @@ impl LazyDecodedCoefficientTable {
             CoefficientId::try_from_index(count - 1)?;
         }
         if count
-            > source.len()
+            > source.remaining()
                 / (super::native::LENGTH_BYTES + super::native::NATIVE_ATOM_HEADER_BYTES + 1)
         {
             return Err(BinaryIoError::Invalid(
@@ -76,20 +89,26 @@ impl LazyDecodedCoefficientTable {
                 requested: count,
             })?;
         for _ in 0..count {
-            let length = read_length(&mut source)?;
+            let length = source.length()?;
             check_limit("coefficient atom bytes", length, limits.max_atom_bytes)?;
-            let frame = source
-                .get(..length)
-                .ok_or(BinaryIoError::Invalid("truncated coefficient atom"))?;
-            preflight_native_frame(frame)?;
-            let start = atoms.len() - source.len();
+            let start = source.position();
+            if length <= super::native::NATIVE_ATOM_HEADER_BYTES {
+                return Err(BinaryIoError::Invalid("invalid native atom frame"));
+            }
+            let header = source.take(super::native::NATIVE_ATOM_HEADER_BYTES)?;
+            preflight_native_frame_header(header.as_ref(), length)?;
+            source.skip(length - super::native::NATIVE_ATOM_HEADER_BYTES)?;
             frames.push(start..start + length);
-            source = &source[length..];
         }
-        if !source.is_empty() {
+        if source.remaining() != 0 {
             return Err(BinaryIoError::Invalid("trailing coefficient table bytes"));
         }
-        preflight_state_export(&state)?;
+        {
+            let header_range = state.slice(0..state.len().min(6))?;
+            let header = header_range.read()?;
+            preflight_state_export(header.as_ref())?;
+        }
+
         Ok(Self {
             state,
             atoms,
@@ -124,6 +143,18 @@ impl LazyDecodedCoefficientTable {
             .coefficients
             .len())
     }
+
+    /// Successful native state imports retained by this shared table (zero or
+    /// one). Failed imports do not install a state map.
+    pub fn state_import_count(&self) -> Result<usize, BinaryIoError> {
+        Ok(usize::from(
+            self.imported
+                .lock()
+                .map_err(|_| BinaryIoError::Native("lazy coefficient lock poisoned".into()))?
+                .state
+                .is_some(),
+        ))
+    }
     pub fn coefficient(&self, id: CoefficientId) -> Result<Arc<Coefficient>, BinaryIoError> {
         self.coefficient_with_admission(id, |_| Ok(()))
     }
@@ -151,7 +182,8 @@ impl LazyDecodedCoefficientTable {
             super::resource_allocation(self.state.len())?;
             imported.state = Some(
                 catch_unwind(AssertUnwindSafe(|| {
-                    let mut source = super::structure::ResourceReader::new(&self.state);
+                    let state = self.state.read()?;
+                    let mut source = super::structure::ResourceReader::new(state.as_ref());
                     let map = State::import(&mut source, None).map_err(super::native_io_error)?;
                     if source.remaining() != 0 {
                         return Err(BinaryIoError::Invalid("trailing Symbolica state bytes"));
@@ -163,8 +195,10 @@ impl LazyDecodedCoefficientTable {
                 })??,
             );
         }
+        let frame_range = self.atoms.slice(frame.clone())?;
+        let frame = frame_range.read()?;
         let value = Arc::new(super::atoms::decode_generated_frame(
-            &self.atoms[frame.clone()],
+            frame.as_ref(),
             imported.state.as_ref().expect("imported"),
             self.limits,
             false,
