@@ -180,7 +180,6 @@ pub struct ApplicationCacheChunk<'a> {
     atoms: &'a [u8],
     arity: usize,
     limits: ApplicationCacheIoLimits,
-    index_owned_bytes: usize,
 }
 
 impl<'a> ApplicationCacheChunk<'a> {
@@ -197,7 +196,6 @@ impl<'a> ApplicationCacheChunk<'a> {
             atoms: &bytes[layout.atoms],
             arity: expected.physical_arity,
             limits,
-            index_owned_bytes: layout.index_owned_bytes,
         })
     }
 
@@ -249,7 +247,6 @@ impl<'a> ApplicationCacheChunk<'a> {
             &self.bytes[row.guards.clone()],
             row,
             &table,
-            self.arity,
             context,
             self.limits,
             None,
@@ -416,7 +413,6 @@ impl OwnedApplicationCacheChunk {
             guards.as_ref(),
             row,
             &self.table,
-            self.arity,
             context,
             self.limits,
             Some(&self.decoded_census),
@@ -469,11 +465,11 @@ fn decode_row(
     guard_bytes: &[u8],
     row: &Row,
     table: &LazyDecodedCoefficientTable,
-    arity: usize,
     context: &CoefficientContext,
     limits: ApplicationCacheIoLimits,
     total_census: Option<&Mutex<crate::reduction::CacheWeight>>,
 ) -> Result<ApplicationCacheRecord, BinaryIoError> {
+    let arity = row.key.powers.len();
     let mut census = crate::reduction::CacheWeight::default();
     let mut coefficient = |id: u32| -> Result<Coefficient, BinaryIoError> {
         resource_checkpoint()?;
@@ -608,9 +604,9 @@ impl ByteCursor<'_> {
                 resource: "cache powers",
                 requested: arity,
             })?;
-        for value in encoded.chunks_exact(std::mem::size_of::<i64>()) {
+        for value in encoded.as_chunks::<8>().0 {
             resource_checkpoint()?;
-            powers.push(i64::from_le_bytes(value.try_into().expect("checked slice")));
+            powers.push(i64::from_le_bytes(*value));
         }
         Ok(powers)
     }
