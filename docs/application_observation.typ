@@ -92,3 +92,31 @@ phase and scope must not rewrite native status. The app projection
 shape with scoped detail and never serializes coefficients. Forwarded summaries
 are labeled as the latest native request and retain their genuine native sample
 age; later saved/caller notices do not refresh that timestamp.
+
+== Stored expression scopes
+
+The optional `stored_state` census reads fixed-size metadata maintained only for
+advanced observation. `unstarted_roots` counts coalesced roots whose traversal has
+not started; the current root is identified separately. `deferred_rule_maps` and
+`deferred_child_integral_occurrences` count retained immediate child maps,
+including the currently popped Combine map until combination finishes. Repeated
+integrals in different maps or operational stages are separate occurrences.
+`collected_output_integrals` is the exact current core output map length after
+successful weighted additions, including cancellation during root collection.
+These scopes can overlap and must not be summed into distinct remaining work.
+There is no materialized globally expanded pending expression.
+
+Every delivered native boundary, including activity notices, reads the current
+O(1) census. Its sequence and native-summary age identify that observation.
+Saved/caller forwarding retains the last census and its genuine native age;
+it does not resample or refresh it. A new dispatch resets the census. Before
+coalescing, and after an error drops the local roots/output maps, their counts
+are unknown. Retained queued frames remain separately counted after an error;
+the dropped active Combine map does not. Checked counter overflow omits the
+affected count rather than limiting reduction or changing its result.
+
+A caller can additionally supply `complexity.encoded_expression_bytes` and
+`complexity.terms` for an already owned Atom at an explicitly labeled caller
+phase. Encoded Atom bytes and stored summands are not Native coefficient byte
+bounds, a globally distinct integral census, or process memory. Native never
+formats, walks, expands, or materializes expressions to fill this field.
