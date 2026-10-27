@@ -10,7 +10,7 @@ use super::progress::{
     CandidateRoutedActivity, CandidateRoutedApplicationEnvelope, CandidateRoutedApplicationEvent,
     CandidateRoutedApplicationMetrics, CandidateRoutedApplicationObserver,
     CandidateRoutedCompletionSource, CandidateRoutedComplexity, CandidateRoutedFrontierSample,
-    CandidateRoutedKeyDegrees, CandidateRoutedWorkRef, Progress,
+    CandidateRoutedKeyDegrees, CandidateRoutedStoredState, CandidateRoutedWorkRef, Progress,
 };
 use super::{
     CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
@@ -157,12 +157,120 @@ mod tests {
         ));
         assert_eq!(application.cache_statistics().cached_integrals(), 0);
     }
+
+    #[test]
+    fn failed_combine_drops_only_the_executing_observed_map() {
+        let family = Arc::new(crate::solver::tests::tadpole());
+        let programs = programs(
+            family.clone(),
+            None,
+            vec![input([true], None, vec![], &[[1]])],
+            Default::default(),
+        );
+        let mut application = RoutedCandidateReducer::try_new(programs, [], Default::default())
+            .unwrap()
+            .application();
+        let mut request = Request {
+            observation: Some(EngineObservation::default()),
+            ..Default::default()
+        };
+        let ancestor = Node::Route(key([2]));
+        let current = Node::Route(key([1]));
+        for node in [ancestor, current] {
+            request.active.insert(node.clone());
+            request
+                .push(
+                    Frame::Combine {
+                        node,
+                        terms: Arc::new(BTreeMap::from([(
+                            Node::Apply([true], key([1])),
+                            family.coefficient_context().one(),
+                        )])),
+                        conditions: vec![],
+                        first_visit: true,
+                    },
+                    None,
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            request
+                .observation
+                .as_ref()
+                .unwrap()
+                .stored_state()
+                .deferred_rule_maps,
+            Some(2)
+        );
+        assert!(matches!(
+            application.run_stack(&mut request),
+            Err(CandidateRoutedError::Candidate(
+                CandidateReductionError::Application(ReductionError::ReducerInvariant { .. })
+            ))
+        ));
+        let state = request.observation.as_ref().unwrap().stored_state();
+        assert_eq!(state.deferred_rule_maps, Some(1));
+        assert_eq!(state.deferred_child_integral_occurrences, Some(1));
+        assert_eq!(request.stack.len(), 1);
+        assert_eq!(application.cache_statistics().cached_integrals(), 0);
+    }
+
+    #[test]
+    fn observed_counter_overflow_is_unknown_and_adds_no_reduction_error() {
+        let family = Arc::new(crate::solver::tests::tadpole());
+        let programs = programs(
+            family.clone(),
+            None,
+            vec![input([true], None, vec![], &[[1]])],
+            Default::default(),
+        );
+        let mut application = RoutedCandidateReducer::try_new(programs, [], Default::default())
+            .unwrap()
+            .application();
+        let mut request = Request {
+            observation: Some(EngineObservation {
+                stored_state: CandidateRoutedStoredState {
+                    deferred_rule_maps: Some(usize::MAX),
+                    deferred_child_integral_occurrences: Some(usize::MAX),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        request
+            .push(
+                Frame::Combine {
+                    node: Node::Route(key([1])),
+                    terms: Arc::new(BTreeMap::from([(
+                        Node::Apply([true], key([1])),
+                        family.coefficient_context().one(),
+                    )])),
+                    conditions: vec![],
+                    first_visit: true,
+                },
+                None,
+            )
+            .unwrap();
+        let state = request.observation.as_ref().unwrap().stored_state();
+        assert_eq!(state.deferred_rule_maps, None);
+        assert_eq!(state.deferred_child_integral_occurrences, None);
+        // The deliberately missing child still produces the original math error.
+        assert!(matches!(
+            application.run_stack(&mut request),
+            Err(CandidateRoutedError::Candidate(
+                CandidateReductionError::Application(ReductionError::ReducerInvariant { .. })
+            ))
+        ));
+        let state = request.observation.as_ref().unwrap().stored_state();
+        assert_eq!(state.deferred_rule_maps, None);
+        assert_eq!(state.deferred_child_integral_occurrences, None);
+    }
 }
 
 /// Optional request-local metadata. It never owns coefficients or participates
 /// in numerical work accounting. Only a bounded prefix of active ancestry is
 /// retained, and no metadata is allocated for an unobserved request.
-#[derive(Default)]
 struct EngineObservation<const N: usize> {
     root: Option<Node<N>>,
     current: Option<Node<N>>,
@@ -172,6 +280,43 @@ struct EngineObservation<const N: usize> {
     path_limit: usize,
     complexity: CandidateRoutedComplexity,
     has_seen_degrees: bool,
+    /// Queued Combine maps only; the currently popped map is added on delivery.
+    stored_state: CandidateRoutedStoredState,
+    combining_child_occurrences: Option<usize>,
+}
+
+impl<const N: usize> Default for EngineObservation<N> {
+    fn default() -> Self {
+        Self {
+            root: None,
+            current: None,
+            metrics: CandidateRoutedApplicationMetrics::default(),
+            activity: CandidateRoutedActivity::default(),
+            path_prefix: Vec::new(),
+            path_limit: 0,
+            complexity: CandidateRoutedComplexity::default(),
+            has_seen_degrees: false,
+            stored_state: CandidateRoutedStoredState {
+                deferred_rule_maps: Some(0),
+                deferred_child_integral_occurrences: Some(0),
+                ..Default::default()
+            },
+            combining_child_occurrences: None,
+        }
+    }
+}
+
+impl<const N: usize> EngineObservation<N> {
+    fn stored_state(&self) -> CandidateRoutedStoredState {
+        let mut state = self.stored_state;
+        if let Some(children) = self.combining_child_occurrences {
+            state.deferred_rule_maps = state.deferred_rule_maps.and_then(|n| n.checked_add(1));
+            state.deferred_child_integral_occurrences = state
+                .deferred_child_integral_occurrences
+                .and_then(|n| n.checked_add(children));
+        }
+        state
+    }
 }
 
 fn try_clone_node<const N: usize>(node: &Node<N>) -> Option<Node<N>> {
@@ -442,6 +587,7 @@ impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
             .as_ref()
             .map(|node| CandidateRoutedKeyDegrees::from_key(node.key()));
         envelope.metrics = observation.metrics;
+        envelope.stored_state = Some(observation.stored_state());
         // The activity already supplied this O(1) structural hint. Computing
         // cache censuses or sampling pending work remains sample-only below.
         envelope.complexity = observation.complexity;
@@ -539,6 +685,16 @@ impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
                 resource: "routed application stack",
                 requested: self.stack.len().saturating_add(1),
             })?;
+        if let (Some(observation), Frame::Combine { terms, .. }) = (&mut self.observation, &frame) {
+            observation.stored_state.deferred_rule_maps = observation
+                .stored_state
+                .deferred_rule_maps
+                .and_then(|n| n.checked_add(1));
+            observation.stored_state.deferred_child_integral_occurrences = observation
+                .stored_state
+                .deferred_child_integral_occurrences
+                .and_then(|n| n.checked_add(terms.len()));
+        }
         self.stack.push(frame);
         Ok(())
     }
@@ -729,6 +885,14 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 symbolica::utils::resources::checkpoint().map_err(ReductionError::from)?;
                 Ok(result)
             });
+            if result.is_err()
+                && let Some(observation) = &mut request.observation
+            {
+                // These maps belonged to reduce_request locals, now dropped.
+                // Remaining queued frames still belong to the live request.
+                observation.stored_state.unstarted_roots = None;
+                observation.stored_state.collected_output_integrals = None;
+            }
             request.observe(
                 self,
                 None,
@@ -923,6 +1087,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         request.stats.requested_targets = entries.len();
         if let Some(observation) = &mut request.observation {
             observation.metrics.requested_roots = Some(entries.len());
+            observation.stored_state.unstarted_roots = Some(entries.len());
+            observation.stored_state.collected_output_integrals = Some(0);
+            observation.metrics.output_terms = Some(0);
         }
         if request.persistent.backing.is_some() {
             request.persistent.requested_roots.extend(
@@ -933,6 +1100,12 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         }
         let mut output = BTreeMap::new();
         for (target, factor) in entries {
+            if let Some(observation) = &mut request.observation {
+                observation.stored_state.unstarted_roots = observation
+                    .stored_state
+                    .unstarted_roots
+                    .and_then(|n| n.checked_sub(1));
+            }
             request.check_cancel()?;
             let root = Node::Route(target);
             request.set_root(&root);
@@ -992,6 +1165,10 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                     &mut request.algebra,
                     &mut request.stats.work,
                 )?;
+                if let Some(observation) = &mut request.observation {
+                    observation.metrics.output_terms = Some(output.len());
+                    observation.stored_state.collected_output_integrals = Some(output.len());
+                }
             }
             // The output owns its coefficients and guards now. The current
             // root may be reused or evicted while processing later roots.
@@ -1039,6 +1216,18 @@ impl<const N: usize> RoutedCandidateApplication<N> {
     }
 
     fn run_stack(&mut self, request: &mut Request<'_, '_, N>) -> Result<(), CandidateRoutedError> {
+        let result = self.run_stack_inner(request);
+        if let Some(observation) = &mut request.observation {
+            // The popped frame has been dropped on success and every error path.
+            observation.combining_child_occurrences = None;
+        }
+        result
+    }
+
+    fn run_stack_inner(
+        &mut self,
+        request: &mut Request<'_, '_, N>,
+    ) -> Result<(), CandidateRoutedError> {
         let context = self.context.clone();
         let shared = &context.shared;
         let limits = context.limits;
@@ -1054,6 +1243,19 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             limits,
         };
         while let Some(frame) = request.stack.pop() {
+            if let (Some(observation), Frame::Combine { terms, .. }) =
+                (&mut request.observation, &frame)
+            {
+                observation.stored_state.deferred_rule_maps = observation
+                    .stored_state
+                    .deferred_rule_maps
+                    .and_then(|n| n.checked_sub(1));
+                observation.stored_state.deferred_child_integral_occurrences = observation
+                    .stored_state
+                    .deferred_child_integral_occurrences
+                    .and_then(|n| n.checked_sub(terms.len()));
+                observation.combining_child_occurrences = Some(terms.len());
+            }
             request.algebra.release_pending_frame()?;
             let (phase, current) = match &frame {
                 Frame::Enter(node) => (CandidateRoutedApplicationPhase::Expansion, node),
@@ -1129,6 +1331,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                         &mut request.persistent,
                         &mut request.stats.persistent_cache,
                     )?;
+                    if let Some(observation) = &mut request.observation {
+                        observation.combining_child_occurrences = None;
+                    }
                     continue;
                 }
                 Frame::Enter(node) => node,

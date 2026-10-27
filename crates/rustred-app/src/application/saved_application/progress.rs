@@ -157,6 +157,7 @@ fn saved_envelope<'a>(
     let mut envelope = CandidateRoutedApplicationEnvelope::new(event, family);
     envelope.snapshot = observer.last_snapshot();
     envelope.metrics = observer.last_metrics();
+    envelope.stored_state = observer.last_stored_state();
     envelope.caller_phase = Some(phase);
     envelope.activity = match phase {
         "terminal_substitution" => CandidateRoutedActivity::TerminalSubstitution,
@@ -364,6 +365,15 @@ pub fn saved_application_observation_document(
             "observed_descent_checks":metrics.observed_descent_checks,
             "max_seen_degrees":degrees_json(metrics.max_seen_degrees),
         },
+        "stored_state":envelope.stored_state.map(|value| json!({
+            "scope":"latest_native_request",
+            "sample_age_seconds":envelope.native_summary_age.map(|age| age.as_secs_f64()),
+            "unstarted_roots":value.unstarted_roots,
+            "deferred_rule_maps":value.deferred_rule_maps,
+            "deferred_child_integral_occurrences":value.deferred_child_integral_occurrences,
+            "deferred_includes_active_combination":true,
+            "collected_output_integrals":value.collected_output_integrals,
+        })),
         "frontier":envelope.frontier.map(|value| json!({
             "frames_examined":value.frames_examined,
             "total_pending_frames":value.total_pending_frames,
@@ -377,6 +387,7 @@ pub fn saved_application_observation_document(
         "complexity":{
             "terms":complexity.terms, "coefficient_terms":complexity.coefficient_terms,
             "coefficient_bytes":complexity.coefficient_bytes, "factorized":complexity.factorized,
+            "encoded_expression_bytes":complexity.encoded_expression_bytes,
             "contribution_index":complexity.contribution_index,
             "contribution_total":complexity.contribution_total,
         },

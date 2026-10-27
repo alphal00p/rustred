@@ -224,18 +224,37 @@ pub struct CandidateRoutedFrontierSample {
     pub exact: bool,
 }
 
-/// Existing structure sizes/censuses only. Bytes describe retained native
-/// payload, including guards, not encoded bytes or scratch/RSS. Factorized
-/// coefficients are never materialized solely to obtain observation detail.
+/// Existing structure sizes/censuses only. Coefficient bytes describe retained
+/// native payload including guards, excluding scratch/RSS. Encoded expression
+/// bytes are a separate caller-owned scope. Factorized coefficients are never
+/// materialized solely to obtain observation detail.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CandidateRoutedComplexity {
     pub terms: Option<usize>,
     pub coefficient_terms: Option<usize>,
     pub coefficient_bytes: Option<usize>,
+    /// Caller-owned Atom encoded payload bytes. Native never computes this;
+    /// these units differ from clone-owned `coefficient_bytes` and process RSS.
+    pub encoded_expression_bytes: Option<usize>,
     pub factorized: bool,
     /// One-based index of the current native root-output contribution.
     pub contribution_index: Option<usize>,
     pub contribution_total: Option<usize>,
+}
+
+/// Exact structural counts at a native safe boundary, not a globally combined
+/// expression or a remaining-work estimate. Immediate child occurrences may
+/// repeat integrals across maps and Route/Apply identities. Deferred maps include
+/// a popped Combine map while its combination is being processed. Unknown fields
+/// are not zero; checked counter overflow only omits observation detail.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CandidateRoutedStoredState {
+    /// Coalesced input roots whose native traversal has not started.
+    pub unstarted_roots: Option<usize>,
+    pub deferred_rule_maps: Option<usize>,
+    pub deferred_child_integral_occurrences: Option<usize>,
+    /// Current collected core output-map keys, including partial root collection.
+    pub collected_output_integrals: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -268,6 +287,7 @@ pub struct CandidateRoutedApplicationEnvelope<'a> {
     pub degrees: Option<CandidateRoutedKeyDegrees>,
     pub metrics: CandidateRoutedApplicationMetrics,
     pub frontier: Option<CandidateRoutedFrontierSample>,
+    pub stored_state: Option<CandidateRoutedStoredState>,
     pub active_path: &'a [CandidateRoutedWorkRef<'a>],
     pub path_total_nodes: usize,
     /// Index in the full ancestor path; it may lie beyond the retained prefix.
@@ -294,6 +314,7 @@ impl<'a> CandidateRoutedApplicationEnvelope<'a> {
             degrees: None,
             metrics: CandidateRoutedApplicationMetrics::default(),
             frontier: None,
+            stored_state: None,
             active_path: &[],
             path_total_nodes: 0,
             cycle_backedge: None,
@@ -336,6 +357,7 @@ pub struct CandidateRoutedApplicationObserver<'a> {
     sequence: u64,
     last_snapshot: Option<CandidateRoutedApplicationSnapshot>,
     last_metrics: CandidateRoutedApplicationMetrics,
+    last_stored_state: Option<CandidateRoutedStoredState>,
     last_native_observation: Option<Duration>,
 }
 impl<'a> CandidateRoutedApplicationObserver<'a> {
@@ -351,6 +373,7 @@ impl<'a> CandidateRoutedApplicationObserver<'a> {
             sequence: 0,
             last_snapshot: None,
             last_metrics: CandidateRoutedApplicationMetrics::default(),
+            last_stored_state: None,
             last_native_observation: None,
         }
     }
@@ -366,12 +389,18 @@ impl<'a> CandidateRoutedApplicationObserver<'a> {
     pub fn last_metrics(&self) -> CandidateRoutedApplicationMetrics {
         self.last_metrics
     }
+    /// Last genuine native structural census. Saved/caller forwarding retains
+    /// its original native-summary age; it does not resample the native state.
+    pub fn last_stored_state(&self) -> Option<CandidateRoutedStoredState> {
+        self.last_stored_state
+    }
     /// Begin a saved/caller request before native preflight. This prevents an
     /// early admission/binding error from borrowing a previous request's core
     /// summary, while retaining this observer's sequence and detach/fault state.
     pub fn clear_native_summary(&mut self) {
         self.last_snapshot = None;
         self.last_metrics = CandidateRoutedApplicationMetrics::default();
+        self.last_stored_state = None;
         self.last_native_observation = None;
     }
     /// Emit an enclosing caller/application boundary through the same observer.
@@ -389,6 +418,7 @@ impl<'a> CandidateRoutedApplicationObserver<'a> {
                 && envelope.activity != CandidateRoutedActivity::Caller
             {
                 self.last_native_observation = Some(elapsed);
+                self.last_stored_state = envelope.stored_state;
             }
         }
         self.sequence = self.sequence.saturating_add(1);

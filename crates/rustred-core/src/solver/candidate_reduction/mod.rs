@@ -68,12 +68,12 @@ pub use routed::{
     CandidateRoutedObservationOptions, CandidateRoutedObserverControl,
     CandidateRoutedObserverFault, CandidateRoutedObserverStatus,
     CandidateRoutedPersistentCacheStatistics, CandidateRoutedReduction,
-    CandidateRoutedSelectionIdentity, CandidateRoutedTerminalProgress, CandidateRoutedTraceCensus,
-    CandidateRoutedTraceCensusLimits, CandidateRoutedTraceReport, CandidateRoutedWork,
-    CandidateRoutedWorkBudget, CandidateRoutedWorkRef, CandidateRoutedWorkerPool,
-    EntryWitnessError, EntryWitnessLimits, EntryWitnessOutcome, FiniteRootAdmission,
-    RootAdmissionError, RootRegionInput, RoutedCandidateApplication, RoutedCandidateLimits,
-    RoutedCandidateReducer, pick_entry_intersection_witness,
+    CandidateRoutedSelectionIdentity, CandidateRoutedStoredState, CandidateRoutedTerminalProgress,
+    CandidateRoutedTraceCensus, CandidateRoutedTraceCensusLimits, CandidateRoutedTraceReport,
+    CandidateRoutedWork, CandidateRoutedWorkBudget, CandidateRoutedWorkRef,
+    CandidateRoutedWorkerPool, EntryWitnessError, EntryWitnessLimits, EntryWitnessOutcome,
+    FiniteRootAdmission, RootAdmissionError, RootRegionInput, RoutedCandidateApplication,
+    RoutedCandidateLimits, RoutedCandidateReducer, pick_entry_intersection_witness,
 };
 pub use trace::{CandidateTraceLimits, CandidateTraceReport};
 
