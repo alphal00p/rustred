@@ -348,3 +348,179 @@ fn explicit_decode_rejects_native_length_overrun_underrun_and_empty_second_membe
     extra.extend_from_slice(&empty_member);
     assert!(SavedApplicationCacheFile::decode(&extra, &binding, limits).is_err());
 }
+
+#[test]
+fn explicit_heavy_grants_extend_compact_defaults_without_overflow() {
+    let defaults = SavedApplicationCacheFileLimits::default();
+    let mut heavy = defaults;
+    heavy.max_compressed_bytes = usize::MAX;
+    heavy.chunk.binary.max_program_bytes = usize::MAX;
+    let identity = SavedApplicationCacheFileIdentity {
+        compressed_bytes: MAX_COMPRESSED_BYTES as u64 + 1,
+        compressed_blake3: [0; 32],
+        decoded_bytes: MAX_DECODED_BYTES as u64 + 1,
+        decoded_blake3: [0; 32],
+    };
+    assert!(validate_identity(&identity, defaults).is_err());
+    assert!(validate_identity(&identity, heavy).is_ok());
+    // This admission does not make missing/corrupt contents valid.
+    let (binding, _, _) = fixture();
+    assert!(SavedApplicationCacheFile::decode_generated(&[], &binding, &identity, heavy).is_err());
+    assert_eq!(heavy.decoded_limit(), usize::MAX);
+}
+
+#[test]
+fn streamed_export_preserves_native_rows_guards_and_cleans_spool() {
+    let (binding, context, records) = fixture();
+    let directory = test_directory("stream");
+    let mut writer =
+        SavedApplicationCacheFileWriter::new(&binding, &context, Default::default(), &directory)
+            .unwrap();
+    for record in &records {
+        writer.push(record).unwrap();
+    }
+    let (encoded, identity, statistics) = writer.finish(Vec::new()).unwrap();
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 0);
+    assert_eq!(statistics.records, records.len());
+    assert_eq!(statistics.unique_coefficients, 3);
+    assert!(statistics.unique_coefficient_payload_bytes > 0);
+    let mut reader = SavedApplicationCacheFile::decode_generated(
+        &encoded,
+        &binding,
+        &identity,
+        Default::default(),
+    )
+    .unwrap();
+    for record in &records {
+        assert_eq!(
+            reader.lookup(&record.key, &context).unwrap().as_ref(),
+            Some(record)
+        );
+    }
+    assert_eq!(reader.statistics().unwrap().state_imports, 1);
+    // The original buffered convenience writes the same native row/table
+    // grammar. Ambient Symbolica state may add export metadata between calls.
+    let (old, old_identity) = SavedApplicationCacheFile::encode_generated(
+        &binding,
+        &records,
+        &context,
+        Default::default(),
+    )
+    .unwrap();
+    let mut old_reader = SavedApplicationCacheFile::decode_generated(
+        &old,
+        &binding,
+        &old_identity,
+        Default::default(),
+    )
+    .unwrap();
+    for record in &records {
+        assert_eq!(
+            old_reader.lookup(&record.key, &context).unwrap().as_ref(),
+            Some(record)
+        );
+    }
+    std::fs::remove_dir(directory).unwrap();
+}
+
+#[test]
+fn streaming_transport_grants_keep_typed_limit_errors() {
+    let (binding, context, records) = fixture();
+    let directory = test_directory("limits");
+    let limits = SavedApplicationCacheFileLimits {
+        max_compressed_bytes: 1,
+        ..Default::default()
+    };
+    let mut writer =
+        SavedApplicationCacheFileWriter::new(&binding, &context, limits, &directory).unwrap();
+    for record in &records {
+        writer.push(record).unwrap();
+    }
+    let error = writer.finish(Vec::new()).unwrap_err();
+    assert_eq!(error.kind(), crate::AppErrorKind::Limit);
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 0);
+    let (encoded, _) = SavedApplicationCacheFile::encode_generated(
+        &binding,
+        &records,
+        &context,
+        Default::default(),
+    )
+    .unwrap();
+    let error = SavedApplicationCacheFile::decode(&encoded, &binding, limits)
+        .err()
+        .unwrap();
+    assert_eq!(error.kind(), crate::AppErrorKind::Limit);
+    std::fs::remove_dir(directory).unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn file_readers_share_one_table_and_keep_private_store_until_last_fork_drops() {
+    let (binding, context, records) = fixture();
+    let directory = test_directory("file-backed");
+    let (encoded, identity) = SavedApplicationCacheFile::encode_generated(
+        &binding,
+        &records,
+        &context,
+        Default::default(),
+    )
+    .unwrap();
+    let path = directory.join("source.rrcache.gz");
+    std::fs::write(&path, &encoded).unwrap();
+    let options = SavedApplicationCacheFileOptions {
+        decoded_directory: Some(directory.clone()),
+        ..Default::default()
+    };
+    let mut reader =
+        SavedApplicationCacheFile::open_with_options(&path, &binding, Some(&identity), &options)
+            .unwrap();
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+    assert_eq!(reader.statistics().unwrap().state_imports, 0);
+    let mut fork = reader.fork_reader();
+    assert!(Arc::ptr_eq(&reader.chunk, &fork.chunk));
+    assert_eq!(
+        reader.lookup(&records[0].key, &context).unwrap(),
+        Some(records[0].clone())
+    );
+    assert_eq!(
+        fork.lookup(&records[1].key, &context).unwrap(),
+        Some(records[1].clone())
+    );
+    assert_eq!(reader.statistics().unwrap().state_imports, 1);
+    assert_eq!(fork.statistics().unwrap().state_imports, 1);
+    assert_eq!(reader.statistics().unwrap().decoded_coefficients, 3);
+    drop(reader);
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+    assert_eq!(
+        fork.lookup(&records[0].key, &context).unwrap(),
+        Some(records[0].clone())
+    );
+    drop(fork);
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+    assert_eq!(std::fs::read(&path).unwrap(), encoded);
+    // Failed mapped openings never retain a decoded temporary file.
+    let wrong = SavedApplicationCacheFileIdentity {
+        decoded_blake3: [0; 32],
+        ..identity
+    };
+    assert!(
+        SavedApplicationCacheFile::open_with_options(&path, &binding, Some(&wrong), &options)
+            .is_err()
+    );
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+    std::fs::remove_file(path).unwrap();
+    std::fs::remove_dir(directory).unwrap();
+}
+
+fn test_directory(label: &str) -> std::path::PathBuf {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "rustred-file-{label}-{}-{unique}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&directory).unwrap();
+    directory
+}

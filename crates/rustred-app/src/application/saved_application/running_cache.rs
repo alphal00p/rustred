@@ -29,6 +29,8 @@ use super::{
 };
 use crate::{AppError, AppErrorKind};
 
+mod export;
+
 #[cfg(test)]
 mod closed_tests;
 #[cfg(test)]

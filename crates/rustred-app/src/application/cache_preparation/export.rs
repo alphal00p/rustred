@@ -44,8 +44,20 @@ pub struct CacheSaveOptions {
     /// Repeated snapshots may retain shadowed records and consume more quota.
     pub resume: bool,
     storage_limits: SavedApplicationCachePackLimits,
+    file_options: Option<crate::SavedApplicationCacheFileOptions>,
 }
 impl CacheSaveOptions {
+    /// Five-loop single-file transport/storage policy. It does not change
+    /// reduction RAM, work limits or the completed-record admission rules.
+    pub fn with_file_options(mut self, options: crate::SavedApplicationCacheFileOptions) -> Self {
+        self.file_options = Some(options);
+        self
+    }
+
+    pub fn file_options(&self) -> Option<&crate::SavedApplicationCacheFileOptions> {
+        self.file_options.as_ref()
+    }
+
     pub fn with_storage_limits(mut self, limits: SavedApplicationCachePackLimits) -> Self {
         self.disk_bytes = Some(limits.max_disk_bytes);
         self.storage_limits = limits;
@@ -57,6 +69,11 @@ impl CacheSaveOptions {
         loop_count: usize,
         capabilities: CachePreparationCapabilities,
     ) -> Result<SavedApplicationCachePackLimits, AppError> {
+        if loop_count != 5 && self.file_options.is_some() {
+            return Err(AppError::input(
+                "single-file options apply only to five-loop caches",
+            ));
+        }
         let mut limits = self.storage_limits;
         limits.max_disk_bytes =
             CachePreparationOptions::resolve_disk_bytes(loop_count, self.disk_bytes, capabilities)?;
@@ -88,6 +105,9 @@ pub struct CacheSaveReport {
     pub storage_limits: SavedApplicationCachePackLimits,
     pub failure: Option<AppError>,
     pub checkpoint_failure: Option<AppError>,
+    pub file_identity: Option<crate::SavedApplicationCacheFileIdentity>,
+    pub file_statistics:
+        Option<rustred::persistence::application_cache::ApplicationCacheChunkWriteStatistics>,
 }
 impl CacheSaveReport {
     pub fn to_document(&self) -> Value {
@@ -103,6 +123,19 @@ impl CacheSaveReport {
             "storage_limits":format!("{:?}", self.storage_limits),
             "failure":self.failure.as_ref().map(|e|json!({"kind":e.kind().as_str(),"detail":e.message()})),
             "checkpoint_failure":self.checkpoint_failure.as_ref().map(|e|json!({"kind":e.kind().as_str(),"detail":e.message()})),
+            "single_file": self.file_identity.map(|identity| json!({
+                "identity": identity,
+                "statistics": self.file_statistics.map(|s| json!({
+                    "records":s.records, "input_records":s.input_records,
+                    "identical_duplicates":s.identical_duplicates,
+                    "native_bytes":s.native_bytes, "unique_coefficients":s.unique_coefficients,
+                    "unique_coefficient_payload_bytes":s.unique_coefficient_payload_bytes,
+                    "encoded_coefficient_table_bytes":s.encoded_coefficient_table_bytes,
+                    "interner_index_lower_bound_bytes":s.interner_index_lower_bound_bytes,
+                    "unordered_spool_bytes":s.unordered_spool_bytes,
+                    "unordered_index_owned_bytes":s.unordered_index_owned_bytes,
+                })),
+            })),
             "scope":"explicit resident roots or full captured bases plus resident overlay; no in-flight state"})
     }
 }
@@ -321,6 +354,8 @@ fn save_sessions<P: NativeCacheProgram>(
         storage_limits: limits,
         failure,
         checkpoint_failure,
+        file_identity: None,
+        file_statistics: None,
     })
 }
 
