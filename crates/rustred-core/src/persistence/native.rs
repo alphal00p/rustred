@@ -79,19 +79,27 @@ pub(super) fn preflight_state_export(state: &[u8]) -> Result<(), BinaryIoError> 
 }
 
 pub(super) fn preflight_native_frame(frame: &[u8]) -> Result<(), BinaryIoError> {
-    if frame.len() <= NATIVE_ATOM_HEADER_BYTES {
+    let header = &frame[..frame.len().min(NATIVE_ATOM_HEADER_BYTES)];
+    preflight_native_frame_header(header, frame.len())
+}
+
+pub(super) fn preflight_native_frame_header(
+    header: &[u8],
+    frame_bytes: usize,
+) -> Result<(), BinaryIoError> {
+    if frame_bytes <= NATIVE_ATOM_HEADER_BYTES || header.len() != NATIVE_ATOM_HEADER_BYTES {
         return Err(BinaryIoError::Invalid("invalid native atom frame"));
     }
     let format = native_atom_format();
-    if frame[0] != format {
-        if frame[0] == LEGACY_ATOM_FORMAT && format != LEGACY_ATOM_FORMAT {
+    if header[0] != format {
+        if header[0] == LEGACY_ATOM_FORMAT && format != LEGACY_ATOM_FORMAT {
             return Err(BinaryIoError::Invalid(LEGACY_EXPORT_FORMAT));
         }
         return Err(BinaryIoError::Invalid("invalid native atom frame"));
     }
-    let mut length_source = &frame[1..NATIVE_ATOM_HEADER_BYTES];
+    let mut length_source = &header[1..];
     let length = read_length(&mut length_source)?;
-    if length != frame.len() - NATIVE_ATOM_HEADER_BYTES {
+    if length != frame_bytes - NATIVE_ATOM_HEADER_BYTES {
         return Err(BinaryIoError::Invalid(
             "native atom length differs from frame",
         ));

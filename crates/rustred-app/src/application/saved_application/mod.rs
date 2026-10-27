@@ -11,7 +11,8 @@ mod cache_pack;
 mod persistent;
 pub use cache_file::{
     SavedApplicationCacheFile, SavedApplicationCacheFileIdentity, SavedApplicationCacheFileLimits,
-    SavedApplicationCacheFileStatistics,
+    SavedApplicationCacheFileOptions, SavedApplicationCacheFileStatistics,
+    SavedApplicationCacheFileWriter,
 };
 mod charts;
 mod codec;

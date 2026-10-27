@@ -1,18 +1,17 @@
 //! Only integer keys/counts/IDs are RustRed framing. All algebra bytes and
 //! symbol remapping use the existing generated native coefficient-table codec.
 use std::{
-    io::Write,
     ops::Range,
     sync::{Arc, Mutex},
 };
 
 use super::*;
+use crate::persistence::bytes::{ByteCursor, SharedCoefficientBytes};
 use crate::persistence::error::check_limit;
-use crate::persistence::limits::CappedWriter;
-use crate::persistence::native::{LENGTH_BYTES, read_length, write_length};
+use crate::persistence::native::LENGTH_BYTES;
 use crate::persistence::{
-    CoefficientId, CoefficientTableBuilder, LazyDecodedCoefficientTable, native_io_error,
-    resource_allocation, resource_array, resource_checkpoint,
+    CoefficientId, LazyDecodedCoefficientTable, resource_allocation, resource_array,
+    resource_checkpoint,
 };
 
 const MAGIC: &[u8; 16] = b"RR-CACHE-CHNK-01";
@@ -20,123 +19,6 @@ const MAGIC: &[u8; 16] = b"RR-CACHE-CHNK-01";
 fn native(error: impl std::fmt::Display) -> BinaryIoError {
     BinaryIoError::Native(error.to_string())
 }
-fn put(writer: &mut CappedWriter, bytes: &[u8]) -> Result<(), BinaryIoError> {
-    resource_checkpoint()?;
-    writer.write_all(bytes).map_err(native_io_error)
-}
-fn frame(writer: &mut CappedWriter, bytes: &[u8]) -> Result<(), BinaryIoError> {
-    write_length(writer, bytes.len())?;
-    put(writer, bytes)
-}
-fn key(writer: &mut CappedWriter, value: &ApplicationCacheKey) -> Result<(), BinaryIoError> {
-    put(
-        writer,
-        &[match value.stage {
-            ApplicationCacheStage::GuardedRoot => 0,
-            ApplicationCacheStage::Route => 1,
-            ApplicationCacheStage::Apply => 2,
-        }],
-    )?;
-    if value.stage == ApplicationCacheStage::Apply {
-        for &active in &value.owner {
-            resource_checkpoint()?;
-            put(writer, &[u8::from(active)])?;
-        }
-    }
-    powers(writer, &value.powers)
-}
-fn powers(writer: &mut CappedWriter, values: &[i64]) -> Result<(), BinaryIoError> {
-    for value in values {
-        resource_checkpoint()?;
-        put(writer, &value.to_le_bytes())?;
-    }
-    Ok(())
-}
-
-/// Records must be sorted and unique. This snapshots completed mathematical
-/// payload only; it does not inspect or serialize an in-flight application.
-pub fn encode_application_cache_chunk(
-    binding: &ApplicationCacheBinding,
-    records: &[ApplicationCacheRecord],
-    context: &CoefficientContext,
-    limits: ApplicationCacheIoLimits,
-) -> Result<Vec<u8>, BinaryIoError> {
-    binding.validate(limits)?;
-    limits.check_count("cache records", records.len(), limits.max_records)?;
-    let mut out = CappedWriter::new("cache chunk bytes", limits.binary.max_program_bytes);
-    put(&mut out, MAGIC)?;
-    put(&mut out, &binding.artifact_digest)?;
-    frame(&mut out, binding.family_fingerprint.as_bytes())?;
-    frame(&mut out, binding.layer.as_bytes())?;
-    write_length(&mut out, binding.physical_arity)?;
-    write_length(&mut out, records.len())?;
-    let mut table = CoefficientTableBuilder::new(limits.binary);
-    let mut previous = None;
-    for record in records {
-        resource_checkpoint()?;
-        record.key.validate(binding.physical_arity)?;
-        if previous.is_some_and(|key| key >= &record.key) {
-            return Err(BinaryIoError::Invalid(
-                "cache keys are not strictly ordered",
-            ));
-        }
-        previous = Some(&record.key);
-        limits.check_count(
-            "cache record terms",
-            record.terms.len(),
-            limits.max_terms_per_record,
-        )?;
-        limits.check_count(
-            "cache record guards",
-            record.nonzero_conditions.len(),
-            limits.max_guards_per_record,
-        )?;
-        let (terms, bytes) = record.coefficient_census()?;
-        limits.check_count(
-            "decoded cache coefficient terms",
-            terms,
-            limits.max_decoded_coefficient_terms,
-        )?;
-        check_limit(
-            "decoded cache coefficient bytes",
-            bytes,
-            limits.max_decoded_coefficient_bytes,
-        )?;
-        key(&mut out, &record.key)?;
-        write_length(&mut out, record.terms.len())?;
-        for (target, coefficient) in &record.terms {
-            resource_checkpoint()?;
-            if target.powers().len() != binding.physical_arity || coefficient.is_zero() {
-                return Err(BinaryIoError::Invalid(
-                    "invalid or zero cache terminal term",
-                ));
-            }
-            validate_coefficient(coefficient, context, limits)?;
-            powers(&mut out, target.powers())?;
-            put(
-                &mut out,
-                &(table.intern(coefficient)?.index() as u32).to_le_bytes(),
-            )?;
-        }
-        write_length(&mut out, record.nonzero_conditions.len())?;
-        for condition in &record.nonzero_conditions {
-            resource_checkpoint()?;
-            validate_coefficient(condition, context, limits)?;
-            if condition.is_zero() {
-                return Err(BinaryIoError::Invalid("vanished cache guard"));
-            }
-            put(
-                &mut out,
-                &(table.intern(condition)?.index() as u32).to_le_bytes(),
-            )?;
-        }
-    }
-    let encoded = table.finish()?;
-    frame(&mut out, &encoded.state)?;
-    frame(&mut out, &encoded.atoms)?;
-    Ok(out.finish())
-}
-
 #[derive(Debug)]
 struct Row {
     key: ApplicationCacheKey,
@@ -144,6 +26,149 @@ struct Row {
     term_count: usize,
     guards: Range<usize>,
     guard_count: usize,
+}
+
+struct ChunkLayout {
+    rows: Vec<Row>,
+    state: Range<usize>,
+    atoms: Range<usize>,
+    index_owned_bytes: usize,
+}
+
+fn inspect_layout(
+    mut read: ByteCursor<'_>,
+    expected: &ApplicationCacheBinding,
+    limits: ApplicationCacheIoLimits,
+) -> Result<ChunkLayout, BinaryIoError> {
+    let length = read.remaining();
+    expected.validate(limits)?;
+    check_limit("cache chunk bytes", length, limits.binary.max_program_bytes)?;
+    if read.take(MAGIC.len())?.as_ref() != MAGIC
+        || read.take(32)?.as_ref() != expected.artifact_digest
+    {
+        return Err(BinaryIoError::Invalid(
+            "cache magic or artifact identity mismatch",
+        ));
+    }
+    if !read.matches_frame(
+        expected.family_fingerprint.as_bytes(),
+        limits
+            .diagnostics_enabled
+            .then_some(limits.max_identity_bytes),
+    )? || !read.matches_frame(
+        expected.layer.as_bytes(),
+        limits
+            .diagnostics_enabled
+            .then_some(limits.max_identity_bytes),
+    )? || read.count(
+        limits.diagnostics_enabled.then_some(limits.max_arity),
+        "cache arity",
+    )? != expected.physical_arity
+    {
+        return Err(BinaryIoError::Invalid(
+            "cache family, layer or arity mismatch",
+        ));
+    }
+    let count = read.count(
+        limits.diagnostics_enabled.then_some(limits.max_records),
+        "cache records",
+    )?;
+    // Even with diagnostics off, each declared row must fit its minimum
+    // on-wire key and two count frames before any row-index allocation.
+    let minimum_row_bytes = expected
+        .physical_arity
+        .checked_mul(8)
+        .and_then(|bytes| bytes.checked_add(1 + 2 * LENGTH_BYTES))
+        .ok_or(BinaryIoError::Invalid("cache row framing overflow"))?;
+    if count > read.remaining() / minimum_row_bytes {
+        return Err(BinaryIoError::Invalid("truncated cache row directory"));
+    }
+    let index_bytes = count
+        .checked_mul(std::mem::size_of::<Row>())
+        .ok_or(BinaryIoError::Invalid("cache index size overflow"))?;
+    check_limit(
+        "cache index bytes",
+        index_bytes,
+        limits.max_index_owned_bytes,
+    )?;
+    let mut rows = Vec::<Row>::new();
+    resource_array::<Row>(count)?;
+    rows.try_reserve_exact(count)
+        .map_err(|_| BinaryIoError::Allocation {
+            resource: "cache row index",
+            requested: count,
+        })?;
+    let mut index_owned_bytes = rows
+        .capacity()
+        .checked_mul(std::mem::size_of::<Row>())
+        .ok_or(BinaryIoError::Invalid("cache index size overflow"))?;
+    check_limit(
+        "cache index bytes",
+        index_owned_bytes,
+        limits.max_index_owned_bytes,
+    )?;
+    resource_checkpoint()?;
+    for _ in 0..count {
+        resource_checkpoint()?;
+        let key = read.key(expected.physical_arity)?;
+        index_owned_bytes = index_owned_bytes
+            .checked_add(key.owned_heap_bytes())
+            .ok_or(BinaryIoError::Invalid("cache index size overflow"))?;
+        check_limit(
+            "cache index bytes",
+            index_owned_bytes,
+            limits.max_index_owned_bytes,
+        )?;
+        if rows.last().is_some_and(|previous| previous.key >= key) {
+            return Err(BinaryIoError::Invalid(
+                "cache keys are not strictly ordered",
+            ));
+        }
+        let term_count = read.count(
+            limits
+                .diagnostics_enabled
+                .then_some(limits.max_terms_per_record),
+            "cache record terms",
+        )?;
+        let term_bytes = expected
+            .physical_arity
+            .checked_mul(8)
+            .and_then(|n| n.checked_add(4))
+            .and_then(|n| n.checked_mul(term_count))
+            .ok_or(BinaryIoError::Invalid("cache term framing overflow"))?;
+        let start = read.position();
+        read.skip(term_bytes)?;
+        let terms = start..start + term_bytes;
+        let guard_count = read.count(
+            limits
+                .diagnostics_enabled
+                .then_some(limits.max_guards_per_record),
+            "cache record guards",
+        )?;
+        let guard_bytes = guard_count
+            .checked_mul(4)
+            .ok_or(BinaryIoError::Invalid("cache guard framing overflow"))?;
+        let start = read.position();
+        read.skip(guard_bytes)?;
+        rows.push(Row {
+            key,
+            terms,
+            term_count,
+            guards: start..start + guard_bytes,
+            guard_count,
+        });
+    }
+    let state = read.frame_range(Some(limits.binary.max_state_bytes))?;
+    let atoms = read.frame_range(Some(limits.binary.max_total_atom_bytes))?;
+    if read.remaining() != 0 {
+        return Err(BinaryIoError::Invalid("trailing cache chunk bytes"));
+    }
+    Ok(ChunkLayout {
+        rows,
+        state,
+        atoms,
+        index_owned_bytes,
+    })
 }
 
 /// A bounded chunk-local key index borrowing its encoded payload. Inspection
@@ -155,7 +180,6 @@ pub struct ApplicationCacheChunk<'a> {
     atoms: &'a [u8],
     arity: usize,
     limits: ApplicationCacheIoLimits,
-    index_owned_bytes: usize,
 }
 
 impl<'a> ApplicationCacheChunk<'a> {
@@ -164,141 +188,17 @@ impl<'a> ApplicationCacheChunk<'a> {
         expected: &ApplicationCacheBinding,
         limits: ApplicationCacheIoLimits,
     ) -> Result<Self, BinaryIoError> {
-        expected.validate(limits)?;
-        check_limit(
-            "cache chunk bytes",
-            bytes.len(),
-            limits.binary.max_program_bytes,
-        )?;
-        let mut read = Cursor(bytes);
-        if read.take(MAGIC.len())? != MAGIC || read.take(32)? != expected.artifact_digest {
-            return Err(BinaryIoError::Invalid(
-                "cache magic or artifact identity mismatch",
-            ));
-        }
-        if read.frame(
-            limits
-                .diagnostics_enabled
-                .then_some(limits.max_identity_bytes),
-        )? != expected.family_fingerprint.as_bytes()
-            || read.frame(
-                limits
-                    .diagnostics_enabled
-                    .then_some(limits.max_identity_bytes),
-            )? != expected.layer.as_bytes()
-            || read.count(
-                limits.diagnostics_enabled.then_some(limits.max_arity),
-                "cache arity",
-            )? != expected.physical_arity
-        {
-            return Err(BinaryIoError::Invalid(
-                "cache family, layer or arity mismatch",
-            ));
-        }
-        let count = read.count(
-            limits.diagnostics_enabled.then_some(limits.max_records),
-            "cache records",
-        )?;
-        // Even with diagnostics off, each declared row must fit its minimum
-        // on-wire key and two count frames before any row-index allocation.
-        let minimum_row_bytes = expected
-            .physical_arity
-            .checked_mul(8)
-            .and_then(|bytes| bytes.checked_add(1 + 2 * LENGTH_BYTES))
-            .ok_or(BinaryIoError::Invalid("cache row framing overflow"))?;
-        if count > read.0.len() / minimum_row_bytes {
-            return Err(BinaryIoError::Invalid("truncated cache row directory"));
-        }
-        let index_bytes = count
-            .checked_mul(std::mem::size_of::<Row>())
-            .ok_or(BinaryIoError::Invalid("cache index size overflow"))?;
-        check_limit(
-            "cache index bytes",
-            index_bytes,
-            limits.max_index_owned_bytes,
-        )?;
-        let mut rows = Vec::<Row>::new();
-        resource_array::<Row>(count)?;
-        rows.try_reserve_exact(count)
-            .map_err(|_| BinaryIoError::Allocation {
-                resource: "cache row index",
-                requested: count,
-            })?;
-        let mut index_owned_bytes = rows
-            .capacity()
-            .checked_mul(std::mem::size_of::<Row>())
-            .ok_or(BinaryIoError::Invalid("cache index size overflow"))?;
-        check_limit(
-            "cache index bytes",
-            index_owned_bytes,
-            limits.max_index_owned_bytes,
-        )?;
-        resource_checkpoint()?;
-        for _ in 0..count {
-            resource_checkpoint()?;
-            let key = read.key(expected.physical_arity)?;
-            index_owned_bytes = index_owned_bytes
-                .checked_add(key.owned_heap_bytes())
-                .ok_or(BinaryIoError::Invalid("cache index size overflow"))?;
-            check_limit(
-                "cache index bytes",
-                index_owned_bytes,
-                limits.max_index_owned_bytes,
-            )?;
-            if rows.last().is_some_and(|previous| previous.key >= key) {
-                return Err(BinaryIoError::Invalid(
-                    "cache keys are not strictly ordered",
-                ));
-            }
-            let term_count = read.count(
-                limits
-                    .diagnostics_enabled
-                    .then_some(limits.max_terms_per_record),
-                "cache record terms",
-            )?;
-            let term_bytes = expected
-                .physical_arity
-                .checked_mul(8)
-                .and_then(|n| n.checked_add(4))
-                .and_then(|n| n.checked_mul(term_count))
-                .ok_or(BinaryIoError::Invalid("cache term framing overflow"))?;
-            let start = bytes.len() - read.0.len();
-            read.take(term_bytes)?;
-            let terms = start..start + term_bytes;
-            let guard_count = read.count(
-                limits
-                    .diagnostics_enabled
-                    .then_some(limits.max_guards_per_record),
-                "cache record guards",
-            )?;
-            let guard_bytes = guard_count
-                .checked_mul(4)
-                .ok_or(BinaryIoError::Invalid("cache guard framing overflow"))?;
-            let start = bytes.len() - read.0.len();
-            read.take(guard_bytes)?;
-            rows.push(Row {
-                key,
-                terms,
-                term_count,
-                guards: start..start + guard_bytes,
-                guard_count,
-            });
-        }
-        let state = read.frame(Some(limits.binary.max_state_bytes))?;
-        let atoms = read.frame(Some(limits.binary.max_total_atom_bytes))?;
-        if !read.0.is_empty() {
-            return Err(BinaryIoError::Invalid("trailing cache chunk bytes"));
-        }
+        let layout = inspect_layout(ByteCursor::borrowed(bytes), expected, limits)?;
         Ok(Self {
             bytes,
-            rows,
-            state,
-            atoms,
+            rows: layout.rows,
+            state: &bytes[layout.state],
+            atoms: &bytes[layout.atoms],
             arity: expected.physical_arity,
             limits,
-            index_owned_bytes,
         })
     }
+
     pub fn len(&self) -> usize {
         self.rows.len()
     }
@@ -343,10 +243,10 @@ impl<'a> ApplicationCacheChunk<'a> {
             self.limits.binary,
         )?;
         decode_row(
-            self.bytes,
+            &self.bytes[row.terms.clone()],
+            &self.bytes[row.guards.clone()],
             row,
             &table,
-            self.arity,
             context,
             self.limits,
             None,
@@ -366,7 +266,7 @@ impl<'a> ApplicationCacheChunk<'a> {
 /// addition to the existing per-record clone-owned limits. A failed admission
 /// leaves previously admitted coefficients usable.
 pub struct OwnedApplicationCacheChunk {
-    bytes: Arc<[u8]>,
+    bytes: SharedCoefficientBytes,
     rows: Vec<Row>,
     table: LazyDecodedCoefficientTable,
     decoded_census: Mutex<crate::reduction::CacheWeight>,
@@ -380,43 +280,85 @@ impl OwnedApplicationCacheChunk {
         expected: &ApplicationCacheBinding,
         limits: ApplicationCacheIoLimits,
     ) -> Result<Self, BinaryIoError> {
-        let inspected = ApplicationCacheChunk::inspect(&bytes, expected, limits)?;
-        let mut atom_frames = inspected.atoms;
-        let coefficient_count = read_length(&mut atom_frames)?;
+        Self::inspect_bytes(SharedCoefficientBytes::from_arc(bytes), expected, limits)
+    }
+
+    /// Move an existing decoded Vec into the shared owner without reallocating
+    /// its entire payload as an Arc slice.
+    pub fn inspect_owned(
+        bytes: Vec<u8>,
+        expected: &ApplicationCacheBinding,
+        limits: ApplicationCacheIoLimits,
+    ) -> Result<Self, BinaryIoError> {
+        Self::inspect_bytes(SharedCoefficientBytes::from_vec(bytes), expected, limits)
+    }
+
+    /// Retain a private decoded reader with a bounded block-digest index. One
+    /// sequential pass verifies the complete native digest; subsequent selected
+    /// ranges verify their blocks again, so truncation or changed backing bytes
+    /// fail gracefully. No mapped slices or caller-defined AsRef owner is used.
+    pub fn inspect_reader(
+        reader: impl std::io::Read + std::io::Seek + Send + 'static,
+        length: usize,
+        native_digest: &[u8; 32],
+        expected: &ApplicationCacheBinding,
+        limits: ApplicationCacheIoLimits,
+    ) -> Result<Self, BinaryIoError> {
+        expected.validate(limits)?;
+        check_limit("cache chunk bytes", length, limits.binary.max_program_bytes)?;
+        let bytes = SharedCoefficientBytes::from_reader(
+            reader,
+            length,
+            native_digest,
+            limits.max_index_owned_bytes,
+        )?;
+        Self::inspect_bytes(bytes, expected, limits)
+    }
+
+    fn inspect_bytes(
+        bytes: SharedCoefficientBytes,
+        expected: &ApplicationCacheBinding,
+        limits: ApplicationCacheIoLimits,
+    ) -> Result<Self, BinaryIoError> {
+        let source_index_bytes = bytes.index_owned_bytes()?;
+        let mut framing_limits = limits;
+        check_limit(
+            "native backing digest index bytes",
+            source_index_bytes,
+            limits.max_index_owned_bytes,
+        )?;
+        framing_limits.max_index_owned_bytes = limits.max_index_owned_bytes - source_index_bytes;
+        let inspected = inspect_layout(ByteCursor::shared(&bytes), expected, framing_limits)?;
+        let atoms = bytes.slice(inspected.atoms.clone())?;
+        let coefficient_count = ByteCursor::shared(&atoms).length()?;
         let index_owned_bytes = coefficient_count
             .checked_mul(std::mem::size_of::<Range<usize>>())
             .and_then(|n| n.checked_add(inspected.index_owned_bytes))
+            .and_then(|n| n.checked_add(source_index_bytes))
             .ok_or(BinaryIoError::Invalid("cache index size overflow"))?;
         check_limit(
             "cache index bytes",
             index_owned_bytes,
             limits.max_index_owned_bytes,
         )?;
-        resource_allocation(
-            inspected
-                .state
-                .len()
-                .checked_add(inspected.atoms.len())
-                .ok_or(BinaryIoError::Invalid("cache table copy size overflow"))?,
-        )?;
-        let table = LazyDecodedCoefficientTable::new(
-            Arc::from(inspected.state),
-            Arc::from(inspected.atoms),
+        let table = LazyDecodedCoefficientTable::from_shared(
+            bytes.slice(inspected.state)?,
+            atoms,
             limits.binary,
         )?;
         let index_owned_bytes = table
             .index_owned_bytes()?
             .checked_add(inspected.index_owned_bytes)
+            .and_then(|n| n.checked_add(source_index_bytes))
             .ok_or(BinaryIoError::Invalid("cache index size overflow"))?;
         check_limit(
             "cache index bytes",
             index_owned_bytes,
             limits.max_index_owned_bytes,
         )?;
-        let rows = inspected.rows;
         Ok(Self {
             bytes,
-            rows,
+            rows: inspected.rows,
             table,
             decoded_census: Mutex::default(),
             arity: expected.physical_arity,
@@ -424,6 +366,7 @@ impl OwnedApplicationCacheChunk {
             index_owned_bytes,
         })
     }
+
     pub fn len(&self) -> usize {
         self.rows.len()
     }
@@ -438,6 +381,10 @@ impl OwnedApplicationCacheChunk {
     }
     pub fn decoded_coefficient_count(&self) -> Result<usize, BinaryIoError> {
         self.table.decoded_count()
+    }
+
+    pub fn state_import_count(&self) -> Result<usize, BinaryIoError> {
+        self.table.state_import_count()
     }
     /// Aggregate unique coefficient census retained by the shared lazy table.
     pub fn decoded_coefficient_census(&self) -> Result<(usize, usize), BinaryIoError> {
@@ -456,11 +403,16 @@ impl OwnedApplicationCacheChunk {
         let Ok(index) = self.rows.binary_search_by(|row| row.key.cmp(key)) else {
             return Ok(None);
         };
+        let row = &self.rows[index];
+        let term_range = self.bytes.slice(row.terms.clone())?;
+        let guard_range = self.bytes.slice(row.guards.clone())?;
+        let terms = term_range.read()?;
+        let guards = guard_range.read()?;
         decode_row(
-            &self.bytes,
-            &self.rows[index],
+            terms.as_ref(),
+            guards.as_ref(),
+            row,
             &self.table,
-            self.arity,
             context,
             self.limits,
             Some(&self.decoded_census),
@@ -469,15 +421,55 @@ impl OwnedApplicationCacheChunk {
     }
 }
 
+#[cfg(test)]
+mod reader_admission_tests {
+    use super::*;
+    use std::io::{Read, Seek, SeekFrom};
+
+    struct NoIo;
+    impl Read for NoIo {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            panic!("admission must precede file I/O")
+        }
+    }
+    impl Seek for NoIo {
+        fn seek(&mut self, _: SeekFrom) -> std::io::Result<u64> {
+            panic!("admission must precede file I/O")
+        }
+    }
+
+    #[test]
+    fn reader_byte_and_binding_grants_are_checked_before_scanning() {
+        let mut binding = ApplicationCacheBinding {
+            artifact_digest: [0; 32],
+            family_fingerprint: "reader-admission".into(),
+            physical_arity: 2,
+            layer: "native".into(),
+        };
+        let mut limits = ApplicationCacheIoLimits::default();
+        limits.binary.max_program_bytes = 0;
+        assert!(matches!(
+            OwnedApplicationCacheChunk::inspect_reader(NoIo, 1, &[0; 32], &binding, limits),
+            Err(BinaryIoError::Limit { .. })
+        ));
+        binding.family_fingerprint.clear();
+        assert!(matches!(
+            OwnedApplicationCacheChunk::inspect_reader(NoIo, 0, &[0; 32], &binding, limits),
+            Err(BinaryIoError::Invalid(_))
+        ));
+    }
+}
+
 fn decode_row(
-    bytes: &[u8],
+    term_bytes: &[u8],
+    guard_bytes: &[u8],
     row: &Row,
     table: &LazyDecodedCoefficientTable,
-    arity: usize,
     context: &CoefficientContext,
     limits: ApplicationCacheIoLimits,
     total_census: Option<&Mutex<crate::reduction::CacheWeight>>,
 ) -> Result<ApplicationCacheRecord, BinaryIoError> {
+    let arity = row.key.powers.len();
     let mut census = crate::reduction::CacheWeight::default();
     let mut coefficient = |id: u32| -> Result<Coefficient, BinaryIoError> {
         resource_checkpoint()?;
@@ -526,7 +518,7 @@ fn decode_row(
         Ok(value)
     };
     let mut terms = BTreeMap::new();
-    let mut read = Cursor(&bytes[row.terms.clone()]);
+    let mut read = ByteCursor::borrowed(term_bytes);
     for _ in 0..row.term_count {
         resource_checkpoint()?;
         let target = IntegralKey::try_from_preallocated(read.powers(arity)?).map_err(native)?;
@@ -552,7 +544,7 @@ fn decode_row(
             resource: "cache guards",
             requested: row.guard_count,
         })?;
-    let mut read = Cursor(&bytes[row.guards.clone()]);
+    let mut read = ByteCursor::borrowed(guard_bytes);
     for _ in 0..row.guard_count {
         resource_checkpoint()?;
         let value = coefficient(read.id()?)?;
@@ -571,31 +563,33 @@ fn decode_row(
     })
 }
 
-struct Cursor<'a>(&'a [u8]);
-impl<'a> Cursor<'a> {
-    fn take(&mut self, count: usize) -> Result<&'a [u8], BinaryIoError> {
-        let result = self
-            .0
-            .get(..count)
-            .ok_or(BinaryIoError::Invalid("truncated cache chunk"))?;
-        self.0 = &self.0[count..];
-        Ok(result)
-    }
+impl ByteCursor<'_> {
     fn count(
         &mut self,
         limit: Option<usize>,
         resource: &'static str,
     ) -> Result<usize, BinaryIoError> {
         resource_checkpoint()?;
-        let count = read_length(&mut self.0)?;
+        let count = self.length()?;
         if let Some(limit) = limit {
             check_limit(resource, count, limit)?;
         }
         Ok(count)
     }
-    fn frame(&mut self, limit: Option<usize>) -> Result<&'a [u8], BinaryIoError> {
+    fn matches_frame(
+        &mut self,
+        expected: &[u8],
+        limit: Option<usize>,
+    ) -> Result<bool, BinaryIoError> {
         let count = self.count(limit, "cache frame bytes")?;
-        self.take(count)
+        if count != expected.len() {
+            return Ok(false);
+        }
+        Ok(self.take(count)?.as_ref() == expected)
+    }
+    fn frame_range(&mut self, limit: Option<usize>) -> Result<Range<usize>, BinaryIoError> {
+        let count = self.count(limit, "cache frame bytes")?;
+        self.skip(count)
     }
     fn powers(&mut self, arity: usize) -> Result<Vec<i64>, BinaryIoError> {
         let bytes = arity
@@ -610,9 +604,9 @@ impl<'a> Cursor<'a> {
                 resource: "cache powers",
                 requested: arity,
             })?;
-        for value in encoded.chunks_exact(std::mem::size_of::<i64>()) {
+        for value in encoded.as_chunks::<8>().0 {
             resource_checkpoint()?;
-            powers.push(i64::from_le_bytes(value.try_into().expect("checked slice")));
+            powers.push(i64::from_le_bytes(*value));
         }
         Ok(powers)
     }
@@ -633,7 +627,7 @@ impl<'a> Cursor<'a> {
                     resource: "cache owner",
                     requested: arity,
                 })?;
-            for &value in encoded {
+            for &value in encoded.iter() {
                 resource_checkpoint()?;
                 owner.push(match value {
                     0 => false,
@@ -655,7 +649,7 @@ impl<'a> Cursor<'a> {
     }
     fn id(&mut self) -> Result<u32, BinaryIoError> {
         Ok(u32::from_le_bytes(
-            self.take(4)?.try_into().expect("checked slice"),
+            self.take(4)?.as_ref().try_into().expect("checked slice"),
         ))
     }
 }

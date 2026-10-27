@@ -8,7 +8,7 @@
 use std::{
     fs::File,
     io::{self, Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -29,6 +29,10 @@ use crate::AppError;
 #[path = "cache_file_tests.rs"]
 mod tests;
 
+#[path = "cache_file/stream.rs"]
+mod stream;
+pub use stream::SavedApplicationCacheFileWriter;
+
 const MAGIC: &[u8; 16] = b"RR-CACHE-FILE-01";
 const HEADER_BYTES: usize = MAGIC.len() + 8 + 32;
 const MAX_COMPRESSED_BYTES: usize = 95 * 1024 * 1024;
@@ -46,8 +50,9 @@ pub struct SavedApplicationCacheFileIdentity {
     pub decoded_blake3: [u8; 32],
 }
 
-/// Explicit resource admission, independently capped at 95 MiB compressed and
-/// 1 GiB decompressed. Index/payload allowances do not bound native scratch RSS.
+/// Caller-owned transport admission. Defaults retain the compact distribution
+/// policy (95 MiB compressed, 1 GiB decoded); explicitly larger grants support
+/// independently hosted caches. Index/payload grants do not bound scratch RSS.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SavedApplicationCacheFileLimits {
     pub chunk: ApplicationCacheIoLimits,
@@ -66,19 +71,38 @@ impl Default for SavedApplicationCacheFileLimits {
     }
 }
 impl SavedApplicationCacheFileLimits {
-    fn effective(self) -> Self {
-        let mut limits = self;
-        limits.max_compressed_bytes = limits.max_compressed_bytes.min(MAX_COMPRESSED_BYTES);
-        limits.chunk.binary.max_program_bytes = limits
-            .chunk
+    /// Maximum total decoded frame size, including the native file header.
+    pub fn max_decoded_bytes(self) -> usize {
+        self.chunk
             .binary
             .max_program_bytes
-            .min(MAX_DECODED_BYTES - HEADER_BYTES);
-        limits
+            .saturating_add(HEADER_BYTES)
     }
+
+    pub fn with_decoded_bytes(mut self, bytes: usize) -> Result<Self, AppError> {
+        let payload = bytes
+            .checked_sub(HEADER_BYTES)
+            .ok_or_else(|| fail("decoded grant must include the56-byte native header"))?;
+        self.chunk.binary.max_program_bytes = payload;
+        self.chunk.binary.max_total_atom_bytes = payload;
+        Ok(self)
+    }
+
     fn decoded_limit(self) -> usize {
-        self.chunk.binary.max_program_bytes + HEADER_BYTES
+        self.chunk
+            .binary
+            .max_program_bytes
+            .saturating_add(HEADER_BYTES)
     }
+}
+
+/// One native file codec with either retained memory or a private decoded file
+/// reader. The latter needs decoded disk space but does not retain full payload
+/// copies in RAM. Reader forks share its lifetime, indices and lazy state map.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SavedApplicationCacheFileOptions {
+    pub limits: SavedApplicationCacheFileLimits,
+    pub decoded_directory: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -91,6 +115,8 @@ pub struct SavedApplicationCacheFileStatistics {
     pub decoded_coefficients: usize,
     pub decoded_coefficient_terms: usize,
     pub decoded_coefficient_bytes: usize,
+    /// Successful StateMap imports retained by the shared lazy table (0 or 1).
+    pub state_imports: usize,
     /// Reader-local successful lookup counters.
     pub hits: usize,
     pub misses: usize,
@@ -116,28 +142,27 @@ impl SavedApplicationCacheFile {
         limits: SavedApplicationCacheFileLimits,
     ) -> Result<(Vec<u8>, SavedApplicationCacheFileIdentity), AppError> {
         resource_checkpoint()?;
-        let limits = limits.effective();
         let native = encode_application_cache_chunk(binding, records, context, limits.chunk)
             .map_err(binary_error)?;
         let native_digest = blake3::hash(&native);
-        let mut decoded = Vec::new();
         let decoded_bytes = HEADER_BYTES
             .checked_add(native.len())
             .ok_or_else(|| fail("decoded cache frame overflow"))?;
-        resource_allocation(decoded_bytes)?;
-        decoded.try_reserve_exact(decoded_bytes).map_err(fail)?;
-        decoded.extend_from_slice(MAGIC);
-        decoded.extend_from_slice(&(native.len() as u64).to_le_bytes());
-        decoded.extend_from_slice(native_digest.as_bytes());
-        decoded.extend_from_slice(&native);
-        drop(native);
+        let mut header = [0u8; HEADER_BYTES];
+        header[..16].copy_from_slice(MAGIC);
+        header[16..24].copy_from_slice(&(native.len() as u64).to_le_bytes());
+        header[24..].copy_from_slice(native_digest.as_bytes());
+        let mut decoded_hasher = blake3::Hasher::new();
+        decoded_hasher.update(&header);
+        decoded_hasher.update(&native);
         let mut output = BoundedBytes::new(limits.max_compressed_bytes);
         let compressed = (|| {
             let mut encoder = GzBuilder::new()
                 .mtime(0)
                 .operating_system(255)
                 .write(&mut output, Compression::best());
-            encoder.write_all(&decoded)?;
+            encoder.write_all(&header)?;
+            encoder.write_all(&native)?;
             encoder.finish()?;
             Ok::<(), io::Error>(())
         })();
@@ -151,8 +176,8 @@ impl SavedApplicationCacheFile {
         let identity = SavedApplicationCacheFileIdentity {
             compressed_bytes: encoded.len() as u64,
             compressed_blake3: *blake3::hash(&encoded).as_bytes(),
-            decoded_bytes: decoded.len() as u64,
-            decoded_blake3: *blake3::hash(&decoded).as_bytes(),
+            decoded_bytes: decoded_bytes as u64,
+            decoded_blake3: *decoded_hasher.finalize().as_bytes(),
         };
         resource_checkpoint()?;
         Ok((encoded, identity))
@@ -168,8 +193,15 @@ impl SavedApplicationCacheFile {
         expected: &ApplicationCacheBinding,
         limits: SavedApplicationCacheFileLimits,
     ) -> Result<Self, AppError> {
-        let encoded = read_file(path, None, limits.effective())?;
-        Self::decode(&encoded, expected, limits)
+        Self::open_with_options(
+            path,
+            expected,
+            None,
+            &SavedApplicationCacheFileOptions {
+                limits,
+                ..Default::default()
+            },
+        )
     }
 
     pub fn open_generated(
@@ -178,11 +210,15 @@ impl SavedApplicationCacheFile {
         identity: &SavedApplicationCacheFileIdentity,
         limits: SavedApplicationCacheFileLimits,
     ) -> Result<Self, AppError> {
-        resource_checkpoint()?;
-        let limits = limits.effective();
-        validate_identity(identity, limits)?;
-        let encoded = read_file(path, Some(identity.compressed_bytes), limits)?;
-        Self::decode_generated(&encoded, expected, identity, limits)
+        Self::open_with_options(
+            path,
+            expected,
+            Some(identity),
+            &SavedApplicationCacheFileOptions {
+                limits,
+                ..Default::default()
+            },
+        )
     }
 
     /// Explicit trusted-generated byte import; see `open` for authenticity.
@@ -211,91 +247,15 @@ impl SavedApplicationCacheFile {
         expected_identity: Option<&SavedApplicationCacheFileIdentity>,
         limits: SavedApplicationCacheFileLimits,
     ) -> Result<Self, AppError> {
-        resource_checkpoint()?;
-        let limits = limits.effective();
-        if encoded.len() > limits.max_compressed_bytes {
-            return Err(AppError::limit(
-                "compressed application cache file exceeds allowance",
-            ));
-        }
-        let encoded_hash = *blake3::hash(encoded).as_bytes();
-        if let Some(identity) = expected_identity {
-            let (encoded_length, _) = validate_identity(identity, limits)?;
-            if encoded.len() != encoded_length || encoded_hash != identity.compressed_blake3 {
-                return Err(fail("compressed application cache file identity mismatch"));
-            }
-        }
-        // A bufread decoder over a slice preserves the unconsumed suffix after
-        // its first member. A Read decoder can swallow trailing bytes.
-        let mut decoder = GzDecoder::new(encoded);
-        let mut header = [0u8; HEADER_BYTES];
-        decoder.read_exact(&mut header).map_err(fail)?;
-        if &header[..16] != MAGIC {
-            return Err(fail("application cache file framing version mismatch"));
-        }
-        let native_length = usize::try_from(u64::from_le_bytes(
-            header[16..24].try_into().expect("fixed header"),
-        ))
-        .map_err(fail)?;
-        if native_length > limits.chunk.binary.max_program_bytes {
-            return Err(AppError::limit(
-                "decoded application cache file exceeds allowance",
-            ));
-        }
-        let decoded_length = native_length + HEADER_BYTES;
-        if expected_identity.is_some_and(|identity| identity.decoded_bytes != decoded_length as u64)
-        {
-            return Err(fail("decoded application cache file length mismatch"));
-        }
-        let mut native = Vec::new();
-        resource_allocation(native_length)?;
-        native.try_reserve_exact(native_length).map_err(fail)?;
-        let mut buffer = [0u8; 16 * 1024];
-        while native.len() < native_length {
-            resource_checkpoint()?;
-            let requested = buffer.len().min(native_length - native.len());
-            let count = decoder.read(&mut buffer[..requested]).map_err(fail)?;
-            if count == 0 {
-                return Err(fail("truncated decoded application cache file"));
-            }
-            native.extend_from_slice(&buffer[..count]);
-        }
-        // Force CRC/trailer validation with an allocation-free overrun probe.
-        if decoder.read(&mut buffer[..1]).map_err(fail)? != 0 {
-            return Err(fail(
-                "decoded application cache file exceeds declared length",
-            ));
-        }
-        if !decoder.into_inner().is_empty() {
-            return Err(fail(
-                "trailing gzip member or bytes in application cache file",
-            ));
-        }
-        if blake3::hash(&native).as_bytes() != &header[24..56] {
-            return Err(fail("native application cache chunk digest mismatch"));
-        }
-        let mut decoded_hasher = blake3::Hasher::new();
-        decoded_hasher.update(&header);
-        decoded_hasher.update(&native);
-        let identity = SavedApplicationCacheFileIdentity {
-            compressed_bytes: encoded.len() as u64,
-            compressed_blake3: encoded_hash,
-            decoded_bytes: decoded_length as u64,
-            decoded_blake3: *decoded_hasher.finalize().as_bytes(),
-        };
-        if expected_identity.is_some_and(|expected| *expected != identity) {
-            return Err(fail("decoded application cache file digest mismatch"));
-        }
-        resource_allocation(native.len())?;
-        let chunk = OwnedApplicationCacheChunk::inspect(Arc::from(native), expected, limits.chunk)
-            .map_err(binary_error)?;
-        Ok(Self {
-            binding: expected.clone(),
-            identity,
-            chunk: Arc::new(chunk),
-            hits: 0,
-            misses: 0,
-        })
+        Self::decode_reader(
+            encoded,
+            expected,
+            expected_identity,
+            &SavedApplicationCacheFileOptions {
+                limits,
+                ..Default::default()
+            },
+        )
     }
 
     pub fn binding(&self) -> &ApplicationCacheBinding {
@@ -323,6 +283,7 @@ impl SavedApplicationCacheFile {
                 .map_err(binary_error)?,
             decoded_coefficient_terms,
             decoded_coefficient_bytes,
+            state_imports: self.chunk.state_import_count().map_err(binary_error)?,
             hits: self.hits,
             misses: self.misses,
         })
@@ -355,43 +316,6 @@ impl SavedApplicationCacheFile {
     }
 }
 
-fn read_file(
-    path: &Path,
-    expected_bytes: Option<u64>,
-    limits: SavedApplicationCacheFileLimits,
-) -> Result<Vec<u8>, AppError> {
-    if !std::fs::metadata(path).map_err(fail)?.is_file() {
-        return Err(fail("application cache path is not a regular file"));
-    }
-    let mut file = File::open(path).map_err(|e| fail(format!("{}: {e}", path.display())))?;
-    let metadata = file.metadata().map_err(fail)?;
-    if !metadata.is_file() {
-        return Err(fail("application cache path changed to a nonregular file"));
-    }
-    let length = metadata.len();
-    if length > limits.max_compressed_bytes as u64 {
-        return Err(AppError::limit(
-            "compressed application cache file exceeds allowance",
-        ));
-    }
-    if expected_bytes.is_some_and(|expected| length != expected) {
-        return Err(fail("compressed application cache file length mismatch"));
-    }
-    let mut encoded = Vec::new();
-    let length_usize = usize::try_from(length).map_err(fail)?;
-    resource_allocation(length_usize)?;
-    encoded.try_reserve_exact(length_usize).map_err(fail)?;
-    Read::by_ref(&mut file)
-        .take(length)
-        .read_to_end(&mut encoded)
-        .map_err(fail)?;
-    let mut probe = [0u8; 1];
-    if encoded.len() != length as usize || file.read(&mut probe).map_err(fail)? != 0 {
-        return Err(fail("application cache file changed during read"));
-    }
-    resource_checkpoint()?;
-    Ok(encoded)
-}
 fn binary_error(error: rustred::persistence::BinaryIoError) -> AppError {
     match error {
         rustred::persistence::BinaryIoError::Resource(error) => AppError::resource(error),

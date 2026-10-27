@@ -7,6 +7,8 @@ use rustred::persistence::application_cache::{
 };
 use std::{collections::BTreeMap, fs, path::Path};
 
+#[cfg(target_os = "linux")]
+mod heavy_variant_census;
 mod key_filter;
 mod key_index;
 mod lookup_outcome;
