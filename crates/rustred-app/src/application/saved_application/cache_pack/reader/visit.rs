@@ -73,9 +73,38 @@ impl SavedApplicationCachePack {
     pub fn visit_completed_records(
         &mut self,
         context: &CoefficientContext,
-        mut visit: impl FnMut(ApplicationCacheRecord) -> Result<(), AppError>,
+        visit: impl FnMut(ApplicationCacheRecord) -> Result<(), AppError>,
     ) -> Result<usize, AppError> {
-        let mut seen = BTreeSet::<ApplicationCacheKey>::new();
+        self.visit_completed_records_impl(context, visit, true)
+    }
+
+    /// Visit EVERY completed record reference in this captured snapshot,
+    /// including older rows and same-key guard/coefficient variants. Nothing is
+    /// silently shadowed or deduplicated. Order is deterministic newest-run scan
+    /// order, not global key order. The result counts emitted references, not
+    /// unique keys or reduction identities.
+    ///
+    /// Authentication, chunk/index grants, aggregate emitted coefficient grants
+    /// and callback-error behavior match visit_completed_records. This mode
+    /// needs no visited-key set. Consumers must validate completed mathematics
+    /// against their application and explicitly reconcile duplicate keys.
+    /// No directory refresh, writer action or lookup fallback occurs here.
+    pub fn visit_all_completed_records(
+        &mut self,
+        context: &CoefficientContext,
+        visit: impl FnMut(ApplicationCacheRecord) -> Result<(), AppError>,
+    ) -> Result<usize, AppError> {
+        self.visit_completed_records_impl(context, visit, false)
+    }
+
+    fn visit_completed_records_impl(
+        &mut self,
+        context: &CoefficientContext,
+        mut visit: impl FnMut(ApplicationCacheRecord) -> Result<(), AppError>,
+        latest_only: bool,
+    ) -> Result<usize, AppError> {
+        let mut seen = latest_only.then(BTreeSet::<ApplicationCacheKey>::new);
+        let mut emitted = 0usize;
         let mut index_bytes = self.statistics.directory_owned_bytes;
         let mut coefficient_terms = 0usize;
         let mut coefficient_bytes = 0usize;
@@ -92,17 +121,21 @@ impl SavedApplicationCachePack {
                 )?;
                 for key in decoded.keys() {
                     resource_checkpoint()?;
-                    if seen.contains(key) {
+                    if seen.as_ref().is_some_and(|seen| seen.contains(key)) {
                         continue;
                     }
                     // Conservative per-key tree metadata allowance, separate
                     // from the exact key vectors. Like the pack census this is
                     // an admission measure, not an allocator RSS guarantee.
-                    let next_bytes = index_bytes
-                        .checked_add(size_of::<ApplicationCacheKey>())
-                        .and_then(|n| n.checked_add(key.owned_heap_bytes()))
-                        .and_then(|n| n.checked_add(128))
-                        .ok_or_else(|| AppError::limit("cache scan index census overflow"))?;
+                    let next_bytes = if latest_only {
+                        index_bytes
+                            .checked_add(size_of::<ApplicationCacheKey>())
+                            .and_then(|n| n.checked_add(key.owned_heap_bytes()))
+                            .and_then(|n| n.checked_add(128))
+                            .ok_or_else(|| AppError::limit("cache scan index census overflow"))?
+                    } else {
+                        index_bytes
+                    };
                     if next_bytes > self.limits.max_directory_owned_bytes {
                         return Err(AppError::limit(
                             "cache scan exact-key index exceeds allowance",
@@ -128,13 +161,19 @@ impl SavedApplicationCachePack {
                         ));
                     }
                     resource_allocation(next_bytes - index_bytes)?;
-                    seen.insert(key.clone());
+                    if let Some(seen) = &mut seen {
+                        seen.insert(key.clone());
+                    }
                     index_bytes = next_bytes;
+                    let next_emitted = emitted.checked_add(1).ok_or_else(|| {
+                        AppError::limit("cache scan emitted-record count overflow")
+                    })?;
                     visit(record)?;
+                    emitted = next_emitted;
                 }
             }
         }
         resource_checkpoint()?;
-        Ok(seen.len())
+        Ok(emitted)
     }
 }

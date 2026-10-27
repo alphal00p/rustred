@@ -7,6 +7,7 @@
 mod codec;
 #[cfg(test)]
 mod tests;
+mod writer;
 
 use std::collections::BTreeMap;
 
@@ -267,8 +268,10 @@ impl ApplicationCacheIoLimits {
     }
 }
 
-pub use codec::{
-    ApplicationCacheChunk, OwnedApplicationCacheChunk, encode_application_cache_chunk,
+pub use codec::{ApplicationCacheChunk, OwnedApplicationCacheChunk};
+pub use writer::{
+    ApplicationCacheChunkWriteStatistics, ApplicationCacheChunkWriter,
+    encode_application_cache_chunk,
 };
 
 fn reduction_error(error: crate::reduction::ReductionError) -> BinaryIoError {
