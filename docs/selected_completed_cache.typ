@@ -21,7 +21,7 @@ It preserves terminal coefficients and ordered nonzero conditions and performs
 no reduction, resident export or source mutation.
 
 ```rust
-let mut limits = SavedApplicationCacheFileLimits {
+let limits = SavedApplicationCacheFileLimits {
     max_compressed_bytes: 95_000_000,
     ..Default::default()
 };
@@ -56,7 +56,7 @@ limits. #raw("with_decoded_bytes") includes the native file header in its
 allowance. An authenticated producer identity can supply exact load grants:
 
 ```rust
-let limits = SavedApplicationCacheFileLimits {
+let mut limits = SavedApplicationCacheFileLimits {
     max_compressed_bytes: trusted_identity.compressed_bytes.try_into()?,
     ..Default::default()
 }.with_decoded_bytes(trusted_identity.decoded_bytes.try_into()?)?;
