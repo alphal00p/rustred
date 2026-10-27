@@ -224,9 +224,10 @@ pub struct CandidateRoutedFrontierSample {
     pub exact: bool,
 }
 
-/// Existing structure sizes/censuses only. Bytes describe retained native
-/// payload, including guards, not encoded bytes or scratch/RSS. Factorized
-/// coefficients are never materialized solely to obtain observation detail.
+/// Existing structure sizes/censuses only. Coefficient bytes describe retained
+/// native payload including guards, excluding scratch/RSS. Encoded expression
+/// bytes are a separate caller-owned scope. Factorized coefficients are never
+/// materialized solely to obtain observation detail.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CandidateRoutedComplexity {
     pub terms: Option<usize>,

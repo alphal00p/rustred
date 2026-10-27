@@ -173,7 +173,8 @@ impl FiniteEntryDomain {
             maximum = maximum.min(rank_cap + i64::from(difference));
         }
         if minimum > maximum {
-            return 1..=0;
+            // An intentionally empty range for this impossible starting domain.
+            return std::ops::RangeInclusive::new(1, 0);
         }
         minimum as u32..=maximum as u32
     }
@@ -195,7 +196,8 @@ impl FiniteEntryDomain {
             maximum
         };
         if maximum < minimum {
-            return 1..=0;
+            // An intentionally empty range for this impossible starting domain.
+            return std::ops::RangeInclusive::new(1, 0);
         }
         minimum as u32..=maximum as u32
     }
