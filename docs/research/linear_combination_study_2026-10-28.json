@@ -1,0 +1,1758 @@
+{
+  "schema": "rustred.linear-combination-study.measured-report.v1",
+  "status": "COMPLETE",
+  "adoption_decision": "DO_NOT_ADOPT_CHECKED_POINT_UPDATE_LC",
+  "author": "ValentinHirschi <valentin.hirschi@gmail.com>",
+  "sources": {
+    "native_base": "c2ca815cc906bdeaf7cb8c63b637e81a80fba917",
+    "official_symbolica_base": "9cd57678d8817ec33c05cacba4925162f1c86b0b",
+    "checked_update_extension": "a0866fd2fe6d6f8c89a585f68f4997118ba517ba",
+    "modified_control_and_candidate_snapshot": "505e13bd2a873a35608f2c6afeb09d17b725749b27fa871aa47a3419a85330e3",
+    "pristine_snapshot": "f02dc7ebd10b2707ec73b7aa7a7277d43bede8163e8fdb6b8f1e6681038f2186",
+    "extension_publication_status": "Private checked-update prototype; no upstream PR or dependency update",
+    "routed_symbolica_cohort": {
+      "pristine_c2": "official 9cd5767",
+      "modified_control": "official 9cd5767",
+      "candidate": "9cd5767 plus private a0866fd extension"
+    },
+    "replay_symbolica_cohort": "Both replay executables use the private a0866fd extension to compile all four backends"
+  },
+  "scope": {
+    "candidate": "Checked LC sorted-vector point updates for sparse caches, closed combination and routed entry/root accumulators; one map conversion at existing public/persistence boundaries, timed.",
+    "unchanged": [
+      "Factorized cache representation",
+      "Symbolic coefficient-polynomial internals",
+      "Public output/wire map layout",
+      "Fallible checked coefficient algebra and original ordered guard policy"
+    ],
+    "not_tested": [
+      "Bulk merging already-sorted scaled child expansions",
+      "Physical q0/quadratic workloads",
+      "Dedicated final12 or other held_out fixtures"
+    ]
+  },
+  "statistics": {
+    "independent_unit": "Fresh process; three per arm per case",
+    "within_process": "Three inner repeats summarized by median first",
+    "reported_spread": "Observed range of three process medians, not a confidence interval",
+    "paired_index": "Matched process-repetition index with cyclic arm execution order",
+    "ratio_operator": "Arm median ratios and medians of matched ratios are distinct; both preserved",
+    "routed_fresh_processes": 27,
+    "replay_fresh_processes": 18,
+    "replay_raw_measurements": 1188
+  },
+  "profile": {
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01); LLVM 22.1.8",
+    "cargo_profile": "campaign",
+    "opt_level": 3,
+    "lto": "fat",
+    "codegen_units": 1,
+    "debug_assertions": false,
+    "overflow_checks": false,
+    "test_profile": false,
+    "rustflags_and_wrappers": "none",
+    "CARGO_PROFILE_overrides": [],
+    "benchmark_cpu": [
+      196
+    ],
+    "controller_cpu": [
+      197
+    ],
+    "math_threads": 1,
+    "applies_to": "Accepted timing and replay ELFs; selected Rust test artifacts are separate"
+  },
+  "resource_guard": {
+    "kind": "Host /proc/meminfo MemAvailable floor guards the exact owned process tree",
+    "build_floor_bytes": 118111600640,
+    "runtime_floor_bytes": 53687091200,
+    "deadline": null,
+    "process_RSS_cap": null
+  },
+  "selected_cases": [
+    {
+      "name": "native_one_loop",
+      "query_source": "sealed replay fixture packet"
+    },
+    {
+      "name": "native_two_loop",
+      "query_source": "sealed replay fixture packet"
+    },
+    {
+      "name": "native_three_loop",
+      "query_source": "sealed replay fixture packet"
+    },
+    {
+      "name": "four_loop_FG_D1_cubed",
+      "query": [
+        3,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "four_loop_H_D1_cubed",
+      "query": [
+        3,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "FAST5L_combined_actual_controls",
+      "queries": [
+        [
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          5
+        ],
+        [
+          1,
+          2,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0
+        ]
+      ],
+      "input_order": "Toy first, ladder second; cache empty only at sequence entry; separate clear for batch",
+      "ladder_capture_sha256": "71dcd042c7f8fb831ba93fbc563b8698fd32231b1918e9bb2111f6f29782d197"
+    }
+  ],
+  "validation": {
+    "selected_tests": {
+      "pass": 16,
+      "fail": 0,
+      "ignored": 0,
+      "completion_sha256": "b6686fcbe1e256789abf427381d64cd9b4cea164c6c8fd3f2f6a9a5174f14e42"
+    },
+    "replay": "PASS: all 18 fresh processes; complete outputs, ordered guards, trace bytes and inventories agree",
+    "routed": "PASS: all 27 fresh processes across three cases; full canonical exact results, unresolved sets, original ordered guards and per-phase work counters agree",
+    "wire_scope": "One selected freshly generated actual completed record per process: encode/decode/reencode, binding/corruption/truncation rejection; complete encoded-byte comparison across arms. Complete returned results, ordered guards and work counters are compared separately.",
+    "existing_application_cache_payloads_used": false,
+    "application_cache_writes": false,
+    "authenticated_program_artifacts_loaded": true,
+    "dependency_pins_changed": false,
+    "production_migration_made": false,
+    "no_production_mutation_by_study": true
+  },
+  "allocation_evidence": {
+    "valid_comparison": false,
+    "status": "Stage A cohort diagnostic veto; exact veto flag was not logged. Stage B allocation builds were not launched. No allocation-reduction claim.",
+    "no_cause_attribution": true,
+    "possible_source_contaminant": "Detached Symbolica initialization workers; no runtime-branch/state inference or proven quiescence",
+    "source_review": {
+      "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/measured-report-stage-b/allocation-diagnostic-source-review.json",
+      "sha256": "1c8eda4cf68e1cc0834373b83df2327f310f86a967114be17a14179c30666afb"
+    }
+  },
+  "references": {
+    "build_packet": {
+      "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-plan-r2/launch.json",
+      "sha256": "886576b267403f4c33e2a23e4fe14d68f647017fbc749c3c65f1078f9723040b"
+    },
+    "routed_runtime_packet": {
+      "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-runtime-plan/launch.json",
+      "sha256": "7534ed3c09d935da8aae946a335c5ceade4c41104d72933244a8f35b50741c83"
+    },
+    "replay_runtime_packet": {
+      "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-replay-plan/launch.json",
+      "sha256": "d7e60284f171ad9960386af89512c445914b8d78fba4af5731983d21ceb0ddb7"
+    },
+    "replay_validation": {
+      "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-runs/replay-01/replay-validation.json",
+      "sha256": "c316fbcbfafe1ad9a1a8909bf7f044abf6fd33f1afcd5ad62f22d8cf9be65e46"
+    },
+    "complete_replay_analysis": {
+      "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/measured-report-stage-b/replay-metadata-analysis.json",
+      "sha256": "50fdb27839fb1a1258d27f07fb9fe52d61c953cd86e8128741c0b7b1fe262dcf"
+    },
+    "routed_metadata_analysis": {
+      "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/measured-report-stage-b/routed-metadata-analysis.json",
+      "bytes": 39109,
+      "sha256": "5f6058a5defd615a4d867d830f3089ff68595eefb02d1267843a63a29db565d8"
+    },
+    "measurement_qualifications": {
+      "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/measured-report-stage-b/measurement-qualifications.json",
+      "sha256": "0e26dfbdbfe43c2b7c888eb3b1a0eecdcf019e2c43418a0f3a74fb7efa141035"
+    },
+    "routed_independent_review": {
+      "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/measured-report-stage-b/routed-independent-review.json",
+      "bytes": 62445,
+      "sha256": "3537cf4f06180e9cf43113d0c1aaedf465ca2b5f31f6e29d87ff8e2025611623"
+    },
+    "routed_controller_observation": {
+      "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-runtime-observer-01/controller-completion-observation.json",
+      "bytes": 1890,
+      "sha256": "efb55f0a9ccefd1a27045f15492e46e8cb82703a5f442595019e44e48847c4c1"
+    },
+    "routed_controller_complete": {
+      "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-runs/routed-timing-01/runtime-timing-4f53cda18c2b.controller-complete.json",
+      "bytes": 783,
+      "sha256": "e997903affbee652c15792debb61815114ef86fa769329eeb13448fe1b3acdc8"
+    },
+    "actual_build_receipts": [
+      {
+        "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-runs/build-02/candidate-timing.binary.json",
+        "bytes": 4702,
+        "sha256": "c1a3eda2379ab6c00469a6d747d598fa4df1af4f6a72351b731c2ca3c38c2f8e",
+        "accepted_binary_path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-bin-r2/candidate-timing",
+        "accepted_binary_sha256": "575c29003289769dfbbe0179b8370e15fda6e2485ec880de615d0aa06ff5936d",
+        "actual_cargo_profile": {
+          "opt_level": "3",
+          "debuginfo": 0,
+          "debug_assertions": false,
+          "overflow_checks": false,
+          "test": false
+        },
+        "actual_features": [
+          "native",
+          "runtime-arity-selection"
+        ]
+      },
+      {
+        "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-runs/build-02/pristine_c2-timing.binary.json",
+        "bytes": 4635,
+        "sha256": "e1a5de11b86b2e0eb4df7d486124559608dae64f26523b1cce20a6c483b82eb7",
+        "accepted_binary_path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-bin-r2/pristine_c2-timing",
+        "accepted_binary_sha256": "696d6bc0797a0296f8d8ce42992e86f730084899969f7c5b1a3b172b3dc2f8d9",
+        "actual_cargo_profile": {
+          "opt_level": "3",
+          "debuginfo": 0,
+          "debug_assertions": false,
+          "overflow_checks": false,
+          "test": false
+        },
+        "actual_features": [
+          "native",
+          "runtime-arity-selection"
+        ]
+      },
+      {
+        "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-runs/build-02/modified_control-timing.binary.json",
+        "bytes": 4643,
+        "sha256": "b0b6e9604c62b69f4ad220d178845711b6a0a2e7c1aa1022980ce13615283da5",
+        "accepted_binary_path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-bin-r2/modified_control-timing",
+        "accepted_binary_sha256": "1f68b90d3a69f9e0fe1420b05fce38083bc57007833dbfb1bd2223299ae3ef05",
+        "actual_cargo_profile": {
+          "opt_level": "3",
+          "debuginfo": 0,
+          "debug_assertions": false,
+          "overflow_checks": false,
+          "test": false
+        },
+        "actual_features": [
+          "native",
+          "runtime-arity-selection"
+        ]
+      },
+      {
+        "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-runs/build-02/api2-replay-timing.binary.json",
+        "bytes": 4351,
+        "sha256": "4c3d8d64f4fa405ad907b857e80565f86db13df3d4331065432698e88ba58749",
+        "accepted_binary_path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-bin-r2/api2-replay-timing",
+        "accepted_binary_sha256": "09ddd42f59e1247f7745d0eb29d69ffd292c86b174501bcdddc11e820a9cb382",
+        "actual_cargo_profile": {
+          "opt_level": "3",
+          "debuginfo": 0,
+          "debug_assertions": false,
+          "overflow_checks": false,
+          "test": false
+        },
+        "actual_features": [
+          "linear-combination-trace-study",
+          "native",
+          "runtime-arity-selection"
+        ]
+      },
+      {
+        "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-runs/build-02/api2-replay-candidate-timing.binary.json",
+        "bytes": 4487,
+        "sha256": "538fe69bb6d5ef7573327272eb79a9737469bd18033d2ab03e534fb118e3d593",
+        "accepted_binary_path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/stage-b-bin-r2/api2-replay-candidate-timing",
+        "accepted_binary_sha256": "14699f323ff9c0d3fecc528c9db657c0d318659ab378e66b0c788558de8cec1a",
+        "actual_cargo_profile": {
+          "opt_level": "3",
+          "debuginfo": 0,
+          "debug_assertions": false,
+          "overflow_checks": false,
+          "test": false
+        },
+        "actual_features": [
+          "linear-combination-storage-study",
+          "linear-combination-trace-study",
+          "native",
+          "runtime-arity-selection"
+        ]
+      }
+    ]
+  },
+  "report_utc": "2026-10-28T04:41:12.106482+00:00",
+  "decision_basis": [
+    "Representative speed benefit is not balanced: 4L FG improves; H is about 1% slower in matched pristine pairs; 1L\u20133L guarded-request ranges overlap.",
+    "5L cold root and batch ratios of arm medians are +2.63% and +7.76% versus pristine; medians of matched ratios are +2.13% and +3.98%. All 5L arm timing ranges overlap.",
+    "5L warm-batch improvement relative to pristine is shared by the map control; it does not establish an LC-specific benefit.",
+    "Modest 4L whole-process RSS savings do not establish the requested conditional speed criterion.",
+    "This decision applies to checked point updates with timed map publication boundaries, not every LC representation or bulk-merge design."
+  ],
+  "routed_results": [
+    {
+      "case": "four_loop_FG_D1_cubed",
+      "medians": [
+        {
+          "arm": "candidate",
+          "phase": "cold_guarded_root",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            0.327244155,
+            0.317607285,
+            0.317117134
+          ],
+          "median_of_process_medians_wall_seconds": 0.317607285,
+          "range_of_process_medians_wall_seconds": [
+            0.317117134,
+            0.327244155
+          ],
+          "independent_process_medians_cpu_seconds": [
+            0.32438767299999993,
+            0.31506556600000013,
+            0.31455911999999997
+          ],
+          "median_of_process_medians_cpu_seconds": 0.31506556600000013,
+          "range_of_process_medians_cpu_seconds": [
+            0.31455911999999997,
+            0.32438767299999993
+          ]
+        },
+        {
+          "arm": "candidate",
+          "phase": "warm_guarded_root",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            8.414e-05,
+            8.385e-05,
+            8.464e-05
+          ],
+          "median_of_process_medians_wall_seconds": 8.414e-05,
+          "range_of_process_medians_wall_seconds": [
+            8.385e-05,
+            8.464e-05
+          ],
+          "independent_process_medians_cpu_seconds": [
+            8.520000000000749e-05,
+            8.494000000025537e-05,
+            8.57309999999778e-05
+          ],
+          "median_of_process_medians_cpu_seconds": 8.520000000000749e-05,
+          "range_of_process_medians_cpu_seconds": [
+            8.494000000025537e-05,
+            8.57309999999778e-05
+          ]
+        },
+        {
+          "arm": "modified_control",
+          "phase": "cold_guarded_root",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            0.333186049,
+            0.3382117,
+            0.338714592
+          ],
+          "median_of_process_medians_wall_seconds": 0.3382117,
+          "range_of_process_medians_wall_seconds": [
+            0.333186049,
+            0.338714592
+          ],
+          "independent_process_medians_cpu_seconds": [
+            0.33036694199999994,
+            0.33515876999999983,
+            0.33576444500000013
+          ],
+          "median_of_process_medians_cpu_seconds": 0.33515876999999983,
+          "range_of_process_medians_cpu_seconds": [
+            0.33036694199999994,
+            0.33576444500000013
+          ]
+        },
+        {
+          "arm": "modified_control",
+          "phase": "warm_guarded_root",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            8.68e-05,
+            9.05e-05,
+            8.531e-05
+          ],
+          "median_of_process_medians_wall_seconds": 8.68e-05,
+          "range_of_process_medians_wall_seconds": [
+            8.531e-05,
+            9.05e-05
+          ],
+          "independent_process_medians_cpu_seconds": [
+            8.807099999996737e-05,
+            9.048000000011491e-05,
+            8.721000000022627e-05
+          ],
+          "median_of_process_medians_cpu_seconds": 8.807099999996737e-05,
+          "range_of_process_medians_cpu_seconds": [
+            8.721000000022627e-05,
+            9.048000000011491e-05
+          ]
+        },
+        {
+          "arm": "pristine_c2",
+          "phase": "cold_guarded_root",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            0.348007779,
+            0.323909812,
+            0.339290235
+          ],
+          "median_of_process_medians_wall_seconds": 0.339290235,
+          "range_of_process_medians_wall_seconds": [
+            0.323909812,
+            0.348007779
+          ],
+          "independent_process_medians_cpu_seconds": [
+            0.344079547,
+            0.320978027,
+            0.33635335200000016
+          ],
+          "median_of_process_medians_cpu_seconds": 0.33635335200000016,
+          "range_of_process_medians_cpu_seconds": [
+            0.320978027,
+            0.344079547
+          ]
+        },
+        {
+          "arm": "pristine_c2",
+          "phase": "warm_guarded_root",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            8.949e-05,
+            8.392e-05,
+            8.745e-05
+          ],
+          "median_of_process_medians_wall_seconds": 8.745e-05,
+          "range_of_process_medians_wall_seconds": [
+            8.392e-05,
+            8.949e-05
+          ],
+          "independent_process_medians_cpu_seconds": [
+            9.071000000027141e-05,
+            8.507999999984861e-05,
+            8.841100000012148e-05
+          ],
+          "median_of_process_medians_cpu_seconds": 8.841100000012148e-05,
+          "range_of_process_medians_cpu_seconds": [
+            8.507999999984861e-05,
+            9.071000000027141e-05
+          ]
+        }
+      ],
+      "peak_RSS_KiB_summary": {
+        "pristine_c2": {
+          "median": 274784,
+          "range": [
+            274472,
+            275048
+          ]
+        },
+        "modified_control": {
+          "median": 274488,
+          "range": [
+            274484,
+            274800
+          ]
+        },
+        "candidate": {
+          "median": 265260,
+          "range": [
+            265252,
+            267100
+          ]
+        }
+      },
+      "paired_candidate_over_baseline_by_phase": {
+        "cold_guarded_root": {
+          "pristine_c2": {
+            "ratios_by_process_repetition": [
+              0.9403357474948857,
+              0.9805423399770304,
+              0.9346485730719601
+            ],
+            "median": 0.9403357474948857,
+            "range": [
+              0.9346485730719601,
+              0.9805423399770304
+            ]
+          },
+          "modified_control": {
+            "ratios_by_process_repetition": [
+              0.9821664381872123,
+              0.9390783494479937,
+              0.9362370015638418
+            ],
+            "median": 0.9390783494479937,
+            "range": [
+              0.9362370015638418,
+              0.9821664381872123
+            ]
+          }
+        },
+        "warm_guarded_root": {
+          "pristine_c2": {
+            "ratios_by_process_repetition": [
+              0.9402167839982122,
+              0.9991658722592947,
+              0.9678673527730132
+            ],
+            "median": 0.9678673527730132,
+            "range": [
+              0.9402167839982122,
+              0.9991658722592947
+            ]
+          },
+          "modified_control": {
+            "ratios_by_process_repetition": [
+              0.9693548387096775,
+              0.9265193370165746,
+              0.9921462900011723
+            ],
+            "median": 0.9693548387096775,
+            "range": [
+              0.9265193370165746,
+              0.9921462900011723
+            ]
+          }
+        }
+      },
+      "wire_bytes": 43859,
+      "wire_sha256": "b2c89ab1083e4bbe65cc5db9eb69f8e670db75bf61216993ed38f9782308fde1",
+      "agreement_sha256": "18ef2a746c88129f014b55b39bd796b774b794837da03efe61ba5434a7e9f132"
+    },
+    {
+      "case": "four_loop_H_D1_cubed",
+      "medians": [
+        {
+          "arm": "candidate",
+          "phase": "cold_guarded_root",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            4.519554779,
+            4.559349926,
+            4.5958151350000005
+          ],
+          "median_of_process_medians_wall_seconds": 4.559349926,
+          "range_of_process_medians_wall_seconds": [
+            4.519554779,
+            4.5958151350000005
+          ],
+          "independent_process_medians_cpu_seconds": [
+            4.475788585,
+            4.4998833959999995,
+            4.543513507
+          ],
+          "median_of_process_medians_cpu_seconds": 4.4998833959999995,
+          "range_of_process_medians_cpu_seconds": [
+            4.475788585,
+            4.543513507
+          ]
+        },
+        {
+          "arm": "candidate",
+          "phase": "warm_guarded_root",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            0.000206791,
+            0.000204951,
+            0.000213441
+          ],
+          "median_of_process_medians_wall_seconds": 0.000206791,
+          "range_of_process_medians_wall_seconds": [
+            0.000204951,
+            0.000213441
+          ],
+          "independent_process_medians_cpu_seconds": [
+            0.00020836999999929162,
+            0.0002037600000015516,
+            0.00021088000000091256
+          ],
+          "median_of_process_medians_cpu_seconds": 0.00020836999999929162,
+          "range_of_process_medians_cpu_seconds": [
+            0.0002037600000015516,
+            0.00021088000000091256
+          ]
+        },
+        {
+          "arm": "modified_control",
+          "phase": "cold_guarded_root",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            4.53603057,
+            4.693958359,
+            4.577274942
+          ],
+          "median_of_process_medians_wall_seconds": 4.577274942,
+          "range_of_process_medians_wall_seconds": [
+            4.53603057,
+            4.693958359
+          ],
+          "independent_process_medians_cpu_seconds": [
+            4.495947965999999,
+            4.640834794000002,
+            4.526103778000001
+          ],
+          "median_of_process_medians_cpu_seconds": 4.526103778000001,
+          "range_of_process_medians_cpu_seconds": [
+            4.495947965999999,
+            4.640834794000002
+          ]
+        },
+        {
+          "arm": "modified_control",
+          "phase": "warm_guarded_root",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            0.00020791,
+            0.000230251,
+            0.000204921
+          ],
+          "median_of_process_medians_wall_seconds": 0.00020791,
+          "range_of_process_medians_wall_seconds": [
+            0.000204921,
+            0.000230251
+          ],
+          "independent_process_medians_cpu_seconds": [
+            0.00020970899999994685,
+            0.00022149000000126762,
+            0.00020674999999670263
+          ],
+          "median_of_process_medians_cpu_seconds": 0.00020970899999994685,
+          "range_of_process_medians_cpu_seconds": [
+            0.00020674999999670263,
+            0.00022149000000126762
+          ]
+        },
+        {
+          "arm": "pristine_c2",
+          "phase": "cold_guarded_root",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            4.472864374,
+            4.505150718,
+            4.548260327
+          ],
+          "median_of_process_medians_wall_seconds": 4.505150718,
+          "range_of_process_medians_wall_seconds": [
+            4.472864374,
+            4.548260327
+          ],
+          "independent_process_medians_cpu_seconds": [
+            4.4318152789999985,
+            4.459880502000001,
+            4.498605008
+          ],
+          "median_of_process_medians_cpu_seconds": 4.459880502000001,
+          "range_of_process_medians_cpu_seconds": [
+            4.4318152789999985,
+            4.498605008
+          ]
+        },
+        {
+          "arm": "pristine_c2",
+          "phase": "warm_guarded_root",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            0.000206341,
+            0.000204411,
+            0.000204821
+          ],
+          "median_of_process_medians_wall_seconds": 0.000204821,
+          "range_of_process_medians_wall_seconds": [
+            0.000204411,
+            0.000206341
+          ],
+          "independent_process_medians_cpu_seconds": [
+            0.000207870000000554,
+            0.00020607100000091805,
+            0.00020647099999848706
+          ],
+          "median_of_process_medians_cpu_seconds": 0.00020647099999848706,
+          "range_of_process_medians_cpu_seconds": [
+            0.00020607100000091805,
+            0.000207870000000554
+          ]
+        }
+      ],
+      "peak_RSS_KiB_summary": {
+        "pristine_c2": {
+          "median": 1381076,
+          "range": [
+            1380180,
+            1381396
+          ]
+        },
+        "modified_control": {
+          "median": 1378504,
+          "range": [
+            1378452,
+            1380176
+          ]
+        },
+        "candidate": {
+          "median": 1331672,
+          "range": [
+            1331432,
+            1332260
+          ]
+        }
+      },
+      "paired_candidate_over_baseline_by_phase": {
+        "cold_guarded_root": {
+          "pristine_c2": {
+            "ratios_by_process_repetition": [
+              1.0104385917157255,
+              1.012030498287982,
+              1.0104556038091528
+            ],
+            "median": 1.0104556038091528,
+            "range": [
+              1.0104385917157255,
+              1.012030498287982
+            ]
+          },
+          "modified_control": {
+            "ratios_by_process_repetition": [
+              0.9963677954225074,
+              0.9713230449217968,
+              1.0040504870769025
+            ],
+            "median": 0.9963677954225074,
+            "range": [
+              0.9713230449217968,
+              1.0040504870769025
+            ]
+          }
+        },
+        "warm_guarded_root": {
+          "pristine_c2": {
+            "ratios_by_process_repetition": [
+              1.0021808559617333,
+              1.0026417365014604,
+              1.0420855283393793
+            ],
+            "median": 1.0026417365014604,
+            "range": [
+              1.0021808559617333,
+              1.0420855283393793
+            ]
+          },
+          "modified_control": {
+            "ratios_by_process_repetition": [
+              0.9946178634986292,
+              0.8901199126171006,
+              1.0415769979650695
+            ],
+            "median": 0.9946178634986292,
+            "range": [
+              0.8901199126171006,
+              1.0415769979650695
+            ]
+          }
+        }
+      },
+      "wire_bytes": 132480,
+      "wire_sha256": "773d9d81adc530613e85217945240c75c183dd3f387252b20087d637858ea94a",
+      "agreement_sha256": "3d177d790b2fac1304fee2372d9e870ecc2020cc0e0ab42b683f222b3260e681"
+    },
+    {
+      "case": "FAST5L_combined_actual_controls",
+      "medians": [
+        {
+          "arm": "candidate",
+          "phase": "cold_guarded_batch",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            4.245307986,
+            4.383758536,
+            3.964324442
+          ],
+          "median_of_process_medians_wall_seconds": 4.245307986,
+          "range_of_process_medians_wall_seconds": [
+            3.964324442,
+            4.383758536
+          ],
+          "independent_process_medians_cpu_seconds": [
+            4.196547312999996,
+            4.32772368000002,
+            3.9207627790000004
+          ],
+          "median_of_process_medians_cpu_seconds": 4.196547312999996,
+          "range_of_process_medians_cpu_seconds": [
+            3.9207627790000004,
+            4.32772368000002
+          ]
+        },
+        {
+          "arm": "candidate",
+          "phase": "cold_guarded_root_requests",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            4.237095352,
+            4.523393862,
+            4.136001059
+          ],
+          "median_of_process_medians_wall_seconds": 4.237095352,
+          "range_of_process_medians_wall_seconds": [
+            4.136001059,
+            4.523393862
+          ],
+          "independent_process_medians_cpu_seconds": [
+            4.188593871999984,
+            4.470493973999993,
+            4.0916390999999805
+          ],
+          "median_of_process_medians_cpu_seconds": 4.188593871999984,
+          "range_of_process_medians_cpu_seconds": [
+            4.0916390999999805,
+            4.470493973999993
+          ]
+        },
+        {
+          "arm": "candidate",
+          "phase": "warm_guarded_batch",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            0.269372158,
+            0.265931505,
+            0.261239466
+          ],
+          "median_of_process_medians_wall_seconds": 0.265931505,
+          "range_of_process_medians_wall_seconds": [
+            0.261239466,
+            0.269372158
+          ],
+          "independent_process_medians_cpu_seconds": [
+            0.2661161990000096,
+            0.2624631359999796,
+            0.2585699239999997
+          ],
+          "median_of_process_medians_cpu_seconds": 0.2624631359999796,
+          "range_of_process_medians_cpu_seconds": [
+            0.2585699239999997,
+            0.2661161990000096
+          ]
+        },
+        {
+          "arm": "candidate",
+          "phase": "warm_guarded_root_requests",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            0.579777455,
+            0.761387154,
+            0.58044783
+          ],
+          "median_of_process_medians_wall_seconds": 0.58044783,
+          "range_of_process_medians_wall_seconds": [
+            0.579777455,
+            0.761387154
+          ],
+          "independent_process_medians_cpu_seconds": [
+            0.5735663799999884,
+            0.7510259539999993,
+            0.5741502019999984
+          ],
+          "median_of_process_medians_cpu_seconds": 0.5741502019999984,
+          "range_of_process_medians_cpu_seconds": [
+            0.5735663799999884,
+            0.7510259539999993
+          ]
+        },
+        {
+          "arm": "modified_control",
+          "phase": "cold_guarded_batch",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            3.922580023,
+            4.71560924,
+            3.916036623
+          ],
+          "median_of_process_medians_wall_seconds": 3.922580023,
+          "range_of_process_medians_wall_seconds": [
+            3.916036623,
+            4.71560924
+          ],
+          "independent_process_medians_cpu_seconds": [
+            3.8860062269999958,
+            4.644897323000009,
+            3.877451334
+          ],
+          "median_of_process_medians_cpu_seconds": 3.8860062269999958,
+          "range_of_process_medians_cpu_seconds": [
+            3.877451334,
+            4.644897323000009
+          ]
+        },
+        {
+          "arm": "modified_control",
+          "phase": "cold_guarded_root_requests",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            4.057881729,
+            4.879366434,
+            4.128341318
+          ],
+          "median_of_process_medians_wall_seconds": 4.128341318,
+          "range_of_process_medians_wall_seconds": [
+            4.057881729,
+            4.879366434
+          ],
+          "independent_process_medians_cpu_seconds": [
+            4.020592202000017,
+            4.805410775999974,
+            4.088814710000008
+          ],
+          "median_of_process_medians_cpu_seconds": 4.088814710000008,
+          "range_of_process_medians_cpu_seconds": [
+            4.020592202000017,
+            4.805410775999974
+          ]
+        },
+        {
+          "arm": "modified_control",
+          "phase": "warm_guarded_batch",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            0.248112769,
+            0.298091446,
+            0.255760033
+          ],
+          "median_of_process_medians_wall_seconds": 0.255760033,
+          "range_of_process_medians_wall_seconds": [
+            0.248112769,
+            0.298091446
+          ],
+          "independent_process_medians_cpu_seconds": [
+            0.24538488400000347,
+            0.2935537300000135,
+            0.25334157599999685
+          ],
+          "median_of_process_medians_cpu_seconds": 0.25334157599999685,
+          "range_of_process_medians_cpu_seconds": [
+            0.24538488400000347,
+            0.2935537300000135
+          ]
+        },
+        {
+          "arm": "modified_control",
+          "phase": "warm_guarded_root_requests",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            0.549177787,
+            0.795371154,
+            0.54171123
+          ],
+          "median_of_process_medians_wall_seconds": 0.549177787,
+          "range_of_process_medians_wall_seconds": [
+            0.54171123,
+            0.795371154
+          ],
+          "independent_process_medians_cpu_seconds": [
+            0.5444352609999896,
+            0.7829064629999891,
+            0.5362855690000004
+          ],
+          "median_of_process_medians_cpu_seconds": 0.5444352609999896,
+          "range_of_process_medians_cpu_seconds": [
+            0.5362855690000004,
+            0.7829064629999891
+          ]
+        },
+        {
+          "arm": "pristine_c2",
+          "phase": "cold_guarded_batch",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            3.9360925890000003,
+            4.215958928,
+            3.939697661
+          ],
+          "median_of_process_medians_wall_seconds": 3.939697661,
+          "range_of_process_medians_wall_seconds": [
+            3.9360925890000003,
+            4.215958928
+          ],
+          "independent_process_medians_cpu_seconds": [
+            3.900851001999996,
+            4.160240177999981,
+            3.898691441000011
+          ],
+          "median_of_process_medians_cpu_seconds": 3.900851001999996,
+          "range_of_process_medians_cpu_seconds": [
+            3.898691441000011,
+            4.160240177999981
+          ]
+        },
+        {
+          "arm": "pristine_c2",
+          "phase": "cold_guarded_root_requests",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            4.020189486,
+            4.429136065,
+            4.128376227
+          ],
+          "median_of_process_medians_wall_seconds": 4.128376227,
+          "range_of_process_medians_wall_seconds": [
+            4.020189486,
+            4.429136065
+          ],
+          "independent_process_medians_cpu_seconds": [
+            3.9838424369999927,
+            4.373444964000015,
+            4.085796624000011
+          ],
+          "median_of_process_medians_cpu_seconds": 4.085796624000011,
+          "range_of_process_medians_cpu_seconds": [
+            3.9838424369999927,
+            4.373444964000015
+          ]
+        },
+        {
+          "arm": "pristine_c2",
+          "phase": "warm_guarded_batch",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            0.287345978,
+            0.354698701,
+            0.265768674
+          ],
+          "median_of_process_medians_wall_seconds": 0.287345978,
+          "range_of_process_medians_wall_seconds": [
+            0.265768674,
+            0.354698701
+          ],
+          "independent_process_medians_cpu_seconds": [
+            0.2849134759999856,
+            0.3501511229999892,
+            0.26290506900002697
+          ],
+          "median_of_process_medians_cpu_seconds": 0.2849134759999856,
+          "range_of_process_medians_cpu_seconds": [
+            0.26290506900002697,
+            0.3501511229999892
+          ]
+        },
+        {
+          "arm": "pristine_c2",
+          "phase": "warm_guarded_root_requests",
+          "independent_processes": 3,
+          "inner_repeats_each": 3,
+          "independent_process_medians_wall_seconds": [
+            0.574412196,
+            0.662457468,
+            0.585856063
+          ],
+          "median_of_process_medians_wall_seconds": 0.585856063,
+          "range_of_process_medians_wall_seconds": [
+            0.574412196,
+            0.662457468
+          ],
+          "independent_process_medians_cpu_seconds": [
+            0.5693654439999989,
+            0.6532394049999937,
+            0.5795735249999723
+          ],
+          "median_of_process_medians_cpu_seconds": 0.5795735249999723,
+          "range_of_process_medians_cpu_seconds": [
+            0.5693654439999989,
+            0.6532394049999937
+          ]
+        }
+      ],
+      "peak_RSS_KiB_summary": {
+        "pristine_c2": {
+          "median": 7659344,
+          "range": [
+            7659288,
+            7659424
+          ]
+        },
+        "modified_control": {
+          "median": 7659404,
+          "range": [
+            7659404,
+            7659420
+          ]
+        },
+        "candidate": {
+          "median": 7644460,
+          "range": [
+            7644404,
+            7644468
+          ]
+        }
+      },
+      "paired_candidate_over_baseline_by_phase": {
+        "cold_guarded_batch": {
+          "pristine_c2": {
+            "ratios_by_process_repetition": [
+              1.0785589744164426,
+              1.0398010537734537,
+              1.0062509317006192
+            ],
+            "median": 1.0398010537734537,
+            "range": [
+              1.0062509317006192,
+              1.0785589744164426
+            ]
+          },
+          "modified_control": {
+            "ratios_by_process_repetition": [
+              1.0822744115117318,
+              0.9296271834432152,
+              1.0123307884089725
+            ],
+            "median": 1.0123307884089725,
+            "range": [
+              0.9296271834432152,
+              1.0822744115117318
+            ]
+          }
+        },
+        "cold_guarded_root_requests": {
+          "pristine_c2": {
+            "ratios_by_process_repetition": [
+              1.0539541399119017,
+              1.0212813053418806,
+              1.0018469324452874
+            ],
+            "median": 1.0212813053418806,
+            "range": [
+              1.0018469324452874,
+              1.0539541399119017
+            ]
+          },
+          "modified_control": {
+            "ratios_by_process_repetition": [
+              1.0441643288219158,
+              0.9270453291805385,
+              1.0018554040012637
+            ],
+            "median": 1.0018554040012637,
+            "range": [
+              0.9270453291805385,
+              1.0441643288219158
+            ]
+          }
+        },
+        "warm_guarded_batch": {
+          "pristine_c2": {
+            "ratios_by_process_repetition": [
+              0.9374488547739477,
+              0.7497391567836613,
+              0.982958081809145
+            ],
+            "median": 0.9374488547739477,
+            "range": [
+              0.7497391567836613,
+              0.982958081809145
+            ]
+          },
+          "modified_control": {
+            "ratios_by_process_repetition": [
+              1.0856843808792442,
+              0.8921138414686345,
+              1.0214241175047079
+            ],
+            "median": 1.0214241175047079,
+            "range": [
+              0.8921138414686345,
+              1.0856843808792442
+            ]
+          }
+        },
+        "warm_guarded_root_requests": {
+          "pristine_c2": {
+            "ratios_by_process_repetition": [
+              1.0093404336421854,
+              1.1493374152738813,
+              0.9907686659888676
+            ],
+            "median": 1.0093404336421854,
+            "range": [
+              0.9907686659888676,
+              1.1493374152738813
+            ]
+          },
+          "modified_control": {
+            "ratios_by_process_repetition": [
+              1.055719056240707,
+              0.9572727778357423,
+              1.0715078400719142
+            ],
+            "median": 1.055719056240707,
+            "range": [
+              0.9572727778357423,
+              1.0715078400719142
+            ]
+          }
+        }
+      },
+      "wire_bytes": 7077,
+      "wire_sha256": "bb60b20f83da7f6a364da9db3f287ed8ba8aa6d24da0eed566d9f0ff5af00c3c",
+      "agreement_sha256": "12f8eda4967e51204df5ffabc2caaf82ddce69ea413ec8b77d7010057fe96c99"
+    }
+  ],
+  "low_loop_whole_request_results": [
+    {
+      "fixture": "one-loop",
+      "phase": "guarded_complete_request",
+      "map_storage": {
+        "process_medians_ms": [
+          0.15077100000000002,
+          0.16097999999999998,
+          0.14619000000000001
+        ],
+        "median_ms": 0.15077100000000002,
+        "range_ms": [
+          0.14619000000000001,
+          0.16097999999999998
+        ]
+      },
+      "lc_storage": {
+        "process_medians_ms": [
+          0.15357099999999999,
+          0.14824099999999998,
+          0.14573
+        ],
+        "median_ms": 0.14824099999999998,
+        "range_ms": [
+          0.14573,
+          0.15357099999999999
+        ]
+      },
+      "lc_over_map_wall_median_ratio": 0.9832195846681389
+    },
+    {
+      "fixture": "one-loop",
+      "phase": "warm_complete_request",
+      "map_storage": {
+        "process_medians_ms": [
+          0.0009599999999999999,
+          0.0011099999999999999,
+          0.00098
+        ],
+        "median_ms": 0.00098,
+        "range_ms": [
+          0.0009599999999999999,
+          0.0011099999999999999
+        ]
+      },
+      "lc_storage": {
+        "process_medians_ms": [
+          0.001091,
+          0.00082,
+          0.00076
+        ],
+        "median_ms": 0.00082,
+        "range_ms": [
+          0.00076,
+          0.001091
+        ]
+      },
+      "lc_over_map_wall_median_ratio": 0.8367346938775511
+    },
+    {
+      "fixture": "two-loop",
+      "phase": "guarded_complete_request",
+      "map_storage": {
+        "process_medians_ms": [
+          0.48716200000000004,
+          0.434392,
+          0.478952
+        ],
+        "median_ms": 0.478952,
+        "range_ms": [
+          0.434392,
+          0.48716200000000004
+        ]
+      },
+      "lc_storage": {
+        "process_medians_ms": [
+          0.45340199999999997,
+          0.549982,
+          0.505482
+        ],
+        "median_ms": 0.505482,
+        "range_ms": [
+          0.45340199999999997,
+          0.549982
+        ]
+      },
+      "lc_over_map_wall_median_ratio": 1.0553917720356112
+    },
+    {
+      "fixture": "two-loop",
+      "phase": "warm_complete_request",
+      "map_storage": {
+        "process_medians_ms": [
+          0.007220000000000001,
+          0.007049,
+          0.00699
+        ],
+        "median_ms": 0.007049,
+        "range_ms": [
+          0.00699,
+          0.007220000000000001
+        ]
+      },
+      "lc_storage": {
+        "process_medians_ms": [
+          0.00705,
+          0.007700000000000001,
+          0.00683
+        ],
+        "median_ms": 0.00705,
+        "range_ms": [
+          0.00683,
+          0.007700000000000001
+        ]
+      },
+      "lc_over_map_wall_median_ratio": 1.0001418640941977
+    },
+    {
+      "fixture": "three-loop",
+      "phase": "guarded_complete_request",
+      "map_storage": {
+        "process_medians_ms": [
+          29.912702,
+          29.852642,
+          30.561694
+        ],
+        "median_ms": 29.912702,
+        "range_ms": [
+          29.852642,
+          30.561694
+        ]
+      },
+      "lc_storage": {
+        "process_medians_ms": [
+          32.135991000000004,
+          29.627911,
+          30.349344000000002
+        ],
+        "median_ms": 30.349344000000002,
+        "range_ms": [
+          29.627911,
+          32.135991000000004
+        ]
+      },
+      "lc_over_map_wall_median_ratio": 1.0145972102419902
+    },
+    {
+      "fixture": "three-loop",
+      "phase": "warm_complete_request",
+      "map_storage": {
+        "process_medians_ms": [
+          0.007659999999999999,
+          0.007379999999999999,
+          0.007069000000000001
+        ],
+        "median_ms": 0.007379999999999999,
+        "range_ms": [
+          0.007069000000000001,
+          0.007659999999999999
+        ]
+      },
+      "lc_storage": {
+        "process_medians_ms": [
+          0.00758,
+          0.0074,
+          0.00725
+        ],
+        "median_ms": 0.0074,
+        "range_ms": [
+          0.00725,
+          0.00758
+        ]
+      },
+      "lc_over_map_wall_median_ratio": 1.0027100271002711
+    }
+  ],
+  "low_loop_lifetime_RSS": [
+    {
+      "fixture": "one-loop",
+      "storage_arm": "lc_storage",
+      "process_peak_rss_kib": [
+        6144,
+        6184,
+        6172
+      ],
+      "median_peak_rss_kib": 6172,
+      "range_peak_rss_kib": [
+        6144,
+        6184
+      ],
+      "scope": "GNU time whole-process lifetime peak including preparation/oracles/output; includes native allocations; not a timed-call memory measurement"
+    },
+    {
+      "fixture": "one-loop",
+      "storage_arm": "map_storage",
+      "process_peak_rss_kib": [
+        6144,
+        6180,
+        6152
+      ],
+      "median_peak_rss_kib": 6152,
+      "range_peak_rss_kib": [
+        6144,
+        6180
+      ],
+      "scope": "GNU time whole-process lifetime peak including preparation/oracles/output; includes native allocations; not a timed-call memory measurement"
+    },
+    {
+      "fixture": "three-loop",
+      "storage_arm": "lc_storage",
+      "process_peak_rss_kib": [
+        236544,
+        236568,
+        236548
+      ],
+      "median_peak_rss_kib": 236548,
+      "range_peak_rss_kib": [
+        236544,
+        236568
+      ],
+      "scope": "GNU time whole-process lifetime peak including preparation/oracles/output; includes native allocations; not a timed-call memory measurement"
+    },
+    {
+      "fixture": "three-loop",
+      "storage_arm": "map_storage",
+      "process_peak_rss_kib": [
+        236556,
+        236548,
+        236556
+      ],
+      "median_peak_rss_kib": 236556,
+      "range_peak_rss_kib": [
+        236548,
+        236556
+      ],
+      "scope": "GNU time whole-process lifetime peak including preparation/oracles/output; includes native allocations; not a timed-call memory measurement"
+    },
+    {
+      "fixture": "two-loop",
+      "storage_arm": "lc_storage",
+      "process_peak_rss_kib": [
+        9216,
+        9260,
+        9260
+      ],
+      "median_peak_rss_kib": 9260,
+      "range_peak_rss_kib": [
+        9216,
+        9260
+      ],
+      "scope": "GNU time whole-process lifetime peak including preparation/oracles/output; includes native allocations; not a timed-call memory measurement"
+    },
+    {
+      "fixture": "two-loop",
+      "storage_arm": "map_storage",
+      "process_peak_rss_kib": [
+        9236,
+        9232,
+        9268
+      ],
+      "median_peak_rss_kib": 9236,
+      "range_peak_rss_kib": [
+        9232,
+        9268
+      ],
+      "scope": "GNU time whole-process lifetime peak including preparation/oracles/output; includes native allocations; not a timed-call memory measurement"
+    }
+  ],
+  "primary_replay_scale_add_results": [
+    {
+      "fixture": "one-loop",
+      "storage_arm": "map_storage",
+      "phase": "real_scale_add_replay",
+      "backend": "borrowed_map_control",
+      "independent_processes": 3,
+      "inner_repetitions_per_process": 3,
+      "wall": {
+        "process_medians_ms": [
+          0.9783439999999999,
+          1.096765,
+          0.9561949999999999
+        ],
+        "median_ms": 0.9783439999999999,
+        "range_ms": [
+          0.9561949999999999,
+          1.096765
+        ]
+      },
+      "cpu": {
+        "process_medians_ms": [
+          0.971982,
+          1.083321,
+          0.945561
+        ],
+        "median_ms": 0.971982,
+        "range_ms": [
+          0.945561,
+          1.083321
+        ]
+      }
+    },
+    {
+      "fixture": "one-loop",
+      "storage_arm": "map_storage",
+      "phase": "real_scale_add_replay",
+      "backend": "checked_lc",
+      "independent_processes": 3,
+      "inner_repetitions_per_process": 3,
+      "wall": {
+        "process_medians_ms": [
+          0.843164,
+          0.903514,
+          0.750723
+        ],
+        "median_ms": 0.843164,
+        "range_ms": [
+          0.750723,
+          0.903514
+        ]
+      },
+      "cpu": {
+        "process_medians_ms": [
+          0.831901,
+          0.8974709999999999,
+          0.745991
+        ],
+        "median_ms": 0.831901,
+        "range_ms": [
+          0.745991,
+          0.8974709999999999
+        ]
+      }
+    },
+    {
+      "fixture": "three-loop",
+      "storage_arm": "map_storage",
+      "phase": "real_scale_add_replay",
+      "backend": "borrowed_map_control",
+      "independent_processes": 3,
+      "inner_repetitions_per_process": 3,
+      "wall": {
+        "process_medians_ms": [
+          18.102184,
+          16.914279,
+          16.838938000000002
+        ],
+        "median_ms": 16.914279,
+        "range_ms": [
+          16.838938000000002,
+          18.102184
+        ]
+      },
+      "cpu": {
+        "process_medians_ms": [
+          17.960196,
+          16.791311,
+          16.715522
+        ],
+        "median_ms": 16.791311,
+        "range_ms": [
+          16.715522,
+          17.960196
+        ]
+      }
+    },
+    {
+      "fixture": "three-loop",
+      "storage_arm": "map_storage",
+      "phase": "real_scale_add_replay",
+      "backend": "checked_lc",
+      "independent_processes": 3,
+      "inner_repetitions_per_process": 3,
+      "wall": {
+        "process_medians_ms": [
+          19.071787,
+          17.203540999999998,
+          17.268901
+        ],
+        "median_ms": 17.268901,
+        "range_ms": [
+          17.203540999999998,
+          19.071787
+        ]
+      },
+      "cpu": {
+        "process_medians_ms": [
+          18.900276,
+          17.089367000000003,
+          17.085868
+        ],
+        "median_ms": 17.089367000000003,
+        "range_ms": [
+          17.085868,
+          18.900276
+        ]
+      }
+    },
+    {
+      "fixture": "two-loop",
+      "storage_arm": "map_storage",
+      "phase": "real_scale_add_replay",
+      "backend": "borrowed_map_control",
+      "independent_processes": 3,
+      "inner_repetitions_per_process": 3,
+      "wall": {
+        "process_medians_ms": [
+          3.254303,
+          3.257013,
+          3.253133
+        ],
+        "median_ms": 3.254303,
+        "range_ms": [
+          3.253133,
+          3.257013
+        ]
+      },
+      "cpu": {
+        "process_medians_ms": [
+          3.236433,
+          3.240182,
+          3.232002
+        ],
+        "median_ms": 3.236433,
+        "range_ms": [
+          3.232002,
+          3.240182
+        ]
+      }
+    },
+    {
+      "fixture": "two-loop",
+      "storage_arm": "map_storage",
+      "phase": "real_scale_add_replay",
+      "backend": "checked_lc",
+      "independent_processes": 3,
+      "inner_repetitions_per_process": 3,
+      "wall": {
+        "process_medians_ms": [
+          3.164563,
+          3.1628429999999996,
+          3.157743
+        ],
+        "median_ms": 3.1628429999999996,
+        "range_ms": [
+          3.157743,
+          3.164563
+        ]
+      },
+      "cpu": {
+        "process_medians_ms": [
+          3.142882,
+          3.136233,
+          3.136123
+        ],
+        "median_ms": 3.136233,
+        "range_ms": [
+          3.136123,
+          3.142882
+        ]
+      }
+    }
+  ],
+  "document_validation": {
+    "renderer_path": "/nix/store/rbsmziqg7dyhmxb22q6znkjhh12wdqzn-typst-0.15.1-env/bin/typst",
+    "actual_version": "typst 0.15.1 (9dfd3a08)",
+    "compile_pdf_exit": 0,
+    "compile_png_exit": 0,
+    "page_count": 2,
+    "visual_inspection": "Both rendered pages inspected; tables and text readable, no clipping or overflow",
+    "typst": {
+      "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/measured-report-stage-b/report.typ",
+      "bytes": 8457,
+      "sha256": "d6f3213519bcd548f4a9b44016b904cc977089188c8e8b387913e9b38551a692"
+    },
+    "pdf": {
+      "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/measured-report-stage-b/report.pdf",
+      "bytes": 43163,
+      "sha256": "53e62eb28d019e82afcb52dde3c743fdb355eddae3cf2bfc825fb50526c0fd19"
+    },
+    "page_previews": [
+      {
+        "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/measured-report-stage-b/report-1.png",
+        "bytes": 319701,
+        "sha256": "a7ae2c90a2b0583be7636a661c541f03f19d87d4bf69aa26fe22830cf63c9944"
+      },
+      {
+        "path": "/shared/codex-1/vakint_rustred/workspace/5l-push/symbolica-linear-combination-stage-b/TMP/measured-report-stage-b/report-2.png",
+        "bytes": 288196,
+        "sha256": "98d0ca9a54dfb71e751358d125006b5e60070531c289ceb5d6728f4b2d030392"
+      }
+    ]
+  },
+  "source_publication_strategy": "Publish only canonical Typst and compact measured JSON on a dedicated documentation/research feature branch. Keep raw traces, immutable launch/build authorities, measured sources and prototype worktrees in the workspace. PDF is a delivery artifact. No production migration, dependency update or kernel PR."
+}
