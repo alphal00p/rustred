@@ -71,6 +71,9 @@ impl ReductionLimits {
 mod scoped_tests;
 
 mod capture;
+mod ordered;
+
+pub use ordered::OrderedArtifactReduction;
 
 /// Stateful, topology-independent memoizing applier for one sealed artifact.
 pub struct Reducer<'artifact> {
@@ -470,6 +473,12 @@ impl<'artifact> Reducer<'artifact> {
         request: &mut ReductionRequest,
     ) -> Result<MasterDecomposition, ReductionError> {
         self.validate_target(target)?;
+        if request.ordered_track_guards {
+            for condition in self.artifact.family().domain().conditions() {
+                request
+                    .retain_nonzero_guard(&condition.polynomial().clone().into(), self.limits)?;
+            }
+        }
         let canonical_target = self.canonicalize(target)?;
         let canonical = self.reduce_canonical_unit_mass::<ReductionError>(
             &canonical_target,
@@ -1129,10 +1138,10 @@ impl<'artifact> Reducer<'artifact> {
                     &selected.assignment,
                     self.limits.indexed_algebra,
                 )?;
-            if request.guard_provenance.is_some() {
-                if let Some(denominator) = formal_parameter_denominator {
-                    request.retain_nonzero_guard(&denominator.into(), self.limits)?;
-                }
+            if (request.guard_provenance.is_some() || request.ordered_track_guards)
+                && let Some(denominator) = formal_parameter_denominator
+            {
+                request.retain_nonzero_guard(&denominator.into(), self.limits)?;
             }
             if !coefficient.is_zero() {
                 terms.push((child, coefficient));
@@ -1330,6 +1339,9 @@ pub(crate) struct ReductionRequest {
     guard_provenance: Option<GuardProvenance>,
     /// Local integral currently executing, including nested factorizations.
     capture_scope: Option<GuardNodeId>,
+    /// Ordered application records actual checked-step guards immediately.
+    /// DFS retains its existing final-DAG collection and encounter order.
+    ordered_track_guards: bool,
 }
 
 pub(crate) struct GuardedConditionBudget {

@@ -14,7 +14,8 @@ mod transport;
 pub use cache_policy::{CandidateRoutedCachePolicy, CandidateRoutedCacheStatistics};
 use cache_policy::{EvictionIndex, EvictionMetadata};
 pub use progress::{
-    CandidateRoutedActivity, CandidateRoutedApplicationEnvelope, CandidateRoutedApplicationEvent,
+    CandidateOrderedPhaseKind, CandidateOrderedReductionProgress, CandidateRoutedActivity,
+    CandidateRoutedApplicationEnvelope, CandidateRoutedApplicationEvent,
     CandidateRoutedApplicationMetrics, CandidateRoutedApplicationObserver,
     CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
     CandidateRoutedApplicationStatus, CandidateRoutedCacheCensus, CandidateRoutedCompletionSource,
@@ -40,6 +41,7 @@ use super::{
 };
 use crate::algebra::Coefficient;
 use crate::family::{IntegralFamily, IntegralKey};
+use crate::reduction::ReductionStrategy;
 use crate::reduction::{CacheWeight, ReductionStatistics, SharedCacheBudget};
 
 /// Per-call work. Cache census is available from the owning application's
@@ -142,6 +144,7 @@ pub struct RoutedCandidateApplication<const N: usize> {
     cache_budget: SharedCacheBudget,
     cache_weight: CacheWeight,
     work: ReductionStatistics,
+    reduction_strategy: ReductionStrategy,
 }
 
 impl<const N: usize> RoutedCandidateReducer<N> {
@@ -160,6 +163,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             cache_budget: SharedCacheBudget::default(),
             cache_weight: CacheWeight::default(),
             work: ReductionStatistics::default(),
+            reduction_strategy: ReductionStrategy::DepthFirst,
         }
     }
 }
@@ -193,6 +197,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             cache_budget: SharedCacheBudget::default(),
             cache_weight: CacheWeight::default(),
             work: ReductionStatistics::default(),
+            reduction_strategy: ReductionStrategy::DepthFirst,
         })
     }
     pub fn owner_preparation_statistics(&self) -> DeferredCandidateOwnerStatistics {
@@ -207,6 +212,16 @@ impl<const N: usize> RoutedCandidateApplication<N> {
     }
     pub fn unresolved_policy(&self) -> UnresolvedPolicy {
         self.unresolved_policy
+    }
+
+    /// Select an independent execution engine over the same immutable data.
+    /// Ordered calls neither read nor populate depth-first completed caches.
+    pub fn set_reduction_strategy(&mut self, strategy: ReductionStrategy) {
+        self.reduction_strategy = strategy;
+    }
+
+    pub fn reduction_strategy(&self) -> ReductionStrategy {
+        self.reduction_strategy
     }
 
     /// A session cannot change residual semantics while it retains memoized

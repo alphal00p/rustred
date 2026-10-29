@@ -86,6 +86,57 @@ fn maps_fixture() -> TerminalMaps {
 }
 
 #[test]
+fn ordered_saved_application_load_option_and_strategy_switch_preserve_exact_results() {
+    use rustred::reduction::ReductionStrategy;
+    let scratch = Scratch::new();
+    let original = prepared_fixture(&scratch.0.join("source"));
+    let runtime = scratch.0.join("runtime");
+    original.export_runtime(&runtime).unwrap();
+    let mut application = load_saved_application::<1>(
+        &runtime,
+        SavedApplicationOptions {
+            reduction_strategy: ReductionStrategy::Ordered,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(application.reduction_strategy(), ReductionStrategy::Ordered);
+    let context = application.family().coefficient_context();
+    let inputs = vec![
+        (IntegralKey::try_new([4]).unwrap(), context.integer(3)),
+        (IntegralKey::try_new([2]).unwrap(), context.integer(-2)),
+    ];
+    let ordered = application
+        .reduce_linear_combination(inputs.clone())
+        .unwrap();
+    assert!(ordered.unresolved().is_empty());
+    assert_eq!(ordered.statistics().work.cache_hits(), 0);
+    assert!(ordered.statistics().work.rule_applications() > 0);
+    assert_eq!(application.cache_statistics().cached_integrals(), 0);
+    let again = application
+        .reduce_linear_combination(inputs.clone())
+        .unwrap();
+    assert_eq!(ordered.terms(), again.terms());
+    assert_eq!(
+        ordered.statistics().work.rule_applications(),
+        again.statistics().work.rule_applications()
+    );
+    application.set_reduction_strategy(ReductionStrategy::DepthFirst);
+    let dfs = application
+        .reduce_linear_combination(inputs.clone())
+        .unwrap();
+    assert_eq!(ordered.terms(), dfs.terms());
+    assert_eq!(ordered.nonzero_conditions(), dfs.nonzero_conditions());
+    let cached = application.cache_statistics().cached_integrals();
+    assert!(cached > 0);
+    application.set_reduction_strategy(ReductionStrategy::Ordered);
+    let isolated = application.reduce_linear_combination(inputs).unwrap();
+    assert_eq!(ordered.terms(), isolated.terms());
+    assert_eq!(isolated.statistics().work.cache_hits(), 0);
+    assert_eq!(application.cache_statistics().cached_integrals(), cached);
+}
+
+#[test]
 fn partial_saved_application_loads_policy_without_changing_recorded_coverage() {
     let scratch = Scratch::new();
     let original = prepared_fixture(&scratch.0.join("source"));

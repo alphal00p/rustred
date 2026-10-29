@@ -10,7 +10,8 @@ mod prepare;
 mod trace;
 
 pub use application::{
-    CandidateRoutedActivity, CandidateRoutedApplicationEnvelope, CandidateRoutedApplicationEvent,
+    CandidateOrderedPhaseKind, CandidateOrderedReductionProgress, CandidateRoutedActivity,
+    CandidateRoutedApplicationEnvelope, CandidateRoutedApplicationEvent,
     CandidateRoutedApplicationMetrics, CandidateRoutedApplicationObserver,
     CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
     CandidateRoutedApplicationStatistics, CandidateRoutedApplicationStatus,

@@ -705,6 +705,87 @@ fn activity_notices_do_not_starve_the_quantitative_clock_or_work_gate() {
 }
 
 #[test]
+fn ordered_progress_is_optional_and_cleared_at_the_next_native_request() {
+    let mut sink =
+        |_: &CandidateRoutedApplicationEnvelope<'_>| Ok(CandidateRoutedObserverControl::Continue);
+    let mut observer = CandidateRoutedApplicationObserver::new(immediate_options(), &mut sink);
+    assert!(observer.last_ordered_progress().is_none());
+    let counts = CandidateOrderedReductionProgress {
+        completed_phases: 3,
+        total_phases: 8,
+        active_support: Some(4),
+        frontier_keys: 17,
+        cancelled_terms: 5,
+        ..Default::default()
+    };
+    let mut envelope = CandidateRoutedApplicationEnvelope::new(
+        CandidateRoutedApplicationEvent::Snapshot,
+        "ordered-family",
+    );
+    envelope.ordered = Some(counts);
+    observer.emit(envelope);
+    assert_eq!(observer.last_ordered_progress(), Some(counts));
+    observer.emit(CandidateRoutedApplicationEnvelope::new(
+        CandidateRoutedApplicationEvent::CallerProgress,
+        "ordered-family",
+    ));
+    assert_eq!(observer.last_ordered_progress(), Some(counts));
+    observer.clear_native_summary();
+    assert!(observer.last_ordered_progress().is_none());
+}
+
+#[test]
+fn generic_ordered_progress_forces_phase_boundaries_without_inventing_routed_work() {
+    let mut records = Vec::new();
+    let current = key([3]);
+    {
+        let mut sink = |envelope: &CandidateRoutedApplicationEnvelope<'_>| {
+            assert!(envelope.current.is_none());
+            assert!(envelope.snapshot.is_none());
+            records.push((
+                envelope.caller_phase.map(str::to_owned),
+                envelope.ordered,
+                envelope.ordered_current.map(|key| key.powers().to_vec()),
+                envelope.native_summary_age,
+            ));
+            Ok(CandidateRoutedObserverControl::Continue)
+        };
+        let mut observer = CandidateRoutedApplicationObserver::new(
+            CandidateRoutedObservationOptions {
+                interval: Duration::from_secs(3600),
+                ..immediate_options()
+            },
+            &mut sink,
+        );
+        let mut progress = CandidateOrderedReductionProgress {
+            total_phases: 2,
+            input_keys: 1,
+            ..Default::default()
+        };
+        observer.emit_ordered_progress("generic-family", progress, Some(&current));
+        progress.frontier_keys = 7;
+        // A generic artifact may traverse different supports inside one saved
+        // ordering phase; this is current-key detail, not a new phase boundary.
+        progress.active_support = Some(1);
+        observer.emit_ordered_progress("generic-family", progress, Some(&current));
+        progress.completed_phases = 1;
+        observer.emit_ordered_progress("generic-family", progress, Some(&current));
+        progress.completed_phases = 2;
+        observer.emit_ordered_progress("generic-family", progress, None);
+        observer.clear_native_summary();
+        observer.emit_ordered_progress("next-family", Default::default(), None);
+    }
+    assert_eq!(records.len(), 6);
+    assert_eq!(records[0].0.as_deref(), Some("entry_admission"));
+    assert_eq!(records[1].1.unwrap().completed_phases, 0);
+    assert_eq!(records[1].2.as_deref(), Some([3].as_slice()));
+    assert_eq!(records[1].3, Some(Duration::ZERO));
+    assert_eq!(records[2].1.unwrap().completed_phases, 1);
+    assert_eq!(records[3].1.unwrap().completed_phases, 2);
+    assert_eq!(records[4].0.as_deref(), Some("entry_admission"));
+}
+
+#[test]
 fn typed_resource_failure_survives_a_panicking_failure_callback() {
     use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
     let mut app = application(20);

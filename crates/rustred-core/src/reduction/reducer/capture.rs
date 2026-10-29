@@ -162,7 +162,7 @@ impl<'artifact> Reducer<'artifact> {
         ordinal: usize,
         request: &mut ReductionRequest,
     ) -> Result<(), ReductionError> {
-        if request.guard_provenance.is_none() {
+        if request.guard_provenance.is_none() && !request.ordered_track_guards {
             return Ok(());
         }
         let rule = self.artifact.factorization_rules().get(ordinal).ok_or(
@@ -183,7 +183,7 @@ impl<'artifact> Reducer<'artifact> {
         selected: &SelectedRule<'_>,
         request: &mut ReductionRequest,
     ) -> Result<(), ReductionError> {
-        if request.guard_provenance.is_none() {
+        if request.guard_provenance.is_none() && !request.ordered_track_guards {
             return Ok(());
         }
         let guards = match selected.cell_guards {

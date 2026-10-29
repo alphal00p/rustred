@@ -96,39 +96,25 @@ impl Conditions {
     }
 }
 
-pub(super) fn lower_weighted(
+/// Inspect only the received atoms. In particular this precedes caller-side
+/// variable substitutions which might cancel a visible input denominator.
+pub(super) fn input_nonzero_conditions(
     prepared: &PreparedScalarProducts,
     family: &IntegralFamily,
     numerator: &Atom,
-    base_integral: &IntegralKey,
     mass_squared: &Atom,
-) -> Result<WeightedScalarNumeratorLowering, Error> {
-    let mut work = bounds::Work::new(prepared.limits);
-    lower_weighted_in_request(
-        prepared,
-        family,
-        numerator,
-        base_integral,
-        mass_squared,
-        &mut work,
-    )
+) -> Result<Vec<Atom>, Error> {
+    let (conditions, _) = collect_input_conditions(prepared, family, numerator, mass_squared)?;
+    Ok(conditions.values.into_iter().collect())
 }
 
-pub(super) fn lower_weighted_in_request(
+fn collect_input_conditions(
     prepared: &PreparedScalarProducts,
     family: &IntegralFamily,
     numerator: &Atom,
-    base_integral: &IntegralKey,
     mass_squared: &Atom,
-    work: &mut bounds::Work,
-) -> Result<WeightedScalarNumeratorLowering, Error> {
+) -> Result<(Conditions, ExactComparisonBudget), Error> {
     let limits = prepared.limits;
-    if base_integral.powers().len() != family.denominator_count() {
-        return Err(Error::WrongIntegralKeyArity {
-            expected: family.denominator_count(),
-            actual: base_integral.powers().len(),
-        });
-    }
     for (expression, resource) in [
         (numerator, "weighted lowering input nodes"),
         (mass_squared, "weighted lowering mass nodes"),
@@ -162,6 +148,44 @@ pub(super) fn lower_weighted_in_request(
     for condition in family.domain().conditions() {
         conditions.retain(condition.polynomial().to_expression())?;
     }
+    Ok((conditions, comparisons))
+}
+
+pub(super) fn lower_weighted(
+    prepared: &PreparedScalarProducts,
+    family: &IntegralFamily,
+    numerator: &Atom,
+    base_integral: &IntegralKey,
+    mass_squared: &Atom,
+) -> Result<WeightedScalarNumeratorLowering, Error> {
+    let mut work = bounds::Work::new(prepared.limits);
+    lower_weighted_in_request(
+        prepared,
+        family,
+        numerator,
+        base_integral,
+        mass_squared,
+        &mut work,
+    )
+}
+
+pub(super) fn lower_weighted_in_request(
+    prepared: &PreparedScalarProducts,
+    family: &IntegralFamily,
+    numerator: &Atom,
+    base_integral: &IntegralKey,
+    mass_squared: &Atom,
+    work: &mut bounds::Work,
+) -> Result<WeightedScalarNumeratorLowering, Error> {
+    let limits = prepared.limits;
+    if base_integral.powers().len() != family.denominator_count() {
+        return Err(Error::WrongIntegralKeyArity {
+            expected: family.denominator_count(),
+            actual: base_integral.powers().len(),
+        });
+    }
+    let (mut conditions, mut comparisons) =
+        collect_input_conditions(prepared, family, numerator, mass_squared)?;
     validate_scalar_syntax(
         numerator.as_view(),
         prepared.dot_head,
@@ -189,7 +213,7 @@ pub(super) fn lower_weighted_in_request(
     let mut weights = BTreeMap::<IntegralKey, Atom>::new();
     let mut retained_nodes = 0usize;
     for term in &polynomial {
-        denominator::validate_coefficient(prepared, &term.coefficient, &mut comparisons)?;
+        denominator::validate_coefficient(prepared, term.coefficient, &mut comparisons)?;
         conditions.scan(term.coefficient.as_view())?;
         let powers = base_integral
             .powers()

@@ -140,6 +140,15 @@ impl<const N: usize> DeferredCandidateOwnerPrograms<N> {
     pub fn owner_sectors(&self) -> impl Iterator<Item = &[bool; N]> {
         self.owners.keys()
     }
+    /// Immutable scheduling metadata; this never prepares an owner's formulas.
+    pub(in crate::solver::candidate_reduction) fn owner_ordering(
+        &self,
+        sector: &[bool; N],
+    ) -> Option<&OrderingPolicy> {
+        self.owners
+            .get(sector)
+            .map(|slot| &slot.descriptor.ordering)
+    }
     pub fn contains_owner(&self, sector: &[bool; N]) -> bool {
         self.owners.contains_key(sector)
     }

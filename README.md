@@ -1,5 +1,10 @@
 # RustRed
 
+The opt-in [ordered reduction scheduler](docs/ordered_reduction.typ) combines
+compatible weighted integrals before expanding them, using the existing checked
+rules and integral order. It shares immutable programs with the default
+depth-first scheduler and has no completed-result cache.
+
 [Selected completed-cache export](docs/selected_completed_cache.typ) extracts exact
 Route/Apply keys from an immutable saved-application cache, validates them against
 the prepared owner, and reuses the existing single-table gzip format. It performs

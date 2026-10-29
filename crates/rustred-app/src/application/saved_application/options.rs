@@ -1,7 +1,7 @@
 //! Operational settings and explicit partial application, independent of stored scope.
 use crate::AppError;
 use rustred::persistence::BinaryIoLimits;
-use rustred::reduction::ReductionLimits;
+use rustred::reduction::{ReductionLimits, ReductionStrategy};
 use rustred::solver::{CandidateRoutedCachePolicy, RoutedCandidateLimits, UnresolvedPolicy};
 
 /// Recorded coverage is independent of requiring a complete terminal result.
@@ -20,6 +20,8 @@ pub enum SavedApplicationEntryCoveragePolicy {
 /// Partial application makes that scope advisory without changing its records.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SavedApplicationOptions {
+    /// Independent exact scheduler; ordered reduction has no result-cache support.
+    pub reduction_strategy: ReductionStrategy,
     /// Preserve exact uncovered leaves and make recorded entry coverage advisory.
     /// This does not relax formula applicability, source guards, or resource limits.
     pub unresolved_policy: UnresolvedPolicy,
@@ -38,6 +40,7 @@ pub struct SavedApplicationOptions {
 impl Default for SavedApplicationOptions {
     fn default() -> Self {
         Self {
+            reduction_strategy: ReductionStrategy::DepthFirst,
             unresolved_policy: UnresolvedPolicy::Reject,
             entry_coverage_policy: SavedApplicationEntryCoveragePolicy::default(),
             reduction_limits: Default::default(),

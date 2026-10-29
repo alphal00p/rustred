@@ -266,6 +266,57 @@ pub struct CandidateRoutedTerminalProgress {
     pub output_terms: Option<usize>,
 }
 
+/// One stage in the fixed topology/owner schedule. Its completion count is a
+/// position in that schedule, never a fraction of elapsed or remaining time.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CandidateOrderedPhaseKind {
+    #[default]
+    Routing,
+    Reduction,
+}
+
+/// Cheap exact structural observations of the ordered engine's weighted
+/// frontier. Counts are local to one native request. Route and Apply identities
+/// are distinct; these are not caller-expression terms or physical graph edges.
+/// No coefficient is printed or materialized solely to obtain these counters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CandidateOrderedReductionProgress {
+    /// Incremented only after a phase has drained, including empty phases.
+    pub completed_phases: usize,
+    /// Frozen before execution from the installed schedule, not discovered work.
+    pub total_phases: usize,
+    pub phase_kind: CandidateOrderedPhaseKind,
+    /// Distinct positive denominator slots, independent of dots and numerators.
+    pub active_support: Option<usize>,
+    /// Stable zero-based owner index in this request's schedule, when applicable.
+    pub owner_index: Option<usize>,
+    /// Coalesced input identities before expansion.
+    pub input_keys: usize,
+    /// Current/peak reducible operational identities; excludes terminal output.
+    pub frontier_keys: usize,
+    pub peak_frontier_keys: usize,
+    pub terminal_keys: usize,
+    /// Sum of numerator and denominator monomial counts of the materialized
+    /// frontier coefficients. This size proxy excludes guards, scratch, keys,
+    /// Atom encoding and bytes/RSS. Updated incrementally without CAS or scans.
+    pub frontier_coefficient_monomials: usize,
+    pub peak_frontier_coefficient_monomials: usize,
+    /// The same proxy for core terminal output, before saved substitutions.
+    pub terminal_coefficient_monomials: usize,
+    pub peak_terminal_coefficient_monomials: usize,
+    /// Nonzero checked-RHS contributions before global frontier/output grouping.
+    /// Excludes input coalescing and grouping performed inside the checked step.
+    pub emitted_terms: usize,
+    /// Contributions merged into an existing frontier key leaving a nonzero sum.
+    pub merged_terms: usize,
+    /// Existing frontier keys removed after exact cancellation of their weight.
+    pub cancelled_terms: usize,
+    pub terminal_merges: usize,
+    pub terminal_cancellations: usize,
+    /// Expanded operational identities, not a count of parametric IBP templates.
+    pub processed_keys: usize,
+}
+
 /// One immutable callback-lifetime view. It owns no coefficient/Atom payload.
 /// Copy only bounded metadata before returning; callbacks must not reenter the
 /// engine (a caller may hold an application mutex) or block on a renderer.
@@ -294,6 +345,10 @@ pub struct CandidateRoutedApplicationEnvelope<'a> {
     pub cycle_backedge: Option<usize>,
     pub complexity: CandidateRoutedComplexity,
     pub terminal: Option<CandidateRoutedTerminalProgress>,
+    pub ordered: Option<CandidateOrderedReductionProgress>,
+    /// Generic ordered adapters may not have a Route/Apply operational identity.
+    /// Their current canonical integral is reported without inventing one.
+    pub ordered_current: Option<&'a IntegralKey>,
     /// Only caller-owned stages use this concise static label.
     pub caller_phase: Option<&'a str>,
 }
@@ -320,6 +375,8 @@ impl<'a> CandidateRoutedApplicationEnvelope<'a> {
             cycle_backedge: None,
             complexity: CandidateRoutedComplexity::default(),
             terminal: None,
+            ordered: None,
+            ordered_current: None,
             caller_phase: None,
         }
     }
@@ -358,7 +415,9 @@ pub struct CandidateRoutedApplicationObserver<'a> {
     last_snapshot: Option<CandidateRoutedApplicationSnapshot>,
     last_metrics: CandidateRoutedApplicationMetrics,
     last_stored_state: Option<CandidateRoutedStoredState>,
+    last_ordered_progress: Option<CandidateOrderedReductionProgress>,
     last_native_observation: Option<Duration>,
+    native_request_announced: bool,
 }
 impl<'a> CandidateRoutedApplicationObserver<'a> {
     pub fn new(
@@ -374,7 +433,9 @@ impl<'a> CandidateRoutedApplicationObserver<'a> {
             last_snapshot: None,
             last_metrics: CandidateRoutedApplicationMetrics::default(),
             last_stored_state: None,
+            last_ordered_progress: None,
             last_native_observation: None,
+            native_request_announced: false,
         }
     }
     pub fn options(&self) -> CandidateRoutedObservationOptions {
@@ -394,6 +455,10 @@ impl<'a> CandidateRoutedApplicationObserver<'a> {
     pub fn last_stored_state(&self) -> Option<CandidateRoutedStoredState> {
         self.last_stored_state
     }
+    /// Last ordered frontier census; forwarding it does not constitute new work.
+    pub fn last_ordered_progress(&self) -> Option<CandidateOrderedReductionProgress> {
+        self.last_ordered_progress
+    }
     /// Begin a saved/caller request before native preflight. This prevents an
     /// early admission/binding error from borrowing a previous request's core
     /// summary, while retaining this observer's sequence and detach/fault state.
@@ -401,7 +466,54 @@ impl<'a> CandidateRoutedApplicationObserver<'a> {
         self.last_snapshot = None;
         self.last_metrics = CandidateRoutedApplicationMetrics::default();
         self.last_stored_state = None;
+        self.last_ordered_progress = None;
         self.last_native_observation = None;
+        self.native_request_announced = false;
+    }
+
+    /// Forward an ordered adapter's cheap census through this existing observer.
+    /// Phase boundaries are always delivered; repeated progress within a phase
+    /// respects the configured interval. Call `clear_native_summary` before a
+    /// new request. No artificial Route/Apply identity or legacy cache is used.
+    pub fn emit_ordered_progress(
+        &mut self,
+        family_fingerprint: &str,
+        progress: CandidateOrderedReductionProgress,
+        current: Option<&IntegralKey>,
+    ) {
+        if self.status != CandidateRoutedObserverStatus::Active {
+            return;
+        }
+        if !self.native_request_announced {
+            let mut admission = CandidateRoutedApplicationEnvelope::new(
+                CandidateRoutedApplicationEvent::ActivityStarted,
+                family_fingerprint,
+            );
+            admission.caller_phase = Some("entry_admission");
+            self.emit(admission);
+        }
+        let phase_changed = self.last_ordered_progress.is_none_or(|previous| {
+            previous.completed_phases != progress.completed_phases
+                || previous.total_phases != progress.total_phases
+                || previous.phase_kind != progress.phase_kind
+                || previous.owner_index != progress.owner_index
+        });
+        if !phase_changed
+            && self
+                .last_native_observation
+                .is_some_and(|at| self.started.elapsed().saturating_sub(at) < self.options.interval)
+        {
+            return;
+        }
+        let mut envelope = CandidateRoutedApplicationEnvelope::new(
+            CandidateRoutedApplicationEvent::Snapshot,
+            family_fingerprint,
+        );
+        envelope.activity = CandidateRoutedActivity::Expansion;
+        envelope.ordered = Some(progress);
+        envelope.ordered_current = current;
+        envelope.degrees = current.map(CandidateRoutedKeyDegrees::from_key);
+        self.emit(envelope);
     }
     /// Emit an enclosing caller/application boundary through the same observer.
     /// This does no reduction or error conversion. Native snapshots keep their
@@ -411,6 +523,19 @@ impl<'a> CandidateRoutedApplicationObserver<'a> {
             return;
         }
         let elapsed = self.started.elapsed();
+        if envelope.event == CandidateRoutedApplicationEvent::ActivityStarted
+            && envelope.caller_phase == Some("entry_admission")
+        {
+            self.native_request_announced = true;
+        }
+        if let Some(ordered) = envelope.ordered {
+            self.last_ordered_progress = Some(ordered);
+            if envelope.caller_phase.is_none()
+                && envelope.activity != CandidateRoutedActivity::Caller
+            {
+                self.last_native_observation = Some(elapsed);
+            }
+        }
         if let Some(snapshot) = envelope.snapshot {
             self.last_snapshot = Some(snapshot);
             self.last_metrics = envelope.metrics;
@@ -426,7 +551,7 @@ impl<'a> CandidateRoutedApplicationObserver<'a> {
         envelope.elapsed = elapsed;
         envelope.native_summary_age = self
             .last_native_observation
-            .filter(|_| envelope.snapshot.is_some())
+            .filter(|_| envelope.snapshot.is_some() || envelope.ordered.is_some())
             .map(|then| elapsed.saturating_sub(then));
         self.status = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             (self.callback)(&envelope)

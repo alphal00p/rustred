@@ -158,6 +158,7 @@ fn saved_envelope<'a>(
     envelope.snapshot = observer.last_snapshot();
     envelope.metrics = observer.last_metrics();
     envelope.stored_state = observer.last_stored_state();
+    envelope.ordered = observer.last_ordered_progress();
     envelope.caller_phase = Some(phase);
     envelope.activity = match phase {
         "terminal_substitution" => CandidateRoutedActivity::TerminalSubstitution,
@@ -337,7 +338,35 @@ pub fn saved_application_observation_document(
     let metrics = envelope.metrics;
     let complexity = envelope.complexity;
     let terminal = envelope.terminal;
-    json!({
+    let ordered_reduction = envelope.ordered.map(|value| {
+        json!({
+            "scope":"latest_native_request; Route/Apply identities are distinct",
+            "sample_age_seconds":envelope.native_summary_age.map(|age| age.as_secs_f64()),
+            "completed_phases":value.completed_phases,
+            "total_phases":value.total_phases,
+            "phase_kind":format!("{:?}", value.phase_kind),
+            "active_support":value.active_support,
+            "owner_index":value.owner_index,
+            "input_keys":value.input_keys,
+            "frontier_keys":value.frontier_keys,
+            "peak_frontier_keys":value.peak_frontier_keys,
+            "terminal_keys":value.terminal_keys,
+            "frontier_coefficient_monomials":value.frontier_coefficient_monomials,
+            "peak_frontier_coefficient_monomials":value.peak_frontier_coefficient_monomials,
+            "terminal_coefficient_monomials":value.terminal_coefficient_monomials,
+            "peak_terminal_coefficient_monomials":value.peak_terminal_coefficient_monomials,
+            "coefficient_monomials_scope":"materialized numerator+denominator monomials; excludes guards, scratch, keys, Atom encoding and bytes/RSS",
+            "emitted_terms":value.emitted_terms,
+            "merged_terms":value.merged_terms,
+            "cancelled_terms":value.cancelled_terms,
+            "terminal_merges":value.terminal_merges,
+            "terminal_cancellations":value.terminal_cancellations,
+            "processed_keys":value.processed_keys,
+            "grouping_scope":"global frontier/output; excludes input and intra-rule coalescing",
+            "phase_fraction_is_time_fraction":false,
+        })
+    });
+    let mut document = json!({
         "schema":"rustred.saved-application-progress.v1",
         "event":"application_progress", "sequence":envelope.sequence,
         "elapsed_seconds":envelope.elapsed.as_secs_f64(),
@@ -397,7 +426,12 @@ pub fn saved_application_observation_document(
         })),
         "global_remaining_work_known":false, "eta_seconds":null, "percent_complete":null,
         "arithmetic_internals_known":false,
-    })
+    });
+    document["ordered_reduction"] = ordered_reduction.unwrap_or(Value::Null);
+    document["ordered_current"] = envelope
+        .ordered_current
+        .map_or(Value::Null, |key| json!({"powers":key.powers()}));
+    document
 }
 
 fn work_json(work: CandidateRoutedWorkRef<'_>) -> Value {
@@ -529,4 +563,50 @@ fn core_json(snapshot: &CandidateRoutedApplicationSnapshot) -> Value {
         "recomputed_nodes":stats.cache.recomputed_nodes,
         "cached":census(snapshot.cached),"pinned":snapshot.pinned.map(census),
         "eligible":snapshot.eligible.map(census)})
+}
+
+#[cfg(test)]
+mod ordered_projection_tests {
+    use super::*;
+    use rustred::solver::{CandidateOrderedPhaseKind, CandidateOrderedReductionProgress};
+
+    #[test]
+    fn ordered_projection_preserves_structural_counters_without_claiming_time_progress() {
+        let mut envelope = CandidateRoutedApplicationEnvelope::new(
+            CandidateRoutedApplicationEvent::Snapshot,
+            "ordered-family",
+        );
+        assert!(saved_application_observation_document(&envelope)["ordered_reduction"].is_null());
+        envelope.ordered = Some(CandidateOrderedReductionProgress {
+            completed_phases: 3,
+            total_phases: 12,
+            phase_kind: CandidateOrderedPhaseKind::Reduction,
+            active_support: Some(4),
+            owner_index: Some(2),
+            frontier_keys: 11,
+            peak_frontier_keys: 29,
+            frontier_coefficient_monomials: 41,
+            peak_frontier_coefficient_monomials: 127,
+            terminal_coefficient_monomials: 17,
+            peak_terminal_coefficient_monomials: 53,
+            merged_terms: 7,
+            cancelled_terms: 5,
+            ..Default::default()
+        });
+        let document = saved_application_observation_document(&envelope);
+        let ordered = &document["ordered_reduction"];
+        assert_eq!(ordered["completed_phases"], 3);
+        assert_eq!(ordered["total_phases"], 12);
+        assert_eq!(ordered["active_support"], 4);
+        assert_eq!(ordered["frontier_keys"], 11);
+        assert_eq!(ordered["frontier_coefficient_monomials"], 41);
+        assert_eq!(ordered["peak_frontier_coefficient_monomials"], 127);
+        assert_eq!(ordered["terminal_coefficient_monomials"], 17);
+        assert_eq!(ordered["peak_terminal_coefficient_monomials"], 53);
+        assert_eq!(ordered["merged_terms"], 7);
+        assert_eq!(ordered["cancelled_terms"], 5);
+        assert_eq!(ordered["phase_fraction_is_time_fraction"], false);
+        assert!(document["eta_seconds"].is_null());
+        assert!(document["percent_complete"].is_null());
+    }
 }

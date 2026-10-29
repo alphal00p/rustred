@@ -13,6 +13,7 @@ mod cached_program;
 mod capture;
 mod evaluator;
 mod model;
+mod ordered;
 mod owners;
 pub(crate) mod power_domain;
 mod preparation;
@@ -28,6 +29,7 @@ pub use model::{
     CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
     CandidateReductionError, CandidateStatistics, UnresolvedPolicy,
 };
+pub use ordered::CandidateOrderedReduction;
 pub use owners::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateIntegralIdentity, CandidateOwnerContext,
     CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerScope,
@@ -52,8 +54,9 @@ pub use reducer::CandidateReducer;
 pub use routed::{
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,
     CandidateDomainRouteFailure, CandidateDomainRouteLimits, CandidateDomainRouteOptions,
-    CandidateDomainRouteStats, CandidateEntryAdmission, CandidateOwnerRoute,
-    CandidateRoutedActivity, CandidateRoutedApplicationEnvelope, CandidateRoutedApplicationEvent,
+    CandidateDomainRouteStats, CandidateEntryAdmission, CandidateOrderedPhaseKind,
+    CandidateOrderedReductionProgress, CandidateOwnerRoute, CandidateRoutedActivity,
+    CandidateRoutedApplicationEnvelope, CandidateRoutedApplicationEvent,
     CandidateRoutedApplicationMetrics, CandidateRoutedApplicationObserver,
     CandidateRoutedApplicationPhase, CandidateRoutedApplicationSnapshot,
     CandidateRoutedApplicationStatistics, CandidateRoutedApplicationStatus,

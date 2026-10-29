@@ -158,6 +158,23 @@ impl<'family> FamilyScalarNumeratorService<'family> {
         )
     }
 
+    /// Preserve visible numerator/mass poles and the family's nonzero
+    /// conditions before caller-side substitutions or algebraic collection.
+    /// This performs the same input census and mass validation as weighted
+    /// lowering, without expanding or changing the received expressions.
+    pub fn input_nonzero_conditions(
+        &self,
+        numerator: &Atom,
+        mass_squared: &Atom,
+    ) -> Result<Vec<Atom>, ScalarNumeratorError> {
+        super::weighted::input_nonzero_conditions(
+            &self.prepared,
+            self.family,
+            numerator,
+            mass_squared,
+        )
+    }
+
     pub(crate) fn lower_weighted_in_request(
         &self,
         numerator: &Atom,

@@ -4,6 +4,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+mod checked;
+mod ordered;
+
 use super::cache_policy::DependencyPins;
 use super::guard_union::GuardUnion;
 use super::progress::{
@@ -19,7 +22,9 @@ use super::{
 };
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::family::IntegralKey;
-use crate::reduction::{ReductionError, ReductionRequest, accumulate_master_in_request};
+use crate::reduction::{
+    ReductionError, ReductionRequest, ReductionStatistics, accumulate_master_in_request,
+};
 use crate::sector::symmetry::integral_transport::ExpansionError;
 use crate::solver::candidate_reduction::cache::{self, CachedTerms};
 use crate::solver::candidate_reduction::evaluator::CandidateEvaluator;
@@ -27,6 +32,11 @@ use crate::solver::candidate_reduction::owners::OwnerStep;
 use crate::solver::candidate_reduction::routed::trace::{Node, charge, successor, support};
 use crate::solver::candidate_reduction::routed::{CandidateEntryAdmission, CandidateRoutedError};
 use crate::solver::candidate_reduction::{CandidateReductionError, UnresolvedPolicy};
+
+enum CheckedExpansion<const N: usize> {
+    Expanded(BTreeMap<Node<N>, Coefficient>),
+    Terminal(CandidateRoutedCompletionSource),
+}
 
 enum Frame<const N: usize> {
     Enter(Node<N>),
@@ -348,6 +358,8 @@ pub(super) struct Request<'a, 'storage, const N: usize> {
     progress: Option<Progress<'a>>,
     observation: Option<EngineObservation<N>>,
     cancel: Option<&'a AtomicBool>,
+    ordered: Option<crate::solver::CandidateOrderedReductionProgress>,
+    ordered_live_work: Option<ReductionStatistics>,
     pub(super) persistent: super::persistent::PersistentRequest<'a, 'storage>,
 }
 
@@ -550,27 +562,36 @@ impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
         let Some(now) = now else {
             return;
         };
-        let cached =
-            CandidateRoutedCacheCensus::new(application.cache.len(), application.cache_weight);
+        let cached = if self.ordered.is_some() {
+            CandidateRoutedCacheCensus::default()
+        } else {
+            CandidateRoutedCacheCensus::new(application.cache.len(), application.cache_weight)
+        };
         let mut statistics = self.stats;
+        if let Some(work) = self.ordered_live_work {
+            statistics.work = work;
+        }
         // The execution counter is finalized at return. Observers receive a
         // current copy without altering work accounting or the eventual result.
-        statistics.operational_nodes = self.seen.len();
+        statistics.operational_nodes = self.ordered.map_or(self.seen.len(), |p| p.processed_keys);
         let snapshot = CandidateRoutedApplicationSnapshot {
             sequence: progress.sequence,
             elapsed: now.duration_since(progress.started),
             phase: progress.phase,
             status,
             statistics,
-            unique_nodes: self.seen.len(),
+            unique_nodes: statistics.operational_nodes,
             active_nodes: self.active.len(),
-            pending_frames: self.algebra.pending_frame_count(),
+            pending_frames: self
+                .ordered
+                .map_or(self.algebra.pending_frame_count(), |p| p.frontier_keys),
             cached,
             pinned: self.pins.census,
             eligible: self.pins.census.map(|pinned| cached.excluding(pinned)),
         };
         let family = application.family();
         let mut envelope = CandidateRoutedApplicationEnvelope::new(event, family.fingerprint());
+        envelope.ordered = self.ordered;
         let Some(observation) = &self.observation else {
             progress.deliver(&snapshot, envelope);
             return;
@@ -628,10 +649,11 @@ impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
                 }
             }
             envelope.active_path = &path;
-            if let Some(entry) = observation
-                .current
-                .as_ref()
-                .and_then(|node| application.cache.get(node))
+            if self.ordered.is_none()
+                && let Some(entry) = observation
+                    .current
+                    .as_ref()
+                    .and_then(|node| application.cache.get(node))
             {
                 envelope.complexity = CandidateRoutedComplexity {
                     terms: Some(match &entry.terms {
@@ -661,13 +683,18 @@ impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
                 integrals.sort_unstable();
                 integrals.dedup();
             }
-            envelope.frontier = Some(CandidateRoutedFrontierSample {
-                frames_examined: if available { examined } else { 0 },
-                total_pending_frames: self.stack.len(),
-                unique_nodes: nodes.len(),
-                unique_integrals: integrals.len(),
-                exact: available && examined == self.stack.len(),
-            });
+            // The ordered engine has a weighted frontier rather than this DFS
+            // stack. Its exact counters live in `ordered`; an empty stack is
+            // not an empty frontier or a valid remaining-work ETA sample.
+            if self.ordered.is_none() {
+                envelope.frontier = Some(CandidateRoutedFrontierSample {
+                    frames_examined: if available { examined } else { 0 },
+                    total_pending_frames: self.stack.len(),
+                    unique_nodes: nodes.len(),
+                    unique_integrals: integrals.len(),
+                    exact: available && examined == self.stack.len(),
+                });
+            }
         }
         progress.deliver(&snapshot, envelope);
         if !progress.is_advanced() {
@@ -849,6 +876,13 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         persistent: super::persistent::PersistentRequest<'a, 'storage>,
         initial_routing: bool,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        if self.reduction_strategy == crate::reduction::ReductionStrategy::Ordered
+            && (persistent.backing.is_some() || persistent.capture.is_some())
+        {
+            return Err(CandidateRoutedError::InvalidInput(
+                "ordered reduction does not support depth-first result caches or capture".into(),
+            ));
+        }
         let observed = progress.is_some();
         let observation = progress
             .as_ref()
@@ -1024,6 +1058,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         request: &mut Request<'_, '_, N>,
         count_inputs: bool,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        if self.reduction_strategy == crate::reduction::ReductionStrategy::Ordered {
+            return self.reduce_ordered_request(terms, admission, request, count_inputs);
+        }
         let context = self.context.clone();
         let shared = &context.shared;
         let limits = context.limits;
@@ -1422,184 +1459,20 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             }
             request.active.insert(node.clone());
             request.retain_observed_path(&node);
-            let parent_support = support::<N>(key);
-            let terms = match &node {
-                Node::Route(_) => {
-                    if self.owners.contains(&parent_support) {
-                        BTreeMap::from([(
-                            Node::Apply(parent_support, key.clone()),
-                            coefficients.one(),
-                        )])
-                    } else if let Some(route) = self.routes.get(&parent_support) {
-                        charge(
-                            &mut request.stats.transport_calls,
-                            1,
-                            self.limits
-                                .diagnostic_limit(self.limits.max_transport_calls),
-                            "transport calls",
-                        )?;
-                        request.observe_activity(self, CandidateRoutedActivity::Transport, None);
-                        let mapped = route.transport.transport_with_usage(
-                            key,
-                            self.limits.expansion,
-                            |usage| {
-                                let operations = request
-                                    .stats
-                                    .transport_operations
-                                    .saturating_add(usage.operations);
-                                let endpoints = request
-                                    .stats
-                                    .transport_endpoints
-                                    .saturating_add(usage.endpoints);
-                                for (resource, requested, limit) in [
-                                    (
-                                        "aggregate routed operations",
-                                        operations,
-                                        self.limits.max_transport_operations,
-                                    ),
-                                    (
-                                        "aggregate routed endpoints",
-                                        endpoints,
-                                        self.limits.max_transport_endpoints,
-                                    ),
-                                ] {
-                                    if self.limits.diagnostics_enabled && requested > limit {
-                                        return Err(ExpansionError::ResourceLimit {
-                                            resource,
-                                            requested,
-                                            limit,
-                                        });
-                                    }
-                                }
-                                request.stats.transport_operations = operations;
-                                request.stats.transport_endpoints = endpoints;
-                                Ok(())
-                            },
-                        )?;
-                        let owner_support = std::array::from_fn(|i| {
-                            route
-                                .owner_sector
-                                .active_bits()
-                                .get(i)
-                                .copied()
-                                .unwrap_or(false)
-                        });
-                        let mut terms = BTreeMap::new();
-                        for endpoint in mapped.terms() {
-                            let child = endpoint.key();
-                            base.validate_target(child)?;
-                            let child_node = successor(key, child.clone(), owner_support)?;
-                            terms.insert(child_node, endpoint.coefficient().clone());
-                        }
-                        terms
-                    } else if self.unresolved_policy == UnresolvedPolicy::Preserve {
-                        request.active.remove(&node);
-                        request.release_observed_path();
-                        self.cache_insert_sparse(
-                            node.clone(),
-                            BTreeMap::from([(key.clone(), coefficients.one())]),
-                            conditions,
-                            !seen_before,
-                            CandidateRoutedCompletionSource::UnresolvedPreserved,
-                            request,
-                        )?;
-                        continue;
-                    } else {
-                        return Err(CandidateRoutedError::MissingOwner {
-                            target: key.clone(),
-                        });
-                    }
-                }
-                Node::Apply(owner_sector, _) => {
-                    if &parent_support != owner_sector {
-                        return Err(CandidateRoutedError::InvalidInput(
-                            "apply node does not belong to its owner support".into(),
-                        ));
-                    }
-                    request.observe_activity(self, CandidateRoutedActivity::OwnerPreparation, None);
-                    let owner = self.owners.owner(owner_sector)?.ok_or_else(|| {
-                        CandidateRoutedError::InvalidInput("admitted owner disappeared".into())
-                    })?;
-                    let result = if owner.batches[0].terminals.contains(key) {
-                        OwnerStep::Terminal
-                    } else {
-                        request.algebra.record_rule_application(
-                            limits.diagnostic_limit(limits.max_rule_applications),
-                        )?;
-                        request.observe_activity(
-                            self,
-                            CandidateRoutedActivity::RuleEvaluation,
-                            None,
-                        );
-                        owner.evaluate_step::<CandidateReductionError>(key, |batch| {
-                            let evaluator = CandidateEvaluator {
-                                context: &shared.context,
-                                root_sector: owner.root,
-                                ordering: &owner.ordering,
-                                rules: &batch.rules,
-                                whole_piece_alternatives: &batch.whole_piece_alternatives,
-                                source_conditions: &shared.source_conditions,
-                                zero_sectors: &shared.zero_sectors,
-                                limits,
-                            };
-                            Ok(evaluator
-                                .apply_with_conditions(
-                                    key,
-                                    &mut request.algebra,
-                                    &mut request.stats.work,
-                                )
-                                .map(|(terms, local)| {
-                                    retain_conditions(&mut conditions, local);
-                                    terms
-                                }))
-                        })?
-                    };
-                    match result {
-                        OwnerStep::Terminal => {
-                            request.active.remove(&node);
-                            request.release_observed_path();
-                            self.cache_insert_sparse(
-                                node.clone(),
-                                BTreeMap::from([(key.clone(), coefficients.one())]),
-                                conditions,
-                                !seen_before,
-                                CandidateRoutedCompletionSource::Terminal,
-                                request,
-                            )?;
-                            continue;
-                        }
-                        OwnerStep::Uncovered
-                            if self.unresolved_policy == UnresolvedPolicy::Preserve =>
-                        {
-                            request.active.remove(&node);
-                            request.release_observed_path();
-                            self.cache_insert_sparse(
-                                node.clone(),
-                                BTreeMap::from([(key.clone(), coefficients.one())]),
-                                conditions,
-                                !seen_before,
-                                CandidateRoutedCompletionSource::UnresolvedPreserved,
-                                request,
-                            )?;
-                            continue;
-                        }
-                        OwnerStep::Uncovered => {
-                            return Err(CandidateReductionError::Uncovered {
-                                target: key.clone(),
-                            }
-                            .into());
-                        }
-                        OwnerStep::Applied(terms) => {
-                            request.stats.work.record_rule_application();
-                            let mut children = BTreeMap::new();
-                            for (child, coefficient) in terms {
-                                let child_node = successor(key, child, *owner_sector)?;
-                                request.record_local_descent();
-                                children.insert(child_node, coefficient);
-                            }
-                            children
-                        }
-                    }
+            let terms = match self.checked_expand_node(&node, &mut conditions, request)? {
+                CheckedExpansion::Expanded(terms) => terms,
+                CheckedExpansion::Terminal(source) => {
+                    request.active.remove(&node);
+                    request.release_observed_path();
+                    self.cache_insert_sparse(
+                        node.clone(),
+                        BTreeMap::from([(key.clone(), coefficients.one())]),
+                        conditions,
+                        !seen_before,
+                        source,
+                        request,
+                    )?;
+                    continue;
                 }
             };
             // Schedule in sorted order; Route and Apply(owner, key) are distinct

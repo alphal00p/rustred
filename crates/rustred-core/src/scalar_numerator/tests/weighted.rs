@@ -189,6 +189,89 @@ fn weighted_zero_keeps_original_parameter_and_spectator_poles() {
 }
 
 #[test]
+fn input_nonzero_conditions_preserves_poles_before_caller_dimension_substitution() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let head = dot_head();
+    let k = symbol("input_conditions_k").to_atom();
+    let service =
+        FamilyScalarNumeratorService::try_new(artifact.family(), head, vec![k], Default::default())
+            .unwrap();
+    let d = artifact
+        .coefficient_context()
+        .parameter("d")
+        .unwrap()
+        .to_expression();
+    let epsilon = symbol("input_conditions_epsilon").to_atom();
+    let mass = symbol("input_conditions_mass_squared").to_atom();
+    // Mapping epsilon=(4-d)/2 and collecting this expression gives -2,
+    // which no longer exposes its original epsilon != 0 condition.
+    let received = (d - Atom::num(4)) / &epsilon;
+    let original = service.input_nonzero_conditions(&received, &mass).unwrap();
+    assert!(original.contains(&epsilon));
+    assert!(original.contains(&mass));
+    let collected = service
+        .input_nonzero_conditions(&Atom::num(-2), &mass)
+        .unwrap();
+    assert!(!collected.contains(&epsilon));
+    assert!(collected.contains(&mass));
+
+    let pole = &epsilon - Atom::one();
+    let vanishing = (epsilon.clone().pow(2) - Atom::one()) / &pole - &epsilon - Atom::one();
+    let scanned = service.input_nonzero_conditions(&vanishing, &mass).unwrap();
+    let lowered = service
+        .lower_weighted(&vanishing, &IntegralKey::try_new([1]).unwrap(), &mass)
+        .unwrap();
+    assert!(lowered.is_zero());
+    assert!(scanned.contains(&pole));
+    assert!(
+        scanned
+            .iter()
+            .all(|condition| lowered.nonzero_conditions().contains(condition))
+    );
+}
+
+#[test]
+fn input_nonzero_conditions_uses_weighted_mass_validation_and_node_limits() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let head = dot_head();
+    let k = symbol("input_conditions_limits_k").to_atom();
+    let service = FamilyScalarNumeratorService::try_new(
+        artifact.family(),
+        head,
+        vec![k.clone()],
+        Default::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        service.input_nonzero_conditions(&Atom::one(), &Atom::Zero),
+        Err(ScalarNumeratorError::InvalidWeightedInput { .. }),
+    ));
+    assert!(matches!(
+        service.input_nonzero_conditions(&Atom::one(), &dot(head, k.clone(), k.clone())),
+        Err(ScalarNumeratorError::InvalidWeightedInput { .. }),
+    ));
+    let bounded = FamilyScalarNumeratorService::try_new(
+        artifact.family(),
+        head,
+        vec![k],
+        ScalarNumeratorLimits {
+            diagnostics_enabled: true,
+            max_input_nodes: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let expression = symbol("input_conditions_limits_x").to_atom() + Atom::one();
+    assert!(matches!(
+        bounded.input_nonzero_conditions(&expression, &Atom::one()),
+        Err(ScalarNumeratorError::ResourceLimit {
+            resource: "weighted lowering input nodes",
+            ..
+        }),
+    ));
+}
+
+#[test]
 fn weighted_mass_and_collection_resources_fail_closed() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let head = dot_head();

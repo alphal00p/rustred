@@ -53,3 +53,8 @@ numerica = { path = "vendor/symbolica/lib/numerica" }
 inherits = "release"
 lto = "fat"
 codegen-units = 1
+
+# Full application test monomorphizations can exceed DWARF's 32-bit section
+# offsets with complete type information. Keep line-level test diagnostics.
+[profile.test.package.rustred-app]
+debug = 1

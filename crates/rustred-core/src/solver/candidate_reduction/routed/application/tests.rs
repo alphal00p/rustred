@@ -11,6 +11,178 @@ use crate::solver::{
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+#[test]
+fn ordered_frontier_cancels_children_before_expansion_without_crossfeeding_cache() {
+    let routed = tadpole(Default::default());
+    let c = routed.programs.context.family().coefficient_context();
+    let mut application = routed.application();
+    let expected = BTreeMap::from([(key([1]), c.integer(2))]);
+    let warm = application
+        .reduce_linear_combination([(key([3]), c.one())])
+        .unwrap();
+    assert_eq!(warm.statistics().work.rule_applications(), 2);
+    let retained = application.cache_statistics();
+    application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+    let result = application
+        .reduce_linear_combination([(key([3]), c.one()), (key([2]), c.integer(3))])
+        .unwrap();
+    assert_eq!(result.terms(), &expected);
+    assert_eq!(result.statistics().work.rule_applications(), 1);
+    assert_eq!(result.statistics().work.cache_hits(), 0);
+    assert_eq!(
+        application.cache_statistics().cached_integrals(),
+        retained.cached_integrals()
+    );
+    application.set_reduction_strategy(crate::reduction::ReductionStrategy::DepthFirst);
+    let old = application
+        .reduce_linear_combination([(key([3]), c.one())])
+        .unwrap();
+    assert_eq!(old.terms(), warm.terms());
+    assert_eq!(old.statistics().work.rule_applications(), 0);
+    assert!(old.statistics().work.cache_hits() > 0);
+}
+
+#[test]
+fn ordered_phases_have_frozen_total_and_exact_grouping_counters() {
+    let routed = tadpole(Default::default());
+    let c = routed.programs.context.family().coefficient_context();
+    let mut application = routed.application();
+    application
+        .reduce_linear_combination([(key([3]), c.one())])
+        .unwrap();
+    assert!(application.cache_statistics().cached_integrals() > 0);
+    application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+    let mut observations = Vec::new();
+    let mut callback = |event: &CandidateRoutedApplicationEnvelope<'_>| {
+        if let Some(progress) = event.ordered {
+            assert!(event.frontier.is_none());
+            assert!(event.complexity.coefficient_terms.is_none());
+            assert!(event.complexity.coefficient_bytes.is_none());
+            assert_eq!(event.snapshot.unwrap().cached.entries, 0);
+            observations.push(progress);
+        }
+        Ok(CandidateRoutedObserverControl::Continue)
+    };
+    let mut observer = CandidateRoutedApplicationObserver::new(
+        CandidateRoutedObservationOptions {
+            interval: Duration::ZERO,
+            ..Default::default()
+        },
+        &mut callback,
+    );
+    let result = application
+        .reduce_linear_combination_with_observation(
+            [(key([3]), c.one()), (key([2]), c.integer(3))],
+            CandidateEntryAdmission::SavedGenerationScope,
+            &mut observer,
+            None,
+        )
+        .unwrap();
+    assert_eq!(result.terms(), &BTreeMap::from([(key([1]), c.integer(2))]));
+    assert!(!observations.is_empty());
+    assert!(observations.iter().all(|value| value.total_phases == 3));
+    assert!(
+        observations
+            .windows(2)
+            .all(|pair| pair[0].completed_phases <= pair[1].completed_phases)
+    );
+    let last = observations.last().unwrap();
+    assert_eq!(last.completed_phases, 3);
+    assert_eq!(last.cancelled_terms, 1);
+    assert_eq!(last.frontier_keys, 0);
+    assert_eq!(last.terminal_keys, 1);
+}
+
+#[test]
+fn ordered_inputs_are_validated_before_cancellation_and_residuals_after_combination() {
+    let routed = partial_routed_fixture(Default::default());
+    let c = routed.programs.context.family().coefficient_context();
+    let mut application = routed.application();
+    application
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+    let result = application
+        .reduce_linear_combination([(key([4]), c.one())])
+        .unwrap();
+    assert!(result.is_zero());
+    assert!(result.unresolved().is_empty());
+    assert_eq!(result.nonzero_conditions(), &[c.coefficient_fixture("d-7")]);
+    assert_eq!(result.statistics().work.cache_hits(), 0);
+    assert_eq!(application.cache_statistics().cached_integrals(), 0);
+    assert!(
+        application
+            .reduce_linear_combination([(key([1, 0]), c.zero())])
+            .is_err()
+    );
+    let surviving = application
+        .reduce_linear_combination([(key([3]), c.one())])
+        .unwrap();
+    assert_eq!(surviving.unresolved(), &BTreeSet::from([key([2])]));
+}
+
+#[test]
+fn ordered_failed_requests_preserve_attempted_work_and_monotone_observed_counters() {
+    let routed = tadpole(Default::default());
+    let c = routed.programs.context.family().coefficient_context();
+    let mut application = routed.application();
+    application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+    let cancel = AtomicBool::new(false);
+    let mut work = Vec::new();
+    let mut last_status = None;
+    let mut callback = |event: &CandidateRoutedApplicationEnvelope<'_>| {
+        if let Some(snapshot) = event.snapshot {
+            work.push(snapshot.statistics.work.rule_applications());
+            last_status = Some(snapshot.status);
+            if snapshot.statistics.work.rule_applications() > 0 {
+                cancel.store(true, Ordering::Relaxed);
+            }
+        }
+        Ok(CandidateRoutedObserverControl::Continue)
+    };
+    let mut observer = CandidateRoutedApplicationObserver::new(
+        CandidateRoutedObservationOptions {
+            interval: Duration::ZERO,
+            ..Default::default()
+        },
+        &mut callback,
+    );
+    assert!(matches!(
+        application.reduce_linear_combination_with_observation(
+            [(key([3]), c.one())],
+            CandidateEntryAdmission::SavedGenerationScope,
+            &mut observer,
+            Some(&cancel)
+        ),
+        Err(CandidateRoutedError::Cancelled)
+    ));
+    assert_eq!(last_status, Some(CandidateRoutedApplicationStatus::Failed));
+    assert_eq!(work.last(), Some(&1));
+    assert!(work.windows(2).all(|pair| pair[0] <= pair[1]));
+    assert_eq!(application.cache_statistics().rule_applications(), 1);
+    assert_eq!(application.cache_statistics().cached_integrals(), 0);
+}
+
+#[test]
+fn ordered_failed_frontier_combination_is_included_in_attempted_work() {
+    let routed = tadpole(ReductionLimits {
+        diagnostics_enabled: true,
+        max_coalescing_additions: 0,
+        ..Default::default()
+    });
+    let c = routed.programs.context.family().coefficient_context();
+    let mut application = routed.application();
+    application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+    assert!(
+        application
+            .reduce_linear_combination([(key([3]), c.one()), (key([2]), c.integer(3))])
+            .is_err()
+    );
+    assert_eq!(application.cache_statistics().rule_applications(), 1);
+    assert_eq!(application.cache_statistics().coalescing_additions(), 1);
+    assert_eq!(application.cache_statistics().cached_integrals(), 0);
+}
+
 fn tadpole(limits: ReductionLimits) -> RoutedCandidateReducer<1> {
     let family = Arc::new(crate::solver::tests::tadpole());
     let owners = programs(
@@ -655,6 +827,156 @@ fn weighted_route_coefficients_and_signs_are_back_substituted_exactly() {
             .unwrap()
             .is_zero()
     );
+}
+
+#[test]
+fn ordered_routes_group_in_the_verified_common_owner_basis_before_ibps() {
+    let mut routed = weighted::<3>();
+    let programs = Arc::get_mut(&mut routed.programs).unwrap();
+    let indexed = programs.context.coefficient_context().clone();
+    let d = indexed
+        .lift(&indexed.base().parameter("d").unwrap())
+        .unwrap();
+    let condition = indexed
+        .add(
+            &d,
+            &indexed
+                .sub(&indexed.index(1).unwrap(), &indexed.index(0).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+    Arc::get_mut(&mut programs.context)
+        .unwrap()
+        .shared
+        .source_conditions = vec![
+        indexed
+            .admit_native_polynomial_result_with_limits(
+                condition.raw().numerator.clone(),
+                Default::default(),
+            )
+            .unwrap(),
+    ];
+    let c = routed.programs.context.family().coefficient_context();
+    let target = key([1, 0, -1]);
+    let mapped = routed
+        .routes
+        .values()
+        .next()
+        .unwrap()
+        .transport
+        .transport(&target, Default::default())
+        .unwrap();
+    let mut inputs = vec![(target, c.one())];
+    for endpoint in mapped.terms() {
+        inputs.push((
+            endpoint.key().clone(),
+            c.try_neg(endpoint.coefficient(), Default::default())
+                .unwrap(),
+        ));
+    }
+    let mut application = routed.application();
+    application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+    let result = application.reduce_linear_combination(inputs).unwrap();
+    assert!(result.is_zero());
+    assert!(result.unresolved().is_empty());
+    assert_eq!(result.statistics().transport_calls, 1);
+    assert_eq!(result.statistics().work.rule_applications(), 0);
+    assert_eq!(result.statistics().work.cache_hits(), 0);
+    // The empty-support endpoint canceled before expansion, but its source
+    // validation was already incurred by the checked transport.
+    assert!(
+        result
+            .nonzero_conditions()
+            .contains(&c.parameter("d").unwrap())
+    );
+}
+
+#[test]
+fn ordered_canceled_transport_endpoint_keeps_its_incurred_source_condition() {
+    let mut routed = weighted::<3>();
+    let programs = Arc::get_mut(&mut routed.programs).unwrap();
+    let indexed = programs.context.coefficient_context().clone();
+    let d = indexed
+        .lift(&indexed.base().parameter("d").unwrap())
+        .unwrap();
+    let condition = indexed
+        .add(
+            &d,
+            &indexed
+                .sub(&indexed.index(1).unwrap(), &indexed.index(0).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+    Arc::get_mut(&mut programs.context)
+        .unwrap()
+        .shared
+        .source_conditions = vec![
+        indexed
+            .admit_native_polynomial_result_with_limits(
+                condition.raw().numerator.clone(),
+                Default::default(),
+            )
+            .unwrap(),
+    ];
+    let c = routed.programs.context.family().coefficient_context();
+    let first = key([1, 0, -1]);
+    let second = key([1, 0, -2]);
+    let zero = key([0, 0, 0]);
+    let transport = &routed.routes.values().next().unwrap().transport;
+    let a = transport.transport(&first, Default::default()).unwrap();
+    let b = transport.transport(&second, Default::default()).unwrap();
+    let weight_a = a
+        .terms()
+        .iter()
+        .find(|term| term.key() == &zero)
+        .unwrap()
+        .coefficient();
+    let weight_b = b
+        .terms()
+        .iter()
+        .find(|term| term.key() == &zero)
+        .unwrap()
+        .coefficient();
+    let inputs = [
+        (first, weight_b.clone()),
+        (second, c.try_neg(weight_a, Default::default()).unwrap()),
+    ];
+    let mut application = routed.application();
+    application
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+    let mut observed_zero = false;
+    let mut callback = |event: &CandidateRoutedApplicationEnvelope<'_>| {
+        if let Some(CandidateRoutedWorkRef::Route(target)) = event.current {
+            observed_zero |= target == &zero;
+        }
+        Ok(CandidateRoutedObserverControl::Continue)
+    };
+    let mut observer = CandidateRoutedApplicationObserver::new(
+        CandidateRoutedObservationOptions {
+            interval: Duration::ZERO,
+            ..Default::default()
+        },
+        &mut callback,
+    );
+    let result = application
+        .reduce_linear_combination_with_observation(
+            inputs,
+            CandidateEntryAdmission::SavedGenerationScope,
+            &mut observer,
+            None,
+        )
+        .unwrap();
+    assert_eq!(result.statistics().transport_calls, 2);
+    // Both original inputs have guard d-1. No original input or surviving
+    // nonzero-support endpoint carries d; it belongs to the canceled child.
+    assert!(
+        result
+            .nonzero_conditions()
+            .contains(&c.parameter("d").unwrap())
+    );
+    assert!(!observed_zero);
 }
 
 #[cfg(feature = "capacity-dispatch")]
