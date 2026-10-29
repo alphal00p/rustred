@@ -81,7 +81,7 @@ impl<'artifact> Reducer<'artifact> {
                 Arc::clone(&reducer.shared_cache),
                 limits,
             )),
-            ordered_track_guards: true,
+            track_step_guards: true,
             ..Default::default()
         };
         for condition in artifact.family().domain().conditions() {

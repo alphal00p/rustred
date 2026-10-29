@@ -45,7 +45,8 @@ pub use product_reduction::{
     VacuumProductCacheStatistics, VacuumProductReducer, VacuumProductReduction,
     VacuumProductReductionError, VacuumProductReductionLimits, VacuumProductReductionStatistics,
     reduce_transported_candidate_factor, reduce_transported_vacuum_factor,
-    reduce_vacuum_factor_combination,
+    reduce_transported_vacuum_factor_without_memoization, reduce_vacuum_factor_combination,
+    reduce_vacuum_factor_combination_without_memoization,
 };
 pub use sector_symmetry::{
     TerminalSectorSymmetryControl, TerminalSectorSymmetryEquations, TerminalSectorSymmetryLimits,

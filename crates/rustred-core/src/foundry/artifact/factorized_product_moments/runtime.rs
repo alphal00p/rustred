@@ -24,6 +24,8 @@ use super::resources::CoefficientBudget;
 
 type Terms = BTreeMap<IntegralKey, Coefficient>;
 
+mod without_memoization;
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct NumeratorState {
     remaining: Box<[MomentPower]>,
@@ -166,6 +168,9 @@ impl FactorizedProductMomentProgram {
 impl ProductExecution<'_, '_, '_> {
     fn reduce(&mut self, target: &IntegralKey) -> Result<Terms, ReductionError> {
         let root = self.initial_state(target)?;
+        if self.request.without_memoization() {
+            return self.reduce_numerator_without_memoization(root);
+        }
         let pending_baseline = self.request.pending_frame_count();
         let result = (|| {
             let mut cache = BTreeMap::new();
@@ -197,46 +202,7 @@ impl ProductExecution<'_, '_, '_> {
                             continue;
                         }
                         self.record_recurrence_work(1)?;
-                        let source = state.remaining.iter().position(|&power| power != 0).ok_or(
-                            ReductionError::ReducerInvariant {
-                                detail: "a positive numerator measure has no remaining source",
-                            },
-                        )?;
-                        let branches = self.program.numerator_branches.get(source).ok_or(
-                            ReductionError::ReducerInvariant {
-                                detail: "a numerator source has no cold-compiled affine branches",
-                            },
-                        )?;
-                        let mut children = Vec::new();
-                        children.try_reserve_exact(branches.len()).map_err(|_| {
-                            ReductionError::AllocationFailure {
-                                resource: "factorized numerator branches",
-                                requested: branches.len(),
-                            }
-                        })?;
-                        for branch in branches {
-                            let mut child = state.clone();
-                            child.remaining[source] = child.remaining[source]
-                                .checked_sub(1)
-                                .ok_or(ReductionError::ReducerInvariant {
-                                    detail: "a selected numerator source has zero remaining power",
-                                })?;
-                            match branch.variable {
-                                ProductMomentVariable::Constant => {}
-                                ProductMomentVariable::Radial(vector) => {
-                                    increment_moment(&mut child.radial, vector, "radial moment")?;
-                                }
-                                ProductMomentVariable::Cross(edge) => {
-                                    increment_moment(&mut child.cross, edge, "cross moment")?;
-                                }
-                            }
-                            if child.measure()?.checked_add(1) != Some(measure) {
-                                return Err(ReductionError::ReducerInvariant {
-                                    detail: "the factorized numerator recurrence lost strict descent",
-                                });
-                            }
-                            children.push((child, branch.coefficient.clone()));
-                        }
+                        let children = self.numerator_children(&state, measure)?;
                         push_numerator_frame(
                             &mut stack,
                             NumeratorFrame::Combine {
@@ -321,6 +287,55 @@ impl ProductExecution<'_, '_, '_> {
             radial: vec![0; self.family.loop_count()].into_boxed_slice(),
             cross: vec![0; self.program.edges.len()].into_boxed_slice(),
         })
+    }
+
+    fn numerator_children(
+        &self,
+        state: &NumeratorState,
+        measure: MomentPower,
+    ) -> Result<Vec<(NumeratorState, Coefficient)>, ReductionError> {
+        let source = state.remaining.iter().position(|&power| power != 0).ok_or(
+            ReductionError::ReducerInvariant {
+                detail: "a positive numerator measure has no remaining source",
+            },
+        )?;
+        let branches = self.program.numerator_branches.get(source).ok_or(
+            ReductionError::ReducerInvariant {
+                detail: "a numerator source has no cold-compiled affine branches",
+            },
+        )?;
+        let mut children = Vec::new();
+        children.try_reserve_exact(branches.len()).map_err(|_| {
+            ReductionError::AllocationFailure {
+                resource: "factorized numerator branches",
+                requested: branches.len(),
+            }
+        })?;
+        for branch in branches {
+            let mut child = state.clone();
+            child.remaining[source] =
+                child.remaining[source]
+                    .checked_sub(1)
+                    .ok_or(ReductionError::ReducerInvariant {
+                        detail: "a selected numerator source has zero remaining power",
+                    })?;
+            match branch.variable {
+                ProductMomentVariable::Constant => {}
+                ProductMomentVariable::Radial(vector) => {
+                    increment_moment(&mut child.radial, vector, "radial moment")?
+                }
+                ProductMomentVariable::Cross(edge) => {
+                    increment_moment(&mut child.cross, edge, "cross moment")?
+                }
+            }
+            if child.measure()?.checked_add(1) != Some(measure) {
+                return Err(ReductionError::ReducerInvariant {
+                    detail: "the factorized numerator recurrence lost strict descent",
+                });
+            }
+            children.push((child, branch.coefficient.clone()));
+        }
+        Ok(children)
     }
 
     fn reduce_monomial(
@@ -449,8 +464,10 @@ impl ProductExecution<'_, '_, '_> {
             }
         }
         drop(guards);
-        self.cache_budget
-            .retain_coefficients(moments.len(), moments.values())?;
+        if !self.request.without_memoization() {
+            self.cache_budget
+                .retain_coefficients(moments.len(), moments.values())?;
+        }
         let result = (|| {
             let mut output = BTreeMap::new();
             for (moment, angular_coefficient) in &moments {
@@ -509,10 +526,10 @@ impl ProductExecution<'_, '_, '_> {
             }
             Ok(output)
         })();
-        let release = self
-            .cache_budget
-            .release_coefficients(moments.len(), moments.values());
-        release?;
+        if !self.request.without_memoization() {
+            self.cache_budget
+                .release_coefficients(moments.len(), moments.values())?;
+        }
         result
     }
 
@@ -527,6 +544,9 @@ impl ProductExecution<'_, '_, '_> {
             denominator_power,
             radial_power,
         };
+        if self.request.without_memoization() {
+            return self.reduce_radial_without_memoization(root);
+        }
         if let Some(cached) = self.radial_cache.get(&root) {
             self.statistics.record_cache_hit();
             return Ok(cached.clone());
@@ -569,23 +589,7 @@ impl ProductExecution<'_, '_, '_> {
                             continue;
                         }
                         self.record_recurrence_work(1)?;
-                        let next_rank = state.radial_power - 1;
-                        let shifted = state
-                            .denominator_power
-                            .checked_sub(1)
-                            .ok_or(ReductionError::IndexOverflow { position: 0 })?;
-                        let children = [
-                            RadialState {
-                                dependency_ordinal: state.dependency_ordinal,
-                                denominator_power: state.denominator_power,
-                                radial_power: next_rank,
-                            },
-                            RadialState {
-                                dependency_ordinal: state.dependency_ordinal,
-                                denominator_power: shifted,
-                                radial_power: next_rank,
-                            },
-                        ];
+                        let children = radial_children(&state)?;
                         push_radial_frame(
                             &mut stack,
                             RadialFrame::Combine {
@@ -675,6 +679,9 @@ impl ProductExecution<'_, '_, '_> {
             denominator_powers,
             moment_powers: powers,
         };
+        if self.request.without_memoization() {
+            return self.reduce_correlated_without_memoization(root, block);
+        }
         if let Some(cached) = self.correlated_cache.get(&root) {
             self.statistics.record_cache_hit();
             return Ok(cached.clone());
@@ -721,39 +728,7 @@ impl ProductExecution<'_, '_, '_> {
                             continue;
                         };
                         self.record_recurrence_work(1)?;
-                        let branches = block.moment_branches.get(coordinate).ok_or(
-                            ReductionError::ReducerInvariant {
-                                detail: "a correlated coordinate has no cold-compiled branches",
-                            },
-                        )?;
-                        let mut children = Vec::new();
-                        children.try_reserve_exact(branches.len()).map_err(|_| {
-                            ReductionError::AllocationFailure {
-                                resource: "correlated moment branches",
-                                requested: branches.len(),
-                            }
-                        })?;
-                        for branch in branches {
-                            let mut child = state.clone();
-                            child.moment_powers[coordinate] -= 1;
-                            if let Some(denominator) = branch.denominator {
-                                let slot = child.denominator_powers.get_mut(denominator).ok_or(
-                                    ReductionError::ReducerInvariant {
-                                        detail: "a correlated branch denominator is out of range",
-                                    },
-                                )?;
-                                *slot =
-                                    slot.checked_sub(1).ok_or(ReductionError::IndexOverflow {
-                                        position: denominator,
-                                    })?;
-                            }
-                            if child.measure()?.checked_add(1) != Some(measure) {
-                                return Err(ReductionError::ReducerInvariant {
-                                    detail: "the correlated moment recurrence lost strict descent",
-                                });
-                            }
-                            children.push((child, branch.coefficient.clone()));
-                        }
+                        let children = correlated_children(&state, block, coordinate, measure)?;
                         push_correlated_frame(
                             &mut stack,
                             CorrelatedFrame::Combine {
@@ -839,8 +814,11 @@ impl ProductExecution<'_, '_, '_> {
             return Ok(());
         }
         self.statistics.record_rule_applications(count);
-        self.request
-            .record_rule_applications(count, self.limits.diagnostic_limit(self.limits.max_rule_applications))?;
+        self.request.record_rule_applications(
+            count,
+            self.limits
+                .diagnostic_limit(self.limits.max_rule_applications),
+        )?;
         Ok(())
     }
 
@@ -849,20 +827,32 @@ impl ProductExecution<'_, '_, '_> {
             return Ok(());
         }
         self.statistics.record_coalescing_additions(count);
-        self.request
-            .record_coalescing_additions(count, self.limits.diagnostic_limit(self.limits.max_coalescing_additions))
+        self.request.record_coalescing_additions(
+            count,
+            self.limits
+                .diagnostic_limit(self.limits.max_coalescing_additions),
+        )
     }
 
     fn remaining_moment_limits(&self) -> Result<FactorizedProductMomentLimits, ReductionError> {
-        let cache = self.cache_budget.remaining()?;
         let mut limits = runtime_moment_limits(self.limits);
-        limits.max_angular_states = limits.max_angular_states.min(cache.integrals);
-        limits.max_retained_coefficient_terms = limits
-            .max_retained_coefficient_terms
-            .min(cache.coefficient_terms);
-        limits.max_retained_coefficient_clone_owned_bytes = limits
-            .max_retained_coefficient_clone_owned_bytes
-            .min(cache.coefficient_bytes);
+        if self.request.without_memoization() {
+            // No completed-cache allowance or census participates in this
+            // lane. Angular algebra retains its own checks and the shared
+            // cooperative RAM/time budget remains authoritative.
+            limits.max_angular_states = usize::MAX;
+            limits.max_retained_coefficient_terms = usize::MAX;
+            limits.max_retained_coefficient_clone_owned_bytes = usize::MAX;
+        } else {
+            let cache = self.cache_budget.remaining()?;
+            limits.max_angular_states = limits.max_angular_states.min(cache.integrals);
+            limits.max_retained_coefficient_terms = limits
+                .max_retained_coefficient_terms
+                .min(cache.coefficient_terms);
+            limits.max_retained_coefficient_clone_owned_bytes = limits
+                .max_retained_coefficient_clone_owned_bytes
+                .min(cache.coefficient_bytes);
+        }
         limits.max_pending_frames = limits.max_pending_frames.min(
             self.request
                 .remaining_pending_frames(self.limits.max_pending_frames),
@@ -879,6 +869,9 @@ impl ProductExecution<'_, '_, '_> {
     }
 
     fn runtime_product_error(&self, error: FactorizedProductMomentError) -> ReductionError {
+        if self.request.without_memoization() {
+            return product_error(error);
+        }
         let FactorizedProductMomentError::ResourceLimit {
             resource,
             requested,
@@ -936,6 +929,74 @@ impl ProductExecution<'_, '_, '_> {
             },
         }
     }
+}
+
+fn radial_children(state: &RadialState) -> Result<[RadialState; 2], ReductionError> {
+    let next_rank = state
+        .radial_power
+        .checked_sub(1)
+        .ok_or(ReductionError::ReducerInvariant {
+            detail: "a radial recurrence has no remaining power",
+        })?;
+    let shifted = state
+        .denominator_power
+        .checked_sub(1)
+        .ok_or(ReductionError::IndexOverflow { position: 0 })?;
+    Ok([
+        RadialState {
+            dependency_ordinal: state.dependency_ordinal,
+            denominator_power: state.denominator_power,
+            radial_power: next_rank,
+        },
+        RadialState {
+            dependency_ordinal: state.dependency_ordinal,
+            denominator_power: shifted,
+            radial_power: next_rank,
+        },
+    ])
+}
+
+fn correlated_children(
+    state: &CorrelatedState,
+    block: &CorrelatedProductBlock,
+    coordinate: usize,
+    measure: MomentPower,
+) -> Result<Vec<(CorrelatedState, Coefficient)>, ReductionError> {
+    let branches =
+        block
+            .moment_branches
+            .get(coordinate)
+            .ok_or(ReductionError::ReducerInvariant {
+                detail: "a correlated coordinate has no cold-compiled branches",
+            })?;
+    let mut children = Vec::new();
+    children
+        .try_reserve_exact(branches.len())
+        .map_err(|_| ReductionError::AllocationFailure {
+            resource: "correlated moment branches",
+            requested: branches.len(),
+        })?;
+    for branch in branches {
+        let mut child = state.clone();
+        child.moment_powers[coordinate] -= 1;
+        if let Some(denominator) = branch.denominator {
+            let slot = child.denominator_powers.get_mut(denominator).ok_or(
+                ReductionError::ReducerInvariant {
+                    detail: "a correlated branch denominator is out of range",
+                },
+            )?;
+            *slot = slot.checked_sub(1).ok_or(ReductionError::IndexOverflow {
+                position: denominator,
+            })?;
+        }
+        if child.measure()?.checked_add(1) != Some(measure) {
+            return Err(ReductionError::ReducerInvariant {
+                detail: "the correlated moment recurrence lost strict descent",
+            });
+        }
+        children.push((child, branch.coefficient.clone()));
+    }
+    Ok(children)
 }
 
 fn correlated_coordinate_powers(

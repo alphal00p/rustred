@@ -99,6 +99,36 @@ fn owner(
 }
 
 #[test]
+fn unmemoized_candidate_keeps_weighted_terminal_rows_and_recorded_guard_order() {
+    let (family, raw, target) = fixture();
+    let plan = TerminalNormalizationPlan::vacuum_quadratic_numerators(
+        &family,
+        &raw,
+        OrderingPolicy::SpiredUncutV1,
+        Default::default(),
+    )
+    .unwrap();
+    for representation in [
+        CandidateCacheRepresentation::Sparse,
+        CandidateCacheRepresentation::Factorized,
+    ] {
+        let mut source = owner(&family, &raw, &plan, representation);
+        let expected = source
+            .reduce_unit_mass_guarded(&target, Default::default())
+            .unwrap();
+        let before = source.statistics();
+        let actual = source
+            .reduce_unit_mass_without_memoization_guarded(&target, Default::default())
+            .unwrap();
+        assert_eq!(actual.0, expected.0);
+        assert_eq!(actual.1, expected.1);
+        assert_eq!(actual.0.terms().len(), 2);
+        assert_eq!(actual.2.cache_hits(), 0);
+        assert_eq!(source.statistics(), before);
+    }
+}
+
+#[test]
 fn isolated_session_shares_weighted_convention_without_sharing_completed_cache() {
     let (family, raw, target) = fixture();
     let plan = TerminalNormalizationPlan::vacuum_quadratic_numerators(

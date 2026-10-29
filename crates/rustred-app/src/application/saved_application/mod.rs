@@ -292,7 +292,8 @@ pub struct PreparedSavedApplication<const N: usize> {
 
 impl<const N: usize> PreparedSavedApplication<N> {
     /// Select the scheduler without invalidating the immutable program snapshot.
-    /// Depth-first completed state is retained, but never consumed by Ordered.
+    /// Depth-first completed state is retained, but never consumed or changed
+    /// by Ordered or DepthFirstWithoutMemoization execution.
     pub fn set_reduction_strategy(&mut self, strategy: rustred::reduction::ReductionStrategy) {
         self.options.reduction_strategy = strategy;
         self.application.set_reduction_strategy(strategy);

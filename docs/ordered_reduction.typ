@@ -25,6 +25,16 @@ owner/route applications have thin adapters to one generic scheduler. Rule
 selection, specialization, canonicalization, transport and sufficient nonzero
 conditions use the existing checked operations.
 
+For a depth-first timing reference without memoization, select
+`DepthFirstWithoutMemoization`. It preserves checked child-occurrence order and
+exact back-substitution, consuming each returned child value in its active parent.
+Repeated descendants are recomputed, including dependent factor reductions;
+completed-result lookup, retention, cache-weight accounting and capture are bypassed. Existing
+in-memory DFS results remain untouched, while explicit backing/capture requests
+are rejected. Immutable program preparation, guard membership and active-path
+cycle detection remain necessary. This reference can do substantially more work
+than ordinary DFS; no estimated bookkeeping time is subtracted from its timing.
+
 Every original root is admitted and its original coefficient poles retained
 before cancellation. At each step equal canonical operational identities combine
 exactly, and zero weights disappear before their descendants are expanded.

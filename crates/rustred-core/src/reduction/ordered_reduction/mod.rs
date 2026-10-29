@@ -12,15 +12,6 @@ use crate::reduction::guard_union::GuardIndex;
 use crate::reduction::{ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics};
 use crate::solver::CandidateOrderedReductionProgress;
 
-/// Execution strategy. Both strategies consume the same authenticated programs.
-/// Completed-result caches belong exclusively to the depth-first engine.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ReductionStrategy {
-    #[default]
-    DepthFirst,
-    Ordered,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OrderedPosition<P> {
     /// Zero-based phase in execution order. This total is frozen before a call.

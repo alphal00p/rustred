@@ -5,6 +5,7 @@ use crate::family::{AffineDenominator, IntegralFamily, IntegralKey};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 mod combination;
+mod without_memoization;
 mod zero;
 
 fn family(name: &str, loops: usize) -> Arc<IntegralFamily> {

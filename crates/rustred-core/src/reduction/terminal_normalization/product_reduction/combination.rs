@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
-use super::arithmetic::{Conditions, accumulate_with_admission};
+use super::arithmetic::{Conditions, accumulate, accumulate_with_admission};
 use super::model::*;
 use crate::algebra::{Coefficient, CoefficientContext};
 use crate::family::{IntegralFamily, IntegralKey};
@@ -43,6 +43,145 @@ pub fn reduce_vacuum_factor_combination<E: fmt::Display>(
                 })
         },
     )
+}
+
+/// Exact weighted composition through a genuinely no-memoization evaluator.
+/// Unlike the cache-owning helper, this path neither measures cache payloads
+/// nor grants cache budgets. Input grouping and output combination are ordinary
+/// expression algebra; completed roots are consumed once and then discarded.
+/// The evaluator must not retain or reuse completed integral reductions.
+pub fn reduce_vacuum_factor_combination_without_memoization<E: fmt::Display>(
+    family: Arc<IntegralFamily>,
+    terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+    nonzero_conditions: impl IntoIterator<Item = Coefficient>,
+    limits: ReductionLimits,
+    mut evaluate: impl FnMut(&IntegralKey, ReductionLimits) -> Result<VacuumFactorReduction, E>,
+) -> Result<VacuumFactorReduction, Error> {
+    let policy = VacuumProductReductionLimits {
+        reduction: limits,
+        ..Default::default()
+    };
+    let context = family.coefficient_context();
+    validate_family(&family, &family)?;
+    let mut conditions = Conditions::default();
+    conditions.extend(context, nonzero_conditions, policy)?;
+    conditions.extend(
+        context,
+        family
+            .domain()
+            .conditions()
+            .map(|c| c.polynomial().clone().into()),
+        policy,
+    )?;
+    let mut algebra = ReductionRequest::default();
+    let mut statistics = VacuumProductReductionStatistics::default();
+    let mut inputs = BTreeMap::new();
+    let mut input_count = 0;
+    for (key, coefficient) in terms {
+        super::arithmetic::charge(
+            &mut input_count,
+            1,
+            limits.diagnostic_limit(limits.max_factorization_terms),
+            "factor combination inputs",
+        )?;
+        validate_key(&family, &key)?;
+        conditions.denominator(context, &coefficient, policy)?;
+        accumulate(
+            context,
+            &mut inputs,
+            key,
+            coefficient,
+            policy,
+            &mut algebra,
+            &mut statistics,
+        )?;
+    }
+    let mut output = BTreeMap::<VacuumIntegralKey, Coefficient>::new();
+    let mut families = BTreeMap::new();
+    for (key, weight) in inputs {
+        let remaining = ReductionLimits {
+            max_rule_applications: algebra
+                .remaining_rule_applications(limits.max_rule_applications),
+            max_coalescing_additions: algebra
+                .remaining_coalescing_additions(limits.max_coalescing_additions),
+            ..limits
+        };
+        let result = evaluate(&key, remaining).map_err(|error| Error::Provider {
+            family: family.fingerprint().to_owned(),
+            target: key.clone(),
+            message: error.to_string(),
+        })?;
+        if result.work.cache_hits != 0 {
+            return Err(Error::InvalidInput(
+                "no-memoization evaluator reported completed-result cache hits".into(),
+            ));
+        }
+        algebra.record_rule_applications(
+            result.work.rule_applications,
+            limits.diagnostic_limit(limits.max_rule_applications),
+        )?;
+        algebra.record_coalescing_additions(
+            result.work.coalescing_additions,
+            limits.diagnostic_limit(limits.max_coalescing_additions),
+        )?;
+        statistics.rule_applications = statistics
+            .rule_applications
+            .saturating_add(result.work.rule_applications);
+        statistics.coalescing_additions = statistics
+            .coalescing_additions
+            .saturating_add(result.work.coalescing_additions);
+        if limits.diagnostics_enabled && result.terms.len() > limits.max_factorization_terms {
+            return Err(Error::ResourceLimit {
+                resource: "factor combination result rows",
+                requested: result.terms.len(),
+                limit: limits.max_factorization_terms,
+            });
+        }
+        conditions.extend(context, result.nonzero_conditions, policy)?;
+        for term in result.terms {
+            validate_family(&family, &term.family)?;
+            validate_key(&term.family, &term.integral)?;
+            conditions.extend(
+                context,
+                term.family
+                    .domain()
+                    .conditions()
+                    .map(|c| c.polynomial().clone().into()),
+                policy,
+            )?;
+            conditions.denominator(context, &term.coefficient, policy)?;
+            let key = VacuumIntegralKey::from_family(&term.family, term.integral);
+            families
+                .entry(term.family.fingerprint().to_owned())
+                .or_insert(term.family);
+            let coefficient = context.try_mul(&weight, &term.coefficient, limits.exact_algebra)?;
+            accumulate(
+                context,
+                &mut output,
+                key,
+                coefficient,
+                policy,
+                &mut algebra,
+                &mut statistics,
+            )?;
+        }
+    }
+    Ok(VacuumFactorReduction {
+        terms: output
+            .into_iter()
+            .map(|(key, coefficient)| VacuumFactorTerm {
+                family: families[key.family_fingerprint()].clone(),
+                integral: key.integral().clone(),
+                coefficient,
+            })
+            .collect(),
+        nonzero_conditions: conditions.into_values(),
+        work: VacuumFactorWork {
+            rule_applications: statistics.rule_applications,
+            coalescing_additions: statistics.coalescing_additions,
+            cache_hits: 0,
+        },
+    })
 }
 
 /// The only cache-owning caller clears its native cache before entering and
@@ -376,12 +515,61 @@ pub fn reduce_transported_vacuum_factor<E: fmt::Display>(
     )
 }
 
+/// Verified transport and exact composition without reduction-result reuse or
+/// cache census work. The callback must be a no-memoization single-key API.
+pub fn reduce_transported_vacuum_factor_without_memoization<E: fmt::Display>(
+    transport: &integral_transport::Prepared,
+    source: &IntegralKey,
+    target_family: Arc<IntegralFamily>,
+    expansion_limits: integral_transport::ExpansionLimits,
+    limits: ReductionLimits,
+    evaluate: impl FnMut(&IntegralKey, ReductionLimits) -> Result<VacuumFactorReduction, E>,
+) -> Result<VacuumFactorReduction, Error> {
+    let terms = transported_terms_impl(
+        transport,
+        source,
+        &target_family,
+        expansion_limits,
+        limits,
+        false,
+    )?;
+    reduce_vacuum_factor_combination_without_memoization(
+        target_family,
+        terms,
+        transport
+            .verified_map()
+            .nonzero_conditions()
+            .iter()
+            .map(|condition| condition.polynomial().clone().into()),
+        limits,
+        evaluate,
+    )
+}
+
 pub(super) fn transported_terms(
     transport: &integral_transport::Prepared,
     source: &IntegralKey,
     target_family: &IntegralFamily,
     expansion_limits: integral_transport::ExpansionLimits,
     limits: ReductionLimits,
+) -> Result<Vec<(IntegralKey, Coefficient)>, Error> {
+    transported_terms_impl(
+        transport,
+        source,
+        target_family,
+        expansion_limits,
+        limits,
+        true,
+    )
+}
+
+fn transported_terms_impl(
+    transport: &integral_transport::Prepared,
+    source: &IntegralKey,
+    target_family: &IntegralFamily,
+    expansion_limits: integral_transport::ExpansionLimits,
+    limits: ReductionLimits,
+    account_cache: bool,
 ) -> Result<Vec<(IntegralKey, Coefficient)>, Error> {
     if target_family.fingerprint() != transport.target_family().fingerprint() {
         return Err(Error::InvalidInput(
@@ -399,15 +587,17 @@ pub(super) fn transported_terms(
                 Error::InvalidInput(format!("factor transport failed: {error}"))
             }
         })?;
-    let mapped_weight =
-        coefficient_cache_weight(mapped.terms().iter().map(|term| term.coefficient()))?;
-    // The native transport currently exposes borrowed endpoints. Admit its
-    // short-lived copy and drop the source before granting callback budgets.
-    admit(
-        mapped.terms().len().saturating_mul(2),
-        mapped_weight.checked_add(mapped_weight)?,
-        limits,
-    )?;
+    if account_cache {
+        let mapped_weight =
+            coefficient_cache_weight(mapped.terms().iter().map(|term| term.coefficient()))?;
+        // The native transport currently exposes borrowed endpoints. Admit its
+        // short-lived copy and drop the source before granting callback budgets.
+        admit(
+            mapped.terms().len().saturating_mul(2),
+            mapped_weight.checked_add(mapped_weight)?,
+            limits,
+        )?;
+    }
     let terms = mapped
         .terms()
         .iter()

@@ -72,8 +72,10 @@ mod scoped_tests;
 
 mod capture;
 mod ordered;
+mod without_memoization;
 
 pub use ordered::OrderedArtifactReduction;
+pub use without_memoization::DepthFirstArtifactReduction;
 
 /// Stateful, topology-independent memoizing applier for one sealed artifact.
 pub struct Reducer<'artifact> {
@@ -142,6 +144,15 @@ impl<'artifact> Reducer<'artifact> {
         limits: ReductionLimits,
         shared_cache: Arc<SharedCacheBudget>,
     ) -> Result<Self, ReductionError> {
+        Self::build_for_execution(artifact, limits, shared_cache, true)
+    }
+
+    fn build_for_execution(
+        artifact: &'artifact ClosedArtifact,
+        limits: ReductionLimits,
+        shared_cache: Arc<SharedCacheBudget>,
+        memoize: bool,
+    ) -> Result<Self, ReductionError> {
         let mut dependency_reducers = Vec::new();
         dependency_reducers
             .try_reserve_exact(artifact.dependencies().len())
@@ -150,10 +161,11 @@ impl<'artifact> Reducer<'artifact> {
                 requested: artifact.dependencies().len(),
             })?;
         for dependency in artifact.dependencies() {
-            dependency_reducers.push(Self::build(
+            dependency_reducers.push(Self::build_for_execution(
                 dependency.as_ref(),
                 limits,
                 shared_cache.clone(),
+                memoize,
             )?);
         }
         let mut reducer = Self {
@@ -167,7 +179,9 @@ impl<'artifact> Reducer<'artifact> {
             family_fingerprint: artifact.family_fingerprint_owner(),
             dependency_reducers,
         };
-        reducer.seed_master_terminals()?;
+        if memoize {
+            reducer.seed_master_terminals()?;
+        }
         Ok(reducer)
     }
 
@@ -473,7 +487,7 @@ impl<'artifact> Reducer<'artifact> {
         request: &mut ReductionRequest,
     ) -> Result<MasterDecomposition, ReductionError> {
         self.validate_target(target)?;
-        if request.ordered_track_guards {
+        if request.track_step_guards {
             for condition in self.artifact.family().domain().conditions() {
                 request
                     .retain_nonzero_guard(&condition.polynomial().clone().into(), self.limits)?;
@@ -505,6 +519,16 @@ impl<'artifact> Reducer<'artifact> {
         mut capture: Option<&mut GuardedRootCapture<'_, E>>,
     ) -> Result<MasterDecomposition, E> {
         symbolica::utils::resources::checkpoint().map_err(ReductionError::from)?;
+        if request.without_memoization {
+            if lookup.is_some() || capture.is_some() || request.guard_provenance.is_some() {
+                return Err(ReductionError::ReducerInvariant {
+                    detail: "non-memoizing depth-first execution cannot attach a completed-result cache",
+                }.into());
+            }
+            return self
+                .reduce_canonical_without_memoization(target, request)
+                .map_err(Into::into);
+        }
         let node = self.prepare_guard_node(target, request)?;
         if let (Some(parent), Some(child), Some(graph)) = (
             request.capture_scope,
@@ -1138,7 +1162,7 @@ impl<'artifact> Reducer<'artifact> {
                     &selected.assignment,
                     self.limits.indexed_algebra,
                 )?;
-            if (request.guard_provenance.is_some() || request.ordered_track_guards)
+            if (request.guard_provenance.is_some() || request.track_step_guards)
                 && let Some(denominator) = formal_parameter_denominator
             {
                 request.retain_nonzero_guard(&denominator.into(), self.limits)?;
@@ -1339,9 +1363,12 @@ pub(crate) struct ReductionRequest {
     guard_provenance: Option<GuardProvenance>,
     /// Local integral currently executing, including nested factorizations.
     capture_scope: Option<GuardNodeId>,
-    /// Ordered application records actual checked-step guards immediately.
+    /// Alternative execution records actual checked-step guards immediately.
     /// DFS retains its existing final-DAG collection and encounter order.
-    ordered_track_guards: bool,
+    track_step_guards: bool,
+    /// Derived from the public execution strategy, never a cache-size policy.
+    /// Dependency and product-moment reductions inherit this request value.
+    without_memoization: bool,
 }
 
 pub(crate) struct GuardedConditionBudget {
@@ -1391,6 +1418,33 @@ impl Drop for GuardedConditionBudget {
 }
 
 impl ReductionRequest {
+    pub(crate) fn without_memoization(&self) -> bool {
+        self.without_memoization
+    }
+
+    pub(crate) fn take_step_nonzero_conditions(&mut self) -> Vec<Coefficient> {
+        self.guarded_conditions
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn restore_step_nonzero_conditions(
+        &mut self,
+        conditions: Vec<Coefficient>,
+    ) -> Result<(), ReductionError> {
+        if let Some(buffer) = self.guarded_conditions.as_mut() {
+            *buffer = conditions;
+            Ok(())
+        } else if conditions.is_empty() {
+            Ok(())
+        } else {
+            Err(ReductionError::ReducerInvariant {
+                detail: "a nested reduction has guards without an active guard buffer",
+            })
+        }
+    }
+
     pub(crate) fn retains_nonzero_guards(&self) -> bool {
         self.guarded_conditions.is_some()
     }
@@ -1440,15 +1494,18 @@ impl ReductionRequest {
                 .ok_or(ReductionError::ReducerInvariant {
                     detail: "guarded conditions have no output buffer",
                 })?;
-        let budget =
-            self.guarded_condition_budget
-                .as_mut()
-                .ok_or(ReductionError::ReducerInvariant {
-                    detail: "guarded conditions have no shared cache budget",
-                })?;
-        // Guards coexist with the parent, dependencies and moment caches.
-        // Charge their sum against the same owner before retaining the clone.
-        budget.retain(condition, limits)?;
+        if !self.without_memoization {
+            let budget =
+                self.guarded_condition_budget
+                    .as_mut()
+                    .ok_or(ReductionError::ReducerInvariant {
+                        detail: "guarded conditions have no shared cache budget",
+                    })?;
+            // Guards coexist with memoized parent/dependency/moment values.
+            // The no-memoization lane has only ordinary resource checkpoints
+            // and performs no completed-cache weight/census bookkeeping.
+            budget.retain(condition, limits)?;
+        }
         conditions
             .try_reserve(1)
             .map_err(|_| ReductionError::AllocationFailure {

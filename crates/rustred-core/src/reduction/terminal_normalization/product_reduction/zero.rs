@@ -26,29 +26,34 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
     ) -> Result<Option<Arc<Vec<Coefficient>>>, Error> {
         let support = Mask::try_from_indices(integral.powers())
             .map_err(|error| Error::InvalidInput(format!("factor support: {error}")))?;
-        let key = (family.fingerprint().to_owned(), support.clone());
-        if let Some(decision) = self.zero_supports.get(&key) {
+        let key = self
+            .memoize
+            .then(|| (family.fingerprint().to_owned(), support.clone()));
+        if let Some(key) = &key
+            && let Some(decision) = self.zero_supports.get(key)
+        {
             statistics.zero_cache_hits = statistics.zero_cache_hits.saturating_add(1);
             return Ok(decision.conditions(statistics));
         }
         // A support decision owns one shared cache slot, whether sufficient
         // or inconclusive. Admit that slot before invoking native analysis.
-        let census = self.cache_budget.snapshot();
-        SharedCacheBudget::default().replace(
-            0,
-            CacheWeight::default(),
-            census
-                .integrals
-                .checked_add(1)
-                .ok_or(ReductionError::CacheResourceCountOverflow {
-                    resource: "retained integrals",
-                })?,
-            CacheWeight {
-                coefficient_terms: census.coefficient_terms,
-                coefficient_bytes: census.coefficient_bytes,
-            },
-            self.limits.reduction,
-        )?;
+        if self.memoize {
+            let census = self.cache_budget.snapshot();
+            SharedCacheBudget::default().replace(
+                0,
+                CacheWeight::default(),
+                census.integrals.checked_add(1).ok_or(
+                    ReductionError::CacheResourceCountOverflow {
+                        resource: "retained integrals",
+                    },
+                )?,
+                CacheWeight {
+                    coefficient_terms: census.coefficient_terms,
+                    coefficient_bytes: census.coefficient_bytes,
+                },
+                self.limits.reduction,
+            )?;
+        }
         charge(
             &mut statistics.zero_analyses,
             1,
@@ -97,6 +102,10 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
                 ));
             }
         };
+        let result = decision.conditions(statistics);
+        let Some(key) = key else {
+            return Ok(result);
+        };
         let weight = match &decision {
             ZeroSupport::Inconclusive => CacheWeight::default(),
             ZeroSupport::ProvedZero(conditions) => coefficient_cache_weight(conditions.iter())?,
@@ -104,7 +113,6 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
         let combined_weight = self.cache_weight.checked_add(weight)?;
         self.cache_budget
             .replace(0, CacheWeight::default(), 1, weight, self.limits.reduction)?;
-        let result = decision.conditions(statistics);
         self.zero_supports.insert(key, decision);
         self.cache_weight = combined_weight;
         Ok(result)

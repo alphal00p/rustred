@@ -6,6 +6,7 @@ use std::time::Duration;
 
 mod checked;
 mod ordered;
+mod without_memoization;
 
 use super::cache_policy::DependencyPins;
 use super::guard_union::GuardUnion;
@@ -562,7 +563,7 @@ impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
         let Some(now) = now else {
             return;
         };
-        let cached = if self.ordered.is_some() {
+        let cached = if !application.reduction_strategy.uses_completed_cache() {
             CandidateRoutedCacheCensus::default()
         } else {
             CandidateRoutedCacheCensus::new(application.cache.len(), application.cache_weight)
@@ -573,15 +574,37 @@ impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
         }
         // The execution counter is finalized at return. Observers receive a
         // current copy without altering work accounting or the eventual result.
-        statistics.operational_nodes = self.ordered.map_or(self.seen.len(), |p| p.processed_keys);
+        statistics.operational_nodes = match application.reduction_strategy {
+            crate::reduction::ReductionStrategy::DepthFirst => self.seen.len(),
+            crate::reduction::ReductionStrategy::DepthFirstWithoutMemoization => {
+                self.stats.operational_nodes
+            }
+            crate::reduction::ReductionStrategy::Ordered => self
+                .ordered
+                .map_or(self.stats.operational_nodes, |p| p.processed_keys),
+        };
         let snapshot = CandidateRoutedApplicationSnapshot {
             sequence: progress.sequence,
             elapsed: now.duration_since(progress.started),
             phase: progress.phase,
             status,
             statistics,
-            unique_nodes: statistics.operational_nodes,
-            active_nodes: self.active.len(),
+            // Occurrence-local DFS deliberately has no historical identity
+            // census. Do not present its visit counter as a distinct count.
+            unique_nodes: if application.reduction_strategy
+                == crate::reduction::ReductionStrategy::DepthFirstWithoutMemoization
+            {
+                0
+            } else {
+                statistics.operational_nodes
+            },
+            active_nodes: if application.reduction_strategy
+                == crate::reduction::ReductionStrategy::DepthFirstWithoutMemoization
+            {
+                self.algebra.pending_frame_count()
+            } else {
+                self.active.len()
+            },
             pending_frames: self
                 .ordered
                 .map_or(self.algebra.pending_frame_count(), |p| p.frontier_keys),
@@ -612,7 +635,13 @@ impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
         // The activity already supplied this O(1) structural hint. Computing
         // cache censuses or sampling pending work remains sample-only below.
         envelope.complexity = observation.complexity;
-        envelope.path_total_nodes = self.active.len();
+        envelope.path_total_nodes = if application.reduction_strategy
+            == crate::reduction::ReductionStrategy::DepthFirstWithoutMemoization
+        {
+            self.algebra.pending_frame_count()
+        } else {
+            self.active.len()
+        };
         let mut path = Vec::new();
         if sample {
             if path.try_reserve(observation.path_prefix.len()).is_ok() {
@@ -649,7 +678,7 @@ impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
                 }
             }
             envelope.active_path = &path;
-            if self.ordered.is_none()
+            if application.reduction_strategy.uses_completed_cache()
                 && let Some(entry) = observation
                     .current
                     .as_ref()
@@ -686,7 +715,7 @@ impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
             // The ordered engine has a weighted frontier rather than this DFS
             // stack. Its exact counters live in `ordered`; an empty stack is
             // not an empty frontier or a valid remaining-work ETA sample.
-            if self.ordered.is_none() {
+            if application.reduction_strategy.uses_completed_cache() {
                 envelope.frontier = Some(CandidateRoutedFrontierSample {
                     frames_examined: if available { examined } else { 0 },
                     total_pending_frames: self.stack.len(),
@@ -876,11 +905,12 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         persistent: super::persistent::PersistentRequest<'a, 'storage>,
         initial_routing: bool,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        if self.reduction_strategy == crate::reduction::ReductionStrategy::Ordered
+        if !self.reduction_strategy.uses_completed_cache()
             && (persistent.backing.is_some() || persistent.capture.is_some())
         {
             return Err(CandidateRoutedError::InvalidInput(
-                "ordered reduction does not support depth-first result caches or capture".into(),
+                "selected reduction strategy does not support depth-first result caches or capture"
+                    .into(),
             ));
         }
         let observed = progress.is_some();
@@ -900,7 +930,8 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             persistent,
             ..Default::default()
         };
-        if observed && self.cache_policy.evicts() {
+        if observed && self.reduction_strategy.uses_completed_cache() && self.cache_policy.evicts()
+        {
             request.pins.census = Some(CandidateRoutedCacheCensus::default());
         }
         let run = || {
@@ -946,12 +977,16 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         } else {
             Ok(run())
         };
-        self.release_request_pins(&mut request.pins);
+        if self.reduction_strategy.uses_completed_cache() {
+            self.release_request_pins(&mut request.pins);
+        }
         // Failed attempts retain valid completed cache entries and their
         // measured work, never active or partially combined nodes.
         self.work.merge_work(request.stats.work);
-        self.cache_work.merge(request.stats.cache);
-        if result.is_ok() {
+        if self.reduction_strategy.uses_completed_cache() {
+            self.cache_work.merge(request.stats.cache);
+        }
+        if result.is_ok() && self.reduction_strategy.uses_completed_cache() {
             request.persistent.report(request.stats.persistent_cache);
         }
         match result {
@@ -995,6 +1030,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         admission: CandidateEntryAdmission<'_, N>,
         request: &mut Request<'_, '_, N>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        self.validate_request_cache_strategy(request)?;
         let context = self.context.clone();
         let coefficients = context.shared.context.base();
         let limits = context.limits;
@@ -1058,8 +1094,20 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         request: &mut Request<'_, '_, N>,
         count_inputs: bool,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        if self.reduction_strategy == crate::reduction::ReductionStrategy::Ordered {
-            return self.reduce_ordered_request(terms, admission, request, count_inputs);
+        self.validate_request_cache_strategy(request)?;
+        match self.reduction_strategy {
+            crate::reduction::ReductionStrategy::Ordered => {
+                return self.reduce_ordered_request(terms, admission, request, count_inputs);
+            }
+            crate::reduction::ReductionStrategy::DepthFirstWithoutMemoization => {
+                return self.reduce_without_memoization_request(
+                    terms,
+                    admission,
+                    request,
+                    count_inputs,
+                );
+            }
+            crate::reduction::ReductionStrategy::DepthFirst => {}
         }
         let context = self.context.clone();
         let shared = &context.shared;

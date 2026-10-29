@@ -189,6 +189,9 @@ pub(super) enum ZeroSupport {
 
 /// One immutable provider identity and its exact qualified-factor cache.
 pub struct VacuumProductReducer<P> {
+    /// False only for the explicit occurrence-local execution path. Providers
+    /// selected for that path must likewise disable completed-result reuse.
+    pub(super) memoize: bool,
     pub(super) provider: P,
     pub(super) anchor: Arc<IntegralFamily>,
     pub(super) context: CoefficientContext,

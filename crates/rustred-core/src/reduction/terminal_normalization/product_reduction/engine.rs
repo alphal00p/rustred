@@ -11,7 +11,7 @@ use crate::reduction::{
 };
 type Error = VacuumProductReductionError;
 
-enum Row {
+pub(super) enum Row {
     Terminal(VacuumIntegralKey, Coefficient),
     Product(Vec<VacuumIntegralKey>, Coefficient),
 }
@@ -24,10 +24,10 @@ enum Frame {
     },
 }
 #[derive(Default)]
-struct Request {
-    algebra: ReductionRequest,
-    stats: VacuumProductReductionStatistics,
-    active: BTreeSet<VacuumIntegralKey>,
+pub(super) struct Request {
+    pub(super) algebra: ReductionRequest,
+    pub(super) stats: VacuumProductReductionStatistics,
+    pub(super) active: BTreeSet<VacuumIntegralKey>,
     lower_families: BTreeSet<String>,
     stack: Vec<Frame>,
 }
@@ -51,7 +51,28 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
         measure_family: Arc<IntegralFamily>,
         limits: VacuumProductReductionLimits,
     ) -> Result<Self, Error> {
+        Self::build(provider, measure_family, limits, true)
+    }
+
+    /// Construct an occurrence-local product reducer. Every factor occurrence
+    /// is reduced independently, and its completed value is consumed once by
+    /// its parent. The provider must also use a no-memoization reduction API.
+    pub fn try_new_without_memoization(
+        provider: P,
+        measure_family: Arc<IntegralFamily>,
+        limits: VacuumProductReductionLimits,
+    ) -> Result<Self, Error> {
+        Self::build(provider, measure_family, limits, false)
+    }
+
+    fn build(
+        provider: P,
+        measure_family: Arc<IntegralFamily>,
+        limits: VacuumProductReductionLimits,
+        memoize: bool,
+    ) -> Result<Self, Error> {
         let mut reducer = Self {
+            memoize,
             provider,
             context: measure_family.coefficient_context().clone(),
             anchor: measure_family.clone(),
@@ -77,6 +98,11 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
         }
     }
     pub fn clear_cache(&mut self) -> Result<(), Error> {
+        if !self.memoize {
+            let anchor = self.anchor.fingerprint();
+            self.families.retain(|fingerprint, _| fingerprint == anchor);
+            return Ok(());
+        }
         self.cache_budget.replace(
             self.cache
                 .len()
@@ -147,6 +173,33 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
         }
         let mut output = BTreeMap::new();
         for (factors, coefficient) in inputs {
+            if !self.memoize {
+                let mut expansion = BTreeMap::from([(Vec::new(), coefficient)]);
+                for factor in factors {
+                    let entry = self.reduce_occurrence(factor, &mut request)?;
+                    conditions.extend(&self.context, entry.conditions, self.limits)?;
+                    expansion = convolve(
+                        &self.context,
+                        &expansion,
+                        &entry.terms,
+                        self.limits,
+                        &mut request.algebra,
+                        &mut request.stats,
+                    )?;
+                }
+                for (product, coefficient) in expansion {
+                    accumulate(
+                        &self.context,
+                        &mut output,
+                        product,
+                        coefficient,
+                        self.limits,
+                        &mut request.algebra,
+                        &mut request.stats,
+                    )?;
+                }
+                continue;
+            }
             // Every surviving factor is resolved, including siblings of a
             // zero factor; unavailable provider programs never become masters.
             for factor in &factors {
@@ -365,7 +418,7 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
         Ok(())
     }
 
-    fn expand(
+    pub(super) fn expand(
         &mut self,
         target: &VacuumIntegralKey,
         request: &mut Request,
@@ -389,8 +442,7 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
             self.limits.diagnostic_limit(self.limits.max_provider_calls),
             "provider calls",
         )?;
-        let census = self.cache_budget.snapshot();
-        let remaining = crate::reduction::ReductionLimits {
+        let mut remaining = crate::reduction::ReductionLimits {
             max_rule_applications: request
                 .algebra
                 .remaining_rule_applications(self.limits.reduction.max_rule_applications),
@@ -400,23 +452,20 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
             max_pending_frames: request
                 .algebra
                 .remaining_pending_frames(self.limits.reduction.max_pending_frames),
-            max_cached_integrals: self
-                .limits
-                .reduction
-                .max_cached_integrals
-                .saturating_sub(census.integrals),
-            max_cached_coefficient_terms: self
-                .limits
-                .reduction
-                .max_cached_coefficient_terms
-                .saturating_sub(census.coefficient_terms),
-            max_cached_coefficient_bytes: self
-                .limits
-                .reduction
-                .max_cached_coefficient_bytes
-                .saturating_sub(census.coefficient_bytes),
             ..self.limits.reduction
         };
+        if self.memoize {
+            let census = self.cache_budget.snapshot();
+            remaining.max_cached_integrals = remaining
+                .max_cached_integrals
+                .saturating_sub(census.integrals);
+            remaining.max_cached_coefficient_terms = remaining
+                .max_cached_coefficient_terms
+                .saturating_sub(census.coefficient_terms);
+            remaining.max_cached_coefficient_bytes = remaining
+                .max_cached_coefficient_bytes
+                .saturating_sub(census.coefficient_bytes);
+        }
         let result = self
             .provider
             .reduce(family.clone(), target.integral(), remaining)
@@ -436,6 +485,11 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
                     }
                 }
             })?;
+        if !self.memoize && result.work.cache_hits != 0 {
+            return Err(Error::InvalidInput(
+                "no-memoization provider reported completed-result cache hits".into(),
+            ));
+        }
         request.stats.rule_applications = request
             .stats
             .rule_applications
@@ -586,7 +640,9 @@ impl<P: VacuumFactorProvider> VacuumProductReducer<P> {
                     loops = loops
                         .checked_add(child_loops)
                         .ok_or_else(|| Error::InvalidInput("product loop count overflow".into()))?;
-                    children.insert(factor.clone());
+                    if self.memoize {
+                        children.insert(factor.clone());
+                    }
                 }
                 if loops != family.loop_count() {
                     return Err(Error::InvalidInput(

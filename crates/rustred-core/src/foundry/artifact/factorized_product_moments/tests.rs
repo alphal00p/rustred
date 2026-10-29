@@ -246,6 +246,7 @@ fn dependency_root_preimages_enforce_exact_max_min_and_aggregate_boundaries() {
         K3_TIMES_K1,
         [0, 0, 1, i64::MAX - 1, 1, 1],
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 0,
             ..ReductionLimits::default()
         },
@@ -402,6 +403,7 @@ fn stabilizer_routed_product_authority_has_an_executable_orbit_image() {
         K3_TIMES_K1,
         routed,
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 0,
             ..ReductionLimits::default()
         },
@@ -419,6 +421,7 @@ fn stabilizer_routed_product_authority_has_an_executable_orbit_image() {
     let mut reducer = Reducer::with_limits(
         &artifact,
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 0,
             ..ReductionLimits::default()
         },
@@ -454,6 +457,7 @@ fn wide_valid_star_preimage_uses_checked_wide_descent_measure() {
         STAR,
         target,
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 0,
             ..ReductionLimits::default()
         },
@@ -598,6 +602,7 @@ fn angular_guards_and_product_resource_limits_are_exact() {
     assert_coefficient(guards[0].nonzero_polynomial(), "d");
 
     let corner_limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_integrals: 0,
         ..ReductionLimits::default()
     };
@@ -613,6 +618,7 @@ fn angular_guards_and_product_resource_limits_are_exact() {
     ));
 
     let coefficient_limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_coefficient_terms: 0,
         ..ReductionLimits::default()
     };
@@ -643,6 +649,7 @@ fn angular_guards_and_product_resource_limits_are_exact() {
     ));
 
     let work_limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_rule_applications: 1,
         ..ReductionLimits::default()
     };
@@ -678,6 +685,7 @@ fn angular_cache_limits_are_aggregate_and_exactly_one_below() {
     let one_weight = coefficient_cache_weight(std::iter::once(&one)).unwrap();
 
     let state_limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_integrals: seed.integrals,
         ..ReductionLimits::default()
     };
@@ -704,6 +712,7 @@ fn angular_cache_limits_are_aggregate_and_exactly_one_below() {
         .unwrap()
         - 1;
     let coefficient_limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_coefficient_terms: coefficient_limit,
         ..ReductionLimits::default()
     };
@@ -745,6 +754,7 @@ fn angular_cache_limits_are_aggregate_and_exactly_one_below() {
 #[test]
 fn pending_frames_are_aggregate_and_restore_the_caller_baseline() {
     let limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_pending_frames: 1,
         ..ReductionLimits::default()
     };
@@ -798,6 +808,7 @@ fn coalescing_limit_is_global_across_monomials_and_counts_failed_attempt() {
     );
 
     let limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_coalescing_additions: required - 1,
         ..ReductionLimits::default()
     };
@@ -826,6 +837,7 @@ fn post_angular_master_merge_obeys_the_request_wide_zero_limit() {
     let input = BTreeMap::from([(master.clone(), context.one())]);
     let mut output = BTreeMap::from([(master.clone(), context.one())]);
     let limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_coalescing_additions: 0,
         ..ReductionLimits::default()
     };
@@ -865,6 +877,7 @@ fn post_angular_master_merges_reject_the_one_beyond_limit_before_algebra() {
         (second_master.clone(), context.one()),
     ]);
     let limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_coalescing_additions: 1,
         ..ReductionLimits::default()
     };

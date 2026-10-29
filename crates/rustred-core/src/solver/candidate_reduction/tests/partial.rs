@@ -33,6 +33,43 @@ fn partial_fixture() -> CandidateReducer<1> {
 }
 
 #[test]
+fn unmemoized_partial_candidate_retains_and_cancels_unknowns_without_memo_state() {
+    let mut source = partial_fixture();
+    assert!(matches!(
+        source.reduce_unit_mass_without_memoization_guarded(&key([3]), Default::default()),
+        Err(CandidateReductionError::Uncovered { .. })
+    ));
+    assert!(source.cache.is_empty());
+    source
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    // The zero-support key also has no sector record at all; Preserve applies
+    // to that dispatch miss as well as a missing rule in a known sector.
+    for target in [key([3]), key([4]), key([0])] {
+        let mut legacy = source.fork_empty();
+        let expected = legacy
+            .reduce_unit_mass_guarded(&target, Default::default())
+            .unwrap();
+        let actual = source
+            .reduce_unit_mass_without_memoization_guarded(&target, Default::default())
+            .unwrap();
+        assert_eq!(actual.0, expected.0);
+        assert_eq!(actual.1, expected.1);
+        assert_eq!(actual.2.cache_hits(), 0);
+        assert!(source.cache.is_empty());
+    }
+    let canceled = source
+        .reduce_unit_mass_without_memoization_guarded(&key([4]), Default::default())
+        .unwrap();
+    assert!(canceled.0.is_zero());
+    assert!(canceled.0.unresolved().is_empty());
+    // No clear is required: the alternative never populated the ordinary memo.
+    source
+        .set_unresolved_policy(UnresolvedPolicy::Reject)
+        .unwrap();
+}
+
+#[test]
 fn partial_candidate_preserves_guards_back_substitution_and_cancelled_residuals() {
     let mut reducer = partial_fixture();
     assert_eq!(reducer.unresolved_policy(), UnresolvedPolicy::Reject);

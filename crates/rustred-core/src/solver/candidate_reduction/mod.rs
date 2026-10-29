@@ -23,6 +23,7 @@ mod routed;
 mod terminal_aliases;
 mod terminal_normalization;
 mod trace;
+mod unmemoized;
 
 pub use cached_program::{CandidateGuardedCacheError, CandidateUnitMassProgram};
 pub use model::{

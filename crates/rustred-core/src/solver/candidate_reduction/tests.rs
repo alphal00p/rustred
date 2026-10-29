@@ -39,6 +39,8 @@ mod terminal_aliases;
 mod terminal_weighted_audit;
 #[path = "tests/trace.rs"]
 mod trace;
+#[path = "tests/unmemoized.rs"]
+mod unmemoized;
 
 fn key<const N: usize>(powers: [i64; N]) -> IntegralKey {
     IntegralKey::try_new(powers).unwrap()

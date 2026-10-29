@@ -97,6 +97,25 @@ impl<const N: usize> CandidateUnitMassProgram<N> {
         Arc::as_ptr(&self.snapshot) as usize
     }
 
+    /// Reduce from this immutable program without consulting an outer root cache,
+    /// backing, capture sink or the snapshot's ordinary completed-result memo.
+    /// The explicit allowances remain independent of the source owner's defaults.
+    pub fn reduce_guarded_root_without_memoization(
+        &self,
+        target: &IntegralKey,
+        limits: ReductionLimits,
+    ) -> Result<
+        (
+            CandidateDecomposition,
+            Vec<crate::algebra::Coefficient>,
+            ReductionStatistics,
+        ),
+        CandidateReductionError,
+    > {
+        self.snapshot
+            .reduce_unit_mass_without_memoization_with_limits(target, limits)
+    }
+
     /// Limits are explicit and independent of the ordinary source reducer's
     /// operational defaults. One allowance covers outer roots plus the cold
     /// native session, including all retained guards; it is not an RSS bound.

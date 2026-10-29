@@ -137,6 +137,81 @@ fn ordered_saved_application_load_option_and_strategy_switch_preserve_exact_resu
 }
 
 #[test]
+fn unmemoized_saved_application_load_option_and_switch_keep_dfs_results_reusable() {
+    use rustred::reduction::ReductionStrategy;
+    let scratch = Scratch::new();
+    let original = prepared_fixture(&scratch.0.join("source"));
+    let runtime = scratch.0.join("runtime");
+    original.export_runtime(&runtime).unwrap();
+    let mut application = load_saved_application::<1>(
+        &runtime,
+        SavedApplicationOptions {
+            reduction_strategy: ReductionStrategy::DepthFirstWithoutMemoization,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        application.reduction_strategy(),
+        ReductionStrategy::DepthFirstWithoutMemoization
+    );
+    let context = application.family().coefficient_context();
+    let inputs = vec![
+        (IntegralKey::try_new([4]).unwrap(), context.integer(3)),
+        (IntegralKey::try_new([2]).unwrap(), context.integer(-2)),
+    ];
+    let expected = application
+        .reduce_linear_combination(inputs.clone())
+        .unwrap();
+    assert!(expected.unresolved().is_empty());
+    assert_eq!(expected.statistics().work.cache_hits(), 0);
+    assert!(expected.statistics().work.rule_applications() > 0);
+    assert_eq!(application.cache_statistics().cached_integrals(), 0);
+    let repeated = application
+        .reduce_linear_combination(inputs.clone())
+        .unwrap();
+    assert_eq!(repeated.terms(), expected.terms());
+    assert_eq!(repeated.nonzero_conditions(), expected.nonzero_conditions());
+    assert_eq!(
+        repeated.statistics().work.rule_applications(),
+        expected.statistics().work.rule_applications()
+    );
+
+    // Defaults retain a real completed-result cache. Switching execution mode
+    // must neither consume those records nor silently replace it with a zero
+    // cache budget that would change ordinary DFS behavior.
+    application.set_reduction_strategy(ReductionStrategy::DepthFirst);
+    let dfs = application
+        .reduce_linear_combination(inputs.clone())
+        .unwrap();
+    assert_eq!(dfs.terms(), expected.terms());
+    assert_eq!(dfs.nonzero_conditions(), expected.nonzero_conditions());
+    assert!(
+        expected.statistics().work.rule_applications() > dfs.statistics().work.rule_applications()
+    );
+    let retained = application.cache_statistics().cached_integrals();
+    assert!(retained > 0);
+    application.set_reduction_strategy(ReductionStrategy::DepthFirstWithoutMemoization);
+    let isolated = application
+        .reduce_linear_combination(inputs.clone())
+        .unwrap();
+    assert_eq!(isolated.terms(), expected.terms());
+    assert_eq!(isolated.nonzero_conditions(), expected.nonzero_conditions());
+    assert_eq!(isolated.statistics().work.cache_hits(), 0);
+    assert_eq!(
+        isolated.statistics().work.rule_applications(),
+        expected.statistics().work.rule_applications()
+    );
+    assert_eq!(application.cache_statistics().cached_integrals(), retained);
+    application.set_reduction_strategy(ReductionStrategy::DepthFirst);
+    let warm = application.reduce_linear_combination(inputs).unwrap();
+    assert_eq!(warm.terms(), expected.terms());
+    assert_eq!(warm.nonzero_conditions(), expected.nonzero_conditions());
+    assert_eq!(warm.statistics().work.rule_applications(), 0);
+    assert!(warm.statistics().work.cache_hits() > 0);
+}
+
+#[test]
 fn partial_saved_application_loads_policy_without_changing_recorded_coverage() {
     let scratch = Scratch::new();
     let original = prepared_fixture(&scratch.0.join("source"));
