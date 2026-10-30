@@ -158,7 +158,14 @@ impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
         let mut live = self.request.stats.work;
         live.merge_work(*work);
         self.request.ordered_live_work = Some(live);
-        let result = result?;
+        let mut result = result?;
+        if let CheckedExpansion::Expanded(terms) = &mut result {
+            // The checked step validated every child and retained its source
+            // conditions. Expanding a zero-sector child later would retain the
+            // same conditions and nothing else, so drop it before its weight
+            // pays for frontier multiplications and merges.
+            terms.retain(|child, _| !base.is_zero(child.key()));
+        }
         self.request.observe_activity(
             self.application,
             CandidateRoutedActivity::CoefficientCombination,

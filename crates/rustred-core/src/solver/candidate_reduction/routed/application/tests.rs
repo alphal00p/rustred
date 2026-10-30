@@ -979,6 +979,88 @@ fn ordered_canceled_transport_endpoint_keeps_its_incurred_source_condition() {
     assert!(!observed_zero);
 }
 
+#[test]
+fn ordered_zero_sector_transport_endpoint_keeps_its_guard_without_a_frontier_entry() {
+    let mut routed = weighted::<3>();
+    let programs = Arc::get_mut(&mut routed.programs).unwrap();
+    let indexed = programs.context.coefficient_context().clone();
+    let d = indexed
+        .lift(&indexed.base().parameter("d").unwrap())
+        .unwrap();
+    let condition = indexed
+        .add(
+            &d,
+            &indexed
+                .sub(&indexed.index(1).unwrap(), &indexed.index(0).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+    Arc::get_mut(&mut programs.context)
+        .unwrap()
+        .shared
+        .source_conditions = vec![
+        indexed
+            .admit_native_polynomial_result_with_limits(
+                condition.raw().numerator.clone(),
+                Default::default(),
+            )
+            .unwrap(),
+    ];
+    let c = routed.programs.context.family().coefficient_context();
+    let target = key([1, 0, -1]);
+    let zero = key([0, 0, 0]);
+    let transport = &routed.routes.values().next().unwrap().transport;
+    let mapped = transport.transport(&target, Default::default()).unwrap();
+    assert!(
+        mapped
+            .terms()
+            .iter()
+            .any(|term| term.key() == &zero && !term.coefficient().is_zero())
+    );
+    let mut application = routed.application();
+    let expected = application
+        .reduce_linear_combination([(target.clone(), c.one())])
+        .unwrap();
+    application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+    let mut observed_zero = false;
+    let mut last = None;
+    let mut callback = |event: &CandidateRoutedApplicationEnvelope<'_>| {
+        if let Some(CandidateRoutedWorkRef::Route(current)) = event.current {
+            observed_zero |= current == &zero;
+        }
+        if event.ordered.is_some() {
+            last = event.ordered;
+        }
+        Ok(CandidateRoutedObserverControl::Continue)
+    };
+    let mut observer = CandidateRoutedApplicationObserver::new(
+        CandidateRoutedObservationOptions {
+            interval: Duration::ZERO,
+            ..Default::default()
+        },
+        &mut callback,
+    );
+    let result = application
+        .reduce_linear_combination_with_observation(
+            [(target, c.one())],
+            CandidateEntryAdmission::SavedGenerationScope,
+            &mut observer,
+            None,
+        )
+        .unwrap();
+    assert_eq!(result.terms(), expected.terms());
+    // The zero-sector endpoint was validated by the checked transport, so its
+    // source condition d is retained although it never enters the frontier.
+    assert!(
+        result
+            .nonzero_conditions()
+            .contains(&c.parameter("d").unwrap())
+    );
+    assert!(!observed_zero);
+    // One Route key and three owner keys; the zero sector is never expanded.
+    assert_eq!(last.unwrap().processed_keys, 4);
+}
+
 #[cfg(feature = "capacity-dispatch")]
 #[test]
 fn padded_storage_preserves_physical_arity_and_exact_outputs() {

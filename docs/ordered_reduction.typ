@@ -48,8 +48,10 @@ termination alone.
 Saved applications process support sizes downward, draining routing before the
 owners at a given size. Within an owner, the saved local order strictly decreases.
 Proper pinches move to smaller support. Verified routing may expand a numerator
-into several weighted endpoints; all of them must enter the common canonical
-frontier. Route and Apply are distinct operational identities.
+into several weighted endpoints; all of them are validated, and every endpoint
+outside a proved zero sector enters the common canonical frontier. A zero-sector
+endpoint keeps the conditions of its validation but carries no weight, exactly as
+if it had been expanded. Route and Apply are distinct operational identities.
 
 Closed/candidate artifacts use descending-support phases when their authenticated
 order is support-primary. Other orders use one phase with their exact saved key
