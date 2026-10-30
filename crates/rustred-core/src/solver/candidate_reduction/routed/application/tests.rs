@@ -200,6 +200,7 @@ fn tadpole(limits: ReductionLimits) -> RoutedCandidateReducer<1> {
         limits,
     );
     let mut trace = RoutedCandidateLimits::default();
+    trace.diagnostics_enabled = true;
     trace.expansion.exact_algebra = limits.exact_algebra;
     RoutedCandidateReducer::try_new(owners, [], trace).unwrap()
 }
@@ -538,6 +539,7 @@ fn cooperative_cancellation_retains_only_completed_guarded_cache_and_releases_pi
             family.clone(),
             None,
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_cached_integrals: 2,
                 ..Default::default()
             },
@@ -1273,26 +1275,32 @@ fn scoped_ram_headroom_failure_keeps_the_original_typed_cause() {
 fn shared_request_and_retained_cache_limits_are_enforced() {
     for limits in [
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 1,
             ..Default::default()
         },
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_integrals: 1,
             ..Default::default()
         },
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_coefficient_terms: 1,
             ..Default::default()
         },
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_coefficient_bytes: 1,
             ..Default::default()
         },
         ReductionLimits {
+            diagnostics_enabled: true,
             max_pending_frames: 1,
             ..Default::default()
         },
         ReductionLimits {
+            diagnostics_enabled: true,
             max_coalescing_additions: 0,
             ..Default::default()
         },
@@ -1825,6 +1833,7 @@ fn factorized_weighted_routes_and_cache_limits_reuse_existing_primitives() {
         assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
     }
     let bounded = tadpole(ReductionLimits {
+        diagnostics_enabled: true,
         max_cached_coefficient_bytes: 1,
         ..Default::default()
     });

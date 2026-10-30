@@ -222,10 +222,12 @@ fn resource_limits_are_collection_wide_and_skip_without_false_equalities() {
     ];
     for limits in [
         VacuumFamilyAliasLimits {
+            diagnostics_enabled: true,
             max_families: 1,
             ..Default::default()
         },
         VacuumFamilyAliasLimits {
+            diagnostics_enabled: true,
             max_terminals: 1,
             ..Default::default()
         },
@@ -241,6 +243,7 @@ fn resource_limits_are_collection_wide_and_skip_without_false_equalities() {
     }
     for limit_kind in 0..4 {
         let mut limits = VacuumFamilyAliasLimits::default();
+        limits.diagnostics_enabled = true;
         match limit_kind {
             0 => limits.parametric.max_supports = 1,
             1 => limits.parametric.max_canonicalizations = 1,

@@ -441,6 +441,7 @@ fn request_cache_and_coalescing_budgets_reuse_existing_reduction_services() {
     for (limits, expected) in [
         (
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_rule_applications: 0,
                 ..Default::default()
             },
@@ -448,6 +449,7 @@ fn request_cache_and_coalescing_budgets_reuse_existing_reduction_services() {
         ),
         (
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_pending_frames: 0,
                 ..Default::default()
             },
@@ -455,6 +457,7 @@ fn request_cache_and_coalescing_budgets_reuse_existing_reduction_services() {
         ),
         (
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_cached_integrals: 0,
                 ..Default::default()
             },
@@ -462,6 +465,7 @@ fn request_cache_and_coalescing_budgets_reuse_existing_reduction_services() {
         ),
         (
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_coalescing_additions: 0,
                 ..Default::default()
             },

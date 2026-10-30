@@ -265,6 +265,7 @@ fn terminal_equations_include_direct_rules_at_weighted_route_endpoints() {
         programs,
         [route],
         RoutedCandidateLimits {
+            diagnostics_enabled: true,
             max_transport_calls: 0,
             ..Default::default()
         },
@@ -454,6 +455,7 @@ fn cumulative_transport_and_rule_limits_do_not_reset_between_owners_or_entries()
         initial_programs,
         [route],
         RoutedCandidateLimits {
+            diagnostics_enabled: true,
             max_transport_endpoints: 1,
             ..Default::default()
         },
@@ -488,6 +490,7 @@ fn cumulative_transport_and_rule_limits_do_not_reset_between_owners_or_entries()
             ),
         ],
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 1,
             ..Default::default()
         },
@@ -516,6 +519,7 @@ fn duplicate_input_and_distinct_initial_node_limits_are_pre_retention() {
         p.clone(),
         [],
         RoutedCandidateLimits {
+            diagnostics_enabled: true,
             max_input_targets: 3,
             max_unique_nodes: 2,
             ..Default::default()
@@ -540,6 +544,7 @@ fn duplicate_input_and_distinct_initial_node_limits_are_pre_retention() {
         p,
         [],
         RoutedCandidateLimits {
+            diagnostics_enabled: true,
             max_input_targets: 100,
             max_unique_nodes: 1,
             ..Default::default()
@@ -659,6 +664,7 @@ fn native_affine_numerator_route_expands_multiple_endpoints_and_a_strict_pinch()
         p,
         [route],
         RoutedCandidateLimits {
+            diagnostics_enabled: true,
             max_transport_operations: result.transport_operation_bound(),
             ..Default::default()
         },
@@ -685,6 +691,7 @@ fn pending_budget_late_invalid_entry_and_seen_self_edge_remain_errors() {
         None,
         vec![input([true], None, vec![], &[[1]])],
         ReductionLimits {
+            diagnostics_enabled: true,
             max_pending_frames: 1,
             ..Default::default()
         },

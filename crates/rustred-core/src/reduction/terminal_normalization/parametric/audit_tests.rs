@@ -223,6 +223,7 @@ fn preparation_limits_retain_raw_keys_instead_of_creating_partial_authority() {
     let raw = BTreeSet::from([key([1, 2, 3, 0, 0, 0]), key([2, 0, 3, 1, 0, 0])]);
     for budget in 0..6 {
         let mut limits = VacuumParametricLimits::default();
+        limits.diagnostics_enabled = true;
         match budget {
             0 => limits.max_supports = 0,
             1 => limits.max_canonicalizations = 0,

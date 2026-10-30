@@ -102,6 +102,7 @@ fn cold_warm_root_results_and_mass_authority_match_native_without_hot_revalidati
                     &key([4]),
                     &mut cache,
                     ReductionLimits {
+                        diagnostics_enabled: true,
                         max_rule_applications: 0,
                         ..Default::default()
                     },
@@ -192,6 +193,7 @@ fn readthrough_export_and_typed_prefix_failure_preserve_exact_records_and_usage(
             &key([4]),
             &mut cache,
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_rule_applications: 0,
                 ..Default::default()
             },
@@ -361,6 +363,7 @@ fn explicit_cache_limits_are_not_clipped_to_loader_defaults_and_tightening_reval
     let source = candidate::<1>(
         &crate::solver::tests::tadpole(),
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 0,
             ..Default::default()
         },
@@ -372,6 +375,7 @@ fn explicit_cache_limits_are_not_clipped_to_loader_defaults_and_tightening_reval
         .unwrap();
     let before = cache.statistics().payload_validations;
     let mut tighter = ReductionLimits::default();
+    tighter.diagnostics_enabled = true;
     tighter.exact_algebra.max_polynomial_terms = 4;
     program
         .reduce_guarded_root(&key([4]), &mut cache, tighter, None)
@@ -396,6 +400,7 @@ fn cold_pressure_evicts_completed_roots_but_never_grants_a_second_native_budget(
     let program = CandidateUnitMassProgram::new(&source, [11; 32]);
     for policy in policies() {
         let limits = ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_integrals: 4,
             ..Default::default()
         };
@@ -441,6 +446,7 @@ fn native_shared_census_drop_releases_own_share_on_success_error_and_pressure_pa
             .unwrap();
         let before = shared.snapshot();
         let limits = ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_integrals: if mode == 0 { 100 } else { 3 },
             ..Default::default()
         };

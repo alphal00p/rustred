@@ -127,6 +127,7 @@ fn computed_intermediates_have_their_own_guards_and_reuse_from_fresh_backing() {
                 &key(8),
                 &mut fresh,
                 ReductionLimits {
+                    diagnostics_enabled: true,
                     max_rule_applications: 2,
                     ..Default::default()
                 },

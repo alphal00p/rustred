@@ -14,6 +14,7 @@ fn weighted_provider_combination_keeps_precancellation_poles_and_shared_work() {
         ],
         [],
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 2,
             ..Default::default()
         },
@@ -90,6 +91,7 @@ fn weighted_provider_combination_rejects_foreign_zero_rows_and_exhausted_work() 
         [(key([3]), c.one()), (key([4]), c.one())],
         [],
         ReductionLimits {
+            diagnostics_enabled: true,
             max_rule_applications: 1,
             ..Default::default()
         },
@@ -126,6 +128,7 @@ fn weighted_provider_combination_charges_retained_coefficients_before_callback()
             [(key([1]), c.one())],
             [],
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_cached_coefficient_terms: 0,
                 ..Default::default()
             },
@@ -162,6 +165,7 @@ fn weighted_provider_guard_duplicates_are_admitted_before_retention() {
         [(key([3]), one)],
         [],
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_coefficient_terms: initial.coefficient_terms + returned.coefficient_terms,
             ..Default::default()
         },

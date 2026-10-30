@@ -125,23 +125,28 @@ fn explicit_preparation_caps_retain_raw_keys_without_false_aliases() {
     let raw = BTreeSet::from([key([1, 1, 0]), key([1, 0, 1]), key([0, 1, 1])]);
     let mut policies = vec![
         VacuumParametricLimits {
+            diagnostics_enabled: true,
             max_supports: 0,
             ..Default::default()
         },
         VacuumParametricLimits {
+            diagnostics_enabled: true,
             max_canonicalizations: 0,
             ..Default::default()
         },
         VacuumParametricLimits {
+            diagnostics_enabled: true,
             max_graph_vertices: 0,
             ..Default::default()
         },
         VacuumParametricLimits {
+            diagnostics_enabled: true,
             max_graph_edges: 0,
             ..Default::default()
         },
     ];
     let mut polynomial_budget = VacuumParametricLimits::default();
+    polynomial_budget.diagnostics_enabled = true;
     polynomial_budget.symanzik.max_polynomial_terms = 0;
     policies.push(polynomial_budget);
     for limits in policies {

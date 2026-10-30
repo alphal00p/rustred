@@ -35,6 +35,7 @@ fn empty_sessions_share_rules_but_not_cache_budgets_or_work() {
             .reduce_unit_mass_guarded(
                 &key([4]),
                 ReductionLimits {
+                    diagnostics_enabled: true,
                     max_rule_applications: 0,
                     ..Default::default()
                 },
@@ -54,6 +55,7 @@ fn explicit_new_session_limits_do_not_change_source_or_entry_admission() {
     let expected = original.reduce_unit_mass(&key([2])).unwrap();
     let before = original.statistics();
     let limits = ReductionLimits {
+        diagnostics_enabled: true,
         max_rule_applications: 0,
         ..Default::default()
     };

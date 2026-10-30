@@ -156,6 +156,7 @@ fn partial_factorized_cache_failure_preserves_weights_and_blocks_reconfiguration
     let mut owner = candidate::<3>(
         family,
         ReductionLimits {
+            diagnostics_enabled: true,
             max_cached_integrals: 1,
             ..Default::default()
         },
@@ -350,6 +351,7 @@ fn factorized_cache_term_and_byte_boundaries_fail_atomically() {
         let mut owner = candidate::<1>(
             &family,
             ReductionLimits {
+                diagnostics_enabled: true,
                 max_cached_coefficient_terms: term_limit,
                 max_cached_coefficient_bytes: byte_limit,
                 ..Default::default()
