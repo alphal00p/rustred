@@ -181,7 +181,21 @@ fn is_one(coefficient: &Coefficient) -> bool {
     coefficient.numerator.is_one() && coefficient.denominator.is_one()
 }
 
-/// `weight * coefficient`; an exact unit coefficient needs no arithmetic.
+/// Admit one adapter-supplied coefficient. Every scheduler weight is such a
+/// coefficient or the checked result of combining them, so scheduler
+/// arithmetic never rescans its operands.
+fn validated(
+    context: &CoefficientContext,
+    coefficient: &Coefficient,
+    limits: ReductionLimits,
+) -> Result<(), ReductionError> {
+    context
+        .validate_with_limits(coefficient, limits.exact_algebra)
+        .map_err(ReductionError::from)
+}
+
+/// `weight * coefficient` of validated operands; an exact unit coefficient
+/// needs no arithmetic.
 fn weighted(
     context: &CoefficientContext,
     weight: &Coefficient,
@@ -192,7 +206,7 @@ fn weighted(
         return Ok(weight.clone());
     }
     context
-        .try_mul(weight, coefficient, limits.exact_algebra)
+        .try_mul_validated(weight, coefficient, limits.exact_algebra)
         .map_err(ReductionError::from)
 }
 
@@ -235,6 +249,7 @@ fn run_inner<K: OrderedKernel>(
         if coefficient.is_zero() {
             continue;
         }
+        validated(kernel.context(), &coefficient, limits)?;
         let position = kernel.position(&key)?;
         if position.phase >= progress.total_phases {
             return Err(invariant("ordered entry phase is outside the frozen phase plan").into());
@@ -281,6 +296,7 @@ fn run_inner<K: OrderedKernel>(
                     continue;
                 }
                 progress.emitted_terms = progress.emitted_terms.saturating_add(1);
+                validated(kernel.context(), &coefficient, limits)?;
                 match frontier.pending.entry(child) {
                     Entry::Occupied(mut entry) => {
                         // A pending key keeps the position certified at entry.
@@ -300,7 +316,7 @@ fn run_inner<K: OrderedKernel>(
                         let existing = &mut entry.get_mut().weight;
                         let sum = kernel
                             .context()
-                            .try_add(existing, &contribution, limits.exact_algebra)
+                            .try_add_validated(existing, &contribution, limits.exact_algebra)
                             .map_err(ReductionError::from)?;
                         replace_monomials(
                             &mut progress.frontier_coefficient_monomials,
@@ -353,6 +369,7 @@ fn run_inner<K: OrderedKernel>(
                     .max(progress.frontier_coefficient_monomials);
             }
             for (terminal, coefficient) in checked.terminals {
+                validated(kernel.context(), &coefficient, limits)?;
                 let contribution = weighted(kernel.context(), &weight, &coefficient, limits)?;
                 if contribution.is_zero() {
                     continue;
@@ -368,7 +385,7 @@ fn run_inner<K: OrderedKernel>(
                         let existing = entry.get_mut();
                         let sum = kernel
                             .context()
-                            .try_add(existing, &contribution, limits.exact_algebra)
+                            .try_add_validated(existing, &contribution, limits.exact_algebra)
                             .map_err(ReductionError::from)?;
                         replace_monomials(
                             &mut progress.terminal_coefficient_monomials,

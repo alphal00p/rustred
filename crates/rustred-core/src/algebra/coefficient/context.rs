@@ -10,7 +10,8 @@ use super::{
     operations::{
         checked_coefficient_add_on_map, checked_coefficient_div_on_map,
         checked_coefficient_mul_on_map, checked_coefficient_neg_on_map,
-        checked_coefficient_sub_on_map, preflight_power_degrees,
+        checked_coefficient_sub_on_map, preflight_power_degrees, trusted_coefficient_add_on_map,
+        trusted_coefficient_mul_on_map,
     },
     validation::{validate_coefficient_on_map, validate_coefficient_structure_on_map},
 };
@@ -175,6 +176,19 @@ impl CoefficientContext {
         checked_coefficient_add_on_map(left, right, &self.variables, limits)
     }
 
+    /// Exact addition of coefficients that already crossed this context's
+    /// validation boundary, e.g. validated inputs or results of checked
+    /// operations in this context. Prospective limits and the native result
+    /// are still checked; neither operand is rescanned.
+    pub(crate) fn try_add_validated(
+        &self,
+        left: &Coefficient,
+        right: &Coefficient,
+        limits: ExactAlgebraLimits,
+    ) -> Result<Coefficient, ExactAlgebraError> {
+        trusted_coefficient_add_on_map(left, right, &self.variables, limits)
+    }
+
     /// Checked exact subtraction for proof-bearing code.
     pub fn try_sub(
         &self,
@@ -193,6 +207,17 @@ impl CoefficientContext {
         limits: ExactAlgebraLimits,
     ) -> Result<Coefficient, ExactAlgebraError> {
         checked_coefficient_mul_on_map(left, right, &self.variables, limits)
+    }
+
+    /// Exact multiplication of coefficients that already crossed this
+    /// context's validation boundary; see [`Self::try_add_validated`].
+    pub(crate) fn try_mul_validated(
+        &self,
+        left: &Coefficient,
+        right: &Coefficient,
+        limits: ExactAlgebraLimits,
+    ) -> Result<Coefficient, ExactAlgebraError> {
+        trusted_coefficient_mul_on_map(left, right, &self.variables, limits)
     }
 
     /// Checked exact division for proof-bearing code.
