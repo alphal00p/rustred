@@ -149,6 +149,8 @@ struct Lift {
     modulus: Integer,
     images: usize,
     candidate: Option<Coefficient>,
+    /// Normalized (monic-denominator) rational coefficients of `candidate`.
+    rationals: Option<Vec<Rational>>,
     stable: bool,
 }
 
@@ -186,6 +188,7 @@ impl Lift {
             modulus: Integer::one(),
             images: 0,
             candidate: None,
+            rationals: None,
             stable: false,
         }
     }
@@ -208,12 +211,25 @@ impl Lift {
             .map(|c| field::integer_from_fe(f, c))
             .collect();
         let prime = Integer::from(f.get_prime());
+        // A candidate built from earlier primes that also matches this image
+        // is confirmed by a prime it was not built from (no new lifting).
+        let confirmed = !reset
+            && self.candidate.is_some()
+            && self.rationals.as_ref().is_some_and(|rationals| {
+                rationals.iter().zip(&values).all(|(r, v)| {
+                    let n = field::reduce(f, r.numerator_ref());
+                    let d = field::reduce(f, r.denominator_ref());
+                    let v = field::reduce(f, v);
+                    !f.is_zero(&d) && n == f.mul(&v, &d)
+                })
+            });
         if reset {
             self.degrees = Some(degrees);
             self.residues = values;
             self.modulus = prime;
             self.images = 1;
             self.candidate = None;
+            self.rationals = None;
             self.stable = false;
         } else {
             for (residue, value) in self.residues.iter_mut().zip(values) {
@@ -227,23 +243,40 @@ impl Lift {
             self.modulus = &self.modulus * &prime;
             self.images += 1;
         }
-        let candidate = self.rational_candidate(context);
+        if confirmed {
+            self.stable = true;
+            return true;
+        }
+        let rationals = self.rational_coefficients();
+        let candidate = rationals
+            .as_ref()
+            .and_then(|r| self.rational_candidate(context, r));
         self.stable = candidate.is_some() && candidate == self.candidate && self.images >= 2;
         self.candidate = candidate;
+        self.rationals = rationals;
         true
     }
 
-    fn rational_candidate(&self, context: &CoefficientContext) -> Option<Coefficient> {
+    fn rational_coefficients(&self) -> Option<Vec<Rational>> {
+        self.residues
+            .iter()
+            .map(|residue| {
+                Rational::maximal_quotient_reconstruction(residue, &self.modulus, None).ok()
+            })
+            .collect()
+    }
+
+    fn rational_candidate(
+        &self,
+        context: &CoefficientContext,
+        rationals: &[Rational],
+    ) -> Option<Coefficient> {
         let degrees = self.degrees?;
         let Some((numerator_degree, denominator_degree)) = degrees else {
             return Some(context.zero());
         };
-        let mut rationals = Vec::with_capacity(self.residues.len() + 1);
-        for residue in &self.residues {
-            rationals.push(Rational::maximal_quotient_reconstruction(residue, &self.modulus, None).ok()?);
-        }
         let mut lcm = Integer::one();
-        for r in &rationals {
+        for r in rationals {
             lcm = lcm.lcm(r.denominator_ref());
         }
         let scale = |r: &Rational| -> Integer {
@@ -391,12 +424,11 @@ impl Driver<'_> {
     fn extend(
         &mut self,
         samples: &mut [PrimeSamples],
-        requests: &[(usize, usize)],
+        requests: &[(usize, usize, usize)],
         stats: &mut ModularStatistics,
     ) -> Result<Vec<bool>, ReductionError> {
-        let width = self.options.batch_points;
         let mut jobs = vec![];
-        for &(owner, count) in requests {
+        for &(owner, count, width) in requests {
             for _ in 0..count.div_ceil(width) {
                 let points = samples[owner].fresh_points(width);
                 jobs.push((owner, samples[owner].field.clone(), points));
@@ -448,7 +480,7 @@ pub(super) fn reconstruct(
         for _ in 0..options.verification_primes {
             let prime = driver.next_prime()?;
             let mut samples = vec![PrimeSamples::new(prime, options.seed, 0)];
-            driver.extend(&mut samples, &[(0, options.batch_points)], stats)?;
+            driver.extend(&mut samples, &[(0, options.batch_points, options.batch_points)], stats)?;
         }
         return Ok(vec![]);
     }
@@ -464,7 +496,7 @@ pub(super) fn reconstruct(
         let mut thiele: Vec<Thiele> = (0..terminals).map(|_| Thiele::new(&samples[0].field)).collect();
         let mut bad_prime = false;
         loop {
-            if driver.extend(&mut samples, &[(0, threads * width)], stats)?[0] {
+            if driver.extend(&mut samples, &[(0, threads * width, width)], stats)?[0] {
                 bad_prime = true;
                 break;
             }
@@ -512,8 +544,12 @@ pub(super) fn reconstruct(
     }
     stats.lift_seconds += lift_started.elapsed().as_secs_f64();
     stats.primes = 1;
-    let batches_per_prime = needed.div_ceil(width);
-    let primes_per_round = (threads / batches_per_prime).max(1);
+    // Later primes: fill all workers with about `batch_points` per batch.
+    let primes_per_round = ((threads * width) as f64 / needed as f64)
+        .round()
+        .clamp(1.0, threads as f64) as usize;
+    let batches_per_prime = (threads / primes_per_round).max(1);
+    let prime_width = needed.div_ceil(batches_per_prime).max(1);
     loop {
         if lifts.iter().all(|l| l.stable) {
             // Fresh primes and fresh points, never used for the lift.
@@ -521,7 +557,7 @@ pub(super) fn reconstruct(
             for _ in 0..options.verification_primes {
                 let prime = driver.next_prime()?;
                 let mut samples = vec![PrimeSamples::new(prime, seed ^ 0x7665_7269, terminals)];
-                if driver.extend(&mut samples, &[(0, width)], stats)?[0] {
+                if driver.extend(&mut samples, &[(0, width, width)], stats)?[0] {
                     stats.unlucky_images += 1;
                     continue;
                 }
@@ -562,7 +598,9 @@ pub(super) fn reconstruct(
         for _ in 0..primes_per_round {
             samples.push(PrimeSamples::new(driver.next_prime()?, seed, terminals));
         }
-        let requests: Vec<_> = (0..samples.len()).map(|i| (i, needed)).collect();
+        let requests: Vec<_> = (0..samples.len())
+            .map(|i| (i, needed, prime_width))
+            .collect();
         let bad = driver.extend(&mut samples, &requests, stats)?;
         for (index, sample) in samples.iter_mut().enumerate() {
             if bad[index] {
@@ -589,7 +627,7 @@ pub(super) fn reconstruct(
                     return Err(error("modular reconstruction exceeded the per-prime point budget"));
                 }
                 let mut single = vec![std::mem::replace(sample, PrimeSamples::new(3, 0, 0))];
-                driver.extend(&mut single, &[(0, width)], stats)?;
+                driver.extend(&mut single, &[(0, prime_width, prime_width)], stats)?;
                 *sample = single.pop().unwrap();
             }
             let lift_started = Instant::now();
