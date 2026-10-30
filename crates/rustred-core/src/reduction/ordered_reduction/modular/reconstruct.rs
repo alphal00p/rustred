@@ -13,7 +13,7 @@ use symbolica::prelude::{Integer, Rational, Z};
 
 use super::field::{self, Fe, Poly};
 use super::replay::{ReplayBatch, ReplayError, replay};
-use super::{ModularStatistics, Trace, error};
+use super::{ModularStatistics, OpTag, Trace, error};
 use crate::algebra::{Coefficient, CoefficientContext};
 use crate::reduction::ReductionError;
 use crate::reduction::ordered_reduction::arithmetic::ModularWeightOptions;
@@ -422,7 +422,11 @@ pub(super) fn reconstruct(
     stats: &mut ModularStatistics,
 ) -> Result<Vec<Coefficient>, ReductionError> {
     let terminals = slots.len();
-    if terminals == 0 {
+    let has_cancellations = trace
+        .ops
+        .iter()
+        .any(|op| matches!(op.tag(), OpTag::Cancel | OpTag::TermCancel));
+    if terminals == 0 && !has_cancellations {
         return Ok(vec![]);
     }
     let pool = rayon::ThreadPoolBuilder::new()
@@ -438,6 +442,16 @@ pub(super) fn reconstruct(
         pool,
         primes: PrimeIteratorU64::new(start),
     };
+    if terminals == 0 {
+        // Everything cancelled: certify the recorded zero erasures at a
+        // fresh prime (each replay checks every erased key at every point).
+        for _ in 0..options.verification_primes {
+            let prime = driver.next_prime()?;
+            let mut samples = vec![PrimeSamples::new(prime, options.seed, 0)];
+            driver.extend(&mut samples, &[(0, options.batch_points)], stats)?;
+        }
+        return Ok(vec![]);
+    }
     let checks = options.verification_points;
     let seed = options.seed;
     let threads = options.threads;

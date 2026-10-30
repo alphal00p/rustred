@@ -217,6 +217,7 @@ fn reduction_error_kind(error: &ReductionError) -> AppErrorKind {
         | ReductionError::ZeroCommonMass
         | ReductionError::IntegralKey(IntegralKeyError::EmptyPowers) => AppErrorKind::Input,
         ReductionError::UncoveredIntegral { .. }
+        | ReductionError::ModularWeights { .. }
         | ReductionError::MissingCommonMassHomogeneityProof
         | ReductionError::IndexedAlgebra(IndexedAlgebraError::Symbolica(_)) => {
             AppErrorKind::Execution
