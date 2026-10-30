@@ -6,7 +6,10 @@ use crate::family::{AffineDenominator, IntegralFamily, IntegralKey};
 use crate::sector::Mask;
 use crate::sector::symmetry::{CoefficientMatrix, Limits, MomentumMap, verify};
 
-use super::{Error, ExpansionError, ExpansionLimits, Prepared, compile};
+use super::{
+    AffineConstants, Error, ExpansionError, ExpansionLimits, Prepared, compile,
+    compile_with_affine_constants,
+};
 
 #[path = "trace_support_tests.rs"]
 mod trace_support_tests;
@@ -644,4 +647,117 @@ fn verified_denominator_identity_does_not_authorize_a_dimension_shift() {
         ),
         Err(Error::DimensionMismatch)
     ));
+}
+
+#[test]
+fn parameter_dependent_inactive_constant_is_transported_exactly() {
+    // D2_source = a + k1.k2 = D2_target + a: a deformed constant of an
+    // inactive numerator row, as produced by an eta-deformed line.
+    let (_, target) = fixture();
+    let context = target.coefficient_context();
+    let deformed = family("deformed_constant", context, ["a", "0", "1", "0"], false);
+    let map = Arc::new(
+        verify(
+            &deformed,
+            &target,
+            momentum(context, ["1", "0", "0", "1"]),
+            Default::default(),
+        )
+        .unwrap(),
+    );
+    let root = Mask::try_new([true, true, false]).unwrap();
+    // The strict default keeps its rational-constant contract.
+    assert_eq!(
+        compile(
+            &deformed,
+            target.clone(),
+            map.clone(),
+            root.clone(),
+            root.clone(),
+            Default::default(),
+        )
+        .unwrap_err(),
+        Error::NonconstantCoefficient {
+            row: 2,
+            column: None
+        }
+    );
+    let prepared = compile_with_affine_constants(
+        &deformed,
+        target.clone(),
+        map,
+        root.clone(),
+        root,
+        Default::default(),
+        AffineConstants::Parametric,
+    )
+    .unwrap();
+    assert!(prepared.has_parametric_constants());
+    // The native-Q trace-support lane refuses it before doing any work.
+    assert_eq!(
+        prepared
+            .transport_support_with_usage(&key([1, 1, -2]), Default::default(), |_| {
+                panic!("no work may be reserved")
+            })
+            .err(),
+        Some(Error::ParametricConstantSupport)
+    );
+    let a = context.parameter("a").unwrap();
+    let limits = crate::algebra::ExactAlgebraLimits::default();
+    // (a + D2)^2 = a^2 + 2 a D2 + D2^2.
+    assert_eq!(
+        terms(&prepared, [1, 1, -2]),
+        BTreeMap::from([
+            (key([1, 1, 0]), context.try_mul(&a, &a, limits).unwrap()),
+            (
+                key([1, 1, -1]),
+                context.try_mul(&context.integer(2), &a, limits).unwrap()
+            ),
+            (key([1, 1, -2]), context.one()),
+        ])
+    );
+    // Numerator-free keys need no expansion at all.
+    assert_eq!(
+        terms(&prepared, [3, 1, 0]),
+        BTreeMap::from([(key([3, 1, 0]), context.one())])
+    );
+}
+
+#[test]
+fn opting_in_changes_nothing_for_rational_constant_maps() {
+    let (source, target) = fixture();
+    let map = Arc::new(
+        verify(
+            &source,
+            &target,
+            momentum(source.coefficient_context(), ["1", "0", "0", "1"]),
+            Limits::default(),
+        )
+        .unwrap(),
+    );
+    let root = Mask::try_new([true, true, false]).unwrap();
+    let strict = compile(
+        &source,
+        target.clone(),
+        map.clone(),
+        root.clone(),
+        root.clone(),
+        ExpansionLimits::default(),
+    )
+    .unwrap();
+    let opted = compile_with_affine_constants(
+        &source,
+        target,
+        map,
+        root.clone(),
+        root,
+        ExpansionLimits::default(),
+        AffineConstants::Parametric,
+    )
+    .unwrap();
+    assert!(!strict.has_parametric_constants());
+    assert!(!opted.has_parametric_constants());
+    for powers in [[1, 1, 0], [2, 1, -3], [1, 3, -1]] {
+        assert_eq!(terms(&strict, powers), terms(&opted, powers));
+    }
 }

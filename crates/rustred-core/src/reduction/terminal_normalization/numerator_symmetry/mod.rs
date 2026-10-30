@@ -291,8 +291,10 @@ fn equation(
             terms.insert(endpoint.key().clone(), coefficient);
         }
     }
-    // integral_transport::compile admits only unconditional rational constant
-    // maps, retaining no hidden generic guard or missing measure factor.
+    // integral_transport::compile (the strict default, not the parametric
+    // opt-in) admits only unconditional maps with rational linear
+    // coefficients and rational affine constants, retaining no hidden generic
+    // guard or missing measure factor.
     Ok(TerminalEquation {
         terms,
         nonzero_conditions: Vec::new(),

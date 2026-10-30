@@ -678,6 +678,132 @@ fn native_affine_numerator_route_expands_multiple_endpoints_and_a_strict_pinch()
 }
 
 #[test]
+fn eta_deformed_parametric_route_is_refused_at_admission() {
+    use crate::algebra::{CoefficientContext, ExactAlgebraLimits};
+    use crate::family::AffineDenominator;
+    // Sunrise lines k1, k2, k1 + k2 with the third line deformed to
+    // (k1 + k2)^2 - 1 - eta. Under k1 -> k2, k2 -> k1 + k2 the inactive
+    // deformed line becomes -D0 + 2 D1 + 2 D2 + 2 + eta and the unit line
+    // D1 becomes D2 + eta: parametric affine constants.
+    let context = CoefficientContext::new(["d", "eta"]);
+    let eta = context.parameter("eta").unwrap();
+    let line = |coefficients: [i64; 3], deformed: bool| {
+        let mut constant = context.integer(-1);
+        if deformed {
+            constant = context
+                .try_sub(&constant, &eta, ExactAlgebraLimits::default())
+                .unwrap();
+        }
+        AffineDenominator::new(constant, coefficients.map(|x| context.integer(x)).to_vec())
+    };
+    let family = Arc::new(
+        IntegralFamily::new(
+            "routed-eta-sunrise",
+            vec!["k0".into(), "k1".into()],
+            Vec::new(),
+            context.clone(),
+            context.parameter("d").unwrap(),
+            vec![
+                line([1, 0, 0], false),
+                line([0, 0, 1], false),
+                line([1, 2, 1], true),
+            ],
+            Vec::new(),
+            vec![context.zero(); 3],
+        )
+        .unwrap(),
+    );
+    let c = family.coefficient_context();
+    let map = Arc::new(
+        symmetry::verify(
+            &family,
+            &family,
+            MomentumMap::new(
+                CoefficientMatrix::try_new(2, 2, [c.zero(), c.one(), c.one(), c.one()]).unwrap(),
+                CoefficientMatrix::try_new(2, 0, []).unwrap(),
+                CoefficientMatrix::try_new(0, 0, []).unwrap(),
+            ),
+            Default::default(),
+        )
+        .unwrap(),
+    );
+    let source = Mask::try_new([true, false, false]).unwrap();
+    let target = Mask::try_new([false, true, false]).unwrap();
+    // The strict default compiler keeps refusing the map.
+    assert!(matches!(
+        integral_transport::compile(
+            &family,
+            family.clone(),
+            map.clone(),
+            source.clone(),
+            target.clone(),
+            Default::default(),
+        ),
+        Err(integral_transport::Error::NonconstantCoefficient {
+            row: 1,
+            column: None
+        })
+    ));
+    let transport = Arc::new(
+        integral_transport::compile_with_affine_constants(
+            &family,
+            family.clone(),
+            map,
+            source,
+            target.clone(),
+            Default::default(),
+            integral_transport::AffineConstants::Parametric,
+        )
+        .unwrap(),
+    );
+    assert!(transport.has_parametric_constants());
+    // Exact transport substitutes the constant: (2 + eta) appears.
+    let expanded = transport
+        .transport(&key([1, 0, -1]), Default::default())
+        .unwrap();
+    let two_plus_eta = c
+        .try_add(&c.integer(2), &eta, ExactAlgebraLimits::default())
+        .unwrap();
+    assert!(expanded.terms().iter().any(
+        |endpoint| endpoint.key() == &key([0, 1, 0]) && endpoint.coefficient() == &two_plus_eta
+    ));
+    // Its native-Q trace support, which routed traversal uses, is refused...
+    assert_eq!(
+        transport
+            .transport_support_with_usage(&key([1, 0, -1]), Default::default(), |_| Ok(()))
+            .err(),
+        Some(integral_transport::Error::ParametricConstantSupport)
+    );
+    // ...and the routed reducer refuses the route at admission, before any
+    // traversal. Candidate owner programs admit unit-mass `d`-only families,
+    // so the owner programs here live on the undeformed sunrise.
+    let p = programs(
+        Arc::new(crate::solver::tests::sunset()),
+        Some(10),
+        vec![input(
+            [false, true, false],
+            Some(10),
+            vec![],
+            &[[0, 1, 0], [-1, 1, 0], [0, 1, -1]],
+        )],
+        Default::default(),
+    );
+    let error = RoutedCandidateReducer::try_new(
+        p,
+        [CandidateOwnerRoute {
+            owner_sector: target,
+            transport,
+        }],
+        Default::default(),
+    )
+    .expect_err("parametric route must be refused");
+    assert!(matches!(
+        error,
+        CandidateRoutedError::Transport(integral_transport::Error::ParametricConstantSupport)
+    ));
+}
+
+#[test]
 fn pending_budget_late_invalid_entry_and_seen_self_edge_remain_errors() {
     let family = Arc::new(crate::solver::tests::tadpole());
     let p = programs(

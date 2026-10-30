@@ -376,11 +376,12 @@ impl IndexedCoefficientContext {
             .numerator
             .zero_with_capacity(source.coefficients.len());
         let mut exponents = vec![0_u16; self.variables.len()];
-        for (coefficient, source_exponents) in
-            source.coefficients.iter().zip(source.exponents_iter())
-        {
+        // Index by term: a parameter-free base context (rational dimension
+        // and deformation) has zero variables, and native `exponents_iter`
+        // chunks by the variable count, which panics for width zero.
+        for (term, coefficient) in source.coefficients.iter().enumerate() {
             exponents.fill(0);
-            exponents[..self.base.variables().len()].copy_from_slice(source_exponents);
+            exponents[..self.base.variables().len()].copy_from_slice(source.exponents(term));
             result.append_monomial(coefficient.clone(), &exponents);
         }
         result

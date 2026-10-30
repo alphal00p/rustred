@@ -149,6 +149,11 @@ impl Analyzer {
         })
     }
 
+    /// Fingerprint of the family this analyzer was built for.
+    pub fn family_fingerprint(&self) -> &str {
+        &self.family_fingerprint
+    }
+
     /// Generic coefficient locus required by family construction and formal
     /// power-shift support.
     pub fn domain(&self) -> &Domain {

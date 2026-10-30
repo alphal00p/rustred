@@ -23,6 +23,17 @@ pub enum ProductSkipReason {
     ParametricPreparationLimit,
 }
 
+impl From<crate::sector::symmetry::LineGeometrySkip> for ProductSkipReason {
+    fn from(reason: crate::sector::symmetry::LineGeometrySkip) -> Self {
+        use crate::sector::symmetry::LineGeometrySkip;
+        match reason {
+            LineGeometrySkip::ExternalMomenta => Self::ExternalMomenta,
+            LineGeometrySkip::NonIntegerQuadratic => Self::NonIntegerQuadratic,
+            LineGeometrySkip::NotLinearSquare => Self::NotLinearSquare,
+        }
+    }
+}
+
 /// Preparation diagnostics; no count denotes an independent-master census.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TerminalAliasStatistics {
