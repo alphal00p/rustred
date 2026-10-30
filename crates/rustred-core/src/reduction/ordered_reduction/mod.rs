@@ -4,7 +4,9 @@
 //! existing checked mathematical operations and supply a certified descending
 //! position; this module only schedules and combines their weighted results.
 use std::cmp::Reverse;
-use std::collections::BTreeMap;
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, BTreeSet, HashMap, btree_map};
+use std::hash::Hash;
 
 use crate::algebra::{Coefficient, CoefficientContext};
 use crate::family::IntegralKey;
@@ -39,7 +41,7 @@ impl<K> Default for OrderedStep<K> {
 }
 
 pub(crate) trait OrderedKernel {
-    type Key: Clone + Ord;
+    type Key: Clone + Ord + Hash;
     type Priority: Clone + Ord;
     type Error: From<ReductionError>;
 
@@ -106,6 +108,94 @@ fn replace_monomials(total: &mut usize, old: usize, new: usize) -> Result<(), Re
     Ok(())
 }
 
+/// A frontier weight with the certified position computed when its key
+/// entered the frontier.
+struct Pending<P> {
+    position: OrderedPosition<P>,
+    weight: Coefficient,
+}
+
+/// Pending weights indexed by key, together with their execution order.
+///
+/// A merge into a pending key reuses the stored position, so it needs neither
+/// `position` nor an ordered-tree descent. An exact cancellation removes only
+/// the weight; its order entry stays behind and is discarded when reached. If
+/// the key returns before then, the equal order entry is reused.
+struct Frontier<K, P> {
+    pending: HashMap<K, Pending<P>>,
+    order: BTreeSet<Scheduled<K, P>>,
+}
+
+impl<K: Clone + Ord + Hash, P: Clone + Ord> Frontier<K, P> {
+    fn new() -> Self {
+        Self {
+            pending: HashMap::new(),
+            order: BTreeSet::new(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.pending.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+
+    /// Pop the greatest pending key of `phase`, discarding cancelled entries.
+    fn pop_in_phase(&mut self, phase: usize) -> Option<(Scheduled<K, P>, Coefficient)> {
+        while self
+            .order
+            .last()
+            .is_some_and(|scheduled| scheduled.phase.0 == phase)
+        {
+            let scheduled = self.order.pop_last().expect("nonempty checked frontier");
+            if let Some(pending) = self.pending.remove(&scheduled.key) {
+                return Some((scheduled, pending.weight));
+            }
+        }
+        None
+    }
+}
+
+/// Children must enter a later phase, or the current phase strictly below
+/// their parent.
+fn check_descent<P: Ord>(
+    position: &OrderedPosition<P>,
+    phase: usize,
+    parent: &P,
+    total_phases: usize,
+) -> Result<(), ReductionError> {
+    if position.phase >= total_phases
+        || position.phase < phase
+        || (position.phase == phase && position.priority >= *parent)
+    {
+        return Err(invariant(
+            "ordered checked action does not strictly decrease its certified position",
+        ));
+    }
+    Ok(())
+}
+
+fn is_one(coefficient: &Coefficient) -> bool {
+    coefficient.numerator.is_one() && coefficient.denominator.is_one()
+}
+
+/// `weight * coefficient`; an exact unit coefficient needs no arithmetic.
+fn weighted(
+    context: &CoefficientContext,
+    weight: &Coefficient,
+    coefficient: &Coefficient,
+    limits: ReductionLimits,
+) -> Result<Coefficient, ReductionError> {
+    if is_one(coefficient) {
+        return Ok(weight.clone());
+    }
+    context
+        .try_mul(weight, coefficient, limits.exact_algebra)
+        .map_err(ReductionError::from)
+}
+
 /// Run one request. Adapters must validate every original input, including zero
 /// weights and canceled duplicates, before constructing `initial`.
 pub(crate) fn run<K: OrderedKernel>(
@@ -134,7 +224,7 @@ fn run_inner<K: OrderedKernel>(
     for condition in &initial_conditions {
         guards.intern(&mut nonzero_conditions, condition, |_| Ok(()))?;
     }
-    let mut frontier = BTreeMap::new();
+    let mut frontier = Frontier::new();
     let mut output = BTreeMap::new();
     let mut progress = CandidateOrderedReductionProgress {
         total_phases: kernel.phase_count(),
@@ -155,13 +245,17 @@ fn run_inner<K: OrderedKernel>(
             0,
             coefficient_monomials(&coefficient)?,
         )?;
-        frontier.insert(
-            Scheduled {
-                phase: Reverse(position.phase),
-                priority: position.priority,
-                key,
+        frontier.order.insert(Scheduled {
+            phase: Reverse(position.phase),
+            priority: position.priority.clone(),
+            key: key.clone(),
+        });
+        frontier.pending.insert(
+            key,
+            Pending {
+                position,
+                weight: coefficient,
             },
-            coefficient,
         );
     }
     progress.frontier_keys = frontier.len();
@@ -169,11 +263,7 @@ fn run_inner<K: OrderedKernel>(
     progress.peak_frontier_coefficient_monomials = progress.frontier_coefficient_monomials;
     kernel.observe(&progress, None)?;
     for phase in 0..progress.total_phases {
-        while frontier
-            .last_key_value()
-            .is_some_and(|(node, _)| node.phase.0 == phase)
-        {
-            let (node, weight) = frontier.pop_last().expect("nonempty checked frontier");
+        while let Some((node, weight)) = frontier.pop_in_phase(phase) {
             request.release_pending_frame()?;
             replace_monomials(
                 &mut progress.frontier_coefficient_monomials,
@@ -191,110 +281,121 @@ fn run_inner<K: OrderedKernel>(
                     continue;
                 }
                 progress.emitted_terms = progress.emitted_terms.saturating_add(1);
-                let position = kernel.position(&child)?;
-                if position.phase >= progress.total_phases
-                    || position.phase < phase
-                    || (position.phase == phase && position.priority >= node.priority)
-                {
-                    return Err(invariant(
-                        "ordered checked action does not strictly decrease its certified position",
-                    )
-                    .into());
-                }
-                let contribution = kernel
-                    .context()
-                    .try_mul(&weight, &coefficient, limits.exact_algebra)
-                    .map_err(ReductionError::from)?;
-                let scheduled = Scheduled {
-                    phase: Reverse(position.phase),
-                    priority: position.priority,
-                    key: child,
-                };
-                if let Some(existing) = frontier.get_mut(&scheduled) {
-                    work.record_coalescing_additions(1);
-                    request.record_coalescing_additions(
-                        1,
-                        limits.diagnostic_limit(limits.max_coalescing_additions),
-                    )?;
-                    let sum = kernel
-                        .context()
-                        .try_add(existing, &contribution, limits.exact_algebra)
-                        .map_err(ReductionError::from)?;
-                    replace_monomials(
-                        &mut progress.frontier_coefficient_monomials,
-                        coefficient_monomials(existing)?,
+                match frontier.pending.entry(child) {
+                    Entry::Occupied(mut entry) => {
+                        // A pending key keeps the position certified at entry.
+                        check_descent(
+                            &entry.get().position,
+                            phase,
+                            &node.priority,
+                            progress.total_phases,
+                        )?;
+                        let contribution =
+                            weighted(kernel.context(), &weight, &coefficient, limits)?;
+                        work.record_coalescing_additions(1);
+                        request.record_coalescing_additions(
+                            1,
+                            limits.diagnostic_limit(limits.max_coalescing_additions),
+                        )?;
+                        let existing = &mut entry.get_mut().weight;
+                        let sum = kernel
+                            .context()
+                            .try_add(existing, &contribution, limits.exact_algebra)
+                            .map_err(ReductionError::from)?;
+                        replace_monomials(
+                            &mut progress.frontier_coefficient_monomials,
+                            coefficient_monomials(existing)?,
+                            if sum.is_zero() {
+                                0
+                            } else {
+                                coefficient_monomials(&sum)?
+                            },
+                        )?;
                         if sum.is_zero() {
-                            0
+                            entry.remove();
+                            request.release_pending_frame()?;
+                            progress.cancelled_terms = progress.cancelled_terms.saturating_add(1);
                         } else {
-                            coefficient_monomials(&sum)?
-                        },
-                    )?;
-                    if sum.is_zero() {
-                        frontier.remove(&scheduled);
-                        request.release_pending_frame()?;
-                        progress.cancelled_terms = progress.cancelled_terms.saturating_add(1);
-                    } else {
-                        *existing = sum;
-                        progress.merged_terms = progress.merged_terms.saturating_add(1);
+                            *existing = sum;
+                            progress.merged_terms = progress.merged_terms.saturating_add(1);
+                        }
                     }
-                } else if !contribution.is_zero() {
-                    request
-                        .retain_pending_frame(limits.diagnostic_limit(limits.max_pending_frames))?;
-                    replace_monomials(
-                        &mut progress.frontier_coefficient_monomials,
-                        0,
-                        coefficient_monomials(&contribution)?,
-                    )?;
-                    frontier.insert(scheduled, contribution);
-                    progress.peak_frontier_keys = progress.peak_frontier_keys.max(frontier.len());
+                    Entry::Vacant(entry) => {
+                        let position = kernel.position(entry.key())?;
+                        check_descent(&position, phase, &node.priority, progress.total_phases)?;
+                        let contribution =
+                            weighted(kernel.context(), &weight, &coefficient, limits)?;
+                        if !contribution.is_zero() {
+                            request.retain_pending_frame(
+                                limits.diagnostic_limit(limits.max_pending_frames),
+                            )?;
+                            replace_monomials(
+                                &mut progress.frontier_coefficient_monomials,
+                                0,
+                                coefficient_monomials(&contribution)?,
+                            )?;
+                            frontier.order.insert(Scheduled {
+                                phase: Reverse(position.phase),
+                                priority: position.priority.clone(),
+                                key: entry.key().clone(),
+                            });
+                            entry.insert(Pending {
+                                position,
+                                weight: contribution,
+                            });
+                            progress.peak_frontier_keys =
+                                progress.peak_frontier_keys.max(frontier.pending.len());
+                        }
+                    }
                 }
                 progress.peak_frontier_coefficient_monomials = progress
                     .peak_frontier_coefficient_monomials
                     .max(progress.frontier_coefficient_monomials);
             }
             for (terminal, coefficient) in checked.terminals {
-                let contribution = kernel
-                    .context()
-                    .try_mul(&weight, &coefficient, limits.exact_algebra)
-                    .map_err(ReductionError::from)?;
+                let contribution = weighted(kernel.context(), &weight, &coefficient, limits)?;
                 if contribution.is_zero() {
                     continue;
                 }
                 progress.emitted_terms = progress.emitted_terms.saturating_add(1);
-                if let Some(existing) = output.get_mut(&terminal) {
-                    work.record_coalescing_additions(1);
-                    request.record_coalescing_additions(
-                        1,
-                        limits.diagnostic_limit(limits.max_coalescing_additions),
-                    )?;
-                    let sum = kernel
-                        .context()
-                        .try_add(existing, &contribution, limits.exact_algebra)
-                        .map_err(ReductionError::from)?;
-                    replace_monomials(
-                        &mut progress.terminal_coefficient_monomials,
-                        coefficient_monomials(existing)?,
+                match output.entry(terminal) {
+                    btree_map::Entry::Occupied(mut entry) => {
+                        work.record_coalescing_additions(1);
+                        request.record_coalescing_additions(
+                            1,
+                            limits.diagnostic_limit(limits.max_coalescing_additions),
+                        )?;
+                        let existing = entry.get_mut();
+                        let sum = kernel
+                            .context()
+                            .try_add(existing, &contribution, limits.exact_algebra)
+                            .map_err(ReductionError::from)?;
+                        replace_monomials(
+                            &mut progress.terminal_coefficient_monomials,
+                            coefficient_monomials(existing)?,
+                            if sum.is_zero() {
+                                0
+                            } else {
+                                coefficient_monomials(&sum)?
+                            },
+                        )?;
                         if sum.is_zero() {
-                            0
+                            entry.remove();
+                            progress.terminal_cancellations =
+                                progress.terminal_cancellations.saturating_add(1);
                         } else {
-                            coefficient_monomials(&sum)?
-                        },
-                    )?;
-                    if sum.is_zero() {
-                        output.remove(&terminal);
-                        progress.terminal_cancellations =
-                            progress.terminal_cancellations.saturating_add(1);
-                    } else {
-                        *existing = sum;
-                        progress.terminal_merges = progress.terminal_merges.saturating_add(1);
+                            *existing = sum;
+                            progress.terminal_merges = progress.terminal_merges.saturating_add(1);
+                        }
                     }
-                } else {
-                    replace_monomials(
-                        &mut progress.terminal_coefficient_monomials,
-                        0,
-                        coefficient_monomials(&contribution)?,
-                    )?;
-                    output.insert(terminal, contribution);
+                    btree_map::Entry::Vacant(entry) => {
+                        replace_monomials(
+                            &mut progress.terminal_coefficient_monomials,
+                            0,
+                            coefficient_monomials(&contribution)?,
+                        )?;
+                        entry.insert(contribution);
+                    }
                 }
                 progress.peak_terminal_coefficient_monomials = progress
                     .peak_terminal_coefficient_monomials
@@ -307,8 +408,9 @@ fn run_inner<K: OrderedKernel>(
             kernel.observe(&progress, Some(&node.key))?;
         }
         if frontier
-            .last_key_value()
-            .is_some_and(|(node, _)| node.phase.0 < phase)
+            .order
+            .last()
+            .is_some_and(|node| node.phase.0 < phase)
         {
             return Err(invariant("ordered phase was regenerated after completion").into());
         }

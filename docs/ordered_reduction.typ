@@ -1,9 +1,11 @@
 = Ordered weighted reduction
 
 The opt-in ordered scheduler applies the existing authenticated programs to a
-global weighted frontier. It uses exact coefficients and BTreeMap storage; it
-does not generate identities, change dispatch priority, rewrite artifacts, or
-import a depth-first completed-result cache. Loop count is data rather than a
+global weighted frontier. It uses exact coefficients; pending weights are indexed
+by key and executed in BTreeSet order of their certified position, so a merge into
+a pending key reuses that position. It does not generate identities, change
+dispatch priority, rewrite artifacts, or import a depth-first completed-result
+cache. Loop count is data rather than a
 scheduler specialization.
 
 == Selection and shared semantics

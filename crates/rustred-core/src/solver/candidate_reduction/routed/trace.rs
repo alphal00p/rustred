@@ -9,7 +9,7 @@ use crate::family::IntegralKey;
 use crate::reduction::{ReductionRequest, ReductionStatistics};
 use crate::sector::symmetry::integral_transport::ExpansionError;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(super) enum Node<const N: usize> {
     Route(IntegralKey),
     Apply([bool; N], IntegralKey),
