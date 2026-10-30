@@ -1,7 +1,10 @@
 //! Saved owner/route adapter for the generic weighted-frontier engine.
 use super::*;
 use crate::algebra::CoefficientContext;
-use crate::reduction::ordered_reduction::{self, OrderedKernel, OrderedPosition, OrderedStep};
+use crate::reduction::ordered_reduction::{
+    self, OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor, OrderedPhaseEvent,
+    OrderedPosition, OrderedStep,
+};
 use crate::reduction::{ReductionLimits, ReductionStrategy};
 use crate::sector::{ComplexityKey, OrderingPolicy};
 use crate::solver::{CandidateOrderedPhaseKind, CandidateOrderedReductionProgress};
@@ -226,6 +229,35 @@ impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
         let mut live = self.request.stats.work;
         live.merge_work(work);
         self.request.ordered_live_work = Some(live);
+    }
+
+    fn key_view(node: &Node<N>) -> Option<(OrderedKeyStage<'_>, &IntegralKey)> {
+        Some(match node {
+            Node::Route(key) => (OrderedKeyStage::Route, key),
+            Node::Apply(owner, key) => (
+                OrderedKeyStage::Apply {
+                    owner_sector: owner,
+                },
+                key,
+            ),
+        })
+    }
+
+    fn inspect_phase(&mut self, event: OrderedPhaseEvent<'_>) -> Result<(), Self::Error> {
+        let Some(inspector) = self.request.ordered_inspector.as_deref_mut() else {
+            return Ok(());
+        };
+        let phase = &self.phases[event.phase];
+        inspector(&event.with_descriptor(OrderedPhaseDescriptor {
+            kind: if phase.owner.is_some() {
+                CandidateOrderedPhaseKind::Reduction
+            } else {
+                CandidateOrderedPhaseKind::Routing
+            },
+            support: Some(phase.support),
+            owner_index: phase.owner_index,
+            owner_sector: phase.owner.as_ref().map(|owner| owner.as_slice()),
+        }))
     }
 }
 

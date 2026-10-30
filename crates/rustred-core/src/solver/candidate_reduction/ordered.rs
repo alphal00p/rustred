@@ -6,7 +6,10 @@ use super::{CandidateReducer, CandidateReductionError, UnresolvedPolicy};
 use crate::algebra::{Coefficient, CoefficientContext};
 use crate::family::IntegralKey;
 use crate::reduction::guard_union::GuardIndex;
-use crate::reduction::ordered_reduction::{self, OrderedKernel, OrderedPosition, OrderedStep};
+use crate::reduction::ordered_reduction::{
+    self, OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor, OrderedPhaseEvent,
+    OrderedPhaseInspector, OrderedPosition, OrderedStep,
+};
 use crate::reduction::{
     ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics,
     accumulate_master_in_request,
@@ -58,6 +61,7 @@ struct Kernel<'a, 'observer, const N: usize> {
     reducer: &'a CandidateReducer<N>,
     support_phases: bool,
     observer: Option<&'observer mut Observer<'observer>>,
+    inspector: Option<&'observer mut OrderedPhaseInspector<'observer, CandidateReductionError>>,
 }
 impl<const N: usize> OrderedKernel for Kernel<'_, '_, N> {
     type Key = IntegralKey;
@@ -170,6 +174,23 @@ impl<const N: usize> OrderedKernel for Kernel<'_, '_, N> {
         }
         Ok(())
     }
+    fn key_view(key: &IntegralKey) -> Option<(OrderedKeyStage<'_>, &IntegralKey)> {
+        Some((OrderedKeyStage::Integral, key))
+    }
+    fn inspect_phase(&mut self, event: OrderedPhaseEvent<'_>) -> Result<(), Self::Error> {
+        let Some(inspector) = self.inspector.as_deref_mut() else {
+            return Ok(());
+        };
+        inspector(
+            &event.with_descriptor(OrderedPhaseDescriptor {
+                kind: CandidateOrderedPhaseKind::Reduction,
+                support: self
+                    .support_phases
+                    .then(|| self.reducer.physical_arity() - event.phase),
+                ..Default::default()
+            }),
+        )
+    }
 }
 
 impl<const N: usize> CandidateReducer<N> {
@@ -179,7 +200,7 @@ impl<const N: usize> CandidateReducer<N> {
         &self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
     ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
-        self.reduce_ordered_impl(terms, None)
+        self.reduce_ordered_impl(terms, None, None)
     }
 
     pub fn reduce_linear_combination_ordered_with_observation<'observer>(
@@ -187,13 +208,24 @@ impl<const N: usize> CandidateReducer<N> {
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         observer: &'observer mut Observer<'observer>,
     ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
-        self.reduce_ordered_impl(terms, Some(observer))
+        self.reduce_ordered_impl(terms, Some(observer), None)
+    }
+
+    /// Inspect both boundaries of every frozen phase. Inspection borrows the
+    /// exact scheduler state; an inspector error stops this request only.
+    pub fn reduce_linear_combination_ordered_with_inspector<'observer>(
+        &self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        inspector: &'observer mut OrderedPhaseInspector<'observer, CandidateReductionError>,
+    ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
+        self.reduce_ordered_impl(terms, None, Some(inspector))
     }
 
     fn reduce_ordered_impl<'observer>(
         &self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         observer: Option<&'observer mut Observer<'observer>>,
+        inspector: Option<&'observer mut OrderedPhaseInspector<'observer, CandidateReductionError>>,
     ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
         let mut request = ReductionRequest::default();
         let mut initial_work = ReductionStatistics::default();
@@ -234,6 +266,7 @@ impl<const N: usize> CandidateReducer<N> {
                 reducer: self,
                 support_phases,
                 observer,
+                inspector,
             },
             &mut request,
             initial,
@@ -335,6 +368,60 @@ mod tests {
         assert!(result.unresolved().is_empty());
         assert_eq!(result.statistics().rule_applications(), 2);
         assert_eq!(result.progress().cancelled_terms, 2);
+    }
+
+    #[test]
+    fn ordered_phase_inspection_sees_exact_state_and_stops_with_its_error() {
+        use crate::reduction::{OrderedKeyStage, OrderedPhaseBoundary};
+        let reducer = fixture();
+        let context = reducer.program.context.base().clone();
+        let inputs = [(key([3]), context.one()), (key([2]), context.integer(3))];
+        let expected = reducer
+            .reduce_linear_combination_ordered(inputs.clone())
+            .unwrap();
+        let mut boundaries = Vec::new();
+        let mut first_frontier = Vec::new();
+        let mut final_terminals = BTreeMap::new();
+        let actual = reducer
+            .reduce_linear_combination_ordered_with_inspector(inputs.clone(), &mut |event| {
+                boundaries.push((event.boundary, event.phase, event.progress.completed_phases));
+                if boundaries.len() == 1 {
+                    first_frontier = event
+                        .frontier()
+                        .map(|entry| {
+                            assert_eq!(entry.stage, OrderedKeyStage::Integral);
+                            (entry.integral.clone(), entry.weight.clone())
+                        })
+                        .collect();
+                }
+                final_terminals = event.terminals().clone();
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(actual.terms(), expected.terms());
+        assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+        assert_eq!(actual.progress(), expected.progress());
+        assert_eq!(boundaries.len(), 2 * expected.progress().total_phases);
+        for (phase, pair) in boundaries.chunks(2).enumerate() {
+            assert_eq!(pair[0], (OrderedPhaseBoundary::Started, phase, phase));
+            assert_eq!(pair[1], (OrderedPhaseBoundary::Finished, phase, phase + 1));
+        }
+        // Pop order: the larger key of the first phase comes first.
+        assert_eq!(first_frontier, inputs);
+        assert_eq!(&final_terminals, expected.terms());
+        let stopped =
+            reducer.reduce_linear_combination_ordered_with_inspector(inputs, &mut |event| {
+                match event.boundary {
+                    OrderedPhaseBoundary::Finished => Err(CandidateReductionError::InvalidInput(
+                        "stop requested".into(),
+                    )),
+                    OrderedPhaseBoundary::Started => Ok(()),
+                }
+            });
+        assert_eq!(
+            stopped.unwrap_err(),
+            CandidateReductionError::InvalidInput("stop requested".into())
+        );
     }
 
     #[test]

@@ -4,7 +4,10 @@
 //! deliberately the same checked operations as in the depth-first reducer.
 //! This adapter never reads or populates a caller's completed-result cache.
 use super::*;
-use crate::reduction::ordered_reduction::{self, OrderedKernel, OrderedPosition, OrderedStep};
+use crate::reduction::ordered_reduction::{
+    self, OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor, OrderedPhaseEvent,
+    OrderedPhaseInspector, OrderedPosition, OrderedStep,
+};
 use crate::sector::{ComplexityKey, OrderingPolicy};
 use crate::solver::{CandidateOrderedPhaseKind, CandidateOrderedReductionProgress};
 
@@ -27,6 +30,7 @@ struct ClosedKernel<'artifact, 'observer, 'callback> {
     reducer: Reducer<'artifact>,
     ordering: OrderingPolicy,
     observer: &'observer mut Observer<'callback>,
+    inspector: Option<&'observer mut OrderedPhaseInspector<'callback, ReductionError>>,
 }
 
 impl<'artifact> Reducer<'artifact> {
@@ -54,6 +58,27 @@ impl<'artifact> Reducer<'artifact> {
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         limits: ReductionLimits,
         observer: &mut Observer<'_>,
+    ) -> Result<OrderedArtifactReduction, ReductionError> {
+        Self::reduce_artifact_ordered(artifact, terms, limits, observer, None)
+    }
+
+    /// Inspect both boundaries of every frozen phase. Inspection borrows the
+    /// exact scheduler state; an inspector error stops this request only.
+    pub fn reduce_artifact_linear_combination_ordered_with_inspector(
+        artifact: &'artifact ClosedArtifact,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        limits: ReductionLimits,
+        inspector: &mut OrderedPhaseInspector<'_, ReductionError>,
+    ) -> Result<OrderedArtifactReduction, ReductionError> {
+        Self::reduce_artifact_ordered(artifact, terms, limits, &mut |_, _| Ok(()), Some(inspector))
+    }
+
+    fn reduce_artifact_ordered<'callback>(
+        artifact: &'artifact ClosedArtifact,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        limits: ReductionLimits,
+        observer: &mut Observer<'callback>,
+        inspector: Option<&mut OrderedPhaseInspector<'callback, ReductionError>>,
     ) -> Result<OrderedArtifactReduction, ReductionError> {
         let ordering = artifact.ordering();
         // Installation already authenticates this authority. Keep the seam
@@ -113,6 +138,7 @@ impl<'artifact> Reducer<'artifact> {
             reducer,
             ordering,
             observer,
+            inspector,
         };
         let mut output = ordered_reduction::run(&mut kernel, &mut request, initial, conditions)?;
         output.progress.phase_kind = CandidateOrderedPhaseKind::Reduction;
@@ -234,6 +260,26 @@ impl OrderedKernel for ClosedKernel<'_, '_, '_> {
                     .then(|| self.reducer.artifact.arity() - progress.completed_phases)
             });
         (self.observer)(&progress, current)
+    }
+
+    fn key_view(key: &IntegralKey) -> Option<(OrderedKeyStage<'_>, &IntegralKey)> {
+        Some((OrderedKeyStage::Integral, key))
+    }
+
+    fn inspect_phase(&mut self, event: OrderedPhaseEvent<'_>) -> Result<(), ReductionError> {
+        let Some(inspector) = self.inspector.as_deref_mut() else {
+            return Ok(());
+        };
+        inspector(
+            &event.with_descriptor(OrderedPhaseDescriptor {
+                kind: CandidateOrderedPhaseKind::Reduction,
+                support: self
+                    .ordering
+                    .is_support_primary()
+                    .then(|| self.reducer.artifact.arity() - event.phase),
+                ..Default::default()
+            }),
+        )
     }
 }
 

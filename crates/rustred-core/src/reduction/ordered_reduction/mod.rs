@@ -12,6 +12,13 @@ use crate::reduction::guard_union::GuardIndex;
 use crate::reduction::{ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics};
 use crate::solver::CandidateOrderedReductionProgress;
 
+pub(crate) mod inspection;
+use inspection::OrderedStateView;
+pub(crate) use inspection::{
+    OrderedFrontierEntry, OrderedKeyStage, OrderedPhaseBoundary, OrderedPhaseDescriptor,
+    OrderedPhaseEvent, OrderedPhaseInspector,
+};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OrderedPosition<P> {
     /// Zero-based phase in execution order. This total is frozen before a call.
@@ -63,6 +70,15 @@ pub(crate) trait OrderedKernel {
     }
     /// Retain attempted work even when a checked action or arithmetic fails.
     fn record_work(&mut self, _work: ReductionStatistics) {}
+    /// Public view of one scheduled identity for phase inspection.
+    fn key_view(_key: &Self::Key) -> Option<(OrderedKeyStage<'_>, &IntegralKey)> {
+        None
+    }
+    /// Called at both boundaries of every frozen phase, never inside a step.
+    /// Adapters without a caller inspector keep this no-op.
+    fn inspect_phase(&mut self, _event: OrderedPhaseEvent<'_>) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 pub(crate) struct OrderedOutput {
@@ -77,6 +93,50 @@ struct Scheduled<K, P> {
     phase: Reverse<usize>,
     priority: P,
     key: K,
+}
+
+type Frontier<K> =
+    BTreeMap<Scheduled<<K as OrderedKernel>::Key, <K as OrderedKernel>::Priority>, Coefficient>;
+
+struct SchedulerState<'a, K: OrderedKernel> {
+    frontier: &'a Frontier<K>,
+    terminals: &'a BTreeMap<IntegralKey, Coefficient>,
+    nonzero_conditions: &'a [Coefficient],
+}
+
+impl<K: OrderedKernel> OrderedStateView for SchedulerState<'_, K> {
+    fn frontier(&self) -> Box<dyn Iterator<Item = OrderedFrontierEntry<'_>> + '_> {
+        Box::new(
+            self.frontier
+                .iter()
+                .rev()
+                .filter_map(|(scheduled, weight)| {
+                    let (stage, integral) = K::key_view(&scheduled.key)?;
+                    Some(OrderedFrontierEntry {
+                        phase: scheduled.phase.0,
+                        stage,
+                        integral,
+                        weight,
+                    })
+                }),
+        )
+    }
+    fn terminals(&self) -> &BTreeMap<IntegralKey, Coefficient> {
+        self.terminals
+    }
+    fn nonzero_conditions(&self) -> &[Coefficient] {
+        self.nonzero_conditions
+    }
+}
+
+fn inspect<K: OrderedKernel>(
+    kernel: &mut K,
+    boundary: OrderedPhaseBoundary,
+    phase: usize,
+    progress: &CandidateOrderedReductionProgress,
+    state: SchedulerState<'_, K>,
+) -> Result<(), K::Error> {
+    kernel.inspect_phase(OrderedPhaseEvent::new(boundary, phase, *progress, &state))
 }
 
 fn invariant(detail: &'static str) -> ReductionError {
@@ -134,7 +194,7 @@ fn run_inner<K: OrderedKernel>(
     for condition in &initial_conditions {
         guards.intern(&mut nonzero_conditions, condition, |_| Ok(()))?;
     }
-    let mut frontier = BTreeMap::new();
+    let mut frontier: Frontier<K> = BTreeMap::new();
     let mut output = BTreeMap::new();
     let mut progress = CandidateOrderedReductionProgress {
         total_phases: kernel.phase_count(),
@@ -169,6 +229,17 @@ fn run_inner<K: OrderedKernel>(
     progress.peak_frontier_coefficient_monomials = progress.frontier_coefficient_monomials;
     kernel.observe(&progress, None)?;
     for phase in 0..progress.total_phases {
+        inspect(
+            kernel,
+            OrderedPhaseBoundary::Started,
+            phase,
+            &progress,
+            SchedulerState {
+                frontier: &frontier,
+                terminals: &output,
+                nonzero_conditions: &nonzero_conditions,
+            },
+        )?;
         while frontier
             .last_key_value()
             .is_some_and(|(node, _)| node.phase.0 == phase)
@@ -314,6 +385,17 @@ fn run_inner<K: OrderedKernel>(
         }
         progress.completed_phases = phase + 1;
         kernel.observe(&progress, None)?;
+        inspect(
+            kernel,
+            OrderedPhaseBoundary::Finished,
+            phase,
+            &progress,
+            SchedulerState {
+                frontier: &frontier,
+                terminals: &output,
+                nonzero_conditions: &nonzero_conditions,
+            },
+        )?;
     }
     if !frontier.is_empty() {
         return Err(invariant("ordered frontier remains after the last phase").into());
