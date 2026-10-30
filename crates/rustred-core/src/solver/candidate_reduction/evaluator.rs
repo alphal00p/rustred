@@ -144,16 +144,18 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
             }
         };
         self.validate_target_with_conditions(target, &mut nonzero)?;
-        let (baseline, rule) = match selected {
-            Some(selected) => selected,
-            None => self.selected_rule(target)?,
-        };
         // Post-baseline alternatives require both the baseline coverage and
         // their own applicability. Rejected candidates contribute no guards.
-        self.applicable_with_conditions(baseline, target, &mut nonzero)?;
-        if !std::ptr::eq(baseline, rule) {
-            self.applicable_with_conditions(rule, target, &mut nonzero)?;
-        }
+        let rule = match selected {
+            Some((baseline, rule)) => {
+                self.applicable_with_conditions(baseline, target, &mut nonzero)?;
+                if !std::ptr::eq(baseline, rule) {
+                    self.applicable_with_conditions(rule, target, &mut nonzero)?;
+                }
+                rule
+            }
+            None => self.selected_rule_with_conditions(target, &mut nonzero)?.1,
+        };
         let terms = self.apply_selected(rule, target, request, statistics, &mut nonzero)?;
         Ok((terms, conditions))
     }
@@ -162,31 +164,62 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
         &self,
         target: &IntegralKey,
     ) -> Result<(&'a PreparedRule<N>, &'a PreparedRule<N>), CandidateReductionError> {
+        self.dispatch(target, |rule| self.applicable(rule, target))
+    }
+
+    /// The same dispatch as `selected_rule`, reporting the guards of the
+    /// selected baseline and then of the selected alternative, exactly as
+    /// rechecking both with `applicable_with_conditions` would. Rejected
+    /// candidates contribute no guards, so each candidate's guards are held
+    /// back until its applicability is known.
+    fn selected_rule_with_conditions(
+        &self,
+        target: &IntegralKey,
+        nonzero: &mut impl FnMut(&CoefficientPolynomial),
+    ) -> Result<(&'a PreparedRule<N>, &'a PreparedRule<N>), CandidateReductionError> {
+        let mut candidate_guards = Vec::new();
+        self.dispatch(target, |rule| {
+            candidate_guards.clear();
+            let applicable = self.applicable_with_conditions(rule, target, &mut |condition| {
+                candidate_guards.push(condition.clone())
+            })?;
+            if applicable {
+                candidate_guards.iter().for_each(&mut *nonzero);
+            }
+            Ok(applicable)
+        })
+    }
+
+    /// The first applicable partition rule, optionally replaced by the first
+    /// applicable whole-piece alternative.
+    fn dispatch(
+        &self,
+        target: &IntegralKey,
+        mut applicable: impl FnMut(&'a PreparedRule<N>) -> Result<bool, CandidateReductionError>,
+    ) -> Result<(&'a PreparedRule<N>, &'a PreparedRule<N>), CandidateReductionError> {
         let mut baseline = None;
         for rule in self.rules {
             if rule.dispatch_policy == crate::solver::RuleDispatchPolicy::Partition
-                && self.applicable(rule, target)?
+                && applicable(rule)?
             {
                 baseline = Some(rule);
                 break;
             }
         }
-        let Some(mut rule) = baseline else {
+        let Some(baseline) = baseline else {
             return Err(CandidateReductionError::Uncovered {
                 target: target.clone(),
             });
         };
-        let baseline = rule;
         // A singleton is a whole baseline piece. Optional alternatives cannot
         // create coverage where the ordinary batch had no applicable rule.
         for &index in self.whole_piece_alternatives {
             let alternative = &self.rules[index];
-            if self.applicable(alternative, target)? {
-                rule = alternative;
-                break;
+            if applicable(alternative)? {
+                return Ok((baseline, alternative));
             }
         }
-        Ok((baseline, rule))
+        Ok((baseline, baseline))
     }
 
     fn applicable(
