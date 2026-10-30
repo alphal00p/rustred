@@ -74,6 +74,10 @@ pub enum ReductionError {
     ReducerInvariant {
         detail: &'static str,
     },
+    /// The finite-field Ordered weight backend could not certify a result.
+    ModularWeights {
+        detail: String,
+    },
     ZeroCommonMass,
     MissingCommonMassHomogeneityProof,
     CommonMassPowerOverflow,
@@ -166,6 +170,9 @@ impl fmt::Display for ReductionError {
                     formatter,
                     "factorized product-moment reduction failed: {detail}"
                 )
+            }
+            Self::ModularWeights { detail } => {
+                write!(formatter, "modular ordered weights failed: {detail}")
             }
             Self::ReducerInvariant { detail } => {
                 write!(formatter, "sealed reducer invariant failed: {detail}")

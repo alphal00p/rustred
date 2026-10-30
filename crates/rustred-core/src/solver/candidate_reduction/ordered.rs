@@ -179,7 +179,17 @@ impl<const N: usize> CandidateReducer<N> {
         &self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
     ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
-        self.reduce_ordered_impl(terms, None)
+        self.reduce_ordered_impl(terms, None, Default::default())
+    }
+
+    /// Ordered reduction with an explicit frontier weight arithmetic.
+    pub fn reduce_linear_combination_ordered_with_arithmetic<'observer>(
+        &self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        arithmetic: crate::reduction::OrderedWeightArithmetic,
+        observer: Option<&'observer mut Observer<'observer>>,
+    ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
+        self.reduce_ordered_impl(terms, observer, arithmetic)
     }
 
     pub fn reduce_linear_combination_ordered_with_observation<'observer>(
@@ -187,13 +197,14 @@ impl<const N: usize> CandidateReducer<N> {
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         observer: &'observer mut Observer<'observer>,
     ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
-        self.reduce_ordered_impl(terms, Some(observer))
+        self.reduce_ordered_impl(terms, Some(observer), Default::default())
     }
 
     fn reduce_ordered_impl<'observer>(
         &self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         observer: Option<&'observer mut Observer<'observer>>,
+        arithmetic: crate::reduction::OrderedWeightArithmetic,
     ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
         let mut request = ReductionRequest::default();
         let mut initial_work = ReductionStatistics::default();
@@ -229,7 +240,7 @@ impl<const N: usize> CandidateReducer<N> {
             )?;
         }
         let support_phases = self.program.ordering.is_support_primary();
-        let output = ordered_reduction::run(
+        let output = ordered_reduction::run_with_arithmetic(
             &mut Kernel {
                 reducer: self,
                 support_phases,
@@ -238,6 +249,7 @@ impl<const N: usize> CandidateReducer<N> {
             &mut request,
             initial,
             conditions,
+            arithmetic,
         )?;
         initial_work.merge_work(output.work);
         let unresolved = output

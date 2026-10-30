@@ -55,6 +55,25 @@ impl<'artifact> Reducer<'artifact> {
         limits: ReductionLimits,
         observer: &mut Observer<'_>,
     ) -> Result<OrderedArtifactReduction, ReductionError> {
+        Self::reduce_artifact_linear_combination_ordered_with_arithmetic(
+            artifact,
+            terms,
+            limits,
+            crate::reduction::OrderedWeightArithmetic::Exact,
+            observer,
+        )
+    }
+
+    /// As [`Self::reduce_artifact_linear_combination_ordered_with_observation`]
+    /// with an explicit frontier weight arithmetic. Every arithmetic expands
+    /// the same keys and returns the same exact terms and conditions.
+    pub fn reduce_artifact_linear_combination_ordered_with_arithmetic(
+        artifact: &'artifact ClosedArtifact,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        limits: ReductionLimits,
+        arithmetic: crate::reduction::OrderedWeightArithmetic,
+        observer: &mut Observer<'_>,
+    ) -> Result<OrderedArtifactReduction, ReductionError> {
         let ordering = artifact.ordering();
         // Installation already authenticates this authority. Keep the seam
         // fail-closed even for internal/test artifacts constructed in memory.
@@ -114,7 +133,13 @@ impl<'artifact> Reducer<'artifact> {
             ordering,
             observer,
         };
-        let mut output = ordered_reduction::run(&mut kernel, &mut request, initial, conditions)?;
+        let mut output = ordered_reduction::run_with_arithmetic(
+            &mut kernel,
+            &mut request,
+            initial,
+            conditions,
+            arithmetic,
+        )?;
         output.progress.phase_kind = CandidateOrderedPhaseKind::Reduction;
         output.work.merge_work(initial_work);
         output.work.merge_work(kernel.reducer.statistics());

@@ -145,6 +145,7 @@ pub struct RoutedCandidateApplication<const N: usize> {
     cache_weight: CacheWeight,
     work: ReductionStatistics,
     reduction_strategy: ReductionStrategy,
+    ordered_weight_arithmetic: crate::reduction::OrderedWeightArithmetic,
 }
 
 impl<const N: usize> RoutedCandidateReducer<N> {
@@ -164,6 +165,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             cache_weight: CacheWeight::default(),
             work: ReductionStatistics::default(),
             reduction_strategy: ReductionStrategy::DepthFirst,
+            ordered_weight_arithmetic: Default::default(),
         }
     }
 }
@@ -198,6 +200,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             cache_weight: CacheWeight::default(),
             work: ReductionStatistics::default(),
             reduction_strategy: ReductionStrategy::DepthFirst,
+            ordered_weight_arithmetic: Default::default(),
         })
     }
     pub fn owner_preparation_statistics(&self) -> DeferredCandidateOwnerStatistics {
@@ -222,6 +225,19 @@ impl<const N: usize> RoutedCandidateApplication<N> {
 
     pub fn reduction_strategy(&self) -> ReductionStrategy {
         self.reduction_strategy
+    }
+
+    /// Frontier weight arithmetic of Ordered requests. Every arithmetic
+    /// expands the same keys and returns the same exact terms and conditions.
+    pub fn set_ordered_weight_arithmetic(
+        &mut self,
+        arithmetic: crate::reduction::OrderedWeightArithmetic,
+    ) {
+        self.ordered_weight_arithmetic = arithmetic;
+    }
+
+    pub fn ordered_weight_arithmetic(&self) -> crate::reduction::OrderedWeightArithmetic {
+        self.ordered_weight_arithmetic
     }
 
     /// A session cannot change residual semantics while it retains memoized

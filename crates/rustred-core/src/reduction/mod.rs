@@ -37,6 +37,7 @@ pub(crate) use reducer::{
     accumulate_master_in_request, coefficient_cache_weight, convolve_factor_expansion_in_request,
 };
 pub use reducer::{DepthFirstArtifactReduction, OrderedArtifactReduction, Reducer};
+pub use ordered_reduction::{ModularWeightOptions, OrderedWeightArithmetic};
 pub use strategy::ReductionStrategy;
 
 #[cfg(test)]
