@@ -307,7 +307,8 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             .filter_map(|(i, phase)| phase.owner.map(|owner| (owner, i)))
             .collect();
         let mut algebra = std::mem::take(&mut request.algebra);
-        let result = ordered_reduction::run(
+        let arithmetic = self.ordered_weight_arithmetic;
+        let result = ordered_reduction::run_with_arithmetic(
             &mut RoutedKernel {
                 application: self,
                 request,
@@ -318,6 +319,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             &mut algebra,
             initial,
             conditions,
+            arithmetic,
         );
         request.algebra = algebra;
         let output = match result {

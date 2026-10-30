@@ -303,6 +303,19 @@ impl<const N: usize> PreparedSavedApplication<N> {
         self.application.reduction_strategy()
     }
 
+    /// Select exact or modular frontier weights for Ordered requests.
+    pub fn set_ordered_weight_arithmetic(
+        &mut self,
+        arithmetic: rustred::reduction::OrderedWeightArithmetic,
+    ) {
+        self.options.ordered_weight_arithmetic = arithmetic;
+        self.application.set_ordered_weight_arithmetic(arithmetic);
+    }
+
+    pub fn ordered_weight_arithmetic(&self) -> rustred::reduction::OrderedWeightArithmetic {
+        self.application.ordered_weight_arithmetic()
+    }
+
     pub fn family(&self) -> &IntegralFamily {
         self.application.family()
     }
@@ -807,6 +820,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
             .set_unresolved_policy(options.unresolved_policy)
             .map_err(native_failure)?;
         application.set_reduction_strategy(options.reduction_strategy);
+        application.set_ordered_weight_arithmetic(options.ordered_weight_arithmetic);
         application
             .set_cache_representation(options.cache_representation)
             .map_err(native_failure)?;

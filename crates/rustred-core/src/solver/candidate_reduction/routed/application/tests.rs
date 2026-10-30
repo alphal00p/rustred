@@ -1022,43 +1022,61 @@ fn ordered_zero_sector_transport_endpoint_keeps_its_guard_without_a_frontier_ent
         .reduce_linear_combination([(target.clone(), c.one())])
         .unwrap();
     application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
-    let mut observed_zero = false;
-    let mut last = None;
-    let mut callback = |event: &CandidateRoutedApplicationEnvelope<'_>| {
-        if let Some(CandidateRoutedWorkRef::Route(current)) = event.current {
-            observed_zero |= current == &zero;
-        }
-        if event.ordered.is_some() {
-            last = event.ordered;
-        }
-        Ok(CandidateRoutedObserverControl::Continue)
-    };
-    let mut observer = CandidateRoutedApplicationObserver::new(
-        CandidateRoutedObservationOptions {
-            interval: Duration::ZERO,
-            ..Default::default()
-        },
-        &mut callback,
-    );
-    let result = application
-        .reduce_linear_combination_with_observation(
-            [(target, c.one())],
-            CandidateEntryAdmission::SavedGenerationScope,
-            &mut observer,
-            None,
-        )
-        .unwrap();
-    assert_eq!(result.terms(), expected.terms());
-    // The zero-sector endpoint was validated by the checked transport, so its
-    // source condition d is retained although it never enters the frontier.
-    assert!(
-        result
-            .nonzero_conditions()
-            .contains(&c.parameter("d").unwrap())
-    );
-    assert!(!observed_zero);
-    // One Route key and three owner keys; the zero sector is never expanded.
-    assert_eq!(last.unwrap().processed_keys, 4);
+    // The endpoint is dropped by the adapter, before any weight arithmetic, so
+    // the modular recorder (plain and cross-checked) never sees it either.
+    for arithmetic in [
+        crate::reduction::OrderedWeightArithmetic::Exact,
+        modular_arithmetic(false),
+        modular_arithmetic(true),
+    ] {
+        application.set_ordered_weight_arithmetic(arithmetic);
+        let mut observed_zero = false;
+        let mut last = None;
+        let mut callback = |event: &CandidateRoutedApplicationEnvelope<'_>| {
+            if let Some(CandidateRoutedWorkRef::Route(current)) = event.current {
+                observed_zero |= current == &zero;
+            }
+            if event.ordered.is_some() {
+                last = event.ordered;
+            }
+            Ok(CandidateRoutedObserverControl::Continue)
+        };
+        let mut observer = CandidateRoutedApplicationObserver::new(
+            CandidateRoutedObservationOptions {
+                interval: Duration::ZERO,
+                ..Default::default()
+            },
+            &mut callback,
+        );
+        let result = application
+            .reduce_linear_combination_with_observation(
+                [(target.clone(), c.one())],
+                CandidateEntryAdmission::SavedGenerationScope,
+                &mut observer,
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.terms(), expected.terms());
+        // The zero-sector endpoint was validated by the checked transport, so its
+        // source condition d is retained although it never enters the frontier.
+        assert!(
+            result
+                .nonzero_conditions()
+                .contains(&c.parameter("d").unwrap())
+        );
+        assert!(!observed_zero);
+        // One Route key and three owner keys; the zero sector is never expanded.
+        assert_eq!(last.unwrap().processed_keys, 4);
+    }
+}
+
+fn modular_arithmetic(cross_check_exact: bool) -> crate::reduction::OrderedWeightArithmetic {
+    crate::reduction::OrderedWeightArithmetic::Modular(crate::reduction::ModularWeightOptions {
+        batch_points: 4,
+        threads: 2,
+        cross_check_exact,
+        ..Default::default()
+    })
 }
 
 #[cfg(feature = "capacity-dispatch")]

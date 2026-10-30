@@ -1,11 +1,11 @@
 = Ordered weighted reduction
 
 The opt-in ordered scheduler applies the existing authenticated programs to a
-global weighted frontier. It uses exact coefficients; pending weights are indexed
-by key and executed in BTreeSet order of their certified position, so a merge into
-a pending key reuses that position. It does not generate identities, change
-dispatch priority, rewrite artifacts, or import a depth-first completed-result
-cache. Loop count is data rather than a
+global weighted frontier. By default it uses exact coefficients (see Weight
+arithmetic). Pending weights are indexed by key and executed in BTreeSet order of
+their certified position, so a merge into a pending key reuses that position. It
+does not generate identities, change dispatch priority, rewrite artifacts, or
+import a depth-first completed-result cache. Loop count is data rather than a
 scheduler specialization.
 
 == Selection and shared semantics
@@ -44,6 +44,31 @@ Applied conditions remain in the proof even when later weights cancel. Different
 valid schedules may require different sufficient conditions. Unknown residuals
 are classified after exact final combination; completion is not inferred from
 termination alone.
+
+== Weight arithmetic
+
+`OrderedWeightArithmetic` selects how frontier and terminal weights are combined
+(`SavedApplicationOptions::ordered_weight_arithmetic`,
+`PreparedSavedApplication::set_ordered_weight_arithmetic`, and the
+`*_with_arithmetic` entry points of the closed and candidate reducers). The
+default `Exact` combines normalized rational functions. Every input weight and
+adapter step coefficient is validated once on entry, so merges and products never
+rescan their operands, and an exact unit step coefficient copies the weight.
+
+`Modular` (coefficient contexts with at most one variable) runs the scheduler
+once as a recorder. Each weight carries two values modulo a probe prime, used only
+for the zero-erasure decision, and the propagation is recorded as a straight-line
+trace over interned exact step coefficients; each distinct coefficient is
+validated once. The trace is replayed over 64-bit primes at batches of sample
+points. Per prime, every terminal coefficient is interpolated by Thiele continued
+fractions; over Q it is lifted by CRT and rational number reconstruction, accepted
+once one further prime confirms it, and checked against fresh primes. Every replay
+re-checks each recorded erasure at every point and fails closed. Keys, steps,
+children and guards depend only on integer keys and exact step coefficients, so
+both arithmetics expand the same keys and return the same terms and conditions;
+only the monomial census differs (one per modular weight). `cross_check_exact`
+also runs the exact arithmetic in the same pass and fails on any differing zero
+decision or terminal coefficient.
 
 == Phases and canonical identities
 
