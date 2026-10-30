@@ -457,6 +457,29 @@ impl<const N: usize> PreparedSavedApplication<N> {
         self.apply_terminal_substitutions(reduced)
     }
 
+    /// The Ordered `reduce_routed_linear_combination` workflow with caller
+    /// inspection at both boundaries of every frozen native phase, followed by
+    /// the same saved terminal substitutions. Inspection borrows the exact
+    /// scheduler state; an inspector error stops the request with that error.
+    pub fn reduce_routed_linear_combination_with_ordered_inspector(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        inspector: &mut rustred::reduction::OrderedPhaseInspector<
+            '_,
+            rustred::solver::CandidateRoutedError,
+        >,
+    ) -> Result<SavedApplicationReduction, AppError> {
+        let reduced = self
+            .application
+            .reduce_routed_linear_combination_with_ordered_inspector(
+                terms,
+                Self::entry_admission(&self.entry_domain, self.options.entry_coverage_policy),
+                inspector,
+            )
+            .map_err(native_failure)?;
+        self.apply_terminal_substitutions(reduced)
+    }
+
     pub fn reduce_linear_combination(
         &mut self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
