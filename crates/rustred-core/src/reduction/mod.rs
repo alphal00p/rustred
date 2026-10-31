@@ -32,6 +32,10 @@ pub use model::{
     HomogeneousMasterCoefficient, HomogeneousMasterDecomposition, MasterDecomposition,
     ReductionLimits, ReductionStatistics,
 };
+pub use ordered_reduction::inspection::{
+    OrderedFrontierEntry, OrderedKeyStage, OrderedPhaseBoundary, OrderedPhaseDescriptor,
+    OrderedPhaseEvent, OrderedPhaseInspector,
+};
 pub use ordered_reduction::{ModularWeightOptions, OrderedWeightArithmetic};
 pub(crate) use reducer::{
     CacheCensus, CacheWeight, GuardedConditionBudget, ReductionRequest, SharedCacheBudget,

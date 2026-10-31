@@ -137,6 +137,76 @@ fn ordered_saved_application_load_option_and_strategy_switch_preserve_exact_resu
 }
 
 #[test]
+fn ordered_phase_inspection_preserves_routed_results_and_stops_cleanly() {
+    use rustred::reduction::{OrderedKeyStage, OrderedPhaseBoundary, ReductionStrategy};
+    use rustred::solver::CandidateRoutedError;
+    let scratch = Scratch::new();
+    let mut application = prepared_fixture(&scratch.0.join("source"));
+    application.set_reduction_strategy(ReductionStrategy::Ordered);
+    let context = application.family().coefficient_context().clone();
+    let inputs = vec![
+        (IntegralKey::try_new([4]).unwrap(), context.integer(3)),
+        (IntegralKey::try_new([2]).unwrap(), context.integer(-2)),
+    ];
+    let expected = application
+        .reduce_routed_linear_combination(inputs.clone())
+        .unwrap();
+    let mut boundaries = Vec::new();
+    let mut first_frontier = BTreeSet::new();
+    let actual = application
+        .reduce_routed_linear_combination_with_ordered_inspector(inputs.clone(), &mut |event| {
+            if boundaries.is_empty() {
+                first_frontier = event
+                    .frontier()
+                    .map(|entry| {
+                        assert_eq!(entry.stage, OrderedKeyStage::Route);
+                        assert_eq!(entry.phase, 0);
+                        (entry.integral.clone(), canonical(entry.weight.unwrap()))
+                    })
+                    .collect();
+            }
+            boundaries.push((event.boundary, event.phase, event.descriptor.support));
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(actual.terms(), expected.terms());
+    assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+    assert_eq!(
+        first_frontier,
+        inputs
+            .iter()
+            .map(|(key, weight)| (key.clone(), canonical(weight)))
+            .collect()
+    );
+    assert!(!boundaries.is_empty());
+    for (phase, pair) in boundaries.chunks(2).enumerate() {
+        assert_eq!(pair[0].0, OrderedPhaseBoundary::Started);
+        assert_eq!(pair[1].0, OrderedPhaseBoundary::Finished);
+        assert_eq!((pair[0].1, pair[1].1), (phase, phase));
+        assert!(pair[0].2.is_some());
+    }
+    let stopped = application.reduce_routed_linear_combination_with_ordered_inspector(
+        inputs.clone(),
+        &mut |event| match event.boundary {
+            OrderedPhaseBoundary::Finished => Err(CandidateRoutedError::Cancelled),
+            OrderedPhaseBoundary::Started => Ok(()),
+        },
+    );
+    assert!(stopped.is_err());
+    application.set_reduction_strategy(ReductionStrategy::DepthFirst);
+    assert!(
+        application
+            .reduce_routed_linear_combination_with_ordered_inspector(inputs, &mut |_| Ok(()))
+            .is_err()
+    );
+
+    fn canonical(coefficient: &Coefficient) -> String {
+        use symbolica::atom::AtomCore;
+        coefficient.to_expression().to_canonical_string()
+    }
+}
+
+#[test]
 fn unmemoized_saved_application_load_option_and_switch_keep_dfs_results_reusable() {
     use rustred::reduction::ReductionStrategy;
     let scratch = Scratch::new();

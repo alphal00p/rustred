@@ -607,6 +607,11 @@ impl OrderedWeights for ModularRecorder {
     fn monomials(&self, _: &ModularWeight) -> Result<usize, ReductionError> {
         Ok(1)
     }
+
+    /// Recorded weights are finite-field images, never exact values.
+    fn exact(_: &ModularWeight) -> Option<&Coefficient> {
+        None
+    }
 }
 
 /// Append one JSON line per modular request when requested by the caller's

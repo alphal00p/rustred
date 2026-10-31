@@ -104,6 +104,17 @@ active popped coefficient, guards, arithmetic temporaries, keys and byte storage
 Terminal counts precede saved terminal substitutions; process RSS remains the
 memory measure.
 
+An optional phase inspector (`*_with_inspector` entry points of the closed,
+candidate and saved routed adapters) runs on the caller thread at both boundaries
+of every frozen phase, never inside a step. It borrows the scheduler state: every
+pending identity in pop order with its stage (integral, Route or Apply with the
+owner sector), the terminals accumulated so far and the interned conditions.
+Weights are exact values, except under modular arithmetic without the exact
+cross-check, where only keys are visible. An inspector error stops the request
+through the adapter's typed error; no partial result escapes. Unused, it costs
+two no-op calls per phase. The rustred-app example `ordered_replay` uses it to
+replay dumped Vakint requests phase by phase and to capture complete frontiers.
+
 The ordered engine does not read, update or clear depth-first completed-result
 caches. Explicit persistent-cache attachment or capture in ordered mode is
 unsupported. Switching back preserves the depth-first state. New phase-transfer

@@ -20,6 +20,13 @@ use crate::reduction::guard_union::GuardIndex;
 use crate::reduction::{ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics};
 use crate::solver::CandidateOrderedReductionProgress;
 
+pub(crate) mod inspection;
+use inspection::OrderedStateView;
+pub(crate) use inspection::{
+    OrderedFrontierEntry, OrderedKeyStage, OrderedPhaseBoundary, OrderedPhaseDescriptor,
+    OrderedPhaseEvent, OrderedPhaseInspector,
+};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OrderedPosition<P> {
     /// Zero-based phase in execution order. This total is frozen before a call.
@@ -71,6 +78,15 @@ pub(crate) trait OrderedKernel {
     }
     /// Retain attempted work even when a checked action or arithmetic fails.
     fn record_work(&mut self, _work: ReductionStatistics) {}
+    /// Public view of one scheduled identity for phase inspection.
+    fn key_view(_key: &Self::Key) -> Option<(OrderedKeyStage<'_>, &IntegralKey)> {
+        None
+    }
+    /// Called at both boundaries of every frozen phase, never inside a step.
+    /// Adapters without a caller inspector keep this no-op.
+    fn inspect_phase(&mut self, _event: OrderedPhaseEvent<'_>) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 pub(crate) struct OrderedOutput {
@@ -85,6 +101,54 @@ struct Scheduled<K, P> {
     phase: Reverse<usize>,
     priority: P,
     key: K,
+}
+
+type FrontierOf<K, A> = Frontier<
+    <K as OrderedKernel>::Key,
+    <K as OrderedKernel>::Priority,
+    <A as OrderedWeights>::Weight,
+>;
+
+struct SchedulerState<'a, K: OrderedKernel, A: OrderedWeights> {
+    frontier: &'a FrontierOf<K, A>,
+    terminals: &'a BTreeMap<IntegralKey, A::Weight>,
+    nonzero_conditions: &'a [Coefficient],
+}
+
+impl<K: OrderedKernel, A: OrderedWeights> OrderedStateView for SchedulerState<'_, K, A> {
+    fn frontier(&self) -> Box<dyn Iterator<Item = OrderedFrontierEntry<'_>> + '_> {
+        Box::new(self.frontier.iter().filter_map(|(scheduled, weight)| {
+            let (stage, integral) = K::key_view(&scheduled.key)?;
+            Some(OrderedFrontierEntry {
+                phase: scheduled.phase.0,
+                stage,
+                integral,
+                weight: A::exact(weight),
+            })
+        }))
+    }
+    fn terminals(
+        &self,
+    ) -> Box<dyn ExactSizeIterator<Item = (&IntegralKey, Option<&Coefficient>)> + '_> {
+        Box::new(
+            self.terminals
+                .iter()
+                .map(|(key, weight)| (key, A::exact(weight))),
+        )
+    }
+    fn nonzero_conditions(&self) -> &[Coefficient] {
+        self.nonzero_conditions
+    }
+}
+
+fn inspect<K: OrderedKernel, A: OrderedWeights>(
+    kernel: &mut K,
+    boundary: OrderedPhaseBoundary,
+    phase: usize,
+    progress: &CandidateOrderedReductionProgress,
+    state: SchedulerState<'_, K, A>,
+) -> Result<(), K::Error> {
+    kernel.inspect_phase(OrderedPhaseEvent::new(boundary, phase, *progress, &state))
 }
 
 fn invariant(detail: &'static str) -> ReductionError {
@@ -146,6 +210,17 @@ impl<K: Clone + Ord + Hash, P: Clone + Ord, W> Frontier<K, P, W> {
 
     fn is_empty(&self) -> bool {
         self.pending.is_empty()
+    }
+
+    /// Pending entries in pop order. A cancelled key leaves its order entry
+    /// behind until it is reached; such entries are skipped.
+    fn iter(&self) -> impl Iterator<Item = (&Scheduled<K, P>, &W)> {
+        self.order.iter().rev().filter_map(|scheduled| {
+            let pending = self.pending.get(&scheduled.key)?;
+            (pending.position.phase == scheduled.phase.0
+                && pending.position.priority == scheduled.priority)
+                .then_some((scheduled, &pending.weight))
+        })
     }
 
     /// Pop the greatest pending key of `phase`, discarding cancelled entries.
@@ -233,6 +308,9 @@ pub(crate) trait OrderedWeights {
     fn cancel_terminal(&mut self, removed: Self::Weight) -> Result<(), ReductionError>;
     /// Census of resident coefficient size (monomials for exact weights).
     fn monomials(&self, weight: &Self::Weight) -> Result<usize, ReductionError>;
+    /// The exact value of a weight for phase inspection, when this arithmetic
+    /// carries one.
+    fn exact(weight: &Self::Weight) -> Option<&Coefficient>;
 }
 
 /// Exact normalized rational-function weights (historical arithmetic).
@@ -342,6 +420,9 @@ impl OrderedWeights for ExactWeights {
     fn monomials(&self, weight: &Coefficient) -> Result<usize, ReductionError> {
         coefficient_monomials(weight)
     }
+    fn exact(weight: &Coefficient) -> Option<&Coefficient> {
+        Some(weight)
+    }
 }
 
 /// Exact and modular arithmetic in one pass: the exact zero decision is
@@ -428,6 +509,9 @@ impl OrderedWeights for CrossChecked {
     }
     fn monomials(&self, weight: &Self::Weight) -> Result<usize, ReductionError> {
         self.exact.monomials(&weight.0)
+    }
+    fn exact(weight: &Self::Weight) -> Option<&Coefficient> {
+        Some(&weight.0)
     }
 }
 
@@ -619,6 +703,17 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights>(
     progress.peak_frontier_coefficient_monomials = progress.frontier_coefficient_monomials;
     kernel.observe(&progress, None)?;
     for phase in 0..progress.total_phases {
+        inspect::<K, A>(
+            kernel,
+            OrderedPhaseBoundary::Started,
+            phase,
+            &progress,
+            SchedulerState {
+                frontier: &frontier,
+                terminals: &output,
+                nonzero_conditions: &nonzero_conditions,
+            },
+        )?;
         while let Some((node, weight)) = frontier.pop_in_phase(phase) {
             request.release_pending_frame()?;
             replace_monomials(
@@ -762,6 +857,17 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights>(
         }
         progress.completed_phases = phase + 1;
         kernel.observe(&progress, None)?;
+        inspect::<K, A>(
+            kernel,
+            OrderedPhaseBoundary::Finished,
+            phase,
+            &progress,
+            SchedulerState {
+                frontier: &frontier,
+                terminals: &output,
+                nonzero_conditions: &nonzero_conditions,
+            },
+        )?;
     }
     if !frontier.is_empty() {
         return Err(invariant("ordered frontier remains after the last phase").into());

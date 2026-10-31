@@ -24,7 +24,8 @@ use super::{
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::family::IntegralKey;
 use crate::reduction::{
-    ReductionError, ReductionRequest, ReductionStatistics, accumulate_master_in_request,
+    OrderedPhaseInspector, ReductionError, ReductionRequest, ReductionStatistics,
+    accumulate_master_in_request,
 };
 use crate::sector::symmetry::integral_transport::ExpansionError;
 use crate::solver::candidate_reduction::cache::{self, CachedTerms};
@@ -361,6 +362,7 @@ pub(super) struct Request<'a, 'storage, const N: usize> {
     cancel: Option<&'a AtomicBool>,
     ordered: Option<crate::solver::CandidateOrderedReductionProgress>,
     ordered_live_work: Option<ReductionStatistics>,
+    ordered_inspector: Option<&'a mut OrderedPhaseInspector<'a, CandidateRoutedError>>,
     pub(super) persistent: super::persistent::PersistentRequest<'a, 'storage>,
 }
 
@@ -882,7 +884,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         cancel: Option<&'a AtomicBool>,
         persistent: super::persistent::PersistentRequest<'a, 'storage>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        self.reduce_observed_request_inner(terms, admission, progress, cancel, persistent, false)
+        self.reduce_observed_request_inner(
+            terms, admission, progress, cancel, persistent, false, None,
+        )
     }
 
     pub(super) fn reduce_observed_routed_request<'a, 'storage>(
@@ -893,7 +897,9 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         cancel: Option<&'a AtomicBool>,
         persistent: super::persistent::PersistentRequest<'a, 'storage>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
-        self.reduce_observed_request_inner(terms, admission, progress, cancel, persistent, true)
+        self.reduce_observed_request_inner(
+            terms, admission, progress, cancel, persistent, true, None,
+        )
     }
 
     fn reduce_observed_request_inner<'a, 'storage>(
@@ -904,6 +910,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         cancel: Option<&'a AtomicBool>,
         persistent: super::persistent::PersistentRequest<'a, 'storage>,
         initial_routing: bool,
+        ordered_inspector: Option<&'a mut OrderedPhaseInspector<'a, CandidateRoutedError>>,
     ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
         if !self.reduction_strategy.uses_completed_cache()
             && (persistent.backing.is_some() || persistent.capture.is_some())
@@ -921,12 +928,15 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 path_limit: progress.options().max_path_nodes,
                 ..Default::default()
             });
-        let has_callbacks =
-            observed || persistent.backing.is_some() || persistent.capture.is_some();
+        let has_callbacks = observed
+            || ordered_inspector.is_some()
+            || persistent.backing.is_some()
+            || persistent.capture.is_some();
         let mut request = Request {
             progress,
             observation,
             cancel,
+            ordered_inspector,
             persistent,
             ..Default::default()
         };
@@ -1021,6 +1031,32 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             Progress::from_observer(observer),
             cancel,
             Default::default(),
+        )
+    }
+
+    /// The initial-entry routing workflow of the Ordered strategy, with caller
+    /// inspection at both boundaries of every frozen phase. Inspection borrows
+    /// the exact scheduler state and never changes it; an inspector error
+    /// stops the request with that error. Other strategies are rejected.
+    pub fn reduce_routed_linear_combination_with_ordered_inspector(
+        &mut self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        admission: CandidateEntryAdmission<'_, N>,
+        inspector: &mut OrderedPhaseInspector<'_, CandidateRoutedError>,
+    ) -> Result<CandidateRoutedReduction, CandidateRoutedError> {
+        if self.reduction_strategy != crate::reduction::ReductionStrategy::Ordered {
+            return Err(CandidateRoutedError::InvalidInput(
+                "ordered phase inspection requires the ordered reduction strategy".into(),
+            ));
+        }
+        self.reduce_observed_request_inner(
+            terms,
+            admission,
+            None,
+            None,
+            Default::default(),
+            true,
+            Some(inspector),
         )
     }
 

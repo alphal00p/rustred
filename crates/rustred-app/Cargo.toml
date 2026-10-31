@@ -49,6 +49,10 @@ name = "saved_application"
 path = "../../examples/rust/saved_application.rs"
 
 [[example]]
+name = "ordered_replay"
+path = "../../examples/rust/ordered_replay.rs"
+
+[[example]]
 name = "probe_owner_case"
 path = "examples/probe_owner_case.rs"
 
