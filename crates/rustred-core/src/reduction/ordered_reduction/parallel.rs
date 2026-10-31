@@ -105,9 +105,11 @@ pub struct OrderedSchedulerOptions {
     /// the tail's terminal instead of propagating it, and a persistent tail
     /// table (attached with a step cache) can close the tail without
     /// expanding it when that provably leaves the guards unchanged. Terms
-    /// and nonzero conditions are identical either way. Off by default; the
-    /// environment variable `RUSTRED_ORDERED_ADJOINT_TAIL=1` turns it on for
-    /// every request (callers without the option wired).
+    /// and nonzero conditions are identical either way. On by default (it
+    /// costs nothing without a recorded arithmetic or a tail table); the
+    /// environment variable `RUSTRED_ORDERED_ADJOINT_TAIL` overrides it for
+    /// every request: `0`/`off`/`false` disables it, `1`/`on`/`true`
+    /// enables it (callers without the option wired, e.g. Vakint).
     pub adjoint_tail: bool,
 }
 
@@ -116,7 +118,7 @@ impl Default for OrderedSchedulerOptions {
         Self {
             threads: 1,
             window_keys: 4096,
-            adjoint_tail: false,
+            adjoint_tail: true,
         }
     }
 }

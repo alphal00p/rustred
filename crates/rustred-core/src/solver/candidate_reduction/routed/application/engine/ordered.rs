@@ -1,7 +1,9 @@
 //! Saved owner/route adapter for the generic weighted-frontier engine.
 use super::*;
 use crate::algebra::CoefficientContext;
-use crate::reduction::ordered_reduction::step_cache::codec::{NodeStage, owner_sector};
+use crate::reduction::ordered_reduction::step_cache::codec::{
+    NodeStage, encode_node, encode_partial_route, owner_sector,
+};
 use crate::reduction::ordered_reduction::step_cache::kernel::{
     ConcurrentStepCacheKernel, OrderedStepCacheKernel, run_with_step_cache_and_options,
 };
@@ -397,6 +399,19 @@ impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
             ),
             OrderedNode::Partial(_) => return None,
         })
+    }
+
+    /// Partial keys are tabulated in tail tables (their steps belong to the
+    /// tail's DAG under layering) with their own stage tag.
+    fn tail_encode(node: &OrderedNode<N>, out: &mut Vec<u8>) -> bool {
+        match node {
+            OrderedNode::Partial(partial) => {
+                encode_partial_route(&partial.source, &partial.powers, out)
+            }
+            node => Self::key_view(node).is_some_and(|(stage, integral)| {
+                encode_node(stage, integral, out)
+            }),
+        }
     }
 
     fn inspect_phase(&mut self, event: OrderedPhaseEvent<'_>) -> Result<(), Self::Error> {

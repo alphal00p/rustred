@@ -307,8 +307,12 @@ reports per-shard hits, misses, inserts and bytes.
 
 == Adjoint tail and tail table
 
-With `OrderedSchedulerOptions::adjoint_tail` (or `RUSTRED_ORDERED_ADJOINT_TAIL=1`)
-the scheduler evaluates a single-terminal tail by its adjoint. A tail is a suffix of
+With `OrderedSchedulerOptions::adjoint_tail` (on by default; the variable
+`RUSTRED_ORDERED_ADJOINT_TAIL=0|1` overrides it for every request, for callers
+without the option wired) the scheduler evaluates a single-terminal tail by its
+adjoint. It costs nothing without a recorded (modular) arithmetic or a tail table;
+closed artifacts without scheduler options use it only when the variable enables
+it. A tail is a suffix of
 phases whose steps emit terminal contributions to at most one terminal `T`; it is
 detected from the steps (a phase emitting a second terminal moves the candidate
 behind it), not from names. The frontier at its first phase holds every weight
@@ -321,8 +325,11 @@ behind it), not from names. The frontier at its first phase holds every weight
   every recorded product has a constant coefficient. `u` is computed exactly by
   back-substitution over the expanded steps, completed by the steps of reached keys
   the forward pass erased (so the value no longer depends on any erasure decision).
-  If an erased key reached by the forward pass carries a guard not retained at the
-  start of the tail, the forward program (with its replayed erasure checks) is kept.
+  The erasures inside the tail are no longer certified by the replay, so if an
+  erased key reached by the forward pass, or a key reachable from it through keys
+  the forward pass did not expand, carries a guard not retained at the start of the
+  tail, the forward program (with its replayed erasure checks) is kept: a probe
+  false zero can then change neither values nor guards.
 - A tail table, kept in the step cache's directory and populated with it, stores per
   tail identity `u`, the guards of its whole reduction and its compact step. It is
   bound by versioning only (file schema, hand-bumped `ORDERED_TAIL_SEMANTICS`, and
@@ -333,7 +340,14 @@ behind it), not from names. The frontier at its first phase holds every weight
   already retained (any arithmetic) or the arithmetic decides erasures by probes:
   then the forward zero decisions are repeated over the tabulated steps (same probe
   values, same linear map) and the guards of the keys the forward pass would expand
-  are interned in pop order. Terms and nonzero conditions (values and order) equal
+  are interned in pop order. The sweep gives up (and the tail is expanded forward)
+  when a frontier weight or a single contribution has an all-zero probe (the
+  forward pass pops such a key without a zero test) and, as above, when an erased
+  key reaches a guard that is not retained through keys it does not expand.
+- Under Route layering the tail's steps include partially transported Route keys;
+  tail tables store them with their own identity tag (never a step-cache identity),
+  and the values of one tail phase are evaluated level by level (same-phase
+  children first), each level on the scheduler threads. Terms and nonzero conditions (values and order) equal
   the forward run's; processed and emitted counters too for probe closing.
 
 Exact field weights must be provided as weights rather than separated into

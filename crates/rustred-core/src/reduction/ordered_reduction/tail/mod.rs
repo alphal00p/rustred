@@ -70,7 +70,7 @@ pub use self::table::{
     ORDERED_TAIL_SCHEMA, ORDERED_TAIL_SEMANTICS, OrderedTailTable, OrderedTailTableStatistics,
 };
 use super::parallel::Workers;
-use super::step_cache::codec::{FxBuild, encode_node};
+use super::step_cache::codec::FxBuild;
 use super::{
     Admitted, OrderedKernel, OrderedPosition, OrderedStep, OrderedWeights, Scheduled, invariant,
     merge_terminal_contribution, replace_monomials,
@@ -80,15 +80,27 @@ use crate::family::IntegralKey;
 use crate::reduction::{ReductionError, ReductionRequest, ReductionStatistics};
 
 const NONE: u32 = u32::MAX;
+/// Smallest level of independent tail values evaluated on the workers.
+const PARALLEL_LEVEL: usize = 8;
 
-/// `RUSTRED_ORDERED_ADJOINT_TAIL=1` (or `on`/`true`) enables the adjoint
-/// tail for every request.
-pub(super) fn forced_by_environment() -> bool {
-    static FORCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *FORCED.get_or_init(|| {
-        std::env::var("RUSTRED_ORDERED_ADJOINT_TAIL")
-            .is_ok_and(|value| matches!(value.as_str(), "1" | "on" | "true"))
+/// `RUSTRED_ORDERED_ADJOINT_TAIL`: `1`/`on`/`true` enables and
+/// `0`/`off`/`false` disables the adjoint tail for every request, whatever
+/// the scheduler options say; unset (or another value): the options decide.
+pub(super) fn environment() -> Option<bool> {
+    static SETTING: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    *SETTING.get_or_init(|| {
+        match std::env::var("RUSTRED_ORDERED_ADJOINT_TAIL").as_deref() {
+            Ok("1" | "on" | "true") => Some(true),
+            Ok("0" | "off" | "false") => Some(false),
+            _ => None,
+        }
     })
+}
+
+/// The environment enables the adjoint tail for every request.
+#[cfg(test)]
+pub(super) fn forced_by_environment() -> bool {
+    environment() == Some(true)
 }
 
 /// Process-local interning (FxHash) of hashable values.
@@ -320,7 +332,7 @@ impl<K: Clone + Hash + Eq, P> Log<K, P> {
 /// Encode `key` into `buffer`; `false` when it has no compact form.
 fn encode<K: OrderedKernel>(buffer: &mut Vec<u8>, key: &K::Key) -> bool {
     buffer.clear();
-    K::key_view(key).is_some_and(|(stage, integral)| encode_node(stage, integral, buffer))
+    K::tail_encode(key, buffer)
 }
 
 /// The recorded state at the start of the candidate tail.
@@ -371,6 +383,8 @@ struct TailStatistics {
     table_values: usize,
     computed_values: usize,
     parallel_values: usize,
+    /// Dependency levels of the evaluated phases (same-phase children).
+    value_levels: usize,
     added_entries: usize,
     replaced_ops: usize,
     added_ops: usize,
@@ -383,9 +397,12 @@ struct TailStatistics {
     /// Probe closing: keys decided nonzero, carriers of new guards.
     swept_keys: usize,
     carriers: usize,
-    /// Reached keys decided zero that carry a guard not retained at the
-    /// start of the tail.
+    /// Reached keys decided zero that carry, or reach through keys that are
+    /// not expanded, a guard not retained at the start of the tail.
     sensitive_keys: usize,
+    /// Closings given up because a frontier weight or a contribution had an
+    /// all-zero probe.
+    zero_probes: usize,
     aborted: Option<&'static str>,
     closure_seconds: f64,
     values_seconds: f64,
@@ -409,6 +426,7 @@ pub(crate) struct TailReport {
     pub swept_keys: usize,
     pub carriers: usize,
     pub sensitive_keys: usize,
+    pub zero_probes: usize,
     pub aborted: Option<&'static str>,
 }
 
@@ -441,6 +459,7 @@ impl TailStatistics {
                 swept_keys: self.swept_keys,
                 carriers: self.carriers,
                 sensitive_keys: self.sensitive_keys,
+                zero_probes: self.zero_probes,
                 aborted: self.aborted,
             })
         });
@@ -450,10 +469,11 @@ impl TailStatistics {
                 "{{\"stage\":\"tail\",\"mode\":\"{}\",\"start_phase\":{},\"closed_phase\":{},",
                 "\"closed_keys\":{},\"entry_keys\":{},\"logged_steps\":{},\"logged_edges\":{},",
                 "\"closure_steps\":{},\"table_values\":{},\"computed_values\":{},",
-                "\"parallel_values\":{},\"added_entries\":{},\"replaced_ops\":{},\"added_ops\":{},",
+                "\"parallel_values\":{},\"value_levels\":{},\"added_entries\":{},",
+                "\"replaced_ops\":{},\"added_ops\":{},",
                 "\"denominators\":{},\"products\":{},",
                 "\"resets\":{},\"checkpoints\":{},\"coverage_misses\":{},\"guard_misses\":{},",
-                "\"swept_keys\":{},\"carriers\":{},\"sensitive_keys\":{},",
+                "\"swept_keys\":{},\"carriers\":{},\"sensitive_keys\":{},\"zero_probes\":{},",
                 "\"aborted\":{},\"closure_seconds\":{:.6},\"values_seconds\":{:.6},",
                 "\"insert_seconds\":{:.6},\"close_seconds\":{:.6}}}"
             ),
@@ -468,6 +488,7 @@ impl TailStatistics {
             self.table_values,
             self.computed_values,
             self.parallel_values,
+            self.value_levels,
             self.added_entries,
             self.replaced_ops,
             self.added_ops,
@@ -480,6 +501,7 @@ impl TailStatistics {
             self.swept_keys,
             self.carriers,
             self.sensitive_keys,
+            self.zero_probes,
             self.aborted.map_or("null".to_owned(), |reason| format!("\"{reason}\"")),
             self.closure_seconds,
             self.values_seconds,
@@ -677,6 +699,12 @@ impl<K: OrderedKernel> TailRun<K> {
                     // Exact decisions cannot be repeated from the table.
                     return Ok(false);
                 };
+                if weights.tail_probe_is_zero(&probe) {
+                    // The forward pass pops a pending key without a zero
+                    // test; a vanishing probe would read as erased here.
+                    self.statistics.zero_probes += 1;
+                    return Ok(false);
+                }
                 probes.push(probe);
             }
             // The forward decisions over the tabulated steps.
@@ -687,25 +715,25 @@ impl<K: OrderedKernel> TailRun<K> {
             let mut coefficient_probes: Vec<Option<A::Probe>> =
                 vec![None; data.coefficients.len()];
             let (mut popped, mut emitted) = (0usize, 0usize);
+            let mut expanded = vec![false; data.entries.len()];
+            let mut erased = Vec::new();
             for &id in &data.order {
                 let Some(probe) = merged[id as usize] else {
                     continue;
                 };
                 let entry = *data.entry(id);
-                let new_guard = data
-                    .own_guards(&entry)
-                    .iter()
-                    .any(|&guard| !is_retained(guard));
                 if weights.tail_probe_is_zero(&probe) {
-                    if new_guard {
-                        // Reached, erased, and its guards would matter.
-                        self.statistics.sensitive_keys += 1;
-                        return Ok(false);
-                    }
+                    // Erased: checked below (with what only it reaches).
+                    erased.push(id);
                     continue;
                 }
                 popped += 1;
-                if new_guard {
+                expanded[id as usize] = true;
+                if data
+                    .own_guards(&entry)
+                    .iter()
+                    .any(|&guard| !is_retained(guard))
+                {
                     carriers.push(id);
                 }
                 for &(child, coefficient) in data.children(&entry) {
@@ -718,12 +746,67 @@ impl<K: OrderedKernel> TailRun<K> {
                             factor
                         }
                     };
+                    // The forward pass inserts every contribution with a
+                    // nonzero exact coefficient; one whose probe vanishes
+                    // would be invisible to the probe sums here.
+                    let mut contribution = None;
+                    weights.tail_probe_add_product(&mut contribution, &probe, &factor);
+                    if contribution.is_none_or(|value| weights.tail_probe_is_zero(&value)) {
+                        self.statistics.zero_probes += 1;
+                        return Ok(false);
+                    }
                     weights.tail_probe_add_product(&mut merged[child as usize], &probe, &factor);
                     emitted += 1;
                 }
                 if entry.has_terminal_emission() {
                     emitted += 1;
                 }
+            }
+            // An erased key is certified by no replay once the tail is
+            // closed: if it, or a key reachable from it through keys the
+            // sweep does not expand, carries a guard that is not retained,
+            // its erasure could change the guards: expand the tail forward.
+            let mut fresh_below: Vec<Option<bool>> = vec![None; data.entries.len()];
+            let mut sensitive = 0usize;
+            for &id in &erased {
+                let mut stack = vec![(id, false)];
+                while let Some((node, children_done)) = stack.pop() {
+                    if fresh_below[node as usize].is_some() {
+                        continue;
+                    }
+                    let entry = *data.entry(node);
+                    let below = data
+                        .children(&entry)
+                        .iter()
+                        .map(|&(child, _)| child)
+                        .filter(|&child| !expanded[child as usize]);
+                    if !children_done {
+                        stack.push((node, true));
+                        stack.extend(
+                            below
+                                .filter(|&child| fresh_below[child as usize].is_none())
+                                .map(|child| (child, false)),
+                        );
+                        continue;
+                    }
+                    let fresh = data
+                        .own_guards(&entry)
+                        .iter()
+                        .any(|&guard| !is_retained(guard))
+                        || data
+                            .children(&entry)
+                            .iter()
+                            .filter(|&&(child, _)| !expanded[child as usize])
+                            .any(|&(child, _)| fresh_below[child as usize] == Some(true));
+                    fresh_below[node as usize] = Some(fresh);
+                }
+                if fresh_below[id as usize] == Some(true) {
+                    sensitive += 1;
+                }
+            }
+            if sensitive > 0 {
+                self.statistics.sensitive_keys += sensitive;
+                return Ok(false);
             }
             swept = Some((popped, emitted));
         }
@@ -1031,11 +1114,6 @@ impl<K: OrderedKernel> TailRun<K> {
                         .iter()
                         .map(|&guard| data.guards.value(guard).clone())
                         .collect(),
-                    own_guards: data
-                        .own_guards(&entry)
-                        .iter()
-                        .map(|&guard| data.guards.value(guard).clone())
-                        .collect(),
                 },
             );
             true
@@ -1138,6 +1216,7 @@ impl<K: OrderedKernel> TailRun<K> {
         } else {
             None
         };
+        let mut level: Vec<u32> = vec![0; count];
         let mut index = 0;
         while index < order.len() {
             let phase = self.log.position[order[index] as usize]
@@ -1155,14 +1234,28 @@ impl<K: OrderedKernel> TailRun<K> {
                 end += 1;
             }
             let group = &order[index..end];
-            // Steps that emit children of their own phase are evaluated in
-            // order; otherwise every value of the phase is independent.
-            let independent = group.iter().all(|&id| {
+            // Steps may emit children of their own phase (owner phases;
+            // layered Route phases through partial keys). Level 0 has no
+            // unevaluated child, level l only children of levels < l
+            // (children precede parents in `group`), so the values of one
+            // level are independent and evaluated in parallel.
+            let mut levels: Vec<Vec<u32>> = Vec::new();
+            for &id in group {
                 let step = &self.log.steps[self.log.step[id as usize] as usize];
-                self.log.edges[step.edges.0 as usize..step.edges.1 as usize]
+                let own = self.log.edges[step.edges.0 as usize..step.edges.1 as usize]
                     .iter()
-                    .all(|&(child, _)| values[child as usize].is_some())
-            });
+                    .filter(|&&(child, _)| values[child as usize].is_none())
+                    .map(|&(child, _)| level[child as usize] + 1)
+                    .max()
+                    .unwrap_or(0);
+                level[id as usize] = own;
+                let own = own as usize;
+                if levels.len() <= own {
+                    levels.resize_with(own + 1, Vec::new);
+                }
+                levels[own].push(id);
+            }
+            self.statistics.value_levels += levels.len();
             let graph = Graph {
                 step: &self.log.step,
                 steps: &self.log.steps,
@@ -1173,23 +1266,25 @@ impl<K: OrderedKernel> TailRun<K> {
             let evaluate = |id: u32, values: &[Option<Coefficient>]| {
                 graph.combine(id, values, &context, limits)
             };
-            match &workers {
-                Some(workers) if independent && group.len() > 1 => {
-                    let mut items: Vec<(u32, Option<Result<Coefficient, ReductionError>>)> =
-                        group.iter().map(|&id| (id, None)).collect();
-                    let shared = &values;
-                    workers.for_each(&mut items, |item| {
-                        item.1 = Some(evaluate(item.0, shared));
-                    });
-                    for (id, value) in items {
-                        values[id as usize] = Some(value.expect("evaluated")?);
+            for ids in &levels {
+                match &workers {
+                    Some(workers) if ids.len() >= PARALLEL_LEVEL => {
+                        let mut items: Vec<(u32, Option<Result<Coefficient, ReductionError>>)> =
+                            ids.iter().map(|&id| (id, None)).collect();
+                        let shared = &values;
+                        workers.for_each(&mut items, |item| {
+                            item.1 = Some(evaluate(item.0, shared));
+                        });
+                        for (id, value) in items {
+                            values[id as usize] = Some(value.expect("evaluated")?);
+                        }
+                        self.statistics.parallel_values += ids.len();
                     }
-                    self.statistics.parallel_values += group.len();
-                }
-                _ => {
-                    for &id in group {
-                        let value = evaluate(id, &values)?;
-                        values[id as usize] = Some(value);
+                    _ => {
+                        for &id in ids {
+                            let value = evaluate(id, &values)?;
+                            values[id as usize] = Some(value);
+                        }
                     }
                 }
             }
@@ -1350,28 +1445,63 @@ impl<K: OrderedKernel> TailRun<K> {
                 reached[child as usize] = true;
             }
         }
+        // The guards that an erasure could change are those of the erased
+        // key and of every key reachable from it through keys the forward
+        // pass did not expand (a tabulated key: all guards of its
+        // reduction).
+        let expanded = |id: u32| {
+            let step = self.log.step[id as usize];
+            step != NONE && self.log.steps[step as usize].forward
+        };
+        let mut fresh_below: Vec<Option<bool>> = vec![None; self.log.keys.len()];
+        let mut sensitive = 0usize;
         for id in 0..self.log.keys.len() as u32 {
-            if !reached[id as usize] {
+            if !reached[id as usize] || expanded(id) {
                 continue;
             }
-            let step = self.log.step[id as usize];
-            let sensitive = if step == NONE {
-                tabulated
-                    .get(&id)
-                    .is_some_and(|tabulated| tabulated.own_guards.iter().any(fresh))
-            } else {
-                let step = &self.log.steps[step as usize];
-                !step.forward
-                    && self.log.guard_refs[step.guards.0 as usize..step.guards.1 as usize]
-                        .iter()
-                        .any(|&guard| fresh(self.log.guards.value(guard)))
-            };
-            if sensitive {
-                self.statistics.sensitive_keys += 1;
+            let mut stack = vec![(id, false)];
+            while let Some((node, children_done)) = stack.pop() {
+                if fresh_below[node as usize].is_some() {
+                    continue;
+                }
+                let step = self.log.step[node as usize];
+                if step == NONE {
+                    let fresh = tabulated
+                        .get(&node)
+                        .is_some_and(|tabulated| tabulated.guards.iter().any(fresh));
+                    fresh_below[node as usize] = Some(fresh);
+                    continue;
+                }
+                let logged = &self.log.steps[step as usize];
+                let children = &self.log.edges[logged.edges.0 as usize..logged.edges.1 as usize];
+                if !children_done {
+                    stack.push((node, true));
+                    stack.extend(
+                        children
+                            .iter()
+                            .map(|&(child, _)| child)
+                            .filter(|&child| {
+                                !expanded(child) && fresh_below[child as usize].is_none()
+                            })
+                            .map(|child| (child, false)),
+                    );
+                    continue;
+                }
+                let own = self.log.guard_refs[logged.guards.0 as usize..logged.guards.1 as usize]
+                    .iter()
+                    .any(|&guard| fresh(self.log.guards.value(guard)));
+                let below = children
+                    .iter()
+                    .any(|&(child, _)| !expanded(child) && fresh_below[child as usize] == Some(true));
+                fresh_below[node as usize] = Some(own || below);
+            }
+            if fresh_below[id as usize] == Some(true) {
+                sensitive += 1;
             }
         }
-        if self.statistics.sensitive_keys > 0 {
-            return self.abort("an erased key carries a guard new to the tail");
+        self.statistics.sensitive_keys += sensitive;
+        if sensitive > 0 {
+            return self.abort("an erased key reaches a guard new to the tail");
         }
         let mut entries = Vec::with_capacity(checkpoint.entries.len());
         for (key, slot) in &checkpoint.entries {
@@ -1431,8 +1561,6 @@ struct Tabulated {
     terminal: Option<IntegralKey>,
     /// All guards of its reduction.
     guards: Vec<Coefficient>,
-    /// The guards of its own step.
-    own_guards: Vec<Coefficient>,
 }
 
 /// The key-independent part of the log: what evaluating a value reads.

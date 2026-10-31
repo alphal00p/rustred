@@ -68,8 +68,10 @@
 //! * with `--phase-digests` every `phase` record carries both the scheduler's
 //!   `digests` (frontier, terminals, guards separately) and the step cache's
 //!   single `digest` of the complete state (exact weights where present);
-//! * `--adjoint-tail` evaluates the request's single-terminal tail by its
-//!   adjoint (`OrderedSchedulerOptions::adjoint_tail`); with `--step-cache`
+//! * `--adjoint-tail` / `--no-adjoint-tail` evaluate the request's
+//!   single-terminal tail by its adjoint or forward
+//!   (`OrderedSchedulerOptions::adjoint_tail`, on by default; the variable
+//!   `RUSTRED_ORDERED_ADJOINT_TAIL=0|1` overrides both); with `--step-cache`
 //!   the cache's tail table is read (closing the tail when the guards allow
 //!   it) and populated, and the `step_cache` record reports it (`tail`);
 //! * `--ignore-recorded-counters` reports, but does not fail on, phase
@@ -161,6 +163,7 @@ impl Options {
                 "--window" => options.scheduler.window_keys = value("--window")?.parse()?,
                 "--phase-digests" => options.phase_digests = true,
                 "--adjoint-tail" => options.scheduler.adjoint_tail = true,
+                "--no-adjoint-tail" => options.scheduler.adjoint_tail = false,
                 "--step-cache" => options.step_cache = Some(value("--step-cache")?.into()),
                 "--step-cache-save" => options.step_cache_save = true,
                 "--step-cache-read-only" => options.step_cache_read_only = true,
@@ -958,7 +961,8 @@ mod saved {
             prepared.set_ordered_route_layering(layering);
         }
         emit(
-            json!({"event": "route_layers", "layering": prepared.ordered_route_layering().as_str()}),
+            json!({"event": "route_layers", "layering": prepared.ordered_route_layering().as_str(),
+            "adjoint_tail": prepared.ordered_scheduler_options().adjoint_tail}),
         );
         let cache = open_step_cache(options, prepared.ordered_step_cache_binding())?;
         prepared.set_ordered_step_cache(cache.clone())?;

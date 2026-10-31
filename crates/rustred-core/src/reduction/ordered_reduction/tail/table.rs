@@ -38,7 +38,7 @@ use crate::family::IntegralKey;
 use crate::reduction::OrderedKeyStage;
 use crate::reduction::ReductionError;
 use crate::reduction::ordered_reduction::step_cache::codec::{
-    FxBuild, NodeStage, Reader, Writer, decode_node, encode_node,
+    FxBuild, NodeStage, Reader, Writer, check_tail_identity, decode_node, encode_node,
 };
 use crate::reduction::ordered_reduction::step_cache::failure;
 
@@ -634,7 +634,7 @@ fn decode(
     for _ in 0..count {
         let length = reader.len(bound)?;
         let key: Box<[u8]> = reader.take(length)?.into();
-        decode_node(&key)?;
+        check_tail_identity(&key)?;
         if data.keys.last().is_some_and(|last| *last >= key) {
             return Err("tail table entries are not sorted".into());
         }
