@@ -4,24 +4,37 @@
 use super::*;
 use crate::scalar_numerator::weighted::polynomial::testing::observed;
 
-fn compare(
+/// The polynomial lane a lowering is expected to take.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Lane {
+    Rational,
+    Grouped,
+    Generic,
+}
+
+pub(super) fn compare(
     service: &FamilyScalarNumeratorService<'_>,
     numerator: &Atom,
     base: &IntegralKey,
     mass: &Atom,
-    rational: bool,
+    lane: Lane,
 ) -> WeightedScalarNumeratorLowering {
-    let (fast, rational_calls, generic_calls) =
+    let (fast, rational_calls, generic_calls, grouped_calls) =
         observed(false, || service.lower_weighted(numerator, base, mass));
-    let (ordinary, forced_rational, forced_generic) =
+    let (ordinary, forced_rational, forced_generic, forced_grouped) =
         observed(true, || service.lower_weighted(numerator, base, mass));
     let fast = fast.unwrap();
     let ordinary = ordinary.unwrap();
     assert_eq!(
-        (rational_calls, generic_calls),
-        (usize::from(rational), usize::from(!rational))
+        (rational_calls, generic_calls, grouped_calls),
+        (
+            usize::from(lane == Lane::Rational),
+            usize::from(lane == Lane::Generic),
+            usize::from(lane == Lane::Grouped)
+        ),
+        "{numerator} with mass {mass}"
     );
-    assert_eq!((forced_rational, forced_generic), (0, 1));
+    assert_eq!((forced_rational, forced_generic, forced_grouped), (0, 1, 0));
     assert_eq!(fast.family_fingerprint(), ordinary.family_fingerprint());
     assert_eq!(fast.terms(), ordinary.terms());
     assert_eq!(fast.nonzero_conditions(), ordinary.nonzero_conditions());
@@ -67,7 +80,7 @@ fn rational_weighted_mixed_denominator_powers_match_generic_in_two_three_and_fiv
             // At five loops this is P2² P7³, scalar degree5 / momentum degree10.
             let factored = denominator(first).pow(2) * denominator(second).pow(3);
             for numerator in [factored.clone(), factored.expand()] {
-                let result = compare(&service, &numerator, &base, &mass, true);
+                let result = compare(&service, &numerator, &base, &mass, Lane::Rational);
                 assert_eq!(result.terms().len(), 1);
                 assert_eq!(
                     result.terms()[0].integral().powers(),
@@ -107,15 +120,25 @@ fn rational_weighted_opaque_complex_and_parameter_coefficients_keep_generic_lane
         Atom::i(),
         Atom::num(2).sqrt(),
     ];
+    // Plain rational leaves are rebuilt exactly; functions, complex and
+    // irrational numbers keep the generic lane.
+    let lanes = [
+        Lane::Grouped,
+        Lane::Generic,
+        Lane::Grouped,
+        Lane::Grouped,
+        Lane::Generic,
+        Lane::Generic,
+    ];
     let base = IntegralKey::try_new([4]).unwrap();
-    for spectator in spectators {
+    for (spectator, lane) in spectators.into_iter().zip(lanes) {
         let numerator = (spectator * (&square - Atom::one()).pow(3)).expand();
-        let result = compare(&service, &numerator, &base, &Atom::one(), false);
+        let result = compare(&service, &numerator, &base, &Atom::one(), lane);
         assert_eq!(result.terms().len(), 1);
         assert_eq!(result.terms()[0].integral().powers(), [1]);
     }
     let mass = symbol("rational_symbolic_mass").to_atom();
-    let result = compare(&service, &square, &base, &mass, false);
+    let result = compare(&service, &square, &base, &mass, Lane::Grouped);
     assert_eq!(result.terms().len(), 2);
     assert!(result.nonzero_conditions().contains(&mass));
 }
@@ -137,7 +160,7 @@ fn rational_weighted_zero_cancellation_and_original_poles_are_identical() {
             - Atom::num(2) * &square
             - Atom::one(),
     ] {
-        let result = compare(&service, &numerator, &base, &Atom::one(), true);
+        let result = compare(&service, &numerator, &base, &Atom::one(), Lane::Rational);
         assert!(result.is_zero());
         assert!(result.nonzero_conditions().is_empty());
     }
@@ -147,8 +170,9 @@ fn rational_weighted_zero_cancellation_and_original_poles_are_identical() {
         .unwrap()
         .to_expression();
     let pole = &d - Atom::one();
+    // The leaves (d²-1)/(d-1), d and 1 are linearly dependent: generic lane.
     let numerator = (d.clone().pow(2) - Atom::one()) / &pole - &d - Atom::one();
-    let result = compare(&service, &numerator, &base, &Atom::one(), false);
+    let result = compare(&service, &numerator, &base, &Atom::one(), Lane::Generic);
     assert!(result.is_zero());
     assert!(result.nonzero_conditions().contains(&pole));
 }
@@ -224,8 +248,8 @@ fn rational_weighted_resource_and_input_errors_match_generic() {
         let service =
             FamilyScalarNumeratorService::try_new(artifact.family(), head, vec![k.clone()], limits)
                 .unwrap();
-        let (actual, _, _) = observed(false, || service.lower_weighted(&numerator, &base, &mass));
-        let (reference, _, _) = observed(true, || service.lower_weighted(&numerator, &base, &mass));
+        let (actual, ..) = observed(false, || service.lower_weighted(&numerator, &base, &mass));
+        let (reference, ..) = observed(true, || service.lower_weighted(&numerator, &base, &mass));
         match (actual, reference) {
             (Ok(actual), Ok(reference)) => {
                 assert_eq!(actual.terms(), reference.terms());

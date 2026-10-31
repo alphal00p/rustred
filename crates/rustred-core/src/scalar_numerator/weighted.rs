@@ -1,6 +1,7 @@
 //! Exact collection of complete physical prefactors, before entry admission.
 pub(super) mod bounds;
 mod denominator;
+mod grouped;
 pub(super) mod polynomial;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -202,7 +203,7 @@ pub(super) fn lower_weighted_in_request(
         work,
         &mut comparisons,
     )?;
-    let polynomial = polynomial::collect(prepared, &translated)?;
+    let polynomial = polynomial::collect(prepared, &translated, mass_squared)?;
     check_limit(
         "weighted denominator polynomial terms",
         polynomial.coefficients.len(),
