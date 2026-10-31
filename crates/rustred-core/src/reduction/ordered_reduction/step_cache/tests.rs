@@ -171,6 +171,47 @@ fn identities_round_trip_and_wide_identities_are_not_recorded() {
     ));
 }
 
+/// Partially transported Route keys (layered Route transport) have their
+/// own tail-table identity: a stage tag no step-cache identity uses, the
+/// source mask and every power. Step-cache decoding rejects them; tail
+/// tables accept both kinds.
+#[test]
+fn partial_route_tail_identities_are_distinct_from_step_cache_identities() {
+    use super::codec::{PARTIAL_ROUTE_TAG, check_tail_identity, encode_partial_route};
+    let source = [true, false, true];
+    let powers = [2i64, -1, 0, 0, -3, -1];
+    let mut partial = Vec::new();
+    assert!(encode_partial_route(&source, &powers, &mut partial));
+    assert_eq!(partial[0], PARTIAL_ROUTE_TAG);
+    assert_eq!(&partial[1..9], &0b101u64.to_le_bytes());
+    assert_eq!(&partial[9..], &[2u8, 0xff, 0, 0, 0xfd, 0xff]);
+    assert!(decode_node(&partial).is_err());
+    assert!(check_tail_identity(&partial).is_ok());
+    assert!(check_tail_identity(&partial[..9]).is_err());
+    // Different sources or powers give different identities, and no
+    // step-cache stage of the same integral collides with them.
+    let mut other = Vec::new();
+    assert!(encode_partial_route(&[true, true, false], &powers, &mut other));
+    assert_ne!(other, partial);
+    for stage in [
+        OrderedKeyStage::Integral,
+        OrderedKeyStage::Route,
+        OrderedKeyStage::Apply {
+            owner_sector: &[true, false, true],
+        },
+    ] {
+        let mut node = Vec::new();
+        assert!(encode_node(stage, &key(powers), &mut node));
+        assert_ne!(node[0], PARTIAL_ROUTE_TAG);
+        assert!(check_tail_identity(&node).is_ok());
+    }
+    // No compact form: wide sources and powers outside `i8`.
+    let mut bytes = vec![9u8];
+    assert!(!encode_partial_route(&[true; 65], &[1], &mut bytes));
+    assert!(!encode_partial_route(&source, &[1, 200], &mut bytes));
+    assert_eq!(bytes, [9]);
+}
+
 #[test]
 fn denominator_factorizations_multiply_back_and_share_the_basis() {
     let context = CoefficientContext::try_new(["d"]).unwrap();

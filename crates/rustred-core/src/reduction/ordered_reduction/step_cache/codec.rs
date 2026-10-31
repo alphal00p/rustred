@@ -242,6 +242,51 @@ pub(crate) fn encode_node(
     true
 }
 
+/// Stage byte of a partially transported Route key in a tail table (never a
+/// step-cache identity: such keys are never recorded there).
+pub(crate) const PARTIAL_ROUTE_TAG: u8 = 3;
+
+/// Append a partially transported Route key of source sector `source` with
+/// `powers` (owner powers so far, then the source numerator powers not yet
+/// expanded): stage [`PARTIAL_ROUTE_TAG`], the source mask (`u64`, little
+/// endian), one signed byte per power. Returns `false` (and leaves `out`
+/// unchanged) when the source is wider than 64 slots or a power is outside
+/// `i8`.
+pub(crate) fn encode_partial_route(source: &[bool], powers: &[i64], out: &mut Vec<u8>) -> bool {
+    if source.len() > 64 {
+        return false;
+    }
+    let start = out.len();
+    let mask = source
+        .iter()
+        .enumerate()
+        .filter(|&(_, &bit)| bit)
+        .fold(0u64, |mask, (position, _)| mask | 1u64 << position);
+    out.push(PARTIAL_ROUTE_TAG);
+    out.extend_from_slice(&mask.to_le_bytes());
+    for &power in powers {
+        let Ok(power) = i8::try_from(power) else {
+            out.truncate(start);
+            return false;
+        };
+        out.push(power as u8);
+    }
+    true
+}
+
+/// Check one tail-table identity: a step-cache identity
+/// ([`decode_node`]) or a partially transported Route key
+/// ([`encode_partial_route`]).
+pub(crate) fn check_tail_identity(bytes: &[u8]) -> CodecResult<()> {
+    if bytes.first() == Some(&PARTIAL_ROUTE_TAG) {
+        if bytes.len() <= NODE_HEADER {
+            return Err("truncated partial Route identity".into());
+        }
+        return Ok(());
+    }
+    decode_node(bytes).map(|_| ())
+}
+
 pub(crate) fn decode_node(bytes: &[u8]) -> CodecResult<(NodeStage, IntegralKey)> {
     if bytes.len() < NODE_HEADER {
         return Err("truncated step-cache identity".into());

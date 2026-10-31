@@ -953,6 +953,9 @@ impl OrderedWeights for ModularRecorder {
             return Err(error("tail checkpoint beyond the recorded trace"));
         }
         self.ops.truncate(rewrite.ops);
+        // Phase markers (replay diagnostics) of the replaced program go with
+        // it: the rewritten products count for the phase the tail starts in.
+        self.phase_starts.retain(|&(_, start)| start <= rewrite.ops);
         let mut groups: std::collections::HashMap<crate::algebra::CoefficientPolynomial, usize> =
             std::collections::HashMap::new();
         let mut denominators = Vec::new();

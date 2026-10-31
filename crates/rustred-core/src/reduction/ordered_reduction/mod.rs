@@ -110,6 +110,16 @@ pub(crate) trait OrderedKernel {
     fn tail_key(&self, _encoded: &[u8]) -> Option<Self::Key> {
         None
     }
+    /// Append the compact identity of `key` in a tail table (`false`, `out`
+    /// unchanged: no compact form, nothing of the run is tabulated). The
+    /// default is the step-cache encoding of the key's public view; adapters
+    /// whose keys include identities without a public view (partially
+    /// transported Route keys) encode those with a stage tag that no
+    /// step-cache identity uses. Must be a pure function of the key.
+    fn tail_encode(key: &Self::Key, out: &mut Vec<u8>) -> bool {
+        Self::key_view(key)
+            .is_some_and(|(stage, integral)| step_cache::codec::encode_node(stage, integral, out))
+    }
 }
 
 pub(crate) struct OrderedOutput {
@@ -1162,11 +1172,13 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     };
     let context = kernel.context().clone();
     for phase in 0..state.progress.total_phases {
+        // Phase marker first: a tail closed at this phase records its
+        // products after the marker, so the replay attributes them here.
+        weights.phase_started(phase);
         if let Some(tail) = &mut tail {
             tail.phase_started(kernel, weights, request, work, &mut state, phase)?;
         }
         state.inspect(kernel, OrderedPhaseBoundary::Started, phase)?;
-        weights.phase_started(phase);
         let Admitted {
             guards,
             nonzero_conditions,

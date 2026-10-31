@@ -698,6 +698,12 @@ fn descendant_cache_does_not_bypass_saved_rank_for_a_new_entry() {
 }
 
 fn weighted<const N: usize>() -> RoutedCandidateReducer<N> {
+    weighted_with_rules::<N>(&[])
+}
+
+/// [`weighted`] with extra owner rules `key -> (i + 3) * [0, 1, 0]` for the
+/// `i`-th extra key.
+fn weighted_with_rules<const N: usize>(extra: &[[i16; 3]]) -> RoutedCandidateReducer<N> {
     let family = Arc::new(crate::solver::tests::sunset());
     let c = family.coefficient_context();
     let map = symmetry::verify(
@@ -750,10 +756,15 @@ fn weighted<const N: usize>() -> RoutedCandidateReducer<N> {
             [input(
                 crate::storage_array(&[false, true, false], false).unwrap(),
                 None,
-                vec![
+                [
                     rule(&family, pad([-1, 1, 0]), &[(pad([0, 1, 0]), 2)]),
                     rule(&family, pad([0, 1, -1]), &[(pad([0, 1, 0]), -3)]),
-                ],
+                ]
+                .into_iter()
+                .chain(extra.iter().enumerate().map(|(index, &powers)| {
+                    rule(&family, pad(powers), &[(pad([0, 1, 0]), index as i64 + 3)])
+                }))
+                .collect(),
                 &[pad([0, 1, 0])],
             )],
         )
@@ -2021,6 +2032,7 @@ fn ordered_layered_route_transport_returns_the_whole_transport_result() {
                 application.set_ordered_scheduler_options(OrderedSchedulerOptions {
                     threads,
                     window_keys,
+                    ..Default::default()
                 });
                 let result = application
                     .reduce_linear_combination(inputs.clone())
@@ -2174,6 +2186,7 @@ fn ordered_layered_route_transport_shares_step_caches_with_the_whole_transport()
         application.set_ordered_scheduler_options(OrderedSchedulerOptions {
             threads,
             window_keys: 2,
+            ..Default::default()
         });
         application.set_ordered_step_cache(cache).unwrap();
         application
@@ -2293,6 +2306,7 @@ fn ordered_route_layering_is_opt_in_and_the_default_reads_whole_transport_caches
         application.set_ordered_scheduler_options(OrderedSchedulerOptions {
             threads,
             window_keys: 2,
+            ..Default::default()
         });
         application.set_ordered_step_cache(cache).unwrap();
         application
@@ -2373,3 +2387,148 @@ fn ordered_route_layering_is_opt_in_and_the_default_reads_whole_transport_caches
         }
     }
 }
+
+/// Layered Route transport under the adjoint tail (perf-cuts): the tail's
+/// DAG then contains partially transported Route keys. Cold runs evaluate
+/// and tabulate them (their own tail-table identities), warm runs close the
+/// tail from tables written with or without layering, and every result
+/// equals the whole-transport forward run.
+#[test]
+fn ordered_layered_route_composes_with_the_adjoint_tail_and_its_table() {
+    use crate::reduction::ordered_reduction::tail::{TailReport, take_reported};
+    use crate::reduction::{
+        OrderedSchedulerOptions, OrderedStepCache, OrderedStepCacheAdapter,
+        OrderedStepCacheBinding, OrderedWeightArithmetic,
+    };
+    use crate::solver::OrderedRouteLayering;
+    // Every owner key the inputs reach reduces to the single master
+    // [0, 1, 0], so the whole request is a single-terminal tail whose Route
+    // phase has multi-factor keys.
+    let routed = weighted_with_rules::<3>(&[
+        [-2, 1, 0],
+        [-1, 1, -1],
+        [0, 1, -2],
+        [-3, 1, 0],
+        [-2, 1, -1],
+        [-1, 1, -2],
+        [0, 1, -3],
+    ]);
+    let c = routed.programs.context.family().coefficient_context();
+    let inputs: Vec<(IntegralKey, Coefficient)> = [
+        ([1, -1, -1], 3),
+        ([1, -1, -2], -2),
+        ([1, -2, -1], 5),
+        ([1, 0, -1], 7),
+        ([1, 0, -2], -1),
+    ]
+    .into_iter()
+    .map(|(powers, factor)| (key(powers), c.integer(factor)))
+    .collect();
+    let binding = OrderedStepCacheBinding::new(
+        OrderedStepCacheAdapter::SavedApplication,
+        [7; 32],
+        routed.programs.context.family().fingerprint(),
+        c,
+        Some(UnresolvedPolicy::Preserve),
+    );
+    let session = |layering, arithmetic, threads, tail, cache: Option<Arc<OrderedStepCache>>| {
+        let mut application = routed.application();
+        application
+            .set_unresolved_policy(UnresolvedPolicy::Preserve)
+            .unwrap();
+        application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+        application.set_ordered_route_layering(layering);
+        application.set_ordered_weight_arithmetic(arithmetic);
+        application.set_ordered_scheduler_options(OrderedSchedulerOptions {
+            threads,
+            window_keys: 2,
+            adjoint_tail: tail,
+        });
+        application.set_ordered_step_cache(cache).unwrap();
+        take_reported();
+        let result = application
+            .reduce_linear_combination(inputs.clone())
+            .unwrap();
+        (result, take_reported())
+    };
+    let (expected, _) = session(
+        OrderedRouteLayering::Off,
+        OrderedWeightArithmetic::Exact,
+        1,
+        false,
+        None,
+    );
+    assert_eq!(expected.terms().len(), 1);
+    assert!(expected.unresolved().is_empty());
+    let mut layered_rewrites = 0;
+    let mut layered_closes = 0;
+    for arithmetic in [
+        OrderedWeightArithmetic::Exact,
+        modular_arithmetic(false),
+        polynomial_arithmetic(false),
+        polynomial_arithmetic(true),
+    ] {
+        let recorded = !matches!(arithmetic, OrderedWeightArithmetic::Exact);
+        for threads in [1, 3] {
+            let case = format!("{arithmetic:?} threads {threads}");
+            let check = |result: &CandidateRoutedReduction, label: &str| {
+                assert_eq!(result.terms(), expected.terms(), "{case} {label}");
+                assert_eq!(result.unresolved(), expected.unresolved(), "{case} {label}");
+                assert_eq!(
+                    result.nonzero_conditions(),
+                    expected.nonzero_conditions(),
+                    "{case} {label}"
+                );
+            };
+            let modes = |reports: &[TailReport]| -> Vec<&'static str> {
+                reports.iter().map(|report| report.mode).collect()
+            };
+            // Without a table.
+            for layering in [OrderedRouteLayering::Off, OrderedRouteLayering::FewestTerms] {
+                let (result, reports) = session(layering, arithmetic, threads, true, None);
+                check(&result, &format!("{layering} tail"));
+                if recorded && layering != OrderedRouteLayering::Off {
+                    layered_rewrites += reports
+                        .iter()
+                        .filter(|report| report.mode == "adjoint")
+                        .count();
+                }
+            }
+            // Cold populating runs, then warm runs on the own table and on
+            // the other mode's table.
+            let mut tables = Vec::new();
+            for layering in [OrderedRouteLayering::Off, OrderedRouteLayering::FewestTerms] {
+                let cache = OrderedStepCache::in_memory(binding.clone(), Default::default());
+                let (result, reports) =
+                    session(layering, arithmetic, threads, true, Some(cache.clone()));
+                check(&result, &format!("{layering} cold {:?}", modes(&reports)));
+                if recorded && reports.iter().any(|report| report.mode == "adjoint") {
+                    assert!(
+                        reports.iter().any(|report| report.added_entries > 0),
+                        "{case} {layering}: the cold tail populates the table: {reports:?}"
+                    );
+                }
+                tables.push((layering, cache));
+            }
+            for (written, cache) in &tables {
+                for layering in [OrderedRouteLayering::Off, OrderedRouteLayering::FewestTerms] {
+                    let (result, reports) =
+                        session(layering, arithmetic, threads, true, Some(cache.clone()));
+                    let label = format!("{layering} on a {written} table {:?}", modes(&reports));
+                    check(&result, &label);
+                    if recorded && *written != OrderedRouteLayering::Off {
+                        layered_closes += reports
+                            .iter()
+                            .filter(|report| report.mode.starts_with("closed"))
+                            .count();
+                    }
+                }
+            }
+        }
+    }
+    // The fixture has a single-terminal tail through layered Route keys:
+    // recorded arithmetics rewrite it and close it from layered tables.
+    assert!(layered_rewrites > 0);
+    assert!(layered_closes > 0);
+}
+

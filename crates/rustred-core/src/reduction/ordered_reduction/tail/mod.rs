@@ -70,7 +70,7 @@ pub use self::table::{
     ORDERED_TAIL_SCHEMA, ORDERED_TAIL_SEMANTICS, OrderedTailTable, OrderedTailTableStatistics,
 };
 use super::parallel::Workers;
-use super::step_cache::codec::{FxBuild, encode_node};
+use super::step_cache::codec::FxBuild;
 use super::{
     Admitted, OrderedKernel, OrderedPosition, OrderedStep, OrderedWeights, Scheduled, invariant,
     merge_terminal_contribution, replace_monomials,
@@ -80,6 +80,8 @@ use crate::family::IntegralKey;
 use crate::reduction::{ReductionError, ReductionRequest, ReductionStatistics};
 
 const NONE: u32 = u32::MAX;
+/// Smallest level of independent tail values evaluated on the workers.
+const PARALLEL_LEVEL: usize = 8;
 
 /// `RUSTRED_ORDERED_ADJOINT_TAIL=1` (or `on`/`true`) enables the adjoint
 /// tail for every request.
@@ -320,7 +322,7 @@ impl<K: Clone + Hash + Eq, P> Log<K, P> {
 /// Encode `key` into `buffer`; `false` when it has no compact form.
 fn encode<K: OrderedKernel>(buffer: &mut Vec<u8>, key: &K::Key) -> bool {
     buffer.clear();
-    K::key_view(key).is_some_and(|(stage, integral)| encode_node(stage, integral, buffer))
+    K::tail_encode(key, buffer)
 }
 
 /// The recorded state at the start of the candidate tail.
@@ -371,6 +373,8 @@ struct TailStatistics {
     table_values: usize,
     computed_values: usize,
     parallel_values: usize,
+    /// Dependency levels of the evaluated phases (same-phase children).
+    value_levels: usize,
     added_entries: usize,
     replaced_ops: usize,
     added_ops: usize,
@@ -450,7 +454,8 @@ impl TailStatistics {
                 "{{\"stage\":\"tail\",\"mode\":\"{}\",\"start_phase\":{},\"closed_phase\":{},",
                 "\"closed_keys\":{},\"entry_keys\":{},\"logged_steps\":{},\"logged_edges\":{},",
                 "\"closure_steps\":{},\"table_values\":{},\"computed_values\":{},",
-                "\"parallel_values\":{},\"added_entries\":{},\"replaced_ops\":{},\"added_ops\":{},",
+                "\"parallel_values\":{},\"value_levels\":{},\"added_entries\":{},",
+                "\"replaced_ops\":{},\"added_ops\":{},",
                 "\"denominators\":{},\"products\":{},",
                 "\"resets\":{},\"checkpoints\":{},\"coverage_misses\":{},\"guard_misses\":{},",
                 "\"swept_keys\":{},\"carriers\":{},\"sensitive_keys\":{},",
@@ -468,6 +473,7 @@ impl TailStatistics {
             self.table_values,
             self.computed_values,
             self.parallel_values,
+            self.value_levels,
             self.added_entries,
             self.replaced_ops,
             self.added_ops,
@@ -1138,6 +1144,7 @@ impl<K: OrderedKernel> TailRun<K> {
         } else {
             None
         };
+        let mut level: Vec<u32> = vec![0; count];
         let mut index = 0;
         while index < order.len() {
             let phase = self.log.position[order[index] as usize]
@@ -1155,14 +1162,28 @@ impl<K: OrderedKernel> TailRun<K> {
                 end += 1;
             }
             let group = &order[index..end];
-            // Steps that emit children of their own phase are evaluated in
-            // order; otherwise every value of the phase is independent.
-            let independent = group.iter().all(|&id| {
+            // Steps may emit children of their own phase (owner phases;
+            // layered Route phases through partial keys). Level 0 has no
+            // unevaluated child, level l only children of levels < l
+            // (children precede parents in `group`), so the values of one
+            // level are independent and evaluated in parallel.
+            let mut levels: Vec<Vec<u32>> = Vec::new();
+            for &id in group {
                 let step = &self.log.steps[self.log.step[id as usize] as usize];
-                self.log.edges[step.edges.0 as usize..step.edges.1 as usize]
+                let own = self.log.edges[step.edges.0 as usize..step.edges.1 as usize]
                     .iter()
-                    .all(|&(child, _)| values[child as usize].is_some())
-            });
+                    .filter(|&&(child, _)| values[child as usize].is_none())
+                    .map(|&(child, _)| level[child as usize] + 1)
+                    .max()
+                    .unwrap_or(0);
+                level[id as usize] = own;
+                let own = own as usize;
+                if levels.len() <= own {
+                    levels.resize_with(own + 1, Vec::new);
+                }
+                levels[own].push(id);
+            }
+            self.statistics.value_levels += levels.len();
             let graph = Graph {
                 step: &self.log.step,
                 steps: &self.log.steps,
@@ -1173,23 +1194,25 @@ impl<K: OrderedKernel> TailRun<K> {
             let evaluate = |id: u32, values: &[Option<Coefficient>]| {
                 graph.combine(id, values, &context, limits)
             };
-            match &workers {
-                Some(workers) if independent && group.len() > 1 => {
-                    let mut items: Vec<(u32, Option<Result<Coefficient, ReductionError>>)> =
-                        group.iter().map(|&id| (id, None)).collect();
-                    let shared = &values;
-                    workers.for_each(&mut items, |item| {
-                        item.1 = Some(evaluate(item.0, shared));
-                    });
-                    for (id, value) in items {
-                        values[id as usize] = Some(value.expect("evaluated")?);
+            for ids in &levels {
+                match &workers {
+                    Some(workers) if ids.len() >= PARALLEL_LEVEL => {
+                        let mut items: Vec<(u32, Option<Result<Coefficient, ReductionError>>)> =
+                            ids.iter().map(|&id| (id, None)).collect();
+                        let shared = &values;
+                        workers.for_each(&mut items, |item| {
+                            item.1 = Some(evaluate(item.0, shared));
+                        });
+                        for (id, value) in items {
+                            values[id as usize] = Some(value.expect("evaluated")?);
+                        }
+                        self.statistics.parallel_values += ids.len();
                     }
-                    self.statistics.parallel_values += group.len();
-                }
-                _ => {
-                    for &id in group {
-                        let value = evaluate(id, &values)?;
-                        values[id as usize] = Some(value);
+                    _ => {
+                        for &id in ids {
+                            let value = evaluate(id, &values)?;
+                            values[id as usize] = Some(value);
+                        }
                     }
                 }
             }
