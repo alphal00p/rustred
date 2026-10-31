@@ -19,7 +19,10 @@
 //!   consecutive candidates agree);
 //! - once every coefficient of the leading group is stable, checks the
 //!   candidates on `verification_primes` fresh primes from a disjoint stream,
-//!   never used to build them; a disagreement re-opens the lift;
+//!   never used to build them; a disagreement re-opens the lift (a source
+//!   whose verification is a full image may have the next verification
+//!   images computed within reconstruction rounds; they are used in the same
+//!   stream order);
 //! - fails closed after `max_primes` consumed primes (reconstruction,
 //!   verification and unusable ones).
 use std::collections::VecDeque;
@@ -112,6 +115,14 @@ pub(super) trait ImageSource {
     /// by default rounds double from a single image.
     fn round_minimum(&self, _threads: usize) -> usize {
         1
+    }
+
+    /// Whether the driver should compute the next verification images
+    /// within reconstruction rounds (through [`ImageSource::images`]), for a
+    /// source whose verification is a full image anyway. They are kept apart
+    /// and used, in stream order, before any fresh verification prime.
+    fn prefetch_verification(&self) -> bool {
+        false
     }
 
     /// Check `candidates` (one per terminal of `structure`) at fresh primes.
@@ -436,29 +447,46 @@ impl<S: PartialEq + Send + Sync> Driver<'_, S> {
         leader: usize,
         source: &mut I,
         primes: &mut PrimeStream,
+        prefetched: &mut VecDeque<(u64, Option<PrimeImages<S>>)>,
         statistics: &mut ModularStatistics,
     ) -> Result<bool, I::Error> {
         let mut agreed = 0;
         while agreed < self.common.verification_primes {
             let missing = self.common.verification_primes - agreed;
             self.consume(missing)?;
-            let fresh = primes.take(missing)?;
             statistics.verification_primes += missing;
-            let results = {
-                let group = &self.groups[leader];
-                source.verify(
-                    &fresh,
-                    &group.structure,
-                    &group.candidates(),
-                    self.executor,
-                    statistics,
-                )?
-            };
-            if results.len() != fresh.len() {
-                return Err(error("image source returned a wrong number of verifications").into());
+            // Verification images computed ahead come first (stream order).
+            let ready = missing.min(prefetched.len());
+            let mut checks: Vec<(u64, Verification<S>)> = prefetched
+                .drain(..ready)
+                .map(|(prime, image)| {
+                    (
+                        prime,
+                        image.map_or(Verification::Unusable, Verification::Image),
+                    )
+                })
+                .collect();
+            let fresh = primes.take(missing - ready)?;
+            if !fresh.is_empty() {
+                let results = {
+                    let group = &self.groups[leader];
+                    source.verify(
+                        &fresh,
+                        &group.structure,
+                        &group.candidates(),
+                        self.executor,
+                        statistics,
+                    )?
+                };
+                if results.len() != fresh.len() {
+                    return Err(
+                        error("image source returned a wrong number of verifications").into(),
+                    );
+                }
+                checks.extend(fresh.into_iter().zip(results));
             }
             let mut rejected = false;
-            for (prime, result) in fresh.into_iter().zip(results) {
+            for (prime, result) in checks {
                 let disagreeing = match result {
                     Verification::Unusable => {
                         statistics.unusable_primes += 1;
@@ -543,11 +571,19 @@ pub(super) fn lift<I: ImageSource>(
         usable: 0,
         consumed: 0,
     };
-    // Images computed ahead of need, consumed strictly in prime order.
+    // Images computed ahead of need, consumed strictly in prime order, and
+    // verification images computed ahead (`prefetch_verification`).
     let mut pending: VecDeque<(u64, Option<PrimeImages<I::Structure>>)> = VecDeque::new();
+    let mut prefetched: VecDeque<(u64, Option<PrimeImages<I::Structure>>)> = VecDeque::new();
     let leader = loop {
         if let Some(leader) = driver.leader() {
-            if driver.verify(leader, source, &mut verification_primes, statistics)? {
+            if driver.verify(
+                leader,
+                source,
+                &mut verification_primes,
+                &mut prefetched,
+                statistics,
+            )? {
                 break leader;
             }
             continue;
@@ -564,13 +600,26 @@ pub(super) fn lift<I: ImageSource>(
                 .max(source.round_minimum(executor.threads()).max(1))
                 .min(source.round_capacity(executor.threads()).max(1))
                 .min(budget);
-            let primes = lift_primes.take(count)?;
-            let images = source.images(&primes, executor, statistics)?;
+            // A round with room beyond one reconstruction prime also
+            // computes the verification images still missing.
+            let ahead = if source.prefetch_verification() {
+                let missing = common.verification_primes.saturating_sub(prefetched.len());
+                if count > missing { missing } else { 0 }
+            } else {
+                0
+            };
+            let mut primes = lift_primes.take(count - ahead)?;
+            let verification = verification_primes.take(ahead)?;
+            primes.extend_from_slice(&verification);
+            let mut images = source.images(&primes, executor, statistics)?;
             if images.len() != primes.len() {
                 return Err(error("image source returned a wrong number of images").into());
             }
             statistics.rounds += 1;
+            let ahead_images = images.split_off(count - ahead);
+            primes.truncate(count - ahead);
             pending.extend(primes.into_iter().zip(images));
+            prefetched.extend(verification.into_iter().zip(ahead_images));
         }
         let (prime, image) = pending.pop_front().expect("pending image");
         driver.consume(1)?;
@@ -582,7 +631,7 @@ pub(super) fn lift<I: ImageSource>(
             }
         }
     };
-    statistics.discarded_images += pending.len();
+    statistics.discarded_images += pending.len() + prefetched.len();
     let Driver { groups, usable, .. } = driver;
     let group = groups.into_iter().nth(leader).expect("leading group");
     statistics.unlucky_images += usable - group.images;
@@ -641,8 +690,10 @@ mod tests {
         /// Unrelated values at every prime.
         garbage: bool,
         verifications: usize,
-        /// `round_minimum`, and the sizes of the image requests.
+        /// `round_minimum`, `prefetch_verification`, and the sizes of the
+        /// image requests.
         minimum: usize,
+        prefetch: bool,
         requests: Vec<usize>,
     }
 
@@ -660,6 +711,7 @@ mod tests {
                 garbage: false,
                 verifications: 0,
                 minimum: 1,
+                prefetch: false,
                 requests: vec![],
             }
         }
@@ -717,6 +769,10 @@ mod tests {
 
         fn round_minimum(&self, _: usize) -> usize {
             self.minimum
+        }
+
+        fn prefetch_verification(&self) -> bool {
+            self.prefetch
         }
 
         fn verify(
@@ -893,5 +949,53 @@ mod tests {
                 .all(|&n| n == 4)
         );
         assert!(four.rounds < one.rounds);
+    }
+
+    #[test]
+    fn prefetched_verification_images_save_the_verification_round() {
+        const LARGE: [&str; 2] = [
+            "(123456789012345678901234567890123456789*d+1)/(98765432109876543210*d-3)",
+            "d^2/(7*d+5)",
+        ];
+        let context = CoefficientContext::try_new(["d"]).unwrap();
+        let common = ModularCommon {
+            threads: 4,
+            verification_primes: 2,
+            ..Default::default()
+        };
+        let mut plain = Scripted::new(&context, &LARGE);
+        plain.minimum = 4;
+        let (reference, before) = run(&mut plain, common).unwrap();
+        let mut ahead = Scripted::new(&context, &LARGE);
+        ahead.minimum = 4;
+        ahead.prefetch = true;
+        let (lifted, after) = run(&mut ahead, common).unwrap();
+        assert_eq!(lifted.coefficients, reference.coefficients);
+        // The same reconstruction and verification primes are consumed.
+        assert_eq!(
+            (
+                before.primes,
+                before.verification_primes,
+                before.unlucky_images
+            ),
+            (
+                after.primes,
+                after.verification_primes,
+                after.unlucky_images
+            )
+        );
+        assert_eq!(before.verification_primes, 2);
+        // Without prefetching the verification primes take a round of their
+        // own; with it every request is a full round and verify is never
+        // called.
+        assert_eq!(plain.verifications, 2);
+        assert_eq!(ahead.verifications, 0);
+        assert!(
+            ahead.requests.iter().all(|&n| n == 4),
+            "{:?}",
+            ahead.requests
+        );
+        assert_eq!(*plain.requests.last().unwrap(), 2);
+        assert!(ahead.requests.len() <= plain.requests.len());
     }
 }

@@ -267,6 +267,12 @@ impl ImageSource for PolynomialSource<'_> {
     fn round_minimum(&self, threads: usize) -> usize {
         threads
     }
+
+    /// A verification is a full replay: computing it within a
+    /// reconstruction round saves a round in which one thread works.
+    fn prefetch_verification(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]
