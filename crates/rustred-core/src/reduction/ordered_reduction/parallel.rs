@@ -358,6 +358,7 @@ fn close_window<S, X, F>(
     workers: &Workers,
     stepper: &S,
     roots: Vec<(S::Key, OrderedPosition<S::Priority>)>,
+    counters: Option<&WindowCounters>,
     detach: F,
 ) -> Vec<Detached<S::Key, S::Priority, X, S::Error, S::Account>>
 where
@@ -376,7 +377,11 @@ where
     let mut todo = roots;
     let mut steps = Vec::with_capacity(todo.len());
     while !todo.is_empty() {
+        if let Some(counters) = counters {
+            counters.rounds.fetch_add(1, Ordering::Relaxed);
+        }
         let round = workers.map(std::mem::take(&mut todo), |(key, position)| {
+            let _timer = counters.map(|counters| CpuTimer::new(&counters.step_nanos));
             let (result, account) = stepper.step(&key);
             let mut found = Vec::new();
             let result = result.map(|step| detach(&key, &position, step, &mut found));
@@ -455,19 +460,25 @@ impl<'w, K: ConcurrentOrderedKernel> Prefetched<'w, K> {
         let stepper = kernel
             .stepper()
             .ok_or_else(|| invariant("concurrent ordered adapter lost its stepper"))?;
-        let detached = close_window(self.workers, &stepper, roots, |parent, _, step, found| {
-            for child in step.terms.keys() {
-                if stepper.later_phase(parent, child) {
-                    continue;
+        let detached = close_window(
+            self.workers,
+            &stepper,
+            roots,
+            None,
+            |parent, _, step, found| {
+                for child in step.terms.keys() {
+                    if stepper.later_phase(parent, child) {
+                        continue;
+                    }
+                    if let Ok(position) = stepper.position(child)
+                        && at_or_above(&position, child, threshold)
+                    {
+                        found.push((child.clone(), position));
+                    }
                 }
-                if let Ok(position) = stepper.position(child)
-                    && at_or_above(&position, child, threshold)
-                {
-                    found.push((child.clone(), position));
-                }
-            }
-            step
-        });
+                step
+            },
+        );
         for step in detached {
             self.steps.insert(step.key, (step.result, step.account));
         }
@@ -1071,6 +1082,9 @@ fn settle<'scope, K, A, S>(
     A: ConcurrentWeights,
     S: OrderedStepper<Key = K::Key, Priority = K::Priority, Error = K::Error>,
 {
+    let _timer = context
+        .counters
+        .map(|counters| CpuTimer::new(&counters.settle_nanos));
     let nodes = context.nodes;
     let node = &nodes[index as usize];
     let mut incoming = std::mem::take(&mut *lock(&node.incoming));
@@ -1147,6 +1161,7 @@ struct WindowContext<'a, K: ConcurrentOrderedKernel, A: ConcurrentWeights, S> {
     budget: &'a ResourceBudget,
     phase: usize,
     total_phases: usize,
+    counters: Option<&'a WindowCounters>,
 }
 
 /// `RUSTRED_ORDERED_WINDOW_STATS=<file>` appends one JSON line per concurrent
@@ -1161,6 +1176,31 @@ fn window_stats_path() -> Option<&'static std::path::Path> {
 struct WindowClock {
     last: Option<std::time::Instant>,
     laps: Vec<(&'static str, f64)>,
+    counters: WindowCounters,
+}
+
+/// Worker-side totals of one window (statistics only).
+#[derive(Default)]
+struct WindowCounters {
+    rounds: std::sync::atomic::AtomicU64,
+    step_nanos: std::sync::atomic::AtomicU64,
+    settle_nanos: std::sync::atomic::AtomicU64,
+}
+
+/// Adds the elapsed nanoseconds to a counter when dropped.
+struct CpuTimer<'a>(std::time::Instant, &'a std::sync::atomic::AtomicU64);
+
+impl<'a> CpuTimer<'a> {
+    fn new(counter: &'a std::sync::atomic::AtomicU64) -> Self {
+        Self(std::time::Instant::now(), counter)
+    }
+}
+
+impl Drop for CpuTimer<'_> {
+    fn drop(&mut self) {
+        let nanos = u64::try_from(self.0.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        self.1.fetch_add(nanos, Ordering::Relaxed);
+    }
 }
 
 impl WindowClock {
@@ -1168,7 +1208,11 @@ impl WindowClock {
         Self {
             last: window_stats_path().map(|_| std::time::Instant::now()),
             laps: Vec::new(),
+            counters: WindowCounters::default(),
         }
+    }
+    fn counters(&self) -> Option<&WindowCounters> {
+        self.enabled().then_some(&self.counters)
     }
     fn enabled(&self) -> bool {
         self.last.is_some()
@@ -1202,11 +1246,19 @@ impl WindowClock {
             .fold((0, 0.0), |a, b| if b.1 > a.1 { b } else { a });
         let merge_cpu: f64 = items.iter().map(|item| item.1).sum();
         let max_fan_in = items.iter().map(|item| item.0).max().unwrap_or(0);
-        let laps: Vec<String> = self
+        let mut laps: Vec<String> = self
             .laps
             .iter()
             .map(|(stage, seconds)| format!("\"{stage}\":{seconds:.6}"))
             .collect();
+        let seconds =
+            |counter: &std::sync::atomic::AtomicU64| counter.load(Ordering::Relaxed) as f64 * 1e-9;
+        laps.push(format!(
+            "\"rounds\":{},\"step_cpu\":{:.6},\"settle_cpu\":{:.6}",
+            self.counters.rounds.load(Ordering::Relaxed),
+            seconds(&self.counters.step_nanos),
+            seconds(&self.counters.settle_nanos)
+        ));
         if let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -1306,71 +1358,77 @@ fn run_window<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
             .ok_or_else(|| invariant("concurrent ordered adapter lost its stepper"))?;
         let threshold = &threshold;
         let shared: &A = weights;
-        let detached = close_window(workers, &stepper, roots, |parent, position, step, found| {
-            let children = step
-                .terms
-                .into_iter()
-                .map(|(child, coefficient)| {
-                    if coefficient.is_zero() {
-                        return Edge::Skip;
-                    }
-                    let coefficient = shared.prepare(coefficient);
-                    let target = if stepper.later_phase(parent, &child) {
-                        Target::Frontier {
-                            item: UNRESOLVED,
-                            position: None,
-                            later: true,
+        let detached = close_window(
+            workers,
+            &stepper,
+            roots,
+            clock.counters(),
+            |parent, position, step, found| {
+                let children = step
+                    .terms
+                    .into_iter()
+                    .map(|(child, coefficient)| {
+                        if coefficient.is_zero() {
+                            return Edge::Skip;
                         }
-                    } else {
-                        match stepper.position(&child) {
-                            // Only a vacant key asks for its position; the
-                            // sequential error is reproduced there.
-                            Err(_) => Target::Frontier {
+                        let coefficient = shared.prepare(coefficient);
+                        let target = if stepper.later_phase(parent, &child) {
+                            Target::Frontier {
                                 item: UNRESOLVED,
                                 position: None,
-                                later: false,
-                            },
-                            Ok(certified) => match check_descent(
-                                &certified,
-                                phase,
-                                &position.priority,
-                                total_phases,
-                            ) {
-                                Err(error) => Target::Violation(error),
-                                Ok(()) if at_or_above(&certified, &child, threshold) => {
-                                    found.push((child.clone(), certified));
-                                    Target::Window(UNRESOLVED)
-                                }
-                                Ok(()) => Target::Frontier {
+                                later: true,
+                            }
+                        } else {
+                            match stepper.position(&child) {
+                                // Only a vacant key asks for its position; the
+                                // sequential error is reproduced there.
+                                Err(_) => Target::Frontier {
                                     item: UNRESOLVED,
-                                    position: Some(certified),
+                                    position: None,
                                     later: false,
                                 },
-                            },
+                                Ok(certified) => match check_descent(
+                                    &certified,
+                                    phase,
+                                    &position.priority,
+                                    total_phases,
+                                ) {
+                                    Err(error) => Target::Violation(error),
+                                    Ok(()) if at_or_above(&certified, &child, threshold) => {
+                                        found.push((child.clone(), certified));
+                                        Target::Window(UNRESOLVED)
+                                    }
+                                    Ok(()) => Target::Frontier {
+                                        item: UNRESOLVED,
+                                        position: Some(certified),
+                                        later: false,
+                                    },
+                                },
+                            }
+                        };
+                        Edge::Live {
+                            key: child,
+                            coefficient,
+                            target,
                         }
-                    };
-                    Edge::Live {
-                        key: child,
-                        coefficient,
-                        target,
-                    }
-                })
-                .collect();
-            let terminals = step
-                .terminals
-                .into_iter()
-                .map(|(key, coefficient)| TerminalEdge {
-                    key,
-                    coefficient: shared.prepare(coefficient),
-                    item: UNRESOLVED,
-                })
-                .collect();
-            Expansion {
-                children,
-                terminals,
-                conditions: step.nonzero_conditions,
-            }
-        });
+                    })
+                    .collect();
+                let terminals = step
+                    .terminals
+                    .into_iter()
+                    .map(|(key, coefficient)| TerminalEdge {
+                        key,
+                        coefficient: shared.prepare(coefficient),
+                        item: UNRESOLVED,
+                    })
+                    .collect();
+                Expansion {
+                    children,
+                    terminals,
+                    conditions: step.nonzero_conditions,
+                }
+            },
+        );
         let mut initial = taken.into_iter().map(|(_, weight)| weight);
         detached
             .into_iter()
@@ -1455,6 +1513,7 @@ fn run_window<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
             budget: &workers.budget,
             phase,
             total_phases,
+            counters: clock.counters(),
         };
         let context = &context;
         // Roots are collected before any key settles: settling releases
