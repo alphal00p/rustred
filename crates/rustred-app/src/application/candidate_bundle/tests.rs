@@ -906,33 +906,3 @@ fn native_family_geometry_does_not_parse_provenance() {
     );
     certify_candidates(CandidateCertificationRequest::new(bytes)).unwrap();
 }
-
-/// The loader declares the program digest of the bundle bytes (and of this
-/// crate's sources); Ordered step caches bound to another program are refused.
-#[test]
-fn loaded_bundles_declare_the_program_digest_that_binds_ordered_step_caches() {
-    use rustred::reduction::OrderedStepCache;
-    let generated = family_candidates(FamilyCandidatesRequest::new(K1)).unwrap();
-    let limits = CandidateBundleLimits::default();
-    let load = |bytes: &[u8]| {
-        load_generated_candidate_bundle::<1>(bytes, limits, Default::default())
-            .unwrap()
-            .1
-    };
-    let reducer = load(generated.bundle());
-    let digest = reducer.program_digest().expect("declared by the loader");
-    assert_eq!(load(generated.bundle()).program_digest(), Some(digest));
-    let binding = reducer.ordered_step_cache_binding().unwrap();
-    assert_eq!(binding.program_digest, digest);
-    // Other bytes of the same family, policy and terminals declare another
-    // digest, so a cache bound to the first program is refused.
-    let mut bundle = codec::read(generated.bundle(), limits).unwrap();
-    bundle.family_source = "other retained provenance".into();
-    let mut other = load(&codec::write(&bundle, limits).unwrap());
-    assert_ne!(other.program_digest(), Some(digest));
-    let cache = OrderedStepCache::in_memory(binding, Default::default());
-    assert!(other.set_ordered_step_cache(Some(cache.clone())).is_err());
-    load(generated.bundle())
-        .set_ordered_step_cache(Some(cache))
-        .unwrap();
-}

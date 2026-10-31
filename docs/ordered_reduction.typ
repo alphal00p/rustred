@@ -245,19 +245,24 @@ applications: the Apply owner, or the owner a Route identity is transported to).
 first lookup; `save` writes each changed shard as a deterministic,
 content-addressed file (sorted identities, coefficients with factorized
 denominators, records; byte-identical for the same records) and then the manifest.
-Every file carries a stamp: the BLAKE3 digest of the binding (program digest,
-family, coefficient variables, adapter, unresolved policy, candidate terminal
-convention) and of the engine (schema, step semantics version, a build-time digest
-of the `rustred` and `rustred-order` sources, and the Symbolica build). A cache is
-therefore replayed only by an engine built from the sources that recorded it; fixture
-goldens pin the step semantics version to the recorded steps. Program digests come
-from the loaders where possible: `PreparedSavedApplication::ordered_step_cache_binding`
-digests the saved files and the rustred-app sources that prepare them, and
-`load_generated_candidate_bundle` declares the digest of the bundle on the
-`CandidateReducer`, whose `ordered_step_cache_binding` adds the digest of the
-installed terminal convention (the terminal step of every raw terminal); terminal
-conventions cannot be installed while a cache is attached. Attachment and every
-request check the binding. A mismatched or corrupt file is rejected with
+Every file carries a stamp. Validity is versioning only: the stamp is the BLAKE3
+digest of the cache schema (`ORDERED_STEP_CACHE_SCHEMA`), the hand-bumped step
+semantics version (`ORDERED_STEP_SEMANTICS`) and cheap identity fields of the
+binding (adapter, family fingerprint, coefficient variables, unresolved policy).
+No source, build or program-file digest enters it, so a cache stays valid across
+RustRed builds. `ORDERED_STEP_SEMANTICS` is bumped by hand whenever an adapter can
+return a different step for the same identity and program (children, their order,
+step coefficients, terminal terms, nonzero conditions and their order; e.g. a
+changed route or rule selection, dropped zero-sector endpoints, or a coefficient
+normal form changed by a Symbolica update); golden digests of the records of
+closed, candidate, weighted-normalization and saved routed fixtures fail until it
+is bumped. The schema is bumped when the file layout, the record encoding or the
+stamp description changes. Program files (rule tables, owners, routes) and a
+candidate program's terminal convention are not digested: callers keep one cache
+per program and data version (for instance one directory per program), and
+terminal conventions cannot be installed on a `CandidateReducer` while a cache is
+attached. Attachment and every request check the identity fields. A mismatched or
+corrupt file is rejected with
 `ReductionError::OrderedStepCache` and never used. A resident-byte ceiling and the
 Symbolica RSS budget limit growth; skipped records only cost recomputation.
 Progress reports per-request `step_cache_hits` and `step_cache_misses`; the cache

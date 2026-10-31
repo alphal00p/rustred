@@ -626,11 +626,12 @@ fn replacing_unit_and_weighted_plans_is_explicit_empty_cache_only_and_atomic() {
 }
 
 /// An Ordered step cache holds the terminal steps of the convention it was
-/// bound to. No convention can be installed under an attached cache, a cache
-/// bound to another convention is refused in memory and on disk, and a cache
-/// bound to the installed convention replays it exactly.
+/// recorded with. No convention can be installed under an attached cache
+/// (forks share it); the binding names only cheap identity fields, so one
+/// cache per convention is the caller's choice, and a cache recorded under
+/// the installed convention replays it exactly.
 #[test]
-fn ordered_step_cache_is_bound_to_the_installed_terminal_convention() {
+fn ordered_step_cache_conventions_cannot_change_under_an_attached_cache() {
     use crate::reduction::OrderedStepCache;
     use crate::reduction::ordered_reduction::step_cache::tests::Scratch;
     let family = test_family(&circuit_momenta(3), 1, false);
@@ -646,8 +647,7 @@ fn ordered_step_cache_is_bound_to_the_installed_terminal_convention() {
     let one = family.coefficient_context().one();
     let input = || [(target.clone(), one.clone())];
     let mut reducer = candidate(&family, &raw);
-    reducer.set_program_digest([7; 32]).unwrap();
-    let raw_binding = reducer.ordered_step_cache_binding().unwrap();
+    let raw_binding = reducer.ordered_step_cache_binding();
     let scratch = Scratch::new("terminal-convention");
     let cache =
         OrderedStepCache::open(&scratch.0, raw_binding.clone(), Default::default()).unwrap();
@@ -671,7 +671,8 @@ fn ordered_step_cache_is_bound_to_the_installed_terminal_convention() {
             .install_terminal_aliases(aliases.clone())
             .is_err()
     );
-    // Detached, the new convention makes the raw-convention cache stale.
+    // Detached, the new convention changes the terminal steps; the binding
+    // (versions and cheap identity fields) does not see it.
     reducer.set_ordered_step_cache(None).unwrap();
     reducer
         .install_terminal_normalization(plan.clone())
@@ -679,17 +680,9 @@ fn ordered_step_cache_is_bound_to_the_installed_terminal_convention() {
     let uncached = reducer.reduce_linear_combination_ordered(input()).unwrap();
     assert_eq!(uncached.terms(), &plan.terms[&target]);
     assert_ne!(uncached.terms(), raw_output.terms());
-    assert!(reducer.set_ordered_step_cache(Some(cache.clone())).is_err());
-    let normalized_binding = reducer.ordered_step_cache_binding().unwrap();
-    assert_ne!(
-        normalized_binding.terminal_convention,
-        raw_binding.terminal_convention
-    );
-    assert_ne!(normalized_binding.stamp(), raw_binding.stamp());
-    assert!(
-        OrderedStepCache::open(&scratch.0, normalized_binding.clone(), Default::default()).is_err()
-    );
-    // A cache bound to the installed convention replays it exactly.
+    let normalized_binding = reducer.ordered_step_cache_binding();
+    assert_eq!(normalized_binding, raw_binding);
+    // A cache recorded under the installed convention replays it exactly.
     let normalized = OrderedStepCache::in_memory(normalized_binding, Default::default());
     reducer
         .set_ordered_step_cache(Some(normalized.clone()))
@@ -704,25 +697,5 @@ fn ordered_step_cache_is_bound_to_the_installed_terminal_convention() {
         "candidate weighted normalization",
         &crate::reduction::ordered_reduction::step_cache::tests::records_digest(&normalized),
         "13ca5e44aedf1809520ad3048d88bec1c6704796ca996a079221bfda4c88886b",
-    );
-    // The convention digest follows the terminal steps: an alias plan binds
-    // like the raw convention exactly when it maps every raw terminal to
-    // itself.
-    let mut aliased = candidate(&family, &raw);
-    aliased.set_program_digest([7; 32]).unwrap();
-    aliased.install_terminal_aliases(aliases.clone()).unwrap();
-    let identity = raw.iter().all(|terminal| {
-        aliases
-            .aliases()
-            .get(terminal)
-            .is_none_or(|alias| alias.representative() == terminal)
-    });
-    assert_eq!(
-        aliased
-            .ordered_step_cache_binding()
-            .unwrap()
-            .terminal_convention
-            == raw_binding.terminal_convention,
-        identity
     );
 }

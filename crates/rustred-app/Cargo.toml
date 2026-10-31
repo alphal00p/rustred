@@ -135,7 +135,3 @@ libc = { version = "0.2", optional = true }
 signal-hook = { version = "0.3", optional = true }
 toml = "1"
 mimalloc = { version = "0.1.52", default-features = false, features = ["override"], optional = true }
-
-[build-dependencies]
-# Digest of this crate's sources for Ordered step-cache bindings.
-blake3 = "1"

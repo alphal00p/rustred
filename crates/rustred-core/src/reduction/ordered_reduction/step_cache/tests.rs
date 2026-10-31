@@ -194,10 +194,9 @@ fn denominator_factorizations_multiply_back_and_share_the_basis() {
     assert_eq!(c.content, Integer::from(6i64));
 }
 
-fn closed_binding(artifact: &ClosedArtifact, digest: u8) -> OrderedStepCacheBinding {
+fn closed_binding(artifact: &ClosedArtifact) -> OrderedStepCacheBinding {
     OrderedStepCacheBinding::new(
         OrderedStepCacheAdapter::ClosedArtifact,
-        [digest; 32],
         artifact.family_fingerprint(),
         artifact.coefficient_context(),
         None,
@@ -262,7 +261,7 @@ fn closed_cached_runs_reproduce_every_phase_and_recompute_factorizations() {
     let exact = OrderedWeightArithmetic::Exact;
     let uncached = closed_run(&artifact, &inputs, None, exact);
     assert!(!uncached.1.is_empty());
-    let cache = OrderedStepCache::in_memory(closed_binding(&artifact, 1), Default::default());
+    let cache = OrderedStepCache::in_memory(closed_binding(&artifact), Default::default());
     let cold = closed_run(&artifact, &inputs, Some(&cache), exact);
     assert_same_run(&uncached, &cold);
     assert_eq!(cold.0.progress.step_cache_hits, 0);
@@ -361,13 +360,13 @@ fn saved_shards_are_deterministic_lazy_and_reproduce_warm_runs() {
     let second = Scratch::new("second");
     // Two caches populated in different orders write identical files.
     let a =
-        OrderedStepCache::open(&first.0, closed_binding(&artifact, 2), Default::default()).unwrap();
+        OrderedStepCache::open(&first.0, closed_binding(&artifact), Default::default()).unwrap();
     closed_run(&artifact, &inputs, Some(&a), exact);
     let report = a.save().unwrap();
     assert!(report.shards_written > 0);
     assert_eq!(report.records, a.statistics().records);
-    let b = OrderedStepCache::open(&second.0, closed_binding(&artifact, 2), Default::default())
-        .unwrap();
+    let b =
+        OrderedStepCache::open(&second.0, closed_binding(&artifact), Default::default()).unwrap();
     copy_records_reversed(&a, &b);
     b.save().unwrap();
     let listing = |root: &PathBuf| {
@@ -391,7 +390,7 @@ fn saved_shards_are_deterministic_lazy_and_reproduce_warm_runs() {
     );
     // A reopened cache loads shards on first use and replays them.
     let reopened =
-        OrderedStepCache::open(&first.0, closed_binding(&artifact, 2), Default::default()).unwrap();
+        OrderedStepCache::open(&first.0, closed_binding(&artifact), Default::default()).unwrap();
     assert!(
         reopened
             .statistics()
@@ -416,15 +415,30 @@ fn mismatched_or_corrupt_caches_are_rejected_and_never_used() {
     let exact = OrderedWeightArithmetic::Exact;
     let scratch = Scratch::new("corrupt");
     let cache =
-        OrderedStepCache::open(&scratch.0, closed_binding(&artifact, 3), Default::default())
-            .unwrap();
+        OrderedStepCache::open(&scratch.0, closed_binding(&artifact), Default::default()).unwrap();
     closed_run(&artifact, &inputs, Some(&cache), exact);
     cache.save().unwrap();
-    // Another program digest: the manifest stamp differs.
-    assert!(matches!(
-        OrderedStepCache::open(&scratch.0, closed_binding(&artifact, 4), Default::default()),
-        Err(ReductionError::OrderedStepCache { .. })
-    ));
+    // Another identity (adapter, policy or coefficient variables): the
+    // manifest stamp differs.
+    for other in [
+        OrderedStepCacheBinding {
+            adapter: OrderedStepCacheAdapter::CandidateProgram,
+            ..closed_binding(&artifact)
+        },
+        OrderedStepCacheBinding {
+            unresolved_policy: Some(UnresolvedPolicy::Preserve),
+            ..closed_binding(&artifact)
+        },
+        OrderedStepCacheBinding {
+            context_variables: vec!["another-variable".into()],
+            ..closed_binding(&artifact)
+        },
+    ] {
+        assert!(matches!(
+            OrderedStepCache::open(&scratch.0, other, Default::default()),
+            Err(ReductionError::OrderedStepCache { .. })
+        ));
+    }
     // Another program: the binding check rejects the attachment.
     let tadpole = derive_one_loop_unit_mass_tadpole().unwrap();
     assert!(matches!(
@@ -451,8 +465,7 @@ fn mismatched_or_corrupt_caches_are_rejected_and_never_used() {
     bytes[last] ^= 1;
     std::fs::write(&shard, bytes).unwrap();
     let reopened =
-        OrderedStepCache::open(&scratch.0, closed_binding(&artifact, 3), Default::default())
-            .unwrap();
+        OrderedStepCache::open(&scratch.0, closed_binding(&artifact), Default::default()).unwrap();
     let failed = Reducer::reduce_artifact_linear_combination_ordered_with_step_cache(
         &artifact,
         inputs.iter().cloned(),
@@ -476,7 +489,7 @@ fn budget_and_read_only_caches_skip_records_without_changing_results() {
     let exact = OrderedWeightArithmetic::Exact;
     let uncached = closed_run(&artifact, &inputs, None, exact);
     let tight = OrderedStepCache::in_memory(
-        closed_binding(&artifact, 5),
+        closed_binding(&artifact),
         OrderedStepCacheOptions {
             max_resident_bytes: Some(2_000),
             ..Default::default()
@@ -492,7 +505,7 @@ fn budget_and_read_only_caches_skip_records_without_changing_results() {
     assert!(statistics.skipped_inserts > 0);
     assert!(statistics.resident_bytes <= 2_000);
     let read_only = OrderedStepCache::in_memory(
-        closed_binding(&artifact, 5),
+        closed_binding(&artifact),
         OrderedStepCacheOptions {
             populate: false,
             ..Default::default()
@@ -513,7 +526,7 @@ fn records_keep_guard_order_and_terminal_coefficients() {
         (key([5]), context.coefficient_fixture("1/(d-7)")),
         (key([2]), context.coefficient_fixture("(d-4)/4")),
     ];
-    let cache = OrderedStepCache::in_memory(closed_binding(&artifact, 6), Default::default());
+    let cache = OrderedStepCache::in_memory(closed_binding(&artifact), Default::default());
     let exact = OrderedWeightArithmetic::Exact;
     let uncached = closed_run(&artifact, &inputs, None, exact);
     closed_run(&artifact, &inputs, Some(&cache), exact);
@@ -544,8 +557,9 @@ pub(crate) fn records_digest(cache: &OrderedStepCache) -> String {
 
 /// Pin the records of a fixture to the step semantics version. A changed
 /// record means a checked step changed: bump [`ORDERED_STEP_SEMANTICS`] and
-/// update the golden digest with it. (Saved caches are invalidated by the
-/// source digest in every stamp regardless; the version names the change.)
+/// update the golden digest with it. The version is the only thing that
+/// invalidates saved caches when steps change (stamps hold no source or
+/// build digest), so these goldens are what forces the bump.
 pub(crate) fn assert_golden_records(fixture: &str, digest: &str, golden: &str) {
     assert_eq!(
         (ORDERED_STEP_SEMANTICS, digest),
@@ -558,7 +572,7 @@ pub(crate) fn assert_golden_records(fixture: &str, digest: &str, golden: &str) {
 #[test]
 fn closed_fixture_records_match_the_step_semantics_golden() {
     let sunset = derive_two_loop_unit_mass_sunset().unwrap();
-    let cache = OrderedStepCache::in_memory(closed_binding(&sunset, 0), Default::default());
+    let cache = OrderedStepCache::in_memory(closed_binding(&sunset), Default::default());
     closed_run(
         &sunset,
         &sunset_inputs(&sunset),
@@ -573,32 +587,35 @@ fn closed_fixture_records_match_the_step_semantics_golden() {
 }
 
 #[test]
-fn stamps_bind_the_engine_sources_and_symbolica_build() {
-    assert_eq!(ORDERED_STEP_SOURCES.len(), 64);
-    assert!(
-        ORDERED_STEP_SOURCES
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit())
-    );
-    let engine = ordered_step_engine();
-    assert!(engine.starts_with(&format!(
-        "rustred {} sources {ORDERED_STEP_SOURCES} symbolica ",
-        env!("CARGO_PKG_VERSION")
-    )));
-    assert_eq!(
-        symbolica_identity("symbolica-v3.0.1-110-g9cd57678"),
-        "git-9cd5767"
-    );
-    assert_eq!(symbolica_identity("symbolica-9cd5767"), "git-9cd5767");
-    assert_eq!(symbolica_identity("symbolica-3.0.1"), "3.0.1");
+fn stamps_hold_only_versions_and_cheap_identity_fields() {
     let artifact = derive_two_loop_unit_mass_sunset().unwrap();
-    let binding = closed_binding(&artifact, 8);
+    let binding = closed_binding(&artifact);
+    let variables = artifact.coefficient_context().parameter_names();
+    // Versioning only: no engine, source, build or program digest, so the
+    // stamp of a program is the same for every RustRed build until the
+    // schema or the step semantics version changes.
     let description = binding.description();
-    assert!(description.contains(&format!("\nengine {engine}\n")));
-    assert!(description.ends_with("\nterminals none\n"));
-    // A cache recorded by an engine built from other sources (or against
-    // another Symbolica) is rejected, whatever ORDERED_STEP_SEMANTICS says.
-    let scratch = Scratch::new("engine");
+    assert_eq!(
+        description,
+        format!(
+            "schema {ORDERED_STEP_CACHE_SCHEMA}\nsemantics {ORDERED_STEP_SEMANTICS}\n\
+             adapter closed-artifact\nfamily {}\nvariables {} {}\nunresolved none\n",
+            escape(artifact.family_fingerprint()),
+            variables.len(),
+            variables
+                .iter()
+                .map(|v| escape(v))
+                .collect::<Vec<_>>()
+                .join(" "),
+        )
+    );
+    assert_eq!(
+        binding.stamp(),
+        *blake3::hash(description.as_bytes()).as_bytes()
+    );
+    // A cache written under another schema or step semantics version is
+    // rejected loudly; the current versions reopen it.
+    let scratch = Scratch::new("versions");
     let cache = OrderedStepCache::open(&scratch.0, binding.clone(), Default::default()).unwrap();
     closed_run(
         &artifact,
@@ -609,14 +626,17 @@ fn stamps_bind_the_engine_sources_and_symbolica_build() {
     cache.save().unwrap();
     let manifest = scratch.0.join(MANIFEST_FILE);
     let current = std::fs::read_to_string(&manifest).unwrap();
-    for other_engine in [
-        engine.replace(ORDERED_STEP_SOURCES, &"0".repeat(64)),
-        format!(
-            "{} symbolica git-0000000",
-            engine.split(" symbolica ").next().unwrap()
+    for (line, stale) in [
+        (
+            format!("schema {ORDERED_STEP_CACHE_SCHEMA}\n"),
+            "schema rustred.ordered-step-cache.v2\n",
+        ),
+        (
+            format!("semantics {ORDERED_STEP_SEMANTICS}\n"),
+            "semantics rustred-ordered-steps-2026-10-30\n",
         ),
     ] {
-        let other = binding.describe(&other_engine);
+        let other = description.replacen(&line, stale, 1);
         assert_ne!(other, description);
         let stamp = hex(blake3::hash(other.as_bytes()).as_bytes());
         let written =

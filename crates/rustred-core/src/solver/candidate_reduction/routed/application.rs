@@ -291,8 +291,6 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             self.family().fingerprint(),
             self.family().coefficient_context(),
             Some(self.unresolved_policy),
-            None,
-            None,
         )?)
     }
 

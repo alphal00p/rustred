@@ -2843,7 +2843,6 @@ mod tests {
         let binding = |lattice: &Lattice| {
             OrderedStepCacheBinding::new(
                 OrderedStepCacheAdapter::CandidateProgram,
-                [7; 32],
                 "ordered parallel lattice",
                 &lattice.context,
                 None,

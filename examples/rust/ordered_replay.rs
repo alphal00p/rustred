@@ -458,7 +458,8 @@ fn open_step_cache(
     let statistics = cache.statistics();
     emit(json!({"event": "step_cache_open", "directory": directory,
         "seconds": started.elapsed().as_secs_f64(),
-        "engine": rustred::reduction::ordered_step_engine(),
+        "schema": rustred::reduction::ORDERED_STEP_CACHE_SCHEMA,
+        "semantics": rustred::reduction::ORDERED_STEP_SEMANTICS,
         "stamp": cache.stamp().iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
         "shards_on_disk": statistics.shards.len(), "file_bytes": statistics.file_bytes}));
     Ok(Some(cache))
@@ -988,7 +989,6 @@ mod closed {
             options,
             OrderedStepCacheBinding::new(
                 OrderedStepCacheAdapter::ClosedArtifact,
-                *blake3::hash(&bytes).as_bytes(),
                 artifact.family_fingerprint(),
                 artifact.coefficient_context(),
                 None,
@@ -1123,9 +1123,9 @@ mod candidate {
         reducer.install_terminal_normalization(plan)?;
         reducer.set_unresolved_policy(UnresolvedPolicy::Preserve)?;
         let mut reducer = reducer.fork_empty_with_limits(ReductionLimits::default());
-        // The loader declared the program digest; the binding adds the
-        // installed terminal normalization and the unresolved policy.
-        let cache = open_step_cache(options, reducer.ordered_step_cache_binding()?)?;
+        // The binding names the candidate program's family, variables and
+        // policy; one cache directory per program and normalization.
+        let cache = open_step_cache(options, reducer.ordered_step_cache_binding())?;
         reducer.set_ordered_step_cache(cache.clone())?;
         let inputs = inputs(request, family.coefficient_context())?;
         emit(

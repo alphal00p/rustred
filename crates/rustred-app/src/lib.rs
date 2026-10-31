@@ -62,13 +62,6 @@ pub use application::{
 };
 /// Native family entry for embedded hosts; no source-text round trip.
 pub use rustred::family::IntegralFamily as NativeIntegralFamily;
-/// BLAKE3 digest (hex) of this crate's Rust sources, computed at build time.
-/// Its loaders and route preparation shape the programs whose steps an
-/// Ordered step cache records, so every program digest this crate computes
-/// for a step-cache binding includes it
-/// ([`PreparedSavedApplication::ordered_step_cache_binding`],
-/// [`load_generated_candidate_bundle`]).
-pub const ORDERED_STEP_APP_SOURCES: &str = env!("RUSTRED_APP_SOURCES");
 #[cfg(feature = "cli")]
 mod cli;
 #[cfg(test)]

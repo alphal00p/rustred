@@ -333,32 +333,16 @@ impl<const N: usize> PreparedSavedApplication<N> {
         self.application.ordered_scheduler_options()
     }
 
-    /// Binding of an Ordered step cache for this application: a BLAKE3
-    /// digest of this crate's sources ([`crate::ORDERED_STEP_APP_SOURCES`],
-    /// which prepare owners and routes from the saved files), the
-    /// authenticated selection (owners, routes, slots), the entry queries and
-    /// every owner payload's declared digest, together with the family,
-    /// coefficient variables and unresolved policy. Terminal maps are applied
-    /// after the native steps and are not part of it.
+    /// Binding of an Ordered step cache for this application: the saved
+    /// application adapter, family, coefficient variables and unresolved
+    /// policy (cheap identity fields; the stamp adds the cache schema and
+    /// step semantics versions). The saved files (selection, routes, owner
+    /// payloads) are not digested: keep one cache directory per application
+    /// and data version. Terminal maps are applied after the native steps
+    /// and are not part of it.
     pub fn ordered_step_cache_binding(&self) -> rustred::reduction::OrderedStepCacheBinding {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"rustred.saved-application.ordered-steps.v2\n");
-        hasher.update(crate::ORDERED_STEP_APP_SOURCES.as_bytes());
-        for part in [&self.inputs.selection, &self.inputs.queries] {
-            hasher.update(&(part.len() as u64).to_le_bytes());
-            hasher.update(part.as_bytes());
-        }
-        hasher.update(&(self.inputs.payloads.len() as u64).to_le_bytes());
-        for payload in &self.inputs.payloads {
-            for part in [&payload.path, &payload.blake3] {
-                hasher.update(&(part.len() as u64).to_le_bytes());
-                hasher.update(part.as_bytes());
-            }
-            hasher.update(&payload.bytes.to_le_bytes());
-        }
         rustred::reduction::OrderedStepCacheBinding::new(
             rustred::reduction::OrderedStepCacheAdapter::SavedApplication,
-            *hasher.finalize().as_bytes(),
             self.family().fingerprint(),
             self.family().coefficient_context(),
             Some(self.application.unresolved_policy()),
@@ -366,8 +350,9 @@ impl<const N: usize> PreparedSavedApplication<N> {
     }
 
     /// Open (or prepare to create) this application's Ordered step cache in
-    /// `directory`. A directory written for another application, policy or
-    /// RustRed step semantics is rejected. Attach the result with
+    /// `directory`. A directory written for another family, coefficient
+    /// variables, policy, cache schema or RustRed step semantics version is
+    /// rejected. Attach the result with
     /// [`Self::set_ordered_step_cache`]; save it with
     /// `OrderedStepCache::save`.
     pub fn open_ordered_step_cache(

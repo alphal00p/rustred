@@ -57,9 +57,6 @@ pub struct CandidateReducer<const N: usize> {
     pub(super) cache_budget: Arc<SharedCacheBudget>,
     pub(super) statistics: ReductionStatistics,
     pub(super) ordered_step_cache: Option<Arc<crate::reduction::OrderedStepCache>>,
-    /// Digest of the bytes the program was loaded from, declared by its
-    /// loader; bound into Ordered step caches.
-    pub(super) program_digest: Option<[u8; 32]>,
 }
 
 impl<const N: usize> Drop for CandidateReducer<N> {
@@ -115,7 +112,6 @@ impl<const N: usize> CandidateReducer<N> {
             cache_budget,
             statistics: ReductionStatistics::default(),
             ordered_step_cache: self.ordered_step_cache.clone(),
-            program_digest: self.program_digest,
         }
     }
 

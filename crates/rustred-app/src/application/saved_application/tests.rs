@@ -208,12 +208,13 @@ fn ordered_step_cache_replays_routed_steps_across_processes_without_owner_prepar
     let saved = cache.save().unwrap();
     assert_eq!(saved.records, recorded.records);
     // The manifest's shard lines (payload digests) are independent of the
-    // stamp; pin them to the step semantics version. The stamp itself names
-    // the engine build.
+    // stamp; pin them to the step semantics version. The stamp names only
+    // versions and identity fields, never the engine build.
     let manifest = std::fs::read_to_string(directory.join("ordered-step-cache.txt")).unwrap();
-    assert!(manifest.contains(&format!(
-        "\nengine {}\n",
-        rustred::reduction::ordered_step_engine()
+    assert!(manifest.starts_with(&format!(
+        "schema {}\nsemantics {}\nadapter saved-application\n",
+        rustred::reduction::ORDERED_STEP_CACHE_SCHEMA,
+        rustred::reduction::ORDERED_STEP_SEMANTICS
     )));
     let shards: String = manifest
         .lines()
