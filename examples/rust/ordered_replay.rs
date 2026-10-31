@@ -58,6 +58,10 @@
 //! * with `--phase-digests` every `phase` record carries both the scheduler's
 //!   `digests` (frontier, terminals, guards separately) and the step cache's
 //!   single `digest` of the complete state (exact weights where present);
+//! * `--adjoint-tail` evaluates the request's single-terminal tail by its
+//!   adjoint (`OrderedSchedulerOptions::adjoint_tail`); with `--step-cache`
+//!   the cache's tail table is read (closing the tail when the guards allow
+//!   it) and populated, and the `step_cache` record reports it (`tail`);
 //! * `--ignore-recorded-counters` reports, but does not fail on, phase
 //!   counters that differ from Vakint's recording (e.g. a recording made
 //!   before an intended counter change).
@@ -144,6 +148,7 @@ impl Options {
                 "--threads" => options.scheduler.threads = value("--threads")?.parse()?,
                 "--window" => options.scheduler.window_keys = value("--window")?.parse()?,
                 "--phase-digests" => options.phase_digests = true,
+                "--adjoint-tail" => options.scheduler.adjoint_tail = true,
                 "--step-cache" => options.step_cache = Some(value("--step-cache")?.into()),
                 "--step-cache-save" => options.step_cache_save = true,
                 "--step-cache-read-only" => options.step_cache_read_only = true,
@@ -474,7 +479,8 @@ fn report_step_cache(options: &Options, cache: Option<&OrderedStepCache>) -> Res
         let report = cache.save()?;
         json!({"seconds": started.elapsed().as_secs_f64(), "shards_written": report.shards_written,
             "records_written": report.records_written, "bytes_written": report.bytes_written,
-            "shards": report.shards, "records": report.records, "bytes": report.bytes})
+            "shards": report.shards, "records": report.records, "bytes": report.bytes,
+            "tail_entries": report.tail_entries, "tail_bytes": report.tail_bytes})
     } else {
         Value::Null
     };
@@ -499,7 +505,13 @@ fn report_step_cache(options: &Options, cache: Option<&OrderedStepCache>) -> Res
         "loaded_shards": statistics.loaded_shards,
         "skipped_shards": statistics.skipped_shards, "rejected_shards": statistics.rejected_shards,
         "factor_basis": statistics.factor_basis, "budget_exhausted": statistics.budget_exhausted,
-        "save": save, "shards": shards}),
+        "save": save, "shards": shards,
+        "tail": cache.tail_statistics().map(|tail| json!({"entries": tail.entries,
+            "values": tail.values, "guards": tail.guards, "guard_sets": tail.guard_sets,
+            "terminals": tail.terminals, "loaded_entries": tail.loaded_entries,
+            "edges": tail.edges, "coefficients": tail.coefficients,
+            "file_bytes": tail.file_bytes, "load_seconds": tail.load_seconds,
+            "dirty": tail.dirty, "rejected": tail.rejected}))}),
     );
     Ok(())
 }

@@ -310,6 +310,18 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
         self.patch(&mut event.progress);
         self.inner.inspect_phase(event)
     }
+
+    /// The cache's tail table.
+    fn tail_table(
+        &mut self,
+    ) -> Result<Option<std::sync::Arc<crate::reduction::OrderedTailTable>>, Self::Error> {
+        Ok(self.cache.tail_table(self.inner.context())?)
+    }
+
+    fn tail_key(&self, encoded: &[u8]) -> Option<Self::Key> {
+        let (stage, integral) = decode_node(encoded).ok()?;
+        self.inner.step_cache_key(stage, integral).ok()
+    }
 }
 
 /// The adapter's stepper behind the cache, shared by the scheduler's
