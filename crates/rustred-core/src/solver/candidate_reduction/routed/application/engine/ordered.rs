@@ -1,10 +1,16 @@
 //! Saved owner/route adapter for the generic weighted-frontier engine.
 use super::*;
 use crate::algebra::CoefficientContext;
-use crate::reduction::ordered_reduction::{
-    self, OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor, OrderedPhaseEvent,
-    OrderedPosition, OrderedStep,
+use crate::reduction::ordered_reduction;
+use crate::reduction::ordered_reduction::step_cache::codec::{NodeStage, owner_sector};
+use crate::reduction::ordered_reduction::step_cache::kernel::{
+    OrderedStepCacheKernel, run_with_step_cache,
 };
+use crate::reduction::ordered_reduction::{
+    OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor, OrderedPhaseEvent, OrderedPosition,
+    OrderedStep,
+};
+use crate::reduction::{OrderedStepShard, OrderedStepStage};
 use crate::reduction::{ReductionLimits, ReductionStrategy};
 use crate::sector::{ComplexityKey, OrderingPolicy};
 use crate::solver::{CandidateOrderedPhaseKind, CandidateOrderedReductionProgress};
@@ -268,6 +274,92 @@ impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
     }
 }
 
+fn mask_bits<const N: usize>(mask: &[bool; N]) -> u64 {
+    mask.iter()
+        .enumerate()
+        .filter(|&(_, &bit)| bit)
+        .fold(0, |bits, (position, _)| {
+            bits | 1u64.checked_shl(position as u32).unwrap_or(0)
+        })
+}
+
+/// Route records are sharded by the owner their transport reaches (the
+/// support itself when it is an owner), Apply records by their owner.
+impl<const N: usize> OrderedStepCacheKernel for RoutedKernel<'_, '_, '_, '_, N> {
+    fn step_cache_shard(&mut self, node: &Node<N>) -> Option<OrderedStepShard> {
+        if N > 64 {
+            return None;
+        }
+        let (stage, class) = match node {
+            Node::Route(key) => {
+                let sector = support::<N>(key);
+                let class = if self.application.owners.contains(&sector) {
+                    mask_bits(&sector)
+                } else {
+                    self.application.routes.get(&sector).map_or(0, |route| {
+                        route
+                            .owner_sector
+                            .active_bits()
+                            .iter()
+                            .enumerate()
+                            .filter(|&(_, &bit)| bit)
+                            .fold(0, |bits, (position, _)| bits | 1u64 << position)
+                    })
+                };
+                (OrderedStepStage::Route, class)
+            }
+            Node::Apply(owner, _) => (OrderedStepStage::Apply, mask_bits(owner)),
+        };
+        Some(OrderedStepShard {
+            stage,
+            support: support::<N>(node.key()).iter().filter(|&&bit| bit).count() as u16,
+            class,
+        })
+    }
+
+    fn step_cache_key(
+        &self,
+        stage: NodeStage,
+        integral: IntegralKey,
+    ) -> Result<Node<N>, Self::Error> {
+        if integral.powers().len() != self.application.family().denominator_count() {
+            return Err(ordered_reduction::step_cache::failure(
+                "a recorded identity has the wrong arity",
+            )
+            .into());
+        }
+        match stage {
+            NodeStage::Route => Ok(Node::Route(integral)),
+            NodeStage::Apply(mask) => owner_sector::<N>(mask)
+                .filter(|owner| self.application.owners.contains(owner))
+                .map(|owner| Node::Apply(owner, integral))
+                .ok_or_else(|| {
+                    ordered_reduction::step_cache::failure(
+                        "a recorded Apply identity names an absent owner",
+                    )
+                    .into()
+                }),
+            NodeStage::Integral => Err(ordered_reduction::step_cache::failure(
+                "a recorded saved-application child is not a Route or Apply identity",
+            )
+            .into()),
+        }
+    }
+
+    /// The cancellation check and operational-node charge of a checked step.
+    fn step_cache_hit(&mut self, _node: &Node<N>) -> Result<(), Self::Error> {
+        self.request.check_cancel()?;
+        charge(
+            &mut self.request.stats.operational_nodes,
+            1,
+            self.application
+                .limits
+                .diagnostic_limit(self.application.limits.max_unique_nodes),
+            "operational nodes",
+        )
+    }
+}
+
 impl<const N: usize> RoutedCandidateApplication<N> {
     pub(super) fn reduce_ordered_request(
         &mut self,
@@ -340,7 +432,11 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             .collect();
         let mut algebra = std::mem::take(&mut request.algebra);
         let arithmetic = self.ordered_weight_arithmetic;
-        let result = ordered_reduction::run_with_arithmetic(
+        let step_cache = self.ordered_step_cache.clone();
+        if let Some(cache) = &step_cache {
+            self.check_ordered_step_cache(cache)?;
+        }
+        let result = run_with_step_cache(
             &mut RoutedKernel {
                 application: self,
                 request,
@@ -352,6 +448,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             initial,
             conditions,
             arithmetic,
+            step_cache.as_deref(),
         );
         request.algebra = algebra;
         let output = match result {

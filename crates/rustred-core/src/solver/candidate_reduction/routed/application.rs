@@ -146,6 +146,7 @@ pub struct RoutedCandidateApplication<const N: usize> {
     work: ReductionStatistics,
     reduction_strategy: ReductionStrategy,
     ordered_weight_arithmetic: crate::reduction::OrderedWeightArithmetic,
+    ordered_step_cache: Option<Arc<crate::reduction::OrderedStepCache>>,
 }
 
 impl<const N: usize> RoutedCandidateReducer<N> {
@@ -166,6 +167,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             work: ReductionStatistics::default(),
             reduction_strategy: ReductionStrategy::DepthFirst,
             ordered_weight_arithmetic: Default::default(),
+            ordered_step_cache: None,
         }
     }
 }
@@ -201,6 +203,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             work: ReductionStatistics::default(),
             reduction_strategy: ReductionStrategy::DepthFirst,
             ordered_weight_arithmetic: Default::default(),
+            ordered_step_cache: None,
         })
     }
     pub fn owner_preparation_statistics(&self) -> DeferredCandidateOwnerStatistics {
@@ -238,6 +241,39 @@ impl<const N: usize> RoutedCandidateApplication<N> {
 
     pub fn ordered_weight_arithmetic(&self) -> crate::reduction::OrderedWeightArithmetic {
         self.ordered_weight_arithmetic
+    }
+
+    /// Attach (or detach) a persistent Ordered step cache. Ordered requests
+    /// then replay recorded Route/Apply steps and record new ones; the
+    /// expanded keys, merges, guards and results are those of an uncached
+    /// request. The cache binding must name a saved application of this
+    /// family, coefficient context and unresolved policy; it is checked here
+    /// and again at every Ordered request. Depth-first strategies ignore it.
+    pub fn set_ordered_step_cache(
+        &mut self,
+        cache: Option<Arc<crate::reduction::OrderedStepCache>>,
+    ) -> Result<(), CandidateRoutedError> {
+        if let Some(cache) = &cache {
+            self.check_ordered_step_cache(cache)?;
+        }
+        self.ordered_step_cache = cache;
+        Ok(())
+    }
+
+    pub fn ordered_step_cache(&self) -> Option<&Arc<crate::reduction::OrderedStepCache>> {
+        self.ordered_step_cache.as_ref()
+    }
+
+    fn check_ordered_step_cache(
+        &self,
+        cache: &crate::reduction::OrderedStepCache,
+    ) -> Result<(), CandidateRoutedError> {
+        Ok(cache.check_binding(
+            crate::reduction::OrderedStepCacheAdapter::SavedApplication,
+            self.family().fingerprint(),
+            self.family().coefficient_context(),
+            Some(self.unresolved_policy),
+        )?)
     }
 
     /// A session cannot change residual semantics while it retains memoized

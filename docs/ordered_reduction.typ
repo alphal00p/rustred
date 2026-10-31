@@ -116,9 +116,46 @@ two no-op calls per phase. The rustred-app example `ordered_replay` uses it to
 replay dumped Vakint requests phase by phase and to capture complete frontiers.
 
 The ordered engine does not read, update or clear depth-first completed-result
-caches. Explicit persistent-cache attachment or capture in ordered mode is
-unsupported. Switching back preserves the depth-first state. New phase-transfer
-or completed-result caching is outside this implementation.
+caches. Explicit persistent depth-first cache attachment or capture in ordered
+mode is unsupported. Switching back preserves the depth-first state. Phase-transfer
+or completed-result caching is outside this implementation; the only Ordered cache
+is the one-step record cache below.
+
+== One-step record cache
+
+An optional `OrderedStepCache` records, for every expanded identity, exactly the
+checked step the adapter returned: the children in step order with their exact
+step coefficients, emitted terminal step coefficients and the step's conditions in
+first-appearance order (saved applications: after the zero-sector drop). A later
+expansion of the same identity replays the record instead of running transport,
+rule selection and specialization; for saved applications an owner whose Apply
+steps all hit is never prepared. Records hold no frontier or terminal weights, no
+zero-erasure decision and no final answer, so every merge, cancellation and guard
+of an uncached request is reproduced in every weight arithmetic and scheduler
+pass: replayed requests have identical frontier states at every phase boundary and
+identical results. Closed-artifact product factorizations depend on request-local
+memoized lower-factor reductions (guards are retained at first use only); they are
+recorded as opaque and always recomputed.
+
+The cache is attached per adapter (`RoutedCandidateApplication` and
+`PreparedSavedApplication::set_ordered_step_cache`,
+`CandidateReducer::set_ordered_step_cache`, inherited by forks, and
+`Reducer::reduce_artifact_linear_combination_ordered_with_step_cache`) and shared
+through `Arc` by every request. It is thread-safe; inserts are idempotent because a
+record is a deterministic function of its identity. Misses populate it. Records are
+sharded by stage, support and topology class (the owner sector for saved
+applications: the Apply owner, or the owner a Route identity is transported to).
+`OrderedStepCache::open` binds a directory, whose shards are read lazily at the
+first lookup; `save` writes each changed shard as a deterministic,
+content-addressed file (sorted identities, coefficients with factorized
+denominators, records; byte-identical for the same records) and then the manifest.
+Every file carries a stamp: the BLAKE3 digest of the binding (caller program
+digest, family, coefficient variables, adapter, unresolved policy, schema and step
+semantics version). A mismatched or corrupt file is rejected with
+`ReductionError::OrderedStepCache` and never used. A resident-byte ceiling and the
+Symbolica RSS budget limit growth; skipped records only cost recomputation.
+Progress reports per-request `step_cache_hits` and `step_cache_misses`; the cache
+reports per-shard hits, misses, inserts and bytes.
 
 Exact field weights must be provided as weights rather than separated into
 unrelated scalar-carrier calls. Application frontends are responsible for

@@ -10,6 +10,7 @@ use std::hash::Hash;
 
 pub(crate) mod arithmetic;
 mod modular;
+pub(crate) mod step_cache;
 
 pub use arithmetic::{ModularWeightOptions, OrderedWeightArithmetic};
 use modular::ModularRecorder;

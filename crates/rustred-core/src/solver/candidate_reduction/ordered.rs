@@ -6,9 +6,17 @@ use super::{CandidateReducer, CandidateReductionError, UnresolvedPolicy};
 use crate::algebra::{Coefficient, CoefficientContext};
 use crate::family::IntegralKey;
 use crate::reduction::guard_union::GuardIndex;
+use crate::reduction::ordered_reduction::step_cache::codec::NodeStage;
+use crate::reduction::ordered_reduction::step_cache::failure;
+use crate::reduction::ordered_reduction::step_cache::kernel::{
+    OrderedStepCacheKernel, run_with_step_cache,
+};
 use crate::reduction::ordered_reduction::{
-    self, OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor, OrderedPhaseEvent,
+    OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor, OrderedPhaseEvent,
     OrderedPhaseInspector, OrderedPosition, OrderedStep,
+};
+use crate::reduction::{
+    OrderedStepCache, OrderedStepCacheAdapter, OrderedStepShard, OrderedStepStage,
 };
 use crate::reduction::{
     ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics,
@@ -193,7 +201,63 @@ impl<const N: usize> OrderedKernel for Kernel<'_, '_, N> {
     }
 }
 
+/// Candidate records are sharded by support level, the phase of their key.
+impl<const N: usize> OrderedStepCacheKernel for Kernel<'_, '_, N> {
+    fn step_cache_shard(&mut self, key: &IntegralKey) -> Option<OrderedStepShard> {
+        Some(OrderedStepShard {
+            stage: OrderedStepStage::Integral,
+            support: key.powers().iter().filter(|&&power| power > 0).count() as u16,
+            class: 0,
+        })
+    }
+
+    fn step_cache_key(
+        &self,
+        stage: NodeStage,
+        integral: IntegralKey,
+    ) -> Result<IntegralKey, Self::Error> {
+        if stage != NodeStage::Integral {
+            return Err(failure("a recorded candidate identity is not a plain integral").into());
+        }
+        Ok(integral)
+    }
+}
+
 impl<const N: usize> CandidateReducer<N> {
+    /// Attach (or detach) a persistent Ordered step cache. Ordered requests of
+    /// this session and of its forks then replay recorded steps and record new
+    /// ones; expanded keys, merges, guards and results are unchanged. The
+    /// binding must name a candidate program of this family, coefficient
+    /// context and unresolved policy (checked here and at every request); its
+    /// program digest must cover the rule program and the installed terminal
+    /// normalization. Depth-first application ignores the cache.
+    pub fn set_ordered_step_cache(
+        &mut self,
+        cache: Option<Arc<OrderedStepCache>>,
+    ) -> Result<(), CandidateReductionError> {
+        if let Some(cache) = &cache {
+            self.check_ordered_step_cache(cache)?;
+        }
+        self.ordered_step_cache = cache;
+        Ok(())
+    }
+
+    pub fn ordered_step_cache(&self) -> Option<&Arc<OrderedStepCache>> {
+        self.ordered_step_cache.as_ref()
+    }
+
+    fn check_ordered_step_cache(
+        &self,
+        cache: &OrderedStepCache,
+    ) -> Result<(), CandidateReductionError> {
+        Ok(cache.check_binding(
+            OrderedStepCacheAdapter::CandidateProgram,
+            &self.program.family_fingerprint,
+            self.program.context.base(),
+            Some(self.unresolved_policy),
+        )?)
+    }
+
     /// Reduce the complete weighted sum with early exact grouping. Existing
     /// resident and persistent depth-first results are neither read nor written.
     pub fn reduce_linear_combination_ordered(
@@ -275,7 +339,10 @@ impl<const N: usize> CandidateReducer<N> {
             )?;
         }
         let support_phases = self.program.ordering.is_support_primary();
-        let output = ordered_reduction::run_with_arithmetic(
+        if let Some(cache) = &self.ordered_step_cache {
+            self.check_ordered_step_cache(cache)?;
+        }
+        let output = run_with_step_cache(
             &mut Kernel {
                 reducer: self,
                 support_phases,
@@ -286,6 +353,7 @@ impl<const N: usize> CandidateReducer<N> {
             initial,
             conditions,
             arithmetic,
+            self.ordered_step_cache.as_deref(),
         )?;
         initial_work.merge_work(output.work);
         let unresolved = output
@@ -511,6 +579,75 @@ mod tests {
             }
             assert!(snapshots.iter().any(|(frontier, _)| !frontier.is_empty()));
         }
+    }
+
+    #[test]
+    fn ordered_step_cache_replays_candidate_steps_exactly() {
+        use crate::reduction::ordered_reduction::step_cache::tests::phase_snapshot;
+        use crate::reduction::{OrderedStepCacheBinding, OrderedWeightArithmetic};
+        let mut reducer = fixture();
+        reducer
+            .set_unresolved_policy(UnresolvedPolicy::Preserve)
+            .unwrap();
+        let context = reducer.program.context.base().clone();
+        let inputs = [
+            (key([4]), context.coefficient_fixture("1/(d-5)")),
+            (key([3]), context.coefficient_fixture("d")),
+            (key([2]), context.integer(3)),
+        ];
+        let run = |reducer: &CandidateReducer<1>| {
+            let mut snapshots = Vec::new();
+            let reduced = reducer
+                .reduce_linear_combination_ordered_with_inspector(
+                    inputs.clone(),
+                    OrderedWeightArithmetic::Exact,
+                    &mut |event| {
+                        snapshots.push(phase_snapshot(event));
+                        Ok(())
+                    },
+                )
+                .unwrap();
+            (reduced, snapshots)
+        };
+        let (expected, expected_snapshots) = run(&reducer);
+        let binding = OrderedStepCacheBinding::new(
+            OrderedStepCacheAdapter::CandidateProgram,
+            [9; 32],
+            reducer.family_fingerprint(),
+            &context,
+            Some(UnresolvedPolicy::Preserve),
+        );
+        let cache = OrderedStepCache::in_memory(binding.clone(), Default::default());
+        reducer.set_ordered_step_cache(Some(cache.clone())).unwrap();
+        // Forked sessions share the attached cache.
+        let fork = reducer.fork_empty();
+        for (pass, session) in [&reducer, &fork].into_iter().enumerate() {
+            let (actual, snapshots) = run(session);
+            assert_eq!(actual.terms(), expected.terms());
+            assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+            assert_eq!(snapshots, expected_snapshots);
+            let processed = expected.progress().processed_keys;
+            let (hits, misses) = if pass == 0 {
+                (0, processed)
+            } else {
+                (processed, 0)
+            };
+            assert_eq!(
+                (
+                    actual.progress().step_cache_hits,
+                    actual.progress().step_cache_misses
+                ),
+                (hits, misses)
+            );
+        }
+        assert_eq!(
+            cache.statistics().records,
+            expected.progress().processed_keys
+        );
+        // A cache bound to another residual policy is refused.
+        let mut rejecting = fixture();
+        let other = OrderedStepCache::in_memory(binding, Default::default());
+        assert!(rejecting.set_ordered_step_cache(Some(other)).is_err());
     }
 
     #[test]
