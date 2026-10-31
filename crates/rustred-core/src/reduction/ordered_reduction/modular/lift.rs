@@ -108,6 +108,12 @@ pub(super) trait ImageSource {
         threads
     }
 
+    /// Fewest primes worth requesting in one round (within the capacity);
+    /// by default rounds double from a single image.
+    fn round_minimum(&self, _threads: usize) -> usize {
+        1
+    }
+
     /// Check `candidates` (one per terminal of `structure`) at fresh primes.
     /// The default computes full images, which the driver compares.
     fn verify(
@@ -555,7 +561,7 @@ pub(super) fn lift<I: ImageSource>(
             }
             let count = driver
                 .leading_images()
-                .max(1)
+                .max(source.round_minimum(executor.threads()).max(1))
                 .min(source.round_capacity(executor.threads()).max(1))
                 .min(budget);
             let primes = lift_primes.take(count)?;

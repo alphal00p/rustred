@@ -31,7 +31,8 @@ impl DenseRational {
     }
 }
 
-fn dense(polynomial: &crate::algebra::CoefficientPolynomial) -> Vec<Integer> {
+/// Dense ascending coefficients of a univariate (or constant) polynomial.
+pub(super) fn dense(polynomial: &crate::algebra::CoefficientPolynomial) -> Vec<Integer> {
     let mut result = Vec::new();
     for (index, coefficient) in polynomial.coefficients.iter().enumerate() {
         let degree = polynomial.exponents(index).first().copied().unwrap_or(0) as usize;

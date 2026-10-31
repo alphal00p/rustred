@@ -73,9 +73,25 @@ exactly the points needed, in batches of at most `batch_points` points that fill
 whole waves of the threads. Every replay re-checks each recorded erasure at every point and
 fails closed.
 
-`ModularPolynomial` (scheduler passes over `Z_p[d]` with factorized
-denominators, no interpolation) is reserved: its requests fail with
-`ModularWeights` until implemented.
+`ModularPolynomial` uses the same recording pass and replays the trace with
+weights in `Z_p(d)`, so the adapters' steps run once whatever the number of
+primes. Every non-constant step coefficient's denominator is factored over Q
+once per request into a basis of primitive irreducible factors (checked by
+multiplying back). A weight modulo `p` is a polynomial part plus partial
+fractions `a_{f,j}(d) / f(d)^j` (`deg a < deg f`) over the monic basis images:
+sums are coefficient-wise, with no common denominator and no gcd, and a weight
+is zero exactly when all its coefficients are. A product with a step
+coefficient multiplies by its numerator (multiplication by `d` shifts each
+chain by one power) and divides by each denominator factor (closed recurrences
+for linear factors, a small CRT step otherwise). A prime is unusable when the
+basis images are not pairwise coprime of unchanged degree or a coefficient
+denominator vanishes modulo `p`. One replay carries up to `lanes` primes; a
+round runs at least one replay per thread. Every replay checks each recorded
+erasure to be exactly zero modulo each prime and fails closed otherwise. The
+terminal images are the reduced numerator and monic denominator of each lane.
+`denominators=dense` keeps one reduced numerator/denominator pair per weight
+instead (a gcd per operation; a reference). `max_degree` bounds every weight
+and fails closed.
 
 The lift consumes per-prime images (reduced numerator and monic denominator of
 every terminal, plus a structural signature: the image source's structure and the

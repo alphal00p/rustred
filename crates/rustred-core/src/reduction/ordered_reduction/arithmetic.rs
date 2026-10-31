@@ -30,10 +30,12 @@ pub enum OrderedWeightArithmetic {
     /// shared modular driver (CRT, rational number reconstruction, one extra
     /// confirming prime, fresh-prime verification).
     ModularSampled(ModularCommon, SampledOptions),
-    /// Run scheduler passes whose weights are rational functions over
-    /// `Z_p[d]` with factorized denominators (no interpolation), and lift the
-    /// per-prime images with the shared modular driver. Not implemented yet:
-    /// requests fail with [`crate::reduction::ReductionError::ModularWeights`].
+    /// Record the trace once as `ModularSampled` does, then replay it with
+    /// weights that are rational functions in `Z_p(d)` (partial fractions
+    /// over a basis of the step-coefficient denominators' irreducible
+    /// factors, no interpolation), several primes per replay. Every recorded
+    /// erasure is checked to be exactly zero modulo each prime, and the
+    /// per-prime images are lifted with the shared modular driver.
     ModularPolynomial(ModularCommon, PolynomialOptions),
 }
 
@@ -78,22 +80,30 @@ pub struct SampledOptions {
 /// Parameters of [`OrderedWeightArithmetic::ModularPolynomial`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PolynomialOptions {
-    /// Primes carried together, as lanes of every weight, by one pass.
+    /// Most primes carried together, as lanes of every weight, by one replay
+    /// of the trace. A round runs at least one replay per thread; lanes only
+    /// grow beyond one prime per replay when a round has more primes than
+    /// threads.
     pub lanes: usize,
-    /// Representation of weight denominators over `Z_p[d]`.
+    /// Representation of the weights over `Z_p(d)`.
     pub denominators: PolynomialDenominators,
-    /// Upper bound on the degree in `d` of any weight numerator or
-    /// denominator (fail closed).
+    /// Upper bound on the degree in `d` of any weight denominator, and on
+    /// the polynomial part (`Factorized`) or numerator (`Dense`) of a
+    /// weight; requests beyond it fail closed.
     pub max_degree: usize,
 }
 
-/// Denominator representation of [`OrderedWeightArithmetic::ModularPolynomial`].
+/// Weight representation of [`OrderedWeightArithmetic::ModularPolynomial`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PolynomialDenominators {
-    /// Sparse exponents over a request-wide basis of irreducible factors.
+    /// Partial fractions over a request-wide basis of the irreducible
+    /// factors of the step-coefficient denominators: sums are
+    /// coefficient-wise, with no common denominator and no gcd.
     #[default]
     Factorized,
-    /// One dense polynomial per weight.
+    /// One reduced numerator and monic denominator per weight, normalized by
+    /// a polynomial gcd after every operation (reference; slow for large
+    /// requests).
     Dense,
 }
 

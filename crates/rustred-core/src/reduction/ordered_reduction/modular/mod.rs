@@ -1,31 +1,37 @@
 //! Finite-field weight backends for the Ordered scheduler.
 //!
-//! `ModularSampled`: the scheduler is run once with [`ModularRecorder`] as its
-//! weight arithmetic. The recorder carries `PROBES` values of every weight
-//! modulo one probe prime, which are used only for the exact-zero erasure
-//! decision, and records a straight-line trace of the weight propagation:
+//! Both modular arithmetics run the scheduler once with [`ModularRecorder`]
+//! as its weight arithmetic. The recorder carries `PROBES` values of every
+//! weight modulo one probe prime, which are used only for the exact-zero
+//! erasure decision, and records a straight-line trace of the weight
+//! propagation:
 //!
 //! - `Init(slot, c)`: a frontier slot starts at an input coefficient;
 //! - `Pop(slot)`: the popped key's weight becomes the active weight;
 //! - `New/Add(slot, c)`: `slot (=|+=) active * c` for a child;
 //! - `Cancel(slot)`: the merged weight of `slot` was decided to be zero and
-//!   the key was erased (replays verify that it is zero at every point);
+//!   the key was erased (every evaluation verifies that it is zero);
 //! - `TermNew/TermAdd/TermCancel(t, c)`: the same for terminal outputs.
 //!
 //! Coefficients `c` are the exact step coefficients produced by the adapters,
 //! interned by value and validated against the request's context and limits
-//! once per distinct value, when first interned. The trace is then replayed
-//! at sample points modulo 64-bit primes (`sampled.rs`, `replay.rs`) and the
-//! per-prime images are lifted over Q by the driver shared with every modular
-//! arithmetic (`lift.rs`). `ModularPolynomial` has its slot in
-//! `polynomial.rs`. All parallel work runs on the request's executor
-//! (`executor.rs`): inline for one thread, else a private pool.
+//! once per distinct value, when first interned. The trace is then evaluated
+//! modulo 64-bit primes, and the per-prime images are lifted over Q by the
+//! driver shared by both arithmetics (`lift.rs`):
+//!
+//! - `ModularSampled` replays it at sample points and interpolates every
+//!   terminal per prime (`sampled.rs`, `replay.rs`);
+//! - `ModularPolynomial` replays it with weights in `Z_p(d)`, several primes
+//!   per replay (`polynomial/`).
+//!
+//! All parallel work runs on the request's executor (`executor.rs`): inline
+//! for one thread, else a private pool.
 mod executor;
 #[cfg(test)]
 pub(crate) use executor::pools_built_on_this_thread;
 mod field;
 mod lift;
-pub(super) mod polynomial;
+mod polynomial;
 mod replay;
 mod sampled;
 
@@ -41,9 +47,12 @@ use symbolica::prelude::Integer;
 
 use self::executor::Executor;
 use self::field::{DenseRational, Fe, reduce};
+use self::polynomial::{BasisBuilder, PolynomialSource};
 use self::sampled::SampledSource;
 use super::OrderedWeights;
-use super::arithmetic::{ModularCommon, SampledOptions};
+use super::arithmetic::{
+    ModularCommon, OrderedWeightArithmetic, PolynomialOptions, SampledOptions,
+};
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 use crate::family::IntegralKey;
 use crate::reduction::{ReductionError, ReductionLimits};
@@ -65,6 +74,44 @@ pub(super) fn check_context(context: &CoefficientContext) -> Result<(), Reductio
         ));
     }
     Ok(())
+}
+
+/// How the recorded trace is evaluated modulo each prime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Lifter {
+    /// Replays at sample points and per-prime interpolation.
+    Sampled(SampledOptions),
+    /// Replays over `Z_p(d)`.
+    Polynomial(PolynomialOptions),
+}
+
+impl Lifter {
+    /// The common options and evaluation of a modular arithmetic.
+    pub(crate) fn of(arithmetic: OrderedWeightArithmetic) -> Option<(ModularCommon, Self)> {
+        match arithmetic {
+            OrderedWeightArithmetic::Exact => None,
+            OrderedWeightArithmetic::ModularSampled(common, sampled) => {
+                Some((common, Self::Sampled(sampled)))
+            }
+            OrderedWeightArithmetic::ModularPolynomial(common, polynomial) => {
+                Some((common, Self::Polynomial(polynomial)))
+            }
+        }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        match self {
+            Self::Sampled(options) => options.validate(),
+            Self::Polynomial(options) => options.validate(),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Sampled(_) => "modular_sampled",
+            Self::Polynomial(_) => "modular_polynomial",
+        }
+    }
 }
 
 /// Interned coefficient reference; the top bit marks a constant.
@@ -210,8 +257,10 @@ impl BuildHasher for FxBuild {
 
 /// Statistics of one modular request (recording plus reconstruction).
 ///
-/// Every field except the timings, `discarded_images`, `rounds` and the
-/// thread counts is independent of the number of threads.
+/// The recording counters, the consumed primes and the degrees and sizes of
+/// the result are independent of the number of threads; the timings, the
+/// rounds, the work computed ahead of need (`discarded_images` and the replay
+/// counters of the images behind them) and the thread counts are not.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ModularStatistics {
     pub arithmetic: &'static str,
@@ -257,6 +306,16 @@ pub(crate) struct ModularStatistics {
     pub bad_points: usize,
     pub verification_failures: usize,
     pub cancel_checks: usize,
+    /// `ModularPolynomial`: factor basis of the step-coefficient denominators
+    /// (all, linear) and the time to factor them.
+    pub basis_factors: usize,
+    pub basis_linear_factors: usize,
+    pub factor_seconds: f64,
+    /// `ModularPolynomial`: replay jobs, primes they replayed, and the
+    /// largest resident weight storage of one job (field elements).
+    pub passes: usize,
+    pub lanes_replayed: usize,
+    pub peak_weight_words: usize,
 }
 
 impl ModularStatistics {
@@ -274,7 +333,9 @@ impl ModularStatistics {
                 "\"points_first_prime\":{},\"points_per_prime\":{},",
                 "\"max_numerator_degree\":{},\"max_denominator_degree\":{},",
                 "\"max_coefficient_bits\":{},\"unlucky_images\":{},\"bad_points\":{},",
-                "\"verification_failures\":{},\"cancel_checks\":{}}}"
+                "\"verification_failures\":{},\"cancel_checks\":{},",
+                "\"basis_factors\":{},\"basis_linear_factors\":{},\"factor_seconds\":{:.6},",
+                "\"passes\":{},\"lanes_replayed\":{},\"peak_weight_words\":{}}}"
             ),
             self.arithmetic,
             self.ops,
@@ -310,6 +371,12 @@ impl ModularStatistics {
             self.bad_points,
             self.verification_failures,
             self.cancel_checks,
+            self.basis_factors,
+            self.basis_linear_factors,
+            self.factor_seconds,
+            self.passes,
+            self.lanes_replayed,
+            self.peak_weight_words,
         )
     }
 }
@@ -317,7 +384,7 @@ impl ModularStatistics {
 /// Recording weight backend.
 pub(crate) struct ModularRecorder {
     common: ModularCommon,
-    sampled: SampledOptions,
+    lifter: Lifter,
     context: CoefficientContext,
     limits: ExactAlgebraLimits,
     probe_field: Zp64,
@@ -343,10 +410,10 @@ impl ModularRecorder {
         context: &CoefficientContext,
         limits: ReductionLimits,
         common: ModularCommon,
-        sampled: SampledOptions,
+        lifter: Lifter,
     ) -> Result<Self, ReductionError> {
         common.validate().map_err(error)?;
-        sampled.validate().map_err(error)?;
+        lifter.validate().map_err(error)?;
         check_context(context)?;
         // Probe primes come from a range disjoint from reconstruction primes.
         let mut rng = StdRng::seed_from_u64(common.seed ^ 0x7072_6f62_6573);
@@ -359,7 +426,7 @@ impl ModularRecorder {
             std::array::from_fn(|_| probe_field.to_element(rng.random_range(2..prime)));
         Ok(Self {
             common,
-            sampled,
+            lifter,
             context: context.clone(),
             limits: limits.exact_algebra,
             probe_field,
@@ -482,7 +549,8 @@ impl ModularRecorder {
             .all(|value| self.probe_field.is_zero(value))
     }
 
-    /// Replay and reconstruct the live terminal accumulators.
+    /// Evaluate the trace modulo primes and lift the live terminal
+    /// accumulators over Q.
     pub(crate) fn finish(
         self,
         terms: BTreeMap<IntegralKey, ModularWeight>,
@@ -499,16 +567,32 @@ impl ModularRecorder {
             };
             polynomial_total
         ];
-        for (coefficient, reference) in self.entries.into_iter().zip(self.entry_refs) {
+        // The polynomial arithmetic factors every polynomial coefficient's
+        // denominator over one basis, in reference order.
+        let mut factored: Vec<Option<&Coefficient>> = vec![];
+        if matches!(self.lifter, Lifter::Polynomial(_)) {
+            factored = vec![None; polynomial_total];
+        }
+        for (coefficient, reference) in self.entries.iter().zip(&self.entry_refs) {
             if reference.is_constant() {
                 constants[reference.index()] = (
                     coefficient.numerator.get_constant(),
                     coefficient.denominator.get_constant(),
                 );
             } else {
-                polynomials[reference.index()] = DenseRational::from_coefficient(&coefficient);
+                polynomials[reference.index()] = DenseRational::from_coefficient(coefficient);
+                if let Some(slot) = factored.get_mut(reference.index()) {
+                    *slot = Some(coefficient);
+                }
             }
         }
+        let factoring = Instant::now();
+        let mut builder = BasisBuilder::default();
+        for coefficient in factored.into_iter().flatten() {
+            builder.push(coefficient)?;
+        }
+        let basis = builder.finish();
+        let factor_seconds = factoring.elapsed().as_secs_f64();
         let trace = Trace {
             ops: self.ops,
             constants,
@@ -517,7 +601,7 @@ impl ModularRecorder {
             terminal_slots: self.terminal_slots as usize,
         };
         let mut statistics = ModularStatistics {
-            arithmetic: "modular_sampled",
+            arithmetic: self.lifter.name(),
             ops: trace.ops.len(),
             constants: constant_total,
             polynomials: polynomial_total,
@@ -527,6 +611,9 @@ impl ModularRecorder {
             coefficient_lookups: self.lookups,
             record_seconds,
             prepare_seconds: prepare.elapsed().as_secs_f64(),
+            factor_seconds,
+            basis_factors: basis.factor_count(),
+            basis_linear_factors: basis.linear_count(),
             threads: self.common.threads,
             jobs_on_caller_only: true,
             ..Default::default()
@@ -542,23 +629,46 @@ impl ModularRecorder {
             return Ok((BTreeMap::new(), statistics));
         }
         let executor = Executor::new(self.common.threads)?;
-        let mut source = SampledSource::new(&trace, &slots, self.sampled, self.common.seed);
-        let lifted = lift::lift(
-            &mut source,
-            &self.context,
-            &self.common,
-            &executor,
-            &mut statistics,
-        );
+        let lifted = match self.lifter {
+            Lifter::Sampled(options) => {
+                let mut source = SampledSource::new(&trace, &slots, options, self.common.seed);
+                let lifted = lift::lift(
+                    &mut source,
+                    &self.context,
+                    &self.common,
+                    &executor,
+                    &mut statistics,
+                );
+                // The structure is fixed by this recording.
+                if let Ok(lifted) = &lifted {
+                    debug_assert!(std::sync::Arc::ptr_eq(
+                        &lifted.structure,
+                        source.structure()
+                    ));
+                }
+                lifted
+            }
+            Lifter::Polynomial(options) => {
+                let mut source = PolynomialSource::new(&trace, &slots, &basis, options);
+                let lifted = lift::lift(
+                    &mut source,
+                    &self.context,
+                    &self.common,
+                    &executor,
+                    &mut statistics,
+                );
+                if let Ok(lifted) = &lifted {
+                    debug_assert!(std::sync::Arc::ptr_eq(
+                        &lifted.structure,
+                        source.structure()
+                    ));
+                }
+                lifted
+            }
+        };
         statistics.pool_threads = executor.pool_threads();
         (statistics.job_threads, statistics.jobs_on_caller_only) = executor.job_threads();
-        let lifted = lifted?;
-        // The structure is fixed by this recording.
-        debug_assert!(std::sync::Arc::ptr_eq(
-            &lifted.structure,
-            source.structure()
-        ));
-        let coefficients = lifted.coefficients;
+        let coefficients = lifted?.coefficients;
         let mut output = BTreeMap::new();
         for (key, coefficient) in keys.into_iter().zip(coefficients) {
             if !coefficient.is_zero() {
