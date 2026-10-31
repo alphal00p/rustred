@@ -55,7 +55,7 @@
 //!
 //! `--route-layers NAME` selects the 5L saved application's Ordered Route
 //! transport (`OrderedRouteLayering`: `off`, `index`, `smallest-power`,
-//! `fewest-terms`, `largest-power`; default: the library default). Every
+//! `fewest-terms`, `largest-power`; default: the library default, `off`). Every
 //! setting must give identical output digests; phase counters (processed keys,
 //! emitted terms, peaks) differ, so compare them with
 //! `--ignore-recorded-counters`.

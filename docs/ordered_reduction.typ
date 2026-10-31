@@ -205,6 +205,14 @@ identity takes the whole transport. Layered steps are never recorded in or repla
 from the one-step record cache, so caches written with and without layering hold
 the same kind of records and are interchangeable.
 
+Layering is opt-in; the default is `off`. A layered run neither records nor reads the
+whole transports of multi-factor Route identities, which are the heaviest records of a
+whole-transport cache: on a cache written with the default it reads only the Apply,
+owner-literal and single-factor Route records and recomputes the others from memoized
+factor expansions, and its own cold run records fewer records. With the default, a
+cold regeneration records exactly the records of a cache written without layering
+(shipped caches), so their content stays complete and comparable.
+
 Closed/candidate artifacts use descending-support phases when their authenticated
 order is support-primary. Other orders use one phase with their exact saved key
 order. Every emitted nonterminal edge is checked against the scheduler position;

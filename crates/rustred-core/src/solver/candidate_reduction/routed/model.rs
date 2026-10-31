@@ -96,9 +96,18 @@ impl RoutedCandidateLimits {
 /// with at least two numerator factors of an application without source
 /// conditions (whose transport validation retains no guards); other keys take
 /// the whole transport.
+///
+/// Layering is opt-in: the default is [`Self::Off`]. A layered run neither
+/// records nor reads the whole transports of multi-factor Route keys, which
+/// are the heaviest records of whole-transport step caches (shipped caches
+/// are written without layering); a cold regeneration with the default
+/// records exactly the records of such a cache.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum OrderedRouteLayering {
-    /// The whole transport in one step (historical).
+    /// The whole transport in one step (historical). The default: every
+    /// Route step, including multi-factor transports, is recorded in and
+    /// replayed from an attached step cache.
+    #[default]
     Off,
     /// One factor per step, lowest source axis first.
     Index,
@@ -106,10 +115,9 @@ pub enum OrderedRouteLayering {
     /// lowest source axis).
     SmallestPower,
     /// One factor per step, the factor whose exact expansion has the fewest
-    /// terms first (ties: smaller power, then lower axis). The default: the
-    /// fewest emitted terms and the fastest record pass and replay measured
-    /// on the 5L zero-momentum and quadratic requests.
-    #[default]
+    /// terms first (ties: smaller power, then lower axis). The fastest order
+    /// measured: the fewest emitted terms and the fastest record pass and
+    /// replay on the 5L zero-momentum and quadratic requests.
     FewestTerms,
     /// One factor per step, largest remaining numerator power first (ties:
     /// lowest source axis). For comparison.

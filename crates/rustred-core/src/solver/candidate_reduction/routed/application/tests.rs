@@ -2226,3 +2226,140 @@ fn ordered_layered_route_transport_shares_step_caches_with_the_whole_transport()
         }
     }
 }
+
+/// Route layering is opt-in (review of `layered-route`, F1). The default
+/// whole transport records and reads every step, so a cache written without
+/// layering (as the shipped caches are) is complete for the default: a cold
+/// default regeneration saves byte-identical files (the equal content that
+/// shipped-cache attestation compares), and a warm default run on it neither
+/// misses nor inserts. A layered run reads only part of it and records less.
+#[test]
+fn ordered_route_layering_is_opt_in_and_the_default_reads_whole_transport_caches_completely() {
+    use crate::reduction::ordered_reduction::step_cache::tests::Scratch;
+    use crate::reduction::{
+        OrderedSchedulerOptions, OrderedStepCache, OrderedStepCacheAdapter,
+        OrderedStepCacheBinding, OrderedStepCacheOptions, OrderedWeightArithmetic,
+    };
+    use crate::solver::OrderedRouteLayering;
+    use std::path::{Path, PathBuf};
+    assert_eq!(OrderedRouteLayering::default(), OrderedRouteLayering::Off);
+    let routed = weighted::<3>();
+    assert_eq!(
+        routed.application().ordered_route_layering(),
+        OrderedRouteLayering::Off
+    );
+    let c = routed.programs.context.family().coefficient_context();
+    let inputs = layered_inputs(c);
+    let binding = OrderedStepCacheBinding::new(
+        OrderedStepCacheAdapter::SavedApplication,
+        [7; 32],
+        routed.programs.context.family().fingerprint(),
+        c,
+        Some(UnresolvedPolicy::Preserve),
+    );
+    let open = |directory: &Path, populate: bool| {
+        OrderedStepCache::open(
+            directory,
+            binding.clone(),
+            OrderedStepCacheOptions {
+                populate,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    // `layering: None` keeps the application's default.
+    let session = |layering: Option<OrderedRouteLayering>,
+                   arithmetic,
+                   threads,
+                   cache: Option<Arc<OrderedStepCache>>| {
+        let mut application = routed.application();
+        application
+            .set_unresolved_policy(UnresolvedPolicy::Preserve)
+            .unwrap();
+        application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+        if let Some(layering) = layering {
+            application.set_ordered_route_layering(layering);
+        }
+        application.set_ordered_weight_arithmetic(arithmetic);
+        application.set_ordered_scheduler_options(OrderedSchedulerOptions {
+            threads,
+            window_keys: 2,
+        });
+        application.set_ordered_step_cache(cache).unwrap();
+        application.reduce_linear_combination(inputs.clone()).unwrap()
+    };
+    let files = |directory: &Path| {
+        let mut files = std::collections::BTreeMap::<PathBuf, Vec<u8>>::new();
+        let mut pending = vec![directory.to_path_buf()];
+        while let Some(path) = pending.pop() {
+            for entry in std::fs::read_dir(&path).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    let bytes = std::fs::read(&path).unwrap();
+                    files.insert(path.strip_prefix(directory).unwrap().to_path_buf(), bytes);
+                }
+            }
+        }
+        files
+    };
+    let expected = session(None, OrderedWeightArithmetic::Exact, 1, None);
+    assert!(!expected.terms().is_empty());
+    for arithmetic in [OrderedWeightArithmetic::Exact, polynomial_arithmetic(false)] {
+        for threads in [1, 3] {
+            let case = format!("{arithmetic:?} threads {threads}");
+            let check = |result: &CandidateRoutedReduction| {
+                assert_eq!(result.terms(), expected.terms(), "{case}");
+                assert_eq!(result.unresolved(), expected.unresolved(), "{case}");
+                assert_eq!(
+                    result.nonzero_conditions(),
+                    expected.nonzero_conditions(),
+                    "{case}"
+                );
+            };
+            // Cold populating runs: explicit `Off`, the default, layered.
+            let whole = Scratch::new("layering-default-whole");
+            let default = Scratch::new("layering-default");
+            let layered = Scratch::new("layering-default-layered");
+            let mut records = Vec::new();
+            for (layering, directory) in [
+                (Some(OrderedRouteLayering::Off), &whole.0),
+                (None, &default.0),
+                (Some(OrderedRouteLayering::FewestTerms), &layered.0),
+            ] {
+                let cache = open(directory, true);
+                check(&session(layering, arithmetic, threads, Some(cache.clone())));
+                cache.save().unwrap();
+                records.push(cache.statistics().records);
+            }
+            assert!(records[0] > 0, "{case}");
+            assert_eq!(files(&default.0), files(&whole.0), "{case}");
+            assert_eq!(records[1], records[0], "{case}");
+            // The layered run skips the multi-factor Route steps.
+            assert!(records[2] < records[0], "{case}");
+            assert_ne!(files(&layered.0), files(&whole.0), "{case}");
+            // Warm, read-only, on the whole-transport cache: the default
+            // replays every record and needs nothing else.
+            let cache = open(&whole.0, false);
+            check(&session(None, arithmetic, threads, Some(cache.clone())));
+            let statistics = cache.statistics();
+            assert_eq!((statistics.misses, statistics.inserts), (0, 0), "{case}");
+            assert_eq!(statistics.hits, records[0] as u64, "{case}");
+            assert_eq!(statistics.records, records[0], "{case}");
+            // A layered run on the same cache misses nothing either, but
+            // leaves its multi-factor Route records unread.
+            let cache = open(&whole.0, false);
+            check(&session(
+                Some(OrderedRouteLayering::FewestTerms),
+                arithmetic,
+                threads,
+                Some(cache.clone()),
+            ));
+            let statistics = cache.statistics();
+            assert_eq!((statistics.misses, statistics.inserts), (0, 0), "{case}");
+            assert_eq!(statistics.hits, records[2] as u64, "{case}");
+        }
+    }
+}
