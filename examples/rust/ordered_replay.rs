@@ -33,6 +33,21 @@
 //! `--strategy` accepts `ordered` (default, phase records), `depth_first`
 //! (5L only) and `depth_first_without_memoization` (1-3L and 5L); the latter
 //! two print only the final record. `--threads` is reserved and must be 1.
+//!
+//! Ordered options:
+//! * `--arithmetic exact|modular[:threads=N,batch_points=N,cross_check=0|1]`
+//!   selects the frontier weight arithmetic (default: exact);
+//! * `--phase-digests` adds to every `phase` record a BLAKE3 digest of the
+//!   complete scheduler state at the phase end: every pending identity with
+//!   its exact weight in pop order, the terminal output and the guards
+//!   (weights are digested only when the arithmetic carries exact values);
+//! * `--step-cache DIR` attaches the program's persistent Ordered step cache
+//!   in `DIR` (created on save), `--step-cache-save` saves it after the run,
+//!   `--step-cache-read-only` disables population. A `step_cache` record
+//!   reports hits, misses, inserts, records and bytes (per shard as well);
+//! * `--ignore-recorded-counters` reports, but does not fail on, phase
+//!   counters that differ from Vakint's recording (e.g. a recording made
+//!   before an intended counter change).
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -42,11 +57,13 @@ use std::time::Instant;
 use rustred::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 use rustred::family::IntegralKey;
 use rustred::reduction::{
-    OrderedKeyStage, OrderedPhaseBoundary, OrderedPhaseEvent, OrderedWeightArithmetic,
-    ReductionError, ReductionLimits, ReductionStrategy,
+    ModularWeightOptions, OrderedKeyStage, OrderedPhaseBoundary, OrderedPhaseEvent,
+    OrderedStepCache, OrderedStepCacheAdapter, OrderedStepCacheBinding, OrderedStepCacheOptions,
+    OrderedWeightArithmetic, ReductionError, ReductionLimits, ReductionStrategy,
 };
 use rustred::solver::{CandidateOrderedReductionProgress, CandidateRoutedError, UnresolvedPolicy};
 use serde_json::{Value, json};
+use std::sync::Arc;
 use symbolica::atom::AtomCore;
 use symbolica::domains::{integer::Z, rational::Q};
 
@@ -64,6 +81,38 @@ struct Options {
     stop_after_phase: Option<usize>,
     capture: Option<(usize, PathBuf)>,
     threads: usize,
+    arithmetic: OrderedWeightArithmetic,
+    phase_digests: bool,
+    step_cache: Option<PathBuf>,
+    step_cache_save: bool,
+    step_cache_read_only: bool,
+    ignore_recorded_counters: bool,
+}
+
+/// `exact` or `modular[:threads=N,batch_points=N,cross_check=0|1]`.
+fn parse_arithmetic(text: &str) -> Result<OrderedWeightArithmetic> {
+    if text == "exact" {
+        return Ok(OrderedWeightArithmetic::Exact);
+    }
+    let Some(rest) = text.strip_prefix("modular") else {
+        return Err(format!("unknown arithmetic {text}").into());
+    };
+    let mut options = ModularWeightOptions::default();
+    for item in rest.strip_prefix(':').unwrap_or(rest).split(',') {
+        if item.is_empty() {
+            continue;
+        }
+        let (name, value) = item
+            .split_once('=')
+            .ok_or("modular option needs name=value")?;
+        match name {
+            "threads" => options.threads = value.parse()?,
+            "batch_points" => options.batch_points = value.parse()?,
+            "cross_check" => options.cross_check_exact = value == "1",
+            other => return Err(format!("unknown modular option {other}").into()),
+        }
+    }
+    Ok(OrderedWeightArithmetic::Modular(options))
 }
 
 impl Options {
@@ -76,6 +125,12 @@ impl Options {
             stop_after_phase: None,
             capture: None,
             threads: 1,
+            arithmetic: OrderedWeightArithmetic::Exact,
+            phase_digests: false,
+            step_cache: None,
+            step_cache_save: false,
+            step_cache_read_only: false,
+            ignore_recorded_counters: false,
         };
         while let Some(arg) = args.next() {
             let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
@@ -99,6 +154,12 @@ impl Options {
                     options.capture = Some((phase, value("--capture-frontier-at-phase")?.into()));
                 }
                 "--threads" => options.threads = value("--threads")?.parse()?,
+                "--arithmetic" => options.arithmetic = parse_arithmetic(&value("--arithmetic")?)?,
+                "--phase-digests" => options.phase_digests = true,
+                "--step-cache" => options.step_cache = Some(value("--step-cache")?.into()),
+                "--step-cache-save" => options.step_cache_save = true,
+                "--step-cache-read-only" => options.step_cache_read_only = true,
+                "--ignore-recorded-counters" => options.ignore_recorded_counters = true,
                 _ if request.is_none() && !arg.starts_with("--") => request = Some(arg.into()),
                 _ => return Err(format!("unexpected argument {arg}").into()),
             }
@@ -110,9 +171,15 @@ impl Options {
         if options.threads != 1 {
             return Err("--threads is reserved for parallel engines; only 1 is supported".into());
         }
-        let phased = options.stop_after_phase.is_some() || options.capture.is_some();
+        let phased = options.stop_after_phase.is_some()
+            || options.capture.is_some()
+            || options.phase_digests
+            || options.step_cache.is_some()
+            || options.arithmetic != OrderedWeightArithmetic::Exact;
         if phased && options.strategy != ReductionStrategy::Ordered {
-            return Err("phase options require --strategy ordered".into());
+            return Err(
+                "phase, arithmetic and step-cache options require --strategy ordered".into(),
+            );
         }
         Ok(options)
     }
@@ -235,6 +302,142 @@ fn progress_json(progress: &CandidateOrderedReductionProgress) -> Value {
     })
 }
 
+fn hash_integer(hasher: &mut blake3::Hasher, value: &symbolica::domains::integer::Integer) {
+    use symbolica::domains::integer::Integer;
+    match value {
+        Integer::Single(value) => {
+            hasher.update(&[0]);
+            hasher.update(&value.to_le_bytes());
+        }
+        other => {
+            hasher.update(&[1, u8::from(other.is_negative())]);
+            let mut magnitude = Vec::new();
+            symbolica::domains::backend::integer::write_lsf_bytes(
+                &other.clone().to_multi_prec(),
+                &mut magnitude,
+            );
+            hasher.update(&(magnitude.len() as u64).to_le_bytes());
+            hasher.update(&magnitude);
+        }
+    }
+}
+
+/// Exact structural digest of one coefficient (no printing).
+fn hash_coefficient(hasher: &mut blake3::Hasher, coefficient: &Coefficient) {
+    for polynomial in [&coefficient.numerator, &coefficient.denominator] {
+        hasher.update(&(polynomial.nterms() as u64).to_le_bytes());
+        for value in &polynomial.coefficients {
+            hash_integer(hasher, value);
+        }
+        for exponent in &polynomial.exponents {
+            hasher.update(&exponent.to_le_bytes());
+        }
+    }
+}
+
+/// Digest of the complete scheduler state at one phase boundary: pending
+/// identities with exact weights in pop order, terminals, guards in order.
+fn state_digest(event: &OrderedPhaseEvent<'_>) -> Value {
+    let mut hasher = blake3::Hasher::new();
+    let (mut entries, mut weighted) = (0usize, 0usize);
+    for entry in event.frontier() {
+        let stage = match entry.stage {
+            OrderedKeyStage::Integral => "integral".to_owned(),
+            OrderedKeyStage::Route => "route".to_owned(),
+            OrderedKeyStage::Apply { owner_sector } => format!("apply {}", mask(owner_sector)),
+        };
+        hasher.update(format!("f {} {stage} {}\n", entry.phase, powers(entry.integral)).as_bytes());
+        if let Some(weight) = entry.weight {
+            hash_coefficient(&mut hasher, weight);
+            weighted += 1;
+        }
+        entries += 1;
+    }
+    let terminals = event.terminals().len();
+    for (key, weight) in event.terminals() {
+        hasher.update(format!("t {}\n", powers(key)).as_bytes());
+        if let Some(weight) = weight {
+            hash_coefficient(&mut hasher, weight);
+        }
+    }
+    for guard in event.nonzero_conditions() {
+        hasher.update(b"g");
+        hash_coefficient(&mut hasher, guard);
+    }
+    json!({
+        "blake3": hasher.finalize().to_hex().to_string(),
+        "frontier": entries,
+        "weighted": weighted,
+        "terminals": terminals,
+        "guards": event.nonzero_conditions().len(),
+    })
+}
+
+fn step_cache_options(options: &Options) -> OrderedStepCacheOptions {
+    OrderedStepCacheOptions {
+        populate: !options.step_cache_read_only,
+        ..Default::default()
+    }
+}
+
+/// Open the program's step cache when `--step-cache` is given.
+fn open_step_cache(
+    options: &Options,
+    binding: OrderedStepCacheBinding,
+) -> Result<Option<Arc<OrderedStepCache>>> {
+    let Some(directory) = &options.step_cache else {
+        return Ok(None);
+    };
+    let started = Instant::now();
+    let cache = OrderedStepCache::open(directory, binding, step_cache_options(options))?;
+    let statistics = cache.statistics();
+    emit(json!({"event": "step_cache_open", "directory": directory,
+        "seconds": started.elapsed().as_secs_f64(),
+        "stamp": cache.stamp().iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
+        "shards_on_disk": statistics.shards.len(), "file_bytes": statistics.file_bytes}));
+    Ok(Some(cache))
+}
+
+/// Save (when requested) and report the cache after a run.
+fn report_step_cache(options: &Options, cache: Option<&OrderedStepCache>) -> Result<()> {
+    let Some(cache) = cache else {
+        return Ok(());
+    };
+    let save = if options.step_cache_save {
+        let started = Instant::now();
+        let report = cache.save()?;
+        json!({"seconds": started.elapsed().as_secs_f64(), "shards_written": report.shards_written,
+            "records_written": report.records_written, "bytes_written": report.bytes_written,
+            "shards": report.shards, "records": report.records, "bytes": report.bytes})
+    } else {
+        Value::Null
+    };
+    let statistics = cache.statistics();
+    let shards: Vec<Value> = statistics
+        .shards
+        .iter()
+        .map(|shard| {
+            json!({"shard": shard.shard.to_string(), "state": format!("{:?}", shard.state),
+                "records": shard.records, "loaded_records": shard.loaded_records,
+                "hits": shard.hits, "misses": shard.misses, "inserts": shard.inserts,
+                "skipped_inserts": shard.skipped_inserts, "opaque_hits": shard.opaque_hits,
+                "resident_bytes": shard.resident_bytes, "file_bytes": shard.file_bytes,
+                "load_seconds": shard.load_seconds})
+        })
+        .collect();
+    emit(
+        json!({"event": "step_cache", "hits": statistics.hits, "misses": statistics.misses,
+        "inserts": statistics.inserts, "skipped_inserts": statistics.skipped_inserts,
+        "records": statistics.records, "resident_bytes": statistics.resident_bytes,
+        "file_bytes": statistics.file_bytes, "load_seconds": statistics.load_seconds,
+        "loaded_shards": statistics.loaded_shards,
+        "skipped_shards": statistics.skipped_shards, "rejected_shards": statistics.rejected_shards,
+        "factor_basis": statistics.factor_basis, "budget_exhausted": statistics.budget_exhausted,
+        "save": save, "shards": shards}),
+    );
+    Ok(())
+}
+
 /// Vakint's sibling `.result.json` and `.phases.jsonl`, when present.
 struct Recorded {
     result: Option<Value>,
@@ -337,6 +540,15 @@ impl<'a> PhaseRecorder<'a> {
             }
             OrderedPhaseBoundary::Finished => {
                 let wall = self.phase_started.elapsed().as_secs_f64();
+                let digest = if self.options.phase_digests {
+                    let started = Instant::now();
+                    let digest = state_digest(event);
+                    let seconds = started.elapsed().as_secs_f64();
+                    self.capture_seconds += seconds;
+                    json!({"state": digest, "seconds": seconds})
+                } else {
+                    Value::Null
+                };
                 let (before, after) = (&self.at_start, &event.progress);
                 let recorded = self.recorded.phases.get(&event.phase);
                 let matches = recorded.map(|record| record["progress"] == progress_json(after));
@@ -377,6 +589,9 @@ impl<'a> PhaseRecorder<'a> {
                     "progress": progress_json(after),
                     "vakint_counters_match": matches,
                     "vakint_elapsed_seconds": recorded.map(|record| &record["elapsed_seconds"]),
+                    "step_cache_hits": after.step_cache_hits - before.step_cache_hits,
+                    "step_cache_misses": after.step_cache_misses - before.step_cache_misses,
+                    "digest": digest,
                 }));
                 let capture_next = self
                     .options
@@ -503,11 +718,15 @@ fn finish(
         "vakint_nonzero_conditions_match": guards_match,
         "vakint_phase_records_compared": recorder.map(|recorder| recorder.compared),
         "vakint_phase_mismatches": recorder.map(|recorder| &recorder.mismatched),
+        "step_cache_hits": progress.as_ref().map(|progress| progress.step_cache_hits),
+        "step_cache_misses": progress.as_ref().map(|progress| progress.step_cache_misses),
     }));
     if terms_match == Some(false) {
         return Err("replayed output terms differ from Vakint's recorded output".into());
     }
-    if recorder.is_some_and(|recorder| !recorder.mismatched.is_empty()) {
+    if recorder.is_some_and(|recorder| {
+        !recorder.mismatched.is_empty() && !recorder.options.ignore_recorded_counters
+    }) {
         return Err("replayed phase counters differ from Vakint's recorded counters".into());
     }
     Ok(())
@@ -626,6 +845,9 @@ mod saved {
             "prepared_owners": owners.prepared_owners}),
         );
         prepared.set_reduction_strategy(options.strategy);
+        prepared.set_ordered_weight_arithmetic(options.arithmetic);
+        let cache = open_step_cache(options, prepared.ordered_step_cache_binding())?;
+        prepared.set_ordered_step_cache(cache.clone())?;
         let owners_before = prepared.owner_preparation_statistics().preparation_time;
         let native = Instant::now();
         let (reduced, recorder) = if options.strategy == ReductionStrategy::Ordered {
@@ -642,7 +864,7 @@ mod saved {
             );
             match recorder.conclude(result)? {
                 Some(reduced) => (reduced, Some(recorder)),
-                None => return Ok(()),
+                None => return report_step_cache(options, cache.as_deref()),
             }
         } else {
             (prepared.reduce_routed_linear_combination(inputs)?, None)
@@ -651,9 +873,11 @@ mod saved {
             - recorder
                 .as_ref()
                 .map_or(0.0, |recorder| recorder.capture_seconds);
+        let owners = prepared.owner_preparation_statistics();
         emit(json!({"event": "owner_preparation",
-            "seconds": (prepared.owner_preparation_statistics().preparation_time - owners_before)
-                .as_secs_f64()}));
+            "seconds": (owners.preparation_time - owners_before).as_secs_f64(),
+            "prepared_owners": owners.prepared_owners, "declared_owners": owners.declared_owners}));
+        report_step_cache(options, cache.as_deref())?;
         let output = output_digest(
             reduced.terms().iter().map(|(terminal, coefficient)| {
                 (
@@ -677,7 +901,8 @@ mod closed {
     pub(super) fn replay(request: &Value, options: &Options, recorded: &Recorded) -> Result<()> {
         let path = program_file(request, options, "ibps/rules.rrbin")?;
         let started = Instant::now();
-        let artifact = ClosedArtifact::decode_durable(&std::fs::read(&path)?)?;
+        let bytes = std::fs::read(&path)?;
+        let artifact = ClosedArtifact::decode_durable(&bytes)?;
         if Some(artifact.family_fingerprint()) != request["program"]["family_fingerprint"].as_str()
         {
             return Err("closed artifact family differs from the recorded request".into());
@@ -689,17 +914,29 @@ mod closed {
             "expected_sha256": request["program"]["artifact_sha256"]}),
         );
         let limits = ReductionLimits::default();
+        let cache = open_step_cache(
+            options,
+            OrderedStepCacheBinding::new(
+                OrderedStepCacheAdapter::ClosedArtifact,
+                *blake3::hash(&bytes).as_bytes(),
+                artifact.family_fingerprint(),
+                artifact.coefficient_context(),
+                None,
+            ),
+        )?;
         let native = Instant::now();
         let family = artifact.family_fingerprint();
         match options.strategy {
             ReductionStrategy::Ordered => {
                 let mut recorder = PhaseRecorder::new(options, recorded);
-                let result = Reducer::reduce_artifact_linear_combination_ordered_with_inspector(
+                let result = Reducer::reduce_artifact_linear_combination_ordered_with_step_cache(
                     &artifact,
                     inputs,
                     limits,
-                    OrderedWeightArithmetic::Exact,
-                    &mut |event| {
+                    options.arithmetic,
+                    cache.as_deref(),
+                    &mut |_, _| Ok(()),
+                    Some(&mut |event| {
                         if recorder.inspect(event) {
                             Ok(())
                         } else {
@@ -707,10 +944,10 @@ mod closed {
                                 detail: STOP_DETAIL,
                             })
                         }
-                    },
+                    }),
                 );
                 let Some(reduced) = recorder.conclude(result)? else {
-                    return Ok(());
+                    return report_step_cache(options, cache.as_deref());
                 };
                 let native_seconds = native.elapsed().as_secs_f64() - recorder.capture_seconds;
                 let output = output_digest(
@@ -720,6 +957,7 @@ mod closed {
                         .map(|(key, value)| (family, key, value)),
                     &reduced.nonzero_conditions,
                 );
+                report_step_cache(options, cache.as_deref())?;
                 finish(
                     recorded,
                     Some(&recorder),
@@ -789,8 +1027,10 @@ mod candidate {
         )?;
         let normalization = program_file(request, options, &format!("ibps/{name}.rrnorm.bin"))?;
         let started = Instant::now();
+        let program_bytes = gunzip(&program)?;
+        let normalization_bytes = std::fs::read(&normalization)?;
         let (family, mut reducer) = load_generated_candidate_bundle::<10>(
-            &gunzip(&program)?,
+            &program_bytes,
             CandidateBundleLimits {
                 max_bundle_bytes: MAX_CANDIDATE_BUNDLE_BYTES,
                 max_collection_entries: 8_000_000,
@@ -803,7 +1043,7 @@ mod candidate {
             return Err("candidate program family differs from the recorded request".into());
         }
         let plan = TerminalNormalizationPlan::decode_generated(
-            &std::fs::read(&normalization)?,
+            &normalization_bytes,
             &family,
             reducer.terminals(),
             reducer.ordering(),
@@ -812,7 +1052,24 @@ mod candidate {
         )?;
         reducer.install_terminal_normalization(plan)?;
         reducer.set_unresolved_policy(UnresolvedPolicy::Preserve)?;
-        let reducer = reducer.fork_empty_with_limits(ReductionLimits::default());
+        let mut reducer = reducer.fork_empty_with_limits(ReductionLimits::default());
+        // The steps read the rule program and the terminal normalization.
+        let mut digest = blake3::Hasher::new();
+        for part in [&program_bytes, &normalization_bytes] {
+            digest.update(&(part.len() as u64).to_le_bytes());
+            digest.update(part);
+        }
+        let cache = open_step_cache(
+            options,
+            OrderedStepCacheBinding::new(
+                OrderedStepCacheAdapter::CandidateProgram,
+                *digest.finalize().as_bytes(),
+                family.fingerprint(),
+                family.coefficient_context(),
+                Some(UnresolvedPolicy::Preserve),
+            ),
+        )?;
+        reducer.set_ordered_step_cache(cache.clone())?;
         let inputs = inputs(request, family.coefficient_context())?;
         emit(
             json!({"event": "loaded", "program": program, "normalization": normalization,
@@ -822,7 +1079,7 @@ mod candidate {
         let mut recorder = PhaseRecorder::new(options, recorded);
         let result = reducer.reduce_linear_combination_ordered_with_inspector(
             inputs,
-            OrderedWeightArithmetic::Exact,
+            options.arithmetic,
             &mut |event| {
                 if recorder.inspect(event) {
                     Ok(())
@@ -836,7 +1093,7 @@ mod candidate {
             },
         );
         let Some(reduced) = recorder.conclude(result)? else {
-            return Ok(());
+            return report_step_cache(options, cache.as_deref());
         };
         let native_seconds = native.elapsed().as_secs_f64() - recorder.capture_seconds;
         let output = output_digest(
@@ -846,6 +1103,7 @@ mod candidate {
                 .map(|(key, value)| (reduced.family_fingerprint(), key, value)),
             reduced.nonzero_conditions(),
         );
+        report_step_cache(options, cache.as_deref())?;
         finish(
             recorded,
             Some(&recorder),

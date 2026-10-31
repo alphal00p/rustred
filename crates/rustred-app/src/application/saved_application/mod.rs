@@ -316,6 +316,70 @@ impl<const N: usize> PreparedSavedApplication<N> {
         self.application.ordered_weight_arithmetic()
     }
 
+    /// Binding of an Ordered step cache for this application: a BLAKE3
+    /// digest of the authenticated selection (owners, routes, slots), the
+    /// entry queries and every owner payload's declared digest, together with
+    /// the family, coefficient variables and unresolved policy. Terminal maps
+    /// are applied after the native steps and are not part of it.
+    pub fn ordered_step_cache_binding(&self) -> rustred::reduction::OrderedStepCacheBinding {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"rustred.saved-application.ordered-steps.v1\n");
+        for part in [&self.inputs.selection, &self.inputs.queries] {
+            hasher.update(&(part.len() as u64).to_le_bytes());
+            hasher.update(part.as_bytes());
+        }
+        hasher.update(&(self.inputs.payloads.len() as u64).to_le_bytes());
+        for payload in &self.inputs.payloads {
+            for part in [&payload.path, &payload.blake3] {
+                hasher.update(&(part.len() as u64).to_le_bytes());
+                hasher.update(part.as_bytes());
+            }
+            hasher.update(&payload.bytes.to_le_bytes());
+        }
+        rustred::reduction::OrderedStepCacheBinding::new(
+            rustred::reduction::OrderedStepCacheAdapter::SavedApplication,
+            *hasher.finalize().as_bytes(),
+            self.family().fingerprint(),
+            self.family().coefficient_context(),
+            Some(self.application.unresolved_policy()),
+        )
+    }
+
+    /// Open (or prepare to create) this application's Ordered step cache in
+    /// `directory`. A directory written for another application, policy or
+    /// RustRed step semantics is rejected. Attach the result with
+    /// [`Self::set_ordered_step_cache`]; save it with
+    /// `OrderedStepCache::save`.
+    pub fn open_ordered_step_cache(
+        &self,
+        directory: &Path,
+        options: rustred::reduction::OrderedStepCacheOptions,
+    ) -> Result<Arc<rustred::reduction::OrderedStepCache>, AppError> {
+        rustred::reduction::OrderedStepCache::open(
+            directory,
+            self.ordered_step_cache_binding(),
+            options,
+        )
+        .map_err(native_failure)
+    }
+
+    /// Attach (or detach) an Ordered step cache. Ordered requests replay its
+    /// recorded Route/Apply steps and record new ones; their expanded keys,
+    /// merges, guards and exact results are those of an uncached request in
+    /// every weight arithmetic. Depth-first strategies ignore it.
+    pub fn set_ordered_step_cache(
+        &mut self,
+        cache: Option<Arc<rustred::reduction::OrderedStepCache>>,
+    ) -> Result<(), AppError> {
+        self.application
+            .set_ordered_step_cache(cache)
+            .map_err(native_failure)
+    }
+
+    pub fn ordered_step_cache(&self) -> Option<&Arc<rustred::reduction::OrderedStepCache>> {
+        self.application.ordered_step_cache()
+    }
+
     pub fn family(&self) -> &IntegralFamily {
         self.application.family()
     }
