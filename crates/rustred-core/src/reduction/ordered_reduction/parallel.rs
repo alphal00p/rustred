@@ -13,10 +13,12 @@
 //! and every parent of a window key is a window key or was popped earlier.
 //! Inside a window:
 //!
-//! 1. Steps are computed concurrently by the adapter's [`OrderedStepper`].
-//!    They are pure functions of the key, so computing them early, out of
-//!    order, or for keys that later cancel changes nothing; only the steps of
-//!    keys the sequential scheduler expands are ever used.
+//! 1. Steps are computed concurrently by the adapter's [`OrderedStepper`],
+//!    exploring the closure by work stealing (a finished step spawns the steps
+//!    of its new window children). Steps are pure functions of the key, so
+//!    computing them early, out of order, or for keys that later cancel
+//!    changes nothing; only the steps of keys the sequential scheduler expands
+//!    are ever used.
 //! 2. The window keys form a DAG (children strictly descend). A key settles
 //!    once all of its window parents have settled: it then merges its window
 //!    contributions in sequential order (parent pop order, then child order),
@@ -24,8 +26,11 @@
 //!    to that key, and it is expanded at its turn iff its weight is then
 //!    nonzero. Independent keys settle concurrently.
 //! 3. Contributions to keys outside the window (lower in this phase or in
-//!    later phases) and to terminals are merged per destination key,
-//!    concurrently across keys and again in sequential order per key.
+//!    later phases) and to terminals are merged per destination key (one task
+//!    per destination), concurrently across keys and again in sequential order
+//!    per key. A destination that receives a large share of the window is
+//!    merged by exact prefix sums on several threads (`merge_prefix`), which
+//!    reproduces each of its sequential states.
 //! 4. A serial scan visits the expanded window keys in pop order and replays,
 //!    from the recorded outcome of every merge, what the sequential scheduler
 //!    does at each event: pending-frame and coalescing accounting, interning
@@ -37,7 +42,9 @@
 //! observations at every window boundary (so at every phase boundary and at
 //! the end) equal those of the sequential scheduler, for every thread count
 //! and window size. Exact zero erasure is decided on the same sums in the same
-//! order. Weight arithmetic needs no commutativity or associativity for this.
+//! order. Weight arithmetic needs no commutativity or associativity for this,
+//! except the prefix merge, which is used only for associative arithmetic with
+//! a canonical representation ([`ConcurrentWeights::CANONICAL_SUMS`]).
 //!
 //! Products and merges run concurrently only for value arithmetic
 //! ([`ConcurrentWeights`]: weights are plain values, nothing is journaled).
