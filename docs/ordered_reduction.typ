@@ -160,10 +160,11 @@ step runs. Counting the lookup, the hit accounting (for saved applications the
 operational-node charge and cancellation check of a checked step), the request's
 hit and miss counters and the insert of a new record happen in the serial scan,
 at the key's sequential turn. Steps of keys that cancel before their turn
-therefore leave no trace: the records, the cache statistics and the progress
-counters are those of the sequential run for every thread count. Only under a
-resident-byte ceiling or a Symbolica memory budget can the order of the workers'
-shard loads change which shards and records fit; results never change.
+therefore leave no trace: the records, the shard hit, miss and insert counters
+and the progress counters are those of the sequential run for every thread count.
+Only shard loading can differ: a worker may load a shard for a key that then
+cancels, and under a resident-byte ceiling or a Symbolica memory budget that
+earlier load can change which shards and records fit; results never change.
 
 == Phases and canonical identities
 

@@ -2810,20 +2810,32 @@ mod tests {
         files
     }
 
-    /// Cache statistics without the (timing) load seconds.
-    fn counted(mut statistics: OrderedStepCacheStatistics) -> OrderedStepCacheStatistics {
-        statistics.load_seconds = 0.0;
-        for shard in &mut statistics.shards {
-            shard.load_seconds = 0.0;
-        }
+    /// The counted lookups and inserts of every shard. Shard loading (state,
+    /// loaded records, resident bytes, load time) may differ: a worker can
+    /// load a shard for a key that then cancels.
+    fn counted(statistics: OrderedStepCacheStatistics) -> Vec<(OrderedStepShard, [u64; 5])> {
         statistics
+            .shards
+            .iter()
+            .map(|shard| {
+                let counters = [
+                    shard.hits,
+                    shard.misses,
+                    shard.inserts,
+                    shard.skipped_inserts,
+                    shard.opaque_hits,
+                ];
+                (shard.shard, counters)
+            })
+            .filter(|(_, counters)| counters.iter().any(|&count| count > 0))
+            .collect()
     }
 
     /// A cached request on the scheduler's workers does what the sequential
     /// cached request does: same results, observations (with the request's
     /// cache hits and misses), adapter accounts and hit accounting in pop
-    /// order, and it leaves the same shard statistics and byte-identical
-    /// saved files, starting from an empty, a partial and a complete cache.
+    /// order, and it leaves the same shard counters and byte-identical saved
+    /// files, starting from an empty, a partial and a complete cache.
     /// Its workers also step keys that cancel before their turn; those steps
     /// are neither counted nor recorded.
     #[test]

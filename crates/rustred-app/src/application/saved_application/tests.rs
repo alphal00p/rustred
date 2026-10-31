@@ -345,8 +345,8 @@ fn ordered_phase_inspection_preserves_routed_results_and_stops_cleanly() {
 /// Cached requests run on the scheduler's workers too: for every thread
 /// count, cold (populating) and warm (replaying) requests give the sequential
 /// cached request's results, phase states, request statistics (the hit
-/// accounting charges one operational node per replayed step), cache
-/// statistics and byte-identical saved shards.
+/// accounting charges one operational node per replayed step), shard hit,
+/// miss and insert counters and byte-identical saved shards.
 #[test]
 fn ordered_step_cache_with_scheduler_threads_matches_the_sequential_cached_run() {
     use rustred::reduction::{
@@ -383,12 +383,26 @@ fn ordered_step_cache_with_scheduler_threads_matches_the_sequential_cached_run()
         files.sort();
         files
     };
-    let counted = |mut statistics: OrderedStepCacheStatistics| {
-        statistics.load_seconds = 0.0;
-        for shard in &mut statistics.shards {
-            shard.load_seconds = 0.0;
-        }
+    // Counted lookups and inserts per shard (shard loading may differ: a
+    // worker can load a shard for a key that then cancels).
+    let counted = |statistics: OrderedStepCacheStatistics| {
         statistics
+            .shards
+            .iter()
+            .map(|shard| {
+                (
+                    shard.shard,
+                    [
+                        shard.hits,
+                        shard.misses,
+                        shard.inserts,
+                        shard.skipped_inserts,
+                        shard.opaque_hits,
+                    ],
+                )
+            })
+            .filter(|(_, counters)| counters.iter().any(|&count| count > 0))
+            .collect::<Vec<_>>()
     };
     let common = ModularCommon {
         threads: 2,
@@ -461,7 +475,7 @@ fn ordered_step_cache_with_scheduler_threads_matches_the_sequential_cached_run()
                         },
                     )
                     .unwrap();
-                let statistics = counted(cache.statistics());
+                let statistics = cache.statistics();
                 if populate {
                     cache.save().unwrap();
                 }
@@ -472,7 +486,15 @@ fn ordered_step_cache_with_scheduler_threads_matches_the_sequential_cached_run()
                         *reduced.statistics(),
                         states,
                     ),
-                    statistics,
+                    (
+                        counted(statistics.clone()),
+                        [
+                            statistics.records as u64,
+                            statistics.hits,
+                            statistics.misses,
+                            statistics.inserts,
+                        ],
+                    ),
                     application.owner_preparation_statistics().prepared_owners,
                 )
             };
@@ -491,15 +513,18 @@ fn ordered_step_cache_with_scheduler_threads_matches_the_sequential_cached_run()
             // Replays the sequential run's records.
             let saved = scratch.0.join(format!("cold-{index}-1-4096"));
             let (reduced, statistics, prepared) = run(scheduler, &saved, false);
-            assert_eq!(prepared, 0, "a warm request prepares no owner");
+            if threads == 1 {
+                // Workers may step (and prepare owners for) keys that cancel.
+                assert_eq!(prepared, 0, "a sequential warm request prepares no owner");
+            }
             warm.push((reduced, statistics));
         }
-        let (sequential_cold, recorded, files) = &cold[0];
-        assert!(recorded.records > 0 && recorded.hits == 0);
+        let (sequential_cold, (_, [records, hits, _, _]), files) = &cold[0];
+        assert!(*records > 0 && *hits == 0);
         assert!(!files.is_empty());
-        let (sequential_warm, replayed) = &warm[0];
-        assert_eq!(replayed.hits as usize, recorded.records);
-        assert_eq!((replayed.misses, replayed.inserts), (0, 0));
+        let (sequential_warm, (_, [_, hits, misses, inserts])) = &warm[0];
+        assert_eq!(hits, records);
+        assert_eq!((*misses, *inserts), (0, 0));
         assert_eq!(sequential_warm.0, sequential_cold.0);
         assert_eq!(sequential_warm.1, sequential_cold.1);
         assert_eq!(
