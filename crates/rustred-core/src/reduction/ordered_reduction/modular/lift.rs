@@ -641,6 +641,9 @@ mod tests {
         /// Unrelated values at every prime.
         garbage: bool,
         verifications: usize,
+        /// `round_minimum`, and the sizes of the image requests.
+        minimum: usize,
+        requests: Vec<usize>,
     }
 
     impl Scripted {
@@ -656,6 +659,8 @@ mod tests {
                 odd_structure: vec![],
                 garbage: false,
                 verifications: 0,
+                minimum: 1,
+                requests: vec![],
             }
         }
 
@@ -692,6 +697,7 @@ mod tests {
             _: &Executor,
             _: &mut ModularStatistics,
         ) -> Result<Vec<Option<PrimeImages<u8>>>, ReductionError> {
+            self.requests.push(primes.len());
             Ok(primes
                 .iter()
                 .map(|&prime| {
@@ -707,6 +713,10 @@ mod tests {
                     })
                 })
                 .collect())
+        }
+
+        fn round_minimum(&self, _: usize) -> usize {
+            self.minimum
         }
 
         fn verify(
@@ -841,5 +851,47 @@ mod tests {
         assert_eq!((one.rounds, one.discarded_images), (one.primes, 0));
         assert!(four.rounds < one.rounds);
         assert_eq!(parallel.produced, four.primes + four.discarded_images + 1);
+    }
+
+    #[test]
+    fn a_round_minimum_fills_the_first_round_without_changing_the_result() {
+        const LARGE: [&str; 1] =
+            ["(123456789012345678901234567890123456789*d+1)/(98765432109876543210*d-3)"];
+        let context = CoefficientContext::try_new(["d"]).unwrap();
+        let mut doubling = Scripted::new(&context, &LARGE);
+        let (reference, one) = run(
+            &mut doubling,
+            ModularCommon {
+                threads: 4,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mut filled = Scripted::new(&context, &LARGE);
+        filled.minimum = 4;
+        let (lifted, four) = run(
+            &mut filled,
+            ModularCommon {
+                threads: 4,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(lifted.coefficients, reference.coefficients);
+        assert_eq!(
+            (one.primes, one.verification_primes),
+            (four.primes, four.verification_primes)
+        );
+        // Rounds double from one image, or start at the minimum; the
+        // capacity (the thread count) bounds both; the last request is the
+        // verification prime.
+        assert_eq!(doubling.requests[..3], [1, 1, 2]);
+        assert_eq!(filled.requests[0], 4);
+        assert!(
+            filled.requests[..filled.requests.len() - 1]
+                .iter()
+                .all(|&n| n == 4)
+        );
+        assert!(four.rounds < one.rounds);
     }
 }

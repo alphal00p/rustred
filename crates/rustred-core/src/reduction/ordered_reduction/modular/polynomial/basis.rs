@@ -17,14 +17,12 @@
 //! unique, so weights are exact elements of `Z_p(d)` and zero tests are exact.
 use std::collections::HashMap;
 
-use symbolica::domains::finite_field::Zp64;
-use symbolica::domains::{Ring, RingOps};
 use symbolica::poly::factor::Factorize;
 use symbolica::prelude::Integer;
 
-use super::super::field::{self, Fe, Poly, batch_invert, dense};
+use super::super::field::{self, dense};
 use super::super::{Trace, error};
-use super::lane::{Lane, Scalar};
+use super::lane::{Lane, Raw, Scalar};
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::reduction::ReductionError;
 
@@ -193,95 +191,133 @@ impl BasisBuilder {
 /// The basis modulo one prime.
 pub(super) struct LaneBasis {
     /// Monic image of every factor (ascending, last coefficient one).
-    pub monic: Vec<Poly>,
-    /// Root of every linear factor (zero for the others).
-    pub root: Vec<Fe>,
+    pub monic: Vec<Raw>,
     /// `(root_a - root_b)^-1` at `a * L + b` for distinct linear factors `a`,
     /// `b` (by linear index; `L` linear factors).
-    pub inverse_difference: Vec<Fe>,
+    pub inverse_difference: Vec<u64>,
+    /// Root of every linear factor (zero for the others).
+    root: Vec<u64>,
     /// Leading coefficient of every factor.
-    lead: Vec<Fe>,
+    lead: Vec<u64>,
+}
+
+/// Residue of an integer.
+fn reduce(lane: &Lane, value: &Integer) -> u64 {
+    *field::reduce(&lane.field, value).inner()
+}
+
+/// Replace every value by its inverse with one field inversion; false when
+/// a value is zero (and nothing is inverted).
+fn batch_invert(lane: &Lane, values: &mut [u64]) -> bool {
+    let mut prefix = Vec::with_capacity(values.len());
+    let mut accumulator = lane.one();
+    for &value in values.iter() {
+        if value == 0 {
+            return false;
+        }
+        prefix.push(accumulator);
+        accumulator = lane.mul(accumulator, value);
+    }
+    let mut inverse = lane.inv(accumulator);
+    for index in (0..values.len()).rev() {
+        let value = values[index];
+        values[index] = lane.mul(inverse, prefix[index]);
+        inverse = lane.mul(inverse, value);
+    }
+    true
 }
 
 impl LaneBasis {
     /// `None` when the prime is bad for the basis (see the module docs).
     fn new(lane: &Lane, basis: &Basis) -> Option<Self> {
-        let f = &lane.field;
         let mut monic = Vec::with_capacity(basis.factors.len());
         let mut lead = Vec::with_capacity(basis.factors.len());
         let mut root = Vec::with_capacity(basis.factors.len());
         let mut roots = Vec::with_capacity(basis.linear);
         for coefficients in &basis.factors {
-            let mut image: Poly = coefficients.iter().map(|c| field::reduce(f, c)).collect();
+            let mut image: Raw = coefficients.iter().map(|c| reduce(lane, c)).collect();
             let leading = *image.last().expect("nonconstant factor");
-            if f.is_zero(&leading) {
+            if leading == 0 {
                 return None;
             }
-            field::make_monic(f, &mut image);
+            lane.make_monic(&mut image);
             if image.len() == 2 {
-                let r = f.neg(&image[0]);
+                let r = lane.neg(image[0]);
                 roots.push(r);
                 root.push(r);
             } else {
-                root.push(f.zero());
+                root.push(0);
             }
             lead.push(leading);
             monic.push(image);
         }
         // Distinct linear roots.
-        let mut sorted: Vec<u64> = roots.iter().map(|r| *r.inner()).collect();
+        let mut sorted = roots.clone();
         sorted.sort_unstable();
         if sorted.windows(2).any(|pair| pair[0] == pair[1]) {
             return None;
         }
         // Nonlinear factors: no linear root, pairwise coprime.
+        let eval = |polynomial: &[u64], x: u64| {
+            polynomial
+                .iter()
+                .rev()
+                .fold(0, |value, &c| lane.add(lane.mul(value, x), c))
+        };
         let nonlinear: Vec<usize> = (0..monic.len()).filter(|&i| monic[i].len() > 2).collect();
         for (position, &i) in nonlinear.iter().enumerate() {
-            if roots
-                .iter()
-                .any(|r| f.is_zero(&field::horner(f, &monic[i], *r)))
-            {
+            if roots.iter().any(|&r| eval(&monic[i], r) == 0) {
                 return None;
             }
             for &j in &nonlinear[position + 1..] {
-                if field::gcd(f, &monic[i], &monic[j]).len() > 1 {
+                if lane.gcd(&monic[i], &monic[j]).len() > 1 {
                     return None;
                 }
             }
         }
         let count = roots.len();
-        let mut inverse_difference = vec![f.zero(); count * count];
-        for (a, ra) in roots.iter().enumerate() {
-            for (b, rb) in roots.iter().enumerate() {
+        let mut differences = Vec::with_capacity(count * count.saturating_sub(1));
+        for (a, &ra) in roots.iter().enumerate() {
+            for (b, &rb) in roots.iter().enumerate() {
                 if a != b {
-                    inverse_difference[a * count + b] = f.sub(ra, rb);
+                    differences.push(lane.sub(ra, rb));
                 }
             }
         }
-        // Zero entries are the diagonal only (roots are distinct).
-        batch_invert(f, &mut inverse_difference, |_| {});
+        // Nonzero: the roots are distinct.
+        let inverted = batch_invert(lane, &mut differences);
+        debug_assert!(inverted);
+        let mut inverse_difference = vec![0; count * count];
+        let mut next = differences.into_iter();
+        for a in 0..count {
+            for b in 0..count {
+                if a != b {
+                    inverse_difference[a * count + b] = next.next().expect("one per pair");
+                }
+            }
+        }
         Some(Self {
             monic,
-            root,
             inverse_difference,
+            root,
             lead,
         })
     }
 }
 
-/// Everything one replay needs modulo one prime.
+/// Everything one replay needs modulo one prime (raw Montgomery residues).
 pub(super) struct LaneTables {
     pub lane: Lane,
     pub basis: LaneBasis,
     /// Shoup form of every linear factor's root (zero for the others).
     pub root_scalars: Vec<Scalar>,
     /// Constant coefficients.
-    pub constants: Vec<Fe>,
+    pub constants: Vec<u64>,
     pub constant_scalars: Vec<Scalar>,
     /// Numerators of the polynomial coefficients divided by
     /// `content * prod lead(f)^e`, so that the denominator is the product of
     /// the monic factor images.
-    pub numerators: Vec<Poly>,
+    pub numerators: Vec<Raw>,
     pub numerator_scalars: Vec<Vec<Scalar>>,
 }
 
@@ -289,68 +325,64 @@ impl LaneTables {
     /// `None` when the prime is bad for this request (see the module docs).
     pub fn new(prime: u64, trace: &Trace, basis: &Basis) -> Option<Self> {
         let lane = Lane::new(prime);
-        let f: &Zp64 = &lane.field;
         let lane_basis = LaneBasis::new(&lane, basis)?;
         // Constants n/d: one batched inversion of every denominator.
-        let mut denominators: Vec<Fe> = trace
+        let mut denominators: Vec<u64> = trace
             .constants
             .iter()
-            .map(|(_, d)| field::reduce(f, d))
+            .map(|(_, d)| reduce(&lane, d))
             .collect();
-        let mut bad = false;
-        batch_invert(f, &mut denominators, |_| bad = true);
-        if bad {
+        if !batch_invert(&lane, &mut denominators) {
             return None;
         }
-        let constants: Vec<Fe> = trace
+        let constants: Vec<u64> = trace
             .constants
             .iter()
             .zip(&denominators)
-            .map(|((n, _), inverse)| f.mul(&field::reduce(f, n), inverse))
+            .map(|((n, _), &inverse)| lane.mul(reduce(&lane, n), inverse))
             .collect();
-        let constant_scalars = constants.iter().map(|c| lane.scalar(*c)).collect();
+        let constant_scalars = constants.iter().map(|&c| lane.scalar(c)).collect();
         // Polynomial coefficients: scale by (content * prod lead^e)^-1.
-        let mut scales: Vec<Fe> = basis
+        let mut scales: Vec<u64> = basis
             .coefficients
             .iter()
             .map(|coefficient| {
-                let mut scale = field::reduce(f, &coefficient.content);
+                let mut scale = reduce(&lane, &coefficient.content);
                 for &(factor, exponent) in &coefficient.factors {
                     let lead = lane_basis.lead[factor as usize];
                     for _ in 0..exponent {
-                        scale = f.mul(&scale, &lead);
+                        scale = lane.mul(scale, lead);
                     }
                 }
                 scale
             })
             .collect();
-        batch_invert(f, &mut scales, |_| bad = true);
-        if bad {
+        if !batch_invert(&lane, &mut scales) {
             return None;
         }
-        let numerators: Vec<Poly> = basis
+        let numerators: Vec<Raw> = basis
             .coefficients
             .iter()
             .zip(&scales)
-            .map(|(coefficient, scale)| {
-                let mut numerator: Poly = coefficient
+            .map(|(coefficient, &scale)| {
+                let mut numerator: Raw = coefficient
                     .numerator
                     .iter()
-                    .map(|c| f.mul(&field::reduce(f, c), scale))
+                    .map(|c| lane.mul(reduce(&lane, c), scale))
                     .collect();
-                field::trim(f, &mut numerator);
+                Lane::trim(&mut numerator);
                 numerator
             })
             .collect();
         let numerator_scalars = numerators
             .iter()
-            .map(|numerator| numerator.iter().map(|c| lane.scalar(*c)).collect())
+            .map(|numerator| numerator.iter().map(|&c| lane.scalar(c)).collect())
             .collect();
-        let root_scalars = lane_basis.root.iter().map(|r| lane.scalar(*r)).collect();
+        let root_scalars = lane_basis.root.iter().map(|&r| lane.scalar(r)).collect();
         Some(Self {
-            root_scalars,
             lane,
             basis: lane_basis,
+            root_scalars,
             constants,
             constant_scalars,
             numerators,

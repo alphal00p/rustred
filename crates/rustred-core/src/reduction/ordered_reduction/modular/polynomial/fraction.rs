@@ -21,22 +21,24 @@
 //!   chain's factor are linear, a small CRT step otherwise.
 //!
 //! The primes (lanes) of a job share one layout: which factors and powers
-//! are present and the length of the polynomial part. A layout may be larger
-//! than a value needs (zero coefficients); trailing zeros are trimmed when a
-//! weight is popped, and only when they are zero in every lane. Values, zero
-//! tests and images of a lane never depend on the other lanes of the job.
+//! are present and the length of the polynomial part. The lanes of one
+//! coefficient position are adjacent in memory, so the layout bookkeeping of
+//! every operation (most chains hold one or two coefficients) is paid once
+//! for all lanes. A layout may be larger than a value needs (zero
+//! coefficients); trailing zeros are trimmed when a weight is popped, and
+//! only when they are zero in every lane. Values, zero tests and images of a
+//! lane never depend on the other lanes of the job.
 use std::collections::HashMap;
 
-use super::super::field::{self, Fe, Poly};
-use super::super::lift::{Image, image_from};
+use super::super::lift::Image;
 use super::super::{CoefRef, error};
 use super::Representation;
 use super::basis::{Basis, LaneTables};
-use super::lane::{Lane, Scalar};
+use super::lane::{Lane, Raw, Scalar};
 use crate::reduction::ReductionError;
 
 /// All coefficients `a_{f,1..e}` of one basis factor `f`, starting at
-/// `offset` within a lane.
+/// coefficient position `offset`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Chain {
     factor: u32,
@@ -56,21 +58,17 @@ impl Chain {
 
 /// One weight for every lane of a job.
 ///
-/// Per lane, `stride` coefficients: the polynomial part (`poly` ascending
+/// `positions` coefficient positions: the polynomial part (`poly` ascending
 /// coefficients), then every chain in factor order, each as `a_1, ..., a_e`
-/// with `deg f` ascending coefficients per `a_j`. Lane `l` occupies
-/// `data[l * stride..(l + 1) * stride]`. The default value is zero.
+/// with `deg f` ascending coefficients per `a_j`. Position `i` of lane `l` is
+/// `data[i * lanes + l]` (raw Montgomery residues). The default value is
+/// zero.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Fraction {
     poly: usize,
     chains: Vec<Chain>,
-    stride: usize,
-    data: Vec<Fe>,
-}
-
-#[inline(always)]
-fn zero() -> Fe {
-    Fe::from_inner(0)
+    positions: usize,
+    data: Vec<u64>,
 }
 
 /// A per-lane factor of a scaled sum.
@@ -89,21 +87,25 @@ struct Extent {
     exponents: Vec<u32>,
 }
 
+/// Most lanes of one job (`PolynomialOptions::lanes` is at most 64).
+const MAX_LANES: usize = 64;
+
 pub(super) struct Factorized<'a> {
     lanes: &'a [LaneTables],
     basis: &'a Basis,
     max_degree: usize,
-    /// Scratch: `(source offset, destination offset, length)`.
+    /// Scratch: `(source position, destination position, length)`.
     segments: Vec<(usize, usize, usize)>,
     /// `active * d^i` for `i = 1, 2, ...`, until the next pop.
     powers: Vec<Fraction>,
     /// Per lane: `f^e`, and `(h^e)^-1 mod g`, for the nonlinear paths.
-    power_cache: Vec<HashMap<(u32, u32), Poly>>,
-    inverse_cache: Vec<HashMap<(u32, u32, u32), Poly>>,
+    power_cache: Vec<HashMap<(u32, u32), Raw>>,
+    inverse_cache: Vec<HashMap<(u32, u32, u32), Raw>>,
 }
 
 impl<'a> Factorized<'a> {
     pub fn new(lanes: &'a [LaneTables], basis: &'a Basis, max_degree: usize) -> Self {
+        assert!(!lanes.is_empty() && lanes.len() <= MAX_LANES);
         Self {
             lanes,
             basis,
@@ -113,6 +115,11 @@ impl<'a> Factorized<'a> {
             power_cache: lanes.iter().map(|_| HashMap::new()).collect(),
             inverse_cache: lanes.iter().map(|_| HashMap::new()).collect(),
         }
+    }
+
+    #[inline(always)]
+    fn width(&self) -> usize {
+        self.lanes.len()
     }
 
     #[inline(always)]
@@ -139,8 +146,8 @@ impl<'a> Factorized<'a> {
         Ok(Fraction {
             poly,
             chains,
-            stride: offset,
-            data: vec![zero(); offset * self.lanes.len()],
+            positions: offset,
+            data: vec![0; offset * self.width()],
         })
     }
 
@@ -166,21 +173,25 @@ impl<'a> Factorized<'a> {
             }
         };
         push(0, 0, source.poly);
-        let mut rest = &destination.chains[..];
-        for chain in &source.chains {
-            let Ok(position) = rest.binary_search_by_key(&chain.factor, |c| c.factor) else {
-                return false;
-            };
-            let target = rest[position];
-            if target.exponent < chain.exponent {
-                return false;
+        let mut targets = destination.chains.iter();
+        'next: for chain in &source.chains {
+            for target in targets.by_ref() {
+                if target.factor == chain.factor {
+                    if target.exponent < chain.exponent {
+                        return false;
+                    }
+                    push(
+                        chain.offset as usize,
+                        target.offset as usize,
+                        self.chain_len(*chain),
+                    );
+                    continue 'next;
+                }
+                if target.factor > chain.factor {
+                    return false;
+                }
             }
-            push(
-                chain.offset as usize,
-                target.offset as usize,
-                self.chain_len(*chain),
-            );
-            rest = &rest[position + 1..];
+            return false;
         }
         true
     }
@@ -196,29 +207,76 @@ impl<'a> Factorized<'a> {
         let mut segments = std::mem::take(&mut self.segments);
         let covered = self.segments(&result, source, &mut segments);
         debug_assert!(covered);
-        for lane in 0..self.lanes.len() {
-            let from = &source.data[lane * source.stride..(lane + 1) * source.stride];
-            let to = &mut result.data[lane * result.stride..(lane + 1) * result.stride];
-            for &(f, t, len) in &segments {
-                to[t..t + len].copy_from_slice(&from[f..f + len]);
-            }
+        let width = self.width();
+        for &(f, t, len) in &segments {
+            result.data[t * width..(t + len) * width]
+                .copy_from_slice(&source.data[f * width..(f + len) * width]);
         }
         self.segments = segments;
         Ok(result)
     }
 
+    /// The per-lane scalars of `scale`, or `None` for one.
     #[inline(always)]
-    fn scalar(&self, lane: usize, scale: Scale) -> Option<Scalar> {
-        let tables = &self.lanes[lane];
-        match scale {
-            Scale::One => None,
-            Scale::Constant(c) => Some(tables.constant_scalars[c]),
-            Scale::Numerator(c, power) => Some(
-                tables.numerator_scalars[c]
+    fn scalars(&self, scale: Scale) -> Option<[Scalar; MAX_LANES]> {
+        let mut scalars = [Scalar::default(); MAX_LANES];
+        for (scalar, tables) in scalars.iter_mut().zip(self.lanes) {
+            *scalar = match scale {
+                Scale::One => return None,
+                Scale::Constant(c) => tables.constant_scalars[c],
+                Scale::Numerator(c, power) => tables.numerator_scalars[c]
                     .get(power)
                     .copied()
                     .unwrap_or_default(),
-            ),
+            };
+        }
+        Some(scalars)
+    }
+
+    /// `destination (=|+=) scalars * source` over interleaved positions.
+    #[inline(always)]
+    fn kernel(
+        &self,
+        destination: &mut [u64],
+        source: &[u64],
+        scalars: Option<&[Scalar; MAX_LANES]>,
+        assign: bool,
+    ) {
+        let width = self.width();
+        if width == 1 {
+            let lane = &self.lanes[0].lane;
+            match (scalars, assign) {
+                (None, true) => destination.copy_from_slice(source),
+                (None, false) => {
+                    for (d, &x) in destination.iter_mut().zip(source) {
+                        *d = lane.add(*d, x);
+                    }
+                }
+                (Some(s), true) => {
+                    for (d, &x) in destination.iter_mut().zip(source) {
+                        *d = lane.mul_scalar(x, s[0]);
+                    }
+                }
+                (Some(s), false) => {
+                    for (d, &x) in destination.iter_mut().zip(source) {
+                        *d = lane.add(*d, lane.mul_scalar(x, s[0]));
+                    }
+                }
+            }
+            return;
+        }
+        for (d, x) in destination
+            .chunks_exact_mut(width)
+            .zip(source.chunks_exact(width))
+        {
+            for (l, tables) in self.lanes.iter().enumerate() {
+                let lane = &tables.lane;
+                let value = match scalars {
+                    None => x[l],
+                    Some(s) => lane.mul_scalar(x[l], s[l]),
+                };
+                d[l] = if assign { value } else { lane.add(d[l], value) };
+            }
         }
     }
 
@@ -227,20 +285,11 @@ impl<'a> Factorized<'a> {
         let mut result = Fraction {
             poly: source.poly,
             chains: source.chains.clone(),
-            stride: source.stride,
-            data: vec![zero(); source.data.len()],
+            positions: source.positions,
+            data: vec![0; source.data.len()],
         };
-        for lane in 0..self.lanes.len() {
-            let range = lane * source.stride..(lane + 1) * source.stride;
-            match self.scalar(lane, scale) {
-                None => result.data[range.clone()].copy_from_slice(&source.data[range]),
-                Some(s) => self.lanes[lane].lane.scale_into(
-                    &mut result.data[range.clone()],
-                    &source.data[range],
-                    s,
-                ),
-            }
-        }
+        let scalars = self.scalars(scale);
+        self.kernel(&mut result.data, &source.data, scalars.as_ref(), true);
         result
     }
 
@@ -252,10 +301,10 @@ impl<'a> Factorized<'a> {
         source: &Fraction,
         scale: Scale,
     ) -> Result<(), ReductionError> {
-        if source.stride == 0 {
+        if source.positions == 0 {
             return Ok(());
         }
-        if destination.stride == 0 {
+        if destination.positions == 0 {
             *destination = self.scaled(source, scale);
             return Ok(());
         }
@@ -268,23 +317,15 @@ impl<'a> Factorized<'a> {
             let covered = self.segments(destination, source, &mut segments);
             debug_assert!(covered);
         }
-        let (ds, ss) = (destination.stride, source.stride);
-        for lane in 0..self.lanes.len() {
-            let to = &mut destination.data[lane * ds..(lane + 1) * ds];
-            let from = &source.data[lane * ss..(lane + 1) * ss];
-            let arithmetic = &self.lanes[lane].lane;
-            match self.scalar(lane, scale) {
-                None => {
-                    for &(f, t, len) in &segments {
-                        arithmetic.add_into(&mut to[t..t + len], &from[f..f + len]);
-                    }
-                }
-                Some(s) => {
-                    for &(f, t, len) in &segments {
-                        arithmetic.axpy(&mut to[t..t + len], &from[f..f + len], s);
-                    }
-                }
-            }
+        let scalars = self.scalars(scale);
+        let width = self.width();
+        for &(f, t, len) in &segments {
+            self.kernel(
+                &mut destination.data[t * width..(t + len) * width],
+                &source.data[f * width..(f + len) * width],
+                scalars.as_ref(),
+                false,
+            );
         }
         self.segments = segments;
         Ok(())
@@ -321,20 +362,17 @@ impl<'a> Factorized<'a> {
 
     /// Drop trailing coefficients that are zero in every lane.
     fn trim(&self, weight: &mut Fraction) {
-        if weight.stride == 0 {
+        if weight.positions == 0 {
             return;
         }
-        let lanes = self.lanes.len();
-        let stride = weight.stride;
-        let nonzero_in_some_lane = |offset: usize, len: usize| {
-            (0..lanes).any(|lane| {
-                weight.data[lane * stride + offset..lane * stride + offset + len]
-                    .iter()
-                    .any(|c| !Lane::is_zero(c))
-            })
+        let width = self.width();
+        let zero_from = |position: usize, len: usize| {
+            weight.data[position * width..(position + len) * width]
+                .iter()
+                .all(|&c| c == 0)
         };
         let mut poly = weight.poly;
-        while poly > 0 && !nonzero_in_some_lane(poly - 1, 1) {
+        while poly > 0 && zero_from(poly - 1, 1) {
             poly -= 1;
         }
         let mut kept = Vec::with_capacity(weight.chains.len());
@@ -342,8 +380,7 @@ impl<'a> Factorized<'a> {
         for chain in &weight.chains {
             let degree = self.basis.degree(chain.factor);
             let mut exponent = chain.exponent as usize;
-            while exponent > 0
-                && !nonzero_in_some_lane(chain.offset as usize + (exponent - 1) * degree, degree)
+            while exponent > 0 && zero_from(chain.offset as usize + (exponent - 1) * degree, degree)
             {
                 exponent -= 1;
             }
@@ -359,76 +396,65 @@ impl<'a> Factorized<'a> {
         let mut trimmed = self
             .layout(poly, chains)
             .expect("a trimmed layout is within the bounds of the original");
-        let new_stride = trimmed.stride;
-        for lane in 0..lanes {
-            let from = &weight.data[lane * stride..(lane + 1) * stride];
-            let to = &mut trimmed.data[lane * new_stride..(lane + 1) * new_stride];
-            to[..poly].copy_from_slice(&from[..poly]);
-            for ((old, _), new) in kept.iter().zip(&trimmed.chains) {
-                let len = self.chain_len(*new);
-                let (f, t) = (old.offset as usize, new.offset as usize);
-                to[t..t + len].copy_from_slice(&from[f..f + len]);
-            }
+        trimmed.data[..poly * width].copy_from_slice(&weight.data[..poly * width]);
+        for ((old, _), new) in kept.iter().zip(&trimmed.chains) {
+            let len = self.chain_len(*new) * width;
+            let (f, t) = (old.offset as usize * width, new.offset as usize * width);
+            trimmed.data[t..t + len].copy_from_slice(&weight.data[f..f + len]);
         }
         *weight = trimmed;
     }
 
     /// `d * source`.
     fn mul_x(&self, source: &Fraction) -> Result<Fraction, ReductionError> {
-        if source.stride == 0 {
+        if source.positions == 0 {
             return Ok(Fraction::default());
         }
+        let width = self.width();
         let chains = source
             .chains
             .iter()
             .map(|c| Chain::new(c.factor, c.exponent))
             .collect();
+        // The result's layout is the source's shifted by one position.
         let mut result = self.layout(source.poly + 1, chains)?;
-        for (lane, tables) in self.lanes.iter().enumerate() {
-            let arithmetic = &tables.lane;
-            let from = &source.data[lane * source.stride..(lane + 1) * source.stride];
-            let to = &mut result.data[lane * result.stride..(lane + 1) * result.stride];
-            to[1..=source.poly].copy_from_slice(&from[..source.poly]);
-            let mut constant = zero();
-            for chain in &source.chains {
-                let degree = self.basis.degree(chain.factor);
-                let exponent = chain.exponent as usize;
-                let offset = chain.offset as usize;
-                let a = &from[offset..offset + exponent * degree];
-                // The result's layout is the source's shifted by one.
-                let b = &mut to[offset + 1..offset + 1 + exponent * degree];
+        let from = &source.data;
+        let to = &mut result.data;
+        to[width..(source.poly + 1) * width].copy_from_slice(&from[..source.poly * width]);
+        for chain in &source.chains {
+            let degree = self.basis.degree(chain.factor);
+            let exponent = chain.exponent as usize;
+            let offset = chain.offset as usize;
+            for (l, tables) in self.lanes.iter().enumerate() {
+                let lane = &tables.lane;
+                let a = |position: usize| from[(offset + position) * width + l];
+                let b = |position: usize| (offset + 1 + position) * width + l;
                 if degree == 1 {
                     // a_j d / (d - r)^j = a_j / (d - r)^(j-1) + r a_j / (d - r)^j
                     let r = tables.root_scalars[chain.factor as usize];
                     for j in 0..exponent {
-                        let mut value = arithmetic.mul_scalar(a[j], r);
+                        let mut value = lane.mul_scalar(a(j), r);
                         if j + 1 < exponent {
-                            value = arithmetic.add(value, a[j + 1]);
+                            value = lane.add(value, a(j + 1));
                         }
-                        b[j] = value;
+                        to[b(j)] = value;
                     }
-                    constant = arithmetic.add(constant, a[0]);
+                    to[l] = lane.add(to[l], a(0));
                 } else {
                     // d a_j = top f + rem: rem / f^j + top / f^(j-1).
                     let f = &tables.basis.monic[chain.factor as usize];
                     for j in 0..exponent {
-                        let block = &a[j * degree..(j + 1) * degree];
-                        let top = block[degree - 1];
-                        let out = &mut b[j * degree..(j + 1) * degree];
-                        out[0] = arithmetic.neg(arithmetic.mul(top, f[0]));
+                        let base = j * degree;
+                        let top = a(base + degree - 1);
+                        to[b(base)] = lane.neg(lane.mul(top, f[0]));
                         for i in 1..degree {
-                            out[i] = arithmetic.sub(block[i - 1], arithmetic.mul(top, f[i]));
+                            to[b(base + i)] = lane.sub(a(base + i - 1), lane.mul(top, f[i]));
                         }
-                        if j == 0 {
-                            constant = arithmetic.add(constant, top);
-                        } else {
-                            let previous = &mut b[(j - 1) * degree];
-                            *previous = arithmetic.add(*previous, top);
-                        }
+                        let target = if j == 0 { l } else { b(base - degree) };
+                        to[target] = lane.add(to[target], top);
                     }
                 }
             }
-            to[0] = constant;
         }
         Ok(result)
     }
@@ -490,7 +516,7 @@ impl<'a> Factorized<'a> {
             .map(|tables| tables.numerators[index].len())
             .max()
             .unwrap_or(0);
-        if length == 0 || active.stride == 0 {
+        if length == 0 || active.positions == 0 {
             return Ok(Fraction::default());
         }
         let top = length - 1;
@@ -562,6 +588,7 @@ impl<'a> Factorized<'a> {
         extent: &mut Extent,
         position: usize,
     ) -> Result<(), ReductionError> {
+        let width = self.width();
         let g_chain = weight.chains[position];
         let g = g_chain.factor;
         let k = self.basis.degree(g);
@@ -570,34 +597,41 @@ impl<'a> Factorized<'a> {
         debug_assert!(g_exponent < g_chain.exponent as usize);
         let g_linear = self.basis.linear_index(g);
         let linear_count = self.basis.linear_count();
-        let stride = weight.stride;
         let poly = extent.poly;
+        let w = &mut weight.data;
+        // One more power of g: a_j -> a_(j+1), then the new a_1 collects the
+        // residues (for every lane at once).
+        w.copy_within(
+            g_offset * width..(g_offset + g_exponent * k) * width,
+            (g_offset + k) * width,
+        );
+        w[g_offset * width..(g_offset + k) * width].fill(0);
         let lanes = self.lanes;
-        for (lane, tables) in lanes.iter().enumerate() {
-            let arithmetic = &tables.lane;
-            let w = &mut weight.data[lane * stride..(lane + 1) * stride];
-            // One more power of g: a_j -> a_(j+1), then the new a_1 collects
-            // the residues.
-            w.copy_within(g_offset..g_offset + g_exponent * k, g_offset + k);
-            w[g_offset..g_offset + k].fill(zero());
+        for (l, tables) in lanes.iter().enumerate() {
+            let lane = &tables.lane;
+            let at = |position: usize| position * width + l;
             // Polynomial part: P = Q g + R.
             if poly > 0 {
                 if k == 1 {
                     let s = tables.root_scalars[g as usize];
-                    let mut carry = w[poly - 1];
+                    let mut carry = w[at(poly - 1)];
                     for i in (0..poly - 1).rev() {
-                        let next = arithmetic.add(w[i], arithmetic.mul_scalar(carry, s));
-                        w[i] = carry;
+                        let next = lane.add(w[at(i)], lane.mul_scalar(carry, s));
+                        w[at(i)] = carry;
                         carry = next;
                     }
-                    w[poly - 1] = zero();
-                    w[g_offset] = arithmetic.add(w[g_offset], carry);
+                    w[at(poly - 1)] = 0;
+                    w[at(g_offset)] = lane.add(w[at(g_offset)], carry);
                 } else {
+                    let part: Raw = (0..poly).map(|i| w[at(i)]).collect();
                     let (quotient, remainder) =
-                        arithmetic.divrem_monic(&w[..poly], &tables.basis.monic[g as usize]);
-                    w[..poly].fill(zero());
-                    w[..quotient.len()].copy_from_slice(&quotient);
-                    arithmetic.add_into(&mut w[g_offset..g_offset + remainder.len()], &remainder);
+                        lane.divrem_monic(&part, &tables.basis.monic[g as usize]);
+                    for i in 0..poly {
+                        w[at(i)] = quotient.get(i).copied().unwrap_or(0);
+                    }
+                    for (i, &r) in remainder.iter().enumerate() {
+                        w[at(g_offset + i)] = lane.add(w[at(g_offset + i)], r);
+                    }
                 }
             }
             for (index, chain) in weight.chains.iter().enumerate() {
@@ -612,24 +646,30 @@ impl<'a> Factorized<'a> {
                     // a'_e = -a_e / t, a'_i = (a'_(i+1) - a_i) / t, and the
                     // residue at s is -a'_1.
                     let inverse = tables.basis.inverse_difference[gl * linear_count + hl];
-                    let mut next = zero();
+                    let mut next = 0;
                     for i in (0..exponent).rev() {
-                        next = arithmetic.mul(arithmetic.sub(next, w[offset + i]), inverse);
-                        w[offset + i] = next;
+                        next = lane.mul(lane.sub(next, w[at(offset + i)]), inverse);
+                        w[at(offset + i)] = next;
                     }
-                    w[g_offset] = arithmetic.sub(w[g_offset], next);
+                    w[at(g_offset)] = lane.sub(w[at(g_offset)], next);
                     continue;
                 }
+                let mut block: Raw = (0..exponent * degree).map(|i| w[at(offset + i)]).collect();
                 let residue = divide_chain(
                     tables,
-                    &mut self.power_cache[lane],
-                    &mut self.inverse_cache[lane],
+                    &mut self.power_cache[l],
+                    &mut self.inverse_cache[l],
                     chain.factor,
                     exponent,
-                    &mut w[offset..offset + exponent * degree],
+                    &mut block,
                     g,
                 )?;
-                arithmetic.add_into(&mut w[g_offset..g_offset + residue.len()], &residue);
+                for (i, &value) in block.iter().enumerate() {
+                    w[at(offset + i)] = value;
+                }
+                for (i, &r) in residue.iter().enumerate() {
+                    w[at(g_offset + i)] = lane.add(w[at(g_offset + i)], r);
+                }
             }
         }
         extent.poly = poly.saturating_sub(k);
@@ -644,62 +684,61 @@ impl<'a> Factorized<'a> {
 /// `B = (A - C h^e) / g`. Overwrites `a` with the chain of `B` and returns `C`.
 fn divide_chain(
     tables: &LaneTables,
-    powers: &mut HashMap<(u32, u32), Poly>,
-    inverses: &mut HashMap<(u32, u32, u32), Poly>,
+    powers: &mut HashMap<(u32, u32), Raw>,
+    inverses: &mut HashMap<(u32, u32, u32), Raw>,
     h: u32,
     exponent: usize,
-    a: &mut [Fe],
+    a: &mut [u64],
     g: u32,
-) -> Result<Poly, ReductionError> {
-    let arithmetic = &tables.lane;
+) -> Result<Raw, ReductionError> {
+    let lane = &tables.lane;
     let hm = &tables.basis.monic[h as usize];
     let gm = &tables.basis.monic[g as usize];
-    let dense = to_dense(arithmetic, a, hm, exponent);
+    let dense = to_dense(lane, a, hm, exponent);
     let power = powers
         .entry((h, exponent as u32))
-        .or_insert_with(|| arithmetic.poly_pow(hm, exponent));
+        .or_insert_with(|| lane.poly_pow(hm, exponent));
     let inverse = match inverses.entry((h, g, exponent as u32)) {
         std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
         std::collections::hash_map::Entry::Vacant(entry) => entry.insert(
-            arithmetic
-                .poly_inverse_mod(&arithmetic.divrem_monic(power, gm).1, gm)
+            lane.poly_inverse_mod(&lane.divrem_monic(power, gm).1, gm)
                 .ok_or_else(|| error("basis factor images are not coprime"))?,
         ),
     };
-    let c = arithmetic
+    let c = lane
         .divrem_monic(
-            &arithmetic.poly_mul(&arithmetic.divrem_monic(&dense, gm).1, inverse),
+            &lane.poly_mul(&lane.divrem_monic(&dense, gm).1, inverse),
             gm,
         )
         .1;
-    let numerator = arithmetic.poly_sub(&dense, &arithmetic.poly_mul(&c, power));
-    let (b, remainder) = arithmetic.divrem_monic(&numerator, gm);
+    let numerator = lane.poly_sub(&dense, &lane.poly_mul(&c, power));
+    let (b, remainder) = lane.divrem_monic(&numerator, gm);
     if !remainder.is_empty() {
         return Err(error("partial-fraction division left a remainder"));
     }
-    expand(arithmetic, b, hm, exponent, a);
+    expand(lane, b, hm, exponent, a);
     Ok(c)
 }
 
 /// `A = sum_j a_j h^(e-j)` from the chain `a_1, ..., a_e`.
-fn to_dense(arithmetic: &Lane, a: &[Fe], h: &[Fe], exponent: usize) -> Poly {
+fn to_dense(lane: &Lane, a: &[u64], h: &[u64], exponent: usize) -> Raw {
     let degree = h.len() - 1;
-    let mut dense: Poly = vec![];
+    let mut dense: Raw = vec![];
     for j in 0..exponent {
         let mut block = a[j * degree..(j + 1) * degree].to_vec();
-        field::trim(&arithmetic.field, &mut block);
-        dense = arithmetic.poly_add(&arithmetic.poly_mul(&dense, h), &block);
+        Lane::trim(&mut block);
+        dense = lane.poly_add(&lane.poly_mul(&dense, h), &block);
     }
     dense
 }
 
 /// Write the chain `a_1, ..., a_e` of `B = sum_j a_j h^(e-j)`
 /// (`deg B < e deg h`) into `chain`.
-fn expand(arithmetic: &Lane, mut b: Poly, h: &[Fe], exponent: usize, chain: &mut [Fe]) {
+fn expand(lane: &Lane, mut b: Raw, h: &[u64], exponent: usize, chain: &mut [u64]) {
     let degree = h.len() - 1;
-    chain.fill(zero());
+    chain.fill(0);
     for j in (0..exponent).rev() {
-        let (quotient, remainder) = arithmetic.divrem_monic(&b, h);
+        let (quotient, remainder) = lane.divrem_monic(&b, h);
         chain[j * degree..j * degree + remainder.len()].copy_from_slice(&remainder);
         b = quotient;
     }
@@ -712,8 +751,8 @@ impl Representation for Factorized<'_> {
     fn coefficient(&mut self, c: CoefRef) -> Result<Fraction, ReductionError> {
         if c.is_constant() {
             let mut weight = self.layout(1, vec![])?;
-            for (lane, tables) in self.lanes.iter().enumerate() {
-                weight.data[lane] = tables.constants[c.index()];
+            for (l, tables) in self.lanes.iter().enumerate() {
+                weight.data[l] = tables.constants[c.index()];
             }
             return Ok(weight);
         }
@@ -728,10 +767,11 @@ impl Representation for Factorized<'_> {
             return Ok(Fraction::default());
         }
         let mut weight = self.quotient_layout(length, &[], index)?;
-        for (lane, tables) in self.lanes.iter().enumerate() {
-            let numerator = &tables.numerators[index];
-            let start = lane * weight.stride;
-            weight.data[start..start + numerator.len()].copy_from_slice(numerator);
+        let width = self.width();
+        for (l, tables) in self.lanes.iter().enumerate() {
+            for (i, &c) in tables.numerators[index].iter().enumerate() {
+                weight.data[i * width + l] = c;
+            }
         }
         let mut extent = Extent {
             poly: length,
@@ -764,7 +804,7 @@ impl Representation for Factorized<'_> {
             return self.axpy(destination, active, Scale::Constant(c.index()));
         }
         let product = self.polynomial_product(active, c.index())?;
-        if destination.stride == 0 {
+        if destination.positions == 0 {
             *destination = product;
             Ok(())
         } else {
@@ -773,7 +813,7 @@ impl Representation for Factorized<'_> {
     }
 
     fn is_zero(&self, weight: &Fraction) -> bool {
-        weight.data.iter().all(Lane::is_zero)
+        weight.data.iter().all(|&c| c == 0)
     }
 
     fn words(&self, weight: &Fraction) -> usize {
@@ -781,52 +821,53 @@ impl Representation for Factorized<'_> {
     }
 
     /// Reduced `numerator / monic denominator` of one lane.
-    fn image(&mut self, weight: &Fraction, lane: usize) -> Image {
-        let tables = &self.lanes[lane];
-        let arithmetic = &tables.lane;
-        let f = &arithmetic.field;
-        if weight.stride == 0 {
-            return image_from(f, &[], &[arithmetic.one()]);
-        }
-        let from = &weight.data[lane * weight.stride..(lane + 1) * weight.stride];
-        let mut numerator: Poly = from[..weight.poly].to_vec();
-        field::trim(f, &mut numerator);
-        let mut denominator: Poly = vec![arithmetic.one()];
+    fn image(&mut self, weight: &Fraction, l: usize) -> Image {
+        let tables = &self.lanes[l];
+        let lane = &tables.lane;
+        let width = self.width();
+        let value = |position: usize| weight.data[position * width + l];
+        let mut numerator: Raw = (0..weight.poly).map(value).collect();
+        Lane::trim(&mut numerator);
+        let mut denominator: Raw = vec![lane.one()];
         for chain in &weight.chains {
             let h = &tables.basis.monic[chain.factor as usize];
             let offset = chain.offset as usize;
-            let dense = to_dense(
-                arithmetic,
-                &from[offset..offset + self.chain_len(*chain)],
-                h,
-                chain.exponent as usize,
-            );
+            let block: Raw = (offset..offset + self.chain_len(*chain))
+                .map(value)
+                .collect();
+            let dense = to_dense(lane, &block, h, chain.exponent as usize);
             if dense.is_empty() {
                 continue;
             }
-            let power = self.power_cache[lane]
+            let power = self.power_cache[l]
                 .entry((chain.factor, chain.exponent))
-                .or_insert_with(|| arithmetic.poly_pow(h, chain.exponent as usize));
-            numerator = arithmetic.poly_add(
-                &arithmetic.poly_mul(&numerator, power),
-                &arithmetic.poly_mul(&dense, &denominator),
+                .or_insert_with(|| lane.poly_pow(h, chain.exponent as usize));
+            numerator = lane.poly_add(
+                &lane.poly_mul(&numerator, power),
+                &lane.poly_mul(&dense, &denominator),
             );
-            denominator = arithmetic.poly_mul(&denominator, power);
+            denominator = lane.poly_mul(&denominator, power);
         }
         if numerator.is_empty() {
-            return image_from(f, &[], &[arithmetic.one()]);
+            return Image {
+                numerator: vec![],
+                denominator: vec![1],
+            };
         }
         // Coprime on good, lucky primes; reduce anyway (an unlucky prime
         // shows up in the degrees and is outvoted by the lift).
-        let gcd = field::gcd(f, &numerator, &denominator);
+        let gcd = lane.gcd(&numerator, &denominator);
         if gcd.len() > 1 {
-            numerator = arithmetic.divrem_monic(&numerator, &gcd).0;
-            denominator = arithmetic.divrem_monic(&denominator, &gcd).0;
+            numerator = lane.divrem_monic(&numerator, &gcd).0;
+            denominator = lane.divrem_monic(&denominator, &gcd).0;
         }
-        let lead = arithmetic.inv(*denominator.last().expect("nonzero denominator"));
-        for c in numerator.iter_mut().chain(denominator.iter_mut()) {
-            *c = arithmetic.mul(*c, lead);
+        let lead = lane.make_monic(&mut denominator);
+        for c in numerator.iter_mut() {
+            *c = lane.mul(*c, lead);
         }
-        image_from(f, &numerator, &denominator)
+        Image {
+            numerator: lane.standard_poly(&numerator),
+            denominator: lane.standard_poly(&denominator),
+        }
     }
 }

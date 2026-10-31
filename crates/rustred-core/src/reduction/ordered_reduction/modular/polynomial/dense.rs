@@ -2,16 +2,16 @@
 //! denominator per lane, normalized by a polynomial gcd after every product
 //! and sum. A straightforward reference for the partial-fraction
 //! representation; its cost grows with the square of the weight degrees.
-use super::super::field::{self, Poly};
-use super::super::lift::{Image, image_from};
+use super::super::lift::Image;
 use super::super::{CoefRef, error};
 use super::Representation;
 use super::basis::{Basis, LaneTables};
+use super::lane::{Lane, Raw};
 use crate::reduction::ReductionError;
 
 /// Reduced `(numerator, monic denominator)` per lane; empty is zero.
 #[derive(Clone, Debug, Default)]
-pub(super) struct DenseWeight(Vec<(Poly, Poly)>);
+pub(super) struct DenseWeight(Vec<(Raw, Raw)>);
 
 pub(super) struct Dense<'a> {
     lanes: &'a [LaneTables],
@@ -32,26 +32,21 @@ impl<'a> Dense<'a> {
     fn normalize(
         &self,
         lane: usize,
-        mut numerator: Poly,
-        denominator: Poly,
-    ) -> Result<(Poly, Poly), ReductionError> {
+        mut numerator: Raw,
+        mut denominator: Raw,
+    ) -> Result<(Raw, Raw), ReductionError> {
         let arithmetic = &self.lanes[lane].lane;
-        let f = &arithmetic.field;
-        field::trim(f, &mut numerator);
+        Lane::trim(&mut numerator);
         if numerator.is_empty() {
             return Ok((vec![], vec![arithmetic.one()]));
         }
-        let gcd = field::gcd(f, &numerator, &denominator);
-        let (mut numerator, mut denominator) = if gcd.len() > 1 {
-            (
-                arithmetic.poly_quot_rem(&numerator, &gcd).0,
-                arithmetic.poly_quot_rem(&denominator, &gcd).0,
-            )
-        } else {
-            (numerator, denominator)
-        };
-        let lead = arithmetic.inv(*denominator.last().expect("nonzero denominator"));
-        for c in numerator.iter_mut().chain(denominator.iter_mut()) {
+        let gcd = arithmetic.gcd(&numerator, &denominator);
+        if gcd.len() > 1 {
+            numerator = arithmetic.divrem_monic(&numerator, &gcd).0;
+            denominator = arithmetic.divrem_monic(&denominator, &gcd).0;
+        }
+        let lead = arithmetic.make_monic(&mut denominator);
+        for c in numerator.iter_mut() {
             *c = arithmetic.mul(*c, lead);
         }
         if numerator.len() > self.max_degree + 1 || denominator.len() > self.max_degree + 1 {
@@ -64,7 +59,7 @@ impl<'a> Dense<'a> {
     }
 
     /// The coefficient `c` in one lane, unreduced.
-    fn value(&self, lane: usize, c: CoefRef) -> (Poly, Poly) {
+    fn value(&self, lane: usize, c: CoefRef) -> (Raw, Raw) {
         let tables = &self.lanes[lane];
         let arithmetic = &tables.lane;
         if c.is_constant() {
@@ -83,9 +78,9 @@ impl<'a> Dense<'a> {
     fn lane_product(
         &self,
         lane: usize,
-        active: &(Poly, Poly),
+        active: &(Raw, Raw),
         c: CoefRef,
-    ) -> Result<(Poly, Poly), ReductionError> {
+    ) -> Result<(Raw, Raw), ReductionError> {
         let arithmetic = &self.lanes[lane].lane;
         let (numerator, denominator) = self.value(lane, c);
         self.normalize(
@@ -160,8 +155,14 @@ impl Representation for Dense<'_> {
     fn image(&mut self, weight: &DenseWeight, lane: usize) -> Image {
         let arithmetic = &self.lanes[lane].lane;
         match weight.0.get(lane) {
-            Some((numerator, denominator)) => image_from(&arithmetic.field, numerator, denominator),
-            None => image_from(&arithmetic.field, &[], &[arithmetic.one()]),
+            Some((numerator, denominator)) => Image {
+                numerator: arithmetic.standard_poly(numerator),
+                denominator: arithmetic.standard_poly(denominator),
+            },
+            None => Image {
+                numerator: vec![],
+                denominator: vec![1],
+            },
         }
     }
 }
