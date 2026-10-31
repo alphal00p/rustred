@@ -35,7 +35,10 @@ pub(super) struct Lane {
 
 impl Lane {
     pub fn new(prime: u64) -> Self {
-        debug_assert!(prime % 2 == 1 && prime < 1 << 63);
+        assert!(
+            prime % 2 == 1 && prime < 1 << 63,
+            "lane primes are odd and below 2^63"
+        );
         // Newton iteration for p^-1 mod 2^64 (p * p = 1 mod 8 for odd p).
         let mut inverse = prime;
         for _ in 0..5 {
@@ -48,41 +51,43 @@ impl Lane {
         }
     }
 
-    /// Montgomery product (the same as `Zp64::mul`).
+    /// `x mod p` for `x < 2p`, without a data-dependent branch (the
+    /// conditional subtractions of the hot loops are unpredictable).
+    #[inline(always)]
+    fn reduce_once(&self, x: u64) -> u64 {
+        let t = x.wrapping_sub(self.prime);
+        // All ones when x < p (then t wrapped below zero; p < 2^63).
+        let mask = ((t as i64) >> 63) as u64;
+        t.wrapping_add(self.prime & mask)
+    }
+
+    /// Montgomery product (the same residue as `Zp64::mul`). With
+    /// `p < 2^63` and reduced operands, `t + m p < 2^128` and the result
+    /// before the final subtraction is below `2p`.
     #[inline(always)]
     pub fn mul(&self, a: u64, b: u64) -> u64 {
         let t = u128::from(a) * u128::from(b);
         let m = (t as u64).wrapping_mul(self.m);
-        let (t, overflow) = t.overflowing_add(u128::from(m) * u128::from(self.prime));
-        let u = (t >> 64) as u64;
-        if overflow {
-            u.wrapping_sub(self.prime)
-        } else if u >= self.prime {
-            u - self.prime
-        } else {
-            u
-        }
+        let u = ((t + u128::from(m) * u128::from(self.prime)) >> 64) as u64;
+        self.reduce_once(u)
     }
 
     #[inline(always)]
     pub fn add(&self, a: u64, b: u64) -> u64 {
         // Both operands are below p < 2^63, so the sum does not overflow.
-        let sum = a + b;
-        if sum >= self.prime {
-            sum - self.prime
-        } else {
-            sum
-        }
+        self.reduce_once(a + b)
     }
 
     #[inline(always)]
     pub fn sub(&self, a: u64, b: u64) -> u64 {
-        if a >= b { a - b } else { a + (self.prime - b) }
+        let t = a.wrapping_sub(b);
+        let mask = ((t as i64) >> 63) as u64;
+        t.wrapping_add(self.prime & mask)
     }
 
     #[inline(always)]
     pub fn neg(&self, a: u64) -> u64 {
-        if a == 0 { 0 } else { self.prime - a }
+        self.sub(0, a)
     }
 
     pub fn inv(&self, a: u64) -> u64 {
@@ -112,10 +117,11 @@ impl Lane {
     #[inline(always)]
     pub fn mul_scalar(&self, x: u64, s: Scalar) -> u64 {
         let q = ((u128::from(x) * u128::from(s.shoup)) >> 64) as u64;
+        // Below 2p (Shoup), so one conditional subtraction.
         let r = x
             .wrapping_mul(s.value)
             .wrapping_sub(q.wrapping_mul(self.prime));
-        if r >= self.prime { r - self.prime } else { r }
+        self.reduce_once(r)
     }
 
     pub fn trim(polynomial: &mut Raw) {
@@ -290,14 +296,16 @@ mod tests {
                 (-1, -1),
                 (123_456_789, -987_654_321),
                 (-1, 2),
+                (2, -3),
             ] {
                 let (x, c) = (e(&lane, x), e(&lane, c));
-                let expected = *lane
-                    .field
-                    .mul(&Fe::from_inner(x), &Fe::from_inner(c))
-                    .inner();
+                let (fx, fc) = (Fe::from_inner(x), Fe::from_inner(c));
+                let expected = *lane.field.mul(&fx, &fc).inner();
                 assert_eq!(lane.mul(x, c), expected);
                 assert_eq!(lane.mul_scalar(x, lane.scalar(c)), expected);
+                assert_eq!(lane.add(x, c), *lane.field.add(&fx, &fc).inner());
+                assert_eq!(lane.sub(x, c), *lane.field.sub(&fx, &fc).inner());
+                assert_eq!(lane.neg(x), *lane.field.neg(&fx).inner());
             }
         }
     }

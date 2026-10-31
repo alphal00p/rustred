@@ -87,9 +87,6 @@ struct Extent {
     exponents: Vec<u32>,
 }
 
-/// Most lanes of one job (`PolynomialOptions::lanes` is at most 64).
-const MAX_LANES: usize = 64;
-
 pub(super) struct Factorized<'a> {
     lanes: &'a [LaneTables],
     basis: &'a Basis,
@@ -101,11 +98,42 @@ pub(super) struct Factorized<'a> {
     /// Per lane: `f^e`, and `(h^e)^-1 mod g`, for the nonlinear paths.
     power_cache: Vec<HashMap<(u32, u32), Raw>>,
     inverse_cache: Vec<HashMap<(u32, u32, u32), Raw>>,
+    /// Scalars of every constant coefficient, lanes adjacent.
+    constant_scalars: Vec<Scalar>,
+    /// `(start, length)` in `numerator_table` of every polynomial
+    /// coefficient's numerator scalars (power-major, lanes adjacent).
+    numerator_scalars: Vec<(usize, usize)>,
+    numerator_table: Vec<Scalar>,
+    zero_scalars: Vec<Scalar>,
 }
 
 impl<'a> Factorized<'a> {
     pub fn new(lanes: &'a [LaneTables], basis: &'a Basis, max_degree: usize) -> Self {
-        assert!(!lanes.is_empty() && lanes.len() <= MAX_LANES);
+        assert!(!lanes.is_empty());
+        let width = lanes.len();
+        let constants = lanes[0].constant_scalars.len();
+        let mut constant_scalars = Vec::with_capacity(constants * width);
+        for c in 0..constants {
+            constant_scalars.extend(lanes.iter().map(|tables| tables.constant_scalars[c]));
+        }
+        let mut numerator_scalars = Vec::with_capacity(basis.coefficients.len());
+        let mut numerator_table = vec![];
+        for c in 0..basis.coefficients.len() {
+            let length = lanes
+                .iter()
+                .map(|tables| tables.numerator_scalars[c].len())
+                .max()
+                .unwrap_or(0);
+            numerator_scalars.push((numerator_table.len(), length));
+            for power in 0..length {
+                numerator_table.extend(lanes.iter().map(|tables| {
+                    tables.numerator_scalars[c]
+                        .get(power)
+                        .copied()
+                        .unwrap_or_default()
+                }));
+            }
+        }
         Self {
             lanes,
             basis,
@@ -114,6 +142,10 @@ impl<'a> Factorized<'a> {
             powers: vec![],
             power_cache: lanes.iter().map(|_| HashMap::new()).collect(),
             inverse_cache: lanes.iter().map(|_| HashMap::new()).collect(),
+            constant_scalars,
+            numerator_scalars,
+            numerator_table,
+            zero_scalars: vec![Scalar::default(); width],
         }
     }
 
@@ -218,19 +250,21 @@ impl<'a> Factorized<'a> {
 
     /// The per-lane scalars of `scale`, or `None` for one.
     #[inline(always)]
-    fn scalars(&self, scale: Scale) -> Option<[Scalar; MAX_LANES]> {
-        let mut scalars = [Scalar::default(); MAX_LANES];
-        for (scalar, tables) in scalars.iter_mut().zip(self.lanes) {
-            *scalar = match scale {
-                Scale::One => return None,
-                Scale::Constant(c) => tables.constant_scalars[c],
-                Scale::Numerator(c, power) => tables.numerator_scalars[c]
-                    .get(power)
-                    .copied()
-                    .unwrap_or_default(),
-            };
+    fn scalars(&self, scale: Scale) -> Option<&[Scalar]> {
+        let width = self.width();
+        match scale {
+            Scale::One => None,
+            Scale::Constant(c) => Some(&self.constant_scalars[c * width..(c + 1) * width]),
+            Scale::Numerator(c, power) => {
+                let (start, length) = self.numerator_scalars[c];
+                Some(if power < length {
+                    let at = start + power * width;
+                    &self.numerator_table[at..at + width]
+                } else {
+                    &self.zero_scalars
+                })
+            }
         }
-        Some(scalars)
     }
 
     /// `destination (=|+=) scalars * source` over interleaved positions.
@@ -239,7 +273,7 @@ impl<'a> Factorized<'a> {
         &self,
         destination: &mut [u64],
         source: &[u64],
-        scalars: Option<&[Scalar; MAX_LANES]>,
+        scalars: Option<&[Scalar]>,
         assign: bool,
     ) {
         let width = self.width();
@@ -288,8 +322,7 @@ impl<'a> Factorized<'a> {
             positions: source.positions,
             data: vec![0; source.data.len()],
         };
-        let scalars = self.scalars(scale);
-        self.kernel(&mut result.data, &source.data, scalars.as_ref(), true);
+        self.kernel(&mut result.data, &source.data, self.scalars(scale), true);
         result
     }
 
@@ -317,13 +350,13 @@ impl<'a> Factorized<'a> {
             let covered = self.segments(destination, source, &mut segments);
             debug_assert!(covered);
         }
-        let scalars = self.scalars(scale);
         let width = self.width();
+        let scalars = self.scalars(scale);
         for &(f, t, len) in &segments {
             self.kernel(
                 &mut destination.data[t * width..(t + len) * width],
                 &source.data[f * width..(f + len) * width],
-                scalars.as_ref(),
+                scalars,
                 false,
             );
         }
