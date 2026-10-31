@@ -2610,8 +2610,11 @@ mod tests {
             }
         }
         // Exact weights took the concurrent prefix merge (the journaled
-        // modular arithmetics keep the sequential merge loop).
-        assert!(PREFIX_MERGED.load(Ordering::Relaxed) - before > 1000);
+        // modular arithmetics keep the sequential merge loop), unless the
+        // test override runs exact requests as cross-checked modular ones.
+        if std::env::var_os("RUSTRED_TEST_ORDERED_MODULAR").is_none_or(|value| value != "1") {
+            assert!(PREFIX_MERGED.load(Ordering::Relaxed) - before > 1000);
+        }
     }
 
     /// Two equal weights emit opposite contributions to a key whose step
