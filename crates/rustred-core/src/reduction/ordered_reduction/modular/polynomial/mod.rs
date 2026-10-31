@@ -38,7 +38,7 @@ use self::dense::Dense;
 use self::fraction::Factorized;
 use super::executor::Executor;
 use super::lift::{Image, ImageSource, PrimeImages};
-use super::{CoefRef, ModularStatistics, OpTag, Trace, error};
+use super::{CoefRef, ModularStatistics, OpTag, Trace, error, statistics_requested};
 use crate::reduction::ReductionError;
 use crate::reduction::ordered_reduction::arithmetic::{PolynomialDenominators, PolynomialOptions};
 
@@ -90,6 +90,9 @@ fn replay<R: Representation>(
         .collect();
     let mut active = R::Weight::default();
     let (mut words, mut peak_words, mut cancel_checks) = (0usize, 0usize, 0usize);
+    // The memory census (peak resident words) only feeds the requested
+    // statistics; otherwise skip its per-op reads of the slot.
+    let census = statistics_requested();
     for op in &trace.ops {
         let tag = op.tag();
         let slot = op.slot();
@@ -99,7 +102,11 @@ fn replay<R: Representation>(
             }
             OpTag::TermNew | OpTag::TermAdd | OpTag::TermCancel => &mut terminals[slot],
         };
-        let before = representation.words(target);
+        let before = if census {
+            representation.words(target)
+        } else {
+            0
+        };
         match tag {
             OpTag::Pop => {
                 active = std::mem::take(target);
@@ -123,8 +130,10 @@ fn replay<R: Representation>(
                 representation.add_product(target, &active, op.coefficient)?
             }
         }
-        words = words - before + representation.words(target);
-        peak_words = peak_words.max(words);
+        if census {
+            words = words - before + representation.words(target);
+            peak_words = peak_words.max(words);
+        }
     }
     let images = (0..lanes)
         .map(|lane| {

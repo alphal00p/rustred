@@ -332,7 +332,8 @@ pub(crate) struct ModularStatistics {
     pub basis_linear_factors: usize,
     pub factor_seconds: f64,
     /// `ModularPolynomial`: replay jobs, primes they replayed, and the
-    /// largest resident weight storage of one job (field elements).
+    /// largest resident weight storage of one job (field elements; counted
+    /// only when statistics are reported, else 0).
     pub passes: usize,
     pub lanes_replayed: usize,
     pub peak_weight_words: usize,

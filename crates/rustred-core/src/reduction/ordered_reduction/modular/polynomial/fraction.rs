@@ -269,6 +269,7 @@ impl<'a> Factorized<'a> {
 
     /// `destination (=|+=) scalars * source` over interleaved positions.
     #[inline(always)]
+    #[allow(clippy::needless_range_loop)]
     fn kernel(
         &self,
         destination: &mut [u64],
@@ -279,21 +280,28 @@ impl<'a> Factorized<'a> {
         let width = self.width();
         if width == 1 {
             let lane = &self.lanes[0].lane;
+            // Indexed loops over equal-length prefixes (what `zip` visits):
+            // the hot path of single-lane replays, without an out-of-line
+            // `Zip` constructor per call.
+            let n = destination.len().min(source.len());
+            let (destination, source) = (&mut destination[..n], &source[..n]);
             match (scalars, assign) {
                 (None, true) => destination.copy_from_slice(source),
                 (None, false) => {
-                    for (d, &x) in destination.iter_mut().zip(source) {
-                        *d = lane.add(*d, x);
+                    for i in 0..n {
+                        destination[i] = lane.add(destination[i], source[i]);
                     }
                 }
                 (Some(s), true) => {
-                    for (d, &x) in destination.iter_mut().zip(source) {
-                        *d = lane.mul_scalar(x, s[0]);
+                    let s = s[0];
+                    for i in 0..n {
+                        destination[i] = lane.mul_scalar(source[i], s);
                     }
                 }
                 (Some(s), false) => {
-                    for (d, &x) in destination.iter_mut().zip(source) {
-                        *d = lane.add(*d, lane.mul_scalar(x, s[0]));
+                    let s = s[0];
+                    for i in 0..n {
+                        destination[i] = lane.add(destination[i], lane.mul_scalar(source[i], s));
                     }
                 }
             }
