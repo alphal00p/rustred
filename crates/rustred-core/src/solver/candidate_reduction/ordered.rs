@@ -870,8 +870,8 @@ mod tests {
     #[test]
     fn ordered_step_cache_under_concurrent_scheduler_matches_sequential() {
         use crate::reduction::{
-            ModularCommon, OrderedSchedulerOptions, OrderedStepCacheBinding,
-            OrderedWeightArithmetic, PolynomialOptions, SampledOptions,
+            ModularCommon, OrderedSchedulerOptions, OrderedWeightArithmetic, PolynomialOptions,
+            SampledOptions,
         };
         let mut reducer = fixture();
         reducer
@@ -929,13 +929,8 @@ mod tests {
                 .unwrap();
             (reduced, snapshots)
         };
-        let binding = OrderedStepCacheBinding::new(
-            OrderedStepCacheAdapter::CandidateProgram,
-            [7; 32],
-            reducer.family_fingerprint(),
-            &context,
-            Some(UnresolvedPolicy::Preserve),
-        );
+        reducer.set_program_digest([7; 32]).unwrap();
+        let binding = reducer.ordered_step_cache_binding().unwrap();
         let common = ModularCommon {
             threads: 2,
             ..Default::default()
